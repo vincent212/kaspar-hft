@@ -129,7 +129,6 @@ Real market participant places order at 6050.00
 
 | Property | Traditional MM | Shadow Execution |
 |----------|---------------|-----------------|
-| Message rate | 1000s/sec (continuous quoting) | ~10s/sec (event-driven only) |
 | Adverse selection | High (stale quotes get picked off) | Low (only at prices with real interest) |
 | Queue position | Poor (late to the level) | Better (enters alongside real flow) |
 | Complexity | Model-heavy (fair value, skew, Greeks) | Microstructure-only (ADD/CANC signals) |
