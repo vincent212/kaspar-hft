@@ -1,0 +1,86 @@
+# Build artifacts
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+*.P
+obj/
+objg/
+
+# Library output
+/lib/
+/libg/
+
+# Executables
+kaspr/src/kaspr
+kaspr/src/kaspr[gd]
+actors/cpp/global_registry
+actors/cpp/group_manager
+actors/cpp/run_tests
+actors/cpp/run_coord_tests
+actors/cpp/run_registry_tests
+actors/cpp/examples/ping_pong
+actors/cpp/examples/remote_ping
+actors/cpp/examples/remote_pong
+actors/cpp/tests/**/test_*
+actors/cpp/src/coordination/group_manager_main
+actors/cpp/src/registry/global_registry_main
+
+# Data files
+*.bin
+*.gz
+*.zip
+*.zst
+*.parquet
+*.csv
+!kaspr/config/universe.csv
+
+# Logs
+*.log
+*.out
+nohup.*
+
+# Core dumps
+/core
+core.*
+vgcore.*
+
+# Editor/IDE
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-*
+.vs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Temp
+*.tmp
+*.temp
+*.bak
+
+# CMake
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Debug
+*.dSYM/
+*.gcno
+*.gcda
+*.gcov
+
+# NFS
+.nfs*
+**/.nfs*

@@ -1,0 +1,27 @@
+#pragma once
+
+/*
+ * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
+ *
+ * Licensed under the MIT License. See LICENSE file in the project root.
+ */
+
+#include "actors/Message.hpp"
+#include "actors/Actor.hpp"
+#include "enum/e_names.hpp"
+
+namespace frame::som::msg
+{
+    struct SetExchManager : public  actors::Message_N<49>
+    {
+        en::x venue;
+        actor_ptr manager;
+        SetExchManager(
+            en::x _venue,
+            actor_ptr _manager
+        )
+        : venue(_venue), manager(_manager)
+        {
+        }
+    };
+}

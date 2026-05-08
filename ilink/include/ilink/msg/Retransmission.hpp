@@ -1,0 +1,34 @@
+#pragma once
+/*
+ * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
+ *
+ * Licensed under the MIT License. See LICENSE file in the project root.
+ */
+
+#include "actors/Message.hpp"
+
+namespace ilink::msg
+{
+    struct Retransmission : public  actors::Message_N<110>
+    {
+        // variables
+        uint64_t UUID;
+        uint64_t RequestTimeStamp;
+        uint64_t LastUUID;
+        uint32_t FromSeqNo;
+        uint32_t MsgCount;
+
+        // constructor
+        Retransmission(
+            uint64_t _UUID,
+            uint64_t _RequestTimeStamp,
+            uint64_t _LastUUID,
+            uint32_t _FromSeqNo,
+            uint32_t _MsgCount)
+            : UUID(_UUID),
+              RequestTimeStamp(_RequestTimeStamp),
+              LastUUID(_LastUUID),
+              FromSeqNo(_FromSeqNo),
+              MsgCount(_MsgCount) {}
+    };
+}

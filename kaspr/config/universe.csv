@@ -1,0 +1,41 @@
+# universe file for kaspr
+
+# Format: Type,Symbol,Alias,Mnemonic,Factor,Flags...,Exchange
+# F = Future
+
+# ========================================
+# Equity Futures
+# Source: CME Globex Product Reference spreadsheet
+# ========================================
+# ES - E-mini S&P 500 (Channel 310)
+F,ESM6,ES,ES,1.,1,1,100000,1,1,unk,x,0,CMEMDFUT
+F,ESU6,ES,ES,1.,1,1,100000,1,1,unk,x,0,CMEMDFUT
+
+# NQ - E-mini Nasdaq 100 (Channel 318)
+# NOTE: CME security IDs appear swapped - 42002475 has June prices, 42004058 has March prices
+F,NQM6,NQ,NQ,1.,1,1,200000,1,1,unk,x,0,CMEMDFUT
+F,NQU6,NQ,NQ,1.,1,1,200000,1,1,unk,x,0,CMEMDFUT
+
+# ========================================
+# Treasury Futures - Channel 344 "CBOT Globex Interest Rate Futures"
+# (CMEMDFUT venue)
+# ========================================
+# 10-Year Note Futures (ZN)
+F,ZNM6,ZN,ZN,1.,1,1,100000,1,1,unk,x,0,CMEMDFUT
+F,ZNU6,ZN,ZN,1.,1,1,100000,1,1,unk,x,0,CMEMDFUT
+
+# 5-Year Note Futures (ZF)
+F,ZFM6,ZF,ZF,1.,1,1,100000,1,1,unk,x,0,CMEMDFUT
+F,ZFU6,ZF,ZF,1.,1,1,100000,1,1,unk,x,0,CMEMDFUT
+
+# 30-Year Bond Futures (ZB)
+F,ZBM6,ZB,ZB,1.,1,1,100000,1,1,unk,x,0,CMEMDFUT
+F,ZBU6,ZB,ZB,1.,1,1,100000,1,1,unk,x,0,CMEMDFUT
+
+# 2-Year Note Futures (ZT)
+F,ZTM6,ZT,ZT,1.,1,1,100000,1,1,unk,x,0,CMEMDFUT
+F,ZTU6,ZT,ZT,1.,1,1,100000,1,1,unk,x,0,CMEMDFUT
+
+# Ultra Bond Futures (UB)
+F,UBM6,UB,UB,1.,1,1,100000,1,1,unk,x,0,CMEMDFUT
+F,UBU6,UB,UB,1.,1,1,100000,1,1,unk,x,0,CMEMDFUT

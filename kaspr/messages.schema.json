@@ -1,0 +1,665 @@
+{
+  "namespace": "actors.messages",
+  "version": "1.0.0",
+  "description": "Actor message definitions for M2 Kaspr trading system",
+  "type_mappings": {
+    "int32": {
+      "cpp": "int",
+      "python": "int",
+      "java": "int",
+      "rust": "i32",
+      "dart": "int"
+    },
+    "int64": {
+      "cpp": "int64_t",
+      "python": "int",
+      "java": "long",
+      "rust": "i64",
+      "dart": "int"
+    },
+    "float32": {
+      "cpp": "float",
+      "python": "float",
+      "java": "float",
+      "rust": "f32",
+      "dart": "double"
+    },
+    "float64": {
+      "cpp": "double",
+      "python": "float",
+      "java": "double",
+      "rust": "f64",
+      "dart": "double"
+    },
+    "string": {
+      "cpp": "std::string",
+      "python": "str",
+      "java": "String",
+      "rust": "String",
+      "dart": "String"
+    },
+    "bool": {
+      "cpp": "bool",
+      "python": "bool",
+      "java": "boolean",
+      "rust": "bool",
+      "dart": "bool"
+    }
+  },
+  "enums": [
+    {
+      "name": "Side",
+      "description": "Buy or sell side",
+      "values": [
+        {"name": "BUY", "value": 0, "description": "Buy side"},
+        {"name": "SEL", "value": 1, "description": "Sell side"}
+      ]
+    },
+    {
+      "name": "Venue",
+      "description": "Trading venue",
+      "values": [
+        {"name": "CMEMDFUT", "value": 0, "description": "CME futures"},
+        {"name": "SIM", "value": 1, "description": "Simulation mode"}
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "name": "Fill",
+      "id": 35,
+      "category": "execution",
+      "description": "Fill notification from SOM after order execution (maps to frame::som::msg::Fill)",
+      "remote": true,
+      "custom_cpp_type": "frame::som::msg::Fill",
+      "custom_cpp_includes": ["frame/som/msg/Fill.hpp"],
+      "fields": [
+        {
+          "name": "id",
+          "type": "int64",
+          "description": "Order ID that was filled"
+        },
+        {
+          "name": "sym",
+          "type": "int32",
+          "description": "Symbol ID (0=ES, 1=NQ, 2=ESM, 3=NQM)"
+        },
+        {
+          "name": "side",
+          "type": "int32",
+          "description": "Side (0=BUY, 1=SEL)",
+          "enum": "Side"
+        },
+        {
+          "name": "sz",
+          "type": "int32",
+          "description": "Fill size (number of contracts)"
+        },
+        {
+          "name": "px",
+          "type": "int32",
+          "description": "Fill price in 512ths (multiply by 512 for tick representation)"
+        },
+        {
+          "name": "still_to_fill",
+          "type": "int32",
+          "description": "Remaining quantity to be filled (0 = fully filled)"
+        },
+        {
+          "name": "tim",
+          "type": "int64",
+          "description": "Fill timestamp (epoch nanoseconds)"
+        }
+      ]
+    },
+    {
+      "name": "FillSubscribe",
+      "id": 36,
+      "category": "subscription",
+      "description": "Subscribe to fill notifications from SOM (maps to frame::som::msg::FillSub)",
+      "remote": true,
+      "custom_cpp_type": "frame::som::msg::FillSub",
+      "custom_cpp_deserializer": "return new frame::som::msg::FillSub();",
+      "custom_cpp_includes": ["frame/som/msg/FillSub.hpp"],
+      "fields": []
+    },
+    {
+      "name": "BBBOChg",
+      "id": 22,
+      "category": "market_data",
+      "description": "Best bid/best offer change from order book (maps to frame::ob::msg::BBBOChg)",
+      "remote": true,
+      "custom_cpp_type": "frame::ob::msg::BBBOChg",
+      "custom_cpp_includes": ["frame/ob/msg/BBBOChg.hpp"],
+      "fields": [
+        {
+          "name": "tx_time",
+          "type": "int64",
+          "description": "Transaction time (nanoseconds)"
+        },
+        {
+          "name": "venue",
+          "type": "int32",
+          "description": "Venue ID",
+          "enum": "Venue"
+        },
+        {
+          "name": "side",
+          "type": "int32",
+          "description": "Side (0=BUY, 1=SEL)",
+          "enum": "Side"
+        },
+        {
+          "name": "sym",
+          "type": "int32",
+          "description": "Symbol ID"
+        },
+        {
+          "name": "best_bid",
+          "type": "int32",
+          "description": "Best bid price in ticks"
+        },
+        {
+          "name": "best_ask",
+          "type": "int32",
+          "description": "Best ask price in ticks"
+        }
+      ]
+    },
+    {
+      "name": "BBBOSub",
+      "id": 23,
+      "category": "subscription",
+      "description": "Subscribe to BBO changes from order book (maps to frame::ob::msg::BBBOSub)",
+      "remote": true,
+      "custom_cpp_type": "frame::ob::msg::BBBOSub",
+      "custom_cpp_deserializer": "return new frame::ob::msg::BBBOSub();",
+      "custom_cpp_includes": ["frame/ob/msg/BBBOSub.hpp"],
+      "fields": []
+    },
+    {
+      "name": "AddToPos",
+      "id": 71,
+      "category": "position",
+      "description": "Add to position (triggers shadow lights) (maps to positionman::msg::AddToPos)",
+      "remote": true,
+      "custom_cpp_type": "positionman::msg::AddToPos",
+      "custom_cpp_includes": ["positionman/msg/AddToPos.hpp"],
+      "fields": [
+        {
+          "name": "instrument",
+          "type": "string",
+          "description": "Instrument name (e.g., ESH6)"
+        },
+        {
+          "name": "side",
+          "type": "int32",
+          "description": "Side (0=BUY, 1=SEL)",
+          "enum": "Side"
+        },
+        {
+          "name": "sz",
+          "type": "float64",
+          "description": "Size to add (contracts)"
+        }
+      ]
+    },
+    {
+      "name": "TradingSignal",
+      "id": 250,
+      "category": "strategy",
+      "description": "Trading signal from strategy before order execution",
+      "remote": false,
+      "fields": [
+        {
+          "name": "signal_id",
+          "type": "string",
+          "description": "Unique signal ID (SIGNAL_SPX_930_timestamp)"
+        },
+        {
+          "name": "strategy_id",
+          "type": "string",
+          "description": "Strategy name (SPX_930, SPX_ON_LO, etc.)"
+        },
+        {
+          "name": "timestamp",
+          "type": "int64",
+          "description": "Signal timestamp in milliseconds"
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "description": "Date in YYYY-MM-DD format"
+        },
+        {
+          "name": "time",
+          "type": "string",
+          "description": "Time in HH:MM:SS format"
+        },
+        {
+          "name": "symbol",
+          "type": "string",
+          "description": "Symbol (SPX, NQ, etc.)"
+        },
+        {
+          "name": "direction",
+          "type": "string",
+          "description": "Position direction (LONG, SHORT, FLAT)"
+        },
+        {
+          "name": "signal_strength",
+          "type": "float64",
+          "description": "Position size (1.0, 2.0, etc.)"
+        },
+        {
+          "name": "leverage",
+          "type": "float64",
+          "description": "Leverage multiplier (1.0x, 2.0x, 5.0x)"
+        },
+        {
+          "name": "entry_price",
+          "type": "float64",
+          "description": "Expected entry price when signal generated"
+        },
+        {
+          "name": "vix_level",
+          "type": "float64",
+          "description": "VIX level at signal time"
+        },
+        {
+          "name": "signal_inputs",
+          "type": "string",
+          "description": "JSON string with signal calculation inputs"
+        }
+      ]
+    },
+    {
+      "name": "DataBar",
+      "id": 200,
+      "category": "market_data",
+      "description": "Market data bar with VIX and SPX OHLC (Kasprowy backtest)",
+      "remote": true,
+      "custom_cpp_type": "kasprowy::msg::DataBar",
+      "custom_cpp_includes": ["kasprowy_messages.hpp"],
+      "custom_cpp_deserializer": "auto* m = new kasprowy::msg::DataBar(); m->timestamp = j[\"timestamp\"].get<int64_t>(); m->date = j[\"date\"].get<std::string>(); m->time = j[\"time\"].get<std::string>(); m->vix_open = j[\"vix_open\"].get<double>(); m->vix_high = j[\"vix_high\"].get<double>(); m->vix_low = j[\"vix_low\"].get<double>(); m->vix_close = j[\"vix_close\"].get<double>(); m->spx_open = j[\"spx_open\"].get<double>(); m->spx_high = j[\"spx_high\"].get<double>(); m->spx_low = j[\"spx_low\"].get<double>(); m->spx_close = j[\"spx_close\"].get<double>(); if (j.contains(\"prev_vix_close\") && !j[\"prev_vix_close\"].is_null()) { m->prev_vix_close = j[\"prev_vix_close\"].get<double>(); } return m;",
+      "fields": [
+        {
+          "name": "timestamp",
+          "type": "int64",
+          "description": "Unix timestamp in milliseconds"
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "description": "Date in YYYY-MM-DD format"
+        },
+        {
+          "name": "time",
+          "type": "string",
+          "description": "Time in HH:MM:SS format"
+        },
+        {
+          "name": "vix_open",
+          "type": "float64",
+          "description": "VIX open price"
+        },
+        {
+          "name": "vix_high",
+          "type": "float64",
+          "description": "VIX high price"
+        },
+        {
+          "name": "vix_low",
+          "type": "float64",
+          "description": "VIX low price"
+        },
+        {
+          "name": "vix_close",
+          "type": "float64",
+          "description": "VIX close price"
+        },
+        {
+          "name": "spx_open",
+          "type": "float64",
+          "description": "SPX open price"
+        },
+        {
+          "name": "spx_high",
+          "type": "float64",
+          "description": "SPX high price"
+        },
+        {
+          "name": "spx_low",
+          "type": "float64",
+          "description": "SPX low price"
+        },
+        {
+          "name": "spx_close",
+          "type": "float64",
+          "description": "SPX close price"
+        }
+      ]
+    },
+    {
+      "name": "TradeComplete",
+      "id": 201,
+      "category": "strategy",
+      "description": "Notification that a trade (open + close) is complete (Kasprowy backtest)",
+      "remote": true,
+      "custom_cpp_type": "kasprowy::msg::TradeComplete",
+      "custom_cpp_includes": ["kasprowy_messages.hpp"],
+      "custom_cpp_deserializer": "auto* m = new kasprowy::msg::TradeComplete(); m->strategy_id = j[\"strategy_id\"].get<std::string>(); m->date = j[\"date\"].get<std::string>(); m->direction = j[\"direction\"].get<int>(); m->entry_price = j[\"entry_price\"].get<double>(); m->exit_price = j[\"exit_price\"].get<double>(); m->entry_time = j[\"entry_time\"].get<std::string>(); m->exit_time = j[\"exit_time\"].get<std::string>(); m->return_pct = j[\"return_pct\"].get<double>(); m->leverage = j[\"leverage\"].get<double>(); m->stopped = j.value(\"stopped\", false); m->profit_taken = j.value(\"profit_taken\", false); return m;",
+      "fields": [
+        {
+          "name": "strategy_id",
+          "type": "string",
+          "description": "Strategy ID (SPX_930, SPX_ON, etc.)"
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "description": "Trade date"
+        },
+        {
+          "name": "direction",
+          "type": "int32",
+          "description": "Direction (+1 long, -1 short)"
+        },
+        {
+          "name": "entry_price",
+          "type": "float64",
+          "description": "Entry price"
+        },
+        {
+          "name": "exit_price",
+          "type": "float64",
+          "description": "Exit price"
+        },
+        {
+          "name": "entry_time",
+          "type": "string",
+          "description": "Entry time HH:MM:SS"
+        },
+        {
+          "name": "exit_time",
+          "type": "string",
+          "description": "Exit time HH:MM:SS"
+        },
+        {
+          "name": "return_pct",
+          "type": "float64",
+          "description": "Return percentage (after leverage)"
+        },
+        {
+          "name": "leverage",
+          "type": "float64",
+          "description": "Leverage used"
+        },
+        {
+          "name": "stopped",
+          "type": "bool",
+          "description": "Was stopped out"
+        },
+        {
+          "name": "profit_taken",
+          "type": "bool",
+          "description": "Profit take hit"
+        }
+      ]
+    },
+    {
+      "name": "EndOfData",
+      "id": 203,
+      "category": "control",
+      "description": "Signals end of historical data replay (Kasprowy backtest)",
+      "remote": true,
+      "custom_cpp_type": "kasprowy::msg::EndOfData",
+      "custom_cpp_includes": ["kasprowy_messages.hpp"],
+      "custom_cpp_deserializer": "auto* m = new kasprowy::msg::EndOfData(); m->final_timestamp = j.value(\"final_timestamp\", 0); return m;",
+      "fields": [
+        {
+          "name": "final_timestamp",
+          "type": "int64",
+          "description": "Final timestamp of data"
+        }
+      ]
+    },
+    {
+      "name": "RegisterGroup",
+      "id": 1010,
+      "category": "coordination",
+      "description": "Register a group with the CoordinatorActor",
+      "remote": true,
+      "custom_cpp_type": "actors::coordination::RegisterGroupMessage",
+      "custom_cpp_includes": ["actors/coordination/CoordinationActorMessages.hpp"],
+      "custom_cpp_deserializer": "auto* m = new actors::coordination::RegisterGroupMessage(); m->reg.group_id = j[\"group_id\"].get<std::string>(); return m;",
+      "fields": [
+        {
+          "name": "group_id",
+          "type": "string",
+          "description": "Group identifier"
+        }
+      ]
+    },
+    {
+      "name": "RegisterActor",
+      "id": 1011,
+      "category": "coordination",
+      "description": "Register an actor within a group with the CoordinatorActor",
+      "remote": true,
+      "custom_cpp_type": "actors::coordination::RegisterActorMessage",
+      "custom_cpp_includes": ["actors/coordination/CoordinationActorMessages.hpp"],
+      "custom_cpp_deserializer": "auto* m = new actors::coordination::RegisterActorMessage(); m->reg.group_id = j[\"group_id\"].get<std::string>(); m->reg.actor_id = j[\"actor_id\"].get<std::string>(); return m;",
+      "fields": [
+        {
+          "name": "group_id",
+          "type": "string",
+          "description": "Group identifier"
+        },
+        {
+          "name": "actor_id",
+          "type": "string",
+          "description": "Actor identifier"
+        }
+      ]
+    },
+    {
+      "name": "RegisterAck",
+      "id": 1012,
+      "category": "coordination",
+      "description": "Acknowledgment of successful registration from CoordinatorActor",
+      "remote": true,
+      "custom_cpp_type": "actors::coordination::RegisterAckMessage",
+      "custom_cpp_includes": ["actors/coordination/CoordinationActorMessages.hpp"],
+      "custom_cpp_deserializer": "auto* m = new actors::coordination::RegisterAckMessage(); m->ack.id = j[\"id\"].get<std::string>(); return m;",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string",
+          "description": "Registered entity ID"
+        }
+      ]
+    },
+    {
+      "name": "RegisterNack",
+      "id": 1013,
+      "category": "coordination",
+      "description": "Registration failure notification from CoordinatorActor",
+      "remote": true,
+      "custom_cpp_type": "actors::coordination::RegisterNackMessage",
+      "custom_cpp_includes": ["actors/coordination/CoordinationActorMessages.hpp"],
+      "custom_cpp_deserializer": "auto* m = new actors::coordination::RegisterNackMessage(); m->nack.id = j[\"id\"].get<std::string>(); m->nack.reason = j[\"reason\"].get<std::string>(); return m;",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string",
+          "description": "Entity ID that failed to register"
+        },
+        {
+          "name": "reason",
+          "type": "string",
+          "description": "Failure reason"
+        }
+      ]
+    },
+    {
+      "name": "PermissionToken",
+      "id": 1014,
+      "category": "coordination",
+      "description": "Permission token forwarded by CoordinatorActor to enable deterministic messaging",
+      "remote": true,
+      "custom_cpp_type": "actors::coordination::PermissionTokenMessage",
+      "custom_cpp_includes": ["actors/coordination/CoordinationActorMessages.hpp"],
+      "custom_cpp_deserializer": "auto* m = new actors::coordination::PermissionTokenMessage(); m->token.recipient_id = j[\"recipient_id\"].get<std::string>(); m->token.sender_id = j[\"sender_id\"].get<std::string>(); m->token.timestamp = j[\"timestamp\"].get<uint64_t>(); m->token.message_type = j[\"message_type\"].get<std::string>(); return m;",
+      "fields": [
+        {
+          "name": "recipient_id",
+          "type": "string",
+          "description": "Recipient actor ID"
+        },
+        {
+          "name": "sender_id",
+          "type": "string",
+          "description": "Sender actor ID"
+        },
+        {
+          "name": "timestamp",
+          "type": "int64",
+          "description": "Token timestamp"
+        },
+        {
+          "name": "message_type",
+          "type": "string",
+          "description": "Message type being sent"
+        }
+      ]
+    },
+    {
+      "name": "PermissionRequest",
+      "id": 1015,
+      "category": "coordination",
+      "description": "Request permission to send from Group to CoordinatorActor",
+      "remote": true,
+      "custom_cpp_type": "actors::coordination::PermissionRequestMessage",
+      "custom_cpp_includes": ["actors/coordination/CoordinationActorMessages.hpp"],
+      "custom_cpp_deserializer": "auto* m = new actors::coordination::PermissionRequestMessage(); m->request.actor_id = j[\"actor_id\"].get<std::string>(); m->request.group_id = j[\"group_id\"].get<std::string>(); return m;",
+      "fields": [
+        {
+          "name": "actor_id",
+          "type": "string",
+          "description": "Requesting actor ID"
+        },
+        {
+          "name": "group_id",
+          "type": "string",
+          "description": "Requesting group ID"
+        }
+      ]
+    },
+    {
+      "name": "PermissionGrant",
+      "id": 1016,
+      "category": "coordination",
+      "description": "Grant permission to send from CoordinatorActor to Group",
+      "remote": true,
+      "custom_cpp_type": "actors::coordination::PermissionGrantMessage",
+      "custom_cpp_includes": ["actors/coordination/CoordinationActorMessages.hpp"],
+      "custom_cpp_deserializer": "auto* m = new actors::coordination::PermissionGrantMessage(); m->grant.actor_id = j[\"actor_id\"].get<std::string>(); m->grant.sequence = j[\"sequence\"].get<uint64_t>(); return m;",
+      "fields": [
+        {
+          "name": "actor_id",
+          "type": "string",
+          "description": "Granted actor ID"
+        },
+        {
+          "name": "sequence",
+          "type": "int64",
+          "description": "Sequence number for this grant"
+        }
+      ]
+    },
+    {
+      "name": "PermissionWait",
+      "id": 1017,
+      "category": "coordination",
+      "description": "Wait notification from CoordinatorActor (actor is queued)",
+      "remote": true,
+      "custom_cpp_type": "actors::coordination::PermissionWaitMessage",
+      "custom_cpp_includes": ["actors/coordination/CoordinationActorMessages.hpp"],
+      "custom_cpp_deserializer": "auto* m = new actors::coordination::PermissionWaitMessage(); m->wait.actor_id = j[\"actor_id\"].get<std::string>(); m->wait.position = j[\"position\"].get<uint32_t>(); return m;",
+      "fields": [
+        {
+          "name": "actor_id",
+          "type": "string",
+          "description": "Waiting actor ID"
+        },
+        {
+          "name": "position",
+          "type": "int32",
+          "description": "Position in queue"
+        }
+      ]
+    },
+    {
+      "name": "PermissionDone",
+      "id": 1018,
+      "category": "coordination",
+      "description": "Completion notification from Group to CoordinatorActor after message sent",
+      "remote": true,
+      "custom_cpp_type": "actors::coordination::PermissionDoneMessage",
+      "custom_cpp_includes": ["actors/coordination/CoordinationActorMessages.hpp"],
+      "custom_cpp_deserializer": "auto* m = new actors::coordination::PermissionDoneMessage(); m->done.actor_id = j[\"actor_id\"].get<std::string>(); m->done.sequence = j[\"sequence\"].get<uint64_t>(); return m;",
+      "fields": [
+        {
+          "name": "actor_id",
+          "type": "string",
+          "description": "Completed actor ID"
+        },
+        {
+          "name": "sequence",
+          "type": "int64",
+          "description": "Sequence number of completed send"
+        }
+      ]
+    },
+    {
+      "name": "DebugFlush",
+      "id": 1019,
+      "category": "coordination",
+      "description": "Debug command to flush coordinator token queue and pending requests",
+      "remote": true,
+      "custom_cpp_type": "actors::coordination::DebugFlushMessage",
+      "custom_cpp_includes": ["actors/coordination/CoordinationActorMessages.hpp"],
+      "custom_cpp_deserializer": "return new actors::coordination::DebugFlushMessage();",
+      "fields": []
+    },
+    {
+      "name": "DebugContinue",
+      "id": 1020,
+      "category": "coordination",
+      "description": "Debug command to resume coordination (exit debug pause)",
+      "remote": true,
+      "custom_cpp_type": "actors::coordination::DebugContinueMessage",
+      "custom_cpp_includes": ["actors/coordination/CoordinationActorMessages.hpp"],
+      "custom_cpp_deserializer": "return new actors::coordination::DebugContinueMessage();",
+      "fields": []
+    },
+    {
+      "name": "DebugStop",
+      "id": 1021,
+      "category": "coordination",
+      "description": "Debug command to pause coordination",
+      "remote": true,
+      "custom_cpp_type": "actors::coordination::DebugStopMessage",
+      "custom_cpp_includes": ["actors/coordination/CoordinationActorMessages.hpp"],
+      "custom_cpp_deserializer": "auto* m = new actors::coordination::DebugStopMessage(); if (j.contains(\"reason\") && !j[\"reason\"].is_null()) { m->reason = j[\"reason\"].get<std::string>(); } return m;",
+      "fields": [
+        {
+          "name": "reason",
+          "type": "string",
+          "description": "Reason for debug stop (optional)"
+        }
+      ]
+    }
+  ]
+}

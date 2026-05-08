@@ -1,0 +1,15 @@
+/*
+ * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
+ *
+ * Licensed under the MIT License. See LICENSE file in the project root.
+ */
+
+// KASPR: Timer factory function
+
+#include "frame/mtim/act/Timer.hpp"
+#include "interface/frame/mtim/if/Timer.hpp"
+
+actor_ptr create_Timer(actor_ptr padapter)
+{
+    return new frame::mtim::act::Timer(padapter);
+}
