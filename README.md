@@ -224,6 +224,10 @@ kaspr {
 - **Memory**: Pool allocators for high-frequency message types, zero GC pauses
 - **Threading**: One thread per actor, CPU affinity pinning, no contention between instruments
 
+## Contact
+
+**Vincent Mayeski** — [v@m2te.ch](mailto:v@m2te.ch) | [LinkedIn](https://www.linkedin.com/in/vmayeski/) | [GitHub](https://github.com/vincent212)
+
 ## License
 
 MIT License. Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.). See [LICENSE](LICENSE).
