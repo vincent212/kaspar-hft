@@ -14,6 +14,10 @@
 
 Unlike toy backtesting engines that assume instant fills at mid, Kaspar models realistic execution: your simulated orders sit in the book at a specific price level and only fill when the market trades through your position in the queue.
 
+Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) — *"a peak of a long crest in the Western Tatras, one of Poland's main winter ski areas."*
+
+**Author:** [Vincent Mayeski](https://www.linkedin.com/in/vmayeski/) — [v@m2te.ch](mailto:v@m2te.ch) | [GitHub](https://github.com/vincent212)
+
 ## Key Features
 
 - **Position-aware order book simulator** — MBP (market-by-price) book with simulated queue position tracking. Orders fill based on price-time priority, not magical instant execution.
@@ -223,16 +227,6 @@ kaspr {
 - **Book update to strategy**: Single `EndOfBurst` message per MDP3 incremental cycle
 - **Memory**: Pool allocators for high-frequency message types, zero GC pauses
 - **Threading**: One thread per actor, CPU affinity pinning, no contention between instruments
-
-## Name
-
-The system is named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) — a peak in the Western Tatras, Poland:
-
-> *"Kasprowy Wierch is a peak of a long crest in the Western Tatras, one of Poland's main winter ski areas. Its dominant southern crests mark the border with Slovakia. It is accessible in most conditions by foot and daily by cablecar."* — Wikipedia
-
-## Contact
-
-**Vincent Mayeski** — [v@m2te.ch](mailto:v@m2te.ch) | [LinkedIn](https://www.linkedin.com/in/vmayeski/) | [GitHub](https://github.com/vincent212)
 
 ## License
 
