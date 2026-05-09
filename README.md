@@ -224,6 +224,12 @@ kaspr {
 - **Memory**: Pool allocators for high-frequency message types, zero GC pauses
 - **Threading**: One thread per actor, CPU affinity pinning, no contention between instruments
 
+## Name
+
+The system is named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) — a peak in the Western Tatras, Poland:
+
+> *"Kasprowy Wierch is a peak of a long crest in the Western Tatras, one of Poland's main winter ski areas. Its dominant southern crests mark the border with Slovakia. It is accessible in most conditions by foot and daily by cablecar."* — Wikipedia
+
 ## Contact
 
 **Vincent Mayeski** — [v@m2te.ch](mailto:v@m2te.ch) | [LinkedIn](https://www.linkedin.com/in/vmayeski/) | [GitHub](https://github.com/vincent212)
