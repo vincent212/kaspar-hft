@@ -148,7 +148,6 @@ The actor framework provides the concurrency model for the entire system:
 - **Zero-copy fast path** — `fast_send()` executes handler in caller's thread for synchronous queries
 - **CPU affinity** — Pin actors to cores for deterministic latency
 - **Distributed deployment via ZMQ** — Actors communicate transparently across processes and machines. Run one actor group in NY4 and another in DC3 — actors use the same `send()` API whether the target is local or remote. `ZmqSender`/`ZmqReceiver` handle serialization and transport. Actors don't know or care if they're talking to a local thread or a remote process.
-- **CPU affinity** — Pin actors to cores for deterministic latency
 
 ```cpp
 class MyStrategy : public Actor {
