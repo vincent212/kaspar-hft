@@ -57,8 +57,8 @@ CME MDP3 Multicast (or PCAP file)
 # Build (optimized)
 KSPRPROJ=$(pwd) make -j6
 
-# Build with MBO L3 order book (for live trading)
-KSPRPROJ=$(pwd) USE_TACHBOOK=1 make -j6
+# Rebuild kaspr executable with MBO L3 order book (for live trading)
+cd kaspr/src && KSPRPROJ=~/m2_kaspar USE_TACHBOOK=1 make
 
 # Run with PCAP replay
 cd kaspr && ./kaspr config/kaspr.ini

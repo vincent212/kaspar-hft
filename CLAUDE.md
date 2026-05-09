@@ -30,8 +30,8 @@ cd ~/m2_kaspar
 # Build all libraries + kaspr executable (optimized)
 KSPRPROJ=~/m2_kaspar make
 
-# Build with MBO L3 order book (for live trading)
-KSPRPROJ=~/m2_kaspar USE_TACHBOOK=1 make
+# Rebuild kaspr executable with MBO L3 order book (for live trading)
+cd kaspr/src && KSPRPROJ=~/m2_kaspar USE_TACHBOOK=1 make
 
 # Build debug
 KSPRPROJ=~/m2_kaspar make debug
