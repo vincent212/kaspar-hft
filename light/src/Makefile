@@ -5,13 +5,7 @@
 
 include $(KSPRPROJ)/mk_kaspr/glob_begin.mk
 
-LIBSRC = light22.cpp QCoord.cpp PCoord.cpp
-
-# Optional: include TachBook MBO L3 order book (make USE_TACHBOOK=1)
-ifdef USE_TACHBOOK
-LIBSRC += TachBook.cpp
-DEFINES_COMMON += -DUSE_TACHBOOK
-endif
+LIBSRC = light22.cpp QCoord.cpp PCoord.cpp TachBook.cpp
 
 # Enable AVX2 for TachBook fast_compare function (x86 only)
 ifneq ($(UNAME_S),Darwin)
