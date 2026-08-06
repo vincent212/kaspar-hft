@@ -25,10 +25,10 @@
 //! Run the demo:  `cargo run --release --example matching_engine`
 //! Run the tests: `cargo test --example matching_engine`
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 
 use actors2::{
-    define_message, handle_messages, ActorContext, ActorRef, Manager, ThreadConfig,
+    define_pooled_message, handle_messages, ActorContext, ActorRef, Manager, MsgBox, ThreadConfig,
 };
 
 // ===========================================================================
@@ -70,41 +70,49 @@ pub enum Event<H> {
     Bbo { bid: Option<(u64, u64)>, ask: Option<(u64, u64)> },
 }
 
-/// A resting order (a node in a price level's FIFO queue). Mirrors C++ `Order`.
-struct Order<H> {
+/// Sentinel "null" slab index for the intrusive list links.
+const NIL: u32 = u32::MAX;
+
+/// A resting order — a node in its price level's intrusive FIFO doubly-linked
+/// list (stored in the book's slab). Mirrors C++ `Order` + `OrderQNode`.
+struct Node<H> {
     order_id: u64,
     side: Side,
     price: u64,
     qty: u64,
     originator: H,
+    prev: u32, // NIL at head
+    next: u32, // NIL at tail
+}
+
+/// One price level: head/tail into the slab (FIFO) + a running total size, so
+/// best-of-book aggregate is O(1). Mirrors C++ `OrderQ` (`orders_in_book`).
+#[derive(Clone, Copy)]
+struct Level {
+    head: u32,
+    tail: u32,
+    total: u64,
 }
 
 /// In-memory limit order book for one symbol. Prices/quantities are integers
 /// (ticks / smallest unit) — exact compare and partial-fill accounting.
 ///
-/// Bids/asks are `BTreeMap<price, FIFO queue>`: best bid = max key, best ask =
-/// min key (O(log L) best-price, O(1) FIFO at a level). A production hot-path
-/// engine can swap the maps for direct-indexed price arrays over a bounded tick
-/// band (the C++ `OB` choice) — the interface is identical.
-/// One price level: a FIFO queue of orders + a running total size, so
-/// best-of-book aggregate size is O(1) instead of O(level depth). (The C++
-/// `OrderQ` keeps the same `orders_in_book` counter for exactly this reason.)
-struct Level<H> {
-    orders: VecDeque<Order<H>>,
-    total: u64,
-}
-
-impl<H> Default for Level<H> {
-    fn default() -> Self {
-        Level { orders: VecDeque::new(), total: 0 }
-    }
-}
-
+/// Design (carried from the C++ `OB`/`OrderQ`): price → level in a `BTreeMap`
+/// (best bid = max key, best ask = min key, O(log L)); each level is an
+/// **intrusive doubly-linked FIFO list** over a shared slab of `Node`s; and a
+/// global `index: order_id → slab idx`. That gives **O(1) rest, O(1) match at the
+/// head, and O(1) cancel/replace** (no linear scan and no mid-array shift) — which
+/// matters at millions of live orders and HFT cancel/replace rates. A production
+/// hot-path engine can further swap the `BTreeMap`s for direct-indexed price
+/// arrays over a bounded tick band (the C++ `OB` choice) — same interface.
 pub struct OrderBook<H> {
-    bids: BTreeMap<u64, Level<H>>,
-    asks: BTreeMap<u64, Level<H>>,
-    /// order_id -> (side, price), for O(1) cancel/replace lookup (C++ `ordermap`).
-    index: HashMap<u64, (Side, u64)>,
+    bids: BTreeMap<u64, Level>,
+    asks: BTreeMap<u64, Level>,
+    /// Slab of order nodes; freed slots are recycled via `free`.
+    nodes: Vec<Node<H>>,
+    free: Vec<u32>,
+    /// order_id -> slab index, for O(1) cancel/replace (C++ `ordermap`).
+    index: HashMap<u64, u32>,
     next_trade_id: u64,
 }
 
@@ -113,6 +121,8 @@ impl<H> Default for OrderBook<H> {
         OrderBook {
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
+            nodes: Vec::new(),
+            free: Vec::new(),
             index: HashMap::new(),
             next_trade_id: 1,
         }
@@ -131,6 +141,69 @@ impl<H: Clone> OrderBook<H> {
         (bid, ask)
     }
 
+    fn book_mut(&mut self, side: Side) -> &mut BTreeMap<u64, Level> {
+        match side {
+            Side::Buy => &mut self.bids,
+            Side::Sell => &mut self.asks,
+        }
+    }
+
+    /// Append a new resting order at the tail of its level (time priority). O(1).
+    fn rest_order(&mut self, order_id: u64, side: Side, price: u64, qty: u64, who: H) {
+        let node = Node { order_id, side, price, qty, originator: who, prev: NIL, next: NIL };
+        let idx = if let Some(i) = self.free.pop() {
+            self.nodes[i as usize] = node;
+            i
+        } else {
+            let i = self.nodes.len() as u32;
+            self.nodes.push(node);
+            i
+        };
+        let old_tail = self.book_mut(side).get(&price).map(|l| l.tail).unwrap_or(NIL);
+        if old_tail != NIL {
+            self.nodes[old_tail as usize].next = idx;
+            self.nodes[idx as usize].prev = old_tail;
+        }
+        let lvl = self.book_mut(side).entry(price).or_insert(Level { head: NIL, tail: NIL, total: 0 });
+        if lvl.head == NIL {
+            lvl.head = idx;
+        }
+        lvl.tail = idx;
+        lvl.total += qty;
+        self.index.insert(order_id, idx);
+    }
+
+    /// Unlink node `idx` from its level, free the slot, drop it from the index.
+    /// O(1). Returns `(qty_removed, originator)`.
+    fn unlink(&mut self, idx: u32) -> (u64, H) {
+        let (side, price, qty, prev, next, order_id, originator) = {
+            let n = &self.nodes[idx as usize];
+            (n.side, n.price, n.qty, n.prev, n.next, n.order_id, n.originator.clone())
+        };
+        if prev != NIL {
+            self.nodes[prev as usize].next = next;
+        }
+        if next != NIL {
+            self.nodes[next as usize].prev = prev;
+        }
+        let book = self.book_mut(side);
+        if let Some(lvl) = book.get_mut(&price) {
+            if lvl.head == idx {
+                lvl.head = next;
+            }
+            if lvl.tail == idx {
+                lvl.tail = prev;
+            }
+            lvl.total -= qty;
+            if lvl.head == NIL {
+                book.remove(&price);
+            }
+        }
+        self.index.remove(&order_id);
+        self.free.push(idx);
+        (qty, originator)
+    }
+
     /// Place a limit order: match what crosses (price-time FIFO), rest the rest.
     pub fn place(&mut self, order_id: u64, side: Side, price: u64, qty: u64, who: H) -> Vec<Event<H>> {
         let mut ev = Vec::new();
@@ -146,45 +219,50 @@ impl<H: Clone> OrderBook<H> {
         let before = self.bbo();
         let mut remaining = qty;
 
-        // --- 1) Match while marketable, best price then time (FIFO) ---
+        // --- 1) Match while marketable: best price (BTreeMap boundary) then time
+        //        (list head). Each fill is O(1) at the head. ---
         while remaining > 0 {
-            // Best crossing opposite level, if any.
+            let opp_side = match side { Side::Buy => Side::Sell, Side::Sell => Side::Buy };
             let cross_px = match side {
                 Side::Buy => self.asks.keys().next().copied().filter(|a| *a <= price),
                 Side::Sell => self.bids.keys().next_back().copied().filter(|b| *b >= price),
             };
             let Some(px) = cross_px else { break };
 
-            // One fill against the head (earliest) order at that level. The inner
-            // block scopes the level borrow so we can touch other fields after.
-            let (fill_qty, exec_px, head_id, head_side, head_orig, head_leaves) = {
-                let opp = match side {
-                    Side::Buy => &mut self.asks,
-                    Side::Sell => &mut self.bids,
-                };
-                let lvl = opp.get_mut(&px).expect("crossing level exists");
-                let head = lvl.orders.front_mut().expect("level non-empty");
-                let x = remaining.min(head.qty);
-                head.qty -= x;
-                let head_qty = head.qty;
-                let tuple = (x, head.price, head.order_id, head.side, head.originator.clone(), head_qty);
-                lvl.total -= x;
-                if head_qty == 0 {
-                    lvl.orders.pop_front();
-                }
-                if lvl.orders.is_empty() {
-                    opp.remove(&px);
-                }
-                tuple
+            let head_idx = self.book_mut(opp_side).get(&px).expect("crossing level").head;
+            let (fill_qty, exec_px, head_id, head_side, head_orig, head_leaves, head_next) = {
+                let n = &mut self.nodes[head_idx as usize];
+                let x = remaining.min(n.qty);
+                n.qty -= x;
+                (x, n.price, n.order_id, n.side, n.originator.clone(), n.qty, n.next)
             };
-
             remaining -= fill_qty;
+
+            // Update the level; pop the head if fully filled.
+            {
+                let book = self.book_mut(opp_side);
+                let lvl = book.get_mut(&px).expect("crossing level");
+                lvl.total -= fill_qty;
+                if head_leaves == 0 {
+                    lvl.head = head_next;
+                    if head_next == NIL {
+                        lvl.tail = NIL;
+                    }
+                    if lvl.head == NIL {
+                        book.remove(&px);
+                    }
+                }
+            }
+            if head_leaves == 0 {
+                if head_next != NIL {
+                    self.nodes[head_next as usize].prev = NIL;
+                }
+                self.index.remove(&head_id);
+                self.free.push(head_idx);
+            }
+
             let trade_id = self.next_trade_id;
             self.next_trade_id += 1;
-            if head_leaves == 0 {
-                self.index.remove(&head_id);
-            }
-            // Maker fill (resting order), then taker fill (aggressor).
             ev.push(Event::Fill {
                 to: head_orig,
                 order_id: head_id,
@@ -207,22 +285,9 @@ impl<H: Clone> OrderBook<H> {
             });
         }
 
-        // --- 2) Rest the remainder (append at tail = time priority) ---
+        // --- 2) Rest the remainder (append at tail = time priority). O(1). ---
         if remaining > 0 {
-            let book = match side {
-                Side::Buy => &mut self.bids,
-                Side::Sell => &mut self.asks,
-            };
-            let lvl = book.entry(price).or_default();
-            lvl.orders.push_back(Order {
-                order_id,
-                side,
-                price,
-                qty: remaining,
-                originator: who.clone(),
-            });
-            lvl.total += remaining;
-            self.index.insert(order_id, (side, price));
+            self.rest_order(order_id, side, price, remaining, who.clone());
             ev.push(Event::Ack { to: who, order_id, resting_qty: remaining });
         }
 
@@ -233,17 +298,17 @@ impl<H: Clone> OrderBook<H> {
         ev
     }
 
-    /// Cancel a resting order. `who` is the requester (for reject routing); the
-    /// `Canceled` goes to the original order's originator.
+    /// Cancel a resting order (O(1)). The `Canceled` goes to the order's
+    /// originator; `who` (the requester) only receives a reject.
     pub fn cancel(&mut self, order_id: u64, who: H) -> Vec<Event<H>> {
         let mut ev = Vec::new();
-        let Some(&(side, px)) = self.index.get(&order_id) else {
+        let Some(&idx) = self.index.get(&order_id) else {
             ev.push(Event::Rejected { to: who, order_id, reason: "cancel: unknown order" });
             return ev;
         };
         let before = self.bbo();
-        let ord = self.remove_resting(side, px, order_id);
-        ev.push(Event::Canceled { to: ord.originator, order_id, canceled_qty: ord.qty });
+        let (canceled_qty, originator) = self.unlink(idx);
+        ev.push(Event::Canceled { to: originator, order_id, canceled_qty });
         let after = self.bbo();
         if after != before {
             ev.push(Event::Bbo { bid: after.0, ask: after.1 });
@@ -256,7 +321,7 @@ impl<H: Clone> OrderBook<H> {
     /// priority** — and may immediately match.
     pub fn replace(&mut self, order_id: u64, new_price: u64, new_qty: u64, who: H) -> Vec<Event<H>> {
         let mut ev = Vec::new();
-        let Some(&(side, px)) = self.index.get(&order_id) else {
+        let Some(&idx) = self.index.get(&order_id) else {
             ev.push(Event::Rejected { to: who, order_id, reason: "replace: unknown order" });
             return ev;
         };
@@ -264,28 +329,22 @@ impl<H: Clone> OrderBook<H> {
             ev.push(Event::Rejected { to: who, order_id, reason: "replace: price and qty must be positive" });
             return ev;
         }
-        let old = self.remove_resting(side, px, order_id);
-        ev.push(Event::Replaced { to: old.originator.clone(), order_id, new_price, new_qty });
-        ev.extend(self.place(order_id, side, new_price, new_qty, old.originator));
-        ev
-    }
-
-    /// Unlink a resting order from its level (and the index). Panics only on an
-    /// internal invariant break (index and book out of sync).
-    fn remove_resting(&mut self, side: Side, px: u64, order_id: u64) -> Order<H> {
-        let book = match side {
-            Side::Buy => &mut self.bids,
-            Side::Sell => &mut self.asks,
-        };
-        let lvl = book.get_mut(&px).expect("indexed level exists");
-        let pos = lvl.orders.iter().position(|o| o.order_id == order_id).expect("indexed order exists");
-        let ord = lvl.orders.remove(pos).expect("position valid");
-        lvl.total -= ord.qty;
-        if lvl.orders.is_empty() {
-            book.remove(&px);
+        // Capture the TRUE top-of-book baseline BEFORE we mutate anything, then
+        // suppress `place`'s own (post-removal) BBO and emit one correct BBO.
+        let before = self.bbo();
+        let side = self.nodes[idx as usize].side;
+        let (_, originator) = self.unlink(idx);
+        ev.push(Event::Replaced { to: originator.clone(), order_id, new_price, new_qty });
+        for e in self.place(order_id, side, new_price, new_qty, originator) {
+            if !matches!(e, Event::Bbo { .. }) {
+                ev.push(e);
+            }
         }
-        self.index.remove(&order_id);
-        ord
+        let after = self.bbo();
+        if after != before {
+            ev.push(Event::Bbo { bid: after.0, ask: after.1 });
+        }
+        ev
     }
 
     /// Print the best `depth` levels per side (asks highest→best, then bids
@@ -305,6 +364,16 @@ impl<H: Clone> OrderBook<H> {
 
 // ===========================================================================
 // Framework messages (integer ids; ids < 16 reserved for the framework)
+//
+// All are **pooled** (`define_pooled_message!`) so that async delivery — which
+// heap-allocates by default — instead recycles fixed-size blocks from a per-type
+// object pool. That matters at millions of msgs/sec (2 `FillMsg` per trade).
+// NOTE: on the hot tick-to-trade chain, inbound orders arrive via `fast_send`
+// (borrowed, ON THE STACK — zero allocation, better than pooled); pooling only
+// kicks in for the async `send` path (`MsgBox::pooled(...)`), which the engine
+// uses for outbound execution reports and which an async gateway would use for
+// ingress. Resting `Order`s live inline in each level's `VecDeque` (contiguous),
+// so "several million live orders" is NOT several million allocations.
 // ===========================================================================
 
 // Inbound (order entry)
@@ -314,26 +383,26 @@ pub struct PlaceOrder {
     pub price: u64,
     pub qty: u64,
 }
-define_message!(PlaceOrder, 20);
+define_pooled_message!(PlaceOrder, 20, 128);
 
 pub struct CancelOrder {
     pub order_id: u64,
 }
-define_message!(CancelOrder, 21);
+define_pooled_message!(CancelOrder, 21, 64);
 
 pub struct ReplaceOrder {
     pub order_id: u64,
     pub new_price: u64,
     pub new_qty: u64,
 }
-define_message!(ReplaceOrder, 22);
+define_pooled_message!(ReplaceOrder, 22, 64);
 
 // Outbound (execution reports)
 pub struct Ack {
     pub order_id: u64,
     pub resting_qty: u64,
 }
-define_message!(Ack, 30);
+define_pooled_message!(Ack, 30, 128);
 
 pub struct FillMsg {
     pub order_id: u64,
@@ -344,32 +413,32 @@ pub struct FillMsg {
     pub counter_order_id: u64,
     pub trade_id: u64,
 }
-define_message!(FillMsg, 31);
+define_pooled_message!(FillMsg, 31, 256);
 
 pub struct Canceled {
     pub order_id: u64,
     pub canceled_qty: u64,
 }
-define_message!(Canceled, 32);
+define_pooled_message!(Canceled, 32, 64);
 
 pub struct Replaced {
     pub order_id: u64,
     pub new_price: u64,
     pub new_qty: u64,
 }
-define_message!(Replaced, 33);
+define_pooled_message!(Replaced, 33, 64);
 
 pub struct Rejected {
     pub order_id: u64,
     pub reason: &'static str,
 }
-define_message!(Rejected, 34);
+define_pooled_message!(Rejected, 34, 64);
 
 pub struct BboUpdate {
     pub bid: Option<(u64, u64)>,
     pub ask: Option<(u64, u64)>,
 }
-define_message!(BboUpdate, 35);
+define_pooled_message!(BboUpdate, 35, 128);
 
 // ===========================================================================
 // The matching-engine actor (thin adapter over OrderBook<ActorRef>)
@@ -403,29 +472,31 @@ impl MatchingEngine {
         self.route(events);
     }
 
-    /// Route each core event to the right ActorRef via async `send`.
+    /// Route each core event to the right ActorRef via async `send`, allocating
+    /// the outbound message from its **per-type object pool** (`MsgBox::pooled`)
+    /// rather than the heap — recycling fixed-size blocks under trade-rate load.
     fn route(&mut self, events: Vec<Event<ActorRef>>) {
         for e in events {
             match e {
                 Event::Ack { to, order_id, resting_qty } => {
-                    to.send(Box::new(Ack { order_id, resting_qty }), None)
+                    to.send(MsgBox::pooled(Ack { order_id, resting_qty }), None)
                 }
                 Event::Fill { to, order_id, side, price, qty, leaves_qty, counter_order_id, trade_id } => to.send(
-                    Box::new(FillMsg { order_id, side, price, qty, leaves_qty, counter_order_id, trade_id }),
+                    MsgBox::pooled(FillMsg { order_id, side, price, qty, leaves_qty, counter_order_id, trade_id }),
                     None,
                 ),
                 Event::Canceled { to, order_id, canceled_qty } => {
-                    to.send(Box::new(Canceled { order_id, canceled_qty }), None)
+                    to.send(MsgBox::pooled(Canceled { order_id, canceled_qty }), None)
                 }
                 Event::Replaced { to, order_id, new_price, new_qty } => {
-                    to.send(Box::new(Replaced { order_id, new_price, new_qty }), None)
+                    to.send(MsgBox::pooled(Replaced { order_id, new_price, new_qty }), None)
                 }
                 Event::Rejected { to, order_id, reason } => {
-                    to.send(Box::new(Rejected { order_id, reason }), None)
+                    to.send(MsgBox::pooled(Rejected { order_id, reason }), None)
                 }
                 Event::Bbo { bid, ask } => {
                     if let Some(md) = &self.md_feed {
-                        md.send(Box::new(BboUpdate { bid, ask }), None);
+                        md.send(MsgBox::pooled(BboUpdate { bid, ask }), None);
                     }
                 }
             }
@@ -526,6 +597,27 @@ fn run_bench() {
             "match  (cross):    {m} orders  {:.1} ns/order  {:.2} M orders/s  {:.2} M trades/s",
             el.as_nanos() as f64 / m as f64,
             m as f64 / el.as_secs_f64() / 1e6,
+            m as f64 / el.as_secs_f64() / 1e6,
+        );
+    }
+
+    // Scenario C: cancel from a 1M-deep single level, in reverse order. This is
+    // the worst case for a linear/array level (O(n) each -> O(n^2)); with the
+    // indexed intrusive list it is O(1) per cancel.
+    {
+        let m: u64 = 1_000_000;
+        let mut book = OrderBook::<u64>::new();
+        for i in 0..m {
+            black_box(book.place(i + 1, Side::Buy, 1000, 1, 0)); // 1M orders, one level
+        }
+        let t = Instant::now();
+        for i in (0..m).rev() {
+            black_box(book.cancel(i + 1, 0));
+        }
+        let el = t.elapsed();
+        println!(
+            "cancel (1M-deep):  {m} cancels {:.1} ns/cancel  {:.2} M cancels/s",
+            el.as_nanos() as f64 / m as f64,
             m as f64 / el.as_secs_f64() / 1e6,
         );
     }
@@ -752,34 +844,35 @@ mod tests {
 
     /// Assert the book invariants hold. THE key one: the book is **never crossed**
     /// (a resting bid is never >= a resting ask) — any cross must have produced
-    /// fills on entry, not rested. Plus: no empty levels linger, every resting
-    /// order is indexed to its (side, price), and the index count matches.
+    /// fills on entry, not rested. Also walks each level's intrusive list checking
+    /// head/tail/prev/next linkage, per-order side/price, qty>0, index↔node
+    /// consistency, running total, and total live count.
     fn assert_book_ok<H>(b: &OrderBook<H>) {
         if let (Some(bid), Some(ask)) = (b.bids.keys().next_back(), b.asks.keys().next()) {
             assert!(bid < ask, "BOOK CROSSED: best_bid {bid} >= best_ask {ask}");
         }
         let mut counted = 0usize;
-        for (px, lvl) in b.bids.iter() {
-            assert!(!lvl.orders.is_empty(), "empty bid level {px}");
-            let mut sum = 0u64;
-            for o in lvl.orders.iter() {
-                assert!(o.qty > 0, "bid order {} has qty 0", o.order_id);
-                assert_eq!(b.index.get(&o.order_id), Some(&(Side::Buy, *px)), "index mismatch bid {}", o.order_id);
-                counted += 1;
-                sum += o.qty;
+        for (side, book) in [(Side::Buy, &b.bids), (Side::Sell, &b.asks)] {
+            for (px, lvl) in book.iter() {
+                assert!(lvl.head != NIL && lvl.tail != NIL, "empty level {px} lingering");
+                let mut sum = 0u64;
+                let mut cur = lvl.head;
+                let mut prev = NIL;
+                while cur != NIL {
+                    let n = &b.nodes[cur as usize];
+                    assert_eq!(n.prev, prev, "prev link broken at order {}", n.order_id);
+                    assert_eq!(n.price, *px, "node {} price != level {px}", n.order_id);
+                    assert_eq!(n.side, side, "node {} side mismatch", n.order_id);
+                    assert!(n.qty > 0, "order {} has qty 0", n.order_id);
+                    assert_eq!(b.index.get(&n.order_id), Some(&cur), "index mismatch order {}", n.order_id);
+                    sum += n.qty;
+                    counted += 1;
+                    prev = cur;
+                    cur = n.next;
+                }
+                assert_eq!(prev, lvl.tail, "tail link broken at level {px}");
+                assert_eq!(sum, lvl.total, "level {px} running total out of sync");
             }
-            assert_eq!(sum, lvl.total, "bid level {px} running total out of sync");
-        }
-        for (px, lvl) in b.asks.iter() {
-            assert!(!lvl.orders.is_empty(), "empty ask level {px}");
-            let mut sum = 0u64;
-            for o in lvl.orders.iter() {
-                assert!(o.qty > 0, "ask order {} has qty 0", o.order_id);
-                assert_eq!(b.index.get(&o.order_id), Some(&(Side::Sell, *px)), "index mismatch ask {}", o.order_id);
-                counted += 1;
-                sum += o.qty;
-            }
-            assert_eq!(sum, lvl.total, "ask level {px} running total out of sync");
         }
         assert_eq!(counted, b.index.len(), "index size {} != resting order count {counted}", b.index.len());
     }
@@ -835,10 +928,23 @@ mod tests {
         let mut live: Vec<u64> = Vec::new();
         for _ in 0..20_000 {
             s = lcg(s);
-            if s % 3 == 0 && !live.is_empty() {
+            let action = s % 5;
+            if action == 0 && !live.is_empty() {
+                // cancel a random live order
                 let idx = (lcg(s) as usize) % live.len();
                 let oid = live.swap_remove(idx);
                 let _ = b.cancel(oid, "o"); // may be already-filled -> harmless Rejected
+            } else if action == 1 && !live.is_empty() {
+                // cancel-replace a random live order (may cross at the new price)
+                let idx = (lcg(s) as usize) % live.len();
+                let oid = live[idx];
+                let price = 50 + (lcg(s ^ 0x5151) % 20);
+                let qty = 1 + (lcg(s ^ 0x2727) % 10);
+                let ev = b.replace(oid, price, qty, "o");
+                // if the replaced order didn't rest (fully matched), forget it
+                if !ev.iter().any(|e| matches!(e, Event::Ack { order_id, .. } if *order_id == oid)) {
+                    live.swap_remove(idx);
+                }
             } else {
                 let side = if s & 1 == 0 { Side::Buy } else { Side::Sell };
                 // Overlapping price band 50..69 for BOTH sides -> lots of crossings.
