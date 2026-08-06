@@ -1,0 +1,38 @@
+# Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# actors2 — a performance-first Rust port of the C++ Kaspar actor framework
+# (companion to actors/cpp; independent of the idiomatic Rust port).
+
+[package]
+name = "actors2"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Performance-first actor framework: on-stack fast_send, integer-ID dispatch, BQueue, pool allocator"
+
+[dependencies]
+libc = "0.2"
+
+# Performance-first release profile.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[[example]]
+name = "bench_fast_send"
+path = "examples/bench_fast_send.rs"
+
+[[example]]
+name = "ping_pong"
+path = "examples/ping_pong.rs"
+
+[[example]]
+name = "bench_pool"
+path = "examples/bench_pool.rs"
+
+[[example]]
+name = "matching_engine"
+path = "examples/matching_engine.rs"
