@@ -86,9 +86,23 @@ struct Order<H> {
 /// min key (O(log L) best-price, O(1) FIFO at a level). A production hot-path
 /// engine can swap the maps for direct-indexed price arrays over a bounded tick
 /// band (the C++ `OB` choice) — the interface is identical.
+/// One price level: a FIFO queue of orders + a running total size, so
+/// best-of-book aggregate size is O(1) instead of O(level depth). (The C++
+/// `OrderQ` keeps the same `orders_in_book` counter for exactly this reason.)
+struct Level<H> {
+    orders: VecDeque<Order<H>>,
+    total: u64,
+}
+
+impl<H> Default for Level<H> {
+    fn default() -> Self {
+        Level { orders: VecDeque::new(), total: 0 }
+    }
+}
+
 pub struct OrderBook<H> {
-    bids: BTreeMap<u64, VecDeque<Order<H>>>,
-    asks: BTreeMap<u64, VecDeque<Order<H>>>,
+    bids: BTreeMap<u64, Level<H>>,
+    asks: BTreeMap<u64, Level<H>>,
     /// order_id -> (side, price), for O(1) cancel/replace lookup (C++ `ordermap`).
     index: HashMap<u64, (Side, u64)>,
     next_trade_id: u64,
@@ -112,16 +126,8 @@ impl<H: Clone> OrderBook<H> {
 
     /// Best bid / best ask as `(price, aggregate_qty)`.
     fn bbo(&self) -> (Option<(u64, u64)>, Option<(u64, u64)>) {
-        let bid = self
-            .bids
-            .iter()
-            .next_back()
-            .map(|(px, lvl)| (*px, lvl.iter().map(|o| o.qty).sum()));
-        let ask = self
-            .asks
-            .iter()
-            .next()
-            .map(|(px, lvl)| (*px, lvl.iter().map(|o| o.qty).sum()));
+        let bid = self.bids.iter().next_back().map(|(px, lvl)| (*px, lvl.total));
+        let ask = self.asks.iter().next().map(|(px, lvl)| (*px, lvl.total));
         (bid, ask)
     }
 
@@ -157,14 +163,16 @@ impl<H: Clone> OrderBook<H> {
                     Side::Sell => &mut self.bids,
                 };
                 let lvl = opp.get_mut(&px).expect("crossing level exists");
-                let head = lvl.front_mut().expect("level non-empty");
+                let head = lvl.orders.front_mut().expect("level non-empty");
                 let x = remaining.min(head.qty);
                 head.qty -= x;
-                let tuple = (x, head.price, head.order_id, head.side, head.originator.clone(), head.qty);
-                if head.qty == 0 {
-                    lvl.pop_front();
+                let head_qty = head.qty;
+                let tuple = (x, head.price, head.order_id, head.side, head.originator.clone(), head_qty);
+                lvl.total -= x;
+                if head_qty == 0 {
+                    lvl.orders.pop_front();
                 }
-                if lvl.is_empty() {
+                if lvl.orders.is_empty() {
                     opp.remove(&px);
                 }
                 tuple
@@ -205,13 +213,15 @@ impl<H: Clone> OrderBook<H> {
                 Side::Buy => &mut self.bids,
                 Side::Sell => &mut self.asks,
             };
-            book.entry(price).or_default().push_back(Order {
+            let lvl = book.entry(price).or_default();
+            lvl.orders.push_back(Order {
                 order_id,
                 side,
                 price,
                 qty: remaining,
                 originator: who.clone(),
             });
+            lvl.total += remaining;
             self.index.insert(order_id, (side, price));
             ev.push(Event::Ack { to: who, order_id, resting_qty: remaining });
         }
@@ -268,13 +278,28 @@ impl<H: Clone> OrderBook<H> {
             Side::Sell => &mut self.asks,
         };
         let lvl = book.get_mut(&px).expect("indexed level exists");
-        let pos = lvl.iter().position(|o| o.order_id == order_id).expect("indexed order exists");
-        let ord = lvl.remove(pos).expect("position valid");
-        if lvl.is_empty() {
+        let pos = lvl.orders.iter().position(|o| o.order_id == order_id).expect("indexed order exists");
+        let ord = lvl.orders.remove(pos).expect("position valid");
+        lvl.total -= ord.qty;
+        if lvl.orders.is_empty() {
             book.remove(&px);
         }
         self.index.remove(&order_id);
         ord
+    }
+
+    /// Print the best `depth` levels per side (asks highest→best, then bids
+    /// best→lowest) with aggregate size — a simple L2 book snapshot.
+    pub fn print_book(&self, depth: usize) {
+        let mut asks: Vec<_> = self.asks.iter().take(depth).collect();
+        asks.reverse(); // print highest ask first, best ask just above the spread
+        for (px, lvl) in asks {
+            println!("      ASK {px:>5} x {}", lvl.total);
+        }
+        println!("      ----- spread -----");
+        for (px, lvl) in self.bids.iter().rev().take(depth) {
+            println!("      BID {px:>5} x {}", lvl.total);
+        }
     }
 }
 
@@ -449,8 +474,110 @@ handle_messages!(Client,
     BboUpdate => on_bbo,
 );
 
+/// Perf benchmark for the core `OrderBook` (single thread; matching only —
+/// excludes network/serialization). Run: `... --example matching_engine -- bench`.
+fn run_bench() {
+    use std::hint::black_box;
+    use std::time::Instant;
+    #[inline]
+    fn lcg(s: u64) -> u64 {
+        s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407)
+    }
+
+    println!("=== matching engine perf (core OrderBook, release, single thread) ===");
+
+    // Scenario A: resting inserts, no crossing — book grows to N live orders.
+    {
+        let n: u64 = 2_000_000;
+        let mut book = OrderBook::<u64>::new();
+        let mut s = 0x1234_5678_9abc_def0u64;
+        for i in 0..50_000u64 {
+            s = lcg(s);
+            let (side, px) = if i & 1 == 0 { (Side::Buy, 1000 + s % 500) } else { (Side::Sell, 1500 + s % 500) };
+            black_box(book.place(i + 1, side, px, 10, 0));
+        }
+        let t = Instant::now();
+        for i in 0..n {
+            s = lcg(s);
+            let (side, px) = if i & 1 == 0 { (Side::Buy, 1000 + s % 500) } else { (Side::Sell, 1500 + s % 500) };
+            black_box(book.place(100_000 + i + 1, side, px, 10, 0));
+        }
+        let el = t.elapsed();
+        println!(
+            "insert (no cross): {n} orders  {:.1} ns/order  {:.2} M orders/s  (book ~{n} live orders, ~1000 levels)",
+            el.as_nanos() as f64 / n as f64,
+            n as f64 / el.as_secs_f64() / 1e6,
+        );
+    }
+
+    // Scenario B: fully-crossing orders — each generates one trade.
+    {
+        let m: u64 = 1_000_000;
+        let mut book = OrderBook::<u64>::new();
+        for i in 0..m {
+            black_box(book.place(i + 1, Side::Sell, 1500, 1, 0)); // rest m asks @ 1500
+        }
+        let t = Instant::now();
+        for i in 0..m {
+            black_box(book.place(m + 1 + i, Side::Buy, 1500, 1, 0)); // each fills the front ask
+        }
+        let el = t.elapsed();
+        println!(
+            "match  (cross):    {m} orders  {:.1} ns/order  {:.2} M orders/s  {:.2} M trades/s",
+            el.as_nanos() as f64 / m as f64,
+            m as f64 / el.as_secs_f64() / 1e6,
+            m as f64 / el.as_secs_f64() / 1e6,
+        );
+    }
+    println!("(matching only; excludes network/serialization; each place() allocates its event Vec)");
+}
+
+/// The narrative scenario, on the core book, printing each step and the book.
+fn run_scenario() {
+    println!("=== matching engine scenario ===");
+    let mut b = OrderBook::<&str>::new();
+    fn show(label: &str, ev: &[Event<&str>]) {
+        if !label.is_empty() {
+            println!("{label}");
+        }
+        for e in ev {
+            println!("      -> {e:?}");
+        }
+    }
+    show("add bid 100 x1 (o1)", &b.place(1, Side::Buy, 100, 1, "c1"));
+    show("add bid 100 x1 (o2)", &b.place(2, Side::Buy, 100, 1, "c2"));
+    show("add bid 101 x2 (o3)", &b.place(3, Side::Buy, 101, 2, "c3"));
+    show("add ask 102 x3 (o4)", &b.place(4, Side::Sell, 102, 3, "c4"));
+    println!("\nbook now:");
+    b.print_book(5);
+    println!("\nadd ask 101 x1 (o5)  <- crosses best bid 101, expect a FILL:");
+    show("", &b.place(5, Side::Sell, 101, 1, "c5"));
+    println!("\nbook after fill:");
+    b.print_book(5);
+    println!("\ncancel o1 (bid 100 x1):");
+    show("", &b.cancel(1, "c1"));
+    println!("\ncancel-replace o3 (bid 101, remaining 1) -> bid 100 x5 (loses time priority):");
+    show("", &b.replace(3, 100, 5, "c3"));
+    println!("\nfinal book:");
+    b.print_book(5);
+}
+
 fn main() {
-    println!("=== matching engine demo ===");
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "bench") {
+        run_bench();
+        return;
+    }
+    if args.iter().any(|a| a == "actor") {
+        run_actor_demo();
+        return;
+    }
+    run_scenario();
+}
+
+/// The actor-path demo: two client actors + the engine, driven via fast_send.
+fn run_actor_demo() {
+    println!("=== matching engine actor demo ===");
     let mut mgr = Manager::new();
 
     // Market-data printer, two clients (market maker + taker).
@@ -614,6 +741,276 @@ mod tests {
         assert_eq!(
             b.place(7, Side::Buy, 6, 100, "a"),
             vec![Event::Rejected { to: "a", order_id: 7, reason: "duplicate order_id" }]
+        );
+    }
+
+    // -------- book integrity / crossing --------
+
+    fn lcg(s: u64) -> u64 {
+        s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407)
+    }
+
+    /// Assert the book invariants hold. THE key one: the book is **never crossed**
+    /// (a resting bid is never >= a resting ask) — any cross must have produced
+    /// fills on entry, not rested. Plus: no empty levels linger, every resting
+    /// order is indexed to its (side, price), and the index count matches.
+    fn assert_book_ok<H>(b: &OrderBook<H>) {
+        if let (Some(bid), Some(ask)) = (b.bids.keys().next_back(), b.asks.keys().next()) {
+            assert!(bid < ask, "BOOK CROSSED: best_bid {bid} >= best_ask {ask}");
+        }
+        let mut counted = 0usize;
+        for (px, lvl) in b.bids.iter() {
+            assert!(!lvl.orders.is_empty(), "empty bid level {px}");
+            let mut sum = 0u64;
+            for o in lvl.orders.iter() {
+                assert!(o.qty > 0, "bid order {} has qty 0", o.order_id);
+                assert_eq!(b.index.get(&o.order_id), Some(&(Side::Buy, *px)), "index mismatch bid {}", o.order_id);
+                counted += 1;
+                sum += o.qty;
+            }
+            assert_eq!(sum, lvl.total, "bid level {px} running total out of sync");
+        }
+        for (px, lvl) in b.asks.iter() {
+            assert!(!lvl.orders.is_empty(), "empty ask level {px}");
+            let mut sum = 0u64;
+            for o in lvl.orders.iter() {
+                assert!(o.qty > 0, "ask order {} has qty 0", o.order_id);
+                assert_eq!(b.index.get(&o.order_id), Some(&(Side::Sell, *px)), "index mismatch ask {}", o.order_id);
+                counted += 1;
+                sum += o.qty;
+            }
+            assert_eq!(sum, lvl.total, "ask level {px} running total out of sync");
+        }
+        assert_eq!(counted, b.index.len(), "index size {} != resting order count {counted}", b.index.len());
+    }
+
+    #[test]
+    fn a_cross_always_generates_fills_and_never_rests_crossed() {
+        let mut b = book();
+        b.place(1, Side::Buy, 10, 100, "buyer"); // resting bid @ 10
+        assert_book_ok(&b);
+        // A SELL @ 8 is marketable against the bid @ 10 (8 <= 10). It must MATCH,
+        // producing fills at the MAKER's price (10) — not sit in the book crossed.
+        let ev = b.place(2, Side::Sell, 8, 100, "seller");
+        let fills = ev.iter().filter(|e| matches!(e, Event::Fill { .. })).count();
+        assert_eq!(fills, 2, "a cross must generate fills on both sides");
+        assert!(ev.iter().any(|e| matches!(e, Event::Fill { to: "seller", price: 10, qty: 100, .. })));
+        assert!(ev.iter().any(|e| matches!(e, Event::Fill { to: "buyer", price: 10, qty: 100, .. })));
+        assert!(!ev.iter().any(|e| matches!(e, Event::Ack { .. })), "fully filled -> nothing rests");
+        assert!(b.bids.is_empty() && b.asks.is_empty(), "book empty after full match");
+        assert_book_ok(&b);
+    }
+
+    #[test]
+    fn aggressive_order_sweeps_multiple_levels_fills_propagate() {
+        let mut b = book();
+        b.place(1, Side::Sell, 5, 50, "m5");
+        b.place(2, Side::Sell, 6, 50, "m6");
+        b.place(3, Side::Sell, 7, 50, "m7");
+        assert_book_ok(&b);
+        // Aggressive buy 120 @ 7 sweeps 5(50) + 6(50) + 7(20); each maker filled at
+        // its own price; taker's total = 120; level 7 keeps 30 resting.
+        let ev = b.place(4, Side::Buy, 7, 120, "taker");
+        assert!(ev.iter().any(|e| matches!(e, Event::Fill { to: "m5", price: 5, qty: 50, .. })));
+        assert!(ev.iter().any(|e| matches!(e, Event::Fill { to: "m6", price: 6, qty: 50, .. })));
+        assert!(ev.iter().any(|e| matches!(e, Event::Fill { to: "m7", price: 7, qty: 20, .. })));
+        let taker: u64 = ev.iter().filter_map(|e| match e {
+            Event::Fill { to: "taker", qty, .. } => Some(*qty),
+            _ => None,
+        }).sum();
+        assert_eq!(taker, 120, "aggressor fully filled across levels");
+        assert!(b.bids.is_empty(), "taker fully filled, nothing rests");
+        assert_eq!(b.asks.get(&7).map(|l| l.total), Some(30));
+        assert_book_ok(&b);
+    }
+
+    #[test]
+    fn book_integrity_over_20k_random_ops() {
+        // Send a long, crossing-heavy pseudo-random stream of place/cancel and
+        // assert the invariants after EVERY op — in particular that the book is
+        // never left crossed.
+        let mut b = book();
+        let mut s = 0x00C0FFEE_1234_5678u64;
+        let mut next_id = 1u64;
+        let mut live: Vec<u64> = Vec::new();
+        for _ in 0..20_000 {
+            s = lcg(s);
+            if s % 3 == 0 && !live.is_empty() {
+                let idx = (lcg(s) as usize) % live.len();
+                let oid = live.swap_remove(idx);
+                let _ = b.cancel(oid, "o"); // may be already-filled -> harmless Rejected
+            } else {
+                let side = if s & 1 == 0 { Side::Buy } else { Side::Sell };
+                // Overlapping price band 50..69 for BOTH sides -> lots of crossings.
+                let price = 50 + (lcg(s) % 20);
+                let qty = 1 + (lcg(s ^ 0x9E37) % 10);
+                let id = next_id;
+                next_id += 1;
+                let ev = b.place(id, side, price, qty, "o");
+                if ev.iter().any(|e| matches!(e, Event::Ack { order_id, .. } if *order_id == id)) {
+                    live.push(id);
+                }
+            }
+            assert_book_ok(&b);
+        }
+    }
+
+    #[test]
+    fn scenario_add_bids_asks_cross_fill_cancel_replace() {
+        let mut b = book();
+        b.place(1, Side::Buy, 100, 1, "c1");
+        b.place(2, Side::Buy, 100, 1, "c2");
+        b.place(3, Side::Buy, 101, 2, "c3");
+        b.place(4, Side::Sell, 102, 3, "c4");
+        assert_book_ok(&b);
+        assert_eq!(b.bids.keys().next_back(), Some(&101), "best bid 101");
+        assert_eq!(b.asks.keys().next(), Some(&102), "best ask 102 (not crossed)");
+
+        // Aggressive ask 101 x1 crosses the best bid (101) -> FILL at the maker price 101.
+        let ev = b.place(5, Side::Sell, 101, 1, "c5");
+        assert!(ev.iter().any(|e| matches!(e,
+            Event::Fill { to: "c3", order_id: 3, price: 101, qty: 1, leaves_qty: 1, .. })),
+            "resting bid o3 filled 1 at 101");
+        assert!(ev.iter().any(|e| matches!(e,
+            Event::Fill { to: "c5", order_id: 5, price: 101, qty: 1, leaves_qty: 0, .. })),
+            "aggressor o5 filled 1 at 101");
+        assert!(!ev.iter().any(|e| matches!(e, Event::Ack { .. })), "ask fully filled -> does not rest");
+        assert_book_ok(&b);
+
+        // Cancel o1 (bid 100 x1) — level 100 still holds o2.
+        let c = b.cancel(1, "c1");
+        assert!(c.iter().any(|e| matches!(e, Event::Canceled { order_id: 1, canceled_qty: 1, .. })));
+        assert_book_ok(&b);
+
+        // Cancel-replace o3 (bid 101, remaining 1) -> bid 100 x5 (loses time priority).
+        let r = b.replace(3, 100, 5, "c3");
+        assert!(r.iter().any(|e| matches!(e, Event::Replaced { order_id: 3, new_price: 100, new_qty: 5, .. })));
+        assert_book_ok(&b);
+        assert_eq!(b.bids.keys().next_back(), Some(&100), "101 level gone; best bid now 100");
+        assert_eq!(b.asks.keys().next(), Some(&102));
+    }
+}
+
+// ===========================================================================
+// Actor-level tests — drive the MatchingEngine ACTOR end-to-end and assert the
+// exact outbound execution-report sequence. All events route to one recording
+// actor (so ordering is deterministic); `fast_send` drives the engine inline and
+// `mgr.end()` flushes every emitted message before we assert.
+// Run: cargo test --example matching_engine
+// ===========================================================================
+
+#[cfg(test)]
+mod actor_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    /// A normalized record of every outbound message the engine emits.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    enum Rec {
+        Ack { order_id: u64, resting_qty: u64 },
+        Fill { order_id: u64, price: u64, qty: u64, leaves: u64, cpty: u64 },
+        Canceled { order_id: u64, canceled_qty: u64 },
+        Rejected { order_id: u64, reason: &'static str },
+        Bbo { bid: Option<(u64, u64)>, ask: Option<(u64, u64)> },
+    }
+
+    /// Records every execution report / BBO it receives into a shared log.
+    struct Recorder {
+        log: Arc<Mutex<Vec<Rec>>>,
+    }
+    impl Recorder {
+        fn on_ack(&mut self, m: &Ack, _c: &mut ActorContext) {
+            self.log.lock().unwrap().push(Rec::Ack { order_id: m.order_id, resting_qty: m.resting_qty });
+        }
+        fn on_fill(&mut self, m: &FillMsg, _c: &mut ActorContext) {
+            self.log.lock().unwrap().push(Rec::Fill {
+                order_id: m.order_id, price: m.price, qty: m.qty, leaves: m.leaves_qty, cpty: m.counter_order_id,
+            });
+        }
+        fn on_canceled(&mut self, m: &Canceled, _c: &mut ActorContext) {
+            self.log.lock().unwrap().push(Rec::Canceled { order_id: m.order_id, canceled_qty: m.canceled_qty });
+        }
+        fn on_rejected(&mut self, m: &Rejected, _c: &mut ActorContext) {
+            self.log.lock().unwrap().push(Rec::Rejected { order_id: m.order_id, reason: m.reason });
+        }
+        fn on_bbo(&mut self, m: &BboUpdate, _c: &mut ActorContext) {
+            self.log.lock().unwrap().push(Rec::Bbo { bid: m.bid, ask: m.ask });
+        }
+    }
+    handle_messages!(Recorder,
+        Ack       => on_ack,
+        FillMsg   => on_fill,
+        Canceled  => on_canceled,
+        Rejected  => on_rejected,
+        BboUpdate => on_bbo,
+    );
+
+    /// Build engine + one recorder (as originator AND md feed), run a closure that
+    /// drives the engine via fast_send, flush, and return the recorded sequence.
+    fn drive(f: impl FnOnce(&ActorRef, &ActorRef)) -> Vec<Rec> {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut mgr = Manager::new();
+        let rec = mgr.manage("rec", Box::new(Recorder { log: log.clone() }), ThreadConfig::default());
+        let eng = mgr.manage("eng", Box::new(MatchingEngine::new(Some(rec.clone()))), ThreadConfig::default());
+        mgr.init();
+        f(&eng, &rec);
+        mgr.end(); // FIFO flush + join: every emitted report is processed before we read the log.
+        let out = log.lock().unwrap().clone();
+        out
+    }
+
+    #[test]
+    fn end_to_end_price_time_priority_and_partial_fill() {
+        let got = drive(|eng, rec| {
+            eng.fast_send(&PlaceOrder { order_id: 1, side: Side::Sell, price: 5, qty: 100 }, Some(rec.clone()));
+            eng.fast_send(&PlaceOrder { order_id: 2, side: Side::Sell, price: 5, qty: 100 }, Some(rec.clone()));
+            eng.fast_send(&PlaceOrder { order_id: 3, side: Side::Buy, price: 5, qty: 150 }, Some(rec.clone()));
+        });
+        assert_eq!(
+            got,
+            vec![
+                Rec::Ack { order_id: 1, resting_qty: 100 },
+                Rec::Bbo { bid: None, ask: Some((5, 100)) },
+                Rec::Ack { order_id: 2, resting_qty: 100 },
+                Rec::Bbo { bid: None, ask: Some((5, 200)) },
+                Rec::Fill { order_id: 1, price: 5, qty: 100, leaves: 0, cpty: 3 },
+                Rec::Fill { order_id: 3, price: 5, qty: 100, leaves: 50, cpty: 1 },
+                Rec::Fill { order_id: 2, price: 5, qty: 50, leaves: 50, cpty: 3 },
+                Rec::Fill { order_id: 3, price: 5, qty: 50, leaves: 0, cpty: 2 },
+                Rec::Bbo { bid: None, ask: Some((5, 50)) },
+            ]
+        );
+    }
+
+    #[test]
+    fn end_to_end_cancel() {
+        let got = drive(|eng, rec| {
+            eng.fast_send(&PlaceOrder { order_id: 1, side: Side::Buy, price: 5, qty: 100 }, Some(rec.clone()));
+            eng.fast_send(&CancelOrder { order_id: 1 }, Some(rec.clone()));
+        });
+        assert_eq!(
+            got,
+            vec![
+                Rec::Ack { order_id: 1, resting_qty: 100 },
+                Rec::Bbo { bid: Some((5, 100)), ask: None },
+                Rec::Canceled { order_id: 1, canceled_qty: 100 },
+                Rec::Bbo { bid: None, ask: None },
+            ]
+        );
+    }
+
+    #[test]
+    fn end_to_end_reject_bad_order() {
+        let got = drive(|eng, rec| {
+            eng.fast_send(&PlaceOrder { order_id: 1, side: Side::Buy, price: 0, qty: 100 }, Some(rec.clone()));
+            eng.fast_send(&CancelOrder { order_id: 999 }, Some(rec.clone()));
+        });
+        assert_eq!(
+            got,
+            vec![
+                Rec::Rejected { order_id: 1, reason: "price and qty must be positive" },
+                Rec::Rejected { order_id: 999, reason: "cancel: unknown order" },
+            ]
         );
     }
 }
