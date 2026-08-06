@@ -39,6 +39,10 @@ fn align_up(n: usize, align: usize) -> usize {
 }
 
 /// Shared (cross-thread) free-list + slab allocator for one message type.
+/// Internal pool machinery. `pub` only so the exported `define_pooled_message!`
+/// macro can name it from downstream crates — NOT a public API. Driving these
+/// methods by hand (feeding foreign pointers, mismatched pools) is unsound.
+#[doc(hidden)]
 pub struct Shared {
     free: Mutex<Vec<BlockPtr>>,
     block_size: usize,
@@ -104,11 +108,13 @@ impl Shared {
 }
 
 /// A message type that allocates from a per-type pool. Implemented by
-/// [`define_pooled_message!`]; do not implement by hand.
+/// [`define_pooled_message!`]; do not implement or call by hand. The `__`
+/// methods are macro-support surface, not public API.
 ///
 /// # Safety
 /// `__free` must only be called with a block previously returned by `__alloc`
 /// for the *same* type, after its value has been dropped.
+#[doc(hidden)]
 pub unsafe trait PooledMessage: Message + Sized {
     /// Take a raw, uninitialized, correctly-sized/aligned block from the pool.
     fn __alloc() -> *mut u8;

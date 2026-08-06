@@ -51,6 +51,9 @@ pub struct Manager {
     pending: Vec<(Arc<ActorCell>, ThreadConfig)>,
     threads: Vec<JoinHandle<()>>,
     done: Arc<(Mutex<bool>, Condvar)>,
+    /// True once `init()` has run, so later `manage()` calls spawn immediately
+    /// instead of silently queuing a never-started actor.
+    started: bool,
 }
 
 impl Manager {
@@ -60,6 +63,7 @@ impl Manager {
             pending: Vec::new(),
             threads: Vec::new(),
             done: Arc::new((Mutex::new(false), Condvar::new())),
+            started: false,
         }
     }
 
@@ -80,24 +84,38 @@ impl Manager {
             running: AtomicBool::new(true),
         });
         self.cells.lock().unwrap().push(cell.clone());
-        self.pending.push((cell.clone(), cfg));
+        if self.started {
+            // Registered after init(): spawn now, otherwise it would be a dead
+            // actor whose async messages are silently dropped (only fast_send
+            // would work).
+            self.spawn_cell(cell.clone(), cfg);
+        } else {
+            self.pending.push((cell.clone(), cfg));
+        }
         ActorRef { cell }
     }
 
-    /// Spawn one thread per managed actor and send each a `Start`.
+    /// Spawn one actor's thread and deliver its `Start`.
+    fn spawn_cell(&mut self, cell: Arc<ActorCell>, cfg: ThreadConfig) {
+        let run_cell = cell.clone();
+        let t = std::thread::spawn(move || {
+            apply_thread_config(&cfg);
+            run_actor(run_cell);
+        });
+        self.threads.push(t);
+        cell.queue.push(Envelope {
+            msg: MsgBox::heap(Start),
+            sender: None,
+        });
+    }
+
+    /// Spawn one thread per pending actor and send each a `Start`. After this,
+    /// later `manage()` calls spawn immediately.
     pub fn init(&mut self) {
+        self.started = true;
         let pending = std::mem::take(&mut self.pending);
         for (cell, cfg) in pending {
-            let run_cell = cell.clone();
-            let t = std::thread::spawn(move || {
-                apply_thread_config(&cfg);
-                run_actor(run_cell);
-            });
-            self.threads.push(t);
-            cell.queue.push(Envelope {
-                msg: MsgBox::heap(Start),
-                sender: None,
-            });
+            self.spawn_cell(cell, cfg);
         }
     }
 
@@ -110,9 +128,11 @@ impl Manager {
         }
     }
 
-    /// Shut every actor down and join all threads.
+    /// Shut every actor down and join all threads. Idempotent: safe to call
+    /// again (e.g. from `Drop`) after an explicit call.
     pub fn end(&mut self) {
-        for c in self.cells.lock().unwrap().iter() {
+        // Poison-safe lock so `Drop` can never panic here.
+        for c in self.cells.lock().unwrap_or_else(|e| e.into_inner()).iter() {
             if c.running.load(Ordering::Relaxed) {
                 c.queue.push(Envelope {
                     msg: MsgBox::heap(Shutdown),
@@ -129,6 +149,14 @@ impl Manager {
 impl Default for Manager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Drop for Manager {
+    fn drop(&mut self) {
+        // Shut down and join actor threads even if `end()` was never called —
+        // otherwise the threads are detached and leak, parked forever in pop().
+        self.end();
     }
 }
 
