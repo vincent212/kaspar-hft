@@ -27,9 +27,6 @@
 // MQ0 implementation
 #include "mq0/act/MQ0_server.hpp"
 
-// Remote message registration (must be included to trigger static initializers)
-#include "remote_messages.hpp"
-
 
 namespace kaspr {
 
@@ -65,22 +62,11 @@ Kaspr::Kaspr(const std::string& config_file, bool reset_positions)
     std::cerr << "Kaspr: Loading universe from " << universe_file << std::endl;
     frame::ref::RefData::set_universe(universe_file);
 
-    // Read remote messaging config
-    registry_address_ = pt_general.get<std::string>("kaspr.remote.registry", "");
-    zmq_port_ = pt_general.get<int>("kaspr.remote.zmq_port", 5558);
-
 #ifdef USE_TACHBOOK
     // Read TachBook config (default: disabled)
     enable_tachbook_ = pt_general.get<bool>("kaspr.general.tachbook", false);
     if (enable_tachbook_) {
         std::cerr << "Kaspr: TachBook (MBO L3) enabled - will run silently alongside OB" << std::endl;
-    }
-#endif
-
-    // Set up GlobalRegistry connection (disabled by default - define ENABLE_REMOTE_MESSAGING to enable)
-#ifdef ENABLE_REMOTE_MESSAGING
-    if (!registry_address_.empty()) {
-        setup_remote_messaging();
     }
 #endif
 
@@ -422,30 +408,6 @@ void Kaspr::start_market_data()
 
 }
 
-void Kaspr::setup_remote_messaging()
-{
-    std::string local_endpoint = "tcp://*:" + std::to_string(zmq_port_);
-    std::string connect_endpoint = "tcp://localhost:" + std::to_string(zmq_port_);
-
-    std::cerr << "Kaspr: Setting up ZMQ remote messaging on " << local_endpoint << std::endl;
-    std::cerr << "Kaspr: Connecting to GlobalRegistry at " << registry_address_ << std::endl;
-
-    // Create ZMQ sender for outgoing messages
-    zmq_sender_ = std::make_shared<actors::ZmqSender>(connect_endpoint);
-    add_to_manage_q(zmq_sender_.get());  // Must be managed to process async send requests
-
-    // Connect to GlobalRegistry via Manager's built-in support
-    // This enables auto-registration of all actors when add_to_manage_q() is called
-    // OB_ES, OB_NQ, PositionManager, SOM will all be discoverable
-    set_registry(registry_address_, connect_endpoint, zmq_sender_);
-
-    // Create ZMQ receiver with Manager - auto-routes to all managed actors
-    zmq_receiver_ = new actors::ZmqReceiver(local_endpoint, zmq_sender_, this);
-    add_to_manage_q(zmq_receiver_);
-
-    std::cerr << "Kaspr: ZMQ receiver bound, all actors auto-discoverable" << std::endl;
-}
-
 } // namespace kaspr
 
 // Graceful shutdown flag
@@ -498,8 +460,11 @@ int main(int argc, char* argv[])
     try {
         kaspr::Kaspr mgr(config_file, reset_positions);
 
-        // Enable floating point exception trapping
+        // Enable floating point exception trapping.
+        // feenableexcept is a glibc extension (Linux); not available on macOS.
+#ifndef __APPLE__
         feenableexcept(FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW | FE_INVALID);
+#endif
 
         std::cout << "Kaspr: Initializing actors..." << std::endl;
         mgr.init();

@@ -8,14 +8,13 @@
 
 ## Quick Context for AI Agents
 
-This is a high-performance actor framework for concurrent programming in C++20. It provides:
+This is a high-performance, **in-process** actor framework for concurrent programming in C++20. It provides:
 - Actor-based concurrency (actors communicate via messages, not shared state)
 - Each actor processes messages sequentially in its own thread
-- Both local and remote actor communication
-- Cross-language support via JSON/ZMQ (interops with Dart, Java, Python, Rust)
+- In-process C++/Rust interop (C++ and Rust actors in one process over a C-ABI FFI bridge)
 - Compile-time handler registration via macros
 - CPU affinity and thread priority control
-- Deterministic coordination mode for simulation
+- Groups: N actors on one thread for deterministic in-process simulation
 
 ## File Map
 
@@ -28,12 +27,10 @@ This is a high-performance actor framework for concurrent programming in C++20. 
 | **Group** | `include/actors/act/Group.hpp`, `src/Group.cpp` |
 | **Timer** | `include/actors/act/Timer.hpp` |
 | **Built-in Msgs** | `include/actors/msg/Start.hpp`, `Shutdown.hpp`, `Continue.hpp`, `Timeout.hpp` |
-| **Remote** | `include/actors/remote/ZmqSender.hpp`, `ZmqReceiver.hpp`, `Serialization.hpp` |
-| **Registry** | `include/actors/registry/RegistryClient.hpp`, `GlobalRegistry.hpp` |
-| **Coordination** | `include/actors/coordination/GroupManager.hpp` |
 | **Memory** | `include/actors/MemoryPool.hpp`, `HybridBuffer.hpp` |
-| **Examples** | `examples/ping_pong.cpp`, `remote_ping.cpp`, `remote_pong.cpp` |
-| **Tests** | `tests/test_message.cpp`, `test_queue.cpp`, `test_registry_messages.cpp` |
+| **C++/Rust interop** | `../rust/interop/` (see `../rust/interop/README.md`) |
+| **Examples** | `examples/ping_pong.cpp` |
+| **Tests** | `tests/test_message.cpp`, `test_queue.cpp` |
 
 ## Architecture Overview
 
@@ -51,9 +48,9 @@ Each Actor:
   - Runs operator()() as main loop in its thread
 ```
 
-- **Manager**: Registers actors, manages threads, CPU affinity, registry integration
+- **Manager**: Registers actors, manages threads, CPU affinity
 - **Actor**: Base class with handler dispatch, send/reply/fast_send
-- **ActorRef**: `std::variant<LocalActorRef, RemoteActorRef, RustActorRef>` — location-transparent
+- **ActorRef**: `std::variant<LocalActorRef, RustActorRef>` — a local C++ actor or a Rust actor over the in-process FFI bridge (same `send`/`fast_send` API)
 - **Message**: `Message_N<ID>` template with integer IDs for O(1) dispatch
 - **BQueue**: Blocking queue (mutex + condition_variable) for actor mailbox
 - **Group**: Multiple actors on single thread (lightweight)
@@ -64,7 +61,6 @@ Each Actor:
 
 1. Define struct extending `Message_N<ID>` with a unique integer ID
 2. IDs 1-9 are reserved for system messages; use >= 100 for user messages
-3. For remote use, register with `REGISTER_REMOTE_MESSAGE_N()` macro
 
 ```cpp
 #include "actors/Message.hpp"
@@ -77,9 +73,6 @@ struct OrderMessage : public Message_N<100> {
     OrderMessage(std::string id = "", double p = 0.0, int q = 0)
         : order_id(std::move(id)), price(p), quantity(q) {}
 };
-
-// For remote serialization (if needed):
-REGISTER_REMOTE_MESSAGE_3(OrderMessage, order_id, std::string, price, double, quantity, int)
 ```
 
 ### Adding a Message Handler
@@ -233,86 +226,15 @@ void Actor::operator()() {
 - **No shared state**: Actors communicate only via messages
 - **Message ownership**: Transferred on send, deleted after handling
 
-## Remote Communication (ZMQ)
+## C++/Rust Interop (in-process)
 
-### ZmqSender
+C++ and Rust actors can run in the **same process** and message each other over a C-ABI FFI bridge,
+location-transparently — you call `send` / `fast_send` on an `ActorRef` and never learn whether the
+peer is C++ or Rust. There is **no remote / cross-process actor transport**.
 
-Actor that sends messages via ZMQ PUSH sockets:
-```cpp
-auto sender = std::make_shared<ZmqSender>("tcp://localhost:5002");
-manager.manage(sender.get());
-
-// Create remote reference
-ActorRef remote_pong = sender->remote_ref("pong", "tcp://localhost:5001");
-actor->send(remote_pong, new PingMessage(1));
-```
-
-### ZmqReceiver
-
-Actor that receives via ZMQ PULL socket:
-```cpp
-auto receiver = new ZmqReceiver("tcp://0.0.0.0:5001", sender);
-receiver->register_actor("pong", pong_actor);
-manager.manage(receiver);
-```
-
-### JSON Wire Format
-
-```json
-{
-    "sender_actor": "ping",
-    "sender_endpoint": "tcp://localhost:5002",
-    "receiver": "pong",
-    "message_type": "Ping",
-    "message": { "count": 42 }
-}
-```
-
-### Remote Message Registration
-
-```cpp
-// No fields
-REGISTER_REMOTE_MESSAGE_0(HeartbeatMessage)
-
-// 1 field
-REGISTER_REMOTE_MESSAGE_1(PingMessage, count, int)
-
-// 2 fields
-REGISTER_REMOTE_MESSAGE_2(OrderMessage, order_id, std::string, price, double)
-
-// Up to 10 fields supported
-REGISTER_REMOTE_MESSAGE_10(...)
-
-// Custom serialization
-REGISTER_REMOTE_MESSAGE(ComplexMessage,
-    /* serialize */   { j["data"] = m->data; j["items"] = m->items; },
-    /* deserialize */ { return new ComplexMessage(j["data"], j["items"]); }
-)
-```
-
-## Registry & Coordination
-
-### RegistryClient (GlobalRegistry)
-
-```cpp
-auto registry = RegistryClient("tcp://registry-host:7000");
-registry.connect();
-registry.register_manager("my_manager", "tcp://localhost:5001", {"actor1", "actor2"});
-registry.start_heartbeat_thread("my_manager");
-
-// Lookup
-auto result = registry.lookup_actor("remote_actor");
-if (result.found && !result.ambiguous) {
-    auto ref = sender->remote_ref(result.actor_id, result.endpoint);
-}
-```
-
-### GroupManager (Deterministic Coordination)
-
-- Permission-based protocol: TOKEN → REQUEST → GRANT → DONE
-- FIFO queue for ordering
-- Binary wire format (1 byte type + length-prefixed strings)
-- Debug features: pause, resume, breakpoints, queue inspection
+The message set is declared once in `../rust/interop/messages/interop_messages.h` and a generator
+emits the matching C++ and Rust structs, marshalling, and dispatch. See
+`../rust/interop/README.md` for the full design and build.
 
 ## Build System
 
@@ -324,23 +246,15 @@ make opt       # → lib/libactors.a
 make debug     # → lib/libactorsg.a
 
 # Examples
-make examples  # → bin/ping_pong, bin/remote_ping, bin/remote_pong
+make examples  # → bin/ping_pong
 
 # Tests
 make test      # Build and run unit tests
-
-# Coordination server
-make coordination  # → bin/group_manager
-
-# Registry server
-make registry      # → bin/global_registry
 ```
 
 **Dependencies**:
 - C++20 compiler (g++)
 - Boost 1.88 (circular_buffer, thread)
-- ZeroMQ (libzmq)
-- nlohmann/json (header-only)
 - Google Test (for tests)
 
 ## Testing Patterns
@@ -383,13 +297,10 @@ TEST(SerializationTest, RoundTrip) {
 ### Message Not Delivered
 1. Check `send()` target is valid (not null pointer)
 2. Verify actor is managed by Manager and thread is running
-3. For remote: check ZMQ endpoints match, receiver is bound before sender connects
-4. Check `REGISTER_REMOTE_MESSAGE` for correct field count and types
 
 ### fast_send Issues
 1. Never `fast_send` to self (assertion failure)
 2. `fast_send_mutex` can deadlock if handler calls `fast_send` on same actor
-3. Remote actors don't support `fast_send` (throws)
 
 ### Memory Issues
 1. Always `new` messages for `send()` — framework deletes them
@@ -402,10 +313,9 @@ TEST(SerializationTest, RoundTrip) {
 2. **Self fast_send**: Causes assertion failure — use `send()` to self instead
 3. **Dangling message pointer**: Accessing message after `send()` is undefined behavior
 4. **Missing handler registration**: Forgetting `MESSAGE_HANDLER` in constructor → message silently dropped
-5. **Wrong serialization macro**: Field count mismatch → crash or corrupt data
-6. **Thread affinity without privileges**: `sched_setaffinity` needs CAP_SYS_NICE
-7. **Shutdown ordering**: Always call `manager.end()` before destroying actors
-8. **Reply without sender**: `reply()` asserts `reply_to != nullptr` for async messages
+5. **Thread affinity without privileges**: `sched_setaffinity` needs CAP_SYS_NICE
+6. **Shutdown ordering**: Always call `manager.end()` before destroying actors
+7. **Reply without sender**: `reply()` asserts `reply_to != nullptr` for async messages
 
 ## Message ID Scheme
 
@@ -421,16 +331,18 @@ TEST(SerializationTest, RoundTrip) {
 | 10-99 | Framework reserved |
 | >= 100 | User-defined messages |
 
-## Cross-Language Reference
+## C++ vs Rust Reference
 
-| Feature | C++ | Dart | Python | Rust |
-|---------|-----|------|--------|------|
-| Handler discovery | `MESSAGE_HANDLER` macro | Code generation | Reflection (`getattr`) | `handle_messages!` macro |
-| Message IDs | Integer template param | String type name | Class name | `Any` downcast |
-| Dispatch | Vector cache + RTTI | `if (msg is T)` | `on_<type>()` lookup | Pattern matching |
-| Threading | `std::thread` | Event loop | `threading.Thread` | `std::thread::spawn` |
-| Memory | Manual/smart pointers | GC | GC | Ownership/Box |
-| fast_send | Runs in caller thread | Future/Completer | `Queue.get()` block | Channel recv block |
+The framework has two implementations that interoperate in-process (see `../rust/interop/README.md`):
+
+| Feature | C++ | Rust |
+|---------|-----|------|
+| Handler discovery | `MESSAGE_HANDLER` macro | `handle_messages!` macro |
+| Message IDs | Integer template param | Integer via `define_message!` |
+| Dispatch | Vector cache + RTTI | Integer-id table + `Any` downcast |
+| Threading | `std::thread` | `std::thread::spawn` |
+| Memory | Manual/smart pointers | Ownership/Box + object pool |
+| fast_send | Runs in caller thread | Runs in caller thread |
 
 ## Quick Reference Commands
 
@@ -450,10 +362,6 @@ make examples
 # Run local example
 ./bin/ping_pong
 
-# Run remote example (two terminals)
-./bin/remote_pong --bind tcp://*:5001
-./bin/remote_ping --target tcp://localhost:5001
-
 # Clean
 make clean
 ```
@@ -462,11 +370,5 @@ make clean
 
 - `include/actors/act/README.md` — Manager, Group, Timer docs
 - `include/actors/msg/README.md` — Built-in message types
-- `CPP26_ROADMAP.md` — Performance optimization roadmap
-- `include/actors/coordination/COORDINATION_PROTOCOL.md` — Deterministic coordination protocol
-- `actors/dart/CLAUDE_AGENT_GUIDE.md` — Dart implementation reference
-- `actors/rust/CLAUDE_AGENT_GUIDE.md` — Rust implementation reference
-- `actors/python/CLAUDE_AGENT_GUIDE.md` — Python implementation reference
-- `docs/CROSS_LANGUAGE_EXAMPLE.md` — Multi-language examples
-- `docs/GLOBAL_REGISTRY.md` — Actor discovery service
-- `docs/COORDINATOR.md` — GroupManager protocol
+- `../rust/README.md` — the Rust port of the actor framework
+- `../rust/interop/README.md` — in-process C++/Rust FFI interop

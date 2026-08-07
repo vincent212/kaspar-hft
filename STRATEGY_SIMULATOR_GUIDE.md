@@ -109,28 +109,12 @@ add_to_manage_q(strategy);
 
 A C++ strategy actor receives `EndOfBurst` messages from OB and sends `Order`/`Cancel` messages to SOM. This is the lowest-latency path — no serialization, no network hops.
 
-### Python / Java Strategies (via Coordinator)
+### Rust Strategies (via in-process interop)
 
-External strategies connect via ZMQ using the actor framework's remote messaging:
-
-1. **Coordinator** bridges C++ and external actors
-2. Strategy discovers actors via `GlobalRegistry`
-3. Strategy subscribes to OB events (serialized via ZMQ)
-4. Strategy sends orders to SOM (routed back via ZMQ)
-
-```
-Python Strategy ←→ ZMQ ←→ ZmqReceiver ←→ SOM / OB
-```
-
-Enable remote messaging in `kaspr.ini`:
-```ini
-kaspr {
-    remote {
-        registry tcp://localhost:12020
-        zmq_port 12558
-    }
-}
-```
+Strategies can also be written in Rust and run **in the same process** through the C++/Rust FFI
+interop (see [`actors/rust/interop/README.md`](actors/rust/interop/README.md)) — a Rust actor
+receives OB events and sends orders to SOM over the C-ABI bridge, no serialization or network hops.
+This is in-process only; there is no remote/cross-process strategy transport.
 
 ## Order Book: OB.cpp vs TachBook
 
