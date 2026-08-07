@@ -460,8 +460,11 @@ int main(int argc, char* argv[])
     try {
         kaspr::Kaspr mgr(config_file, reset_positions);
 
-        // Enable floating point exception trapping
+        // Enable floating point exception trapping.
+        // feenableexcept is a glibc extension (Linux); not available on macOS.
+#ifndef __APPLE__
         feenableexcept(FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW | FE_INVALID);
+#endif
 
         std::cout << "Kaspr: Initializing actors..." << std::endl;
         mgr.init();
