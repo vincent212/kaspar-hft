@@ -121,9 +121,48 @@ See [`examples/ping_pong.rs`](examples/ping_pong.rs) for a runnable two-actor ve
 matching engine — its core is a plain, framework-agnostic struct, wrapped by a one-actor
 adapter; see [`MATCHING_ENGINE.md`](MATCHING_ENGINE.md)).
 
+## 7. Cross-language interop (optional, `--features interop`)
+
+`actors2` actors can talk to **C++ Kaspar actors in the same process**, location-transparently —
+you call `send` / `fast_send` and never learn the peer is C++. It is off by default; build with
+`--features interop`.
+
+You do **not** hand-write the FFI. Cross-language messages are declared once as POD C structs in
+`interop/messages/interop_messages.h`, and a generator produces the matching Rust and C++
+definitions, marshalling, and dispatch:
+
+```c
+INTEROP_MESSAGE(Ping, 400)
+typedef struct { int32_t count; } Ping;
+```
+```
+python3 interop/codegen/generate.py     # regenerate both languages from the header
+```
+
+Wire it up at startup: tell the inbound path how to resolve local names, then install the
+generated dispatch. After that, a C++ actor is just another `ActorRef`:
+
+```rust
+use actors2::interop::{generated, register_local_lookup};
+
+let handle = mgr.get_handle();
+register_local_lookup(move |name| handle.get_ref_local(name)); // name -> local ActorRef
+generated::register();                                         // install generated dispatch
+mgr.init();
+
+let cpp = mgr.get_ref("cpp_pricer", "me").unwrap();            // local, else C++ over FFI
+cpp.send(Box::new(generated::Ping { count: 1 }), None);
+```
+
+`fast_send` to a C++ actor delivers inline but returns `None` (no synchronous reply crosses the C
+ABI — use `send` + a reply message when you need a value back). Message ids for interop are
+**400–499** (POD only; `interop_string` for strings). Full details, the schema rules, and the
+hybrid build are in [`interop/README.md`](interop/README.md).
+
 ## Gotchas / limits
 
 - Message ids: unique per type, `< 1024`, `< 16` reserved. A duplicate id routes to the wrong
   handler (debug builds assert; release drops the message).
-- `actors2` is **in-process only** — there is no remote/ZMQ transport or actor registry here.
+- `actors2` is **in-process only** — no remote/ZMQ transport or actor registry. The one
+  cross-boundary path is same-process C++ interop (above), behind the `interop` feature.
 - The mailbox is blocking (`Mutex`+`Condvar`); the fast path is `fast_send` (no queue).

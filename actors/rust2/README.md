@@ -8,6 +8,10 @@ configuration rather than by rewriting code.
 > **Looking for the matching engine?** It ships as an example:
 > [`examples/matching_engine.rs`](examples/matching_engine.rs). See
 > [`MATCHING_ENGINE.md`](MATCHING_ENGINE.md).
+>
+> **C++/Rust interop?** `actors2` actors can talk to C++ Kaspar actors in the same process
+> (optional, `--features interop`), with cross-language messages generated from one header. See
+> [`interop/README.md`](interop/README.md).
 
 ## Quickstart
 

@@ -32,6 +32,20 @@ pub struct ManagerHandle {
 }
 
 impl ManagerHandle {
+    /// Look up a local actor by name, returning a `Local` `ActorRef` or `None`.
+    ///
+    /// `ManagerHandle` is `Clone` + `Send` + `Sync`, so this is the resolver to
+    /// hand to `interop::register_local_lookup` for cross-language inbound
+    /// delivery: `register_local_lookup(move |n| handle.get_ref_local(n))`.
+    pub fn get_ref_local(&self, name: &str) -> Option<ActorRef> {
+        self.cells
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|c| c.name == name)
+            .map(|c| ActorRef::local(c.clone()))
+    }
+
     /// Broadcast Shutdown to every actor and wake `Manager::run`.
     pub fn terminate(&self) {
         for c in self.cells.lock().unwrap().iter() {

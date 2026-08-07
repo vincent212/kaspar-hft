@@ -31,6 +31,11 @@ use crate::actor::ActorRef;
 use crate::message::Message;
 use crate::owner::MsgBox;
 
+/// Generated message types + marshalling + dispatch (from
+/// `interop/messages/interop_messages.h` via `interop/codegen/generate.py`).
+/// Call [`generated::register`] once at startup to install the dispatch.
+pub mod generated;
+
 /// A Rust function that marshals a `rust2` message to its C struct and calls the
 /// matching C++ FFI entry point. Supplied by the generated/hand-written glue, so
 /// the framework core never names concrete message types.
@@ -75,6 +80,28 @@ impl CppRef {
 /// Build a `Cpp` actor ref (used by the lookup glue).
 pub fn cpp_ref(target: &str, sender: &str, send_fn: CppSendFn, fast_fn: CppSendFn) -> ActorRef {
     ActorRef::Cpp(CppRef::new(target, sender, send_fn, fast_fn))
+}
+
+/// A NUL-terminated actor name built on the stack (no heap allocation) for
+/// passing across the C ABI. Names are bounded by `INTEROP_STRING_MAX` (64) on
+/// the C++ side, so a fixed 64-byte buffer holds any valid name; longer input is
+/// truncated to 63 bytes + NUL (matching the C++ `interop_string` limit). The
+/// generated outbound marshalling uses this to avoid a per-send allocation.
+pub struct NameBuf([u8; 64]);
+
+impl NameBuf {
+    #[inline]
+    pub fn new(s: &str) -> Self {
+        let mut buf = [0u8; 64];
+        let n = s.len().min(63);
+        buf[..n].copy_from_slice(&s.as_bytes()[..n]);
+        // buf[n..] stays zero, so the string is always NUL-terminated.
+        NameBuf(buf)
+    }
+    #[inline]
+    pub fn as_ptr(&self) -> *const c_char {
+        self.0.as_ptr() as *const c_char
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +151,28 @@ static RUST_EXISTS: OnceLock<RustExistsFn> = OnceLock::new();
 /// Returns `true` if installed, `false` if one was already registered (install-once).
 pub fn register_rust_exists(f: RustExistsFn) -> bool {
     RUST_EXISTS.set(f).is_ok()
+}
+
+/// App-provided resolver: local Rust actor name -> its `ActorRef`. The generated
+/// inbound dispatcher uses this to deliver a C++-originated message to the right
+/// local actor. It is a boxed closure (not a bare `fn`) so it can capture a
+/// `ManagerHandle`; install it once at startup:
+/// `register_local_lookup(move |n| handle.get_ref_local(n))`.
+type LocalLookup = Box<dyn Fn(&str) -> Option<ActorRef> + Send + Sync>;
+static LOCAL_LOOKUP: OnceLock<LocalLookup> = OnceLock::new();
+
+/// Register the local-actor resolver. Returns `true` if installed, `false` if one
+/// was already registered (install-once).
+pub fn register_local_lookup<F>(f: F) -> bool
+where
+    F: Fn(&str) -> Option<ActorRef> + Send + Sync + 'static,
+{
+    LOCAL_LOOKUP.set(Box::new(f)).is_ok()
+}
+
+/// Resolve a local actor by name (used by the generated inbound dispatcher).
+pub fn resolve_local(name: &str) -> Option<ActorRef> {
+    LOCAL_LOOKUP.get().and_then(|f| f(name))
 }
 
 /// # Safety: `p` must be null or a valid NUL-terminated C string.
