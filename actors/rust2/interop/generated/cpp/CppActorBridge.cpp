@@ -12,66 +12,78 @@ void cpp_actor_shutdown() { g_manager = nullptr; }
 
 int32_t cpp_actor_exists(const char* name) {
     if (!name || !g_manager) return 0;
-    return g_manager->get_actor_by_name(name) != nullptr ? 1 : 0;
+    try {
+        return g_manager->get_actor_by_name(name).is_valid() ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
 }
 
 int32_t cpp_actor_send(const char* actor, const char* sender, int32_t id, const void* data) {
     (void)sender; // reply routing: see Phase 3
     if (!actor || !data || !g_manager) return -1;
-    actors::Actor* target = g_manager->get_actor_by_name(actor);
-    if (!target) return -1;
-    switch (id) {
-        case 400: {
-            msg::Ping m = msg::Ping::from_c(*static_cast<const ::Ping*>(data));
-            target->send(new msg::Ping(m), nullptr);
-            return 0;
+    try {
+        actors::ActorRef target = g_manager->get_actor_by_name(actor);
+        if (!target.is_valid()) return -1;
+        switch (id) {
+            case 400: {
+                msg::Ping m = msg::Ping::from_c(*static_cast<const ::Ping*>(data));
+                target.send(new msg::Ping(m), nullptr);
+                return 0;
+            }
+            case 401: {
+                msg::Pong m = msg::Pong::from_c(*static_cast<const ::Pong*>(data));
+                target.send(new msg::Pong(m), nullptr);
+                return 0;
+            }
+            case 402: {
+                msg::DataRequest m = msg::DataRequest::from_c(*static_cast<const ::DataRequest*>(data));
+                target.send(new msg::DataRequest(m), nullptr);
+                return 0;
+            }
+            case 403: {
+                msg::DataResponse m = msg::DataResponse::from_c(*static_cast<const ::DataResponse*>(data));
+                target.send(new msg::DataResponse(m), nullptr);
+                return 0;
+            }
+            default: return -2;
         }
-        case 401: {
-            msg::Pong m = msg::Pong::from_c(*static_cast<const ::Pong*>(data));
-            target->send(new msg::Pong(m), nullptr);
-            return 0;
-        }
-        case 402: {
-            msg::DataRequest m = msg::DataRequest::from_c(*static_cast<const ::DataRequest*>(data));
-            target->send(new msg::DataRequest(m), nullptr);
-            return 0;
-        }
-        case 403: {
-            msg::DataResponse m = msg::DataResponse::from_c(*static_cast<const ::DataResponse*>(data));
-            target->send(new msg::DataResponse(m), nullptr);
-            return 0;
-        }
-        default: return -2;
+    } catch (...) {
+        return -1; // unknown actor / non-local fast_send / lookup failure
     }
 }
 
 int32_t cpp_actor_fast_send(const char* actor, const char* sender, int32_t id, const void* data) {
     (void)sender; // reply routing: see Phase 3
     if (!actor || !data || !g_manager) return -1;
-    actors::Actor* target = g_manager->get_actor_by_name(actor);
-    if (!target) return -1;
-    switch (id) {
-        case 400: {
-            msg::Ping m = msg::Ping::from_c(*static_cast<const ::Ping*>(data));
-            target->fast_send(&m, nullptr);
-            return 0;
+    try {
+        actors::ActorRef target = g_manager->get_actor_by_name(actor);
+        if (!target.is_valid()) return -1;
+        switch (id) {
+            case 400: {
+                msg::Ping m = msg::Ping::from_c(*static_cast<const ::Ping*>(data));
+                target.fast_send(&m, nullptr);
+                return 0;
+            }
+            case 401: {
+                msg::Pong m = msg::Pong::from_c(*static_cast<const ::Pong*>(data));
+                target.fast_send(&m, nullptr);
+                return 0;
+            }
+            case 402: {
+                msg::DataRequest m = msg::DataRequest::from_c(*static_cast<const ::DataRequest*>(data));
+                target.fast_send(&m, nullptr);
+                return 0;
+            }
+            case 403: {
+                msg::DataResponse m = msg::DataResponse::from_c(*static_cast<const ::DataResponse*>(data));
+                target.fast_send(&m, nullptr);
+                return 0;
+            }
+            default: return -2;
         }
-        case 401: {
-            msg::Pong m = msg::Pong::from_c(*static_cast<const ::Pong*>(data));
-            target->fast_send(&m, nullptr);
-            return 0;
-        }
-        case 402: {
-            msg::DataRequest m = msg::DataRequest::from_c(*static_cast<const ::DataRequest*>(data));
-            target->fast_send(&m, nullptr);
-            return 0;
-        }
-        case 403: {
-            msg::DataResponse m = msg::DataResponse::from_c(*static_cast<const ::DataResponse*>(data));
-            target->fast_send(&m, nullptr);
-            return 0;
-        }
-        default: return -2;
+    } catch (...) {
+        return -1; // unknown actor / non-local fast_send / lookup failure
     }
 }
 

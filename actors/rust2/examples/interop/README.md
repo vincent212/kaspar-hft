@@ -37,7 +37,10 @@ phase that builds the C++ side — its layout and link model are below.
              (cpp_actor_* / rust_actor_* resolve at final link)
 ```
 
-## Hybrid layout
+## Hybrid layout (planned — added with the C++ hybrid phase)
+
+These files are **not in this change yet** (the C++ side needs the boost `actors/cpp` build); the
+runnable Rust half today is the test above. The intended layout:
 
 ```
 examples/interop/ping_pong/

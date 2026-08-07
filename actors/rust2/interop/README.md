@@ -121,9 +121,16 @@ replies across the boundary). Location-transparent request/reply should therefor
 
 The Rust and C++ objects are linked into **one** executable; the `cpp_actor_*` / `rust_actor_*`
 symbols resolve at that final link. Build `actors2` as a static lib with `--features interop`,
-compile the generated + hand-written C++ against `actors/cpp`, and link them together (see
-[`examples/interop/`](../examples/interop/) for a worked Makefile). The C++ side needs the
-`actors/cpp` build (boost); `cargo` alone does not produce the hybrid binary.
+compile the generated + hand-written C++ against `actors/cpp`, and link them together. See
+[`examples/interop/`](../examples/interop/) for the layout and link model (the runnable
+`Makefile` + C++ `main` land with the C++ hybrid phase — they are not in this change). The C++
+side needs the `actors/cpp` build (boost); `cargo` alone does not produce the hybrid binary.
+
+**Linking note:** with `--features interop` the crate references the C++ `cpp_actor_*` symbols,
+left undefined in the Rust object and resolved at the final link against the C++ bridge. A
+Rust-only build that enables the feature but links neither the C++ bridge nor a stub for those
+symbols may fail on a strict linker (`--no-undefined` / `-z defs`); the Rust interop tests link
+tiny `extern "C"` stubs for exactly this reason.
 
 ## Limits (Phase 2)
 

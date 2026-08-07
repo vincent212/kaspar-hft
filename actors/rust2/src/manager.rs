@@ -110,14 +110,10 @@ impl Manager {
     }
 
     /// Look up an actor by name among the **local** actors this Manager owns.
-    /// Returns a `Local` `ActorRef`, or `None`.
+    /// Returns a `Local` `ActorRef`, or `None`. Delegates to
+    /// [`ManagerHandle::get_ref_local`] so the lookup lives in one place.
     pub fn get_ref_local(&self, name: &str) -> Option<ActorRef> {
-        self.cells
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|c| c.name == name)
-            .map(|c| ActorRef::local(c.clone()))
+        self.get_handle().get_ref_local(name)
     }
 
     /// Location-transparent lookup: a local actor if present, otherwise (with the

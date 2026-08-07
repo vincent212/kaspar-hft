@@ -75,7 +75,39 @@ def parse_header(path: str) -> List[Message]:
             is_bool = ('bool' in body[fm.end():line_end].lower()) and array_size is None
             fields.append(Field(fname, c_type, is_string, is_bool, array_size))
         messages.append(Message(name, msg_id, fields))
+
+    _validate(content, messages)
     return messages
+
+
+def _validate(content: str, messages: List[Message]) -> None:
+    """Fail loudly rather than silently dropping or mis-generating a message."""
+    # Every INTEROP_MESSAGE annotation must have produced a parsed message. A
+    # mismatch means a struct body didn't match (e.g. a `}` inside a comment),
+    # which would otherwise silently omit the message from BOTH languages.
+    # Count annotations with a numeric id (the `#define INTEROP_MESSAGE(name, id)`
+    # line has a non-numeric second arg, so it is correctly excluded).
+    annotated = len(re.findall(r'INTEROP_MESSAGE\s*\(\s*\w+\s*,\s*\d+\s*\)', content))
+    if annotated != len(messages):
+        raise SystemExit(
+            f'error: {annotated} INTEROP_MESSAGE annotation(s) but parsed {len(messages)} '
+            f'struct(s). A message failed to parse (a `}}` inside a field comment, or a '
+            f'malformed struct?). Fix the header — silent drops defeat the point of codegen.'
+        )
+    # Ids: unique, and in the range the framework/header require. `< 16` is
+    # reserved by actors2; `< 512` is the interop ceiling (also < HANDLER_CACHE_SIZE).
+    seen = {}
+    for m in messages:
+        if not (16 <= m.msg_id < 512):
+            raise SystemExit(
+                f'error: {m.name} id {m.msg_id} out of range — must be 16..511 '
+                f'(interop convention is 400..499).'
+            )
+        if m.msg_id in seen:
+            raise SystemExit(
+                f'error: duplicate message id {m.msg_id}: {seen[m.msg_id]} and {m.name}.'
+            )
+        seen[m.msg_id] = m.name
 
 
 # ---------------------------------------------------------------------------
@@ -166,8 +198,11 @@ def generate_rust(messages: List[Message], out_path: str) -> None:
             w(f'    pub {f.name}: {rust_wire(f)},')
         w('}')
         w('')
-        # native struct
-        w('#[derive(Clone, Debug, Default)]')
+        # native struct. `Default` is only derivable when every field is Default,
+        # and Rust arrays impl Default only for length <= 32 — so skip it if a
+        # field is a larger array (Clone/Debug work for any length).
+        can_default = all(f.array_size is None or f.array_size <= 32 for f in msg.fields)
+        w('#[derive(Clone, Debug, Default)]' if can_default else '#[derive(Clone, Debug)]')
         w(f'pub struct {msg.name} {{')
         for f in msg.fields:
             w(f'    pub {f.name}: {rust_native(f)},')
@@ -305,6 +340,7 @@ def generate_cpp_messages(messages: List[Message], cpp_dir: str) -> None:
     w('#include <string>')
     w('#include <array>')
     w('#include <cstring>')
+    w('#include <algorithm>')
     w('#include "actors/Message.hpp"')
     w('#include "interop_messages.h"')
     w('')
@@ -321,7 +357,10 @@ def generate_cpp_messages(messages: List[Message], cpp_dir: str) -> None:
         for f in msg.fields:
             if f.is_string:
                 w(f'        std::strncpy(c.{f.name}.data, {f.name}.c_str(), INTEROP_STRING_MAX - 1);')
-                w(f'        c.{f.name}.len = static_cast<uint32_t>({f.name}.size());')
+                # len reflects the bytes actually copied (<= 63), never the full
+                # untruncated size — keeps the wire self-consistent.
+                w(f'        c.{f.name}.len = static_cast<uint32_t>('
+                  f'std::min<size_t>({f.name}.size(), INTEROP_STRING_MAX - 1));')
             elif f.is_bool:
                 w(f'        c.{f.name} = {f.name} ? 1 : 0;')
             elif f.array_size:
@@ -335,7 +374,10 @@ def generate_cpp_messages(messages: List[Message], cpp_dir: str) -> None:
         w(f'        {msg.name} m;')
         for f in msg.fields:
             if f.is_string:
-                w(f'        m.{f.name} = std::string(c.{f.name}.data, c.{f.name}.len);')
+                # Clamp the untrusted length to the buffer size (mirrors Rust's
+                # decode) so a bad `len` can't read past the fixed 64-byte buffer.
+                w(f'        m.{f.name} = std::string(c.{f.name}.data, '
+                  f'std::min<uint32_t>(c.{f.name}.len, INTEROP_STRING_MAX));')
             elif f.is_bool:
                 w(f'        m.{f.name} = c.{f.name} != 0;')
             elif f.array_size:
@@ -383,28 +425,44 @@ def generate_cpp_bridge(messages: List[Message], cpp_dir: str) -> None:
     w('void cpp_actor_init(actors::Manager* mgr) { g_manager = mgr; }')
     w('void cpp_actor_shutdown() { g_manager = nullptr; }')
     w('')
+    # NOTE: actors::Manager::get_actor_by_name returns an ActorRef BY VALUE and
+    # THROWS std::runtime_error when the name is unknown (Manager.cpp). So every
+    # lookup is wrapped in try/catch: a C++ exception must never unwind across an
+    # extern "C" frame, and "not found" must become a return code, not a throw.
     w('int32_t cpp_actor_exists(const char* name) {')
     w('    if (!name || !g_manager) return 0;')
-    w('    return g_manager->get_actor_by_name(name) != nullptr ? 1 : 0;')
+    w('    try {')
+    w('        return g_manager->get_actor_by_name(name).is_valid() ? 1 : 0;')
+    w('    } catch (...) {')
+    w('        return 0;')
+    w('    }')
     w('}')
     w('')
     for fn, method in (('cpp_actor_send', 'send'), ('cpp_actor_fast_send', 'fast_send')):
         w(f'int32_t {fn}(const char* actor, const char* sender, int32_t id, const void* data) {{')
         w('    (void)sender; // reply routing: see Phase 3')
         w('    if (!actor || !data || !g_manager) return -1;')
-        w('    actors::Actor* target = g_manager->get_actor_by_name(actor);')
-        w('    if (!target) return -1;')
-        w('    switch (id) {')
+        w('    try {')
+        w('        actors::ActorRef target = g_manager->get_actor_by_name(actor);')
+        w('        if (!target.is_valid()) return -1;')
+        w('        switch (id) {')
         for msg in messages:
-            w(f'        case {msg.msg_id}: {{')
-            w(f'            msg::{msg.name} m = msg::{msg.name}::from_c(*static_cast<const ::{msg.name}*>(data));')
+            w(f'            case {msg.msg_id}: {{')
+            w(f'                msg::{msg.name} m = msg::{msg.name}::from_c('
+              f'*static_cast<const ::{msg.name}*>(data));')
             if method == 'send':
-                w(f'            target->send(new msg::{msg.name}(m), nullptr);')
+                w(f'                target.send(new msg::{msg.name}(m), nullptr);')
             else:
-                w('            target->fast_send(&m, nullptr);')
-            w('            return 0;')
-            w('        }')
-        w('        default: return -2;')
+                # fast_send returns the reply unique_ptr; dropped (no reply across
+                # FFI). ActorRef::fast_send throws for non-local targets — the
+                # surrounding try/catch turns that into -1.
+                w('                target.fast_send(&m, nullptr);')
+            w('                return 0;')
+            w('            }')
+        w('            default: return -2;')
+        w('        }')
+        w('    } catch (...) {')
+        w('        return -1; // unknown actor / non-local fast_send / lookup failure')
         w('    }')
         w('}')
         w('')

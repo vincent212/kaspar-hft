@@ -3,6 +3,7 @@
 #include <string>
 #include <array>
 #include <cstring>
+#include <algorithm>
 #include "actors/Message.hpp"
 #include "interop_messages.h"
 
@@ -51,14 +52,14 @@ struct DataRequest : public actors::Message_N<402> {
         ::DataRequest c{};
         c.request_id = request_id;
         std::strncpy(c.symbol.data, symbol.c_str(), INTEROP_STRING_MAX - 1);
-        c.symbol.len = static_cast<uint32_t>(symbol.size());
+        c.symbol.len = static_cast<uint32_t>(std::min<size_t>(symbol.size(), INTEROP_STRING_MAX - 1));
         return c;
     }
 
     static DataRequest from_c(const ::DataRequest& c) {
         DataRequest m;
         m.request_id = c.request_id;
-        m.symbol = std::string(c.symbol.data, c.symbol.len);
+        m.symbol = std::string(c.symbol.data, std::min<uint32_t>(c.symbol.len, INTEROP_STRING_MAX));
         return m;
     }
 };
