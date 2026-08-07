@@ -39,8 +39,6 @@
 //
 #include "actors/act/Manager.hpp"
 #include "actors/ActorRef.hpp"
-#include "actors/remote/ZmqSender.hpp"
-#include "actors/remote/ZmqReceiver.hpp"
 
 //
 // Frame components (OB, Timer)
@@ -171,14 +169,6 @@ struct Kaspr : public actors::Manager
     cfsmp positionman = nullptr;
 
     //
-    // Remote messaging (GlobalRegistry + ZMQ)
-    //
-    std::shared_ptr<actors::ZmqSender> zmq_sender_ = nullptr;
-    actors::ZmqReceiver* zmq_receiver_ = nullptr;
-    std::string registry_address_;
-    int zmq_port_ = 0;
-
-    //
     // Position reset flag (for forward testing)
     //
     bool reset_positions_ = false;
@@ -252,12 +242,6 @@ private:
      * @param venue Exchange venue (CMEMDFUT or CMEMD)
      */
     void start_channel(const std::string& config_name, en::x venue);
-
-    /**
-     * Set up ZMQ remote messaging and GlobalRegistry connection
-     * Enables Python actors to discover and communicate with C++ actors
-     */
-    void setup_remote_messaging();
 };
 
 } // namespace kaspr
