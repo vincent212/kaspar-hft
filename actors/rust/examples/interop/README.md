@@ -1,6 +1,6 @@
 # Interop example — C++ ↔ Rust in one process
 
-A worked example of the cross-language interop: a **C++ actor and a Rust (`actors2`) actor
+A worked example of the cross-language interop: a **C++ actor and a Rust (`actors`) actor
 exchanging messages in a single process** over the C ABI, location-transparently. Start with the
 concepts in [`../../interop/README.md`](../../interop/README.md); this page is the build recipe.
 
@@ -30,7 +30,7 @@ phase that builds the C++ side — its layout and link model are below.
    src/interop/generated.rs                interop/generated/cpp/*
    (Rust structs + dispatch)               (C++ classes + bridge)
               │                                       │
-        actors2 (staticlib,                    actors/cpp objects
+        actors (staticlib,                    actors/cpp objects
          --features interop)                   (+ generated bridge)
               └──────────────────┬───────────────────┘
                           one linked executable
@@ -54,14 +54,14 @@ examples/interop/ping_pong/
 
 1. **Rust → static library**, with interop on:
    ```
-   cargo build --release --features interop     # produces libactors2.a (+ your rust_side)
+   cargo build --release --features interop     # produces libactors.a (+ your rust_side)
    ```
    The Rust side calls `cpp_actor_send` / `cpp_actor_fast_send` / `cpp_actor_exists`; those stay
    **undefined** in the Rust object and are resolved at the final link (below).
 
 2. **C++ → objects**, compiling the generated bridge + your `main.cpp` against `actors/cpp`
    (needs the boost-based C++ build). The C++ side calls the exported
-   `rust_actor_send` / `rust_actor_fast_send` / `rust_actor_exists`, which `actors2` provides.
+   `rust_actor_send` / `rust_actor_fast_send` / `rust_actor_exists`, which `actors` provides.
 
 3. **Link them into one executable.** Because both halves are in the same binary, every
    `cpp_actor_*` and `rust_actor_*` symbol resolves, and messages flow both ways.
@@ -71,7 +71,7 @@ At startup each side registers the other:
 ```rust
 // Rust
 register_local_lookup(move |name| handle.get_ref_local(name));
-actors2::interop::generated::register();
+actors::interop::generated::register();
 ```
 ```cpp
 // C++

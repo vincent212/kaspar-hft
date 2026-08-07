@@ -4,7 +4,7 @@ A single-actor, per-symbol **spot limit-order-book matching engine** with **pric
 priority** and first-class partial fills — ships as
 [`examples/matching_engine.rs`](examples/matching_engine.rs).
 
-It demonstrates the intended shape of an exchange matching engine on `actors2`:
+It demonstrates the intended shape of an exchange matching engine on `actors`:
 
 - **Core** (`OrderBook`) — a plain, framework-agnostic, **deterministic** struct: `place` /
   `cancel` / `replace` mutate an in-memory book and **return the resulting events**. This is
@@ -21,7 +21,7 @@ cargo run --release --example matching_engine -- bench   # throughput benchmark
 ```
 
 In-memory only; no server/container. To run as a standalone binary, copy the single file into a
-`cargo new` project's `src/main.rs` with `actors2` as a dependency.
+`cargo new` project's `src/main.rs` with `actors` as a dependency.
 
 ## Messages
 

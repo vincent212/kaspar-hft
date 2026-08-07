@@ -17,7 +17,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use actors2::{define_message, define_pooled_message, handle_messages, ActorContext, Manager, MsgBox, ThreadConfig};
+use actors::{define_message, define_pooled_message, handle_messages, ActorContext, Manager, MsgBox, ThreadConfig};
 
 struct Ping {
     n: u64,
@@ -56,7 +56,7 @@ fn report(label: &str, samples: &mut [u64]) {
 }
 
 fn main() {
-    println!("=== actors2 fast_send latency benchmark ===");
+    println!("=== actors fast_send latency benchmark ===");
 
     let mut mgr = Manager::new();
     // manage() returns a usable ActorRef without starting a thread.

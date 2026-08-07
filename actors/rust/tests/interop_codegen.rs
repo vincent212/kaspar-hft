@@ -13,9 +13,9 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::sync::Mutex;
 
-use actors2::interop::generated::{register, CPing, DataRequest, Ping};
-use actors2::interop::{register_local_lookup, rust_actor_send};
-use actors2::{handle_messages, ActorContext, Manager, ThreadConfig};
+use actors::interop::generated::{register, CPing, DataRequest, Ping};
+use actors::interop::{register_local_lookup, rust_actor_send};
+use actors::{handle_messages, ActorContext, Manager, ThreadConfig};
 
 // ---------------------------------------------------------------------------
 // Mock C++ bridge: the symbols the generated outbound path calls. In a real

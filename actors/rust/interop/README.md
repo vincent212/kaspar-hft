@@ -1,9 +1,9 @@
-# actors2 — C++/Rust Interop
+# actors — C++/Rust Interop
 
-Run C++ actors and Rust (`actors2`) actors **in one process**, talking over a C ABI,
+Run C++ actors and Rust (`actors`) actors **in one process**, talking over a C ABI,
 **location-transparently**: an actor calls `send` / `fast_send` and never learns whether the
 peer is C++ or Rust. This is feature-gated — build with `--features interop`; with the feature
-off, `actors2` is pure in-process Rust and none of this is compiled.
+off, `actors` is pure in-process Rust and none of this is compiled.
 
 ```
 Rust actor  ──send/fast_send──▶  ActorRef::Cpp  ──C ABI──▶  C++ actor
@@ -42,8 +42,8 @@ Rules (POD only — nothing that owns heap crosses FFI):
 | Array | `double prices[5];` | `[f64; 5]` / `std::array<double,5>` |
 
 - Never use `int`/`long` (ABI-unstable width).
-- Message **ids 400–499**, and must be `< 512` (also `< actors2` `HANDLER_CACHE_SIZE` = 1024).
-  Ids `< 16` are reserved by `actors2` for framework messages.
+- Message **ids 400–499**, and must be `< 512` (also `< actors` `HANDLER_CACHE_SIZE` = 1024).
+  Ids `< 16` are reserved by `actors` for framework messages.
 
 ## Add a message in three steps
 
@@ -76,15 +76,15 @@ The Rust output is compiled and unit-tested here (`cargo test --features interop
 
 ## The contract the generated code plugs into
 
-The generator never names `actors2` internals — it only fills in a small, fixed set of hooks
+The generator never names `actors` internals — it only fills in a small, fixed set of hooks
 (hand-written, in `src/interop/mod.rs`). This is what keeps generated code from drifting against
 the framework as messages are added:
 
 **Rust side**
 ```rust
-use actors2::interop::{generated, register_local_lookup};
+use actors::interop::{generated, register_local_lookup};
 
-let mut mgr = actors2::Manager::new();
+let mut mgr = actors::Manager::new();
 mgr.manage("calc", Box::new(Worker), Default::default());
 
 // 1. tell the inbound dispatcher how to resolve a local actor name -> ActorRef
@@ -120,7 +120,7 @@ replies across the boundary). Location-transparent request/reply should therefor
 ## Building a hybrid binary
 
 The Rust and C++ objects are linked into **one** executable; the `cpp_actor_*` / `rust_actor_*`
-symbols resolve at that final link. Build `actors2` as a static lib with `--features interop`,
+symbols resolve at that final link. Build `actors` as a static lib with `--features interop`,
 compile the generated + hand-written C++ against `actors/cpp`, and link them together. See
 [`examples/interop/`](../examples/interop/) for the layout and link model (the runnable
 `Makefile` + C++ `main` land with the C++ hybrid phase — they are not in this change). The C++

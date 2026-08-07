@@ -267,7 +267,7 @@ macro_rules! handle_messages {
                             } else {
                                 debug_assert!(
                                     false,
-                                    "actors2: message id/type mismatch (duplicate message id?)"
+                                    "actors: message id/type mismatch (duplicate message id?)"
                                 );
                             }
                         };

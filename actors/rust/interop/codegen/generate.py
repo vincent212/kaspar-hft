@@ -3,12 +3,12 @@
 # Licensed under the MIT License. See LICENSE file in the project root.
 
 """
-Code generator for actors2 C++/Rust FFI interop.
+Code generator for actors C++/Rust FFI interop.
 
 Reads ONE input — messages/interop_messages.h — and emits matching definitions,
 marshalling, and dispatch for both languages, so the two sides can never drift.
 
-Emitted (relative to actors/rust2/):
+Emitted (relative to actors/rust/):
   src/interop/generated.rs              Rust: wire + native structs, define_message!,
                                         to_c/from_c, inbound dispatch, outbound
                                         marshalling, cpp lookup, register()
@@ -95,7 +95,7 @@ def _validate(content: str, messages: List[Message]) -> None:
             f'malformed struct?). Fix the header — silent drops defeat the point of codegen.'
         )
     # Ids: unique, and in the range the framework/header require. `< 16` is
-    # reserved by actors2; `< 512` is the interop ceiling (also < HANDLER_CACHE_SIZE).
+    # reserved by actors; `< 512` is the interop ceiling (also < HANDLER_CACHE_SIZE).
     seen = {}
     for m in messages:
         if not (16 <= m.msg_id < 512):

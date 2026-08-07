@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use actors2::{define_message, handle_messages, ActorContext, Manager, ThreadConfig};
+use actors::{define_message, handle_messages, ActorContext, Manager, ThreadConfig};
 
 struct Ping;
 define_message!(Ping, 10);

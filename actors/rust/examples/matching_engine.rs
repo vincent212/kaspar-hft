@@ -7,7 +7,7 @@
 //!
 //! A **single-actor**, per-symbol spot limit-order-book matching engine with
 //! **price-time (FIFO) priority** and first-class partial fills. It demonstrates
-//! the intended shape of an exchange matching engine on `actors2`:
+//! the intended shape of an exchange matching engine on `actors`:
 //!
 //! - The **core** ([`OrderBook`]) is a plain, framework-agnostic, deterministic
 //!   struct: `place`/`cancel`/`replace` mutate an in-memory book and **return the
@@ -27,7 +27,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use actors2::{
+use actors::{
     define_pooled_message, handle_messages, ActorContext, ActorRef, Manager, MsgBox, ThreadConfig,
 };
 

@@ -3,7 +3,7 @@
 
 //! Tests for `MsgBox` allocation/free, including the zero-sized-type heap path.
 
-use actors2::{define_message, Message, MsgBox};
+use actors::{define_message, Message, MsgBox};
 
 /// Zero-sized message (like the framework's `Start`/`Shutdown` signals).
 struct Zst;

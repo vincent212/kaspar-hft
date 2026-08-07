@@ -32,7 +32,7 @@ pub trait Message: Any + Send + 'static {
 /// define_message!(Ping, 10);
 /// ```
 ///
-/// Ids must be `< actors2::HANDLER_CACHE_SIZE`. Ids `< 16` are reserved for
+/// Ids must be `< actors::HANDLER_CACHE_SIZE`. Ids `< 16` are reserved for
 /// framework messages (see `messages.rs`).
 #[macro_export]
 macro_rules! define_message {

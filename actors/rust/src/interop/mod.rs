@@ -36,7 +36,7 @@ use crate::owner::MsgBox;
 /// Call [`generated::register`] once at startup to install the dispatch.
 pub mod generated;
 
-/// A Rust function that marshals a `rust2` message to its C struct and calls the
+/// A Rust function that marshals a `rust` message to its C struct and calls the
 /// matching C++ FFI entry point. Supplied by the generated/hand-written glue, so
 /// the framework core never names concrete message types.
 ///

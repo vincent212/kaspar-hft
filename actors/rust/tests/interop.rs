@@ -13,11 +13,11 @@ use std::os::raw::c_void;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-use actors2::interop::{
+use actors::interop::{
     cpp_ref, register_cpp_lookup, register_inbound, register_rust_exists, rust_actor_exists,
     rust_actor_send,
 };
-use actors2::{define_message, handle_messages, ActorContext, ActorRef, Manager, Message, ThreadConfig};
+use actors::{define_message, handle_messages, ActorContext, ActorRef, Manager, Message, ThreadConfig};
 
 // A message + its POD C-struct (hand-written here; codegen produces this in Phase 2).
 struct Ping {

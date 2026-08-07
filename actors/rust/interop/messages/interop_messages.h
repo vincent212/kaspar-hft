@@ -22,8 +22,8 @@
  *     (1 = true, 0 = false). The generator emits a real bool on each side.
  *   - Strings: use `interop_string` (fixed-size, no heap).
  *   - Arrays: `double prices[5];` -> `[f64; 5]` / `std::array<double,5>`.
- *   - Message ids: 400-499, and MUST be < 512 (also < actors2 HANDLER_CACHE_SIZE
- *     of 1024). Ids < 16 are reserved by actors2 for framework messages.
+ *   - Message ids: 400-499, and MUST be < 512 (also < actors HANDLER_CACHE_SIZE
+ *     of 1024). Ids < 16 are reserved by actors for framework messages.
  */
 
 #ifndef INTEROP_MESSAGES_H

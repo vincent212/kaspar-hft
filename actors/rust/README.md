@@ -1,6 +1,6 @@
-# actors2 — a performance-first Rust actor framework
+# actors — a performance-first Rust actor framework
 
-`actors2` is a Rust port of the C++ **Kaspar** actor framework (`../cpp`), tuned for
+`actors` is a Rust port of the C++ **Kaspar** actor framework (`../cpp`), tuned for
 low-latency / HFT-style workloads. It is **in-process and shared-nothing**: actors own their
 state and communicate only by messages, with two message paths that let you tune latency by
 configuration rather than by rewriting code.
@@ -9,14 +9,14 @@ configuration rather than by rewriting code.
 > [`examples/matching_engine.rs`](examples/matching_engine.rs). See
 > [`MATCHING_ENGINE.md`](MATCHING_ENGINE.md).
 >
-> **C++/Rust interop?** `actors2` actors can talk to C++ Kaspar actors in the same process
+> **C++/Rust interop?** `actors` actors can talk to C++ Kaspar actors in the same process
 > (optional, `--features interop`), with cross-language messages generated from one header. See
 > [`interop/README.md`](interop/README.md).
 
 ## Quickstart
 
 ```sh
-# from this directory (actors/rust2)
+# from this directory (actors/rust)
 cargo test                                   # framework unit/integration tests
 cargo run   --example matching_engine        # matching-engine demo (build book, cross, cancel, replace)
 cargo test  --example matching_engine        # the engine's 15 tests
@@ -57,7 +57,7 @@ Release profile is tuned (`lto`, `codegen-units=1`, `panic=abort`); add
 
 This is a fresh, focused port — it is **not** the full C++/`m2_kspr` framework:
 
-- **No remote transport / registry / coordination** — `actors2` is **in-process only** (no ZMQ,
+- **No remote transport / registry / coordination** — `actors` is **in-process only** (no ZMQ,
   no `GlobalRegistry`, no cross-process actor lookup). Those live in the private multi-language
   build, not here.
 - **No Groups** (many actors sharing one thread), **no timer subsystem**, **no console/monitoring**
@@ -68,8 +68,8 @@ This is a fresh, focused port — it is **not** the full C++/`m2_kspr` framework
 ## Layout
 
 ```
-actors/rust2
-├── src/          # the framework crate (actors2)
+actors/rust
+├── src/          # the framework crate (actors)
 │   ├── actor.rs      # Actor trait, ActorContext, fast_send, dispatch (handle_messages!)
 │   ├── message.rs    # Message trait + define_message! (integer ids)
 │   ├── pool.rs       # per-type object pool + define_pooled_message!

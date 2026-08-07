@@ -1,11 +1,11 @@
 # Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# actors2 — a performance-first Rust port of the C++ Kaspar actor framework
+# actors — a performance-first Rust port of the C++ Kaspar actor framework
 # (companion to actors/cpp; independent of the idiomatic Rust port).
 
 [package]
-name = "actors2"
+name = "actors"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"

@@ -8,7 +8,7 @@
 //!
 //! Run: `cargo run --release --example ping_pong`
 
-use actors2::{define_message, handle_messages, ActorContext, ActorRef, Manager, ManagerHandle, Start, ThreadConfig};
+use actors::{define_message, handle_messages, ActorContext, ActorRef, Manager, ManagerHandle, Start, ThreadConfig};
 
 struct Ping {
     count: i32,
@@ -50,7 +50,7 @@ impl PongActor {
 handle_messages!(PongActor, Ping => on_ping);
 
 fn main() {
-    println!("=== actors2 async ping-pong ===");
+    println!("=== actors async ping-pong ===");
     let mut mgr = Manager::new();
     let handle = mgr.get_handle();
 
