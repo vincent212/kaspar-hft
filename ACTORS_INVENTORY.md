@@ -54,16 +54,7 @@ These actors are instantiated by `kaspr.cpp` during startup.
 | Actor | Header | Purpose |
 |-------|--------|---------|
 | Manager | `actors/cpp/include/actors/act/Manager.hpp` | Actor lifecycle management |
-| Group | `actors/cpp/include/actors/act/Group.hpp` | Actor grouping and bulk operations |
-| ZmqSender | `actors/cpp/include/actors/remote/ZmqSender.hpp` | ZMQ outgoing message transport |
-| ZmqReceiver | `actors/cpp/include/actors/remote/ZmqReceiver.hpp` | ZMQ incoming message routing |
-| RemoteReplyProxy | `actors/cpp/include/actors/remote/ZmqReceiver.hpp` | Proxy for remote actor replies |
-| RegistryActor | `actors/cpp/include/actors/registry/RegistryActor.hpp` | Actor name → address registry |
-| RegistryQueryActor | `actors/cpp/include/actors/registry/RegistryQueryActor.hpp` | Registry lookup queries |
-| CoordinatorActor | `actors/cpp/include/actors/coordination/CoordinatorActor.hpp` | Multi-actor coordination |
-| MonitorActor | `actors/cpp/include/actors/coordination/MonitorActor.hpp` | Actor health monitoring |
-| ZmqRouterSender | `actors/cpp/include/actors/coordination/ZmqRouterSender.hpp` | ZMQ ROUTER pattern sender |
-| ZmqRouterReceiver | `actors/cpp/include/actors/coordination/ZmqRouterReceiver.hpp` | ZMQ ROUTER pattern receiver |
+| Group | `actors/cpp/include/actors/act/Group.hpp` | Runs N actors on one thread for deterministic in-process simulation |
 | ConsoleActor | `actors/cpp/include/actors/console/ConsoleActor.hpp` | Console I/O actor |
 | MQ0ServerActor | `actors/cpp/include/actors/console/MQ0ServerActor.hpp` | ZMQ-based console server |
 

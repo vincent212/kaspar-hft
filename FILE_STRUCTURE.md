@@ -16,7 +16,7 @@ m2_kaspar is the standalone build tree for the Kaspr CME futures trading system.
 |-----------|----:|-------------|
 | ilink_v8 | 141,050 | CME iLink v8 SBE protocol headers (generated) |
 | mktdata_v12 | 92,690 | CME MDP3 v12 SBE market data headers (generated) |
-| actors | 15,794 | Actor framework (messaging, lifecycle, coordination) |
+| actors | 15,794 | Actor framework (messaging, lifecycle) + Rust port + C++/Rust interop |
 | frame_kaspr | 11,642 | Trading framework (OB, SOM, BFA, Timer, Console) |
 | chutil | 11,584 | Core utilities (time, CSV, sockets, enums) |
 | ilink | 5,225 | iLink session management (handler, receiver, arbiter) |
@@ -47,11 +47,10 @@ The entry point. Wires all actors together and starts the system.
 | `src/kaspr.cpp` | Main application — creates actors, configures channels, starts event loop |
 | `src/kaspr.hpp` | Kaspr class declaration — actor references, factory method declarations |
 | `src/Makefile` | Builds the `kaspr` executable |
-| `src/remote_messages.hpp` | Remote messaging definitions for ZMQ-based external strategies |
 | `src/clean.sh` | Clean build artifacts |
 | `start.sh` | Shell script to launch kaspr |
 | `STRATEGY_SIMULATOR_GUIDE.md` | Developer guide for simulation, paper trading, and live trading modes |
-| `messages.schema.json` | JSON schema for remote actor messages |
+| `messages.schema.json` | Legacy message-definition schema (unused by the in-process build) |
 | `config/kaspr.ini` | Main config — channels, universe, MQ0 port |
 | `config/cme.ini` | CME multicast addresses and ports per channel |
 | `config/light.ini` | Shadow light parameters (nlevels, ord_sz, throttle) |
@@ -63,7 +62,7 @@ The entry point. Wires all actors together and starts the system.
 
 ### `actors/` — Actor Framework
 
-Lock-free actor system with message passing, lifecycle management, remote messaging via ZMQ, and multi-process coordination.
+In-process actor system with message passing and lifecycle management, plus an in-process C++/Rust FFI interop bridge. No remote/cross-process transport.
 
 #### `actors/cpp/` — Core Framework
 
@@ -121,60 +120,21 @@ Lock-free actor system with message passing, lifecycle management, remote messag
 | `ConsoleMessages.hpp` | Console message types |
 | `Table.hpp` | ASCII table formatter for console output |
 
-#### `actors/cpp/include/actors/remote/` — Remote Messaging (ZMQ)
-
-| File | Description |
-|------|-------------|
-| `ZmqSender.hpp` | ZMQ outgoing message transport |
-| `ZmqReceiver.hpp` | ZMQ incoming message routing + RemoteReplyProxy |
-| `Serialization.hpp` | Message serialization for ZMQ transport |
-| `Reject.hpp` | Remote message rejection |
-
-#### `actors/cpp/include/actors/registry/` — Actor Registry
-
-| File | Description |
-|------|-------------|
-| `RegistryActor.hpp` | Actor name → address registry (server) |
-| `RegistryClient.hpp` | Registry client for lookups |
-| `RegistryQueryActor.hpp` | Registry query actor |
-| `RegistryMessages.hpp` | Registry protocol messages |
-
-#### `actors/cpp/include/actors/coordination/` — Multi-Process Coordination
-
-| File | Description |
-|------|-------------|
-| `CoordinatorActor.hpp` | Bridges C++ actors with external processes |
-| `MonitorActor.hpp` | Actor health monitoring |
-| `GroupManager.hpp` | Manages groups of coordinated actors |
-| `ZmqRouterSender.hpp` | ZMQ ROUTER pattern sender |
-| `ZmqRouterReceiver.hpp` | ZMQ ROUTER pattern receiver |
-| `CoordinationActorMessages.hpp` | Coordination protocol messages |
-| `CoordinatorMessages.hpp` | Coordinator-specific messages |
-| `messages.hpp` | Shared coordination message types |
-
 #### `actors/cpp/src/` — Implementation Files
 
 | Directory | Contents |
 |-----------|----------|
 | `console/` | ConsoleActor.cpp, MQ0ServerActor.cpp, Table.cpp |
-| `coordination/` | CoordinatorActor.cpp, GroupManager.cpp, ZmqRouterReceiver.cpp, ZmqRouterSender.cpp |
-| `registry/` | RegistryActor.cpp, RegistryClient.cpp, RegistryQueryActor.cpp |
 
 #### `actors/cpp/tests/` — Unit Tests
 
 | Directory | Contents |
 |-----------|----------|
-| `coordination/` | Tests for coordinated groups, group manager, messages, permission timeout |
-| `registry/` | Tests for global registry |
-| `remote/` | Tests for ZMQ sender |
-| (root) | test_message.cpp, test_queue.cpp, test_registry_messages.cpp |
+| (root) | test_message.cpp, test_queue.cpp |
 
-#### `actors/generated/cpp/` — Generated Code
-
-| File | Description |
-|------|-------------|
-| `RemoteMessages.hpp` | Generated C++ remote message types |
-| `kasprowy_messages.hpp` | Generated Kaspr-specific message types |
+> **Scope:** the actor framework is **in-process only** — local actors plus the in-process
+> C++/Rust FFI interop (see [`actors/rust/interop/`](actors/rust/interop/README.md)). There is no
+> remote/cross-process actor transport.
 
 ---
 

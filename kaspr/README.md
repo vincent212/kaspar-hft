@@ -177,11 +177,9 @@ Connect via ZMQ to port 9001 (use `tools/console_client.py` or `test/test_strate
 |------|---------|
 | `src/kaspr.cpp` | Main implementation |
 | `src/kaspr.hpp` | Header with Kaspr class |
-| `src/remote_messages.hpp` | Remote actor message serialization |
 | `src/queries.hpp` | MySQL queries for position persistence |
 | `config/kaspr.ini` | Main configuration |
 | `config/universe.csv` | Instrument definitions |
-| `generated/python/messages.py` | Auto-generated Python message types |
-| `tools/console_client.py` | ZMQ console client |
+| `tools/console_client.py` | ZMQ console client for the local MQ0 monitoring port |
 | `test/test_strategy.py` | Interactive order test harness |
-| `messages.schema.json` | Schema driving code generation |
+| `messages.schema.json` | Legacy message-definition schema (unused by the build) |

@@ -27,7 +27,7 @@ Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) —
 - **Lock-free actor framework** — Custom C++20 actor system with O(1) message dispatch, CPU affinity, and sub-microsecond send latency. No shared state, no locks on the hot path.
 - **iLink 3 reference implementation** — Full CME iLink v3 session handler with SBE encoding, HMAC authentication, sequence management, and primary/secondary failover.
 - **PCAP reader** — Replay recorded CME multicast captures for deterministic backtesting. Bit-exact reproduction of market conditions.
-- **External strategy support** — Write strategies in C++ (in-process, lowest latency), or Python/Java via ZMQ remote actor messaging.
+- **External strategy support** — Write strategies in C++ as in-process actors (lowest latency), or in Rust via the in-process C++/Rust FFI interop.
 - **Rust port of the actor framework** — [`actors/rust`](actors/rust) (crate `actors`): a from-scratch Rust port of the actor core — on-stack `fast_send`, integer-ID O(1) dispatch, the `BQueue` mailbox, and the per-type object pool — shipping a **price-time-FIFO order-book matching engine** as an example. In-process (no remoting/registry/groups yet).
 
 ## Architecture
@@ -92,7 +92,7 @@ cd kaspr && ./kaspr config/kaspr.ini --reset-positions
 
 ```
 kaspar/
-├── actors/          C++20 actor framework (messaging, lifecycle, ZMQ remoting)
+├── actors/          C++20 actor framework (messaging, lifecycle) + Rust port + C++/Rust interop
 │   └── rust/       Rust port of the actor framework (actors) + matching_engine example
 ├── kaspr/           Main application (startup, wiring, config)
 ├── mdp3/            MDP3 market data decoder and recovery
@@ -151,10 +151,9 @@ The actor framework provides the concurrency model for the entire system:
 
 - **Lock-free message passing** — `BQueue` mailbox per actor, O(1) dispatch via `handler_cache[msg_id]`
 - **Groups for deterministic simulation** — A `Group` runs multiple actors on a single thread with a single message queue. In PCAP replay, the entire pipeline (OB, lights, SOM) goes into one Group — market data, order placement, and fill matching execute in strict message order. No race conditions, no timing artifacts. Bit-exact reproducible backtests.
-- **Coordinator for distributed simulation** — When simulation spans multiple processes or languages, the `CoordinatorActor` and `GroupManager` provide deterministic cross-process ordering. Groups in separate processes (C++, Python, Rust) request permission from a central GroupManager before processing each message — TOKEN → REQUEST → GRANT → DONE protocol over ZMQ. This extends single-process determinism to distributed systems.
 - **Zero-copy fast path** — `fast_send()` executes handler in caller's thread for synchronous queries
 - **CPU affinity** — Pin actors to cores for deterministic latency
-- **Distributed deployment via ZMQ** — Actors communicate transparently across processes and machines. Run one actor group in NY4 and another in DC3 — actors use the same `send()` API whether the target is local or remote. `ZmqSender`/`ZmqReceiver` handle serialization and transport. Actors don't know or care if they're talking to a local thread or a remote process.
+- **C++/Rust interop** — C++ and Rust actors can talk in the **same process** over a C-ABI FFI bridge (`send`/`fast_send` work across the language boundary). This is in-process only — there is no remote/cross-process actor transport.
 - **Rust port** — [`actors/rust`](actors/rust) (`actors`) is a from-scratch Rust port of the actor core (on-stack `fast_send`, integer-ID O(1) dispatch, `BQueue`, object pool). It is in-process only (no ZMQ/registry/groups yet) and ships a **matching engine** as an example — see its [README](actors/rust/README.md) and [DEVELOPER_GUIDE](actors/rust/DEVELOPER_GUIDE.md).
 
 The design behind the framework is written up here:
