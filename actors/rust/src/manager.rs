@@ -32,6 +32,20 @@ pub struct ManagerHandle {
 }
 
 impl ManagerHandle {
+    /// Look up a local actor by name, returning a `Local` `ActorRef` or `None`.
+    ///
+    /// `ManagerHandle` is `Clone` + `Send` + `Sync`, so this is the resolver to
+    /// hand to `interop::register_local_lookup` for cross-language inbound
+    /// delivery: `register_local_lookup(move |n| handle.get_ref_local(n))`.
+    pub fn get_ref_local(&self, name: &str) -> Option<ActorRef> {
+        self.cells
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|c| c.name == name)
+            .map(|c| ActorRef::local(c.clone()))
+    }
+
     /// Broadcast Shutdown to every actor and wake `Manager::run`.
     pub fn terminate(&self) {
         for c in self.cells.lock().unwrap().iter() {
@@ -92,7 +106,32 @@ impl Manager {
         } else {
             self.pending.push((cell.clone(), cfg));
         }
-        ActorRef { cell }
+        ActorRef::local(cell)
+    }
+
+    /// Look up an actor by name among the **local** actors this Manager owns.
+    /// Returns a `Local` `ActorRef`, or `None`. Delegates to
+    /// [`ManagerHandle::get_ref_local`] so the lookup lives in one place.
+    pub fn get_ref_local(&self, name: &str) -> Option<ActorRef> {
+        self.get_handle().get_ref_local(name)
+    }
+
+    /// Location-transparent lookup: a local actor if present, otherwise (with the
+    /// `interop` feature) a C++ actor reachable over FFI. `sender` is the name to
+    /// attach for replies from a cross-language target.
+    pub fn get_ref(&self, name: &str, sender: &str) -> Option<ActorRef> {
+        if let Some(r) = self.get_ref_local(name) {
+            return Some(r);
+        }
+        #[cfg(feature = "interop")]
+        {
+            crate::interop::resolve_cpp(name, sender)
+        }
+        #[cfg(not(feature = "interop"))]
+        {
+            let _ = sender;
+            None
+        }
     }
 
     /// Spawn one actor's thread and deliver its `Start`.

@@ -3,7 +3,7 @@
 
 //! Tests for the per-type object pool + `MsgBox`.
 
-use actors2::{define_pooled_message, Message, MsgBox};
+use actors::{define_pooled_message, Message, MsgBox};
 
 struct P {
     v: u64,

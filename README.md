@@ -28,7 +28,7 @@ Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) —
 - **iLink 3 reference implementation** — Full CME iLink v3 session handler with SBE encoding, HMAC authentication, sequence management, and primary/secondary failover.
 - **PCAP reader** — Replay recorded CME multicast captures for deterministic backtesting. Bit-exact reproduction of market conditions.
 - **External strategy support** — Write strategies in C++ (in-process, lowest latency), or Python/Java via ZMQ remote actor messaging.
-- **Rust port of the actor framework** — [`actors/rust2`](actors/rust2) (crate `actors2`): a from-scratch Rust port of the actor core — on-stack `fast_send`, integer-ID O(1) dispatch, the `BQueue` mailbox, and the per-type object pool — shipping a **price-time-FIFO order-book matching engine** as an example. In-process (no remoting/registry/groups yet).
+- **Rust port of the actor framework** — [`actors/rust`](actors/rust) (crate `actors`): a from-scratch Rust port of the actor core — on-stack `fast_send`, integer-ID O(1) dispatch, the `BQueue` mailbox, and the per-type object pool — shipping a **price-time-FIFO order-book matching engine** as an example. In-process (no remoting/registry/groups yet).
 
 ## Architecture
 
@@ -93,7 +93,7 @@ cd kaspr && ./kaspr config/kaspr.ini --reset-positions
 ```
 kaspar/
 ├── actors/          C++20 actor framework (messaging, lifecycle, ZMQ remoting)
-│   └── rust2/       Rust port of the actor framework (actors2) + matching_engine example
+│   └── rust/       Rust port of the actor framework (actors) + matching_engine example
 ├── kaspr/           Main application (startup, wiring, config)
 ├── mdp3/            MDP3 market data decoder and recovery
 ├── mcast_recv/      Multicast UDP receiver and PCAP reader
@@ -155,7 +155,7 @@ The actor framework provides the concurrency model for the entire system:
 - **Zero-copy fast path** — `fast_send()` executes handler in caller's thread for synchronous queries
 - **CPU affinity** — Pin actors to cores for deterministic latency
 - **Distributed deployment via ZMQ** — Actors communicate transparently across processes and machines. Run one actor group in NY4 and another in DC3 — actors use the same `send()` API whether the target is local or remote. `ZmqSender`/`ZmqReceiver` handle serialization and transport. Actors don't know or care if they're talking to a local thread or a remote process.
-- **Rust port** — [`actors/rust2`](actors/rust2) (`actors2`) is a from-scratch Rust port of the actor core (on-stack `fast_send`, integer-ID O(1) dispatch, `BQueue`, object pool). It is in-process only (no ZMQ/registry/groups yet) and ships a **matching engine** as an example — see its [README](actors/rust2/README.md) and [DEVELOPER_GUIDE](actors/rust2/DEVELOPER_GUIDE.md).
+- **Rust port** — [`actors/rust`](actors/rust) (`actors`) is a from-scratch Rust port of the actor core (on-stack `fast_send`, integer-ID O(1) dispatch, `BQueue`, object pool). It is in-process only (no ZMQ/registry/groups yet) and ships a **matching engine** as an example — see its [README](actors/rust/README.md) and [DEVELOPER_GUIDE](actors/rust/DEVELOPER_GUIDE.md).
 
 The design behind the framework is written up here:
 [**Low-Latency Actor Systems in C++ and Rust**](https://vincentmayeski.substack.com/p/low-latency-actor-systems-in-c-and)
@@ -190,7 +190,7 @@ private:
 };
 ```
 
-The same strategy actor in the Rust port ([`actors/rust2`](actors/rust2)) — handlers are plain methods,
+The same strategy actor in the Rust port ([`actors/rust`](actors/rust)) — handlers are plain methods,
 wired up by the `handle_messages!` macro; message ids are compile-time constants:
 
 ```rust
@@ -220,7 +220,7 @@ handle_messages!(MyStrategy,
 ```
 
 See [actors/cpp/CLAUDE_AGENT_GUIDE.md](actors/cpp/CLAUDE_AGENT_GUIDE.md) for the complete C++ framework
-reference, and [actors/rust2/DEVELOPER_GUIDE.md](actors/rust2/DEVELOPER_GUIDE.md) for the Rust API.
+reference, and [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) for the Rust API.
 
 ## Console
 
@@ -262,9 +262,9 @@ kaspr {
 | [ACTORS_INVENTORY.md](ACTORS_INVENTORY.md) | Every actor in the system |
 | [FILE_STRUCTURE.md](FILE_STRUCTURE.md) | Complete file and directory inventory |
 | [CLAUDE_AGENT_GUIDE.md](actors/cpp/CLAUDE_AGENT_GUIDE.md) | Actor framework technical reference |
-| [actors/rust2/README.md](actors/rust2/README.md) | Rust actor-framework port — overview & quickstart |
-| [actors/rust2/DEVELOPER_GUIDE.md](actors/rust2/DEVELOPER_GUIDE.md) | Writing actors in the Rust port |
-| [actors/rust2/MATCHING_ENGINE.md](actors/rust2/MATCHING_ENGINE.md) | The matching-engine example |
+| [actors/rust/README.md](actors/rust/README.md) | Rust actor-framework port — overview & quickstart |
+| [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) | Writing actors in the Rust port |
+| [actors/rust/MATCHING_ENGINE.md](actors/rust/MATCHING_ENGINE.md) | The matching-engine example |
 
 ## Performance Characteristics
 
@@ -278,7 +278,7 @@ kaspr {
 
 Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.substack.com](https://vincentmayeski.substack.com)):
 
-- [**Low-Latency Actor Systems in C++ and Rust**](https://vincentmayeski.substack.com/p/low-latency-actor-systems-in-c-and) — building the same actor framework in both languages: this repo's C++ core and its Rust port (`actors/rust2`), and what carries over vs. what the borrow checker changes.
+- [**Low-Latency Actor Systems in C++ and Rust**](https://vincentmayeski.substack.com/p/low-latency-actor-systems-in-c-and) — building the same actor framework in both languages: this repo's C++ core and its Rust port (`actors/rust`), and what carries over vs. what the borrow checker changes.
 - [**The Actor Model for Low-Latency Software**](https://vincentmayeski.substack.com/p/the-actor-model-for-low-latency-software) — a concurrency model invented for single-CPU machines turned out to be the right one for multicore.
 - [**A High-Performance Mailbox in the Kaspar C++ Actor System**](https://vincentmayeski.substack.com/p/high-performance-mailbox-in-the-kaspar) — ring buffers are great until they overflow (the `BQueue` design).
 - [**A Custom Memory Allocator for the Kaspar Actor System Gives 10× Improvement**](https://vincentmayeski.substack.com/p/a-custom-memory-allocator-for-the) — when you know the size at compile time, almost everything an allocator does becomes unnecessary (the object pool).

@@ -8,7 +8,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use actors2::{define_message, define_pooled_message, MsgBox};
+use actors::{define_message, define_pooled_message, MsgBox};
 
 /// A message big enough to be representative of a real market-data payload.
 struct HeapMsg {
@@ -28,7 +28,7 @@ struct PoolMsg {
 define_pooled_message!(PoolMsg, 201, 64);
 
 fn main() {
-    println!("=== actors2 allocation benchmark: heap vs pool ===");
+    println!("=== actors allocation benchmark: heap vs pool ===");
     let n: u64 = 5_000_000;
 
     // Warmup the pool so the slab is already carved.

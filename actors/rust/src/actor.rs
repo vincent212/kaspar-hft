@@ -101,7 +101,11 @@ impl<'a> ActorContext<'a> {
 }
 
 /// Shared per-actor state: the actor behind its per-actor lock, plus its mailbox.
-pub(crate) struct ActorCell {
+///
+/// Public only because `ActorRef::Local` names it; not part of the public API
+/// (all fields are crate-private).
+#[doc(hidden)]
+pub struct ActorCell {
     pub(crate) name: String,
     /// Per-actor lock — the `fast_send_mutex` analog. Guards ALL dispatch
     /// (both `fast_send` and the async run loop) so any thread can fast_send here.
@@ -119,25 +123,41 @@ pub(crate) struct Envelope {
 }
 
 /// A cloneable handle (address) to an actor. Supports `send` and `fast_send`.
+///
+/// `Local` wraps the actor's cell (in-process). With the `interop` feature, a
+/// `Cpp` variant reaches a C++ actor over the FFI bridge (see [`crate::interop`]);
+/// callers use the same `send`/`fast_send` API regardless of the target's language.
 #[derive(Clone)]
-pub struct ActorRef {
-    pub(crate) cell: Arc<ActorCell>,
+pub enum ActorRef {
+    Local(Arc<ActorCell>),
+    #[cfg(feature = "interop")]
+    Cpp(crate::interop::CppRef),
 }
 
 impl ActorRef {
+    /// Construct a local reference (internal).
+    pub(crate) fn local(cell: Arc<ActorCell>) -> Self {
+        ActorRef::Local(cell)
+    }
+
     /// The actor's name.
     pub fn name(&self) -> &str {
-        &self.cell.name
+        match self {
+            ActorRef::Local(cell) => &cell.name,
+            #[cfg(feature = "interop")]
+            ActorRef::Cpp(r) => r.name(),
+        }
     }
 
     /// Async, fire-and-forget: enqueue an owned message into the target's mailbox.
     ///
     /// Accepts `Box::new(msg)` (heap) or `MsgBox::pooled(msg)` (pooled).
     pub fn send(&self, msg: impl Into<MsgBox>, sender: Option<ActorRef>) {
-        self.cell.queue.push(Envelope {
-            msg: msg.into(),
-            sender,
-        });
+        match self {
+            ActorRef::Local(cell) => cell.queue.push(Envelope { msg: msg.into(), sender }),
+            #[cfg(feature = "interop")]
+            ActorRef::Cpp(r) => r.send(msg.into(), sender),
+        }
     }
 
     /// Synchronous on-stack call: run the target's handler inline on THIS thread
@@ -146,21 +166,30 @@ impl ActorRef {
     /// Takes the target's per-actor lock (uncontended ≈ a function call). Any
     /// actor may call this on any other actor. Never call it on yourself from
     /// within your own handler (non-reentrant lock → deadlock).
+    ///
+    /// For a `Cpp` target the handler runs inline over FFI but **no reply can cross
+    /// the C ABI**, so this returns `None` (delivered, no synchronous reply).
     pub fn fast_send(&self, msg: &dyn Message, sender: Option<ActorRef>) -> Option<MsgBox> {
-        let mut ctx = ActorContext::new(sender, Some(self), true);
-        // Recover from a poisoned lock (a prior handler panicked) instead of
-        // cascading that panic into this caller — one bad message must not brick
-        // the actor for everyone else.
-        let mut guard = self.cell.actor.lock().unwrap_or_else(|e| e.into_inner());
-        guard.process_message(msg, &mut ctx);
-        ctx.reply_slot
+        match self {
+            ActorRef::Local(cell) => {
+                let mut ctx = ActorContext::new(sender, Some(self), true);
+                // Recover from a poisoned lock (a prior handler panicked) instead of
+                // cascading that panic into this caller — one bad message must not
+                // brick the actor for everyone else.
+                let mut guard = cell.actor.lock().unwrap_or_else(|e| e.into_inner());
+                guard.process_message(msg, &mut ctx);
+                ctx.reply_slot
+            }
+            #[cfg(feature = "interop")]
+            ActorRef::Cpp(r) => r.fast_send(msg, sender),
+        }
     }
 }
 
 /// Run loop for one actor (executed on the actor's own thread by the Manager).
 /// Pops the mailbox and dispatches under the per-actor lock until Shutdown.
 pub(crate) fn run_actor(cell: Arc<ActorCell>) {
-    let self_ref = ActorRef { cell: cell.clone() };
+    let self_ref = ActorRef::local(cell.clone());
 
     // init() under the lock. `unwrap_or_else(into_inner)` recovers a poisoned
     // lock so a panic in one actor can't cascade to others via `.unwrap()`.
@@ -238,7 +267,7 @@ macro_rules! handle_messages {
                             } else {
                                 debug_assert!(
                                     false,
-                                    "actors2: message id/type mismatch (duplicate message id?)"
+                                    "actors: message id/type mismatch (duplicate message id?)"
                                 );
                             }
                         };

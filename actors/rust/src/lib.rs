@@ -3,7 +3,7 @@
 //
 // Licensed under the MIT License. See LICENSE file in the project root.
 
-//! `actors2` — a performance-first Rust port of the C++ Kaspar actor framework.
+//! `actors` — a performance-first Rust port of the C++ Kaspar actor framework.
 //!
 //! Design goals (ported from `actors/cpp`):
 //! - **On-stack `fast_send`**: synchronous, inline, any actor → any actor.
@@ -12,6 +12,8 @@
 //! - Pool allocator (Phase 4) and CPU pinning (Linux) for latency.
 
 pub mod actor;
+#[cfg(feature = "interop")]
+pub mod interop;
 pub mod manager;
 pub mod message;
 pub mod messages;
