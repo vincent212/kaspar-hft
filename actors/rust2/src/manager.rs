@@ -92,7 +92,36 @@ impl Manager {
         } else {
             self.pending.push((cell.clone(), cfg));
         }
-        ActorRef { cell }
+        ActorRef::local(cell)
+    }
+
+    /// Look up an actor by name among the **local** actors this Manager owns.
+    /// Returns a `Local` `ActorRef`, or `None`.
+    pub fn get_ref_local(&self, name: &str) -> Option<ActorRef> {
+        self.cells
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|c| c.name == name)
+            .map(|c| ActorRef::local(c.clone()))
+    }
+
+    /// Location-transparent lookup: a local actor if present, otherwise (with the
+    /// `interop` feature) a C++ actor reachable over FFI. `sender` is the name to
+    /// attach for replies from a cross-language target.
+    pub fn get_ref(&self, name: &str, sender: &str) -> Option<ActorRef> {
+        if let Some(r) = self.get_ref_local(name) {
+            return Some(r);
+        }
+        #[cfg(feature = "interop")]
+        {
+            return crate::interop::resolve_cpp(name, sender);
+        }
+        #[cfg(not(feature = "interop"))]
+        {
+            let _ = sender;
+            None
+        }
     }
 
     /// Spawn one actor's thread and deliver its `Start`.

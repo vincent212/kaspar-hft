@@ -12,6 +12,8 @@
 //! - Pool allocator (Phase 4) and CPU pinning (Linux) for latency.
 
 pub mod actor;
+#[cfg(feature = "interop")]
+pub mod interop;
 pub mod manager;
 pub mod message;
 pub mod messages;
