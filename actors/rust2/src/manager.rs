@@ -115,7 +115,7 @@ impl Manager {
         }
         #[cfg(feature = "interop")]
         {
-            return crate::interop::resolve_cpp(name, sender);
+            crate::interop::resolve_cpp(name, sender)
         }
         #[cfg(not(feature = "interop"))]
         {

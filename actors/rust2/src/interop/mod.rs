@@ -86,8 +86,11 @@ static CPP_LOOKUP: OnceLock<CppLookupFn> = OnceLock::new();
 
 /// Register how to resolve a name to a C++ actor (returning an [`ActorRef::Cpp`]).
 /// Called once at startup by the glue; `Manager::get_ref` uses it after a local miss.
-pub fn register_cpp_lookup(f: CppLookupFn) {
-    let _ = CPP_LOOKUP.set(f);
+///
+/// Returns `true` if this call installed the resolver, `false` if one was already
+/// registered (registration is install-once; a second call is a no-op).
+pub fn register_cpp_lookup(f: CppLookupFn) -> bool {
+    CPP_LOOKUP.set(f).is_ok()
 }
 
 /// Resolve a C++ actor by name (used by `Manager::get_ref`).
@@ -109,16 +112,18 @@ pub type InboundFn = fn(name: &str, sender: &str, msg_id: i32, data: *const c_vo
 static INBOUND: OnceLock<InboundFn> = OnceLock::new();
 
 /// Register the inbound dispatcher used by `rust_actor_send`/`rust_actor_fast_send`.
-pub fn register_inbound(f: InboundFn) {
-    let _ = INBOUND.set(f);
+/// Returns `true` if installed, `false` if one was already registered (install-once).
+pub fn register_inbound(f: InboundFn) -> bool {
+    INBOUND.set(f).is_ok()
 }
 
 type RustExistsFn = fn(name: &str) -> bool;
 static RUST_EXISTS: OnceLock<RustExistsFn> = OnceLock::new();
 
 /// Register the "does this Rust actor exist?" callback used by `rust_actor_exists`.
-pub fn register_rust_exists(f: RustExistsFn) {
-    let _ = RUST_EXISTS.set(f);
+/// Returns `true` if installed, `false` if one was already registered (install-once).
+pub fn register_rust_exists(f: RustExistsFn) -> bool {
+    RUST_EXISTS.set(f).is_ok()
 }
 
 /// # Safety: `p` must be null or a valid NUL-terminated C string.
@@ -128,6 +133,17 @@ unsafe fn cstr<'a>(p: *const c_char) -> &'a str {
     } else {
         CStr::from_ptr(p).to_str().unwrap_or("")
     }
+}
+
+/// Status returned across the C ABI when a Rust callback panics. A panic must NOT
+/// unwind past an `extern "C"` frame (it aborts the process on modern toolchains
+/// and is UB on older ones), and one bad message handler must not take down the
+/// whole process — so we catch it at the boundary and report an error code.
+const FFI_PANIC: c_int = -3;
+
+/// Run `f` at the FFI boundary, catching any panic and returning `fallback`.
+fn guard(fallback: c_int, f: impl FnOnce() -> c_int) -> c_int {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or(fallback)
 }
 
 /// C++ → Rust: async send. Called by the C++ bridge.
@@ -142,10 +158,10 @@ pub unsafe extern "C" fn rust_actor_send(
     msg_id: c_int,
     data: *const c_void,
 ) -> c_int {
-    match INBOUND.get() {
+    guard(FFI_PANIC, || match INBOUND.get() {
         Some(f) => f(cstr(name), cstr(sender), msg_id, data, false),
         None => -1,
-    }
+    })
 }
 
 /// C++ → Rust: inline (fast) send. Called by the C++ bridge.
@@ -159,10 +175,10 @@ pub unsafe extern "C" fn rust_actor_fast_send(
     msg_id: c_int,
     data: *const c_void,
 ) -> c_int {
-    match INBOUND.get() {
+    guard(FFI_PANIC, || match INBOUND.get() {
         Some(f) => f(cstr(name), cstr(sender), msg_id, data, true),
         None => -1,
-    }
+    })
 }
 
 /// C++ → Rust: existence check. Called by the C++ bridge.
@@ -171,8 +187,9 @@ pub unsafe extern "C" fn rust_actor_fast_send(
 /// `name` is a NUL-terminated C string (or null).
 #[no_mangle]
 pub unsafe extern "C" fn rust_actor_exists(name: *const c_char) -> c_int {
-    match RUST_EXISTS.get() {
+    // On panic report 0 (not-exists): a nonzero code would be read as "exists".
+    guard(0, || match RUST_EXISTS.get() {
         Some(f) if f(cstr(name)) => 1,
         _ => 0,
-    }
+    })
 }
