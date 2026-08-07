@@ -143,8 +143,7 @@ Real market participant places order at 6050.00
 The lights coordinate via **lock-free shared memory** — `QCoord` tracks aggregate working orders, `PCoord` tracks net position. No messages, no locks, no contention.
 
 See [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) for the full specification, and the write-up
-**"Shadow POV Execution: Trade Where the Market Is Going to Trade"** on the author's
-[Substack](https://vincentmayeski.substack.com).
+[**"Shadow POV Execution: Trade Where the Market Is Going to Trade"**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where).
 
 ## Actor Framework
 
@@ -250,7 +249,7 @@ Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.su
 - [**The Actor Model for Low-Latency Software**](https://vincentmayeski.substack.com/p/the-actor-model-for-low-latency-software) — a concurrency model invented for single-CPU machines turned out to be the right one for multicore.
 - [**A High-Performance Mailbox in the Kaspar C++ Actor System**](https://vincentmayeski.substack.com/p/high-performance-mailbox-in-the-kaspar) — ring buffers are great until they overflow (the `BQueue` design).
 - [**A Custom Memory Allocator for the Kaspar Actor System Gives 10× Improvement**](https://vincentmayeski.substack.com/p/a-custom-memory-allocator-for-the) — when you know the size at compile time, almost everything an allocator does becomes unnecessary (the object pool).
-- **Shadow POV Execution: Trade Where the Market Is Going to Trade** — a percentage-of-volume algorithm that follows passive flow (on the [Substack](https://vincentmayeski.substack.com)).
+- [**Shadow POV Execution: Trade Where the Market Is Going to Trade**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where) — a percentage-of-volume algorithm that follows passive flow.
 
 ## License
 
