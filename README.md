@@ -28,6 +28,7 @@ Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) —
 - **iLink 3 reference implementation** — Full CME iLink v3 session handler with SBE encoding, HMAC authentication, sequence management, and primary/secondary failover.
 - **PCAP reader** — Replay recorded CME multicast captures for deterministic backtesting. Bit-exact reproduction of market conditions.
 - **External strategy support** — Write strategies in C++ (in-process, lowest latency), or Python/Java via ZMQ remote actor messaging.
+- **Rust port of the actor framework** — [`actors/rust2`](actors/rust2) (crate `actors2`): a from-scratch Rust port of the actor core — on-stack `fast_send`, integer-ID O(1) dispatch, the `BQueue` mailbox, and the per-type object pool — shipping a **price-time-FIFO order-book matching engine** as an example. In-process (no remoting/registry/groups yet).
 
 ## Architecture
 
@@ -92,6 +93,7 @@ cd kaspr && ./kaspr config/kaspr.ini --reset-positions
 ```
 kaspar/
 ├── actors/          C++20 actor framework (messaging, lifecycle, ZMQ remoting)
+│   └── rust2/       Rust port of the actor framework (actors2) + matching_engine example
 ├── kaspr/           Main application (startup, wiring, config)
 ├── mdp3/            MDP3 market data decoder and recovery
 ├── mcast_recv/      Multicast UDP receiver and PCAP reader
@@ -140,7 +142,9 @@ Real market participant places order at 6050.00
 
 The lights coordinate via **lock-free shared memory** — `QCoord` tracks aggregate working orders, `PCoord` tracks net position. No messages, no locks, no contention.
 
-See [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) for the full specification.
+See [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) for the full specification, and the write-up
+**"Shadow POV Execution: Trade Where the Market Is Going to Trade"** on the author's
+[Substack](https://vincentmayeski.substack.com).
 
 ## Actor Framework
 
@@ -152,6 +156,14 @@ The actor framework provides the concurrency model for the entire system:
 - **Zero-copy fast path** — `fast_send()` executes handler in caller's thread for synchronous queries
 - **CPU affinity** — Pin actors to cores for deterministic latency
 - **Distributed deployment via ZMQ** — Actors communicate transparently across processes and machines. Run one actor group in NY4 and another in DC3 — actors use the same `send()` API whether the target is local or remote. `ZmqSender`/`ZmqReceiver` handle serialization and transport. Actors don't know or care if they're talking to a local thread or a remote process.
+- **Rust port** — [`actors/rust2`](actors/rust2) (`actors2`) is a from-scratch Rust port of the actor core (on-stack `fast_send`, integer-ID O(1) dispatch, `BQueue`, object pool). It is in-process only (no ZMQ/registry/groups yet) and ships a **matching engine** as an example — see its [README](actors/rust2/README.md) and [DEVELOPER_GUIDE](actors/rust2/DEVELOPER_GUIDE.md).
+
+The design behind the framework is written up here:
+[**The Actor Model for Low-Latency Software**](https://vincentmayeski.substack.com/p/the-actor-model-for-low-latency-software),
+[**A High-Performance Mailbox**](https://vincentmayeski.substack.com/p/high-performance-mailbox-in-the-kaspar)
+(the `BQueue`), and
+[**A Custom Memory Allocator (10× improvement)**](https://vincentmayeski.substack.com/p/a-custom-memory-allocator-for-the)
+(the object pool).
 
 ```cpp
 class MyStrategy : public Actor {
@@ -219,6 +231,9 @@ kaspr {
 | [ACTORS_INVENTORY.md](ACTORS_INVENTORY.md) | Every actor in the system |
 | [FILE_STRUCTURE.md](FILE_STRUCTURE.md) | Complete file and directory inventory |
 | [CLAUDE_AGENT_GUIDE.md](actors/cpp/CLAUDE_AGENT_GUIDE.md) | Actor framework technical reference |
+| [actors/rust2/README.md](actors/rust2/README.md) | Rust actor-framework port — overview & quickstart |
+| [actors/rust2/DEVELOPER_GUIDE.md](actors/rust2/DEVELOPER_GUIDE.md) | Writing actors in the Rust port |
+| [actors/rust2/MATCHING_ENGINE.md](actors/rust2/MATCHING_ENGINE.md) | The matching-engine example |
 
 ## Performance Characteristics
 
@@ -227,6 +242,15 @@ kaspr {
 - **Book update to strategy**: Single `EndOfBurst` message per MDP3 incremental cycle
 - **Memory**: Pool allocators for high-frequency message types, zero GC pauses
 - **Threading**: One thread per actor, CPU affinity pinning, no contention between instruments
+
+## Writing
+
+Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.substack.com](https://vincentmayeski.substack.com)):
+
+- [**The Actor Model for Low-Latency Software**](https://vincentmayeski.substack.com/p/the-actor-model-for-low-latency-software) — a concurrency model invented for single-CPU machines turned out to be the right one for multicore.
+- [**A High-Performance Mailbox in the Kaspar C++ Actor System**](https://vincentmayeski.substack.com/p/high-performance-mailbox-in-the-kaspar) — ring buffers are great until they overflow (the `BQueue` design).
+- [**A Custom Memory Allocator for the Kaspar Actor System Gives 10× Improvement**](https://vincentmayeski.substack.com/p/a-custom-memory-allocator-for-the) — when you know the size at compile time, almost everything an allocator does becomes unnecessary (the object pool).
+- **Shadow POV Execution: Trade Where the Market Is Going to Trade** — a percentage-of-volume algorithm that follows passive flow (on the [Substack](https://vincentmayeski.substack.com)).
 
 ## License
 
