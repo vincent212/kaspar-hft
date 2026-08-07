@@ -190,7 +190,37 @@ private:
 };
 ```
 
-See [actors/cpp/CLAUDE_AGENT_GUIDE.md](actors/cpp/CLAUDE_AGENT_GUIDE.md) for the complete framework reference.
+The same strategy actor in the Rust port ([`actors/rust2`](actors/rust2)) — handlers are plain methods,
+wired up by the `handle_messages!` macro; message ids are compile-time constants:
+
+```rust
+struct MyStrategy {
+    ob: ActorRef,
+    som: ActorRef,
+}
+
+impl MyStrategy {
+    fn on_book_update(&mut self, eob: &EndOfBurst, ctx: &mut ActorContext) {
+        // React to order book changes
+        self.som.send(
+            Box::new(Order::new("ESM6", Side::Buy, 1, eob.best_bid, Venue::CmeMdFut)),
+            ctx.self_ref(),
+        );
+    }
+
+    fn on_fill(&mut self, _fill: &Fill, _ctx: &mut ActorContext) {
+        // Handle execution
+    }
+}
+
+handle_messages!(MyStrategy,
+    EndOfBurst => on_book_update,
+    Fill       => on_fill,
+);
+```
+
+See [actors/cpp/CLAUDE_AGENT_GUIDE.md](actors/cpp/CLAUDE_AGENT_GUIDE.md) for the complete C++ framework
+reference, and [actors/rust2/DEVELOPER_GUIDE.md](actors/rust2/DEVELOPER_GUIDE.md) for the Rust API.
 
 ## Console
 
