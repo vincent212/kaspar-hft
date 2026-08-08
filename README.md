@@ -10,7 +10,7 @@
 
 ---
 
-**Kaspar** is a low-latency trading system simulator for CME futures (ES, NQ). It reconstructs full order books from MDP3 market data, simulates fills that respect queue position, and supports live paper trading or historical PCAP replay — all built on a lock-free C++ actor framework designed for microsecond-level performance.
+**Kaspar** is a low-latency trading system simulator for CME futures (ES, NQ). It reconstructs full order books from MDP3 market data, simulates fills that respect queue position, and supports live paper trading or historical PCAP replay — all built on a custom C++ actor framework designed for microsecond-level performance.
 
 Unlike toy backtesting engines that assume instant fills at mid, Kaspar models realistic execution: your simulated orders sit in the book at a specific price level and only fill when the market trades through your position in the queue.
 
@@ -54,7 +54,7 @@ CME MDP3 Multicast (or PCAP file)
     DB    iLink (live only)
 ```
 
-**Per instrument**: buy and sell lights share a lock-free `QCoord` (working order tracking) and `PCoord` (position state). No coordination messages — just shared memory counters.
+**Per instrument**: buy and sell lights share a `QCoord` (working order tracking) and `PCoord` (position state) in shared memory, guarded by fine-grained mutexes. No coordination messages — just shared counters.
 
 ## Quick Start
 
@@ -140,7 +140,7 @@ Real market participant places order at 6050.00
 | Complexity | Model-heavy (fair value, skew, Greeks) | Microstructure-only (ADD/CANC signals) |
 | Latency requirement | Ultra-low (race to cancel) | Moderate (no quotes to defend) |
 
-The lights coordinate via **lock-free shared memory** — `QCoord` tracks aggregate working orders, `PCoord` tracks net position. No messages, no locks, no contention.
+The lights coordinate via **shared memory** — `QCoord` tracks aggregate working orders, `PCoord` tracks net position — guarded by fine-grained mutexes rather than passing coordination messages.
 
 See [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) for the full specification, and the write-up
 [**"Shadow POV Execution: Trade Where the Market Is Going to Trade"**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where).

@@ -5,7 +5,7 @@
 
 //! Fixed-size object pool — a Rust port of the C++ `MemoryPool.hpp`.
 //!
-//! Per message type: a thread-local free-list (lock-free fast path) backed by a
+//! Per message type: a thread-local free-list (no lock on the fast path) backed by a
 //! shared free-list under a `Mutex`, refilled in batches from cache-line-aligned
 //! slabs. Mirrors the C++ three tiers (thread-local → shared → slab).
 //!
