@@ -147,7 +147,7 @@ r.add_asset(...);  // or add_cusip_asset for CUSIP-based instruments
 
 2. **Thread Safety**
    - RefData uses `std::shared_mutex` for thread-safe access
-   - Most reads are lock-free after initialization
+   - Reads take a shared (read) lock; after initialization the table is effectively read-only, so reader contention is minimal
 
 3. **Asset IDs start at 1**
    - Asset ID 0 is reserved/invalid
