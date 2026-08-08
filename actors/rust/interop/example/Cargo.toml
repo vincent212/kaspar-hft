@@ -1,0 +1,15 @@
+# Standalone hybrid C++/Rust interop example + benchmark. Its own workspace root
+# so it does not get pulled into the actors crate's build.
+[workspace]
+
+[package]
+name = "hybrid_interop"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+actors = { path = "../..", features = ["interop"] }
+
+[profile.release]
+opt-level = 3
