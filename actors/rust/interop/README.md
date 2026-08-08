@@ -120,11 +120,11 @@ replies across the boundary). Location-transparent request/reply should therefor
 ## Building a hybrid binary
 
 The Rust and C++ objects are linked into **one** executable; the `cpp_actor_*` / `rust_actor_*`
-symbols resolve at that final link. Build `actors` as a static lib with `--features interop`,
-compile the generated + hand-written C++ against `actors/cpp`, and link them together. See
-[`examples/interop/`](../examples/interop/) for the layout and link model (the runnable
-`Makefile` + C++ `main` land with the C++ hybrid phase — they are not in this change). The C++
-side needs the `actors/cpp` build (boost); `cargo` alone does not produce the hybrid binary.
+symbols resolve at that final link. A working, runnable version is in
+[`example/`](example/) — a Rust actor calling a real C++ actor over the bridge, plus a benchmark of
+the cross-language `fast_send` — with a `build.rs` that compiles the generated C++ bridge and links
+`libactors.a`. The C++ side needs the `actors/cpp` build (boost); `cargo` alone does not produce the
+hybrid binary.
 
 **Linking note:** with `--features interop` the crate references the C++ `cpp_actor_*` symbols,
 left undefined in the Rust object and resolved at the final link against the C++ bridge. A
