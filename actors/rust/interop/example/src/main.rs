@@ -1,19 +1,22 @@
-// Hybrid C++/Rust interop benchmark: a Rust actor fast_sends to a real C++ actor
-// across the C-ABI FFI bridge, in one process. Measures the cross-language cost,
-// alongside a same-language (Rust->Rust) baseline in the same binary.
+// Hybrid C++/Rust interop benchmark. Measures fast_send (no reply) across the
+// full 2x2 matrix — every sender/receiver combination of C++ and Rust actors, in
+// one process:
+//     Rust -> Rust   (same language)       Rust -> C++   (over the FFI bridge)
+//     C++  -> Rust   (over the FFI bridge)  C++  -> C++   (same language)
 //
-// The C++ side (cpp/hybrid_cpp.cpp) sets up a C++ Manager + a msg::Ping-handling
-// actor named "cpp_pong" and calls cpp_actor_init(). The Rust side resolves it as
-// an ActorRef::Cpp and calls fast_send in a loop.
+// The C++ side (cpp/hybrid_cpp.cpp) provides the C++ actor "cpp_pong" and the
+// C++-driven half; the Rust side provides "rust_pong" and the Rust-driven half.
 
 use std::hint::black_box;
 use std::time::Instant;
 
 use actors::interop::generated::{register, Ping};
-use actors::{handle_messages, ActorContext, Manager, ThreadConfig};
+use actors::interop::register_local_lookup;
+use actors::{handle_messages, ActorContext, ActorRef, Manager, ThreadConfig};
 
 extern "C" {
-    fn hybrid_setup(); // implemented in cpp/hybrid_cpp.cpp
+    fn hybrid_setup(); // C++: Manager + "cpp_pong" + cpp_actor_init
+    fn run_cpp_bench(n: i64, cpp_cpp_ns: *mut f64, cpp_rust_ns: *mut f64); // C++-driven half
 }
 
 // A same-language Rust receiver: trivial work, no reply — mirrors the C++ actor.
@@ -27,7 +30,7 @@ impl RustPong {
 }
 handle_messages!(RustPong, Ping => on_ping);
 
-fn time_loop(n: i32, r: &actors::ActorRef) -> f64 {
+fn time_loop(n: i32, r: &ActorRef) -> f64 {
     for i in 0..200_000i32 { black_box(r.fast_send(black_box(&Ping { count: i }), None)); }
     let t = Instant::now();
     for i in 0..n { black_box(r.fast_send(black_box(&Ping { count: i }), None)); }
@@ -37,21 +40,28 @@ fn time_loop(n: i32, r: &actors::ActorRef) -> f64 {
 fn main() {
     let n: i32 = 5_000_000;
 
-    // Baseline: Rust -> Rust fast_send (same process, same language, no reply).
+    // Rust manager + a Rust actor "rust_pong".
     let mut lmgr = Manager::new();
     let rust_pong = lmgr.manage("rust_pong", Box::new(RustPong { acc: 0 }), ThreadConfig::default());
-    let base = time_loop(n, &rust_pong);
 
-    // Interop: Rust -> C++ fast_send across the C-ABI bridge.
-    unsafe { hybrid_setup(); }        // C++: Manager + "cpp_pong" actor + cpp_actor_init
-    register();                        // install the generated inbound dispatcher + C++ resolver
-    let mgr = Manager::new();
-    let cpp = mgr.get_ref("cpp_pong", "rust_driver").expect("cpp_pong not resolvable over FFI");
-    let ffi = time_loop(n, &cpp);
+    // Wire the interop both directions.
+    unsafe { hybrid_setup(); }                 // C++ side: Manager + "cpp_pong" + cpp_actor_init
+    register();                                 // install generated inbound dispatch + C++ resolver
+    let handle = lmgr.get_handle();
+    register_local_lookup(move |name| handle.get_ref_local(name)); // so C++ -> Rust finds "rust_pong"
+
+    // Rust-driven half.
+    let rr = time_loop(n, &rust_pong); // Rust -> Rust
+    let cpp = lmgr.get_ref("cpp_pong", "rust_driver").expect("cpp_pong not resolvable over FFI");
+    let rc = time_loop(n, &cpp); // Rust -> C++ (over FFI)
+
+    // C++-driven half (timed in C++).
+    let (mut cc, mut cr) = (0.0f64, 0.0f64);
+    unsafe { run_cpp_bench(n as i64, &mut cc, &mut cr); } // C++ -> C++, C++ -> Rust
 
     println!();
-    println!("fast_send, no reply, {} calls (Apple Silicon, single thread):", n);
-    println!("  Rust -> Rust  (same language):   {:6.1} ns/call", base);
-    println!("  Rust -> C++   (over FFI bridge): {:6.1} ns/call   ({:.1}x, +{:.0} ns)",
-             ffi, ffi / base, ffi - base);
+    println!("fast_send, no reply, {n} calls (Apple Silicon, single thread, ns/call):");
+    println!("                    ->  Rust receiver       ->  C++ receiver");
+    println!("  Rust sender          {rr:5.1}  (same lang)      {rc:5.1}  (over FFI)");
+    println!("  C++  sender          {cr:5.1}  (over FFI)       {cc:5.1}  (same lang)");
 }
