@@ -52,18 +52,21 @@ cargo run --release` (and `BOOST_INC_DIR=… bash cpp/build_cpp.sh`).
 
 ## What it measures
 
-`fast_send` with no reply — the pure cross-FFI dispatch into a C++ handler — versus the same call to
-a Rust actor. Representative (Apple Silicon, single thread, release):
+`fast_send` with no reply, across every sender/receiver combination of C++ and Rust actors in one
+process. Representative (Apple Silicon, single thread, release, ns/call):
 
 ```
-fast_send, no reply, 5,000,000 calls:
-  Rust -> Rust  (same language):     ~15 ns/call
-  Rust -> C++   (over FFI bridge):   ~71 ns/call   (~4.7x, +56 ns)
+                    ->  Rust receiver       ->  C++ receiver
+  Rust sender          ~15  (same lang)       ~70  (over FFI)
+  C++  sender          ~46  (over FFI)        ~13  (same lang)
 ```
 
-The ~56 ns is the boundary cost: outbound match + `to_c` copy + the `extern "C"` call + the C++
-`get_actor_by_name` lookup + `from_c` + the C++ dispatch. (The per-call name lookup is part of it — a
-latency-sensitive caller would cache the `ActorRef::Cpp` once, which this example does.)
+Same-language dispatch is ~13–15 ns. Crossing the boundary adds the marshalling (`to_c`/`from_c`
+copies), the `extern "C"` call, the per-call name lookup, and the receiving-side dispatch. The two FFI
+directions are not symmetric: Rust→C++ (~70 ns) pays for the C++ `get_actor_by_name` (a `std::string`
+build + lookup + `ActorRef` return) each call, while C++→Rust (~46 ns) goes through the Rust inbound
+resolver + `catch_unwind` guard. A latency-sensitive caller caches the resolved reference (this
+example holds the `ActorRef::Cpp` and reuses it) rather than resolving by name every time.
 
-Note: cross-boundary **replies** are not wired yet (a `fast_send` to a C++ actor returns `None`), so
-this measures the one-way Rust→C++ call.
+Note: cross-boundary **replies** are not wired yet (a cross-language `fast_send` returns nothing), so
+this measures one-way calls.
