@@ -36,9 +36,13 @@ Actor::~Actor()
   delete msgq;
 }
 
-Actor::Actor()
+Actor::Actor() : Actor(new BQueue<const Message *>(ACTOR_BQUEUE_SIZE))
 {
-  msgq = new BQueue<const Message *>(ACTOR_BQUEUE_SIZE);
+}
+
+Actor::Actor(Queue<const Message *> *mailbox)
+{
+  msgq = mailbox;
   handler_cache.resize(ACTOR_HANDLER_CACHE_SIZE, nullptr);
   dont_have_handler.resize(ACTOR_HANDLER_CACHE_SIZE, false);
 
