@@ -199,19 +199,22 @@ pub(crate) fn run_actor(cell: Arc<ActorCell>) {
         guard.init(&mut ctx);
     }
 
+    // Lever 1: drain the whole mailbox in one lock. Lever 2: take the per-actor
+    // lock ONCE for the whole drained batch instead of per message. NOTE: the
+    // per-actor lock is shared with fast_send, so a fast_send to this actor waits
+    // for the batch to finish — acceptable here, but see the writeup's caveat.
+    let mut batch: Vec<Envelope> = Vec::new();
     while cell.running.load(Ordering::Relaxed) {
-        let (env, _last) = cell.queue.pop();
-        let is_shutdown = env.msg.message_id() == crate::messages::Shutdown::ID;
-
-        {
+        cell.queue.pop_batch(&mut batch);
+        let mut guard = cell.actor.lock().unwrap_or_else(|e| e.into_inner());
+        for env in batch.drain(..) {
+            let is_shutdown = env.msg.message_id() == crate::messages::Shutdown::ID;
             let mut ctx = ActorContext::new(env.sender, Some(&self_ref), false);
-            let mut guard = cell.actor.lock().unwrap_or_else(|e| e.into_inner());
             guard.process_message(env.msg.as_message(), &mut ctx);
-        }
-
-        if is_shutdown {
-            cell.running.store(false, Ordering::Relaxed);
-            break;
+            if is_shutdown {
+                cell.running.store(false, Ordering::Relaxed);
+                break;
+            }
         }
     }
 

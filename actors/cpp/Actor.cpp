@@ -149,20 +149,38 @@ void Actor::operator()() noexcept
   std::cerr << endl << get_name() << " tid: " << tid << endl;
   init();
 
+  // Lever 1: drain the whole mailbox in one lock (msgq->pop_batch). Lever 2:
+  // take the per-actor fast_send_mutex ONCE for the whole batch instead of per
+  // message (process_message_internal locks it per call, so the body is inlined
+  // here). fast_send shares this mutex, so a fast_send to this actor waits for
+  // the batch to finish — the intended throughput/latency tradeoff.
+  std::vector<const Message *> batch;
   while (true) {
-    auto r = msgq->pop();
-    auto *m = std::get<0>(r);
-    auto last = std::get<1>(r);
-    m->last = last;
-    reply_to = m->sender;
+    msgq->pop_batch(batch);
+    bool stop = false;
+    {
+      std::lock_guard<std::mutex> lock(fast_send_mutex);
+      for (size_t i = 0; i < batch.size(); ++i) {
+        const Message *m = batch[i];
+        m->last = (i + 1 == batch.size()); // last == queue was drained empty
+        reply_to = m->sender;
+        bool is_shutdown = m->get_message_id() == 5;
 
-    bool is_shutdown = m->get_message_id() == 5;
+        msg_cnt++;
+        using_fast_send = false;
+        bool called = call_handler(m);
+        if (!called)
+          process_message(m);
+        delete m;
 
-    process_message_internal(m);
-
-    if (is_shutdown || terminated) {
-      break;
+        if (is_shutdown || terminated) {
+          stop = true;
+          break;
+        }
+      }
     }
+    if (stop)
+      break;
   }
 
   terminated = true;

@@ -9,6 +9,7 @@
 
 #include <tuple>
 #include <cstddef>
+#include <vector>
 
 namespace actors
 {
@@ -29,5 +30,18 @@ namespace actors
     virtual void push(const T& x) = 0;
     virtual bool is_empty() const = 0;
     virtual std::size_t length() const = 0;
+
+    // Batch-blocking drain: block until >=1 item, then move all currently-queued
+    // items into `out` (FIFO). Default loops pop() (correct but still one lock
+    // per item); BQueue overrides it with a single-lock drain.
+    virtual void pop_batch(std::vector<T>& out)
+    {
+      out.clear();
+      for (;;) {
+        auto r = pop();
+        out.push_back(std::get<0>(r));
+        if (std::get<1>(r)) return; // `last` == queue now empty
+      }
+    }
   };
 }
