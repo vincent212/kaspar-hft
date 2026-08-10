@@ -23,9 +23,17 @@ Two implementations live here, plus an in-process bridge between them:
 |------|---------|
 | `Actor.hpp` | Base actor class with message dispatch |
 | `Message.hpp` | Base message class with type-safe routing |
-| `Queue.hpp` / `BQueue.hpp` | Message queues (mailbox) |
+| `Queue.hpp` | Mailbox interface (`push` / `pop` / `pop_batch`) |
+| `BQueue.hpp` | Default mailbox: blocking mutex + condvar, ring + overflow |
+| `ShardedBQueue.hpp` | Sharded (N-lane) mailbox for high-fan-in actors — cuts tail jitter |
+| `LockFreeMPSC.hpp` | Lock-free (Vyukov) mailbox for few-producer, latency-critical actors |
 | `MemoryPool.hpp` | Per-message-type pool allocator |
 | `ActorRef.hpp` | Lightweight actor reference handle |
+
+**Choosing a mailbox per actor:** an actor defaults to `BQueue`, but can install a
+`ShardedBQueue` or `LockFreeMPSC` via the `Actor(Queue*)` constructor. Which to use
+depends on producer count — see **[`cpp/MAILBOXES.md`](cpp/MAILBOXES.md)** for the
+selection matrix, measurements, and code.
 
 ## Actor types (`cpp/include/actors/act/`)
 
@@ -45,3 +53,11 @@ a single process. There is no remote/cross-process actor transport.
 cd actors/cpp && KSPRPROJ=~/m2_kaspar make      # C++
 cd actors/rust && cargo test                     # Rust port
 ```
+
+## Writeups
+
+Design notes and measurements behind the mailbox internals:
+
+- [How Message Batching More Than Doubles Actor Model Throughput](https://vincentmayeski.substack.com/p/how-message-batching-more-than-doubles) — batch drain + the message pool (2.46×).
+- [Medians Lie, Tails Kill: Why Kaspar Shards Mailbox Locks](https://vincentmayeski.substack.com/p/medians-lie-tails-kill-why-kaspar) — per-actor mailboxes and tail-latency jitter.
+- [The Lock-Free Illusion: Why CAS Storms Kill Actor Queues Under Contention](https://vincentmayeski.substack.com/p/the-lock-free-illusion-why-cas-storms) — when lock-free wins, and when it backfires.
