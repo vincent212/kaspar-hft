@@ -87,3 +87,40 @@ TEST(ShardedBQueue, ManyProducersNoLossNoDup) {
   EXPECT_EQ(received, TOTAL);
   EXPECT_TRUE(q.is_empty());
 }
+
+// pop_batch must RETURN under a flood instead of looping forever while `out`
+// grows unbounded. Prove the per-call cap directly.
+TEST(ShardedBQueue, PopBatchIsBounded) {
+  constexpr size_t MAX_DRAIN = 8192;   // must match ShardedBQueue::kMaxDrain
+  ShardedBQueue<int> q(8);
+  const size_t N = MAX_DRAIN + 4096;
+  for (size_t i = 0; i < N; ++i) q.push((int)i);
+  std::vector<int> out;
+  q.pop_batch(out);
+  EXPECT_EQ(out.size(), MAX_DRAIN) << "pop_batch must cap the batch, not drain everything";
+  std::vector<int> rest;
+  q.pop_batch(rest);
+  EXPECT_EQ(out.size() + rest.size(), N);   // no loss across the two calls
+}
+
+// Exercises the park/wake handshake (the seq_cst fence fix): a producer that
+// pushes one-at-a-time with pauses forces the consumer to park repeatedly; every
+// message must still arrive (no lost wakeup, no loss/dup).
+TEST(ShardedBQueue, ParkWakeStressNoLoss) {
+  constexpr int N = 20000;
+  ShardedBQueue<int> q(8);
+  std::thread producer([&] {
+    for (int i = 0; i < N; ++i) {
+      q.push(i);
+      if (i % 500 == 0) std::this_thread::sleep_for(std::chrono::microseconds(200)); // let consumer park
+    }
+  });
+  std::vector<char> seen(N, 0);
+  int recv = 0; std::vector<int> buf;
+  while (recv < N) {
+    q.pop_batch(buf);
+    for (int v : buf) { ASSERT_GE(v, 0); ASSERT_LT(v, N); ASSERT_FALSE(seen[v]); seen[v] = 1; ++recv; }
+  }
+  producer.join();
+  EXPECT_EQ(recv, N);
+}

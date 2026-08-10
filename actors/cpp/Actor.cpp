@@ -179,6 +179,13 @@ void Actor::operator()() noexcept
 
         if (is_shutdown || terminated) {
           stop = true;
+          // We drained the whole mailbox into `batch` but are terminating now.
+          // Delete the messages we won't process, or they leak (the batch vector
+          // only drops the pointers). Old one-at-a-time pop() never pre-fetched
+          // these, so the batch change would otherwise leak every co-drained
+          // message that followed a shutdown/terminate.
+          for (size_t k = i + 1; k < batch.size(); ++k)
+            delete batch[k];
           break;
         }
       }

@@ -49,6 +49,19 @@ namespace actors
       size_t p = 1; while (p < n) p <<= 1; return p;
     }
 
+    static inline void cpu_relax() noexcept {
+#if defined(__x86_64__) || defined(__i386__)
+      __builtin_ia32_pause();
+#elif defined(__aarch64__) || defined(__arm__)
+      __asm__ __volatile__("yield");
+#endif
+    }
+
+    // Cap on items drained per pop_batch call — guarantees the call RETURNS even
+    // under sustained overload (producers outrunning the consumer), instead of
+    // looping forever while `out` grows unbounded. Leftovers go to the next call.
+    static constexpr size_t kMaxDrain = 8192;
+
     std::vector<Cell>          buf_;
     const size_t               mask_;
     alignas(64) std::atomic<size_t> enqueue_pos_{0};
@@ -112,8 +125,13 @@ namespace actors
 
     // --- Queue<T> interface ---
     void push(const T& x) noexcept override {
-      while (!try_push(x)) { /* ring full: spin until the consumer drains */ }
-      if (parked_.load(std::memory_order_acquire)) {
+      while (!try_push(x)) cpu_relax();   // ring full: spin (pause) until consumer drains
+      // Matching seq_cst fence for the transition-notify handshake (see the
+      // consumer's fence below). Without a fence on BOTH sides the producer can
+      // read parked_==false stale and skip the wakeup while the consumer parks on
+      // a non-empty queue — a lost wakeup only masked by wait_for()'s timeout.
+      std::atomic_thread_fence(std::memory_order_seq_cst);
+      if (parked_.load(std::memory_order_relaxed)) {
         { std::lock_guard<std::mutex> lk(wait_mtx_); }
         cv_.notify_one();
       }
@@ -123,15 +141,16 @@ namespace actors
       out.clear();
       for (;;) {
         T v;
-        while (try_pop(v)) out.push_back(v);
+        while (out.size() < kMaxDrain && try_pop(v)) out.push_back(v);
         if (!out.empty()) return;
         // empty: park with a bounded safety-net wait
         std::unique_lock<std::mutex> lk(wait_mtx_);
-        parked_.store(true, std::memory_order_release);
+        parked_.store(true, std::memory_order_relaxed);
+        std::atomic_thread_fence(std::memory_order_seq_cst);   // pairs w/ producer
         if (try_pop(v)) {                                   // re-check after arming
           parked_.store(false, std::memory_order_relaxed);
           out.push_back(v);
-          while (try_pop(v)) out.push_back(v);
+          while (out.size() < kMaxDrain && try_pop(v)) out.push_back(v);
           return;
         }
         cv_.wait_for(lk, std::chrono::milliseconds(1));
@@ -144,7 +163,8 @@ namespace actors
         T v;
         if (try_pop(v)) return std::make_tuple(v, is_empty());
         std::unique_lock<std::mutex> lk(wait_mtx_);
-        parked_.store(true, std::memory_order_release);
+        parked_.store(true, std::memory_order_relaxed);
+        std::atomic_thread_fence(std::memory_order_seq_cst);   // pairs w/ producer
         if (try_pop(v)) { parked_.store(false, std::memory_order_relaxed); return std::make_tuple(v, is_empty()); }
         cv_.wait_for(lk, std::chrono::milliseconds(1));
         parked_.store(false, std::memory_order_relaxed);

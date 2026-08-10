@@ -84,22 +84,32 @@ namespace actors
         std::lock_guard<std::mutex> lk(lanes_[lane].mtx);
         lanes_[lane].dq.push_back(x);
       }
-      // transition-notify: only pay the shared path if the consumer is parked.
-      // No full fence on the hot path — the consumer's bounded wait_for() is the
-      // safety net, so a rarely-missed wakeup is healed within the timeout, never
-      // lost. Under load the consumer never parks, so this is a cheap acquire load.
-      if (parked_.load(std::memory_order_acquire)) {
+      // transition-notify. The consumer arms `parked_` (relaxed) + a seq_cst fence
+      // + re-check; the producer needs the MATCHING seq_cst fence between the push
+      // above and the parked_ load below. A one-sided fence does not order the two
+      // threads, so without this fence a producer could read parked_==false stale
+      // and skip the wakeup while the consumer parks on a non-empty queue — a lost
+      // wakeup only papered over by wait_for()'s timeout (a 1ms tail stall). The
+      // two fences establish the total order that makes the handshake correct.
+      std::atomic_thread_fence(std::memory_order_seq_cst);   // StoreLoad, pairs w/ consumer
+      if (parked_.load(std::memory_order_relaxed)) {
         { std::lock_guard<std::mutex> lk(wait_mtx_); }       // serialize vs consumer entering wait()
         cv_.notify_one();
       }
     }
 
-    // Drain everything currently queued into `out`, in round-robin order.
-    // Blocks until at least one item is available.
+    // Drain up to kMaxDrain items currently queued into `out`, round-robin order.
+    // Blocks until at least one item is available. The cap guarantees the call
+    // RETURNS even under sustained overload (producers outrunning the consumer):
+    // without it the rotation loop never sees an all-empty pass and pop_batch
+    // would never return while `out` grew without bound. Leftovers are picked up
+    // by the next call.
+    static constexpr size_t kMaxDrain = 8192;
     void pop_batch(std::vector<T>& out) override {
       out.clear();
       for (;;) {
         // drain: rotate over lanes popping one each, until a full pass is empty
+        // or we hit the per-call cap.
         for (;;) {
           bool progressed = false;
           for (size_t j = 0; j < n_; j++) {
@@ -107,7 +117,7 @@ namespace actors
             std::lock_guard<std::mutex> lk(L.mtx);
             if (!L.dq.empty()) { out.push_back(L.dq.front()); L.dq.pop_front(); progressed = true; }
           }
-          if (!progressed) break;
+          if (!progressed || out.size() >= kMaxDrain) break;
         }
         if (!out.empty()) return;
 
