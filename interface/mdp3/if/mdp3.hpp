@@ -134,7 +134,8 @@ create_all_mdp3_pcap(
     bool disable_mbo,
     uint32_t max_mbp_level,
     bool debug_decoder,
-    int spinbuf
+    int spinbuf,
+    const mcast_recv::TrailerSpec &_trailer_spec = mcast_recv::TrailerSpec{}
     )
 {
     std::cerr << "create_all_mdp3_pcap" << std::endl;
@@ -169,7 +170,8 @@ create_all_mdp3_pcap(
             _chan_nam,
             msg_buf_a,
             _pcap_file_a,
-            false);  // big_endian
+            false,           // big_endian
+            _trailer_spec);  // hardware-timestamp trailer layout (None by default)
     }
 
     if (!_pcap_file_b.empty()) {
@@ -177,7 +179,8 @@ create_all_mdp3_pcap(
             _chan_nam,
             msg_buf_a,
             _pcap_file_b,
-            false);  // big_endian
+            false,           // big_endian
+            _trailer_spec);  // hardware-timestamp trailer layout (None by default)
     }
 
     return std::vector<cfsmp>{

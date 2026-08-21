@@ -19,7 +19,8 @@ namespace mcast_recv
         uint32_t seqnum;
         std::array<char, msgsz> message;
         std::size_t len;
-        uint64_t recv_ts;
+        uint64_t recv_ts;  // software capture ts (pcap record header / socket clock), ns since epoch
+        uint64_t hw_ts;    // hardware capture ts from NIC/tap trailer (e.g. Metamako), ns since epoch; 0 = not present
         char chan;
         uint32_t src_ip;   // IPv4 source address, network byte order
         uint16_t dst_port; // UDP destination port, host byte order
