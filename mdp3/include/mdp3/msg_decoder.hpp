@@ -329,6 +329,27 @@ namespace mdp3
         SNGH;
     }
 
+    // SBE repeating groups are read off a single sequential cursor.  A
+    // group accessor does not seek — it parses a group header at the
+    // codec's current sbePosition(), which advances only as groups are
+    // iterated.  Spread56's wire order is
+    //
+    //   NoEvents -> NoMDFeedTypes -> NoInstAttrib -> NoLotTypeRules
+    //            -> NoLegs
+    //
+    // so going straight from noEvents() to noLegs() does not skip ahead,
+    // it makes noLegs() parse NoMDFeedTypes' bytes and every leg's
+    // securityID / ratio / side / price comes out of that blob.  Drain
+    // the three intervening groups even though we want nothing in them.
+    {
+      auto feedTypes = def.noMDFeedTypes();
+      while (feedTypes.hasNext()) feedTypes.next();
+      auto instAttrib = def.noInstAttrib();
+      while (instAttrib.hasNext()) instAttrib.next();
+      auto lotTypeRules = def.noLotTypeRules();
+      while (lotTypeRules.hasNext()) lotTypeRules.next();
+    }
+
     auto noLegs = def.noLegs();
 
     int32_t legOptionDelta_mantissa[8];
@@ -491,6 +512,27 @@ namespace mdp3
         SNGH;
     }
 
+    // Same positional-group hazard as the spread decoder above.
+    // Option55's wire order is
+    //
+    //   NoEvents -> NoMDFeedTypes -> NoInstAttrib -> NoLotTypeRules
+    //            -> NoUnderlyings -> NoRelatedInstruments
+    //
+    // Without draining the three intervening groups, noUnderlyings()
+    // parses NoMDFeedTypes' bytes.  The result is stable rather than
+    // random, which makes it easy to miss: the first field there is
+    // mDFeedType, a char[3] of "GBX" (full depth) or "GBI" (implied), so
+    // every option decodes to underlyingSecurityID 56115783 ("GBX\x03")
+    // or 21578311 ("GBI\x01") and an underlyingSymbol of "" or "GBI".
+    {
+      auto feedTypes = def.noMDFeedTypes();
+      while (feedTypes.hasNext()) feedTypes.next();
+      auto instAttrib = def.noInstAttrib();
+      while (instAttrib.hasNext()) instAttrib.next();
+      auto lotTypeRules = def.noLotTypeRules();
+      while (lotTypeRules.hasNext()) lotTypeRules.next();
+    }
+
     auto noUnderlyings = def.noUnderlyings();
     uint32_t underlyingSecurityID[4];
     std::string underlyingSecuritySym[4];
@@ -501,8 +543,12 @@ namespace mdp3
       noUnderlyings.next();
       auto underlyingSecurityID_ = noUnderlyings.underlyingSecurityID();
       underlyingSecurityID[cnt] = underlyingSecurityID_;
-      auto underlyingSecuritySym_ = noUnderlyings.underlyingSymbol();
-      underlyingSecuritySym[cnt] = underlyingSecuritySym_;
+      // getUnderlyingSymbolAsString(), NOT underlyingSymbol().  The
+      // latter returns a bare pointer into the SBE frame; the field is a
+      // FIXED 20-byte char array that CME space-pads rather than
+      // NUL-terminates, so constructing a std::string from it runs off
+      // the end of the field.  The AsString form bounds the scan at 20.
+      underlyingSecuritySym[cnt] = noUnderlyings.getUnderlyingSymbolAsString();
 
       if (++cnt == 4)
         break;
