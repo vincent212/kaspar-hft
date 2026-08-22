@@ -4,7 +4,7 @@
     <strong>High-Frequency Trading Simulator with Position-Aware Order Book Matching</strong>
   </p>
   <p align="center">
-    CME Futures &bull; MDP3 Market Data &bull; iLink 3 &bull; PCAP Replay &bull; Shadow Execution &bull; C++20
+    CME Futures &bull; MDP3 Market Data &bull; iLink 3 &bull; PCAP Replay &bull; POV Execution &bull; C++20
   </p>
 </p>
 
@@ -117,9 +117,7 @@ kaspar/
 
 ## Shadow Execution Algo
 
-Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow rather than fighting it. Shadow algorithms routinely outperform VWAP and TWAP benchmarks because they don't signal intent and they avoid adverse selection by only trading alongside genuine order flow.
-
-Each instrument runs independent execution lights per side. They don't quote. They don't model. They **watch** — and strike only when the order book reveals genuine intent.
+Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow. Shadow algorithms can outperform VWAP and TWAP benchmarks because they avoid adverse selection by only trading alongside genuine order flow.
 
 ```
 Real market participant places order at 6050.00
