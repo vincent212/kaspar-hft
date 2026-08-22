@@ -24,6 +24,9 @@ actors/cpp/examples/ping_pong
 actors/cpp/examples/remote_ping
 actors/cpp/examples/remote_pong
 actors/cpp/tests/**/test_*
+!actors/cpp/tests/**/test_*.cpp
+!actors/cpp/tests/**/test_*.hpp
+!actors/cpp/tests/**/test_*.h
 actors/cpp/src/coordination/group_manager_main
 actors/cpp/src/registry/global_registry_main
 

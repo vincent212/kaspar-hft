@@ -83,6 +83,15 @@ namespace actors
     Actor(const Actor&) = delete;
     Actor& operator=(const Actor&) = delete;
 
+  protected:
+    // Construct with a specific mailbox implementation (takes ownership). Lets a
+    // subclass opt into a different Queue<T> — e.g. ShardedBQueue for an actor
+    // with many producers, to cut lock-contention jitter. Default ctor uses a
+    // single-lane BQueue.
+    explicit Actor(Queue<const Message *> *mailbox);
+
+  public:
+
     /**
      * Send a message asynchronously (fire-and-forget)
      * Message is queued and processed later by receiver's thread

@@ -66,17 +66,36 @@ namespace actors
       return !cb_.empty() ? cb_.front() : overflow_.front();
     }
 
+    // Single-lock batch drain: block until >=1 item, then move the whole queue
+    // (ring then overflow, FIFO) into `out`. N queued items => one lock, not N.
+    void pop_batch(std::vector<T>& out) override
+    {
+      out.clear();
+      std::unique_lock<std::mutex> lock(mut);
+      cv.wait(lock, [this]() {
+        return !cb_.empty() || !overflow_.empty();
+      });
+      out.reserve(cb_.size() + overflow_.size());
+      while (!cb_.empty())       { out.push_back(cb_.front());       cb_.pop_front(); }
+      while (!overflow_.empty()) { out.push_back(overflow_.front()); overflow_.pop_front(); }
+    }
+
     void push(const T& x) noexcept override
     {
+      bool was_empty;
       {
         std::lock_guard<std::mutex> lock(mut);
+        was_empty = cb_.empty() && overflow_.empty();
         if (!overflow_.empty() || cb_.full()) {
           overflow_.push_back(x);
         } else {
           cb_.push_back(x);
         }
       }
-      cv.notify_one();
+      // The consumer only cv.wait()s when it finds the queue empty under the
+      // lock, so only the push that makes it non-empty must signal. Skips a
+      // notify syscall on every push into a backlog.
+      if (was_empty) cv.notify_one();
     }
 
     bool is_empty() const noexcept override

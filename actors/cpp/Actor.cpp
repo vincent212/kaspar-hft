@@ -36,9 +36,13 @@ Actor::~Actor()
   delete msgq;
 }
 
-Actor::Actor()
+Actor::Actor() : Actor(new BQueue<const Message *>(ACTOR_BQUEUE_SIZE))
 {
-  msgq = new BQueue<const Message *>(ACTOR_BQUEUE_SIZE);
+}
+
+Actor::Actor(Queue<const Message *> *mailbox)
+{
+  msgq = mailbox;
   handler_cache.resize(ACTOR_HANDLER_CACHE_SIZE, nullptr);
   dont_have_handler.resize(ACTOR_HANDLER_CACHE_SIZE, false);
 
@@ -149,20 +153,45 @@ void Actor::operator()() noexcept
   std::cerr << endl << get_name() << " tid: " << tid << endl;
   init();
 
+  // Lever 1: drain the whole mailbox in one lock (msgq->pop_batch). Lever 2:
+  // take the per-actor fast_send_mutex ONCE for the whole batch instead of per
+  // message (process_message_internal locks it per call, so the body is inlined
+  // here). fast_send shares this mutex, so a fast_send to this actor waits for
+  // the batch to finish — the intended throughput/latency tradeoff.
+  std::vector<const Message *> batch;
   while (true) {
-    auto r = msgq->pop();
-    auto *m = std::get<0>(r);
-    auto last = std::get<1>(r);
-    m->last = last;
-    reply_to = m->sender;
+    msgq->pop_batch(batch);
+    bool stop = false;
+    {
+      std::lock_guard<std::mutex> lock(fast_send_mutex);
+      for (size_t i = 0; i < batch.size(); ++i) {
+        const Message *m = batch[i];
+        m->last = (i + 1 == batch.size()); // last == queue was drained empty
+        reply_to = m->sender;
+        bool is_shutdown = m->get_message_id() == 5;
 
-    bool is_shutdown = m->get_message_id() == 5;
+        msg_cnt++;
+        using_fast_send = false;
+        bool called = call_handler(m);
+        if (!called)
+          process_message(m);
+        delete m;
 
-    process_message_internal(m);
-
-    if (is_shutdown || terminated) {
-      break;
+        if (is_shutdown || terminated) {
+          stop = true;
+          // We drained the whole mailbox into `batch` but are terminating now.
+          // Delete the messages we won't process, or they leak (the batch vector
+          // only drops the pointers). Old one-at-a-time pop() never pre-fetched
+          // these, so the batch change would otherwise leak every co-drained
+          // message that followed a shutdown/terminate.
+          for (size_t k = i + 1; k < batch.size(); ++k)
+            delete batch[k];
+          break;
+        }
+      }
     }
+    if (stop)
+      break;
   }
 
   terminated = true;
