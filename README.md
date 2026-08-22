@@ -24,7 +24,7 @@ Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) —
 - **CME MDP3 v12 market data** — Full SBE decoder for incremental book updates, trades, order-by-order (MBO), instrument definitions, and snapshot recovery. Handles sequence gaps automatically.
 - **Three operating modes** — PCAP replay (backtest), live multicast (paper trading), and iLink 3 (live execution). Same codebase, same strategy code, switch with config.
 - **Shadow execution algorithm** — Production-grade execution logic that piggybacks on real market flow. Places orders only when genuine interest appears at a price level. Zero idle quoting.
-- **Lock-free actor framework** — Custom C++20 actor system with O(1) message dispatch, CPU affinity, and sub-microsecond send latency. No shared state, no locks on the hot path.
+- **Actor framework** — Custom C++20 actor system with O(1) message dispatch, CPU affinity, and sub-microsecond send latency.
 - **iLink 3 reference implementation** — Full CME iLink v3 session handler with SBE encoding, HMAC authentication, sequence management, and primary/secondary failover.
 - **PCAP reader** — Replay recorded CME multicast captures for deterministic backtesting. Bit-exact reproduction of market conditions.
 - **External strategy support** — Write strategies in C++ as in-process actors (lowest latency), or in Rust via the in-process C++/Rust FFI interop.
@@ -149,7 +149,7 @@ See [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) for the full specification,
 
 The actor framework provides the concurrency model for the entire system:
 
-- **Lock-free message passing** — `BQueue` mailbox per actor, O(1) dispatch via `handler_cache[msg_id]`
+- **Message passing** — `BQueue` mailbox per actor, O(1) dispatch via `handler_cache[msg_id]`
 - **Groups for deterministic simulation** — A `Group` runs multiple actors on a single thread with a single message queue. In PCAP replay, the entire pipeline (OB, lights, SOM) goes into one Group — market data, order placement, and fill matching execute in strict message order. No race conditions, no timing artifacts. Bit-exact reproducible backtests.
 - **Zero-copy fast path** — `fast_send()` executes handler in caller's thread for synchronous queries
 - **CPU affinity** — Pin actors to cores for deterministic latency
