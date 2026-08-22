@@ -193,6 +193,30 @@ namespace mdp3
                     auto MsgSize = *(unsigned short *)(databuf);
                     databuf += sizeof(MsgSize);
 
+                    // Bound the walk before trusting MsgSize.  The loop
+                    // advances by MsgSize, so a zero/short size spins
+                    // forever and an oversized one walks off the end of the
+                    // datagram into whatever follows it in the buffer.  The
+                    // sibling instrumentrecovery_handler asserts on the
+                    // zero case (SNGH); this one never checked at all and
+                    // just ran off into garbage until some byte pattern
+                    // happened to decode as an unknown TemplateID.  Fatal,
+                    // for the same reason as the unknown template below: a
+                    // misaligned snapshot packet means the recovered book
+                    // is not trustworthy.  Logged first so the abort is
+                    // diagnosable without a core file.
+                    if (MsgSize < sbe_message_header_size ||
+                        std::size_t(databuf - data_start)
+                            - sizeof(MsgSize) + MsgSize > msg->len)
+                    {
+                        log_err("data recovery: bad MsgSize %d at offset %zd "
+                                "of %zu in packet %d",
+                                MsgSize,
+                                (databuf - data_start) - sizeof(MsgSize),
+                                msg->len, MsgSeqNum);
+                        ERR("data recovery: bad MsgSize");
+                    }
+
                     auto BlockLength = *(unsigned short *)(databuf);
                     databuf += sizeof(BlockLength);
 
@@ -339,8 +363,30 @@ namespace mdp3
                                 order_id);
                         }
                     }
+                    else if (TemplateID == sbe::AdminHeartbeat12::sbeTemplateId())
+                    {
+                        // Expected, and NOT a reason to die.  CME emits
+                        // AdminHeartbeat (template 12, blockLength 0, so the
+                        // message is just the SBE header) on the snapshot
+                        // group to keep the channel alive whenever there is
+                        // no data — i.e. reliably on a quiet weekend.  It
+                        // used to land in the else branch below and hit
+                        // ERR(), taking the whole process down.
+                        // DataDecoder.hpp already treats it as a no-op on
+                        // the live feed; do the same here, silently, or the
+                        // log fills with keepalives.
+                    }
                     else
                     {
+                        // Deliberately fatal.  A template we do not
+                        // recognise on the snapshot channel means the
+                        // recovered book cannot be trusted, and silently
+                        // skipping it would leave us trading off a
+                        // half-built order book.  Log it first so the crash
+                        // is diagnosable without a core file.
+                        log_err("data recovery: unknown TemplateID %d "
+                                "(schema %d version %d, msgsize %d)",
+                                TemplateID, SchemaID, Version, MsgSize);
                         std::cerr << TemplateID << std::endl;
                         ERR("got unknown TemplateID");
                     }
