@@ -17,6 +17,7 @@
 #include "actors/msg/ShutdownThisActor.hpp"
 #include "actors/msg/Continue.hpp"
 #include "mcast_recv/message_buffer.hpp"
+#include "mcast_recv/trailer.hpp"
 #include "mcast_recv/msg/ProcessQ.hpp"
 #include "logger/act/Logger.hpp"
 
@@ -39,6 +40,8 @@ namespace mcast_recv
     std::string pcap_file;
     const uint8_t seq_num_offset = N; // for CME MDP3 its 0
     bool big_endian;
+    TrailerSpec trailer_spec;      // hardware-timestamp trailer layout (default: None)
+    bool trailer_validated = false; // first-packet config-vs-wire sanity check done
 
     pcap_t *pcap = nullptr;
     uint64_t packet_count = 0;
@@ -111,6 +114,7 @@ namespace mcast_recv
 
       // Parse IP header
       uint32_t ip_header_len = 0;
+      uint32_t ip_total_len = 0;
       uint32_t src_ip = 0;
       uint32_t ip_start = offset;
 
@@ -121,6 +125,9 @@ namespace mcast_recv
         }
         uint8_t ihl = (packet[offset] & 0x0F);
         ip_header_len = ihl * 4;
+        uint16_t tot_len_be;
+        memcpy(&tot_len_be, packet + ip_start + 2, 2);  // IPv4 Total Length at byte 2, network byte order
+        ip_total_len = ntohs(tot_len_be);
         memcpy(&src_ip, packet + ip_start + 12, 4);  // src IP at byte 12 of IPv4 header, network byte order
 
       } else if (ethertype == 0x86DD) {
@@ -143,12 +150,42 @@ namespace mcast_recv
 
       offset += 8; // Skip UDP header
 
-      // UDP payload
+      // Any hardware-timestamp trailer (e.g. Metamako) is appended to the L2
+      // frame *after* the UDP payload, so it must be excluded from the MDP3
+      // payload we hand to the decoder.
+      const uint32_t trailer_size = trailer_spec.present() ? trailer_spec.size : 0;
+      if (caplen < offset + trailer_size) {
+        ERRF(boost::format("Packet too small for UDP payload + trailer: %u bytes (offset=%u, trailer=%u)")
+             % caplen % offset % trailer_size);
+      }
+
+      // UDP payload (trailer excluded)
       const u_char *udp_payload = packet + offset;
-      uint32_t payload_len = caplen - offset;
+      uint32_t payload_len = caplen - offset - trailer_size;
 
       if (payload_len > mcast_recv::msgsz) {
         ERRF(boost::format("Payload too large: %u bytes (max %zu)") % payload_len % mcast_recv::msgsz);
+      }
+
+      // Extract the hardware capture timestamp from the trailer, if configured.
+      uint64_t hw_ts = 0;
+      if (trailer_spec.present()) {
+        const u_char *trailer = packet + caplen - trailer_size;
+        hw_ts = trailer_timestamp_ns(trailer, trailer_spec);
+
+        // On the first packet, verify the configured trailer actually matches
+        // the wire, so a mis-configuration fails loudly instead of silently
+        // corrupting payloads / timestamps.
+        if (!trailer_validated) {
+          const uint32_t frame_wo_trailer = ip_start + ip_total_len;
+          const uint64_t pcap_secs = timestamp_ns / 1000000000ULL;
+          if (!trailer_looks_valid(caplen, frame_wo_trailer, hw_ts / 1000000000ULL, pcap_secs, trailer_spec)) {
+            ERRF(boost::format("Trailer config does not match wire in '%s': caplen=%u, eth+ip_total=%u+%u, "
+                               "trailer_secs=%lu, pcap_secs=%lu")
+                 % pcap_file % caplen % ip_start % ip_total_len % (hw_ts / 1000000000ULL) % pcap_secs);
+          }
+          trailer_validated = true;
+        }
       }
 
       // MDP3 UDP payload: first 4 bytes are MsgSeqNum (uint32, little-endian)
@@ -163,7 +200,8 @@ namespace mcast_recv
       msg->buf.src_ip = src_ip;
       msg->buf.dst_port = dst_port;
       msg->buf.chan = 'A';  // Databento data is de-duplicated, always use Feed A
-      msg->buf.recv_ts = timestamp_ns;  // Use PCAP capture timestamp
+      msg->buf.recv_ts = timestamp_ns;  // software (pcap record header) capture ts
+      msg->buf.hw_ts = hw_ts;           // hardware (trailer) capture ts, 0 if no trailer configured
       if (packet_count < 3)
           std::cerr << "[PCAPReader] file=" << pcap_file << " pkt#" << packet_count << " mdp3_seqnum=" << mdp3_seqnum << "\n";
       last_mdp3_seqnum = mdp3_seqnum;
@@ -178,11 +216,13 @@ namespace mcast_recv
         const std::string &chan_nam,
         actors::Actor *msg_processor,
         const std::string &pcap_filename,
-        bool big_endian = false)
+        bool big_endian = false,
+        const TrailerSpec &trailer_spec = TrailerSpec{})
         : chan_nam(chan_nam),
           msg_processor(msg_processor),
           pcap_file(pcap_filename),
-          big_endian(big_endian)
+          big_endian(big_endian),
+          trailer_spec(trailer_spec)
     {
       snprintf(name, sizeof(name), "%sPCAPReader", chan_nam.c_str());
 
