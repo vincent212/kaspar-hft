@@ -115,7 +115,7 @@ kaspar/
 └── mk_kaspr/        Build system templates
 ```
 
-## Shadow Execution — The Core Innovation
+## Shadow Execution Algo
 
 Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow rather than fighting it. Shadow algorithms routinely outperform VWAP and TWAP benchmarks because they don't signal intent and they avoid adverse selection by only trading alongside genuine order flow.
 
