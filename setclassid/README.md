@@ -8,11 +8,11 @@
 
 ## Overview
 
-This script validates that all CFSM message IDs are unique across the entire codebase. Every CFSM message inherits from `cfsm::Message_N<ID>` where `ID` must be a unique integer between 0 and 511.
+This script validates that all actor message IDs are unique across the entire codebase. Every message inherits from `actors::Message_N<ID>` where `ID` must be a unique integer between 0 and 511.
 
 ## Why Message IDs Must Be Unique
 
-CFSM (Communicating Finite State Machine) uses message IDs for:
+The actor framework uses message IDs for:
 1. **Message dispatching**: Routing incoming messages to correct handlers
 2. **Serialization**: Identifying message types in network/IPC communication
 3. **Type safety**: Runtime type identification for message casting
@@ -123,51 +123,20 @@ If there's a gap (e.g., missing 5), you can reuse that ID. However, **it's safer
 
 ### Step 3: Assign IDs to New Messages
 
-**Example**: Adding 6 new messages, and current max is 234.
-
-Assign IDs 235-240:
+**Example**: adding two new messages. Pick any IDs from the free-slots list the
+script prints (the max ID is often already near 511, so you reuse gaps rather
+than append). Here we take `13` and `14`:
 
 ```cpp
-// mtd/include/mtd/msg/GetBBBO.hpp
-struct GetBBBO : public cfsm::Message_N<235> {
-    std::string cusip;
-    uint64_t request_id;
+// mtd/include/mtd/msg/GetStats.hpp
+struct GetStats : public actors::Message_N<13> {
+    uint32_t asset_id;
 };
 
-// bbg/include/bbg/msg/GetPrice.hpp
-struct GetPrice : public cfsm::Message_N<236> {
-    std::string cusip;
-    uint64_t request_id;
-};
-
-// bbg/include/bbg/msg/PriceInfo.hpp
-struct PriceInfo : public cfsm::Message_N<237> {
-    std::string cusip;
-    double bid_px;
-    double ask_px;
-    double dv01;
-    int status;
-    uint64_t request_id;
-};
-
-// offtrpx/include/offtrpx/msg/GetOffTrPrice.hpp
-struct GetOffTrPrice : public cfsm::Message_N<238> {
-    std::string cusip;
-    uint64_t request_id;
-};
-
-// offtrpx/include/offtrpx/msg/OffTrPriceInfo.hpp
-struct OffTrPriceInfo : public cfsm::Message_N<239> {
-    std::string cusip;
-    double mid_px;
-    int status;
-    uint64_t request_id;
-};
-
-// polonaise/include/polonaise/mth/msg/RiskQueryResponse.hpp
-struct RiskQueryResponse : public cfsm::Message_N<240> {
-    std::string json_data;
-    uint64_t request_id;
+// mtd/include/mtd/msg/Stats.hpp
+struct Stats : public actors::Message_N<14> {
+    uint32_t asset_id;
+    uint64_t msg_count;
 };
 ```
 
@@ -210,10 +179,10 @@ If the script reports a duplicate:
 
 ```bash
 cd $KSPRPROJ/setclassid
-python3 setclassid.py | grep "bbg/include/bbg/msg"
+python3 setclassid.py | grep "mtd/include/mtd/msg"
 ```
 
-This shows all BBG message IDs.
+This shows all `mtd` message IDs.
 
 ## Integration with Build System
 
@@ -231,22 +200,16 @@ build: check-msgids
 
 ## Troubleshooting
 
-### Error: "KeyError: 'KSPRPROJ'"
+### Wrong tree scanned / "No such file or directory"
 
-**Cause**: Environment variable not set.
+**Cause**: `KSPRPROJ` is set to the wrong path. (When unset, the script defaults
+to its own repository root, which is usually what you want.)
 
-**Fix**:
+**Fix**: unset `KSPRPROJ`, or point it at the repository root (not a
+subdirectory):
 ```bash
 export KSPRPROJ=/path/to/kaspar-hft
 ```
-
-Or add to `~/.bashrc` for persistence.
-
-### Error: "No such file or directory: '/interface'"
-
-**Cause**: `KSPRPROJ` set to wrong path.
-
-**Fix**: Ensure it points to the m2 root (not a subdirectory).
 
 ### Script Takes Long Time
 
@@ -258,44 +221,25 @@ Or add to `~/.bashrc` for persistence.
 
 ## Message ID Allocation Strategy
 
-### Current Convention
+### Convention
 
-Based on analysis of existing messages, components tend to use ID ranges:
-
-- **0-19**: Core CFSM messages
-- **20-49**: Database/SQL messages
-- **50-99**: Trading protocol messages (FIX, etc.)
-- **100-149**: Market data messages
-- **150-199**: Hedging/position messages
-- **200-249**: RFQ/pricing messages
-- **250-299**: Post-trade messages
-- **300-349**: Risk/analytics messages
-- **350-511**: Reserved for future use
-
-**Note**: This is NOT enforced by the system, just a convention. The only hard rule is **uniqueness**.
+Ranges are **not enforced** — the only hard rules are **uniqueness** and the
+`[0, 511]` bound (IDs `0` and `3` are reserved). In practice IDs cluster loosely
+by area: the lowest IDs are core actor-framework messages (`AddActor` = 11,
+`ActorRemoved` = 12, …); market-data / trading messages sit in the low-to-mid
+range (e.g. `ProcessQ` = 129); console messages are up around 200. Don't try to
+fit a new message into a "range" — just take any ID from the **free slots** the
+checker reports.
 
 ### Recommendation for New Components
 
-When adding a new component with multiple messages:
-1. Find the current max ID
-2. Reserve a block of 10-20 IDs for the component
-3. Document the reservation (e.g., in component README)
-4. Assign IDs sequentially within the block
-
-Example:
-```
-# Risk Monitoring Messages (IDs 235-244)
-235 - GetBBBO
-236 - GetPrice
-237 - PriceInfo
-238 - GetOffTrPrice
-239 - OffTrPriceInfo
-240 - RiskQueryResponse
-241-244 - Reserved for future risk messages
-```
+The ID space is small (512) and already fairly full, so don't try to reserve a
+block at the top — just pick individual IDs from the checker's `Free slots`
+list. If you're adding several related messages, grab a contiguous run of free
+slots if one is available, then re-run `setclassid.py` to confirm uniqueness.
 
 ## See Also
 
-- `cfsm/include/cfsm/Message.hpp` - Base message class definition
-- `cfsm/include/cfsm/CFSM.hpp` - Message dispatching logic
+- `actors/cpp/include/actors/Message.hpp` - base `Message` / `Message_N<ID>` definition
+- `actors/cpp/include/actors/Actor.hpp` - message dispatch (`handler_cache[msg_id]`)
 - Component-specific `msg/` directories for existing messages
