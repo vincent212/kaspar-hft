@@ -127,22 +127,22 @@ else
     # Linux debug build flags (need -mavx2 for SIMD intrinsics in headers)
     CFLAGS_DBG = -O0 -DDEBUG -DLOGDEBUG -ggdb $(DEFINES_COMMON) $(DEFINES_DBG) $(WARNINGS) -rdynamic -Wl,-rpath,/usr/local/lib64:/usr/local/lib:$(BOOST_PATH)/lib:/usr/local/zlib/lib:/usr/local/gsl/lib -mcx16 -mavx2
 
-    # Linux link flags (includes MySQL for position persistence)
-    LDFLAGS_COMMON = -L$(BOOST_PATH)/lib -L$(ZLIB_PATH)/lib -L$(GSL_PATH)/lib -L/usr/local/lib -L/usr/local/lib64 -L/home/vmayeski/local/lib/mariadb -L/home/vmayeski/local/lib -lboost_thread -lboost_filesystem -lpthread -lzmq -lmysqlclient
+    # Linux link flags
+    LDFLAGS_COMMON = -L$(BOOST_PATH)/lib -L$(ZLIB_PATH)/lib -L$(GSL_PATH)/lib -L/usr/local/lib -L/usr/local/lib64 -L/home/vmayeski/local/lib -lboost_thread -lboost_filesystem -lpthread -lzmq
 endif
 
-LDFLAGS_OPT = $(LDFLAGS_COMMON) -Wl,-rpath,/usr/local/lib64:/usr/local/lib:$(BOOST_PATH)/lib:/home/vmayeski/local/lib:/home/vmayeski/local/lib/mariadb:/usr/local/gsl/lib
-LDFLAGS_DBG = $(LDFLAGS_COMMON) -Wl,-rpath,/usr/local/lib64:/usr/local/lib:$(BOOST_PATH)/lib:/home/vmayeski/local/lib:/home/vmayeski/local/lib/mariadb:/usr/local/gsl/lib
+LDFLAGS_OPT = $(LDFLAGS_COMMON) -Wl,-rpath,/usr/local/lib64:/usr/local/lib:$(BOOST_PATH)/lib:/home/vmayeski/local/lib:/usr/local/gsl/lib
+LDFLAGS_DBG = $(LDFLAGS_COMMON) -Wl,-rpath,/usr/local/lib64:/usr/local/lib:$(BOOST_PATH)/lib:/home/vmayeski/local/lib:/usr/local/gsl/lib
 
 # Common library definitions for kaspr applications
 # Actors library path
 ACTORS_LIB_PATH = $(KSPRPROJ)/actors/cpp
 
 # Standard libraries for optimized builds
-LIBS_COMMON_OPT = -lpositionman -lsuper -lmtd -ldb -llight -lframe -lmdp3 -lmcast_recv -lilink -lmq0 -llogger -lchutil $(ACTORS_LIB_PATH)/libactors.a -lgsl -lgslcblas
+LIBS_COMMON_OPT = -lpositionman -lmtd -ldb -llight -lframe -lmdp3 -lmcast_recv -lilink -lmq0 -llogger -lchutil $(ACTORS_LIB_PATH)/libactors.a -lgsl -lgslcblas
 
 # Standard libraries for debug builds
-LIBS_COMMON_DBG = -lpositionmang -lsuperg -lmtdg -ldbg -llightg -lframeg -lmdp3g -lmcast_recvg -lilinkg -lmq0g -lloggerg -lchutilg $(ACTORS_LIB_PATH)/libactorsg.a -lgsl -lgslcblas
+LIBS_COMMON_DBG = -lpositionmang -lmtdg -ldbg -llightg -lframeg -lmdp3g -lmcast_recvg -lilinkg -lmq0g -lloggerg -lchutilg $(ACTORS_LIB_PATH)/libactorsg.a -lgsl -lgslcblas
 
 # Default LIBSO/LIBSG for applications (can be appended with +=)
 # and -lbacktrace are Linux/GCC-only
