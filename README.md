@@ -32,11 +32,49 @@ Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) —
 
 ### Requirements
 
-- C++20 compiler (GCC 12+)
+- C++20 compiler (GCC 12+), GNU Make, Git
 - Boost 1.88+
-- ZeroMQ (libzmq)
+- ZeroMQ — `libzmq` **and** the C++ bindings `cppzmq` (`zmq.hpp`)
 - nlohmann/json
 - GSL (GNU Scientific Library)
+- libpcap (PCAP replay)
+- Crypto++ (iLink 3 HMAC)
+- zlib
+- Google Test (to build and run the unit tests)
+- Rust toolchain — optional, only for the `actors/rust` port
+
+## Build
+
+On Debian/Ubuntu, install the toolchain and dependencies:
+
+```bash
+sudo apt-get update && sudo apt-get install -y \
+    build-essential git pkg-config \
+    libzmq3-dev cppzmq-dev nlohmann-json3-dev libgsl-dev \
+    libpcap-dev libcrypto++-dev zlib1g-dev libgtest-dev
+```
+
+Boost 1.88+ is newer than most distro packages — install a 1.88+ package or
+build it from source, then point the build at it.
+
+Build the libraries (optimized):
+
+```bash
+KSPRPROJ=$(pwd) make -j
+```
+
+Build and run the actor-framework unit tests:
+
+```bash
+make -C actors/cpp test        # requires Google Test
+```
+
+Notes:
+
+- External library paths are set in `mk_kaspr/glob_begin.mk` (`BOOST_PATH`,
+  `GSL_PATH`, `ZMQ_PATH`, …). Adjust them to match your system.
+- The Linux build targets x86-64 (`-mcx16`, `-mfpmath=sse`, `-march=native`);
+  build on an x86-64 host (or under emulation).
 
 ## Operating Modes
 
