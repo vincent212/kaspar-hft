@@ -202,6 +202,30 @@ handle_messages!(MyStrategy,
 See [actors/cpp/CLAUDE_AGENT_GUIDE.md](actors/cpp/CLAUDE_AGENT_GUIDE.md) for the complete C++ framework
 reference, and [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) for the Rust API.
 
+### Message IDs — a gotcha when adding messages
+
+Every actor message carries a **globally-unique integer ID** in `[0, 511]`,
+assigned by hand as a template parameter:
+
+```cpp
+struct MyMessage : public actors::Message_N<100> { /* ... */ };
+```
+
+That ID drives O(1) dispatch (`handler_cache[msg_id]`) and message-type
+identification. **There is no compile-time check that IDs are unique** — if two
+message types pick the same ID the collision is *silent*: messages get routed to
+the wrong handler or interpreted as the wrong type (undefined behavior), not a
+build error.
+
+So when you add a message type, pick an ID nothing else uses and run the checker
+before committing — it scans the tree and flags any duplicate `Message_N<ID>`:
+
+```bash
+python3 setclassid/setclassid.py     # exits noisily on a duplicate ID
+```
+
+See [`setclassid/README.md`](setclassid/README.md).
+
 ## Console
 
 A running `kaspr` process exposes a **ZMQ request/reply control console** (the

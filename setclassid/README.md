@@ -29,15 +29,15 @@ CFSM (Communicating Finite State Machine) uses message IDs for:
 
 ### Prerequisites
 
-Set the `CHOPIN_PROJ` environment variable to the m2 project root:
+Set `KSPRPROJ` to the repository root (optional — defaults to the repo the script lives in):
 ```bash
-export CHOPIN_PROJ=/home/vm/m2
+export KSPRPROJ=/path/to/kaspar-hft
 ```
 
 ### Basic Usage
 
 ```bash
-cd /home/vm/m2/setclassid
+cd $KSPRPROJ/setclassid
 python3 setclassid.py
 ```
 
@@ -89,7 +89,7 @@ This indicates a message ID exceeds the maximum (511).
 ### Step 1: Run the Script to Find Available IDs
 
 ```bash
-cd /home/vm/m2/setclassid
+cd $KSPRPROJ/setclassid
 python3 setclassid.py
 ```
 
@@ -197,7 +197,7 @@ If the script reports a duplicate:
 ### Finding All Messages for a Specific Component
 
 ```bash
-cd /home/vm/m2/setclassid
+cd $KSPRPROJ/setclassid
 python3 setclassid.py | grep "bbg/include/bbg/msg"
 ```
 
@@ -211,7 +211,7 @@ Example Makefile integration:
 ```makefile
 .PHONY: check-msgids
 check-msgids:
-	@cd /home/vm/m2/setclassid && python3 setclassid.py > /dev/null && echo "✓ Message IDs are unique"
+	@cd $KSPRPROJ/setclassid && python3 setclassid.py > /dev/null && echo "✓ Message IDs are unique"
 
 build: check-msgids
 	# ... rest of build
@@ -219,20 +219,20 @@ build: check-msgids
 
 ## Troubleshooting
 
-### Error: "KeyError: 'CHOPIN_PROJ'"
+### Error: "KeyError: 'KSPRPROJ'"
 
 **Cause**: Environment variable not set.
 
 **Fix**:
 ```bash
-export CHOPIN_PROJ=/home/vm/m2
+export KSPRPROJ=/path/to/kaspar-hft
 ```
 
 Or add to `~/.bashrc` for persistence.
 
 ### Error: "No such file or directory: '/interface'"
 
-**Cause**: `CHOPIN_PROJ` set to wrong path.
+**Cause**: `KSPRPROJ` set to wrong path.
 
 **Fix**: Ensure it points to the m2 root (not a subdirectory).
 

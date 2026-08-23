@@ -14,8 +14,10 @@ import re
 # maximum is 512
 #
 
-rdir=os.environ["CHOPIN_PROJ"]
-print (rdir)
+# Repo root: honor KSPRPROJ if set, otherwise default to this script's repo
+# (setclassid/ lives at the top level).
+rdir = os.environ.get("KSPRPROJ") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+print(rdir)
 
 def listFilesRecursive(dirP,pattern):
     ret = listFiles(dirP,pattern)
