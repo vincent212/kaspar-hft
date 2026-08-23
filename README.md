@@ -96,27 +96,28 @@ Notes:
 
 ```
 kaspar/
-├── actors/          C++20 actor framework (messaging, lifecycle) + Rust port + C++/Rust interop
-│   └── rust/       Rust port of the actor framework (actors) + matching_engine example
-├── kaspr/           Main application (startup, wiring, config)
-├── mdp3/            MDP3 market data decoder and recovery
-├── mcast_recv/      Multicast UDP receiver and PCAP reader
-├── frame_kaspr/     Order book (OB/TachBook), SOM, BFA, Timer
-├── light/           Shadow execution algorithm (light22)
-├── ilink/           CME iLink 3 session handler
-├── ilink_v8/        iLink v8 SBE protocol headers (generated)
-├── mktdata_v12/     MDP3 v12 SBE market data headers (generated)
-├── chutil/          Core utilities (time, sockets, enums, binary formats)
-├── interface/       Factory function headers for actor creation
-├── db/              Database actor (stubbed)
-├── mtd/             Monitoring and console display
-├── mq0/             ZMQ console server
-├── logger/          Logging actor
-├── positionman/     Per-instrument position tracking
-├── oogsl/           GSL math wrappers (stats, matrix, random)
-├── genconfig/       CME config generators (MDP3 + iLink)
-├── setclassid/      Message ID collision checker
-└── mk_kaspr/        Build system templates
+├── actors/         Custom C++20 actor framework — per-actor mailboxes, O(1) dispatch, groups, lifecycle; + Rust port & C++/Rust FFI interop
+│   └── rust/       Rust port of the actor core (crate `actors`) + a price-time-FIFO `matching_engine` example
+├── kaspr/          Main application — process startup, actor wiring, and config (`config/kaspr.ini`)
+├── mdp3/           CME MDP 3.0 market-data SBE decoder + sequence-gap / snapshot recovery
+├── mcast_recv/     Feed sources — multicast UDP receiver and offline PCAP reader
+├── frame_kaspr/    Trading core — OB (MBP book) & TachBook (MBO L3 book), SOM (Simulated Order Manager), BFA (recorded binary-file replay), Timer
+├── frame_ref/      Reference data & shared value types — instrument `Asset` defs, `Price`, the `RefData` universe
+├── light/          Shadow / POV execution algorithm — the per-side `light22` lights
+├── ilink/          CME iLink 3 order-entry session — SBE, HMAC auth, seq management, primary/secondary failover
+├── ilink_v8/       Generated iLink v8 SBE protocol headers
+├── mktdata_v12/    Generated MDP3 v12 SBE market-data headers
+├── chutil/         Core utilities — time, sockets, enums, binary/CSV formats, assert/macros
+├── interface/      Factory-function headers that create actors (keeps wiring decoupled from impl)
+├── db/             Database persistence actor (stubbed)
+├── mtd/            Monitoring — console command handlers + display tables
+├── mq0/            ZMQ REQ/REP console server (runtime control/monitoring port)
+├── logger/         Asynchronous logging actor
+├── positionman/    Per-instrument position tracking
+├── oogsl/          GSL math wrappers — stats, matrix, RNG
+├── genconfig/      CME config generators (MDP3 + iLink)
+├── setclassid/     Message-ID collision checker
+└── mk_kaspr/       Build-system templates — glob_begin.mk, lib/app templates, path detection
 ```
 
 ## Shadow Execution Algo
