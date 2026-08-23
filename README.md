@@ -40,7 +40,6 @@ Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) —
 - libpcap (PCAP replay)
 - Crypto++ (iLink 3 HMAC)
 - zlib
-- MariaDB / MySQL client library (linked by the `kaspr` executable)
 - Google Test (to build and run the unit tests)
 - Rust toolchain — optional, only for the `actors/rust` port
 
@@ -52,7 +51,7 @@ On Debian/Ubuntu, install the toolchain and dependencies:
 sudo apt-get update && sudo apt-get install -y \
     build-essential git pkg-config \
     libzmq3-dev cppzmq-dev nlohmann-json3-dev libgsl-dev \
-    libpcap-dev libcrypto++-dev zlib1g-dev default-libmysqlclient-dev libgtest-dev
+    libpcap-dev libcrypto++-dev zlib1g-dev libgtest-dev
 ```
 
 Boost 1.88+ is newer than most distro packages — install a 1.88+ package or
