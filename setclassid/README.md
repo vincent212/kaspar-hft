@@ -44,45 +44,57 @@ python3 setclassid.py
 ### Expected Output (Success)
 
 ```
-/home/vm/m2
-/home/vm/m2/cfsm/include/cfsm/msg/SomeMessage.hpp 15
-/home/vm/m2/bbg/include/bbg/msg/StartQuoting.hpp 42
-/home/vm/m2/pycalc/include/pycalc/msg/GetDV01.hpp 66
-/home/vm/m2/pycalc/include/pycalc/msg/DV01.hpp 67
+$KSPRPROJ
+$KSPRPROJ/actors/cpp/include/actors/msg/AddActor.hpp 11
+$KSPRPROJ/actors/cpp/include/actors/msg/ActorRemoved.hpp 12
+$KSPRPROJ/frame_ref/include/frame/mda/msg/Data.hpp 17
+$KSPRPROJ/mcast_recv/include/mcast_recv/msg/ProcessQ.hpp 129
+$KSPRPROJ/actors/cpp/include/actors/console/ConsoleMessages.hpp 200
 ...
-max is 234
-[0, 1, 2, 3, ..., 234]
+max is 511
+[0, 1, 2, 4, 5, ...]
+
+=== MESSAGE ID ALLOCATION SUMMARY ===
+Total IDs used: 132/512
+Total IDs available: 378
+Reserved IDs (0, 3): 2
+
+Free slots: [2, 13, 14, 29, 30, 43, ...]
 ```
 
-This shows:
-- Each file and its message ID
-- Maximum ID currently in use
-- Sorted list of all assigned IDs
+This shows each message file and its ID, the highest ID in use, and — most
+useful when adding a message — the **free slots** you can pick a new ID from.
+(Exact counts are a snapshot; run the script for current numbers.)
 
 ### Output on Error (Duplicate ID)
 
+If a new message reuses an ID that's already taken (here `22`, already used by
+`frame/ob/msg/BBBOChg.hpp`), the script prints the collision and aborts:
+
 ```
-/home/vm/m2/bbg/include/bbg/msg/GetPrice.hpp 42
-42 *** IS USED MORE THAN ONCE *** DUPLICATE *** /home/vm/m2/bbg/include/bbg/msg/GetPrice.hpp [0, 1, 2, ..., 42, ..., 42]
+$KSPRPROJ/mtd/include/mtd/msg/YourNewMsg.hpp 22
+22 *** IS USED MORE THAN ONCE *** DUPLICATE *** $KSPRPROJ/mtd/include/mtd/msg/YourNewMsg.hpp
+   Used IDs so far: [0, 1, 2, ..., 22, ...]
+   FREE SLOTS (examples): [2, 13, 14, 29, 30, ...]
 Traceback (most recent call last):
-  File "setclassid.py", line 69, in <module>
+  File ".../setclassid/setclassid.py", line 121, in <module>
     assert msgidx not in msgid
 AssertionError
 ```
 
-This indicates message ID `42` is used by multiple messages.
+Pick one of the reported free slots instead.
 
 ### Output on Error (ID Out of Range)
 
+IDs must be in `[0, 511]`; anything larger aborts:
+
 ```
-/home/vm/m2/some/msg/BadMessage.hpp 513
+$KSPRPROJ/mtd/include/mtd/msg/YourNewMsg.hpp 513
 Traceback (most recent call last):
-  File "setclassid.py", line 70, in <module>
+  File ".../setclassid/setclassid.py", line 122, in <module>
     assert msgidx < 512
 AssertionError
 ```
-
-This indicates a message ID exceeds the maximum (511).
 
 ## How to Assign New Message IDs
 
