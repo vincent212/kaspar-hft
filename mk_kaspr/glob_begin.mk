@@ -41,24 +41,31 @@ FRAME_REF_PATH=$(INSTALL_PATH)/frame_ref
 # OS detection
 UNAME_S := $(shell uname -s)
 
-# External dependencies - OS-specific paths
+# External dependency prefixes — overridable from the environment (`?=`, so a
+# shell `export` wins over the default). Defaults match a vanilla system
+# install; set overrides in your shell profile — or run mk_kaspr/detect_paths.sh
+# to auto-detect them — when the libs live under a home-dir prefix. See
+# mk_kaspr/PATHS.md.
 ifeq ($(UNAME_S),Darwin)
-    BOOST_PATH=/opt/homebrew/opt/boost
-    ZLIB_PATH=/opt/homebrew/opt/zlib
-    GSL_PATH=/opt/homebrew/opt/gsl
-    CPPZMQ_PATH=/opt/homebrew/opt/cppzmq
-    ZMQ_PATH=/opt/homebrew/opt/zeromq
-    JSON_PATH=/opt/homebrew/opt/nlohmann-json
-    CRYPTOPP_PATH=/opt/homebrew/opt/cryptopp
+    BOOST_PATH    ?= /opt/homebrew/opt/boost
+    ZLIB_PATH     ?= /opt/homebrew/opt/zlib
+    GSL_PATH      ?= /opt/homebrew/opt/gsl
+    CPPZMQ_PATH   ?= /opt/homebrew/opt/cppzmq
+    ZMQ_PATH      ?= /opt/homebrew/opt/zeromq
+    JSON_PATH     ?= /opt/homebrew/opt/nlohmann-json
+    CRYPTOPP_PATH ?= /opt/homebrew/opt/cryptopp
 else
-    BOOST_PATH=/home/vmayeski/local/boost190
-    ZLIB_PATH=/usr
-    GSL_PATH=/usr/local/gsl
-    CPPZMQ_PATH=/usr/local
-    ZMQ_PATH=/usr/local
-    JSON_PATH=/home/vmayeski/local
-    CRYPTOPP_PATH=/home/vmayeski/local
+    BOOST_PATH    ?= /usr/local
+    ZLIB_PATH     ?= /usr
+    GSL_PATH      ?= /usr/local/gsl
+    CPPZMQ_PATH   ?= /usr/local
+    ZMQ_PATH      ?= /usr/local
+    JSON_PATH     ?= /usr/local
+    CRYPTOPP_PATH ?= /usr/local
 endif
+
+# Extra -L / rpath root for home-dir installs (Linux links -L$(LOCAL_LIB_PATH)/lib).
+LOCAL_LIB_PATH ?= /usr/local
 
 INCL=\
 -I$(ACTORS_PATH)/include \
@@ -86,7 +93,6 @@ INCL=\
 -I$(ZMQ_PATH)/include \
 -I$(JSON_PATH)/include \
 -I$(CRYPTOPP_PATH)/include \
--I/home/vmayeski/local/include/mysql \
 -I$(INSTALL_PATH)
 
 MFLAGS=$(INCL) $(EXTRA_INCL) $(STANDARD) $(CFLAGS_SPEC)
@@ -128,11 +134,11 @@ else
     CFLAGS_DBG = -O0 -DDEBUG -DLOGDEBUG -ggdb $(DEFINES_COMMON) $(DEFINES_DBG) $(WARNINGS) -rdynamic -Wl,-rpath,/usr/local/lib64:/usr/local/lib:$(BOOST_PATH)/lib:/usr/local/zlib/lib:/usr/local/gsl/lib -mcx16 -mavx2
 
     # Linux link flags
-    LDFLAGS_COMMON = -L$(BOOST_PATH)/lib -L$(ZLIB_PATH)/lib -L$(GSL_PATH)/lib -L/usr/local/lib -L/usr/local/lib64 -L/home/vmayeski/local/lib -lboost_thread -lboost_filesystem -lpthread -lzmq
+    LDFLAGS_COMMON = -L$(BOOST_PATH)/lib -L$(ZLIB_PATH)/lib -L$(GSL_PATH)/lib -L/usr/local/lib -L/usr/local/lib64 -L$(LOCAL_LIB_PATH)/lib -lboost_thread -lboost_filesystem -lpthread -lzmq
 endif
 
-LDFLAGS_OPT = $(LDFLAGS_COMMON) -Wl,-rpath,/usr/local/lib64:/usr/local/lib:$(BOOST_PATH)/lib:/home/vmayeski/local/lib:/usr/local/gsl/lib
-LDFLAGS_DBG = $(LDFLAGS_COMMON) -Wl,-rpath,/usr/local/lib64:/usr/local/lib:$(BOOST_PATH)/lib:/home/vmayeski/local/lib:/usr/local/gsl/lib
+LDFLAGS_OPT = $(LDFLAGS_COMMON) -Wl,-rpath,/usr/local/lib64:/usr/local/lib:$(BOOST_PATH)/lib:$(LOCAL_LIB_PATH)/lib:/usr/local/gsl/lib
+LDFLAGS_DBG = $(LDFLAGS_COMMON) -Wl,-rpath,/usr/local/lib64:/usr/local/lib:$(BOOST_PATH)/lib:$(LOCAL_LIB_PATH)/lib:/usr/local/gsl/lib
 
 # Common library definitions for kaspr applications
 # Actors library path

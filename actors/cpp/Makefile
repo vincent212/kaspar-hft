@@ -26,19 +26,22 @@ CONSOLE_SRC = src/console/Table.cpp src/console/ConsoleActor.cpp src/console/MQ0
 CXX = g++
 
 # OS detection
+# Dependency prefixes — overridable from the environment (`?=`, so a shell
+# export wins). Defaults match a vanilla system install; see mk_kaspr/PATHS.md
+# or run mk_kaspr/detect_paths.sh to auto-detect home-dir prefixes.
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
-    BOOST_PATH = /opt/homebrew/opt/boost
-    CPPZMQ_PATH = /opt/homebrew/opt/cppzmq
-    ZMQ_PATH = /opt/homebrew/opt/zeromq
-    JSON_PATH = /opt/homebrew/opt/nlohmann-json
-    GTEST_PATH = /opt/homebrew/opt/googletest
+    BOOST_PATH  ?= /opt/homebrew/opt/boost
+    CPPZMQ_PATH ?= /opt/homebrew/opt/cppzmq
+    ZMQ_PATH    ?= /opt/homebrew/opt/zeromq
+    JSON_PATH   ?= /opt/homebrew/opt/nlohmann-json
+    GTEST_PATH  ?= /opt/homebrew/opt/googletest
 else
-    BOOST_PATH = /home/vmayeski/local/boost190
-    CPPZMQ_PATH = /usr/local
-    ZMQ_PATH = /usr/local
-    JSON_PATH = /home/vmayeski/local
-    GTEST_PATH = /usr/local
+    BOOST_PATH  ?= /usr/local
+    CPPZMQ_PATH ?= /usr/local
+    ZMQ_PATH    ?= /usr/local
+    JSON_PATH   ?= /usr/local
+    GTEST_PATH  ?= /usr
 endif
 
 CXXFLAGS_COMMON = -std=c++20 -Iinclude -I../../chutil/include -I$(BOOST_PATH)/include -I$(CPPZMQ_PATH)/include -I$(ZMQ_PATH)/include -I$(JSON_PATH)/include -I$(GTEST_PATH)/include
