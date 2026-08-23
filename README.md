@@ -69,10 +69,18 @@ Build and run the actor-framework unit tests:
 make -C actors/cpp test        # requires Google Test
 ```
 
+If your libraries live under a home-dir prefix (not `/usr` or `/usr/local`),
+auto-detect and export the paths:
+
+```bash
+eval "$(./mk_kaspr/detect_paths.sh)"     # or: ./mk_kaspr/detect_paths.sh --check
+```
+
 Notes:
 
-- External library paths are set in `mk_kaspr/glob_begin.mk` (`BOOST_PATH`,
-  `GSL_PATH`, `ZMQ_PATH`, …). Adjust them to match your system.
+- External library paths (`BOOST_PATH`, `GSL_PATH`, `ZMQ_PATH`, …) are
+  environment-overridable `?=` defaults in `mk_kaspr/glob_begin.mk` — set them
+  in your shell or run `detect_paths.sh`. See `mk_kaspr/PATHS.md`.
 - The Linux build targets x86-64 (`-mcx16`, `-mfpmath=sse`, `-march=native`);
   build on an x86-64 host (or under emulation).
 
