@@ -223,18 +223,75 @@ reference, and [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) 
 
 ## Console
 
-Connect via ZMQ (default port 7777) for runtime monitoring:
+A running `kaspr` process exposes a **ZMQ request/reply control console** (the
+`mq0` server) for live monitoring and manual intervention — inspect books and
+positions, place/cancel orders by hand, and pause/resume the order matcher, all
+without restarting. It binds a TCP port set by `mqport` in the config (default
+**7777**; see [Configuration](#configuration)).
 
-| Command | Description |
-|---------|-------------|
-| `prices` | Show bid/ask for all instruments |
-| `bbbo` | Best bid/offer in 32nds format |
-| `fills` | Recent fill history |
-| `get_orders` | Working orders |
-| `assets` | Configured instruments |
-| `startom` / `stopom` | Enable/disable order matching |
-| `order sym=ESM6 sz=1 bs=BUY px=6000 x=CMEMDFUT` | Place order |
-| `cancel id=123 x=CMEMDFUT` | Cancel order |
+### Protocol
+
+Synchronous **REQ/REP**: the client sends a one-line command string and gets a
+single text reply — usually a rendered ASCII table, or a short status line.
+Commands are `verb key=value key=value …` (space-separated). Common keys:
+
+| Key | Meaning | Example |
+|-----|---------|---------|
+| `sym` | instrument name | `ESM6` |
+| `sz` | order size | `1` |
+| `bs` | side | `BUY` / `SELL` |
+| `px` | price | `6000` |
+| `x` | venue / exchange | `CMEMDFUT` |
+| `id` | order id (for cancel) | `123` |
+
+The server enforces 10 s send/recv timeouts and TCP keepalive, and drops idle
+connections after ~45 s — clients should set `RCVTIMEO`/`SNDTIMEO`/`LINGER`.
+Full client notes (reconnect, pooling): [`mq0/MQ0_CLIENT_GUIDE.md`](mq0/MQ0_CLIENT_GUIDE.md).
+
+### Connecting
+
+```python
+import zmq
+
+ctx = zmq.Context()
+sock = ctx.socket(zmq.REQ)
+sock.setsockopt(zmq.RCVTIMEO, 10000)
+sock.setsockopt(zmq.SNDTIMEO, 10000)
+sock.setsockopt(zmq.LINGER, 0)
+sock.connect("tcp://localhost:7777")
+
+sock.send_string("bbbo")
+print(sock.recv_string())        # prints an ASCII table
+```
+
+### Commands
+
+| Command | Reply | Description |
+|---------|-------|-------------|
+| `ping` | `OK` | Liveness check. |
+| `prices` | table: `sym, bid, ask` | Best bid/ask (integer price) for every instrument with market data. |
+| `bbbo` | table: `sym, bid32, bid, ask, ask32` | Best bid/offer, both as integer price and in 32nds. |
+| `assets` | table: `id, name, mnem, units, sec_id, exch, maxpx, has_book` | Configured instrument universe. |
+| `get_orders` | table | Current working (live) orders. |
+| `fills` | table | Recent fill history. |
+| `pos fname=<csv>` | table: `sym, pos` | Render a positions CSV file as a table. |
+| `startom` / `stopom` | status line | Start / stop the Simulated Order Manager (SOM) — i.e. enable/disable order matching. |
+| `order sym=ESM6 sz=1 bs=BUY px=6000 x=CMEMDFUT` | ack | Place an order into the simulator. |
+| `cancel id=123 x=CMEMDFUT` | ack | Cancel a working order by id. |
+
+### Example session
+
+Using the REQ client above, each `send_string(...)` returns a text table or
+ack. A typical flow:
+
+```
+send  "bbbo"                                        -> BBBO table (sym/bid/ask + 32nds)
+send  "assets"                                      -> instrument universe
+send  "order sym=ESM6 sz=1 bs=BUY px=600050 x=CMEMDFUT"  -> order acked
+send  "get_orders"                                  -> the working order appears
+send  "stopom"                                      -> "sent stop request to som"
+```
+
 
 ## Configuration
 
