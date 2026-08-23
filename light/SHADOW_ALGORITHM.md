@@ -58,7 +58,7 @@ This prevents over-trading while still reacting to market conditions.
 
 4. **Minimal latency path** — one message handler (`eob_handler`) with a short decision tree. No model evaluation, no network round-trips for decision-making. The critical path is: receive EOB → check flags → send Order to SOM.
 
-5. **Lock-free coordination** — `QCoord` (queue coordinator) and `PCoord` (position coordinator) use shared memory to coordinate multiple lights per instrument without message passing overhead.
+5. **Shared-memory coordination** — `QCoord` (queue coordinator) and `PCoord` (position coordinator) coordinate multiple lights per instrument via shared memory guarded by fine-grained mutexes, without message-passing overhead.
 
 ## Configuration
 
