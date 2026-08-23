@@ -119,34 +119,6 @@ kaspar/
 └── mk_kaspr/        Build system templates
 ```
 
-## Shadow Execution Algo
-
-Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow. Shadow algorithms can outperform VWAP and TWAP benchmarks because they avoid adverse selection by only trading alongside genuine order flow.
-
-```
-Real market participant places order at 6050.00
-    → light22 sees ADD on its side
-    → checks: position < target? price in range? level not crowded?
-    → throttle gate: deterministic (every Nth) or stochastic (3%)
-    → places at 6050.00 — same price, piggybacking on real flow
-    → tracks the real order it attached to
-    → if that order gets hit or pulled → auto-cancel with delay
-```
-
-**Why this works:**
-
-| Property | Traditional MM | Shadow Execution |
-|----------|---------------|-----------------|
-| Adverse selection | High (stale quotes get picked off) | Low (only at prices with real interest) |
-| Queue position | Poor (late to the level) | Better (enters alongside real flow) |
-| Complexity | Model-heavy (fair value, skew, Greeks) | Microstructure-only (ADD/CANC signals) |
-| Latency requirement | Ultra-low (race to cancel) | Moderate (no quotes to defend) |
-
-The lights coordinate via **shared memory** — `QCoord` tracks aggregate working orders, `PCoord` tracks net position — guarded by fine-grained mutexes rather than passing coordination messages.
-
-See [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) for the full specification, and the write-up
-[**"Shadow POV Execution: Trade Where the Market Is Going to Trade"**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where).
-
 ## Actor Framework
 
 The actor framework provides the concurrency model for the entire system:
@@ -353,6 +325,34 @@ Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.su
 - [**Medians Lie, Tails Kill: Why Kaspar Shards Mailbox Locks**](https://vincentmayeski.substack.com/p/medians-lie-tails-kill-why-kaspar) — per-actor mailboxes shard lock contention to flatten tail-latency jitter (~180× at p99.9). *Code on the experimental [`sharded-mailbox`](https://github.com/vincent212/kaspar-hft/tree/sharded-mailbox) branch, not yet merged.*
 - [**The Lock-Free Illusion: Why CAS Storms Kill Actor Queues Under Contention**](https://vincentmayeski.substack.com/p/the-lock-free-illusion-why-cas-storms) — when a lock-free mailbox wins and when it tails worse than a mutex; the queue-selection matrix. *Code on the experimental [`sharded-mailbox`](https://github.com/vincent212/kaspar-hft/tree/sharded-mailbox) branch, not yet merged.*
 - [**Shadow POV Execution: Trade Where the Market Is Going to Trade**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where) — a percentage-of-volume algorithm that follows passive flow.
+
+## Shadow Execution Algo
+
+Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow. Shadow algorithms can outperform VWAP and TWAP benchmarks because they avoid adverse selection by only trading alongside genuine order flow.
+
+```
+Real market participant places order at 6050.00
+    → light22 sees ADD on its side
+    → checks: position < target? price in range? level not crowded?
+    → throttle gate: deterministic (every Nth) or stochastic (3%)
+    → places at 6050.00 — same price, piggybacking on real flow
+    → tracks the real order it attached to
+    → if that order gets hit or pulled → auto-cancel with delay
+```
+
+**Why this works:**
+
+| Property | Traditional MM | Shadow Execution |
+|----------|---------------|-----------------|
+| Adverse selection | High (stale quotes get picked off) | Low (only at prices with real interest) |
+| Queue position | Poor (late to the level) | Better (enters alongside real flow) |
+| Complexity | Model-heavy (fair value, skew, Greeks) | Microstructure-only (ADD/CANC signals) |
+| Latency requirement | Ultra-low (race to cancel) | Moderate (no quotes to defend) |
+
+The lights coordinate via **shared memory** — `QCoord` tracks aggregate working orders, `PCoord` tracks net position — guarded by fine-grained mutexes rather than passing coordination messages.
+
+See [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) for the full specification, and the write-up
+[**"Shadow POV Execution: Trade Where the Market Is Going to Trade"**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where).
 
 ## License
 
