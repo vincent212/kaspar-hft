@@ -5,6 +5,11 @@
 #
 # Licensed under the MIT License. See LICENSE file in the project root.
 
+# NOTE: this parses XML downloaded from CME's authenticated SFTP server — a
+# trusted source — so the stdlib parser is fine here. If this ever parses
+# untrusted / user-supplied XML, switch to defusedxml
+# (`from defusedxml import ElementTree as ET`) to harden against XXE / XML-bomb
+# attacks (CWE-611).
 import xml.etree.ElementTree as ET
 import paramiko
 import sys
