@@ -83,7 +83,7 @@ In-process actor system with message passing and lifecycle management, plus an i
 | `Actor.hpp` | Actor base class — message handlers, send/subscribe |
 | `ActorRef.hpp` | Lightweight actor reference (address + send) |
 | `Message.hpp` | Base message type with routing metadata |
-| `Queue.hpp` | Lock-free SPSC message queue |
+| `Queue.hpp` | Abstract message-queue interface |
 | `BQueue.hpp` | Bounded queue variant |
 | `HybridBuffer.hpp` | Hybrid stack/heap buffer for messages |
 | `HybridCB.hpp` | Hybrid circular buffer |
