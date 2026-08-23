@@ -20,12 +20,12 @@ The mk_kaspr directory contains build templates:
 ### Minimal Makefile
 
 ```makefile
-include $(CHOPIN_PROJ)/mk_kaspr/glob_begin.mk
+include $(KSPRPROJ)/mk_kaspr/glob_begin.mk
 
 SRC = main.cpp myprogram.cpp
 APPNAM = myprogram
 
-include $(CHOPIN_PROJ)/mk_kaspr/app_template.mk
+include $(KSPRPROJ)/mk_kaspr/app_template.mk
 ```
 
 ### With Additional Libraries
@@ -34,7 +34,7 @@ The default LIBSO/LIBSG includes all common libraries (see glob_begin.mk).
 If you need extra libraries not already included, add them with `+=`:
 
 ```makefile
-include $(CHOPIN_PROJ)/mk_kaspr/glob_begin.mk
+include $(KSPRPROJ)/mk_kaspr/glob_begin.mk
 
 SRC = main.cpp myprogram.cpp
 APPNAM = myprogram
@@ -43,7 +43,7 @@ APPNAM = myprogram
 LIBSO += -lsqlite3
 LIBSG += -lsqlite3
 
-include $(CHOPIN_PROJ)/mk_kaspr/app_template.mk
+include $(KSPRPROJ)/mk_kaspr/app_template.mk
 ```
 
 ### Variables to Define
@@ -60,8 +60,8 @@ include $(CHOPIN_PROJ)/mk_kaspr/app_template.mk
 ### Build Commands
 
 ```bash
-# Set CHOPIN_PROJ first
-export CHOPIN_PROJ=/home/vm/m2_kaspr
+# Set KSPRPROJ first
+export KSPRPROJ=/path/to/kaspar-hft
 
 # Build optimized version
 make opt
@@ -87,12 +87,12 @@ make install
 ### Minimal Makefile
 
 ```makefile
-include $(CHOPIN_PROJ)/mk_kaspr/glob_begin.mk
+include $(KSPRPROJ)/mk_kaspr/glob_begin.mk
 
 LIBSRC = file1.cpp file2.cpp file3.cpp
 NAM = mylib
 
-include $(CHOPIN_PROJ)/mk_kaspr/lib_template.mk
+include $(KSPRPROJ)/mk_kaspr/lib_template.mk
 ```
 
 ### Variables to Define
@@ -104,34 +104,34 @@ include $(CHOPIN_PROJ)/mk_kaspr/lib_template.mk
 
 ### Output
 
-- `opt` target: Creates `$(CHOPIN_PROJ)/lib/lib$(NAM).a`
-- `debug` target: Creates `$(CHOPIN_PROJ)/libg/lib$(NAM)g.a`
+- `opt` target: Creates `$(KSPRPROJ)/lib/lib$(NAM).a`
+- `debug` target: Creates `$(KSPRPROJ)/libg/lib$(NAM)g.a`
 
 ## Adding Extra Include Paths
 
 ```makefile
-include $(CHOPIN_PROJ)/mk_kaspr/glob_begin.mk
+include $(KSPRPROJ)/mk_kaspr/glob_begin.mk
 
 INCL += -I/path/to/extra/headers
-INCL += -I$(CHOPIN_PROJ)/mycomponent/include
+INCL += -I$(KSPRPROJ)/mycomponent/include
 
 SRC = main.cpp
 APPNAM = myprogram
 
-include $(CHOPIN_PROJ)/mk_kaspr/app_template.mk
+include $(KSPRPROJ)/mk_kaspr/app_template.mk
 ```
 
 ## Adding Compiler Flags
 
 ```makefile
-include $(CHOPIN_PROJ)/mk_kaspr/glob_begin.mk
+include $(KSPRPROJ)/mk_kaspr/glob_begin.mk
 
 DEFINES_COMMON += -mavx2
 
 SRC = main.cpp
 APPNAM = myprogram
 
-include $(CHOPIN_PROJ)/mk_kaspr/app_template.mk
+include $(KSPRPROJ)/mk_kaspr/app_template.mk
 ```
 
 ## Complete Example
@@ -139,12 +139,12 @@ include $(CHOPIN_PROJ)/mk_kaspr/app_template.mk
 ```makefile
 # sim/src/Makefile - SimKaspr simulation executable
 
-include $(CHOPIN_PROJ)/mk_kaspr/glob_begin.mk
+include $(KSPRPROJ)/mk_kaspr/glob_begin.mk
 
 SRC = sim_kaspr.cpp main.cpp
 APPNAM = sim_kaspr
 
-include $(CHOPIN_PROJ)/mk_kaspr/app_template.mk
+include $(KSPRPROJ)/mk_kaspr/app_template.mk
 ```
 
 ## Library Naming Convention
