@@ -7,7 +7,9 @@
 # Results: actor benchmarks on DINONY4-01 (AMD EPYC 9374F, RHEL 9.2)
 
 Run of `BENCH_ON_HFT_SERVER.md` on 2026-09-08. Every number below is pasted
-from stdout of a run on this machine; raw files are listed in §6.
+from stdout of a run on this machine; the raw files are committed under
+`results/` and listed in §7. §6 compares them against the published Apple
+Silicon numbers in `README.md` and `tech_reports/fast_send.pdf`.
 
 **Read §2 before quoting anything.** This box does *not* meet the runbook's
 quiescing preconditions, and the percentile table is clock-resolution limited.
@@ -261,9 +263,83 @@ that range.
 
 ---
 
-## 6. Raw output
+## 6. Comparison with the published Apple Silicon numbers
 
-Nine runs, all exit 0, saved on the box at `/tmp/kaspar_bench/`:
+Sources: `actors/cpp/perf/README.md` §Results, and `tech_reports/fast_send.pdf`
+Tables 4–6 / Figure 2. Both are Apple Silicon (arm64), macOS, N=1e6, unpinned.
+
+**The ratios reproduce. Two absolute claims do not.**
+
+| quantity | published (Apple) | this box (Linux) | verdict |
+|---|---|---|---|
+| `send` ungrouped p50 | 2250 ns | 3370 ns | same order |
+| `send` grouped p50 | 125 ns | 90 ns | faster here |
+| `fast_send` p50 | 41 ns* | 30 ns* | both at the clock floor |
+| `steady_clock` tick | ~40 ns | **~10 ns** | differs 4x |
+| grouped vs ungrouped | 18x | **37x** | published claim is conservative |
+| `fast_send` vs grouped | 3.5x | 3.0x (p50), 4.1x (amort) | reproduces |
+| `fast_send` vs ungrouped | 62x | 58x (same method) | reproduces |
+| `fast_send` over a bare call | +7 ns | **+8.6 – 11.2 ns** | reproduces |
+| pooled allocation | 2–3 ns | ~2 ns | reproduces |
+| `reply()` plumbing alone | 2–4 ns | 4.3 ns | reproduces |
+| pool OFF ⇒ collapses to plain | 128.1 vs 128.2 | 111.5 vs 111.4 | reproduces exactly |
+| **global `new`+`delete`** | **~15 ns** | **~3.6 ns** | **does not reproduce** |
+| **pool win, grouped median** | 124.5→92.8 (−26%) | 119.3→110.4 (−7.5%) | **much smaller** |
+| pool tail win | 5.5 ms → 33 µs | not resolvable here | unconfirmed |
+
+\* clock floor, not a measurement, on both platforms.
+
+Derivations, so these can be checked:
+
+- **global `new`+`delete`** = `fs heap noreply` − `fs stack noreply` amort =
+  52.1 − 48.5 = **3.6 ns** (§4.2). Published back-out is ~15 ns.
+- **`reply()` plumbing** = `fs pooled+reply` − `fs pooled noreply` =
+  54.7 − 50.4 = **4.3 ns**. Matches the published 2–4 ns.
+- **clock-read overhead of the `amort` loop** = `direct call (base)` amort 42.0
+  minus the single-pair `fastsend` measurement 1.4 = **~40.7 ns**. Backing that
+  out of `fast_send` amort 57.6 gives ~16.9 ns, and out of `grouped pooled`
+  110.4 gives ~69.7 ns — hence the 4.1x above. Cross-check: `fs stack noreply`
+  48.5 − 40.7 = 7.8 ns, against the independently measured 10.0–12.5 ns.
+
+### What should change in the published docs
+
+1. **README §B has the allocator direction backwards.** It says "macOS has a
+   fast small-object allocator, so the pool's absolute win here is a **lower
+   bound** on what a busier/Linux allocator would show." glibc's tcache is
+   *faster* than macOS on this pattern — global `new`+`delete` is 3.6 ns here
+   vs ~15 ns published — so the pool's median win *shrinks* to 7.5%, and that
+   9 ns sits inside this box's run-to-run spread. The lower-bound claim is not
+   supported by this run.
+2. **The ~15 ns global-allocation figure is Apple-specific but reads as
+   universal** — README §C back-out bullets, PDF Table 5 caption, and the PDF
+   §11.1 Guidance paragraph ("turning a ~15 ns global allocation into a ~2 ns
+   pooled one"). Needs a platform qualifier.
+3. **`steady_clock` ≈ 40 ns is hardcoded** (README Caveats, PDF §11.1). It is
+   ~10 ns here, which is why the `fast_send` p50 reads 30 and not 41. State it
+   per-platform, or have the bench print the measured tick.
+4. **The 62x figure divides a p50 by an amort.** PDF Table 4 and the Figure 2
+   caption take ungrouped p50 2250 against `fast_send` amort ~36. Mixed units.
+   Same-method on this box gives 58x; p50/p50 gives 112x; amort/amort with the
+   clock overhead removed gives ~200x. 62x survives only because both errors
+   move in the same direction.
+5. **The 5.5 ms → 33 µs tail claim ships without its denominator** — "in a
+   separate run", no N, no run count, no repeat. It is the load-bearing
+   evidence for the whole queueing argument in PDF §10. I can neither confirm
+   nor refute it here: my maxima are recorder-preemption dominated (8.1 ms on
+   `send ungrouped`, §2). It needs its own provenance.
+6. **Two ratios got better on Linux and should be claimed.** Grouped vs
+   ungrouped is 37x here, not 18x.
+
+None of this is a change to the *conclusions*. The ordering, the pool-OFF
+collapse, the reply-plumbing cost, and the single-digit-ns `fast_send` tax all
+reproduce on x86-64 Linux. What moves is the allocator arithmetic, which is a
+property of the platform's malloc and not of the framework.
+
+---
+
+## 7. Raw output
+
+Nine runs, all exit 0, committed under `actors/cpp/perf/results/`:
 
 ```
 pool_on_1.txt   pool_on_2.txt   pool_on_3.txt     (bench_pingpong, all)
@@ -271,12 +347,20 @@ pool_off_1.txt  pool_off_2.txt  pool_off_3.txt    (bench_pingpong_nopool, all)
 fastsend_1.txt  fastsend_2.txt  fastsend_3.txt    (bench_pingpong, fastsend)
 ```
 
-`/tmp` is not durable. If these need to be retained, say so and I will commit
-them under `actors/cpp/perf/results/`.
+To reproduce the run and the tables:
+
+```bash
+make -C actors/cpp clean && make -C actors/cpp && make -C actors/cpp/perf
+actors/cpp/perf/results/run_bench.sh          # writes the 9 .txt files
+python3 actors/cpp/perf/results/aggregate.py  # reduces them to §4
+```
+
+`aggregate.py` exits non-zero if the sanity gate (`fast_send` < grouped <
+ungrouped) fails, so it can be wired into CI as-is.
 
 ---
 
-## 7. Recommendation
+## 8. Recommendation
 
 Do **not** use this run to replace the Apple Silicon numbers in the three docs
 the runbook points at. The ratios reproduce and the sanity gate passes, so the
