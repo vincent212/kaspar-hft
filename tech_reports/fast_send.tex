@@ -1,0 +1,1415 @@
+\documentclass[11pt]{article}
+
+% ---------------------------------------------------------------
+% Synchronous message delivery in actor systems (fast_send)
+% arXiv preprint (cs.DC / cs.PL)  --- DRAFT
+% ---------------------------------------------------------------
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage[ruled,vlined,linesnumbered]{algorithm2e}
+\usepackage{microtype}
+\usepackage{caption}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{placeins}
+% Give small tables/figures room to sit near their text rather than flushing to the end.
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.75}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{5}
+% --- DRAFT-ONLY block: delete from here to "end DRAFT-ONLY" for camera-ready ---
+\usepackage{draftwatermark}
+\SetWatermarkText{DRAFT}
+\SetWatermarkScale{1.1}
+\SetWatermarkColor[gray]{0.90}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\textbf{DRAFT} --- not for distribution --- \thepage}
+\renewcommand{\headrulewidth}{0pt}
+% --- end DRAFT-ONLY ---
+
+\geometry{margin=1in}
+\hypersetup{colorlinks=true, linkcolor=blue!50!black, citecolor=blue!50!black,
+            urlcolor=blue!50!black}
+
+\newcommand{\fs}{\texttt{fast\_send}}
+\newcommand{\snd}{\texttt{send}}
+
+\title{\textbf{Synchronous Message Delivery in Actor Systems\\
+with Receiver Transparency and Cyclic-Invocation Detection}\\
+\large The \texttt{fast\_send} Mechanism}
+
+\author{%
+  Vincent Maciejewski\\
+  \small M2 Technologies\\
+  \small \texttt{mayeski@gmail.com}
+}
+
+\date{\textbf{DRAFT} --- September 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The actor model isolates concurrent entities behind asynchronous message
+passing: a sender enqueues a message on the receiver's mailbox and continues,
+and the receiver processes it later on its own thread. For actors that reside in
+the same process on the same machine, this discipline imposes overhead that the
+isolation guarantee does not require --- heap allocation of every message, two
+queue operations, a scheduler dispatch, and a context switch per delivery, with
+a second round trip for any reply. We describe \fs{}, a synchronous delivery
+mechanism in which the sending thread acquires exclusive access to the receiving
+actor and executes the receiver's message handler directly, on the sender's own
+thread, returning the reply as a value. The defining property is
+\emph{receiver transparency}: the handler is written identically for both
+delivery modes and has no programmatic means to determine which was used, which
+thread executes it, or whether the sender is blocked awaiting a reply. A unified
+reply operation routes responses correctly in both modes, and the reply value is
+heap-allocated in both modes so that the handler cannot infer the mode from
+allocation behavior. Synchronous delivery across a chain of actors runs entirely
+on the first actor's thread when the chain's locks are uncontended, reducing
+scheduler context switches from $O(N)$ on the asynchronous path to $O(1)$.
+Because synchronous invocation can form cycles that would deadlock a
+non-reentrant lock or overflow the stack under a reentrant one, the mechanism
+carries a thread-local call-chain membership test that detects a cyclic
+invocation \emph{before} the target lock is acquired, and either raises a cyclic
+invocation exception or, in a best-effort variant, falls back to asynchronous
+delivery. A refined variant keys the call chain on (actor, message-class) pairs
+to admit legitimate callback patterns while still catching unbounded recursion.
+Five delivery operations --- asynchronous, blocking synchronous, spin-wait
+synchronous, non-blocking synchronous, and best-effort void --- expose the full
+latency/robustness spectrum behind one transparent handler interface. We give
+the mechanism, the detection algorithm, and an analytical account of the
+per-message operations eliminated, corroborated by microbenchmarks of the C++
+implementation in which the synchronous path completes a round trip in tens of
+nanoseconds --- roughly $60\times$ below the ungrouped asynchronous path --- and
+a memory pool cuts the latency tail by two orders of magnitude; a
+saturated-throughput and contention evaluation is left to future work.
+\end{abstract}
+
+\vspace{0.5em}
+\noindent\textbf{Keywords:} actor model, message passing, concurrency,
+synchronous delivery, deadlock detection, receiver transparency, low-latency
+systems.
+
+% ---------------------------------------------------------------
+\section{Introduction}
+% ---------------------------------------------------------------
+
+In the actor model \cite{hewitt1973,agha1986}, a program is a collection of
+isolated actors, each with private state, a message handler, and a mailbox.
+Actors communicate only by asynchronous message passing: a sender places a
+message on the receiver's mailbox and proceeds without waiting, and the receiver
+dequeues and processes messages one at a time on its own thread. This discipline
+is what gives the model its guarantees --- isolation, sequential per-actor
+processing, and location transparency --- and it is essential when actors are
+distributed across machines.
+
+When the communicating actors reside in the same process on the same machine,
+however, the asynchronous path carries overhead that the isolation guarantee
+does not require. A single request-and-reply between two co-located actors
+incurs, on conventional implementations:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Heap allocation.} Because the message must outlive the sender's
+  current continuation and persist until processed at an indeterminate later
+  time, it must be heap-allocated, with the associated allocation cost,
+  fragmentation, and garbage-collection pressure.
+  \item \textbf{Queue operations.} Each message is enqueued by the sender and
+  dequeued by the receiver, each requiring synchronization on the mailbox.
+  \item \textbf{Scheduling and context switches.} The receiver must be scheduled
+  onto a thread to run, incurring a context switch; a context switch typically
+  costs on the order of $10^3$--$10^4$ processor cycles and pollutes cache and translation lookaside buffer (TLB) state.
+  \item \textbf{Round-trip latency.} A reply repeats the entire path in reverse,
+  so a request-and-reply crosses the mailbox twice and the scheduler twice.
+\end{itemize}
+
+For a co-located pair, all of this is avoidable in principle: the sender's own
+thread could run the receiver's handler directly and take the reply as a return
+value. The difficulty is doing so without breaking the abstraction the actor
+model exists to provide. A direct handler invocation --- calling the receiver's
+handler as an ordinary method --- discards the receiver's exclusive-execution
+guarantee and exposes the receiver as a passive object. The design problem is to obtain the
+performance of a direct, same-thread call while preserving, from the receiver's
+point of view, the semantics of message passing.
+
+This paper describes \fs{}, a synchronous delivery mechanism that resolves that
+tension. The sending thread acquires exclusive access to the receiving actor and
+executes the receiver's handler directly, on the sender's thread, returning the
+reply as a value. The receiver's handler is identical for synchronous and
+asynchronous delivery and cannot determine which was used --- the property we
+call \emph{receiver transparency}. Because synchronous invocations can form
+cycles, and a cycle deadlocks a non-reentrant lock or overflows the stack under
+a reentrant one, the mechanism carries a lightweight cyclic-invocation detector
+that fires before any lock is taken.
+
+\paragraph{Contributions.}
+\begin{enumerate}[leftmargin=1.6em]
+  \item A synchronous, same-thread actor-delivery mechanism (\fs{}) that
+  eliminates the heap allocation, queue operations, scheduling, and context
+  switches of the asynchronous path for co-located actors, and returns the reply
+  as a value (Section~\ref{sec:mech}).
+  \item A precise statement and enforcement of \emph{receiver transparency}: the
+  handler executes identical code in both modes and cannot determine the
+  delivery mode, the executing thread, or whether the sender is blocked
+  (Section~\ref{sec:transparency}).
+  \item A thread-local call-chain membership test that detects cyclic
+  synchronous invocation before lock acquisition, together with a refined
+  (actor, message-class) variant that admits callback patterns while still
+  catching unbounded recursion (Section~\ref{sec:cycle}).
+  \item A family of five delivery operations spanning asynchronous through
+  spin-wait synchronous to best-effort-with-async-fallback, unified behind one
+  transparent handler interface (Section~\ref{sec:family}).
+  \item An analytical account of the per-message work eliminated, together with
+  microbenchmarks of the C++ implementation that measure each eliminated
+  operation and the pool's tail benefit; a saturated-throughput evaluation is
+  left to future work (Section~\ref{sec:perf}).
+\end{enumerate}
+
+% ---------------------------------------------------------------
+\section{Origins and history of the actor model}
+\label{sec:history}
+% ---------------------------------------------------------------
+
+\paragraph{Invention (1973).} The actor model was introduced by Carl Hewitt,
+Peter Bishop, and Richard Steiger in ``A Universal Modular ACTOR Formalism for
+Artificial Intelligence,'' presented at the Third International Joint Conference
+on Artificial Intelligence (IJCAI) at Stanford in August 1973
+\cite{hewitt1973}. Its origins were in artificial-intelligence research at MIT:
+the formalism grew out of Hewitt's earlier work on the PLANNER language and was
+proposed as a single, uniform notion --- the \emph{actor}, an entity that
+communicates only by sending messages to other actors --- rich enough to serve
+as a foundation for AI programming. Hewitt drew on the object and
+message-sending ideas of Simula~67 and Smalltalk, on Lisp, and on capability
+systems, Petri nets, and packet-switched networks; in later retrospectives he
+described the model as inspired by the laws of physics rather than by any
+prior computational abstraction \cite{hewitt2010}.
+
+\paragraph{Formal foundations (1975--1986).} The 1973 paper was informal, and a
+decade of work followed to give the model a rigorous semantics. Irene Greif's
+1975 MIT doctoral thesis supplied the first operational semantics for actor
+computations \cite{greif1975}; Hewitt and Baker stated ``laws'' characterizing
+the partial ordering of events in a distributed actor computation
+\cite{hewittbaker1977}; and William Clinger's 1981 thesis gave a denotational
+semantics based on power domains, addressing the unbounded nondeterminism that
+distinguishes actors from other concurrency formalisms \cite{clinger1981}. The
+foundation most cited today is Gul Agha's doctoral work, published as
+\emph{Actors: A Model of Concurrent Computation in Distributed Systems}
+\cite{agha1986}, which recast the model with a transition-system operational
+semantics built on the primitives \emph{create}, \emph{send}, and \emph{become},
+and moved the emphasis from artificial intelligence to a general theory of
+open, concurrent, distributed computation.
+
+\paragraph{From theory to practice.} The most influential early
+\emph{deployed} system with actor-like structure --- isolated processes with
+private state that communicate only by asynchronous message passing --- was
+Erlang, developed at Ericsson from 1986 by Joe Armstrong, Robert Virding, and
+Mike Williams for fault-tolerant telephony \cite{armstrong1996}. The historical
+relationship to Hewitt's model is often overstated: Erlang's designers have said
+they were unaware of the actor model while building the language, and Armstrong
+later characterized Erlang's concurrency as closer in spirit to communicating
+sequential processes than to the actor model \cite{armstrong2007}. Erlang is
+therefore best understood as a parallel, largely independent arrival at similar
+principles rather than a direct descendant, even though it is now routinely
+described as an actor language. Hewitt himself continued to revise the model's
+definition well after 1973, emphasizing unbounded nondeterminism, locality, and
+guaranteed delivery in a much later retrospective \cite{hewitt2010}. The
+subsequent two decades produced a broad ecosystem of practical actor
+runtimes --- on the JVM, the .NET platform, C++, Rust, Swift, and elsewhere ---
+which we survey next.
+
+% ---------------------------------------------------------------
+\section{A survey of actor-model implementations}
+\label{sec:survey}
+% ---------------------------------------------------------------
+
+This section surveys the major actor runtimes along the three axes most relevant
+to \fs{}: how actors are mapped to operating-system threads, whether and how a
+synchronous or request--reply path is offered, and what is known of their
+performance. The consistent findings across the ecosystem --- that actors are
+multiplexed M:N over a small worker pool, and that no mainstream system runs the
+\emph{receiver's} handler on the \emph{sender's} thread --- are what locate the
+contribution of \fs{}. Table~\ref{tab:survey} summarizes the comparison; the
+per-system detail and performance figures follow. The later related-work
+discussion (Section~\ref{sec:related}) revisits the systems closest to \fs{} to
+sharpen the distinction; here the account is descriptive.
+
+\begin{table}[t]
+\centering
+\caption{Actor-to-thread mapping and synchronous messaging across
+implementations. The final column --- whether the sender's thread ever executes
+the receiver's message handler --- is negative for every surveyed system and
+positive only for \fs{}.}
+\label{tab:survey}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{p{2.2cm} p{1.5cm} p{3.1cm} p{3.0cm} c}
+\toprule
+System & Runtime & Actor $\to$ thread mapping & Synchronous / request--reply & Sender runs handler? \\
+\midrule
+Erlang/OTP, Elixir & BEAM VM & M:N green processes; one scheduler thread per core; per-scheduler run queues, work stealing & \texttt{gen\_server:call} blocks caller, returns a value; handler runs in the server process & No \\
+Akka & JVM & thread-pool dispatchers over a fork--join pool; actors not 1:1 with threads & \texttt{ask} (\texttt{?}) returns a \texttt{Future}; \texttt{tell} (\texttt{!}) is fire-and-forget & No \\
+Akka.NET, Orleans & .NET & thread-pool / turn-based scheduling; grains single-threaded per activation & grain methods return \texttt{Task<T>}; always asynchronous & No \\
+CAF & C++ & cooperative work-stealing scheduler over $P{=}\#\text{cores}$ workers; \texttt{detached} actors get a thread & \texttt{request} returns a response handle; \texttt{.then} continuation, non-blocking & No \\
+SObjectizer & C++ & agents bound to dispatchers supplying worker threads/pools & async by default; \texttt{so5extra} \texttt{request\_reply} blocks; runs on provider's dispatcher & No \\
+Actix & Rust / Tokio & actors are tasks on Arbiter event-loop threads (M:N) & \texttt{send} returns a \texttt{Request} future; \texttt{do\_send} fire-and-forget & No \\
+Pony & Pony RT & work-stealing scheduler, one thread per core; per-actor heaps & none --- behaviours are asynchronous by design & No \\
+Swift actors & Swift RT & serial executor per actor over a cooperative pool & cross-actor access requires \texttt{await}; synchronous cross-actor calls prohibited by the compiler & No \\
+Ray, Dapr, Proto.Actor & distributed & one worker/process or mailbox per actor; M:N pools & remote call returns a future/promise; turn-based dispatch & No \\
+\midrule
+\fs{} (this work) & C++/Rust & per-actor exclusive-access lock; sender's thread runs the handler & blocking call returns a value on the sender's thread & \textbf{Yes} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{BEAM: Erlang and Elixir.} The Erlang runtime multiplexes very large
+numbers of lightweight processes --- each with a private heap and mailbox ---
+onto a small set of scheduler threads, one per logical core by default, with a
+per-scheduler run queue and work-stealing migration \cite{beambook}. Scheduling
+is preemptive by a reduction count: a process runs until it consumes its budget
+(4000 reductions by default) and is then descheduled, which bounds tail latency
+\cite{beambook}. The synchronous path, \texttt{gen\_server:call}, blocks the
+caller for up to a timeout and returns a value, but the request is placed in the
+\emph{server} process's mailbox and handled by \texttt{handle\_call/3} on the
+server's own scheduler; the caller merely performs a selective receive on the
+reply. The caller's thread never runs the callee's handler
+\cite{armstrong1996}.
+
+\paragraph{JVM: Akka.} Akka does not bind actors to threads. A dispatcher binds
+a set of actors to a fork--join thread pool, and an actor occupies a thread only
+while it has messages to process \cite{akka}. A \texttt{throughput} setting caps
+how many messages an actor processes before the thread moves to the next actor;
+this mailbox batching is the principal latency/throughput lever. Akka's own
+microbenchmark reports on the order of 50 million messages per second on a single
+machine in a ping-pong configuration, a figure the authors show is dominated by
+that batching setting; it is a vendor microbenchmark, not an application
+measurement, and should be read as such \cite{letitcrash}. The request--reply
+operator \texttt{ask} returns a \texttt{Future}/\texttt{CompletionStage} rather
+than a value and never blocks the caller on the handler; Akka's documentation
+explicitly discourages blocking inside actors because it starves the shared pool
+\cite{akka}.
+
+\paragraph{.NET: Orleans and Akka.NET.} Orleans introduced the ``virtual actor''
+(grain) abstraction, in which the runtime activates grains on demand and
+schedules them turn-based and single-threaded over a shared pool; every grain
+method is asynchronous and returns a \texttt{Task}, so a caller obtains a promise
+and the grain body runs on the grain's own activation context, never on the
+caller's thread \cite{orleans}. The Orleans team reported the Halo~4 presence
+service sustaining roughly 130{,}000 requests per second across 25 servers with
+near-linear scaling to 125 servers \cite{orleansmsr2014}. A recent independent
+empirical comparison of Akka, Akka.NET, and Orleans on commodity cloud hardware
+found Akka.NET and Orleans comparable and both ahead of Akka in a
+non-distributed setup, with Orleans strongest in the distributed setup
+\cite{camilleri2023}.
+
+\paragraph{C++: CAF and SObjectizer.} The C++ Actor Framework schedules
+cooperatively-run actors over a work-stealing pool of one worker per core, with
+a lock-free mailbox; actors that must block opt into a \texttt{detached} mode
+that gives them a dedicated thread \cite{caf2014}. Its request--reply operation,
+\texttt{request}, does not occupy a CAF thread while waiting: the requesting
+actor simply processes no other message until the response arrives, and installs
+a typed continuation via \texttt{.then}; the caller does not execute the
+callee's handler \cite{caf2014}. On the Savina cross-language benchmarks, a
+recent study found CAF only marginally ahead of Akka on average (about
+$1.09\times$ at 20 threads) and behind it on nine of sixteen benchmarks
+\cite{linguafranca2023}, so the common claim that native C++ actors dominate the
+JVM is more nuanced than it is often stated. SObjectizer likewise binds agents to
+dispatchers backed by worker-thread pools and is asynchronous by default; its
+companion library offers a synchronous \texttt{request\_reply}, but the handler
+still runs on the service provider's dispatcher, not the caller's thread.
+
+\paragraph{Rust: Actix.} Actix runs actors as tasks on Arbiter event loops atop
+the Tokio runtime, multiplexing many actors per thread. \texttt{send} returns a
+\texttt{Request} future that resolves to the handler's result, and
+\texttt{do\_send} is fire-and-forget; in both cases the handler runs on the
+target actor's Arbiter, not the sender's. (The widely-cited Actix TechEmpower
+web-framework results concern \texttt{actix-web}, not the actor library, and are
+not evidence about actor-message performance.)
+
+\paragraph{Pony.} Pony is the clearest case of the mainstream design point.
+Behaviours are asynchronous by construction --- there is no synchronous send at
+all --- so request--reply must be built by hand from callback messages. Pony
+runs a work-stealing scheduler with one thread per core and gives each actor its
+own heap, which enables a fully concurrent, per-actor garbage collector (ORCA)
+that needs neither read nor write barriers, relying instead on reference
+capabilities for data-race freedom and on causal message delivery for
+correctness \cite{ponyorca2017}. Its performance comes from cheap actors,
+local GC, and never blocking.
+
+\paragraph{Swift.} Swift's language-level actors (SE-0306) give each actor a
+serial executor drawn from a cooperative thread pool. Cross-actor access must be
+\texttt{await}-ed and is therefore asynchronous; the compiler \emph{prohibits}
+synchronous cross-actor calls outright \cite{swift2021}. Swift actors are
+reentrant: a suspended actor may interleave other work before resuming.
+
+\paragraph{Distributed runtimes.} Ray, Dapr, and Proto.Actor extend the actor
+idea across machines. A Ray actor is by default a single worker executing
+methods one at a time, and a call returns an object reference (a future); Dapr
+enforces turn-based, single-threaded access to each actor via a per-actor lock
+and dispatches method calls over HTTP/gRPC; Proto.Actor processes each mailbox
+one message at a time on a shared thread-pool dispatcher. In all three the
+invocation is asynchronous and the sender never runs the receiver's handler.
+
+\paragraph{Two structural facts.} Two observations hold across the entire
+survey. First, on \emph{thread mapping}: the dominant design multiplexes many
+actors M:N over a small pool of worker or scheduler threads, because assigning a
+dedicated operating-system thread to each actor does not scale to large actor
+populations; the few one-thread-per-actor cases (CAF's \texttt{detached} actors,
+Ray's threaded actors, process-per-actor deployments) are reserved for blocking
+or isolation needs and are understood as exceptions. Second, on
+\emph{synchronous messaging}: where a synchronous or request--reply path exists
+at all, it is emulated over asynchronous mailbox delivery --- the caller either
+blocks in a receive (Erlang) or, more commonly, receives a future/promise (Akka,
+Orleans, CAF, Actix, Ray) --- and in every case the receiver's handler runs on
+the receiver's own scheduled thread or context. Some systems (Pony, Swift's
+cross-actor calls) forbid a synchronous call altogether. No mainstream actor
+runtime executes the receiver's handler on the sender's thread under the
+receiver's exclusive-access lock. That combination --- cross-thread synchronous
+execution under receiver transparency --- is precisely the design point \fs{}
+occupies, and the safety machinery of Section~\ref{sec:cycle} is what it
+requires to be usable.
+
+% ---------------------------------------------------------------
+\section{Why actors? The design case and its cost}
+\label{sec:benefits}
+% ---------------------------------------------------------------
+
+A fair question precedes any discussion of making actors faster: why adopt the
+actor model at all, when a program can already spawn operating-system threads
+and share memory under mutual exclusion, or drive concurrency through an event
+loop such as \texttt{boost::asio}? Those mechanisms are not deficient in
+capability. The case for actors is not that they compute something the
+alternatives cannot; it is what the discipline \emph{removes}, and the classes
+of error it makes unrepresentable.
+
+\paragraph{What the discipline removes.} Because each actor owns its state and
+communicates only by messages, there is no mutable state shared between actors,
+and therefore no memory-level data race --- the defining and most pernicious
+failure of lock-based concurrency. Empirical study of the field bears this out:
+data races and deadlocks are described as ``two mistakes that are hard to make
+with actors'' \cite{tasharofi2013}, and a comprehensive study of 186 real-world
+actor bugs confirms that actor programs are markedly less susceptible to
+low-level data races and deadlocks than multithreaded code, even as they admit
+their own higher-level bug classes \cite{bagherzadeh2020,torreslopez2018}. The
+programmer reasons about one message at a time against a consistent private
+state, sequentially, and never writes a lock. The synchronization apparatus that
+dominates the correctness burden of hand-rolled concurrent code --- choosing
+lock granularity, establishing a global lock order to avoid deadlock, placing
+memory barriers, and reasoning about every interleaving that a thread scheduler
+or an \texttt{asio} callback chain admits --- simply does not appear in an actor
+program. Fault isolation follows from the same isolation: a failing actor can be
+restarted by a supervisor without corrupting the state of others, the
+foundation of the ``let it crash'' reliability discipline \cite{armstrong2003}.
+
+\paragraph{The cost.} These properties are not free, and it would be dishonest
+to imply otherwise. The message-passing discipline that buys isolation is
+exactly the source of the per-message overhead this paper is concerned with:
+heap allocation, mailbox queue operations, scheduling, and context switches
+(Section~\ref{sec:perf}). This is the tax paid for isolation, and on the hottest
+paths it has historically been the reason engineers abandon the actor model and
+return to shared memory and locks. The tension between the model's safety and
+its per-message cost is the entire subject of this paper.
+
+\paragraph{The generation argument.} There is a further benefit that is only
+now coming into view, and it may in the end be the most consequential. An actor
+is a small, regular unit of code: a class with private state and one handler per
+message type, whose entire observable contract is the set of messages it accepts
+and the replies it returns. This regularity makes actors unusually amenable to
+automatic construction by large language model (LLM) code generators, which are
+fluent in the paradigm: a model can scaffold an actor, write its message
+handlers, and --- because an actor's behavior is a function from an incoming
+message to a reply with no hidden shared state --- generate self-contained unit
+tests that drive messages in and assert on the replies, without the elaborate
+harness that testing shared-memory code requires. The contrast with the
+alternative is sharp and is documented. Generating \emph{correct} lock-based
+concurrent code is hard even for strong models: a dedicated benchmark for
+concurrent code generation finds that current LLMs struggle to produce correct
+synchronization and repeatedly introduce concurrency errors
+\cite{concur2026}. The actor discipline eliminates precisely the hazard that
+both human authors and code generators handle worst --- shared mutable state
+guarded by hand-written locks --- so actor code is not only faster to produce
+but is likely to be more robust and closer to correct than a hand-rolled
+alternative built on a custom locking scheme. (We state this as a design
+argument; the load-bearing evidence is the demonstrated difficulty of the
+lock-based alternative \cite{concur2026}, together with the measured
+data-race freedom of the actor approach \cite{tasharofi2013,bagherzadeh2020}.)
+
+\paragraph{Removing the cost makes the benefits free.} Taken together, the
+benefits of the actor model --- data-race freedom, sequential per-actor
+reasoning, fault isolation, and now amenability to reliable automatic generation
+and testing --- have always been offset by a performance penalty that put the
+model out of reach on latency-critical paths. If that penalty can be removed for
+the common case of co-located actors, the calculus changes: the isolation, the
+absence of hand-written locking, and the generation-friendliness are retained,
+while the per-message cost approaches that of a direct call. The benefits, in
+other words, accrue for free. Providing that path, safely and without breaking
+the abstraction, is what \fs{} is for, and it is the mechanism to which we now
+turn.
+
+% ---------------------------------------------------------------
+\section{Background and related work}
+\label{sec:related}
+% ---------------------------------------------------------------
+
+The actor model \cite{hewitt1973,agha1986} specifies asynchronous message
+passing as the sole means of inter-actor communication, and foundational and
+subsequent treatments present this asynchrony as essential to isolation, fault
+tolerance, and location transparency \cite{agha1986,sutter2005}. Several systems
+provide a second, synchronous-looking communication path; each differs from \fs{}
+in a way that bears on receiver transparency or on multi-threaded execution.
+
+\paragraph{Single-threaded synchronous calls.} The E language
+\cite{miller2005} offers an immediate call (\texttt{.}) returning a value and an
+eventual send (\texttt{<-}) returning a promise. E vats are single-threaded, so
+the immediate call is a conventional method invocation with no lock, no
+cross-thread execution, and no possibility of deadlock; the model does not
+extend to actors running on multiple threads. AmbientTalk \cite{ambienttalk2007}
+similarly builds on communicating event loops in which cross-actor communication
+is always asynchronous. Actor4j \cite{actor4j2018} optimizes messaging between
+actors on the \emph{same} thread, and reliable-actor systems such as the
+Kubernetes Application Runtime (KAR)
+\cite{kar2021} bypass the queue only for an actor's calls to itself, not for
+cross-actor calls.
+
+\paragraph{Blocking that still uses the receiver's thread.} Erlang's
+\texttt{gen\_server:call} \cite{armstrong1996} blocks the caller, but the
+request still traverses the receiver's mailbox and is processed on the
+receiver's own process; the caller's thread never executes the receiver's
+handler. Akka's ask operator \cite{akka} returns a future and remains
+asynchronous internally, routing through the mailbox, and the framework
+explicitly discourages blocking inside actors. Orleans \cite{orleans} presents
+grain methods in call syntax but is asynchronous underneath
+(\texttt{Task}-returning), with no caller-thread execution of the grain. Swift's
+actors \cite{swift2021} require \texttt{await} for cross-actor access and
+prohibit synchronous cross-actor calls at the compiler level. The C++ Actor Framework (CAF) \cite{caf2014} dispatches handlers on a scheduler's worker pool, so the
+caller thread does not run the target's handler.
+
+\paragraph{Direct execution without message-passing semantics.} The Active
+Object pattern \cite{activeobject1996} interposes a proxy, activation queue, and
+scheduler so that the client's thread never runs the servant's method on a
+separate thread. The Monitor Object pattern \cite{posa2} does run a method on the
+caller's thread under a lock --- sharing the caller-thread-execution mechanism
+with \fs{} --- but a monitor is a passive data structure invoked by direct
+method call: there is no mailbox, no asynchronous alternative, no dual mode, and
+no notion of the callee as an isolated actor that cannot observe how it was
+reached.
+
+\paragraph{Deterministic reactor concurrency.} A separate recent line of work
+constrains, rather than accelerates, actor-style concurrency: Lingua Franca
+\cite{linguafranca2023} schedules reactors under a logical-time model to make
+concurrent execution deterministic. That objective is orthogonal to \fs{}, which
+addresses the per-message cost of co-located delivery and preserves receiver
+transparency; the two could be combined, since \fs{} does not alter the logical
+ordering of message handling.
+
+\subsection{Positioning}
+\label{sec:positioning}
+
+Across these systems, a synchronous path either (i) is confined to a single
+thread or same-thread actors (E, AmbientTalk, Actor4j), (ii) blocks the caller
+while still executing on the receiver's thread through the mailbox (Erlang,
+Akka, Orleans, CAF), (iii) is prohibited outright (Swift), or (iv) abandons
+message-passing semantics for direct method calls on a passive object (Active
+Object, Monitor Object). What distinguishes \fs{} is the combination of
+(a) cross-thread synchronous execution --- the sender's thread runs the
+receiver's handler while holding the receiver's exclusive-access lock ---
+(b) under full receiver transparency, with (c) an integrated cyclic-invocation
+detector that makes the cross-thread synchronous path safe against the deadlock
+and stack-overflow failure modes it would otherwise introduce. The remainder of
+the paper develops these three elements.
+
+% ---------------------------------------------------------------
+\section{The synchronous delivery mechanism}
+\label{sec:mech}
+% ---------------------------------------------------------------
+
+Each actor has a message handler, a mailbox, private state, and a synchronization
+mechanism that guarantees at most one thread executes its handler at a time
+(a mutex by default; a lock-free primitive is admissible). Two delivery
+operations share this structure.
+
+\paragraph{Asynchronous delivery (\snd{}).} The sender heap-allocates the
+message, enqueues it on the receiver's mailbox under the mailbox's
+synchronization, and returns immediately with no value. Later, a thread assigned
+to the receiver dequeues the message, acquires the receiver's exclusive-access
+lock, and runs the handler. A reply, if any, is heap-allocated, wrapped in a
+response message, and enqueued on the sender's mailbox.
+
+\paragraph{Synchronous delivery (\fs{}).} The sender may allocate the message on
+its \emph{stack}, because the sending thread blocks until processing completes
+and the message's lifetime is therefore bounded by the call. The sender's thread
+acquires the \emph{receiver's} exclusive-access lock (blocking if another thread
+holds it), pushes the receiver onto a thread-local call chain
+(Section~\ref{sec:cycle}), and invokes the receiver's handler directly on the
+sender's thread. The handler runs its identical code and optionally calls the
+reply operation; on return, the receiver is popped from the call chain, the lock
+is released, and \fs{} returns the reply value (or null if none was set). A
+stack-allocated message is reclaimed when the sender's frame unwinds.
+
+In both modes the receiver's exclusive-access lock is held for the duration of
+handler execution, so the ``one message at a time'' guarantee holds identically
+under the conservative detection policy; the permissive (actor, message-class)
+refinement of Section~\ref{sec:cycle} admits same-actor re-entrancy and relaxes it.
+The distinction from a naive direct call is that the synchronous path holds the
+receiver's exclusive-access lock and routes the reply through the same operation
+as the asynchronous path; it is delivery of a message that happens to execute on
+the sender's thread.
+
+\paragraph{Unified reply routing.} A single reply operation serves both modes and
+selects its behavior from delivery-context information rather than from any
+argument the handler supplies. Under asynchronous delivery it heap-allocates the
+value, wraps it in a response message, and enqueues it on the sender's mailbox;
+under synchronous delivery it heap-allocates the value and stores it in a
+return-value location that the blocked \fs{} reads and returns. The value is
+heap-allocated in \emph{both} modes deliberately: if the synchronous path could
+stack-allocate the reply while the asynchronous path could not, the handler would
+have to know the mode, defeating transparency. The reply may be invoked at most
+once per message. An opt-in optimized reply that stores the value without heap
+allocation is available for code paths known to be synchronous-only; it raises an
+error if the message was delivered asynchronously, and by design breaks
+transparency, so its use is explicit.
+
+\paragraph{Chained synchronous execution.} If actor $A$ synchronously invokes
+$B$, which synchronously invokes $C$, and so on, the entire chain executes on
+$A$'s thread, which holds the exclusive-access locks of all actors in the chain
+simultaneously and, when those locks are uncontended, performs no context
+switches. Such an $N$-actor synchronous chain incurs $O(1)$ context switches,
+against $O(N)$ for the equivalent asynchronous chain, and executes on a single
+core, avoiding the cross-core cache-line migration of state that the asynchronous
+path incurs. A contended lock in the chain blocks its thread, which reintroduces
+a context switch at that step.
+
+% ---------------------------------------------------------------
+\section{Receiver transparency}
+\label{sec:transparency}
+% ---------------------------------------------------------------
+
+Receiver transparency is the property that the receiving actor's handler is
+written identically for both delivery modes and has no programmatic means to
+determine (i) whether it was reached synchronously or asynchronously, (ii) which
+thread is executing it, or (iii) whether the sender is blocked awaiting a reply.
+It is what keeps \fs{} within the actor abstraction rather than reducing it to a
+locked method call.
+
+Three elements enforce it:
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Identical interface.} The handler receives a message and invokes
+  the same reply operation in both modes; there is no mode flag, and no
+  conditional branch in the handler depends on the delivery mode.
+  \item \textbf{Exclusive access in both modes.} The receiver's exclusive-access
+  lock is held throughout handler execution whether the handler runs on the
+  receiver's own thread (asynchronous) or on the sender's thread
+  (synchronous), so the observable execution environment --- single-writer,
+  sequential --- is the same.
+  \item \textbf{Mode-independent reply and allocation.} The unified reply routes
+  by delivery context with no handler involvement, and the reply value is
+  heap-allocated in both modes, so neither the reply's behavior nor allocation
+  side effects reveal the mode.
+\end{enumerate}
+
+Two consequences follow. First, the delivery mode becomes a \emph{sender-side}
+optimization: a sender may upgrade an asynchronous send to a synchronous one with
+no change, recompilation, or redeployment of the receiver. Second, the mechanism
+is distinct from a direct procedure call, in which the callee is a passive object
+invoked on the caller's stack with no mailbox and no exclusive-execution
+guarantee; here the receiver remains an isolated actor that perceives the arrival
+of a message and is unaware that the sender's thread is the one running it.
+
+% ---------------------------------------------------------------
+\section{Cyclic-invocation detection}
+\label{sec:cycle}
+% ---------------------------------------------------------------
+
+Synchronous invocation introduces a failure mode that asynchronous delivery does
+not have. If synchronous calls form a cycle --- $A \to B \to C \to A$ --- then
+under a non-reentrant lock the thread waits to acquire an actor's lock it already
+holds, and the system deadlocks; under a reentrant lock the handler re-enters
+with the lock's recursion count incremented, producing unbounded nested
+execution that overflows the stack and exposes inconsistent intermediate state.
+Neither is acceptable, and the cycle cannot be discovered after the offending
+lock is taken --- by then the thread is already stuck.
+
+\subsection{Call-chain membership test}
+
+The mechanism maintains, per thread, a \emph{call chain}: the ordered set of
+actors whose handlers are currently executing on that thread via synchronous
+invocation. Because it is thread-local, it requires no synchronization and resets
+automatically between tasks. It is initialized when a thread begins processing a
+dequeued (asynchronous) message --- the dequeued actor is its first entry --- and
+each synchronous invocation pushes its target on entry and pops it on completion.
+The chain may be represented as a stack or list, a hash set for $O(1)$ membership
+queries, a bitmap indexed by actor identifier, or a hybrid.
+
+Before acquiring the target's lock, a synchronous send queries whether the target
+is already present in the chain. If it is not, the send proceeds normally; if it
+is, a cyclic invocation has been detected, and the mechanism signals it --- by
+raising a cyclic-invocation exception carrying the target identity and the full
+chain, or by returning an error indicator --- \emph{without} acquiring the lock
+or invoking the handler. Algorithm~\ref{alg:cycle} states the check. Because the
+query precedes lock acquisition and reads only thread-local state, its overhead
+is negligible against the cost of a lock acquisition and a handler invocation,
+and the chain depth is small in practice.
+
+\begin{algorithm}[t]
+\caption{Synchronous send with cyclic-invocation detection}
+\label{alg:cycle}
+\DontPrintSemicolon
+\SetKwInOut{State}{thread-local}
+\State{call chain $C$ (set of actors executing synchronously on this thread)}
+\BlankLine
+\KwIn{target actor $B$, message $m$}
+\BlankLine
+\If{$B \in C$}{
+  \Return cyclic-invocation signal (exception or error indicator)
+     \tcp*{before any lock is taken}
+}
+acquire $B$'s exclusive-access lock\;
+$C \gets C \cup \{B\}$\;
+$r \gets B.\text{handler}(m)$ \tcp*{runs on this (the sender's) thread}
+$C \gets C \setminus \{B\}$\;
+release $B$'s exclusive-access lock\;
+\Return $r$\;
+\end{algorithm}
+
+\subsection{Refined detection with message classes}
+
+Membership keyed on actor identity alone is conservative: it rejects legitimate
+callbacks in which $A$ synchronously invokes $B$ and $B$ synchronously invokes a
+\emph{different} handler of $A$. A refined mode keys the call chain on
+(actor, message-class) pairs, where the message-class discriminator may be a type
+tag, a class identifier, a handler function pointer, or any code-path
+discriminator. A cycle is signaled only when the same pair recurs. This admits a
+callback pattern such as $A/\texttt{compute} \to B/\texttt{validate} \to
+A/\texttt{validated}$ --- three distinct pairs --- while still catching genuine
+unbounded recursion such as $A/\texttt{foo} \to B/\texttt{bar} \to
+A/\texttt{foo}$, in which a pair repeats. Because permissive keying allows an
+actor's state to be re-entered by a nested handler, reentrancy safety in that
+mode is the programmer's responsibility. The policy --- conservative
+(actor-only) or permissive (pair-based) --- is configurable system-wide,
+per-actor, or per-invocation.
+
+% ---------------------------------------------------------------
+\section{A family of delivery operations}
+\label{sec:family}
+% ---------------------------------------------------------------
+
+The same transparent handler interface supports five delivery operations that
+differ only in how the sender behaves when the receiver's lock is contended or a
+cycle is detected (Table~\ref{tab:five}). All synchronous variants perform the
+cyclic-invocation check of Section~\ref{sec:cycle} before attempting the lock.
+
+\begin{table}[h]
+\centering
+\caption{The five delivery operations. All share one receiver-transparent
+handler interface; they differ in sender-side behavior under contention and
+cycles.}
+\label{tab:five}
+\small
+\begin{tabular}{lccll}
+\toprule
+Operation & Blocks & Returns & Lock unavailable & Cycle detected \\
+\midrule
+\snd{} (async)          & no  & ---   & (enqueues)            & --- \\
+\fs{} (blocking sync)   & yes & value & waits (sleep on lock) & exception \\
+\texttt{fast\_send\_spin} & yes & value & waits (busy-wait)     & exception \\
+\texttt{fast\_send\_x}    & no  & value & \texttt{ActorBusy} exception & exception \\
+\texttt{fast\_send\_void} & no  & ---   & async fallback        & async fallback \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{\fs{}} blocks on the receiver's lock by sleeping, and raises a
+  cyclic-invocation exception on a cycle. It is the default synchronous
+  operation.
+  \item \textbf{\texttt{fast\_send\_spin}} is identical except that it
+  busy-waits on the lock, optionally issuing a central processing unit (CPU) pause instruction between
+  attempts, trading CPU cycles for lower wake latency by avoiding the scheduler.
+  It suits short critical sections on latency-sensitive paths with spare cores.
+  \item \textbf{\texttt{fast\_send\_x}} attempts the lock without blocking:
+  on success it runs the handler and returns the value; on contention it raises
+  an \texttt{ActorBusy} exception, distinct from the cyclic-invocation
+  exception, so the caller can fall back, retry, or propagate. Its execution
+  time is bounded.
+  \item \textbf{\texttt{fast\_send\_void}} attempts the lock without blocking and
+  returns no value: on success it runs the handler; on contention \emph{or} on a
+  detected cycle it enqueues the message asynchronously and returns, copying a
+  stack-allocated message to the heap first if necessary. Because it never blocks
+  on the target lock, the operation itself cannot be the waiting party in a
+  lock-wait deadlock; the handler it runs on success may still block or recurse.
+  It fits notification, forwarding, pipeline, and broadcast patterns. The ratio
+  of synchronous completions to asynchronous fallbacks is a useful contention
+  metric.
+  \item An adaptive variant spins for a bounded count and then transitions to
+  blocking acquisition, combining low latency under light contention with
+  bounded CPU use under heavy contention.
+\end{itemize}
+
+Selection among the operations is a sender-side decision governed by whether the
+caller needs a return value, can tolerate an unbounded wait, and has idle
+processor capacity available; the receiver's handler is unaffected in every case.
+
+% ---------------------------------------------------------------
+\section{Where latency comes from: queueing, not context switching}
+\label{sec:queueing}
+% ---------------------------------------------------------------
+
+On a latency-critical message-handling path --- of which a high-frequency
+trading (HFT) system is the archetype --- the quantity that matters is not the
+mean latency but the tail: the $99$th, $99.9$th, and $99.99$th percentiles. It
+is a common misconception that this tail is dominated by the cost of moving a
+message from one thread to another. It is not. On a modern Linux server a
+thread-to-thread context switch costs on the order of one to a few microseconds,
+and that cost is roughly fixed per hop: direct measurements put it near
+$1.2$--$1.5~\mu$s when threads are pinned to a core, rising to a few microseconds
+once cache-working-set effects are included \cite{li2007,bendersky2018,mcvoy1996}.
+The tail is instead produced by \emph{queueing}: when the code that services a
+queue cannot keep pace with the arrival rate, the queue grows, and the time a
+message spends waiting grows without bound. This is a structural property of
+queues, independent of any particular send primitive.
+
+\subsection{The queueing argument}
+\label{sec:qtheory}
+
+Model one servicing stage as an M/M/1 queue \cite{kleinrock1975}: messages
+arrive at rate $\lambda$ and are serviced at rate $\mu$, giving utilization
+$\rho = \lambda/\mu$; the queue is stable only for $\rho < 1$. The mean number of
+messages in the system is, by Little's law,
+\begin{equation}
+  L = \frac{\rho}{1-\rho},
+\end{equation}
+and the mean sojourn time (waiting plus service) is
+\begin{equation}
+  W = \frac{1/\mu}{1-\rho} = \frac{1}{\mu-\lambda}.
+  \label{eq:sojourn}
+\end{equation}
+As $\rho \to 1$ --- as the servicing code approaches saturation --- $W \to
+\infty$. The tail is governed by the same factor: in M/M/1 the sojourn time is
+exponentially distributed, $\Pr[T > t] = e^{-(\mu-\lambda)t}$, so its
+$q$-quantile is
+\begin{equation}
+  t_q = \frac{\ln\!\big(1/(1-q)\big)}{\mu-\lambda}
+      = \frac{\ln\!\big(1/(1-q)\big)}{\mu\,(1-\rho)}.
+  \label{eq:quantile}
+\end{equation}
+The $99.9$th percentile is therefore $t_{0.999} \approx 6.9/\big(\mu(1-\rho)\big)$:
+\emph{every} quantile scales as $1/(1-\rho)$, and the high percentiles are fixed
+large multiples of the mean. Figure~\ref{fig:qcurve} plots this. At $\rho=0.5$
+the $99.9$th-percentile latency is about $14$ service times; at $\rho=0.9$ it is
+$69$; at $\rho=0.95$ it is $138$. The knee is sharp, and the region past it is
+where HFT tails are born. Concretely, a queue whose depth hovers at $0$ or $1$
+adds negligible latency, whereas one that backs up to hundreds or thousands of
+messages produces tails orders of magnitude above the mean.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.82\linewidth, height=5.6cm,
+    xlabel={utilization $\rho = \lambda/\mu$},
+    ylabel={latency $/$ service time $(1/\mu)$},
+    domain=0:0.95, samples=200,
+    ymin=0, ymax=150, xmin=0, xmax=1,
+    legend pos=north west, legend cell align=left,
+    grid=both, grid style={gray!20},
+    every axis plot/.append style={very thick},
+]
+\addplot[blue] {1/(1-x)};
+\addlegendentry{mean sojourn $W\mu = 1/(1-\rho)$}
+\addplot[red,dashed] {6.9078/(1-x)};
+\addlegendentry{$99.9$th percentile $\approx 6.9/(1-\rho)$}
+\end{axis}
+\end{tikzpicture}
+\caption{Latency versus utilization for an M/M/1 servicing stage, in units of the
+mean service time $1/\mu$. Both the mean and every tail quantile diverge as
+$\rho \to 1$; the tail is a fixed multiple of the mean but far larger in absolute
+terms. Keeping the queue short means keeping $\rho$ well left of the knee, which
+means making the servicing code fast enough to raise $\mu$.}
+\label{fig:qcurve}
+\end{figure}
+
+The design consequence is direct. The only free parameters are $\lambda$ and
+$\mu$. The arrival rate $\lambda$ --- the market's message rate --- is not ours
+to set. The service rate $\mu$ is: it is the reciprocal of the time the servicing
+code takes per message. Halving the per-message service time doubles $\mu$,
+which for a fixed $\lambda$ moves $\rho$ from, say, $0.9$ to $0.45$ and collapses
+the tail. This is why the aggregate speed of the queue-servicing code --- not the
+latency of any single send --- governs the tail. A single \fs{} that saves tens
+of nanoseconds is uninteresting in isolation; it is decisive because, applied
+across every hop of the servicing chain, it raises $\mu$ enough to hold $\rho$
+far from $1$ and the queue near empty. \fs{} attacks the tail by attacking
+$\mu$.
+
+\subsection{A representative HFT pipeline}
+\label{sec:hftarch}
+
+Figure~\ref{fig:hftarch} shows the thread architecture of a representative HFT
+market-data-to-order pipeline, drawn from the kaspar-hft reference
+implementation. CME's MDP~3.0 market data arrives as two redundant multicast
+feeds, channel~A and channel~B. The system decomposes into three sections
+connected by exactly two cross-thread hops.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    font=\small, >=Latex,
+    box/.style={draw, rounded corners, minimum height=8mm, minimum width=15mm, align=center, fill=blue!5},
+    reader/.style={box, fill=green!10},
+    outbox/.style={box, fill=orange!12},
+    lbl/.style={font=\scriptsize},
+    seclbl/.style={font=\scriptsize\itshape, text=black!70},
+]
+\node[reader] (sra) {Socket\\reader A};
+\node[reader] (srb) [below=7mm of sra] {Socket\\reader B};
+\coordinate (mid) at ($(sra)!0.5!(srb)$);
+\node[box] (buf)  [right=18mm of mid] {Buffer\\(queue)};
+\node[box] (dec)  [right=15mm of buf] {Arbitrate\\+ decode};
+\node[box] (book) [right=15mm of dec] {Order\\book};
+\node[box] (sig)  [right=15mm of book] {Signal};
+\node[outbox] (om)   [right=16mm of sig] {Order\\handler};
+
+% incoming feeds
+\draw[->] ($(sra)+(-14mm,0)$) -- node[lbl,above]{A} (sra);
+\draw[->] ($(srb)+(-14mm,0)$) -- node[lbl,below]{B} (srb);
+% async sends into the buffer (context switch)
+\draw[->] (sra) -- node[lbl,sloped,above]{send} (buf);
+\draw[->] (srb) -- node[lbl,sloped,below]{send} (buf);
+% fast_send chain (single thread)
+\draw[->] (buf)  -- node[lbl,above]{\texttt{fast\_send}} (dec);
+\draw[->] (dec)  -- node[lbl,above]{\texttt{fast\_send}} (book);
+\draw[->] (book) -- node[lbl,above]{\texttt{fast\_send}} (sig);
+% async send out (context switch)
+\draw[->] (sig)  -- node[lbl,sloped,above]{send} (om);
+\draw[->] (om) -- node[lbl,above]{TCP} ($(om)+(15mm,0)$);
+
+\begin{scope}[on background layer]
+\node[draw,dashed,rounded corners,fit=(sra)(srb),inner sep=3mm] (s1) {};
+\node[draw,dashed,rounded corners,fit=(buf)(dec)(book)(sig),inner sep=3mm] (s2) {};
+\node[draw,dashed,rounded corners,fit=(om),inner sep=3mm] (s3) {};
+\end{scope}
+\node[seclbl,below=1mm of s1.south] {Capture: 2 threads};
+\node[seclbl,below=1mm of s2.south] {Decode / book / signal: 1 thread};
+\node[seclbl,below=1mm of s3.south] {Order out: 1 thread};
+\end{tikzpicture}%
+}
+\caption{Thread architecture of a representative HFT pipeline. The only
+cross-thread hops --- and hence the only context switches --- on the critical
+path are the two asynchronous \snd{}s (reader$\to$buffer and
+signal$\to$order-handler); each such hop is the expensive operation, measured at
+$\sim\!2.25\,\mu$s per round trip (Table~\ref{tab:transport}), because it wakes
+another thread. The entire decode/book/signal servicing chain instead collapses
+onto a single thread via \fs{}, each hop costing $\sim\!36$~ns --- about
+$62\times$ less --- so it incurs no queue and no context switch. That servicing
+chain is the M/M/1 stage of Section~\ref{sec:qtheory} whose per-message service
+time, and hence $\mu$, is set by the aggregate cost of these \fs{}s.}
+\label{fig:hftarch}
+\end{figure}
+
+\paragraph{Section 1 --- capture (two threads).} One socket-reader actor per
+channel does nothing but drain its UDP socket and hand each datagram to the next
+stage by an \emph{asynchronous} \snd{}. It must be asynchronous: a reader that
+made a synchronous, blocking call would stop draining its socket while the callee
+ran and would drop packets under a burst --- defeating the reader's only purpose.
+In kaspar-hft the reader pre-allocates message buffers and batches whatever the
+socket has available before sending, and its handoff to the buffer stage is an
+async \snd{}, never a \fs{}.
+
+\paragraph{Section 2 --- decode, book, and signal (one thread).} The datagrams
+land in a buffer actor --- the queue --- whose service handler forwards each
+message down the remainder of the chain by \fs{}: arbitration between the A and B
+feeds, Simple Binary Encoding decode, order-book construction, and signal
+generation all run synchronously, in sequence, on this one thread, with no
+intervening queue and no context switch between stages. This is precisely the
+chained synchronous execution of Section~\ref{sec:mech}: an $N$-stage chain with
+$O(1)$ rather than $O(N)$ context switches. This section is the queue-servicing
+code whose per-message time sets $\mu$, and it is where \fs{} earns its keep.
+
+\paragraph{Section 3 --- order out (one thread).} When the signal decides to
+act, it hands an order to an order-management actor by an asynchronous \snd{};
+that actor performs the TCP/iLink write. This hop is asynchronous by design: the
+network write takes several microseconds, and blocking the decode-and-book thread
+on it would stall servicing of the market-data queue --- driving $\rho$ back
+toward $1$, the exact failure the architecture exists to avoid.
+
+\paragraph{Two hops, two switches.} On the critical path from wire to order there
+are just two cross-thread hops --- reader$\to$buffer and signal$\to$order-out ---
+and therefore two context switches, a fixed cost of a few microseconds in total
+\cite{li2007}. Everything between them is collapsed onto a single thread by
+\fs{}. The goal is not to remove those two switches; they are cheap and
+necessary, because the capture and transmit stages must not block the servicing
+stage. The goal is to make the servicing stage between them fast enough that its
+queue never grows --- and that is a statement about $\mu$, which is what \fs{}
+raises. The mechanism's contribution is thus best measured not as a per-call
+latency but as the service rate it sustains on the servicing chain.
+
+% ---------------------------------------------------------------
+\section{Performance analysis}
+\label{sec:perf}
+% ---------------------------------------------------------------
+
+The synchronous path removes, rather than optimizes, the per-message operations
+of the asynchronous path. Table~\ref{tab:elim} summarizes the operations
+eliminated for a co-located delivery.
+
+\begin{table}[h]
+\centering
+\caption{Per-message operations on the asynchronous path and their status on the
+synchronous path, for co-located actors. This is an analytical account of work
+removed.}
+\label{tab:elim}
+\small
+\begin{tabular}{lcc}
+\toprule
+Per-message operation & Asynchronous & Synchronous \\
+\midrule
+Message heap allocations           & 1--3 & 0 request (stack-alloc.), 1 reply \\
+Mailbox queue operations           & 2 (enqueue $+$ dequeue) & 0 \\
+Scheduler invocations              & 1--2 & 0 \\
+Context switches (request/reply)   & 2--4 & 0 \\
+Context switches, $N$-actor chain  & $O(N)$ & $O(1)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Each eliminated item has a concrete cost. A context switch is on the order of
+$10^3$--$10^4$ processor cycles and evicts cache and TLB state. Heap allocation
+of short-lived messages produces fragmentation and, in managed runtimes,
+collection pauses; stack allocation reclaims the message on frame unwind with no
+allocator or collector involvement. Removing the mailbox operations removes their
+synchronization traffic on the memory bus; quantifying that reduction requires
+measurement and is left to future work. The chained-execution
+result --- $O(1)$ rather than $O(N)$ context switches across an $N$-actor
+synchronous chain --- is the largest structural effect for deep call graphs.
+
+\paragraph{Context: measured cost of the asynchronous path.} To indicate the
+magnitude of the overhead the synchronous path targets, the asynchronous
+messaging path of the same actor runtime has been measured, in separate work
+\cite{batching2026}, at $5.5$ to $13.6$ million round trips per second after
+successive batching and memory-pooling optimizations; in the saturated
+throughput regime a message costs on the order of $74$~ns, while in the sparse
+regime an individual send costs several microseconds ($4$--$7~\mu$s), with
+condition-variable wakeups costing $1$--$3~\mu$s each. These are measurements of
+the \emph{asynchronous} path and bound the per-message costs that synchronous
+delivery removes; they are not measurements of \fs{}. We turn now to direct
+microbenchmarks of the synchronous path itself.
+
+\subsection{Microbenchmarks of the C++ implementation}
+\label{sec:micro}
+
+The analytical account of Table~\ref{tab:elim} predicts that removing each
+per-message operation should produce a measurable step down in latency. The
+actor framework's C++ microbenchmark suite measures exactly these steps on a
+\emph{sequential} round trip --- ping $\to$ pong $\to$ reply with a single
+message in flight, so each sample is a clean latency rather than a saturated
+throughput \cite{kasparperf}. All figures below were taken on Apple Silicon
+(arm64), macOS, compiled \texttt{-O3 -march=native}, without CPU pinning, over
+$N=10^6$ samples. They are \emph{indicative rather than a specification}:
+absolute numbers move with hardware, allocator, and turbo state, and this is
+neither the x86-64 Linux target nor a pinned, quiescent machine. The
+\emph{ratios} between rows --- each isolating one eliminated operation --- are
+the durable result. Because a \fs{} is so cheap that per-sample percentiles
+quantize to the $\sim\!40$~ns \texttt{steady\_clock} tick, its rows are reported
+as amortized ns (total wall time over $N$, one clock-read pair), which resolves
+costs below the tick.
+
+We present three measurements: the cost of crossing threads
+(Table~\ref{tab:transport}), the internal overhead of \fs{} itself
+(Table~\ref{tab:fsvariants}), and the effect of the memory pool
+(Table~\ref{tab:alloc}).
+
+\paragraph{Only crossing threads costs anything.} Table~\ref{tab:transport} is
+the central result. It holds the work constant --- the same ping/pong round trip
+with a reply --- and varies only \emph{how} the message is delivered, so each row
+adds back exactly one mechanism. An asynchronous \snd{} between two actors on
+\emph{separate} threads costs about $2250$~ns at the median, and that cost is
+almost entirely the two cross-core mailbox wakeups it performs per round trip,
+each a mutex acquisition plus a condition-variable signal that the receiving
+thread must be scheduled to service. This --- not ``message passing'' in the
+abstract --- is where actor latency actually comes from. Remove the thread
+crossing and the wakeups vanish; remove the queue as well and essentially
+nothing is left. The \fs{} row is the point of the paper: at $\sim\!36$~ns it is
+about $62\times$ cheaper than the cross-thread \snd{}, because it is, mechanically,
+a locked function call.
+
+\begin{table}[!htb]
+\centering
+\caption{\textbf{The cost is thread-crossing, not messaging.} Same ping/pong
+round trip with a reply; only the delivery mechanism varies. Each row eliminates
+one operation relative to the row above. ``Thread hop'' is a cross-core mailbox
+wakeup (mutex $+$ condition variable); ``queue'' is a mailbox push/pop.
+$p50$/$p99$ are per-sample round-trip latency except the \fs{} row, which is
+amortized (see text). Ungrouped $p99$ is $6750$~ns; the grouped and \fs{} rows
+show no meaningful spread.}
+\label{tab:transport}
+\small
+\begin{tabular}{lccccr}
+\toprule
+Delivery mode & Threads & Thread hop & Queue & $p50$ RT (ns) & Speedup \\
+\midrule
+\snd{}, ungrouped        & 2 & yes & yes & $2250$        & $1\times$ \\
+\snd{}, grouped          & 1 & no  & yes & $125$         & $18\times$ \\
+\fs{} (inline)           & 1 & no  & no  & $\sim\!36$    & $\sim\!62\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Actor grouping, and why \fs{} beats it.} The middle row of
+Table~\ref{tab:transport} is worth dwelling on, because it is the strongest
+alternative and the one \fs{} must beat. The framework lets a set of actors be
+placed in a \texttt{Group}: the group's actors are co-scheduled on a
+\emph{single} thread behind a \emph{single} mailbox, so an asynchronous \snd{}
+between two actors in the same group never crosses a core and never wakes another
+thread --- it is a push and a pop on a queue already owned by the running thread.
+This is the conventional low-latency actor optimization --- the same idea as
+same-thread messaging in Actor4j or a shared dispatcher in Akka
+(Section~\ref{sec:survey}) --- and it is dramatic on its own: it takes the round
+trip from $2250$~ns to $125$~ns, an $18\times$ improvement, purely by removing
+the thread hop. But grouping still pays for the queue: the message is enqueued,
+the run loop dequeues it, and the handler runs on a later turn. \fs{} removes
+that last layer. Within the same single thread, it does not enqueue at all; it
+takes the receiver's lock and runs the handler inline, returning the reply as a
+value, for $\sim\!36$~ns --- about $3.5\times$ faster than the best that grouping
+achieves. Grouping removes the thread hop; \fs{} removes the thread hop
+\emph{and} the queue. This second step --- a synchronous, inline, receiver-transparent
+delivery that outperforms same-thread asynchronous messaging --- is what is
+distinctive about the kaspar framework and is, to our knowledge, absent from the
+mainstream actor systems surveyed in Section~\ref{sec:survey}. The intended usage
+follows directly: group the actors of a servicing stage onto one thread, then
+drive them with \fs{}, and an $N$-actor pipeline collapses to a single inline call
+chain (the middle section of Figure~\ref{fig:hftarch}).
+
+\paragraph{The internal overhead of \fs{} is minimal.} Table~\ref{tab:fsvariants}
+decomposes that $\sim\!36$~ns by varying only where the request message lives and
+whether a reply is sent. A bare \fs{} that allocates nothing --- a stack request,
+no reply --- dispatches in $35.9$~ns, and that is the true floor: message-id
+lookup, lock, and the inline handler call, with zero heap traffic. Everything
+above it is allocation, not dispatch. Each global \texttt{new}\,$+$\,\texttt{delete}
+of a small message adds about $15$~ns; a pooled allocation adds only $2$--$3$~ns.
+In other words the mechanism itself imposes essentially no overhead beyond a
+function call; the only variable cost a caller pays is for memory it chooses to
+allocate, and both stack allocation and the memory pool drive that toward zero.
+
+\begin{table}[!htb]
+\centering
+\caption{\textbf{\fs{} overhead is dominated by allocation, not dispatch.} Four
+\fs{} configurations, amortized ns per operation, pool on. Backing out the rows:
+base dispatch $\approx 36$~ns; each global \texttt{new}$+$\texttt{delete}
+$\approx 15$~ns; each pooled allocation $\approx 2$--$3$~ns. With the pool off,
+\emph{pooled input $+$ reply} rises to $65.6$~ns, matching \emph{heap input $+$
+reply}.}
+\label{tab:fsvariants}
+\small
+\begin{tabular}{llr}
+\toprule
+\fs{} variant & Message allocations & Amortized (ns/op) \\
+\midrule
+stack input, no reply    & none                    & $35.9$ \\
+pooled input $+$ reply    & 2 pooled                & $41.3$ \\
+stack input $+$ reply     & 1 global (the reply)    & $51.1$ \\
+heap input $+$ reply      & 2 global                & $65.8$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The memory pool cuts the tail by two orders of magnitude.}
+Table~\ref{tab:alloc} isolates the allocator with a compile-time switch, holding
+the message types fixed. At the median the pool's win is modest on this platform
+--- macOS has a fast small-object allocator, so $124.5$~ns falls only to
+$92.8$~ns, and this understates what a busier or Linux allocator would show. The
+decisive effect is in the tail: in a separate run the \emph{maximum} round trip
+fell from $5.5$~ms to $33\,\mu$s once pooled, because the pool never takes the
+global allocator's occasional slow path. That is the number that matters for the
+queueing argument of Section~\ref{sec:queueing}: it is a two-order-of-magnitude
+cut to the exact $p99.9{+}$ tail that a slow servicing stage feeds into a growing
+queue.
+
+\begin{table}[!htb]
+\centering
+\caption{\textbf{Global allocator vs \texttt{MemoryPool}}, grouped \snd{},
+amortized ns per round trip (two allocations per round trip). The compile-time
+switch \texttt{DISABLE\_MEMORY\_POOL} is the only difference between columns; with
+it off, pooled types collapse to the plain \texttt{new}/\texttt{delete} cost,
+confirming the switch is all that changes. Tail (separate run): maximum round
+trip $5.5$~ms $\to$ $33\,\mu$s.}
+\label{tab:alloc}
+\small
+\begin{tabular}{lrr}
+\toprule
+Message source & Pool on (ns/RT) & Pool off (ns/RT) \\
+\midrule
+plain \texttt{new}/\texttt{delete} & $124.5$ & $128.1$ \\
+\texttt{MemoryPool}                & $\mathbf{92.8}$ & $128.2$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Guidance, and what is not shown.} The measurements yield a mechanical
+rule for hot-path callers: group the actors of a stage onto one thread; deliver
+with \fs{}; keep the request message on the stack when possible (it need never be
+heap-lived, because \fs{} blocks until the handler returns,
+Section~\ref{sec:mech}); and for any message that must outlive the call, draw it
+from a \texttt{MemoryPool}, turning a $\sim\!15$~ns global allocation into a
+$\sim\!2$~ns pooled one and removing the allocator tail. What these numbers do
+\emph{not} establish is equally important: they are sequential latencies with one
+message in flight, not saturated throughput; they do not vary contention or chain
+depth; and they were taken on Apple Silicon, not the x86-64 Linux target. That
+multi-axis, saturated evaluation --- the subject of Section~\ref{sec:disc} ---
+remains future work. What is established is that \fs{} costs tens of nanoseconds,
+that its overhead is a function call plus whatever memory the caller chooses to
+allocate, that it beats even same-thread asynchronous grouping by roughly
+$3.5\times$, and that pooling removes the latency tail.
+
+\FloatBarrier
+
+% ---------------------------------------------------------------
+\section{Discussion and limitations}
+\label{sec:disc}
+% ---------------------------------------------------------------
+
+\paragraph{The scope is co-located actors.} \fs{} applies only when sender and
+receiver share an address space; a synchronous cross-machine call would
+reintroduce the network round trip it exists to avoid, and the actor model's
+location transparency means the sender can fall back to asynchronous delivery
+when the receiver is remote. Receiver transparency is what makes that fallback
+free: the same handler serves the remote asynchronous case and the local
+synchronous case.
+
+\paragraph{The cost of transparency.} Heap-allocating the reply in both modes is
+a deliberate cost paid to keep the handler unable to distinguish them. The
+optimized synchronous-only reply removes that allocation but forfeits
+transparency and must therefore be confined to code paths statically known to be
+synchronous; mixing it with asynchronous delivery is an error the mechanism
+reports rather than tolerates.
+
+\paragraph{Blocking runs counter to conventional guidance.} Established actor
+frameworks discourage blocking inside actors precisely because it can starve
+thread pools and cause deadlock \cite{akka,armstrong2003,swift2021}. \fs{}
+blocks the sender by construction, and its safety rests on the cyclic-invocation
+detector and on the availability of the non-blocking and best-effort variants for
+paths that cannot tolerate an unbounded wait. Where a caller must never block,
+\texttt{fast\_send\_x} and \texttt{fast\_send\_void} provide bounded-time and
+never-blocking alternatives behind the same handler interface. Even so, the
+cyclic-invocation detector addresses only \emph{cyclic} waits; avoiding
+thread-pool starvation for acyclic blocking patterns --- a chain that blocks on
+an actor whose handler is itself waiting on a scarce resource --- remains a
+burden on the developer that asynchronous delivery does not impose.
+
+\paragraph{Contention on a hot actor.} A synchronous send holds the receiver's
+exclusive-access lock for the duration of handler execution, so concurrent
+synchronous sends to the same heavily contended actor serialize on that lock, and
+the blocking variants stall their caller threads while they wait. Under heavy
+contention this can perform worse than asynchronous delivery, in which senders
+enqueue and continue and the messages buffer without stalling the callers. The
+non-blocking (\texttt{fast\_send\_x}) and best-effort (\texttt{fast\_send\_void})
+variants bound or remove the stall --- the latter by falling back to the mailbox
+--- so the ratio of synchronous completions to asynchronous fallbacks, a metric
+the mechanism already exposes, doubles as a signal that a target has become hot
+enough that the asynchronous path is preferable.
+
+\paragraph{Permissive detection shifts a burden to the programmer.} The
+(actor, message-class) refinement admits callbacks by allowing an actor's state
+to be re-entered by a nested handler, which reintroduces the reentrancy hazards
+that strict per-actor sequential processing removes. A nested handler can
+observe and mutate the actor's state mid-update, which relaxes the actor model's
+guarantee of single-threaded sequential state mutation and admits the invariant
+violations that guarantee is designed to prevent. The conservative policy avoids
+this at the cost of rejecting some legitimate callback structures; the choice
+between them is exposed as configuration rather than fixed.
+
+\paragraph{Further evaluation.} The microbenchmarks of Section~\ref{sec:micro}
+establish the per-operation latency reductions and the two-order-of-magnitude
+tail benefit of the memory pool directly. The natural next step measures the
+mechanism under load: synchronous versus asynchronous \emph{throughput} across
+contention levels, chain depths, and message sizes on the x86-64 Linux target,
+together with the distribution of synchronous completions versus asynchronous
+fallbacks for \texttt{fast\_send\_void}. That saturated, multi-axis
+characterization is the subject of ongoing work.
+
+% ---------------------------------------------------------------
+\section{Conclusion}
+% ---------------------------------------------------------------
+
+Asynchronous message passing is intrinsic to the actor model's guarantees and
+indispensable across machines, but for co-located actors it imposes heap
+allocation, queue operations, scheduling, and context switches that isolation
+does not require. \fs{} provides a synchronous alternative in which the sender's
+thread runs the receiver's handler directly under the receiver's exclusive-access
+lock and takes the reply as a value, while the handler remains unable to
+determine the delivery mode, the executing thread, or the sender's blocked state
+--- receiver transparency. A thread-local call-chain membership test, checked
+before lock acquisition, makes the cross-thread synchronous path safe against the
+deadlock and stack-overflow modes that cyclic synchronous invocation would
+otherwise cause, and a refinement keyed on (actor, message-class) pairs admits
+legitimate callbacks while still catching unbounded recursion. Five delivery
+operations expose the latency/robustness spectrum behind one transparent handler
+interface. The performance case is made analytically, as the elimination of
+per-message work, and corroborated by microbenchmarks in which the synchronous
+path completes a round trip in tens of nanoseconds and a memory pool cuts the
+latency tail by two orders of magnitude; a saturated-throughput evaluation under
+contention remains to be done.
+
+% ---------------------------------------------------------------
+\section*{Disclosure}
+% ---------------------------------------------------------------
+
+The \fs{} mechanism and its cyclic-invocation detection are the subject of a
+pending patent application. This paper is a technical description and does not
+constitute legal advice.
+
+% ---------------------------------------------------------------
+\begin{thebibliography}{99}
+% ---------------------------------------------------------------
+\bibitem{hewitt1973} C.~Hewitt, P.~Bishop, and R.~Steiger.
+  \emph{A Universal Modular ACTOR Formalism for Artificial Intelligence.}
+  Proc.\ 3rd International Joint Conference on Artificial Intelligence (IJCAI),
+  1973.
+\bibitem{agha1986} G.~Agha.
+  \emph{Actors: A Model of Concurrent Computation in Distributed Systems.}
+  MIT Press, 1986.
+\bibitem{miller2005} M.~S.~Miller, E.~D.~Tribble, and J.~Shapiro.
+  \emph{Concurrency Among Strangers: Programming in E as Plan Coordination.}
+  Symposium on Trustworthy Global Computing, 2005.
+\bibitem{ambienttalk2007} T.~Van Cutsem et al.
+  \emph{AmbientTalk: Object-Oriented Event-Driven Programming in Mobile Ad Hoc
+  Networks.} XXVI Int.\ Conf.\ of the Chilean Computer Science Society, 2007.
+\bibitem{armstrong1996} J.~Armstrong, R.~Virding, C.~Wikstr\"om, and M.~Williams.
+  \emph{Concurrent Programming in Erlang.} Prentice Hall, 2nd ed., 1996.
+\bibitem{armstrong2003} J.~Armstrong.
+  \emph{Making Reliable Distributed Systems in the Presence of Software Errors.}
+  PhD thesis, Royal Institute of Technology (KTH), Stockholm, 2003.
+\bibitem{akka} Lightbend, Inc.
+  \emph{Akka Documentation.} \url{https://akka.io/docs/}.
+\bibitem{caf2014} D.~Charousset, T.~C.~Schmidt, R.~Hiesgen, and M.~W\"ahlisch.
+  \emph{CAF --- The C++ Actor Framework for Scalable and Resource-Efficient
+  Applications.} Proc.\ 4th Int.\ Workshop on Programming based on Actors,
+  Agents, and Decentralized Control (AGERE!), 2014.
+\bibitem{orleans} S.~Bykov et al.
+  \emph{Orleans: Cloud Computing for Everyone.}
+  Proc.\ 2nd ACM Symposium on Cloud Computing (SoCC), 2011.
+\bibitem{swift2021} Apple, Inc.
+  \emph{Swift Evolution Proposal SE-0306: Actors.} 2021.
+\bibitem{actor4j2018} D.~Bauer.
+  \emph{Actor4j: A Software Framework for the Actor Model Focusing on the
+  Optimization of Message Passing.} 2018.
+\bibitem{kar2021} O.~Tardieu et al.
+  \emph{Reliable Actors with Retry Orchestration.} IBM Research, 2021.
+\bibitem{activeobject1996} R.~G.~Lavender and D.~C.~Schmidt.
+  \emph{Active Object: An Object Behavioral Pattern for Concurrent Programming.}
+  Pattern Languages of Program Design 2, Addison-Wesley, 1996.
+\bibitem{posa2} D.~C.~Schmidt, M.~Stal, H.~Rohnert, and F.~Buschmann.
+  \emph{Pattern-Oriented Software Architecture, Volume 2: Patterns for
+  Concurrent and Networked Objects.} Wiley, 2000.
+\bibitem{sutter2005} H.~Sutter and J.~Larus.
+  \emph{Software and the Concurrency Revolution.} ACM Queue, 3(7):54--62, 2005.
+\bibitem{linguafranca2023} M.~Lohstroh, C.~Menard, S.~Bateni, and E.~A.~Lee.
+  \emph{High-Performance Deterministic Concurrency using Lingua Franca.}
+  arXiv:2301.02444, 2023.
+\bibitem{batching2026} V.~Maciejewski.
+  \emph{How Message Batching More Than Doubles Actor-Model Throughput.}
+  \url{https://vincentmayeski.substack.com/p/how-message-batching-more-than-doubles}, 2026.
+\bibitem{greif1975} I.~G.~Greif.
+  \emph{Semantics of Communicating Parallel Processes.}
+  PhD thesis, MIT, 1975. Project MAC Technical Report MAC-TR-154.
+\bibitem{hewittbaker1977} C.~Hewitt and H.~Baker.
+  \emph{Laws for Communicating Parallel Processes.}
+  In \emph{Information Processing 77} (Proc.\ IFIP Congress 77), North-Holland,
+  1977, pp.~987--992.
+\bibitem{clinger1981} W.~D.~Clinger.
+  \emph{Foundations of Actor Semantics.}
+  PhD thesis, MIT, 1981. MIT AI Lab Technical Report AI-TR-633.
+\bibitem{armstrong2007} J.~Armstrong.
+  \emph{A History of Erlang.}
+  Proc.\ 3rd ACM SIGPLAN Conference on the History of Programming Languages
+  (HOPL III), 2007. \url{https://doi.org/10.1145/1238844.1238850}.
+\bibitem{hewitt2010} C.~Hewitt.
+  \emph{Actor Model of Computation: Scalable Robust Information Systems.}
+  arXiv:1008.1459, 2010 (rev.\ 2015). \url{https://arxiv.org/abs/1008.1459}.
+\bibitem{beambook} E.~Stenman.
+  \emph{The Erlang Runtime System (The BEAM Book), chapter ``Scheduling''.}
+  \url{https://github.com/happi/theBeamBook}, accessed 2026.
+\bibitem{letitcrash} Lightbend (Akka Team).
+  \emph{50 Million Messages per Second --- on a Single Machine.}
+  \url{https://letitcrash.com/post/20397701710/50-million-messages-per-second-on-a-single},
+  2012.
+\bibitem{orleansmsr2014} S.~Bykov, A.~Geller, G.~Kliot, J.~R.~Larus, R.~Pandya,
+  and J.~Thelin.
+  \emph{Orleans: Distributed Virtual Actors for Programmability and
+  Scalability.} Microsoft Research Technical Report MSR-TR-2014-41, 2014.
+\bibitem{ponyorca2017} S.~Clebsch, J.~Franco, S.~Drossopoulou, A.~M.~Yang,
+  T.~Wrigstad, and J.~Vitek.
+  \emph{Orca: GC and Type System Co-design for Actor Languages.}
+  Proc.\ ACM Program.\ Lang.\ 1(OOPSLA), Article~72, 2017.
+\bibitem{camilleri2023} C.~Camilleri, J.~G.~Vella, and V.~Nezval.
+  \emph{Actor Model Frameworks: An Empirical Performance Analysis.}
+  In \emph{Advances in Information and Communication} (FICC 2023), Lecture Notes
+  in Networks and Systems, vol.~652, Springer, 2023.
+  \url{https://doi.org/10.1007/978-3-031-31153-6_37}.
+\bibitem{imam2014savina} S.~M.~Imam and V.~Sarkar.
+  \emph{Savina --- An Actor Benchmark Suite: Enabling Empirical Evaluation of
+  Actor Libraries.} Proc.\ 4th Int.\ Workshop on Programming based on Actors,
+  Agents, and Decentralized Control (AGERE!), 2014.
+  \url{https://doi.org/10.1145/2687357.2687368}.
+\bibitem{blessing2019} S.~Blessing, K.~Fernandez-Reyes, A.~M.~Yang,
+  S.~Drossopoulou, and T.~Wrigstad.
+  \emph{Run, Actor, Run: Towards Cross-Actor Language Benchmarking.}
+  Proc.\ 9th Int.\ Workshop on Programming based on Actors, Agents, and
+  Decentralized Control (AGERE!), 2019.
+\bibitem{charousset2013} D.~Charousset, T.~C.~Schmidt, R.~Hiesgen, and
+  M.~W\"ahlisch.
+  \emph{Native Actors --- A Scalable Software Platform for Distributed,
+  Heterogeneous Environments.} arXiv:1301.0748, 2013.
+\bibitem{actix} Actix Project.
+  \emph{Actix: Actor Framework for Rust --- Documentation.}
+  \url{https://docs.rs/actix/}, accessed 2026.
+\bibitem{tasharofi2013} S.~Tasharofi, P.~Dinges, and R.~E.~Johnson.
+  \emph{Why Do Scala Developers Mix the Actor Model with Other Concurrency
+  Models?} Proc.\ 27th European Conference on Object-Oriented Programming
+  (ECOOP), LNCS 7920, Springer, 2013, pp.~302--326.
+\bibitem{bagherzadeh2020} M.~Bagherzadeh, N.~Fireman, A.~Shawesh, and
+  R.~Khatchadourian.
+  \emph{Actor Concurrency Bugs: A Comprehensive Study on Symptoms, Root Causes,
+  API Usages, and Differences.} Proc.\ ACM Program.\ Lang.\ 4(OOPSLA),
+  Article~214, 2020. \url{https://doi.org/10.1145/3428282}.
+\bibitem{torreslopez2018} C.~Torres Lopez, S.~Marr, H.~M\"ossenb\"ock, and
+  E.~Gonzalez Boix.
+  \emph{A Study of Concurrency Bugs and Advanced Development Support for
+  Actor-based Programs.} In \emph{Programming with Actors}, LNCS 10789,
+  Springer, 2018, pp.~155--185. Also arXiv:1706.07372.
+\bibitem{concur2026} J.~Huang, T.~Mahmud, C.~P{\u a}s{\u a}reanu, and G.~Yang.
+  \emph{CONCUR: Benchmarking LLMs for Concurrent Code Generation.}
+  arXiv:2603.03683, 2026.
+\bibitem{kleinrock1975} L.~Kleinrock.
+  \emph{Queueing Systems, Volume 1: Theory.} Wiley-Interscience, 1975.
+\bibitem{li2007} C.~Li, C.~Ding, and K.~Shen.
+  \emph{Quantifying the Cost of Context Switch.} Proc.\ Workshop on Experimental
+  Computer Science (ExpCS), ACM, 2007.
+\bibitem{mcvoy1996} L.~McVoy and C.~Staelin.
+  \emph{lmbench: Portable Tools for Performance Analysis.}
+  Proc.\ USENIX Annual Technical Conference, 1996.
+\bibitem{bendersky2018} E.~Bendersky.
+  \emph{Measuring Context Switching and Memory Overheads for Linux Threads.}
+  \url{https://eli.thegreenplace.net/2018/measuring-context-switching-and-memory-overheads-for-linux-threads/},
+  2018.
+\bibitem{kasparperf} V.~Maciejewski.
+  \emph{kaspar-hft actor framework: C++ message-passing microbenchmarks
+  (\texttt{actors/cpp/perf}).}
+  \url{https://github.com/vincent212/kaspar-hft}, 2026.
+\end{thebibliography}
+
+\end{document}
