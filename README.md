@@ -336,6 +336,35 @@ kaspr {
 - **Memory**: Pool allocators for high-frequency message types, zero GC pauses
 - **Threading**: One thread per actor, CPU affinity pinning, no contention between instruments
 
+### Measured: actor messaging round-trip latency
+
+From the microbenchmarks in [`actors/cpp/perf`](actors/cpp/perf) (`bench_pingpong`),
+ping → pong → reply, one message in flight. Apple Silicon / macOS, `-O3
+-march=native`, no CPU pinning — **indicative; the ratios are the point.**
+
+| path | p50 round-trip | notes |
+|---|---:|---|
+| `send`, separate threads | ~2250 ns | cross-core mailbox wakeup (mutex + condvar), twice |
+| `send`, one `Group` thread | ~125 ns | no wakeup — queue push/pop + dispatch |
+| `fast_send` (inline) | ~24 ns\* | no queue, no thread hop; handler runs in the caller |
+
+\* per-sample timing quantizes to the ~40 ns `steady_clock` tick; ~24 ns is the
+amortized mean.
+
+**Allocation** — the MemoryPool is a compile-time switch (`DISABLE_MEMORY_POOL`).
+Same pooled message types, grouped-send round trip (amortized ns):
+
+| | pool ON | pool OFF |
+|---|---:|---:|
+| per round trip (2 msgs) | **~92 ns** | ~128 ns (= plain `new`) |
+| allocator tail (`max`) | ~33 µs | ~5.5 ms |
+
+The pool removes the per-message allocation (~15 ns per global `new`+`delete`
+drops to ~2–3 ns) and, more importantly, cuts the allocator tail by ~100×.
+`fast_send` with a **stack** request message and a pooled reply avoids the heap
+entirely. Full tables, methodology, and caveats in the
+[perf README](actors/cpp/perf/README.md).
+
 ## Writing
 
 Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.substack.com](https://vincentmayeski.substack.com)):
