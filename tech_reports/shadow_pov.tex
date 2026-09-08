@@ -1,0 +1,1176 @@
+\documentclass[11pt]{article}
+
+% ---------------------------------------------------------------
+% Shadow-PPOV: Passive Percentage-of-Volume Execution
+% Passive order-book participation via identifier-driven cancel mirroring
+% arXiv preprint (q-fin.TR)
+% ---------------------------------------------------------------
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage[ruled,vlined,linesnumbered]{algorithm2e}
+\usepackage{microtype}
+\usepackage{caption}
+
+\geometry{margin=1in}
+\setlength{\emergencystretch}{2em}
+\hypersetup{colorlinks=true, linkcolor=blue!50!black, citecolor=blue!50!black,
+            urlcolor=blue!50!black}
+
+\newcommand{\pov}{\textsc{Shadow-PPOV}}
+\newcommand{\bo}{\ensuremath{\mathrm{b/o}}}
+
+\title{\textbf{Shadow-PPOV: Model-Free Passive Execution via Order-Level\\
+Shadowing and Identifier-Driven Cancellation}}
+
+\author{%
+  Vincent Maciejewski\\
+  \small M2 Technologies\\
+  \small \texttt{mayeski@gmail.com}
+}
+
+\date{September 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Automated execution algorithms fall into two broad families
+\cite{johnson2010,bayesiantca2019}: schedule-based algorithms and
+liquidity-seeking algorithms. This paper concerns the schedule-based family; the
+liquidity-seeking family is out of scope. The
+schedule-based family commonly includes four algorithms:
+Time-Weighted Average Price (TWAP), Volume-Weighted Average Price (VWAP),
+Percentage of Volume (POV), and Implementation Shortfall (IS). TWAP follows a
+clock, whereas VWAP follows a forecast of the intraday volume \emph{curve}, POV reacts
+to \emph{realized} volume to hold a target participation rate, and IS
+front-loads execution to minimize slippage against the parent order arrival price.
+All operate on an \emph{aggregate} (time, or total volume) rather than on the
+individual resting orders that actually constitute the book, and all are
+\emph{model-based}: their execution decisions are derived from an explicit
+model, forecast, schedule, or control rule rather than from following individual
+resting orders. We introduce \pov{}, a method for placing the passive limit
+orders within the framework of percentage-of-volume execution (a passive POV, or
+PPOV --- here denoting passive execution whose \emph{order-placement rate} is set
+from observed order flow rather than from traded volume; unlike conventional POV,
+that fraction is applied to individual order arrivals rather than to traded
+volume, and the participation rate is not controlled directly but emerges from
+the resulting fills).
+Placing a passive order to fill efficiently
+conventionally involves an order-book model and some prediction of where the order
+will fill. \pov{} needs neither: it replaces that prediction with
+\emph{tracking}, resting each passive order at the price of an order already in
+the book. It \emph{shadows} the passive limit orders that other participants
+actually post: on observing a
+third-party add for a limit order, it may transmit its own limit order at the
+same price \emph{on the same venue}, and it records only a single association
+between the observed order's exchange identifier and its own shadow-order
+identifier. Cancellation is then \emph{identifier-driven}: a shadow-order is
+withdrawn when the order it follows ends --- at once when that order is cancelled,
+and after a brief grace window when it is hit by a trade.
+As this approach is model-free --- it uses no order-book model and no fill
+prediction --- it can serve as a
+benchmark for passive-order placement on central limit order book (CLOB) venues.
+We have evaluated \pov{} over 137 replayed Chicago Mercantile Exchange (CME)
+futures sessions in a deterministic market-replay simulator, where it executes
+with slippage slightly worse than the mid-price reference. We
+position \pov{} as a model-free benchmark for passive-order placement, against
+which a predictive placement model can be scored. The algorithm and the order-book
+simulator are implemented in the open-source
+\textsc{kaspar-hft} project.\footnote{\url{https://github.com/vincent212/kaspar-hft}}
+\end{abstract}
+
+\vspace{0.5em}
+\noindent\textbf{Keywords:} optimal execution, percentage-of-volume, adverse
+selection, limit order book, smart order routing, market microstructure,
+cancel mirroring.
+
+% ---------------------------------------------------------------
+\section{Introduction}
+% ---------------------------------------------------------------
+
+A large order cannot be executed in a single trade without paying an impact
+cost proportional to how much liquidity it consumes at once. The standard
+response is to slice the parent order into child orders spread over time. The
+question every execution algorithm must answer is \emph{how to slice}: 
+how much to trade, when, and at what price.
+
+TWAP commits to
+a clock: it slices evenly in time, blind to where liquidity actually is. 
+But it must decide how much of each slice to work passively rather 
+than cross the spread, and that tactical choice is shared across 
+schedule-based algorithms rather than tied to any one of them \cite{scheduletactics2014,limitmarkettactics2014}.
+VWAP
+commits to a \emph{forecast of the intraday volume curve} and weights its
+slices to match it; the forecast error is the tracking error.
+Percentage-of-
+volume (POV) has a participation ratio \emph{reactive} to realized volume ---
+it does not forecast a volume curve the way VWAP does. 
+But POV cannot participate \emph{passively} by reaction alone,
+because volume that has already printed can no longer be joined at a resting
+price; to stay passive it must lean slightly ahead of near-term volume (or
+cross the spread to catch up), and its completion time depends on volume it
+cannot yet see. So POV trades a volume-\emph{curve} forecast for a
+short-horizon anticipation plus completion uncertainty, and it tracks an
+\emph{aggregate} volume statistic rather than the individual resting orders
+that make up the book.
+
+Implementation Shortfall takes a different benchmark: the arrival price, the
+market price at the moment the parent order is released. It measures execution
+cost as the gap between that decision price and the realized average fill price,
+including the opportunity cost of any unfilled quantity. Minimizing the gap
+trades market impact, which favors slow trading, against timing risk from price
+drift and volatility, which favors fast trading. The resulting schedule is
+front-loaded and tuned by a risk-aversion parameter: higher risk aversion trades
+faster to reduce exposure to adverse drift, at the cost of more impact. Like the volume-based algorithms, 
+IS trades to a schedule computed in advance from a volume and
+impact forecast. Perold \cite{perold1988} introduces the IS formulation, and
+Almgren--Chriss \cite{almgren2000} give the arrival-price optimal-execution
+formulation IS approximates.
+
+This work concerns \emph{passive} execution specifically, so the way POV places
+passive orders is central. A conventional POV algorithm is a hybrid: it rests
+passive limit orders when the market allows, but to hold its participation rate
+it also sends marketable orders, and it crosses the spread to catch up when it
+falls behind or when a slice deadline arrives \cite{cartea2015,contkukanov2015}.
+The passive-versus-aggressive choice is not special to POV: schedule-based
+implementations commonly face the additional tactical question of how much of
+each slice to work passively rather than
+cross, and this tactical layer is shared across schedules rather than tied to any one algorithm \cite{scheduletactics2014,limitmarkettactics2014}. A schedule
+that crossed on every slice would pay the spread needlessly, so even TWAP
+typically posts each slice passively and crosses only the unfilled residual near
+the slice deadline \cite{cesari2012}.
+
+Wherever a slice is worked passively, the same placement problem arises: how far
+into the book to quote, trading fill probability against market impact and
+adverse selection \cite{gueant2012,passiveimpact2026,negdrift2024}. A passive order can
+simply be posted at the touch, which needs no model; but posting blindly at the
+touch surrenders control of that trade-off and is prone to adverse selection ---
+the order fills exactly when the level is thinning ahead of an adverse move.
+The conventional solutions instead
+build an order-book model and predict where a passive order will fill:
+optimal placement of limit versus market orders \cite{cartea2015}, optimal
+liquidation with limit orders under a fill-intensity model \cite{gueant2012},
+and convex optimization of order placement across the book \cite{contkukanov2015}.
+\pov{} removes the need for an explicit order-book model and fill prediction from
+the placement decision: it resolves the placement
+problem by \emph{following}, resting each passive order at the price of an order
+that just arrived at the book. This replaces order-book modeling and fill prediction with
+tracking of where liquidity actually rests. \pov{} governs the placement of
+passive orders only; how much of a parent order to work passively versus
+aggressively is a separate scheduling decision. Production implementations may
+mix passive and aggressive orders, and this paper makes no claim that aggressive
+orders are inferior. Its model-free character sets \pov{} apart from
+standard execution algorithms, and lets it serve as a
+baseline against which predictive placement models can be measured
+(Section~\ref{sec:disc}).
+
+Beyond the question of how much to post and when, conventional execution
+stacks carry two further sources of overhead that this work targets directly:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Routing computation.} Smart order routing (SOR) across venues
+  is normally a calculation: aggregate per-venue book depth, compute venue
+  attractiveness scores, model per-venue latency, price maker/taker fees, and
+  optimize a routing objective. The routing decision itself becomes a
+  latency-bearing bottleneck.
+  \item \textbf{State-dependent cancellation.} Order-management systems
+  typically decide whether to pull a resting order by continuously evaluating
+  market state --- spread, queue position, fill probability, price
+  competitiveness --- which requires maintaining substantial per-order state
+  and adds decision latency.
+\end{itemize}
+
+The premise of this paper is that all three --- the forward placement of passive
+orders, the routing computation, and the state-dependent cancellation --- are
+avoidable for a passive execution mandate, and that avoiding them yields a
+simple, computationally light method. The algorithm
+does not need to predict anything; it only has to follow the market. \pov{}
+replaces the forward commitment with an observation: the passive orders other
+participants have \emph{already committed to the book}.
+In the price-time-priority (FIFO) model used here, a limit order placed at the
+same price and venue as a resting participant order joins behind that order in
+the queue; a sweep must therefore consume the participant order and the depth
+ahead of the shadow before reaching the shadow. The
+method replaces the routing calculation with a pass-through of the observed
+order's originating venue, and replaces state-dependent cancellation with an
+identifier rule: the shadow is withdrawn when the order it follows ends.
+
+\paragraph{Contributions.}
+\begin{enumerate}[leftmargin=1.6em]
+  \item We propose \pov{} as a simple, \emph{model-free} benchmark for
+  passive-order placement, built on \emph{participant shadowing}: on observing a
+  third-party add, \pov{} places a passive order at that add's price and venue,
+  attaches it to the arriving order by exchange identifier, and ties its
+  lifecycle to that order. Placement uses no order-book model and no fill
+  prediction, giving predictive placement models a reference to
+  beat (Sections~\ref{sec:algo}, \ref{sec:disc}).
+  \item We define \emph{identifier-driven cancel mirroring}: cancellation
+  triggered by a delete/trade for the followed order's identifier rather than
+  by market-state evaluation, retaining a single identifier association per
+  followed order --- the exchange order identifier paired with the shadow's
+  identifier --- so the cancellation decision is an $O(1)$ expected-time
+  identifier lookup, independent of the number of tracked shadows
+  (Sections~\ref{sec:map}--\ref{sec:cancel}).
+  \item We show that venue selection is \emph{flow-inherited}: placing on the
+  originating venue of each shadowed add makes the execution venue
+  distribution match the observed add distribution without any venue
+  score or routing optimizer --- an inherited split rather than an optimized one
+  (Section~\ref{sec:sor}).
+  \item We describe the \emph{reference implementation} in the
+  \textsc{kaspar-hft} system, which layers state-based
+  safety guards (a two-band place/cancel hysteresis plus completion and
+  over-hedge guards) atop the core method, distinguishing the minimal core from
+  the implemented superset (Section~\ref{sec:prod}).
+  \item We report a measured evaluation over 137 replayed NQ/ES sessions, run
+  through the \textsc{kaspar-hft} deterministic replay simulator, explicit about
+  the split between the close-auction and open-auction
+  measurements (Section~\ref{sec:eval}).
+\end{enumerate}
+
+% ---------------------------------------------------------------
+\section{Prior art: existing execution methods}
+\label{sec:priorart}
+% ---------------------------------------------------------------
+
+Automated execution in current practice is organized around two broad families:
+schedule-based methods and liquidity-seeking methods
+\cite{johnson2010,kissell,laruelle2011}. We describe each operationally and note how \pov{}
+differs; the academic results underpinning these methods are reviewed separately
+in Section~\ref{sec:lit}, and the closest patented mechanisms in
+Section~\ref{sec:patents}.
+
+\paragraph{Scheduled slicing (TWAP, VWAP).} The most widely deployed methods
+slice a parent order onto a schedule. TWAP spreads child orders evenly in
+time. VWAP shapes the schedule to a forecast of the intraday volume curve so
+that the realized average price tracks the volume-weighted benchmark. Both
+commit, before trading, to a trajectory keyed to a clock or a predicted volume
+profile, and both must post ahead of where volume will be in order to
+participate. \pov{} commits to no such trajectory: it places only in reaction to
+orders already resting in the book, and does not forecast or pre-position against
+future volume. Kissell \cite{kissell} covers both TWAP and VWAP in detail.
+
+\paragraph{Percentage-of-volume (POV).} A POV algorithm holds a target
+participation rate in market volume, scaling its trading up and down with
+\emph{realized} volume rather than a fixed clock. It does not forecast a volume
+curve, but it does track an \emph{aggregate} statistic (total traded volume)
+and, to participate passively, must lean slightly ahead of near-term volume
+rather than cross the spread. \pov{} is POV-like in effect --- its trading scales with the rate of observed
+adds --- but its participation emerges from following \emph{individual} resting
+orders at a bounded rate, and it does not pre-position against future volume. Kissell
+\cite{kissell} covers POV in detail.
+
+\paragraph{The POV control loop, and how \pov{} differs.} A conventional POV
+algorithm runs a feedback loop against an aggregate statistic. Let $\rho$ be the
+target participation rate, $V_t$ the cumulative market volume, and $x_t$ the
+quantity executed so far. At each step the algorithm compares $x_t$ against the
+target $\rho V_t$: when $x_t < \rho V_t$ it trades more, posting aggressively or
+crossing the spread to catch up; when $x_t > \rho V_t$ it slows or pauses.
+
+\pov{} replaces this control loop with per-order following
+(Section~\ref{sec:algo}). Its actions are driven by the arrival of individual
+orders: on each observed add it may post a shadow at that order's price and
+venue, bounded by that order's size. The shadow rests just behind a live order at
+the same price, so under FIFO priority a sweep must consume the followed order
+and the depth ahead of the shadow before reaching it. Participation emerges from the rate of
+order arrivals, placement and venue selection are inherited from the followed
+order, and a forecast of forward volume is unnecessary. Table~\ref{tab:pov}
+contrasts the two mechanically.
+
+\begin{table}[h]
+\centering
+\caption{Conventional POV and \pov{}, by mechanism.}
+\label{tab:pov}
+\small
+\begin{tabular}{p{3.3cm}p{4.7cm}p{4.7cm}}
+\toprule
+Aspect & Conventional POV & \pov{} \\
+\midrule
+Quantity tracked & aggregate market volume $V_t$ & individual resting orders \\
+\addlinespace
+Participation & target rate $\rho$, held by a feedback loop & emergent from following adds at a bounded rate \\
+\addlinespace
+Passive placement & leans ahead of forecast volume & mirrors orders already resting \\
+\addlinespace
+When behind & crosses the spread, paying impact & following continues until the target size is filled \\
+\addlinespace
+Book / venue placement & separate SOR and queue logic & inherited from the followed order \\
+\addlinespace
+Fill rate & depends on placement quality & requires a sweep that clears the followed order first (shadow rests just behind) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Smart order routing (SOR).} When liquidity is fragmented across
+venues, SOR decides where to send each child order by computing and comparing
+per-venue liquidity, fees and rebates, fill rates, and latency, and optimizing
+a routing objective. \pov{} performs none of this: it sends each shadow to the
+originating venue of the add it follows, so the venue mix is inherited from
+observed order flow (Section~\ref{sec:sor}) rather than solved for.
+
+\paragraph{Liquidity-seeking algorithms.} A liquidity-seeking algorithm aims to
+complete an order by capturing whatever liquidity is available at acceptable
+prices, prioritizing completion and low information leakage over any schedule or
+benchmark. As the second family of execution methods, it abandons a fixed schedule
+and sources liquidity opportunistically: posting and taking across lit and dark
+venues, and using hidden and iceberg orders and immediate-or-cancel probes to
+find undisplayed block size \cite{kissell,laruelle2011}. It raises
+participation when liquidity appears at an acceptable price and withdraws
+otherwise, and may finish early when a block is found or wait when nothing
+suitable appears. \pov{} operates on CLOB
+venues only, following the \emph{displayed} resting orders on the book. It does
+not route to dark pools and makes no attempt to detect hidden or iceberg
+liquidity --- it follows what the book shows, and commits to no trajectory of
+its own. \pov{} and a liquidity seeker pursue different goals: a liquidity
+seeker minimizes footprint and hunts for size across lit and
+dark venues; \pov{} places a passive order well on the lit book once a schedule
+has already decided to rest one. The two families are complementary --- a
+liquidity seeker decides \emph{when} enough liquidity is present
+to act, whereas \pov{} decides \emph{where} to rest a passive order.
+
+% ---------------------------------------------------------------
+\section{Related literature}
+\label{sec:lit}
+% ---------------------------------------------------------------
+
+The methods above rest on, and are analyzed by, a substantial academic
+literature; we review the strands most relevant to \pov{}'s design choices.
+
+\paragraph{Optimal-execution theory.} The modern foundation is Almgren--Chriss
+\cite{almgren2000}, which casts execution as minimizing a mean--variance
+trade-off between market impact (favoring slow trading) and timing/volatility
+risk (favoring fast trading), yielding an optimal schedule given models of
+permanent and temporary impact. A large body of work refines this framework,
+including limit-order formulations with adverse selection and fill uncertainty
+in the spirit of Avellaneda--Stoikov \cite{avellaneda2008}. This theory
+answers \emph{how fast} to trade given an impact model and a volume profile;
+it presupposes the profile. \pov{} keeps the passivity these analyses target
+but does not compute a trajectory --- it follows one the market reveals.
+
+\paragraph{Queue position and adverse selection.} Under price--time priority,
+both fill probability and adverse-selection cost depend on where a resting
+order sits in the first-in, first-out (FIFO) queue. Moallemi--Yuan \cite{moallemi2016} give a
+valuation model in which adverse-selection cost \emph{increases} with queue
+position, with a dynamic component capturing the option value of locking in a
+position early. This literature quantifies precisely the effect \pov{} is
+designed around: leading the book --- posting early and deep in a thin queue
+--- buys priority but courts selection when the level thins ahead of an adverse
+print. By posting alongside an order a participant has already chosen to
+rest, \pov{} avoids deliberately taking priority ahead of that order. The
+followed order therefore provides an observable reference for the local queue
+environment without requiring \pov{} to predict that environment.
+
+\paragraph{Order-flow competition and routing.} Foucault--Menkveld
+\cite{foucault2008} analyze competition for order flow across venues and the
+routing systems that arbitrate it, and Laruelle--Lehalle--Pag\`es
+\cite{laruelle2011} give stochastic-approximation algorithms that learn the
+optimal split of an order across liquidity pools. Where this literature
+\emph{solves} for the venue split, \pov{}'s split \emph{emerges} from placing
+on the originating venue of each followed order (Section~\ref{sec:sor}).
+
+\paragraph{Practitioner references.} The practical construction and calibration
+of VWAP/TWAP/POV and their trade-offs are documented in practitioner texts such
+as Kissell \cite{kissell}, which we take as the reference description of the
+methods in Section~\ref{sec:priorart}.
+
+\paragraph{Recent execution research.} Contemporary execution research is
+largely forecast- and optimization-based, which sharpens the contrast with
+\pov{}. Reinforcement-learning formulations place market and limit orders to
+minimize implementation shortfall, both in general limit-order settings
+\cite{rlexec2025} and within queue-reactive order-book models
+\cite{queuereactive2025}, and signal-adaptive schemes optimize quote placement
+from predictive features. Optimal execution under \emph{passive} market impact
+\cite{passiveimpact2026} models fill and impact as functions of spread, queue
+position, displayed depth, imbalance, and recent order flow --- the same
+state \pov{} does not compute. Work on the market maker's trade-off between
+fill probability and post-fill return \cite{mmdilemma2025} quantifies the
+top-of-book adverse selection that any resting order, including a shadow, inherits
+(Section~\ref{sec:disc}). \pov{} differs from all of these in computing no
+forecast and no optimization: it places in reaction to observed resting orders.
+
+% ---------------------------------------------------------------
+\section{Prior patents}
+\label{sec:patents}
+% ---------------------------------------------------------------
+
+Four patented mechanisms sit closest to \pov{}. Each shares a surface
+resemblance --- passivity, pegging, or following --- but differs in a way that
+is material to \pov{}'s design.
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Pegged / tracking orders} (e.g.\ US~10,614,520,
+  ``Tracking Liquidity Order'' \cite{us10614520}). A non-displayed order pegs
+  to the same side of the National Best Bid and Offer (NBBO), continuously
+  \emph{re-pricing against evaluated market state}. \pov{} evaluates no such state to manage its shadow: price is
+  inherited once from the shadowed add, and the shadow is \emph{cancelled} when
+  that add ends.
+  \item \textbf{Copy / mirror trading} (e.g.\ US~2013/0268423, ``Copy Trading
+  System and Method'' \cite{us20130268423}). These replicate \emph{executed
+  trades} of \emph{identified} accounts a user has chosen to follow. \pov{}
+  follows \emph{anonymous passive adds} at the message level --- the posting of
+  liquidity itself --- and couples both entry \emph{and cancellation} to the
+  followed order's identifier.
+  \item \textbf{Exchange-side passive/hidden liquidity} (e.g.\
+  US~2006/0253379, ``Passive Liquidity Order''). This is a matching-engine
+  mechanism internal to a venue; \pov{} instead is a client-side strategy that
+  observes a public feed and places and cancels its own orders.
+  \item \textbf{Hidden-liquidity detection} (e.g.\ US~8,140,416). Here order
+  identifiers are tracked for \emph{analysis} (inferring hidden size), and
+  trading decisions still evaluate market state; \pov{} uses identifier
+  presence directly as the trigger for a cancellation.
+\end{itemize}
+
+% ---------------------------------------------------------------
+\section{Positioning relative to prior work}
+\label{sec:novelty}
+% ---------------------------------------------------------------
+
+Having reviewed the existing execution methods (Section~\ref{sec:priorart}),
+the academic literature (Section~\ref{sec:lit}), and the closest patented
+mechanisms (Section~\ref{sec:patents}), we state where \pov{} sits relative to
+all three. The contribution is not the general idea of following displayed
+liquidity or using participation rates, which are established in both the public
+literature and prior patents. It is the specific combination of order-level
+shadowing, identifier-keyed lifecycle mirroring, and same-venue placement as a
+model-free passive-placement benchmark --- a combination of design choices that
+all follow from one commitment, to build no model of the book and follow
+observed orders instead:
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Model-free placement.} The passive order's price is inherited
+  from the observed add it follows, so placement needs no order-book model and no
+  fill-probability prediction; this is what lets \pov{} serve as a benchmark for
+  predictive placement models (Section~\ref{sec:disc}).
+  \item \textbf{Identifier-keyed cancellation.} A shadow-order is withdrawn when a
+  delete or trade message for the specific order it follows arrives, rather
+  than when evaluated market state (spread, queue decay, fill probability)
+  crosses a threshold.
+  \item \textbf{Flow-inherited venue selection.} Each shadow is sent to the
+  originating venue of the add it follows, so venue choice is a pass-through
+  rather than an optimization; the cross-venue mix of executions thereby tracks,
+  in expectation, the cross-venue mix of observed liquidity provision without
+  explicit routing logic --- the inverse of the SOR approach
+  \cite{foucault2008,laruelle2011}, where the split is solved for.
+  \item \textbf{Constant per-message decision cost.} With only a single identifier
+  association retained per followed order, each message is handled by one
+  identifier lookup, so the per-message decision cost is $O(1)$ expected time,
+  independent of the number of tracked shadows.
+\end{enumerate}
+
+Table~\ref{tab:novelty} summarizes the positioning.
+
+\begin{table}[h]
+\centering
+\caption{How \pov{} differs from the nearest prior work.}
+\label{tab:novelty}
+\small
+\begin{tabular}{p{5.0cm}p{4.3cm}p{5.4cm}}
+\toprule
+Prior work & Mechanism & How \pov{} differs \\
+\midrule
+Almgren--Chriss \cite{almgren2000} &
+Optimal \emph{schedule} from a volume/impact model &
+No schedule; participation emerges from following individual adds \\
+\addlinespace
+POV \cite{kissell} &
+Reactive participation to \emph{aggregate} realized volume; leans ahead to
+stay passive &
+Follows \emph{individual} resting orders; never posts ahead \\
+\addlinespace
+Moallemi--Yuan queue value \cite{moallemi2016} &
+Quantifies queue-position adverse selection &
+Does not lead the queue; inherits a resting order's neighborhood \\
+\addlinespace
+SOR \cite{foucault2008,laruelle2011} &
+Computes or learns the venue split &
+Split \emph{emerges} from same-venue placement; no routing computed \\
+\addlinespace
+Tracking/pegged orders \cite{us10614520} &
+Re-prices against evaluated NBBO state &
+No state evaluated; cancels on followed-order termination \\
+\addlinespace
+Copy/mirror trading \cite{us20130268423} &
+Copies executed trades of identified accounts &
+Follows anonymous passive \emph{adds}; keys cancellation to their identifier \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------
+\section{The \pov{} Method}
+\label{sec:algo}
+% ---------------------------------------------------------------
+
+\subsection{Message model}
+
+\pov{} consumes a real-time stream of order-book messages from one or more
+venues (e.g.\ an ITCH-style binary feed). Each message carries a
+\emph{message type} --- \textsc{add} (a new resting limit order),
+\textsc{delete} (cancellation), \textsc{trade} (execution), \textsc{modify}
+(amendment) --- an \emph{exchange-assigned order identifier}, and an
+\emph{originating venue identifier}, together with side/price/quantity for
+\textsc{add}/\textsc{modify}. Individual order lifecycles are therefore
+followable at the message level by identifier.
+
+\subsection{Core mechanic: participant shadowing by identifier}
+
+On each \textsc{add} that satisfies a selection criterion (below), \pov{}
+transmits a \emph{shadow} limit order at the add's price to the add's
+originating venue, and receives a venue-assigned shadow-order identifier. It
+then records a single association keyed by the observed order's
+$(\text{venue},\texttt{exchange\_order\_id})$ --- exchange order identifiers are
+unique only within a venue --- and mapping it to its shadow-order identifier,
+\[
+  (\text{venue},\;\texttt{exchange\_order\_id}) \;\longmapsto\; \texttt{shadow\_order\_id} .
+\]
+The shadow is thereafter \emph{bound} to the
+observed order by that key: it inherits that order's price and venue, and ---
+crucially --- its \emph{lifecycle}. The single invariant that makes this
+``shadowing'' rather than ``quoting'' is this attachment; a shadow is a
+projection of one identified resting order.
+
+\subsection{Order-placement rate}
+\label{sec:select}
+
+\pov{} shadows a bounded fraction of qualifying adds. The reference
+implementation offers two independent selection modes:
+\begin{itemize}[leftmargin=1.4em]
+  \item \emph{Probabilistic}: shadow a qualifying add with a fixed probability
+  $\rho$ (draw a pseudorandom value and compare to a threshold; the reference
+  implementation uses $\rho=2/128\approx1.5\%$, a power-of-two modulus so the test
+  compiles to a mask rather than a division).
+  \item \emph{Deterministic}: shadow every $N$-th qualifying add (reference-implementation
+  default $N=5$, i.e.\ a $20\%$ selection rate).
+\end{itemize}
+The two modes give different selection rates; the experiments reported in
+Section~\ref{sec:eval} use the probabilistic mode at $\rho\approx1.5\%$.
+The quantity \pov{} sets is thus the \emph{order-placement rate} $\rho$ --- the
+fraction of qualifying adds it shadows --- and \emph{not} a participation rate.
+This placement rate is fixed by construction and applied to observed order flow,
+not to traded volume; \pov{} places more shadows when adds are frequent and
+fewer when they are sparse. The realized \emph{participation} --- \pov{}'s share
+of traded volume --- cannot be controlled directly; it emerges from following at
+the fixed placement rate. Because not every placed shadow fills, the realized
+participation is not equal to the order-placement rate and will generally differ
+from it.
+Participation is therefore a random quantity whose dependence on parent-order
+size is analyzed in Section~\ref{sec:partsize}.
+
+\subsection{Shadow quantity}
+
+The shadow's \emph{desired} quantity is computed independently of the triggering
+add's quantity --- in the reference implementation as a randomized function of
+average trade sizes over a preceding window. Before transmission the desired
+quantity is capped by the followed order's size, the per-order and per-level
+limits (e.g.\ 1-lot child orders with a 25-lot aggregate ceiling), and the
+remaining parent quantity. Fills
+follow from co-resting at the same price: a sufficiently large sweep can consume
+the followed order and continue into the shadow, while a partial sweep may stop
+before reaching the shadow.
+
+\subsection{Retained information}
+\label{sec:map}
+
+For each followed order, the core association retains \emph{only} its
+$(\text{venue},$ exchange identifier$)$ key paired with the shadow identifier; it
+does not retain the followed order's price, quantity, queue position, order-book
+state, or timestamp.
+The algorithm additionally maintains global configuration --- target side,
+selection rate, and grace-window parameters --- together with the minimal state
+needed to manage its own orders. Two consequences follow. First, no
+price/queue/state-based
+cancellation decision is \emph{possible}, because the inputs to such a
+decision are not retained; cancellation is forced to be identifier-driven by
+construction. Second, storing, looking up, and removing an association by
+identifier is expected $O(1)$, so the cost of the cancellation decision is
+independent of the number of tracked orders.
+
+\subsection{Identifier-driven cancel mirroring}
+\label{sec:cancel}
+
+On a lifecycle-terminating message for a followed order, \pov{} looks up the
+message's exchange identifier. If no association is present, nothing happens.
+If it is present, the response depends on \emph{how} the followed order ended:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Pulled (\textsc{delete}).} The liquidity simply left; no
+  aggression is in flight to fill against. \pov{} cancels the shadow
+  \emph{immediately} and removes the association --- continuing to rest there
+  would be pure adverse-selection exposure.
+  \item \textbf{Hit (\textsc{trade}).} A trade is a marketable sweep still in
+  flight, and because the shadow rests in the same queue behind the followed
+  order, that sweep may be about to reach it. Cancelling instantly would pull
+  the shadow out of the queue \emph{before} the aggression arrives --- and in
+  the worst case the shadow would then \emph{never} fill, because it always
+  cancels in time. \pov{} therefore arms a \emph{delayed cancel}: it holds the
+  shadow live for a short grace window of $B$ end-of-burst events, during which
+  the shadow may itself be filled by the continuing sweep. If the window
+  elapses without a fill, the cancel is sent and the association removed. Arming
+  is idempotent: a further trade for the same order while the window is armed
+  does not restart it.
+\end{itemize}
+
+Aside from this trade-versus-pull
+distinction, the cancellation input is still just identifier presence: no book
+depth, queue position, price competitiveness, or fill probability is evaluated.
+The hard safety guards of the reference implementation
+(Section~\ref{sec:prod}) --- target reached, over-hedge, or price drifted past
+the cancel band --- may fire an \emph{immediate} cancel that pre-empts an armed
+grace window. A shadow therefore never outlives the order it follows by more
+than the grace window, preserving the discipline that \pov{} rests only where a
+currently-live participant order rests, or rested an instant ago. A
+\textsc{modify} for a tracked order is treated as termination of the followed
+lifecycle: the shadow is cancelled and the association removed. Re-shadowing is
+not automatic --- the amended order is shadowed anew only if the feed subsequently
+emits a fresh qualifying \textsc{add} for it. This is an algorithmic convention
+rather than an assertion about exchange modify semantics.
+
+\subsection{Flow-inherited venue selection}
+\label{sec:sor}
+
+Because each shadow is transmitted to the originating venue of the add it
+follows, a fixed-rate selector preserves, in expectation, the cross-venue
+distribution of qualifying observed adds. If participants rest 50\%/30\%/20\%
+of adds on venues A/B/C, a fixed selection rate reproduces that 50:30:20 mix
+in expectation --- \emph{without} venue liquidity metrics, fee/rebate
+optimization, latency-based routing, or any explicit routing logic. This is
+flow-inherited venue selection, not an optimization: the venue mix is
+proportional to the observed distribution of qualifying adds, which need not
+coincide with the split that minimizes fees, latency, or adverse selection, nor
+with the distribution of traded volume.
+
+\begin{algorithm}[t]
+\caption{\pov{} identifier-driven core (per message)}
+\label{alg:core}
+\DontPrintSemicolon
+\SetKwInOut{State}{state}
+\State{mapping $M:\;k\!\mapsto\!\texttt{shadow\_id}$ with venue-scoped key
+       $k=(\text{venue},\texttt{ex\_id})$ (exchange ids are unique only within a
+       venue); target side $\sigma$; order-placement rate $\rho$; grace window
+       $B$ bursts; own-id set $O$ of $(\text{venue},\texttt{shadow\_id})$ pairs}
+\BlankLine
+\KwIn{message $m$ with type $m.\tau$, exchange id $m.\text{id}$, venue
+      $m.v$, side $m.s$, price $m.p$; write $k=(m.v,\,m.\text{id})$}
+\BlankLine
+\Switch{$m.\tau$}{
+  \uCase{\textsc{add}}{
+     \lIf{$k\in O$ \textbf{or} $m.s\neq\sigma$}{\Return \tcp*[f]{self / wrong side}}
+     \lIf{selection criterion not met (prob.\ $\rho$ / every-$N$)}{\Return}
+     $\texttt{shadow\_id} \gets$ transmit shadow at price $m.p$ to venue $m.v$;\;
+     $O \gets O\cup\{(m.v,\texttt{shadow\_id})\}$;\quad $M[k] \gets \texttt{shadow\_id}$\;
+  }
+  \uCase{\textsc{delete} \textup{(followed order pulled)}}{
+     \lIf{$k\in M$}{cancel $M[k]$ now; remove $M[k]$}
+  }
+  \uCase{\textsc{trade} \textup{(followed order hit)}}{
+     \If{$k\in M$ \textbf{and} not already armed}{arm delayed cancel of $M[k]$ in $B$ bursts
+        \tcp*{grace: the sweep may still fill the shadow}}
+  }
+  \Case{\textsc{modify}}{
+     \If{$k\in M$}{cancel $M[k]$ now; remove $M[k]$ \tcp*[f]{teardown}}
+  }
+}
+\BlankLine
+\tcp{grace-window expiry or safety guard $\Rightarrow$ cancel armed shadow; own fill $\Rightarrow$ remove its association}
+\tcp{on parent complete: cancel all shadows in $M$; clear $M$ (wind-down)}
+\end{algorithm}
+
+% ---------------------------------------------------------------
+\section{Reference Implementation: the \textsc{kaspar-hft} System}
+\label{sec:prod}
+% ---------------------------------------------------------------
+
+\textsc{kaspar-hft} is an open-source, low-latency trading system written in
+C++. It is built using the actor-model architecture
+\cite{hewitt1973,agha1986}: independent components communicate
+only by passing messages, so concurrent order handling stays deterministic and
+keeps shared-memory locking off the critical path. The same code runs unchanged
+across backtesting, market replay, live simulation, and live trading; the
+evaluation of Section~\ref{sec:eval} therefore exercises the live code path
+directly.
+
+\pov{} is implemented as a set of execution components within
+\textsc{kaspar-hft}. A strategy issues a position order, and the execution
+components translate it into the individual limit orders sent to the exchange,
+with the acquiring and liquidating sides of each instrument handled
+independently. This implementation is a \emph{superset} of
+Algorithm~\ref{alg:core}: it keeps the identifier-driven attach/cancel core and
+adds state-based \emph{safety guards} appropriate to running real capital
+against a live venue.
+
+The added guards are:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Two-band place/cancel hysteresis.} A shadow is only
+  \emph{placed} when its price is within a tight placement band
+  $\delta_{\text{place}}$ ticks of the inside (e.g.\ for a buy,
+  $p \ge b_0-\delta_{\text{place}}$ against best bid $b_0$), but is only
+  \emph{cancelled for distance} once it drifts beyond a looser cancel band
+  $\delta_{\text{cancel}}$, with $\delta_{\text{place}}<\delta_{\text{cancel}}$
+  (reference implementation: $4$ and $6$ ticks). The gap introduces hysteresis: it
+  prevents a one-tick oscillation of the inside from triggering a
+  place/cancel/replace loop that would burn message budget and queue priority.
+  The placement band $\delta_{\text{place}}$ also bounds how far from the inside a
+  shadow can attach; tightening it restricts shadowing to adds near the touch,
+  which fill more reliably and reduce the small-order participation dispersion of
+  Section~\ref{sec:partsize}.
+  \item \textbf{Completion and over-hedge guards.} A working shadow is also
+  pulled when the position reaches its target or goes flat, when the size
+  resting at its price would overshoot the quantity that remains to be executed,
+  or when per-level order caps are exceeded. The placed size is the minimum of
+  the per-level cap, the per-order cap, the remaining quantity, and the followed
+  order's size, clamped at zero. These guards make the shadow never work more
+  than remains and never post more than the participant it follows.
+\end{itemize}
+
+\paragraph{Grace window.} As described in Section~\ref{sec:cancel}, the shadow's
+cancel is delayed only when the followed order is hit by a trade, to give the
+incoming sweep a chance to fill the shadow; when the followed order is instead
+cancelled, the shadow is cancelled at once. The safety guards override this
+delay: whenever a completion, over-hedge, or distance limit is reached, the
+shadow is cancelled immediately.
+
+In short, the core method is the minimal identifier-driven algorithm
+(Algorithm~\ref{alg:core}); the reference implementation runs that core plus the
+guards above. Guarded cancellations are a strict addition to the identifier-keyed cancel.
+These guards read market state --- the inside price and recent trade sizes --- so
+the production wrapper is not itself model-free; the model-free property is a
+claim about the core placement and cancellation logic of Algorithm~\ref{alg:core},
+not about the safety layer around it.
+
+\subsection{Deterministic replay simulator}
+\label{sec:sim}
+
+The \textsc{kaspar-hft} simulator replays recorded exchange
+packet captures through this same code.
+It reconstructs the book from the captured feed and places each shadow into the
+price-time-priority (FIFO) queue at its price, behind the depth already resting there.
+Under this reconstructed queue, the simulator assigns a shadow a fill when
+subsequent recorded executions imply that aggression has reached a resting order
+\emph{behind} it; because the shadow has earlier time priority than that order,
+the simulator treats the shadow as filled as well. This is a simulator inference
+from the recorded feed, not a direct observation of the synthetic order.
+
+The execution algorithm and the order-book simulator used in this evaluation are
+available as the open-source \textsc{kaspar-hft} project, which supports testing
+and live deployment against CME or other venues.
+
+% ---------------------------------------------------------------
+\section{Experimental Evaluation}
+\label{sec:eval}
+% ---------------------------------------------------------------
+
+\subsection{Setup}
+
+We evaluate \pov{} on execution of a two-leg index-futures spread (NQ against
+ES) on CME. Each session \emph{fires} (activates) the parent in ten lock-step
+chunks, twice per date, at two times: 09:29~ET (open) and
+15:57~ET (close). Running both directions on the same date yields a
+\emph{direction-agnostic} slippage estimate in which the mid-price
+reference cancels algebraically (below).
+
+\paragraph{Corpus.} The corpus is 137 date-pairs (one long/short pair per
+session) over US trading dates from 2025-06-01 to 2026-02-01, two runs per date;
+we use ``session'' and ``date-pair'' interchangeably. Front-month contracts
+follow the CME quarterly-roll calendar, spanning the ESM5/NQM5 through ESH6/NQH6
+fronts.
+
+\paragraph{Slippage definition.} For a leg, let $\text{mid}$ be its best bid and offer (BBO) 
+midpoint cached at the instant the chunk alarm fires, and $\text{vwap}$ the
+size-weighted average execution price for that leg on that direction/date.
+Define the size-weighted, direction-agnostic per-contract slippage
+\begin{align}
+  \text{cost}_{\textsc{buy}} &= \text{vwap}_{\textsc{buy}} - \text{mid}, \\
+  \text{cost}_{\textsc{sel}} &= \text{mid} - \text{vwap}_{\textsc{sel}}, \\
+  \text{Slippage} &= \tfrac12\big(\text{cost}_{\textsc{buy}} + \text{cost}_{\textsc{sel}}\big)
+   = \tfrac12\big(\text{vwap}_{\textsc{buy}} - \text{vwap}_{\textsc{sel}}\big).
+  \label{eq:slip}
+\end{align}
+In the second equality the fire-time mid cancels, so the reported
+figure is exactly \emph{half the gap between what the buyer of a leg paid and
+what the seller of that leg received}, independent of which mid was captured.
+Positive~$=$~a loss (buyer paid above mid / seller received below); a
+negative value flags that the two direction-runs saw
+different market states.
+
+\paragraph{Units.} One bid-ask width ($\bo$) is one tick $=0.25$ points. For
+NQ, $0.25\text{pt}\times\$20/\text{pt}=\$5.00$ per $\bo$ per contract; for ES,
+$0.25\text{pt}\times\$50/\text{pt}=\$12.50$ per $\bo$ per contract.
+
+\subsection{Results}
+
+Table~\ref{tab:results} reports pooled figures by fire time and product.
+
+\begin{table}[h]
+\centering
+\caption{Direction-agnostic per-contract slippage over 137 date-pairs.
+Positive $=$ a loss (worse than mid). The close rows are used in the
+reported results; the open rows are affected by intraday drift (see text).}
+\label{tab:results}
+\begin{tabular}{llrrr}
+\toprule
+Phase & Product & Contracts & Slippage (\bo) & Slippage (\$) \\
+\midrule
+open  & NQ & 20{,}921 & $+1.76$ & $+\$8.79$ \\
+open  & ES & 36{,}550 & $+0.22$ & $+\$2.76$ \\
+\midrule
+close & NQ & 19{,}540 & $+0.56$ & $+\$2.80$ \\
+close & ES & 31{,}354 & $+0.45$ & $+\$5.59$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Close cohort.} At the close the two direction-runs fill against
+essentially the same market state, with less intraday drift than at the open, and
+the (fill~$-$~mid) framing of
+Eq.~\eqref{eq:slip} isolates a per-contract slippage. NQ closes at
+$0.56\,\bo = \$2.80$ per contract (19{,}540 contracts) and ES at
+$0.45\,\bo = \$5.59$ per contract (31{,}354 contracts). Both are positive:
+\pov{} executes slightly worse than mid, consistent with adverse
+selection and execution against a moving market.
+
+\paragraph{Open cohort.} Near the open the price moves sharply: over 100
+NQ points within the 60-second window, and 171 points (684 ticks) on one date.
+Across that move the two direction-runs sample different price levels, so the
+open per-contract slippage reflects that price drift as well as execution ---
+in one case it is even negative, driven by the inter-run drift rather than by
+execution. The conclusions in this paper are based on the close cohort.
+
+\subsection{Threats to validity}
+
+The evaluation is a \emph{replay} study, and its one material limitation is that
+the simulator does not model the market's reaction to \pov{}'s own orders: each
+shadow is filled against the recorded feed as though its presence did not perturb
+the flow it follows. For the small sizes and order-placement rate used
+($\rho\approx1.5\%$) the study does
+not independently validate the zero-impact assumption; it would break
+once a shadow becomes a material fraction of resting liquidity, so the reported
+figures should not be extrapolated to sizes that large. The evaluation is also
+narrow in scope --- a single two-leg index-futures spread, passive placement
+only, at a small order-placement rate ($\rho\approx1.5\%$) --- so the numbers
+should not be read as generalizing to other products, venues, or larger sizes;
+multi-venue equity evaluation is left to future work.
+
+% ---------------------------------------------------------------
+\section{Participation Rate and Parent-Order Size}
+\label{sec:partsize}
+% ---------------------------------------------------------------
+
+\pov{} controls its \emph{order-placement rate} (Section~\ref{sec:select}); it
+does not control the participation rate directly, nor the fill of any
+one shadow. Because each shadow joins the queue behind the add it
+attaches to, while the amount of depth ahead of it is unknown at placement,
+whether and when it fills is a random event. A small parent has few fill
+opportunities, so its realized participation is highly variable; as the number of
+completed child fills grows, averaging reduces that variability. This is a general
+property of passive percentage-of-volume and volume-tracking
+execution rather than a feature specific to \pov{}: the delivered participation
+is a realized quantity, a recognized source of
+tracking error and execution risk
+\cite{kissell,cjp2015,bialkowski2008,freiwestray2015}. \pov{} inherits this
+behavior, with the queue-position uncertainty of the followed order as the
+concrete source of per-fill randomness \cite{moallemi2016,negdrift2024}; the
+dependence of that dispersion on parent-order size is what the model below
+quantifies.
+
+\paragraph{A stylized model.} To isolate the dependence on size, consider
+executing a parent of $Q$ one-lot children. Each child attaches to a random add
+whose queue position is unknown. For illustration we assume the market volume
+that must trade before a child fills is $\mathrm{Exponential}(\rho)$ with mean
+$1/\rho$ for a target participation rate $\rho$ (within this stylized model
+$\rho$ denotes the participation rate, distinct from the order-placement rate of
+Section~\ref{sec:select}). The market volume elapsed when
+the parent completes its $Q$ fills is
+\[
+  M = \sum_{i=1}^{Q} G_i, \qquad G_i \sim \mathrm{Exponential}(\rho)
+  \;\;\Longrightarrow\;\; M \sim \mathrm{Gamma}(Q, \rho),
+\]
+and the realized participation is $\hat{p} = Q/M$. The ratio
+$\hat{p}/\rho = Q/\mathrm{Gamma}(Q,1)$ is independent of $\rho$, so the dependence
+on $\rho$ cancels and the model predicts the same normalized size dependence for
+any $\rho$. The qualitative conclusion --- concentration on the model's mean as
+$Q$ grows --- follows from the central limit theorem and holds for a broad class
+of finite-variance gap distributions. The independent-exponential gap assumption
+is a strong simplification: real fill gaps are correlated across concurrent
+shadows, volatility regimes, and clustered aggressive events, and modeling the
+children as filling one at a time produces greater participation variance than
+allowing multiple concurrent fills to average independently. The model does not
+estimate \pov{}'s actual participation --- the exponential fill-gap distribution
+and its rate are not fitted to the CME corpus --- so the result is a scaling law
+under a stylized model, not an empirical claim that \pov{} achieves a particular
+participation rate.
+
+\paragraph{Results.} Figure~\ref{fig:partsize} and Table~\ref{tab:partsize}
+report a Monte Carlo of $\hat{p}/\rho$ over $4\times10^{5}$ trials per size. At
+$Q=1$ the ratio is $1/\mathrm{Exponential}(1)$: heavy-tailed with a divergent
+mean and a 10th--90th percentile band spanning $[0.44, 9.5]$ times the mean --- the
+participation is effectively random. As $Q$ grows the ratio concentrates on the
+model's mean and its coefficient of variation falls as $1/\sqrt{Q-2}$ (asymptotically $1/\sqrt{Q}$): the 10th--90th
+band narrows to $[0.70, 1.61]$ at $Q=10$, $[0.89, 1.14]$ at $Q=100$, and
+$[0.96, 1.04]$ at $Q=1000$.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{sim/participation_size.pdf}
+\caption{Realized participation relative to the model's mean versus parent-order
+size $Q$
+(number of one-lot child fills), from the stylized model $\hat{p}/\rho =
+Q/\mathrm{Gamma}(Q,1)$. (a) Median and percentile bands: the ratio is dispersed
+for small $Q$ and concentrates on the model's mean (dashed line) as $Q$ grows.
+(b) The coefficient of variation falls as $1/\sqrt{Q-2}$.}
+\label{fig:partsize}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Participation relative to the model's mean versus parent-order size,
+$4\times10^{5}$ Monte Carlo trials per size. CV is finite only for $Q>2$.}
+\label{tab:partsize}
+\small
+\begin{tabular}{rrrrr}
+\toprule
+$Q$ (child fills) & median & 10th pct & 90th pct & CV \\
+\midrule
+1    & 1.44 & 0.44 & 9.48 & --- \\
+2    & 1.19 & 0.51 & 3.77 & --- \\
+5    & 1.07 & 0.63 & 2.06 & 0.58 \\
+10   & 1.03 & 0.70 & 1.61 & 0.35 \\
+20   & 1.02 & 0.77 & 1.38 & 0.24 \\
+50   & 1.01 & 0.84 & 1.22 & 0.14 \\
+100  & 1.00 & 0.89 & 1.14 & 0.10 \\
+200  & 1.00 & 0.92 & 1.10 & 0.07 \\
+500  & 1.00 & 0.95 & 1.06 & 0.05 \\
+1000 & 1.00 & 0.96 & 1.04 & 0.03 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Implication.} The size at which realized participation becomes
+concentrated bounds where \pov{}, or any passive follower, delivers a stable participation.
+Under the stylized model a parent comprising hundreds or thousands of child fills
+has realized participation within a few percent of the model's mean; a very small
+order does not, and its participation is
+effectively random. For a small parent order the dispersion
+can be reduced by modifying \pov{} to shadow only adds reasonably close to the
+inside of the book (tightening the placement band of Section~\ref{sec:prod}),
+which have a higher and more predictable fill probability; without such a
+restriction a small order's participation is dominated by the queue-position
+randomness of the few orders it follows, as the small-$Q$ case shows.
+This also refines the benchmark claim
+of Section~\ref{sec:disc}: \pov{} is a benchmark for passive placement at sizes
+large enough that the participation band is narrow, and the width of the
+participation band is a second axis --- alongside slippage --- on which a
+predictive placement model that controls queue position can be scored against
+it.
+
+% ---------------------------------------------------------------
+\section{A benchmark for passive placement}
+\label{sec:disc}
+% ---------------------------------------------------------------
+
+\pov{} places passive orders
+without an order-book model and without predicting where they will fill, and it
+executes at the slippage measured in Section~\ref{sec:eval}. We position it
+as a benchmark for
+passive-order placement on a CLOB rather than as an optimal method. Given the
+same passive mandate, a predictive placement model can be scored against
+\pov{} to test whether its additional modeling produces a measurable
+improvement; the present study reports no such competing baselines, so the
+benchmark role is proposed rather than demonstrated.
+
+Adaptive scheduling methods are already evaluated against fixed references: a
+reinforcement-learning or optimal-execution scheduler is judged against TWAP,
+VWAP, and the Almgren--Chriss trajectory \cite{almgren2000,queuereactive2025},
+so any claimed gain is stated relative to a model-free baseline. A comparable
+model-free reference is useful when evaluating the additional complexity of a
+predictive placement model. The naive alternatives --- posting
+at the touch, or post-and-wait then cross
+\cite{contkukanov2015,limitmarkettactics2014} --- are ad hoc; \pov{} offers a
+well-specified alternative. A practitioner proposing a predictive placement
+model can show whether it beats shadow-following, as an execution scheduler is
+judged against TWAP.
+
+\pov{} is an execution method: its scope is completing a given position at a
+small, predictable cost, with a small number of decision and state operations per
+message. When
+direction is known, an informed aggressive strategy outperforms it, and \pov{}
+leaves such directional decisions to the strategy layer above it.
+
+% ---------------------------------------------------------------
+\section{Future Work}
+\label{sec:future}
+% ---------------------------------------------------------------
+
+The measurements of Section~\ref{sec:eval} are preliminary. They establish the
+mechanism and give a first replay estimate of its slippage, not a completed
+benchmark study, and several directions remain before \pov{} can be treated as a
+validated reference.
+
+\paragraph{Comparison against established methods.} The central open task is to
+score \pov{} against competing passive-placement rules under the same
+direction-neutral slippage metric: posting at the touch; a random
+same-level ``null'' follower, which isolates whether following a \emph{specific}
+identified order carries information beyond posting behind recently added
+liquidity; the passive legs of TWAP, VWAP, and POV; and at least one
+\emph{predictive} placement model. Only such a comparison can establish whether
+\pov{} is a useful benchmark and by how much a predictive model improves on it.
+
+\paragraph{Understanding the algorithm's behavior.} Beyond a single cost figure,
+the method's behavior needs characterization: realized fill and completion
+rates, the fraction of followed orders whose lifecycle ends in a fill rather than
+a cancellation, queue-position dynamics, and sensitivity to the order-placement
+rate $\rho$ and the grace window $B$.
+
+\paragraph{Statistical strength.} The reported figures should be accompanied by
+confidence intervals, trade and parent-order counts, and per-session dispersion,
+and the safety guards (the two-band hysteresis and the completion and over-hedge
+limits) should be ablated to quantify their effect on the reported costs.
+
+\paragraph{Market impact and breadth.} The replay uses a zero-impact simulator;
+a controlled experiment that injects synthetic size and measures the perturbation
+of subsequent flow would test that assumption. The corpus is one two-leg
+index-futures spread; extending to other products, to fragmented multi-venue
+equity markets --- where the flow-inherited venue selection of
+Section~\ref{sec:sor} would actually be exercised --- and to larger sizes is
+required before the results can be generalized.
+
+% ---------------------------------------------------------------
+\section{Conclusion}
+% ---------------------------------------------------------------
+
+We presented \pov{}, a passive execution method that trades the schedules and
+aggregate-volume targets of VWAP/TWAP/POV for direct observation of the passive
+orders participants actually post. By shadowing individual resting orders by
+exchange identifier --- mirroring price and venue, and tying cancellation to
+the shadowed order's lifecycle through a lookup on the followed order's identifier 
+--- \pov{} needs no volume forecast of its own, uses followed orders as
+observable references for local execution flow, obtains
+venue selection as an emergent property rather than a routing computation, and
+makes cancellation an identifier-driven expected-$O(1)$ decision. Over 137
+replayed CME sessions, the close-cohort slippage is
+$\$2.80$/contract (NQ) and $\$5.59$/contract (ES) --- slightly worse than mid,
+consistent with a passive fill against a moving market. Because it places passive orders with
+no order-book model and no fill prediction yet its replayed close-cohort
+executions remain within roughly half a bid-ask width of mid, we propose
+\pov{} as a model-free benchmark for passive-order placement --- a reference a
+predictive placement model should be expected to beat. The method and its
+identifier-driven cancel-mirroring mechanism are the subject of a pending patent
+application.
+
+% ---------------------------------------------------------------
+\section*{Reproducibility and disclosure}
+% ---------------------------------------------------------------
+
+Results are produced by a deterministic replay of recorded CME PCAP market data
+through open-source C++ actor code (Section~\ref{sec:sim}); a fixed session replays
+to identical fills. The \pov{}
+implementation and the order-book simulator are available as the
+\textsc{kaspar-hft} project.\footnote{\url{https://github.com/vincent212/kaspar-hft}}
+
+\paragraph{Acknowledgments.} The slippage-measurement corpus and the
+deterministic replay harness were built at M2 Technologies.
+
+% ---------------------------------------------------------------
+\begin{thebibliography}{99}
+% ---------------------------------------------------------------
+% Academic literature
+\bibitem{almgren2000} R.~Almgren and N.~Chriss.
+  \emph{Optimal Execution of Portfolio Transactions.}
+  Journal of Risk, 3(2):5--40, 2001.
+\bibitem{avellaneda2008} M.~Avellaneda and S.~Stoikov.
+  \emph{High-Frequency Trading in a Limit Order Book.}
+  Quantitative Finance, 8(3):217--224, 2008.
+\bibitem{hewitt1973} C.~Hewitt, P.~Bishop, and R.~Steiger.
+  \emph{A Universal Modular ACTOR Formalism for Artificial Intelligence.}
+  Proc.\ 3rd International Joint Conference on Artificial Intelligence (IJCAI),
+  1973.
+\bibitem{agha1986} G.~Agha.
+  \emph{Actors: A Model of Concurrent Computation in Distributed Systems.}
+  MIT Press, 1986.
+\bibitem{kissell} R.~Kissell.
+  \emph{The Science of Algorithmic Trading and Portfolio Management.}
+  Academic Press, 2013.
+\bibitem{cjp2015} \'A.~Cartea, S.~Jaimungal, and J.~Penalva.
+  \emph{Algorithmic and High-Frequency Trading.}
+  Cambridge University Press, 2015.
+\bibitem{bialkowski2008} J.~Bia\l kowski, S.~Darolles, and G.~Le~Fol.
+  \emph{Improving VWAP Strategies: A Dynamic Volume Approach.}
+  Journal of Banking \& Finance, 32(9):1709--1722, 2008.
+\bibitem{freiwestray2015} C.~Frei and N.~Westray.
+  \emph{Optimal Execution of a VWAP Order: A Stochastic Control Approach.}
+  Mathematical Finance, 25(3):612--639, 2015.
+\bibitem{johnson2010} B.~Johnson.
+  \emph{Algorithmic Trading \& DMA: An Introduction to Direct Access Trading
+  Strategies.} 4Myeloma Press, London, 2010.
+\bibitem{bayesiantca2019} \emph{Bayesian Trading Cost Analysis and Ranking of
+  Broker Algorithms.} arXiv:1904.01566, 2019.
+\bibitem{perold1988} A.~F.~Perold.
+  \emph{The Implementation Shortfall: Paper versus Reality.}
+  Journal of Portfolio Management, 14(3):4--9, 1988.
+\bibitem{cartea2015} \'A.~Cartea and S.~Jaimungal.
+  \emph{Optimal Execution with Limit and Market Orders.}
+  Quantitative Finance, 15(8):1279--1291, 2015.
+\bibitem{gueant2012} O.~Gu\'eant, C.-A.~Lehalle, and J.~Fern\'andez-Tapia.
+  \emph{Optimal Portfolio Liquidation with Limit Orders.}
+  SIAM Journal on Financial Mathematics, 3(1):740--764, 2012.
+  \href{https://arxiv.org/abs/1106.3279}{arXiv:1106.3279}.
+\bibitem{contkukanov2015} R.~Cont and A.~Kukanov.
+  \emph{Optimal Order Placement in Limit Order Markets.}
+  Quantitative Finance, 17(1):21--39, 2017.
+  \href{https://arxiv.org/abs/1210.1625}{arXiv:1210.1625}.
+\bibitem{negdrift2024} T.~DeLise.
+  \emph{The Negative Drift of a Limit Order Fill.}
+  arXiv:2407.16527, 2024.
+\bibitem{scheduletactics2014} \emph{Design and Implementation of Schedule-Based
+  Trading Strategies Based on Uncertainty Bands.} arXiv:1409.1441, 2014.
+\bibitem{limitmarkettactics2014} \emph{On the Design of Sell-Side Limit and
+  Market Order Tactics.} arXiv:1409.1442, 2014.
+\bibitem{cesari2012} R.~Cesari et al.
+  \emph{Effective Trade Execution.} arXiv:1206.5324, 2012.
+\bibitem{moallemi2016} C.~C.~Moallemi and K.~Yuan.
+  \emph{A Model for Queue Position Valuation in a Limit Order Book.}
+  Working paper, Columbia University, 2016. SSRN~2996221.
+\bibitem{foucault2008} T.~Foucault and A.~J.~Menkveld.
+  \emph{Competition for Order Flow and Smart Order Routing Systems.}
+  Journal of Finance, 63(1):119--158, 2008.
+  \href{https://doi.org/10.1111/j.1540-6261.2008.01312.x}{doi:10.1111/j.1540-6261.2008.01312.x}.
+\bibitem{laruelle2011} S.~Laruelle, C.-A.~Lehalle, and G.~Pag\`es.
+  \emph{Optimal Split of Orders Across Liquidity Pools: A Stochastic
+  Algorithm Approach.} SIAM Journal on Financial Mathematics,
+  2(1):1042--1076, 2011. \href{https://arxiv.org/abs/0910.1166}{arXiv:0910.1166}.
+% Recent execution literature
+\bibitem{passiveimpact2026} A.~Barzykin, R.~Boyce, E.~Neuman, and S.~Tuschmann.
+  \emph{Optimal Execution with Passive Market Impact.}
+  arXiv:2607.28323, 2026.
+\bibitem{queuereactive2025} T.~Espana, Y.~Hafsi, F.~Lillo, and E.~Vittori.
+  \emph{Reinforcement Learning in Queue-Reactive
+  Models: Application to Optimal Execution.} arXiv:2511.15262, 2025.
+\bibitem{rlexec2025} P.~Cheridito and M.~Weiss.
+  \emph{Reinforcement Learning for Trade Execution with Market
+  and Limit Orders.} arXiv:2507.06345, 2025.
+\bibitem{mmdilemma2025} J.~Albers, M.~Cucuringu, S.~Howison, and A.~Y.~Shestopaloff.
+  \emph{The Market Maker's Dilemma: Navigating the Fill
+  Probability versus Post-Fill Returns Trade-Off.} arXiv:2502.18625, 2025.
+% Patent literature
+\bibitem{us10614520} \emph{Tracking Liquidity Order.}
+  U.S.\ Patent No.\ 10,614,520~B2, 2020.
+  \href{https://patents.google.com/patent/US10614520B2/en}{patents.google.com/patent/US10614520B2}.
+\bibitem{us20130268423} \emph{Copy Trading System and Method.}
+  U.S.\ Patent Application Publication No.\ 2013/0268423~A1
+  (Pennaluna \& Company, Inc.), 2013.
+  \href{https://patents.google.com/patent/US20130268423A1/en}{patents.google.com/patent/US20130268423A1}.
+\bibitem{us20060253379} \emph{Passive Liquidity Order.}
+  U.S.\ Patent Application Publication No.\ 2006/0253379~A1, 2006.
+\bibitem{us8140416} \emph{Algorithmic Trading --- Hidden Liquidity.}
+  U.S.\ Patent No.\ 8,140,416~B2, 2012.
+\end{thebibliography}
+
+\end{document}
