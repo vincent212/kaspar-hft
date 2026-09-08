@@ -251,6 +251,14 @@ perf::LatencyStats run_fastsend_stack(const std::string& label, size_t measured,
   return s;
 }
 
+// Sink so the compiler cannot optimize the trivial handler work away.
+volatile uint64_t g_sink = 0;
+
+// The handler's "work", also callable directly (no framework) as a baseline.
+// noinline so the direct-call baseline is a real call comparable to the
+// framework's indirect dispatch, rather than being inlined to nothing.
+[[gnu::noinline]] void echo_work(const Ping* m) noexcept { g_sink += m->seq; }
+
 // Handler that does not reply -- isolates dispatch (+ input alloc) from the reply.
 template <class PingT>
 class SinkActor : public Actor
@@ -263,8 +271,35 @@ public:
   }
 
 private:
-  void on_ping(const PingT*) noexcept { /* no reply */ }
+  void on_ping(const PingT* m) noexcept { g_sink += m->seq; } // same work as echo_work
 };
+
+// Baseline: call the handler's work as a plain function -- no actor framework,
+// no mutex, no dispatch table, no message wrapping. Pairs with
+// run_fastsend_stack_noreply (same stack input, same trivial work), so the
+// difference is exactly fast_send's per-call overhead.
+perf::LatencyStats run_direct_call(const std::string& label, size_t measured, size_t warmup)
+{
+  std::vector<uint64_t> samples;
+  samples.reserve(measured);
+  const size_t total = measured + warmup;
+  uint64_t win_start = 0;
+  for (size_t i = 0; i < total; ++i)
+  {
+    if (i == warmup)
+      win_start = perf::now_ns();
+    Ping ping(i);
+    const uint64_t t0 = perf::now_ns();
+    echo_work(&ping); // direct function call, no framework
+    const uint64_t t1 = perf::now_ns();
+    if (i >= warmup)
+      samples.push_back(t1 - t0);
+  }
+  const uint64_t win_end = perf::now_ns();
+  auto s = perf::LatencyStats::from(label, samples);
+  s.amortized = measured ? static_cast<double>(win_end - win_start) / measured : 0.0;
+  return s;
+}
 
 // fast_send in a loop, stack input, no reply: pure dispatch cost.
 perf::LatencyStats run_fastsend_stack_noreply(const std::string& label, size_t measured,
@@ -373,6 +408,7 @@ int main(int argc, char** argv)
     rows.push_back(run_fastsend_heap_noreply<PingPool>("fs pooled noreply", measured, warmup));
     rows.push_back(run_fastsend_stack("fs stack+reply", measured, warmup));
     rows.push_back(run_fastsend_stack_noreply("fs stack noreply", measured, warmup));
+    rows.push_back(run_direct_call("direct call (base)", measured, warmup));
   }
 
   if (rows.empty())
@@ -392,5 +428,43 @@ int main(int argc, char** argv)
     perf::print_row(r);
   std::printf("(one-way ~ round-trip / 2 for the symmetric echo handler; "
               "fast_send rows near ~40ns are at steady_clock resolution)\n");
+
+  // fast_send vs a plain function call, measured CLEANLY: each is timed with a
+  // single clock-read pair around a tight loop (no per-iteration clock reads),
+  // so neither number carries the ~28 ns of clock overhead the table's amort
+  // column does. Both do identical trivial work on a stack input, so the delta
+  // is fast_send's framework overhead (mutex + message-field setup +
+  // handler-cache dispatch + reply wrapping) over a bare call.
+  if (all || section == "fastsend")
+  {
+    SinkActor<Ping> sink;
+    NullActor sender;
+    const size_t total = measured + warmup;
+
+    uint64_t c0 = 0;
+    for (size_t i = 0; i < total; ++i)
+    {
+      if (i == warmup)
+        c0 = perf::now_ns();
+      Ping ping(i);
+      echo_work(&ping);
+    }
+    const double call_ns = static_cast<double>(perf::now_ns() - c0) / measured;
+
+    uint64_t f0 = 0;
+    for (size_t i = 0; i < total; ++i)
+    {
+      if (i == warmup)
+        f0 = perf::now_ns();
+      Ping ping(i);
+      auto reply = sink.fast_send(&ping, &sender);
+    }
+    const double fs_ns = static_cast<double>(perf::now_ns() - f0) / measured;
+
+    std::printf("\nfast_send vs direct function call (clean amortized, per op):\n");
+    std::printf("  direct call : %5.1f ns\n", call_ns);
+    std::printf("  fast_send   : %5.1f ns  (+%.1f ns, %.1fx a bare call)\n", fs_ns,
+                fs_ns - call_ns, call_ns > 0 ? fs_ns / call_ns : 0.0);
+  }
   return 0;
 }

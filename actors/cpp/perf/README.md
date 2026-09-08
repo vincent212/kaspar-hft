@@ -127,6 +127,27 @@ message on the **stack** when you can (saves an alloc/free outright); the reply
 so allocate replies from the **MemoryPool** to turn a ~15 ns global alloc into a
 ~3 ns pooled one and to cut the allocator tail.
 
+### D. fast_send vs a bare function call
+
+How much does the actor machinery cost over just calling a function? The bench
+times both cleanly (one clock-read pair around a tight loop — no per-iteration
+clock reads, so neither number carries the ~28 ns clock overhead the `amort`
+column does), doing identical trivial work on a stack input:
+
+| | per op |
+|---|---:|
+| direct function call (`noinline`) | ~1 ns |
+| `fast_send` (dispatch, no reply) | ~8 ns |
+
+So **`fast_send` adds ~7 ns over a bare call** — that ~7 ns is the uncontended
+mutex lock/unlock, the message field writes, the `handler_cache[id]`
+pointer-to-member dispatch, and the reply-`unique_ptr` wrapping. The ratio prints
+as ~4–10× only because the ~1 ns baseline is so small that its measurement is
+noisy; the **+7 ns absolute delta is the stable, meaningful figure**. For
+context, that ~7 ns is ~1/18 of a same-thread `send` (~125 ns) and ~1/300 of a
+cross-thread `send` (~2250 ns) — the framework tax on the fast path is single-digit
+nanoseconds.
+
 ## Caveats
 
 - **Clock resolution.** `steady_clock` ticks at ~40 ns here, so per-sample
