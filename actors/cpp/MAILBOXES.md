@@ -98,6 +98,30 @@ Constructor arguments: `BQueue(ring_size)`, `ShardedBQueue(num_lanes)`,
 (`send`, `pop_batch`, the run loop) goes through the `Queue<T>` interface, so nothing
 else in the actor changes.
 
+### Why a runtime `Queue*`, not a template parameter?
+
+The mailbox is chosen at runtime through the virtual `Queue<T>` interface, not as
+a compile-time template (`Actor<Mailbox>`). That is deliberate:
+
+- **The mailbox is only touched on the async path.** `fast_send` — the latency-
+  critical fast path — bypasses the queue entirely and runs the handler inline
+  (`call_handler`), never calling `msgq`. `msgq->push` / `msgq->pop_batch` happen
+  only in `send()` and the run loop, which already cost **~125 ns (grouped) to
+  ~2250 ns (cross-thread)**. A virtual call there is ~2–5 ns — noise. Devirtualizing
+  it optimizes a cost that does not register.
+- **`Actor` is used polymorphically everywhere.** `Manager` and `Group` hold
+  `Actor*`, and `send()` takes `Actor*`. Making the mailbox a template parameter
+  would force a non-template `ActorBase` (the polymorphic surface) with
+  `Actor<Mailbox>` derived from it, and one full `Actor` instantiation per mailbox
+  type — real complexity and code bloat for an unmeasurable win.
+
+So a runtime `Queue*` gives per-actor selection, a single `Actor` type, and a
+`pop_batch` default impl, with the virtual dispatch riding a path where it is free.
+If a benchmark ever showed the `Queue` virtual call actually costing something, the
+clean compile-time form would be a policy template with a non-template base
+(`template <class Mailbox> class Actor : public ActorBase { Mailbox msgq; }`) — but
+since it rides a ≥125 ns path, it won't.
+
 > Note: mailbox selection is currently a C++ feature. The Rust port hard-codes
 > `BQueue`; matching it would mean making `ActorCell`'s queue a trait object.
 
