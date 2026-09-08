@@ -12,6 +12,8 @@
 
 **Kaspar** is a low-latency trading system simulator for CME futures (ES, NQ). It reconstructs full order books from MDP3 market data, simulates fills that respect queue position, and supports live paper trading or historical PCAP replay — all built on a custom C++ actor framework designed for microsecond-level performance.
 
+**Why actors?** No shared state and no locks, so data races and deadlocks are gone by construction — each actor reasons about one message at a time. The usual objection is the messaging overhead; Kaspar answers it with `fast_send`, which runs the receiver's handler inline on the caller's thread and returns the reply as a value (~tens of ns round trip). The design and measurements are written up in [**tech_reports/fast_send.pdf**](tech_reports/fast_send.pdf) (benches in [`actors/cpp/perf`](actors/cpp/perf)).
+
 Unlike toy backtesting engines that assume instant fills at mid, Kaspar models realistic execution: your simulated orders sit in the book at a specific price level and only fill when the market trades through your position in the queue.
 
 Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) — *"a peak of a long crest in the Western Tatras, one of Poland's main winter ski areas."*
