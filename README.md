@@ -204,27 +204,37 @@ reference, and [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) 
 
 ### Message IDs — a gotcha when adding messages
 
-Every actor message carries a **globally-unique integer ID** in `[0, 511]`,
-assigned by hand as a template parameter:
+Every actor message carries an integer ID that drives O(1) dispatch
+(`handler_cache[msg_id]`) and message-type identification. The ID is a data
+member set at construction; `get_message_id()` is a non-virtual accessor (no
+vtable call on the dispatch path).
+
+**Prefer `MessageT<Derived>`** — its ID is auto-assigned at first use from a
+counter starting at 512, so it is collision-free by construction:
+
+```cpp
+struct MyMessage : public actors::MessageT<MyMessage> { /* ... */ };
+```
+
+**`Message_N<N>`** fixes the ID to a compile-time constant in `[1, 511]` (use it
+only when you need `MyMessage::id` as a constant, e.g. a `case` label):
 
 ```cpp
 struct MyMessage : public actors::Message_N<100> { /* ... */ };
 ```
 
-That ID drives O(1) dispatch (`handler_cache[msg_id]`) and message-type
-identification. **There is no compile-time check that IDs are unique** — if two
-message types pick the same ID the collision is *silent*: messages get routed to
-the wrong handler or interpreted as the wrong type (undefined behavior), not a
-build error.
-
-So when you add a message type, pick an ID nothing else uses and run the checker
-before committing — it scans the tree and flags any duplicate `Message_N<ID>`:
+For `Message_N`, **there is no compile-time check that IDs are unique** — if two
+types pick the same ID the collision is *silent*: messages get routed to the
+wrong handler or interpreted as the wrong type (undefined behavior), not a build
+error. So pick an ID nothing else uses and run the checker before committing — it
+scans the tree and flags any duplicate `Message_N<N>`:
 
 ```bash
 python3 setclassid/setclassid.py     # exits noisily on a duplicate ID
 ```
 
-See [`setclassid/README.md`](setclassid/README.md).
+See [`setclassid/README.md`](setclassid/README.md). (`MessageT` types need no
+such check — their 512+ IDs never overlap the hand-assigned range.)
 
 ## Console
 

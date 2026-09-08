@@ -7,14 +7,16 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-#include "actors/Message.hpp"
 #include "enum/exch_code.hpp"
 
 namespace frame
 {
     namespace mda
     {
-        class OrderID : public actors::Message
+        // Static-only helper for packing/unpacking (exchange, order-id) pairs.
+        // Never instantiated or sent as a message; the private constructor keeps
+        // it non-instantiable.
+        class OrderID
         {
             OrderID(){}
 

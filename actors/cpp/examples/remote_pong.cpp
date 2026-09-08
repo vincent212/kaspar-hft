@@ -81,16 +81,16 @@ public:
 
         // Create ZMQ sender for replies (now an Actor - must be managed!)
         zmq_sender_ = make_shared<ZmqSender>("tcp://localhost:5001");
-        manage(zmq_sender_.get());
+        add_to_manage_q(zmq_sender_.get());
 
         // Create pong actor
         auto* pong_actor = new PongActor();
-        manage(pong_actor);
+        add_to_manage_q(pong_actor);
 
         // Create ZMQ receiver and register local actors
         auto* zmq_receiver = new ZmqReceiver(endpoint, zmq_sender_);
         zmq_receiver->register_actor("pong", pong_actor);
-        manage(zmq_receiver);
+        add_to_manage_q(zmq_receiver);
     }
 };
 

@@ -87,8 +87,8 @@ public:
     auto* pong = new PongActor();
     auto* ping = new PingActor(pong, this, 5);
 
-    manage(pong);
-    manage(ping);
+    add_to_manage_q(pong);
+    add_to_manage_q(ping);
   }
 };
 

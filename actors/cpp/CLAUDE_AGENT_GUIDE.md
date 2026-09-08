@@ -51,7 +51,7 @@ Each Actor:
 - **Manager**: Registers actors, manages threads, CPU affinity
 - **Actor**: Base class with handler dispatch, send/reply/fast_send
 - **ActorRef**: `std::variant<LocalActorRef, RustActorRef>` — a local C++ actor or a Rust actor over the in-process FFI bridge (same `send`/`fast_send` API)
-- **Message**: `Message_N<ID>` template with integer IDs for O(1) dispatch
+- **Message**: `MessageT<Derived>` (auto id) or `Message_N<N>` (fixed compile-time id); each carries an integer id (a data member; `get_message_id()` is a non-virtual accessor) for O(1) dispatch
 - **BQueue**: Blocking queue (mutex + condition_variable) for actor mailbox
 - **Group**: Multiple actors on single thread (lightweight)
 
@@ -59,12 +59,29 @@ Each Actor:
 
 ### Adding a New Message Type
 
-1. Define struct extending `Message_N<ID>` with a unique integer ID
-2. IDs 1-9 are reserved for system messages; use >= 100 for user messages
+Prefer `MessageT<Derived>` — its id is auto-assigned (collision-free, from a
+counter starting at 512):
 
 ```cpp
 #include "actors/Message.hpp"
 
+struct OrderMessage : public MessageT<OrderMessage> {
+    std::string order_id;
+    double price;
+    int quantity;
+
+    OrderMessage(std::string id = "", double p = 0.0, int q = 0)
+        : order_id(std::move(id)), price(p), quantity(q) {}
+};
+```
+
+Use `Message_N<N>` only when you need the id as a compile-time constant
+(`OrderMessage::id`, a `case` label). N must be a unique integer in 1–511 (512+
+is reserved for `MessageT`); IDs 1-9 are reserved for system messages, use >= 100
+for user messages. Run `setclassid/setclassid.py` to catch `Message_N` id
+collisions.
+
+```cpp
 struct OrderMessage : public Message_N<100> {
     std::string order_id;
     double price;
