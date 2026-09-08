@@ -247,26 +247,28 @@ perf::LatencyStats run_fastsend_stack(const std::string& label, size_t measured,
   return s;
 }
 
-// Handler that does not reply -- isolates pure dispatch cost.
+// Handler that does not reply -- isolates dispatch (+ input alloc) from the reply.
+template <class PingT>
 class SinkActor : public Actor
 {
 public:
   SinkActor()
   {
     std::strncpy(name, "SinkActor", sizeof(name) - 1);
-    MESSAGE_HANDLER(Ping, on_ping);
+    MESSAGE_HANDLER(PingT, on_ping);
   }
 
 private:
-  void on_ping(const Ping*) noexcept { /* no reply */ }
+  void on_ping(const PingT*) noexcept { /* no reply */ }
 };
 
-// fast_send in a loop, stack input, no reply: dispatch only.
-perf::LatencyStats run_fastsend_noreply(const std::string& label, size_t measured, size_t warmup)
+// fast_send in a loop, stack input, no reply: pure dispatch cost.
+perf::LatencyStats run_fastsend_stack_noreply(const std::string& label, size_t measured,
+                                              size_t warmup)
 {
   std::vector<uint64_t> samples;
   samples.reserve(measured);
-  SinkActor sink;
+  SinkActor<Ping> sink;
   NullActor sender;
   const size_t total = measured + warmup;
   uint64_t win_start = 0;
@@ -280,6 +282,37 @@ perf::LatencyStats run_fastsend_noreply(const std::string& label, size_t measure
     const uint64_t t1 = perf::now_ns();
     if (i >= warmup)
       samples.push_back(t1 - t0);
+  }
+  const uint64_t win_end = perf::now_ns();
+  auto s = perf::LatencyStats::from(label, samples);
+  s.amortized = measured ? static_cast<double>(win_end - win_start) / measured : 0.0;
+  return s;
+}
+
+// fast_send in a loop, heap input (PingT allocator), no reply. Pairs with
+// run_fastsend_heap<PingT,PongT>: identical input handling, so the difference
+// is exactly the reply (its allocation + reply()/unique_ptr plumbing).
+template <class PingT>
+perf::LatencyStats run_fastsend_heap_noreply(const std::string& label, size_t measured,
+                                             size_t warmup)
+{
+  std::vector<uint64_t> samples;
+  samples.reserve(measured);
+  SinkActor<PingT> sink;
+  NullActor sender;
+  const size_t total = measured + warmup;
+  uint64_t win_start = 0;
+  for (size_t i = 0; i < total; ++i)
+  {
+    if (i == warmup)
+      win_start = perf::now_ns();
+    const auto* ping = new PingT(i);
+    const uint64_t t0 = perf::now_ns();
+    auto reply = sink.fast_send(ping, &sender); // returns null (no reply)
+    const uint64_t t1 = perf::now_ns();
+    if (i >= warmup)
+      samples.push_back(t1 - t0);
+    delete ping;
   }
   const uint64_t win_end = perf::now_ns();
   auto s = perf::LatencyStats::from(label, samples);
@@ -331,9 +364,11 @@ int main(int argc, char** argv)
   if (all || section == "fastsend")
   {
     rows.push_back(run_fastsend_heap<Ping, Pong>("fs heap+reply", measured, warmup));
+    rows.push_back(run_fastsend_heap_noreply<Ping>("fs heap noreply", measured, warmup));
     rows.push_back(run_fastsend_heap<PingPool, PongPool>("fs pooled+reply", measured, warmup));
+    rows.push_back(run_fastsend_heap_noreply<PingPool>("fs pooled noreply", measured, warmup));
     rows.push_back(run_fastsend_stack("fs stack+reply", measured, warmup));
-    rows.push_back(run_fastsend_noreply("fs stack noreply", measured, warmup));
+    rows.push_back(run_fastsend_stack_noreply("fs stack noreply", measured, warmup));
   }
 
   if (rows.empty())

@@ -95,21 +95,37 @@ low-latency: not the median, the p99.9+.
 
 ### C. fast_send variants (amortized ns/op, pool ON)
 
-| variant | amort (ns) | what it isolates |
-|---|---:|---|
-| stack input, **no reply** | 35.9 | base dispatch, zero allocations |
-| pooled input + reply      | 41.3 | 2 pooled allocs |
-| stack input + reply       | 51.1 | 1 global alloc (the Pong reply) |
-| heap input + reply        | 65.8 | 2 global allocs |
+Each input kind (stack / pooled-heap / global-heap) is measured **with and
+without a reply**; the two rows of a pair have identical input handling, so their
+difference is exactly the reply (its Pong allocation + the `reply()`/`unique_ptr`
+plumbing).
 
-Backing out the costs: **base fast_send dispatch ≈ 36 ns**; a global `new`+`delete`
-of a small message ≈ **15 ns each**; a pooled alloc ≈ **2–3 ns**. With the pool
-off, `pooled+reply` rises to 65.6 ns — identical to `heap+reply`, as expected.
+| variant | amort (ns) | reply cost (Δ) |
+|---|---:|---:|
+| stack input,  no reply | 36 | — |
+| stack input + reply    | 51 | **~15** |
+| pooled input, no reply | 38 | — |
+| pooled input + reply   | 43 | **~4** |
+| heap input,   no reply | 52 | — |
+| heap input + reply     | 66–78 | ~15–25 |
+
+Backing out the costs:
+- **base `fast_send` dispatch ≈ 36 ns** (stack input, no reply — zero allocations).
+- **reply() plumbing alone ≈ 2–4 ns** — the *pooled* pair isolates it (its Pong
+  alloc is only ~3 ns), so the ~4 ns delta is almost all plumbing.
+- **a reply that allocates its Pong from the global heap ≈ 15 ns** (stack pair
+  delta) — i.e. the reply's real cost is dominated by the *allocation*, not the
+  `reply()` mechanism.
+- global `new`+`delete` of a small message ≈ **15 ns**; a pooled alloc ≈ **2–3 ns**.
+
+With the pool off, `pooled+reply` rises to match `heap+reply` (its Pong alloc goes
+back to the global heap), as expected.
 
 Takeaways for callers on the hot path: prefer `fast_send`; keep the request
-message on the **stack** when you can (saves an alloc/free outright); and for
-messages that must be heap-lived, use the **MemoryPool** to turn a ~15 ns global
-alloc into a ~2 ns pooled one and to cut the allocator tail.
+message on the **stack** when you can (saves an alloc/free outright); the reply
+*mechanism* is nearly free (~3 ns) — its cost is the reply message's allocation,
+so allocate replies from the **MemoryPool** to turn a ~15 ns global alloc into a
+~3 ns pooled one and to cut the allocator tail.
 
 ## Caveats
 
