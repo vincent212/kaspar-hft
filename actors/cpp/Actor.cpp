@@ -156,7 +156,7 @@ void Actor::operator()() noexcept
     m->last = last;
     reply_to = m->sender;
 
-    bool is_shutdown = m->get_message_id() == 5;
+    bool is_shutdown = m->get_message_id() == msg::Shutdown::id;
 
     process_message_internal(m);
 
