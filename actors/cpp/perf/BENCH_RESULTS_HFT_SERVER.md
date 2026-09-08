@@ -229,7 +229,7 @@ AVX-512 (all fine); separate translation units, `-fPIC`, and static-archive
 linkage as such (all fine — a clean archive built with make's exact
 `CXXFLAGS_OPT` works).
 
-### Related, not fixed: the dispatch path is UB by construction
+### Related, still open: #39, the `reinterpret_cast` dispatch UB
 
 `actors/cpp/include/actors/Actor.hpp:201`:
 
@@ -237,14 +237,27 @@ linkage as such (all fine — a clean archive built with make's exact
 generic_handler_t generic_ptr = reinterpret_cast<generic_handler_t>(ptr);
 ```
 
-This converts `void (ActorT::*)(const MsgT*)` to `void (Actor::*)(const Message*)`
-and later calls through it. That is undefined behaviour; it happens to work only
-when `Actor` is a primary base at offset 0 and `Message` likewise for `MsgT`, so
-the ABI's `this`-adjustment is zero. `git blame` puts this line at `a21e4be`
-(2026-05-08), the initial release commit — it has **never been modified**, and is
-still on `main` @ `523cb15`. It is not the cause of the crash in §5, but it is
-why the crash presented as a wild jump instead of a diagnosable type error.
-(Out of scope for this PR; noted so it is on the record.)
+This is **issue #39, "actor reinterpret cast", still OPEN** (filed 2026-09-06).
+`git blame` puts the line at `a21e4be` (2026-05-08), the initial release commit —
+it has **never been modified**, and is still on `main` @ `523cb15`. So: reported,
+not fixed.
+
+**#39 is not the cause of the crash in §5** — a clean archive fixes the crash
+while the cast is still there. But #39 is why the crash presented the way it did.
+Because dispatch goes through a `reinterpret_cast`ed pointer-to-member, an ODR
+layout disagreement between two objects cannot be caught by anything: no compiler
+warning, and as #39 notes, neither UBSan nor ASan sees it. A stale archive member
+therefore surfaces as a wild jump in `call_handler` rather than as a diagnosable
+type or link error. The two defects compose badly.
+
+Also relevant to this bench specifically: **issue #37** (hand-assigned message
+ids) records that `Message_N<100>` already appears six times and `<101>` four
+times in the tree. `bench_pingpong` uses ids 100–103. Id collision was ruled out
+as the cause here — `handler_cache` is sized 2048 and a clean rebuild fixes the
+crash — but anyone extending this bench should assign fresh ids rather than reuse
+that range.
+
+(Both out of scope for this PR; noted so the interaction is on the record.)
 
 ---
 
