@@ -43,8 +43,15 @@ NOPOOL   := bench_pingpong_nopool
 
 all: $(BENCHES) $(NOPOOL)
 
-# The benches need the actors static library; build it if missing.
+# The benches need the actors static library; build it if missing. NOTE: this
+# does NOT track the actors sources -- if you change the framework, run
+# `make lib` (or `make -C $(ACTORS)`) to rebuild it, or the benches will link a
+# stale library and measure the old code.
 $(LIB):
+	$(MAKE) -C $(ACTORS) KSPRPROJ=$(KSPRPROJ)
+
+# Force a rebuild of the actors library (use after editing the framework).
+lib:
 	$(MAKE) -C $(ACTORS) KSPRPROJ=$(KSPRPROJ)
 
 bench_%: bench_%.cpp bench_common.hpp $(LIB)
@@ -59,4 +66,4 @@ run: all
 clean:
 	rm -f $(BENCHES) $(NOPOOL)
 
-.PHONY: all run clean
+.PHONY: all run clean lib

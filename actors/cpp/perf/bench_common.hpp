@@ -70,19 +70,18 @@ struct LatencyStats
   }
 };
 
-// Prints a fixed-width table of round-trip latencies. `divisor` = 1 for
-// round-trip ns, 2 to also show a one-way column.
+// Prints a fixed-width table of round-trip latencies (all columns in ns).
 inline void print_header(const char* title, size_t n, size_t warmup)
 {
   std::printf("\n=== %s (measured=%zu, warmup=%zu) ===\n", title, n, warmup);
-  std::printf("%-18s %9s %9s %9s %9s %9s %11s %11s\n", "mode", "p50(ns)", "p90(ns)", "p99(ns)",
-              "min(ns)", "max(ns)", "mean(ns)", "amort(ns)");
+  std::printf("%-18s %9s %9s %9s %9s %9s %9s %11s %11s\n", "mode", "p50", "p90", "p99", "p99.9",
+              "min", "max", "mean", "amort");
 }
 
 inline void print_row(const LatencyStats& s)
 {
-  std::printf("%-18s %9.0f %9.0f %9.0f %9.0f %9.0f %11.1f %11.1f\n", s.label.c_str(), s.p50, s.p90,
-              s.p99, s.min, s.max, s.mean, s.amortized);
+  std::printf("%-18s %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %11.1f %11.1f\n", s.label.c_str(), s.p50,
+              s.p90, s.p99, s.p999, s.min, s.max, s.mean, s.amortized);
 }
 
 } // namespace perf

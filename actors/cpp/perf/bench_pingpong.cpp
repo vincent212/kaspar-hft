@@ -114,14 +114,14 @@ private:
   void on_start(const msg::Start*) noexcept
   {
     t0_ = perf::now_ns();
+    if (warmup_ == 0)
+      win_start_ = t0_; // no warmup: the very first round trip is measured
     pong_->send(new PingT(seq_), this);
   }
 
   void on_pong(const PongT*) noexcept
   {
     const uint64_t t1 = perf::now_ns();
-    if (done_count_ == warmup_)
-      win_start_ = t1; // first measured round trip completes; open the window
     if (done_count_ >= warmup_)
       samples_->push_back(t1 - t0_);
     ++done_count_;
@@ -129,11 +129,15 @@ private:
     if (done_count_ < total_)
     {
       t0_ = perf::now_ns();
+      if (done_count_ == warmup_)
+        win_start_ = t0_; // window opens at the START of the first measured RT
       pong_->send(new PingT(seq_), this);
     }
     else if (!signalled_)
     {
-      *measured_wall_ns_ = perf::now_ns() - win_start_;
+      // Window spans exactly `measured` round trips (start of the first to end
+      // of the last), matching the fast_send runners' amortized convention.
+      *measured_wall_ns_ = t1 - win_start_;
       signalled_ = true;
       done_->set_value();
     }
