@@ -86,19 +86,19 @@ public:
 
         // Create ZMQ sender (now an Actor - must be managed!)
         zmq_sender_ = make_shared<ZmqSender>("tcp://localhost:5002");
-        manage(zmq_sender_.get());
+        add_to_manage_q(zmq_sender_.get());
 
         // Create remote ref to pong on other process
         ActorRef remote_pong = zmq_sender_->remote_ref("pong", remote_pong_endpoint);
 
         // Create ping actor
         auto* ping_actor = new PingActor(std::move(remote_pong), this);
-        manage(ping_actor);
+        add_to_manage_q(ping_actor);
 
         // Create ZMQ receiver for incoming Pong messages
         auto* zmq_receiver = new ZmqReceiver(local_endpoint, zmq_sender_);
         zmq_receiver->register_actor("ping", ping_actor);
-        manage(zmq_receiver);
+        add_to_manage_q(zmq_receiver);
     }
 };
 

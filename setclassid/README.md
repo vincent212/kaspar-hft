@@ -8,7 +8,7 @@
 
 ## Overview
 
-This script validates that all actor message IDs are unique across the entire codebase. Every message inherits from `actors::Message_N<ID>` where `ID` must be a unique integer between 0 and 511.
+This script validates that all *hand-assigned* actor message IDs are unique across the entire codebase. Messages that inherit from `actors::Message_N<ID>` fix `ID` to a compile-time constant that must be a unique integer between 1 and 511. (Messages that inherit from `actors::MessageT<Derived>` instead get an id auto-assigned at runtime from a counter starting at 512, so they are collision-free by construction and are not the concern of this script.)
 
 ## Why Message IDs Must Be Unique
 

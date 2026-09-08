@@ -42,7 +42,7 @@ class ZmqReceiver;
    *   public:
    *     MyManager() {
    *       set_registry("tcp://localhost:5555");  // Connect to GlobalRegistry
-   *       manage(new MyActor(), {0}, 50, SCHED_FIFO);  // Pin to CPU 0
+   *       add_to_manage_q(new MyActor(), {0}, 50, SCHED_FIFO);  // Pin to CPU 0
    *     }
    *   };
    *
