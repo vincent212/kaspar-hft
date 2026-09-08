@@ -377,8 +377,9 @@ Real market participant places order at 6050.00
 
 The lights coordinate via **shared memory** — `QCoord` tracks aggregate working orders, `PCoord` tracks net position — guarded by fine-grained mutexes rather than passing coordination messages.
 
-See [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) for the full specification, and the write-up
-[**"Shadow POV Execution: Trade Where the Market Is Going to Trade"**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where).
+See [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) for the full specification, the write-up
+[**"Shadow POV Execution: Trade Where the Market Is Going to Trade"**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where),
+and the technical report [**shadow_pov.pdf**](tech_reports/shadow_pov.pdf).
 
 ## License
 
