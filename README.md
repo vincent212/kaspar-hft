@@ -365,6 +365,23 @@ ping → pong → reply, one message in flight. Apple Silicon / macOS, `-O3
 \* per-sample timing quantizes to the ~40 ns `steady_clock` tick; ~24 ns is the
 amortized mean.
 
+**How much does the actor machinery cost over a bare function call?** Timed
+cleanly (one clock-read pair around a tight loop, identical trivial work on a
+stack input):
+
+| | per op |
+|---|---:|
+| direct function call | ~1 ns |
+| `fast_send` (dispatch, no reply) | ~8 ns |
+
+So **`fast_send` adds ~7 ns over a plain call** — the uncontended mutex, the
+message field writes, the `handler_cache[id]` pointer-to-member dispatch, and the
+reply `unique_ptr`. That is the entire framework tax on the fast path: single-digit
+nanoseconds, ~1/18 of a same-thread `send` and ~1/300 of a cross-thread one. How
+it's measured (`run_direct_call` vs `fast_send`, section D):
+[perf README](actors/cpp/perf/README.md#d-fast_send-vs-a-bare-function-call) ·
+[`bench_pingpong.cpp`](actors/cpp/perf/bench_pingpong.cpp).
+
 **Allocation** — the MemoryPool is a compile-time switch (`DISABLE_MEMORY_POOL`).
 Same pooled message types, grouped-send round trip (amortized ns):
 
