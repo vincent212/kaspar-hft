@@ -336,6 +336,8 @@ kaspr {
 | [actors/rust/README.md](actors/rust/README.md) | Rust actor-framework port — overview & quickstart |
 | [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) | Writing actors in the Rust port |
 | [actors/rust/MATCHING_ENGINE.md](actors/rust/MATCHING_ENGINE.md) | The matching-engine example |
+| [tech_reports/fast_send.pdf](tech_reports/fast_send.pdf) | Technical report: `fast_send` synchronous message delivery |
+| [tech_reports/shadow_pov.pdf](tech_reports/shadow_pov.pdf) | Technical report: Shadow-PPOV passive execution |
 
 ## Performance Characteristics
 
