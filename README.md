@@ -410,6 +410,30 @@ See [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) for the full specification,
 [**"Shadow POV Execution: Trade Where the Market Is Going to Trade"**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where),
 and the technical report [**shadow_pov.pdf**](tech_reports/shadow_pov.pdf).
 
+## Versioning & compatibility
+
+Releases are tagged; `main` tracks ongoing development and may contain breaking
+changes ahead of the next tag.
+
+| Tag | Actor `Message` ABI | Pin with |
+|---|---|---|
+| **v0.1.0** (current) | id is a non-virtual data-member read; `Message_N<N>` requires `N` in `[0,512)`; `MessageT<Derived>` auto-assigns collision-free ids ≥ 512 | `git checkout v0.1.0` |
+| **v0.0.1** | id via **virtual** `get_message_id()`; original `Message` layout; `Message_N<N>` unconstrained | `git checkout v0.0.1` or the `release-0.0.1` branch |
+
+**v0.0.1 → v0.1.0 is a breaking change** to the actor message layer. Code built
+against v0.0.1 must be recompiled, and you must update any message type that:
+
+- used `Message_N<N>` with `N ≥ 512` (now reserved for `MessageT`), or
+- declared its own `get_message_id()` override (the base method is no longer
+  virtual — prefer `MessageT<Derived>` for new messages, or `Message_N<N>` for a
+  fixed compile-time id).
+
+If you built against the old ABI and don't want to migrate yet, **stay on
+`v0.0.1`** (or the `release-0.0.1` maintenance branch, which takes backported
+fixes without the breaking change). See
+[`actors/cpp/include/actors/msg/README.md`](actors/cpp/include/actors/msg/README.md)
+for the current message API.
+
 ## License
 
 MIT License. Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.). See [LICENSE](LICENSE).
