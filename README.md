@@ -126,7 +126,7 @@ The actor framework provides the concurrency model for the entire system:
 
 - **Message passing** — `BQueue` mailbox per actor, O(1) dispatch via `handler_cache[msg_id]`
 - **Groups for deterministic simulation** — A `Group` runs multiple actors on a single thread with a single message queue. In PCAP replay, the entire pipeline (OB, lights, SOM) goes into one Group — market data, order placement, and fill matching execute in strict message order. No race conditions, no timing artifacts. Bit-exact reproducible backtests.
-- **Zero-copy fast path** — `fast_send()` executes handler in caller's thread for synchronous queries
+- **Zero-copy fast path** — `fast_send()` executes the handler in the caller's thread for synchronous queries — no queue, no thread hop. See the technical report [**fast_send.pdf**](tech_reports/fast_send.pdf) for the synchronous-delivery design and its measured cost (~24 ns round trip; see [`actors/cpp/perf`](actors/cpp/perf)).
 - **CPU affinity** — Pin actors to cores for deterministic latency
 - **C++/Rust interop** — C++ and Rust actors can talk in the **same process** over a C-ABI FFI bridge (`send`/`fast_send` work across the language boundary). This is in-process only — there is no remote/cross-process actor transport.
 - **Rust port** — [`actors/rust`](actors/rust) (`actors`) is a from-scratch Rust port of the actor core (on-stack `fast_send`, integer-ID O(1) dispatch, `BQueue`, object pool). It is in-process only (no ZMQ/registry/groups yet) and ships a **matching engine** as an example — see its [README](actors/rust/README.md) and [DEVELOPER_GUIDE](actors/rust/DEVELOPER_GUIDE.md).
@@ -336,6 +336,8 @@ kaspr {
 | [actors/rust/README.md](actors/rust/README.md) | Rust actor-framework port — overview & quickstart |
 | [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) | Writing actors in the Rust port |
 | [actors/rust/MATCHING_ENGINE.md](actors/rust/MATCHING_ENGINE.md) | The matching-engine example |
+| [tech_reports/fast_send.pdf](tech_reports/fast_send.pdf) | Technical report: `fast_send` synchronous message delivery |
+| [tech_reports/shadow_pov.pdf](tech_reports/shadow_pov.pdf) | Technical report: Shadow-PPOV passive execution |
 
 ## Performance Characteristics
 
