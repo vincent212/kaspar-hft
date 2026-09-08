@@ -76,6 +76,12 @@ TEST(MessageId, AutoIdsAreUniqueAndStable) {
     EXPECT_NE(a1, b1);                 // distinct types -> distinct ids
     EXPECT_GE(a1, detail::kFirstDynamicMessageId);
     EXPECT_GE(b1, detail::kFirstDynamicMessageId);
+    // Ids index Actor::handler_cache, so they must stay under the cap. Exhausting
+    // the cap (assigning > kMessageIdCap - kFirstDynamicMessageId types) makes
+    // next_message_id() throw rather than hand back an out-of-bounds index; that
+    // path can't be unit-tested without polluting the process-global counter.
+    EXPECT_LT(a1, detail::kMessageIdCap);
+    EXPECT_LT(b1, detail::kMessageIdCap);
 }
 
 TEST(MessageId, AutoIdMatchesConstructedMessage) {

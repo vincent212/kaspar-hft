@@ -8,6 +8,8 @@
  */
 
 #include <atomic>
+#include <stdexcept>
+#include <string>
 
 namespace actors
 {
@@ -82,27 +84,52 @@ namespace actors
    * MessageT<Derived> for new types, which assigns a collision-free id
    * automatically.
    */
-  template <int N>
-  struct Message_N : public Message
-  {
-    static constexpr int id = N;  // compile-time id, for case labels / comparisons
-    Message_N() noexcept : Message(N) {}
-  };
-
   namespace detail
   {
     // Ids handed out by MessageT start above the hand-assigned 0-511 range so
     // they can never collide with a Message_N<N>.
     inline constexpr int kFirstDynamicMessageId = 512;
 
+    // Every id indexes Actor::handler_cache / dont_have_handler, which are sized
+    // ACTOR_HANDLER_CACHE_SIZE. Ids must stay below this cap or dispatch reads
+    // out of bounds. This is the single source of truth; Actor.hpp static_asserts
+    // that ACTOR_HANDLER_CACHE_SIZE matches it.
+    inline constexpr int kMessageIdCap = 2048;
+  }
+
+  // A hand-assigned id must live in [0, kFirstDynamicMessageId) so it never
+  // collides with the dynamically-assigned MessageT range -- checked at compile
+  // time, unlike cross-type uniqueness (see setclassid.py).
+  template <int N>
+  struct Message_N : public Message
+  {
+    static_assert(N >= 0 && N < detail::kFirstDynamicMessageId,
+                  "Message_N<N> id must be in [0, 512); 512+ is reserved for MessageT");
+    static constexpr int id = N;  // compile-time id, for case labels / comparisons
+    Message_N() noexcept : Message(N) {}
+  };
+
+  namespace detail
+  {
     inline std::atomic<int>& message_id_counter() noexcept
     {
       static std::atomic<int> c{kFirstDynamicMessageId};
       return c;
     }
-    inline int next_message_id() noexcept
+    // Assign the next dynamic id, failing loudly rather than handing back an id
+    // that would index past the end of Actor::handler_cache. The number of
+    // distinct MessageT types is (returned id - kFirstDynamicMessageId + 1).
+    inline int next_message_id()
     {
-      return message_id_counter().fetch_add(1, std::memory_order_relaxed);
+      const int id = message_id_counter().fetch_add(1, std::memory_order_relaxed);
+      if (id >= kMessageIdCap)
+      {
+        throw std::runtime_error(
+          "actors: too many MessageT types (" + std::to_string(id - kFirstDynamicMessageId + 1) +
+          "); id " + std::to_string(id) + " would exceed the handler-cache cap of " +
+          std::to_string(kMessageIdCap) + " (raise ACTOR_HANDLER_CACHE_SIZE / kMessageIdCap)");
+      }
+      return id;
     }
   }
 
@@ -112,10 +139,11 @@ namespace actors
    * The function-local static gives thread-safe, once-only initialisation. Ids
    * are NOT stable across runs (assignment follows first-use order) and are not
    * constant expressions -- they are in-process dispatch indices only, never
-   * serialised (remote transport keys on the type name).
+   * serialised (remote transport keys on the type name). Throws if the id space
+   * (kMessageIdCap) is exhausted.
    */
   template <class T>
-  inline int message_id() noexcept
+  inline int message_id()
   {
     static const int id = detail::next_message_id();
     return id;
@@ -131,7 +159,9 @@ namespace actors
   template <class Derived>
   struct MessageT : public Message
   {
-    MessageT() noexcept : Message(message_id<Derived>()) {}
+    // Not noexcept: the first construction of each Derived assigns its id and
+    // throws if the id space is exhausted (see next_message_id).
+    MessageT() : Message(message_id<Derived>()) {}
   };
 }
 

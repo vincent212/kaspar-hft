@@ -23,6 +23,10 @@
 
 #define ACTOR_BQUEUE_SIZE 64
 #define ACTOR_HANDLER_CACHE_SIZE 2048
+// The handler cache is indexed directly by message id, so its size is the id
+// ceiling enforced in Message.hpp (kMessageIdCap). Keep the two in lockstep.
+static_assert(ACTOR_HANDLER_CACHE_SIZE == actors::detail::kMessageIdCap,
+              "ACTOR_HANDLER_CACHE_SIZE must equal actors::detail::kMessageIdCap");
 
 // Register a message handler for this actor
 // Usage: MESSAGE_HANDLER(MessageType, handler_method)
