@@ -47,6 +47,20 @@ Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) —
 
 ## Build
 
+**Quick start:** `./build.sh` sets the required `KSPRPROJ` environment variable
+and the external-library paths for you, then runs the build — you don't have to
+export anything. Any argument passes through to `make`:
+
+```bash
+./build.sh schema        # generate the CME SBE codecs (pinned MDP3 v12 / iLink v8)
+./build.sh               # full build (== make all)
+./build.sh debug         # debug build
+./build.sh -C actors/cpp # build just one component
+```
+
+The rest of this section is the manual equivalent, plus the toolchain
+prerequisites.
+
 On Debian/Ubuntu, install the toolchain and dependencies:
 
 ```bash
