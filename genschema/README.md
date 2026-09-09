@@ -68,26 +68,29 @@ python3 genschema/genschema.py --schema mdp3 --template-file path/to/templates_F
 ## How it works
 
 1. Ensure `sbe-all-<ver>.jar` (download + cache).
-2. Fetch `templates_FixBinary.xml` from CME SFTP for the chosen env/version
-   (or use `--template-file`).
-3. On the default path, verify the template's `sbeSchemaVersion` matches the
-   pinned version and abort if not.
-4. Rewrite the schema's `package` attribute to `mktdata_v12` / `ilink_v8` so the
-   tool emits into the right repo subdir.
-5. Regenerate that subdir with `java -Dsbe.target.language=CPP
-   -Dsbe.output.dir=<repo> -jar sbe-all.jar <template.xml>`, removing stale
-   `*.h` first (the tracked `README.md` / `.gitignore` are left in place).
+2. Fetch the template from CME SFTP for the chosen schema/env/version — MDP3 from
+   `SBEFix/<Env>/Templates` (archived versions under `Archive/`), iLink 3 from
+   `MSGW/<Env>/Templates` (or use `--template-file`).
+3. Verify the fetched template's `sbeSchemaVersion` matches the requested/pinned
+   version and abort if not.
+4. Rewrite the schema's `package` attribute to `sbe` (the namespace the code
+   uses: `sbe::NewOrderSingle514`, …).
+5. Run `java -Dsbe.target.language=CPP -jar sbe-all.jar <template.xml>` into a
+   temp dir and copy the headers into `mktdata_v12/` / `ilink_v8/`, removing
+   stale `*.h` first (the tracked `README.md` / `.gitignore` are left in place).
 
 ## Status / caveats
 
-- **Validated:** the codegen path — jar download, the `package` rewrite, and
-  `sbe.target.language=CPP` producing the repo's exact header style
-  (`_SBE_*_H_`, `SBE_CONSTEXPR`, one file per type) — using `--template-file`.
-- **Not validated here (needs a CME-entitled network):** the SFTP fetch, the
-  exact CME remote template paths, and `--latest` version discovery. The paths
-  in `SCHEMAS` (top of `genschema.py`) are CME's standard SBEFix layout; the
-  **iLink 3 template path/filename in particular is a placeholder — verify it on
-  first run** and adjust `SCHEMAS["ilink"]` if CME differs.
-- **Version match:** the currently-used real-logic SBE version isn't pinned in
-  history; the header *format* is stable across versions, but if you need output
-  byte-identical to a prior generation, pass the matching `--sbe-version`.
+- **Verified end-to-end against CME production SFTP:** both schemas fetched at
+  their pinned versions (`SBEFix/.../Archive/templates_FixBinary_v12.xml`,
+  `MSGW/.../ilinkbinary_v8.xml`), regenerated, and the full library build
+  compiles against them (0 errors) — types in `namespace sbe`, `_SBE_*_H_`
+  guards, one file per type.
+- **Not byte-identical to the headers previously committed to git.** Those were
+  produced by a different real-logic SBE version (different include ordering /
+  `wrapForEncode` style) and carried a hand-added license header. The struct
+  layout, namespace, guards and API are the same, so the code is unaffected; the
+  generated output is now the source of truth. Pass `--sbe-version` to match a
+  specific prior generation if you need a closer diff.
+- **CME's current templates have moved past the pins** (MDP3 v13, iLink v9), so
+  `make schema` regenerates the pinned v12/v8 by default; use `--latest` to move.

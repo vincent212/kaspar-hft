@@ -19,12 +19,14 @@
 # SFTP (for the templates). `--template-file` bypasses SFTP if you already have
 # the XML.
 #
-# TESTED: the codegen half (jar download + `sbe.target.language=CPP` producing
-# the repo's exact `_SBE_*_H_` / `SBE_CONSTEXPR` header style, one file per type,
-# under a subdir named from the schema's `package` attribute). NOT tested here:
-# the CME SFTP fetch and the exact remote template paths / version discovery —
-# those need a CME-entitled network. The paths below are CME's standard SBEFix
-# layout; VERIFY them on first run and adjust SCHEMAS if CME differs.
+# Verified end-to-end against CME's production SFTP: MDP3 v12 and iLink 3 v8 were
+# regenerated from CME and the full library build compiles against them (0
+# errors). The SFTP paths, the version pinning, and the `package`->`sbe` rewrite
+# all work. NOTE: output is functionally equivalent but NOT byte-identical to the
+# headers previously committed to git — those were produced by a different
+# real-logic SBE version (different include ordering / wrapForEncode style) and
+# carried a hand-added license header. The struct layout, `sbe` namespace, guard
+# style, and API match. Pass --sbe-version to match a specific prior generation.
 
 import argparse
 import glob
@@ -35,6 +37,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -48,36 +51,46 @@ SFTP_PASS = "G3t(0nnect3d"
 
 ENV_DIR = {"prod": "Production", "nrcert": "NRCert", "cert": "Cert"}
 
-# One entry per schema. `remote_dir` is the CME SFTP directory that holds the
-# SBE template(s); `remote_file` the template filename. `out_pkg` is the repo
-# subdir the headers land in — we rewrite the template's `package` attribute to
-# this so the SBE tool emits into <repo>/<out_pkg>/.
+# One entry per schema, verified against CME's SFTP layout:
+#   MDP3 market data  -> SBEFix/<Env>/Templates/  (package "mktdata", id 1)
+#   iLink 3 order entry -> MSGW/<Env>/Templates/  (package "iLinkBinary", id 8)
+# `latest_*` is the current published template; versioned templates have
+# deterministic names under `version_dir` (MDP3 archives old versions under
+# .../Templates/Archive/; iLink keeps them alongside the current one).
+# `out_pkg` is the repo subdir the headers land in — we rewrite the template's
+# `package` attribute to this so the SBE tool emits into <repo>/<out_pkg>/.
 #
 # `pinned_version` is the SBE schema version the checked-in codecs were built and
 # tested against (the `sbeSchemaVersion()` in the generated headers). The code
 # depends on those struct/wire layouts, so by DEFAULT we regenerate that exact
-# version and REFUSE to silently emit a different one — if CME's current template
-# has moved on, generation stops with instructions rather than changing layouts
-# under the code's feet. Use --latest (or --version) to intentionally move.
-#
-# VERIFY these remote paths against CME (they could not be probed from the dev
-# box). MDP3's templates_FixBinary.xml lives under SBEFix/<Env>/Templates in the
-# standard layout; iLink 3 publishes its own SBE template — confirm its exact
-# path/filename and fix `remote_dir`/`remote_file` here if it differs.
+# version (CME's current templates have already moved past it: MDP3 v13, iLink
+# v9). Use --latest to pull CME's current template, or --version N for another.
 SCHEMAS = {
     "mdp3": {
-        "remote_dir": "SBEFix/{env}/Templates",
-        "remote_file": "templates_FixBinary.xml",
+        "latest_dir": "SBEFix/{env}/Templates",
+        "latest_file": "templates_FixBinary.xml",
+        "version_dir": "SBEFix/{env}/Templates/Archive",
+        "version_file": "templates_FixBinary_v{ver}.xml",
         "out_pkg": "mktdata_v12",
         "pinned_version": 12,          # mktdata_v12: sbeSchemaId 1, sbeSchemaVersion 12
     },
     "ilink": {
-        "remote_dir": "SBEFix/{env}/Templates",       # VERIFY: iLink 3 template location
-        "remote_file": "templates_FixBinary_iLink3.xml",  # VERIFY: iLink 3 template name
+        "latest_dir": "MSGW/{env}/Templates",
+        "latest_file": "ilinkbinary.xml",
+        "version_dir": "MSGW/{env}/Templates",
+        "version_file": "ilinkbinary_v{ver}.xml",
         "out_pkg": "ilink_v8",
         "pinned_version": 8,           # ilink_v8: sbeSchemaId 8, sbeSchemaVersion 8
     },
 }
+
+# The checked-in codecs live in namespace `sbe` (the code refers to the types as
+# sbe::NewOrderSingle514 etc.), regardless of which directory they sit in. CME's
+# templates declare package "mktdata" / "iLinkBinary"; we rewrite that to `sbe`
+# so the generated types land in the namespace the code expects. The per-schema
+# directory (mktdata_v12/ ilink_v8/) is the include path, decoupled from the
+# package — generate() puts the headers there directly.
+SBE_PACKAGE = "sbe"
 
 DEFAULT_SBE_VERSION = "1.30.0"
 MAVEN = "https://repo1.maven.org/maven2/uk/co/real-logic/sbe-all/{v}/sbe-all-{v}.jar"
@@ -102,50 +115,45 @@ def fetch_jar(version):
     return jar
 
 
-def sftp_open():
+def sftp_open(tries=4):
     try:
         import paramiko
     except ImportError:
         sys.exit("[genschema] ERROR: paramiko is required for SFTP fetch "
                  "(`pip install paramiko`), or pass --template-file to skip it")
-    socket.setdefaulttimeout(30)
-    t = paramiko.Transport((SFTP_HOST, 22))
-    t.connect(username=SFTP_USER, password=SFTP_PASS)
-    return t, t.open_sftp_client()
+    socket.setdefaulttimeout(40)
+    last = None
+    for i in range(tries):
+        try:
+            t = paramiko.Transport((SFTP_HOST, 22))
+            t.connect(username=SFTP_USER, password=SFTP_PASS)
+            return t, t.open_sftp_client()
+        except Exception as e:  # CME occasionally drops the handshake; retry
+            last = e
+            log(f"SFTP connect failed ({e}); retry {i + 1}/{tries}")
+            time.sleep(5)
+    sys.exit(f"[genschema] ERROR: could not connect to {SFTP_HOST}: {last}")
 
 
-def resolve_remote_file(sftp, remote_dir, remote_file, version, latest):
-    """Pick the template file on CME for the requested version / latest."""
-    if not latest and version is None:
-        return f"{remote_dir}/{remote_file}"
-    entries = sftp.listdir(remote_dir)
-    stem, ext = os.path.splitext(remote_file)
-    # Versioned templates are conventionally <stem>.<version><ext> or carry the
-    # version in the name; match those, else fall back to the plain file.
-    cands = [e for e in entries if e.startswith(stem) and e.endswith(ext)]
-    if not cands:
-        sys.exit(f"[genschema] no template matching '{stem}*{ext}' in {remote_dir}: {entries}")
-    mtime = lambda e: sftp.stat(f"{remote_dir}/{e}").st_mtime
-    if version is not None:
-        # Match the version as a whole number token, not a bare substring, so
-        # e.g. --version 1 doesn't match "v11"/"12". Among matches pick the
-        # newest by mtime (deterministic; lexicographic sort mis-orders 9 vs 11).
-        tok = re.compile(rf"(?<!\d){re.escape(str(version))}(?!\d)")
-        match = [e for e in cands if tok.search(e)]
-        if not match:
-            sys.exit(f"[genschema] no template for version {version} in {remote_dir}: {cands}")
-        return f"{remote_dir}/{max(match, key=mtime)}"
-    # --latest: newest by mtime
-    latest_e = max(cands, key=mtime)
-    log(f"latest template in {remote_dir}: {latest_e}")
-    return f"{remote_dir}/{latest_e}"
+# The CME templates use an arbitrary namespace prefix on messageSchema (e.g.
+# <ns2:messageSchema ...>), so match any "<prefix:messageSchema" / "<messageSchema".
+_SCHEMA_TAG = r'<(?:[\w.-]+:)?messageSchema\b'
+
+
+def remote_template_path(schema, env, version, latest):
+    """Deterministic CME SFTP path for the requested schema/version/latest."""
+    s = SCHEMAS[schema]
+    if latest:
+        return s["latest_dir"].format(env=env) + "/" + s["latest_file"]
+    ver = s["pinned_version"] if version is None else version
+    return s["version_dir"].format(env=env) + "/" + s["version_file"].format(ver=ver)
 
 
 def schema_version_of(xml_path):
-    """Read the SBE schema version attribute from <sbe:messageSchema ...>."""
+    """Read the SBE schema version attribute from the <...messageSchema ...> tag."""
     with open(xml_path, encoding="utf-8") as f:
         xml = f.read()
-    m = re.search(r'<sbe:messageSchema\b[^>]*?\bversion="(\d+)"', xml)
+    m = re.search(_SCHEMA_TAG + r'[^>]*?\bversion="(\d+)"', xml)
     return int(m.group(1)) if m else None
 
 
@@ -153,12 +161,12 @@ def set_package(xml_path, pkg):
     """Force the schema's package attribute so the SBE tool emits into <pkg>/."""
     with open(xml_path, encoding="utf-8") as f:
         xml = f.read()
-    new, n = re.subn(r'(<sbe:messageSchema\b[^>]*?\bpackage=")[^"]*(")',
+    new, n = re.subn(r'(' + _SCHEMA_TAG + r'[^>]*?\bpackage=")[^"]*(")',
                      rf'\g<1>{pkg}\g<2>', xml, count=1)
     if n == 0:  # no package attribute present -> inject one
-        new, n = re.subn(r'(<sbe:messageSchema\b)', rf'\g<1> package="{pkg}"', xml, count=1)
+        new, n = re.subn(r'(' + _SCHEMA_TAG + r')', rf'\g<1> package="{pkg}"', xml, count=1)
     if n == 0:
-        sys.exit(f"[genschema] could not find <sbe:messageSchema> in {xml_path}")
+        sys.exit(f"[genschema] could not find a messageSchema element in {xml_path}")
     with open(xml_path, "w", encoding="utf-8") as f:
         f.write(new)
 
@@ -166,21 +174,26 @@ def set_package(xml_path, pkg):
 def generate(jar, template_xml, out_pkg):
     out_dir = os.path.join(REPO, out_pkg)
     os.makedirs(out_dir, exist_ok=True)
-    # Clear stale generated headers so a renamed/removed message can't linger
-    # (mirrors the rm-before-ar fix in actors/cpp/Makefile). Remove only *.h —
-    # the dir also holds the tracked README.md and .gitignore, which the SBE
-    # tool does not regenerate, so an rmtree of the whole dir would delete them.
-    for h in glob.glob(os.path.join(out_dir, "*.h")):
-        os.remove(h)
     log(f"generating {out_pkg}/ from {os.path.basename(template_xml)}")
-    subprocess.run(
-        ["java", "-Dsbe.target.language=CPP", f"-Dsbe.output.dir={REPO}", "-jar", jar, template_xml],
-        check=True)
-    n = len(glob.glob(os.path.join(out_dir, "*.h")))
-    if n == 0:
-        sys.exit(f"[genschema] SBE tool produced no headers in {out_dir} "
-                 f"(is the template's package attribute '{out_pkg}'?)")
-    log(f"wrote {n} headers to {out_pkg}/")
+    # The SBE tool emits into <output.dir>/<package-as-path> (here <tmp>/sbe/),
+    # so generate into a temp dir and copy the headers into out_pkg/. This keeps
+    # the include directory (mktdata_v12/, ilink_v8/) independent of the `sbe`
+    # package/namespace.
+    with tempfile.TemporaryDirectory() as td:
+        subprocess.run(
+            ["java", "-Dsbe.target.language=CPP", f"-Dsbe.output.dir={td}", "-jar", jar, template_xml],
+            check=True)
+        gen = glob.glob(os.path.join(td, "**", "*.h"), recursive=True)
+        if not gen:
+            sys.exit(f"[genschema] SBE tool produced no headers for {out_pkg}/")
+        # Clear stale generated headers so a renamed/removed message can't linger
+        # (mirrors the rm-before-ar fix in actors/cpp/Makefile). Remove only *.h —
+        # the dir also holds the tracked README.md and .gitignore.
+        for h in glob.glob(os.path.join(out_dir, "*.h")):
+            os.remove(h)
+        for h in gen:
+            shutil.copy(h, out_dir)
+    log(f"wrote {len(gen)} headers to {out_pkg}/")
 
 
 def main():
@@ -211,34 +224,31 @@ def main():
                 log(f"WARNING: {args.template_file} is schema version {got}, but "
                     f"{s['out_pkg']} is pinned to v{s['pinned_version']}; the code may "
                     f"not match the regenerated layout.")
-            set_package(local, s["out_pkg"])
+            set_package(local, SBE_PACKAGE)
             generate(jar, local, s["out_pkg"])
             return
 
+        env = ENV_DIR[args.env]
         transport, sftp = sftp_open()
         try:
             for name in targets:
                 s = SCHEMAS[name]
-                remote_dir = s["remote_dir"].format(env=ENV_DIR[args.env])
-                remote = resolve_remote_file(sftp, remote_dir, s["remote_file"],
-                                             args.version, args.latest)
+                remote = remote_template_path(name, env, args.version, args.latest)
                 local = os.path.join(tmp, f"{name}.xml")
                 log(f"downloading {remote}")
-                sftp.get(remote, local)
-                # Default (no --version/--latest): refuse to regenerate a schema
-                # version other than the one the code was built against.
-                if not args.latest and args.version is None:
-                    pinned = s["pinned_version"]
-                    got = schema_version_of(local)
-                    if got is not None and got != pinned:
-                        sys.exit(
-                            f"[genschema] CME's current {name} template is schema version "
-                            f"{got}, but this repo is built against version {pinned} "
-                            f"({s['out_pkg']}). Regenerating would change the wire/struct "
-                            f"layout the code depends on. Fetch the archived v{pinned} "
-                            f"template and pass --template-file, or pass --latest to move "
-                            f"the repo to v{got} deliberately.")
-                set_package(local, s["out_pkg"])
+                try:
+                    sftp.get(remote, local)
+                except IOError:
+                    sys.exit(f"[genschema] {name}: template not found on CME: {remote} "
+                             f"(check --env/--version, or --latest for the current template)")
+                # Sanity-check we got the version we asked for. Default and
+                # --version have a definite expected version; --latest does not.
+                expect = None if args.latest else (args.version or s["pinned_version"])
+                got = schema_version_of(local)
+                if expect is not None and got is not None and str(got) != str(expect):
+                    sys.exit(f"[genschema] {name}: fetched schema version {got}, expected "
+                             f"{expect} ({remote}) — CME may have changed its layout.")
+                set_package(local, SBE_PACKAGE)
                 generate(jar, local, s["out_pkg"])
         finally:
             sftp.close()
