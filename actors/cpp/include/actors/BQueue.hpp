@@ -26,7 +26,9 @@ namespace actors
   template <class T>
   class BQueue : public Queue<T>
   {
-  private:
+  protected:
+    // protected (not private) so BQueueBatched can add a whole-mailbox drain
+    // that reuses this storage and lock.
     mutable std::mutex mut;
     mutable std::condition_variable cv;
     boost::circular_buffer<T> cb_;

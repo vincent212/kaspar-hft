@@ -34,6 +34,7 @@
  *     warmup  discarded round trips per row  (default 10000)
  */
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -84,8 +85,12 @@ template <class PingT, class PongT>
 class PongActor : public Actor
 {
 public:
-  PongActor()
+  // mbk selects this actor's mailbox (see Actor::set_mailbox). Default keeps the
+  // stock BQueue so existing rows are unchanged.
+  explicit PongActor(Actor::MailboxKind mbk = Actor::MailboxKind::BQueue,
+                     size_t cap = ACTOR_BQUEUE_SIZE)
   {
+    set_mailbox(mbk, cap);
     std::strncpy(name, "PongActor", sizeof(name) - 1);
     MESSAGE_HANDLER(PingT, on_ping);
   }
@@ -187,6 +192,106 @@ perf::LatencyStats run_send(const std::string& label, bool grouped, size_t measu
     mgr.add_to_manage_q(pong);
     mgr.add_to_manage_q(driver);
   }
+
+  mgr.init();
+  fut.wait();
+  mgr.end();
+  auto s = perf::LatencyStats::from(label, samples);
+  s.amortized = measured ? static_cast<double>(measured_wall) / measured : 0.0;
+  return s;
+}
+
+// Keeps `window` messages outstanding (a burst/pipeline) instead of one at a
+// time, so the receiver's mailbox actually accumulates a backlog — the load
+// that exercises batch drain and separates the queue types. Each ping carries
+// its send timestamp (via send_ts_ indexed by seq) so we still get a
+// per-message latency-under-load distribution; amort is the throughput.
+template <class PingT, class PongT>
+class BurstDriverActor : public Actor
+{
+public:
+  BurstDriverActor(Actor* pong, size_t window, size_t measured, size_t warmup,
+                   std::vector<uint64_t>* samples, std::promise<void>* done,
+                   uint64_t* measured_wall_ns)
+  : pong_(pong), window_(window), warmup_(warmup), total_(measured + warmup),
+    samples_(samples), done_(done), measured_wall_ns_(measured_wall_ns)
+  {
+    std::strncpy(name, "BurstDriver", sizeof(name) - 1);
+    samples_->reserve(measured);
+    send_ts_.resize(total_, 0);
+    MESSAGE_HANDLER(msg::Start, on_start);
+    MESSAGE_HANDLER(PongT, on_pong);
+  }
+
+private:
+  void send_one() noexcept
+  {
+    const uint64_t ts = perf::now_ns();
+    send_ts_[sent_] = ts;
+    if (sent_ == warmup_)
+      win_start_ = ts; // window opens when the first measured message is sent
+    pong_->send(new PingT(sent_), this);
+    ++sent_;
+  }
+
+  void on_start(const msg::Start*) noexcept
+  {
+    const size_t initial = std::min(window_, total_);
+    for (size_t i = 0; i < initial; ++i)
+      send_one();
+  }
+
+  void on_pong(const PongT* m) noexcept
+  {
+    const uint64_t t1 = perf::now_ns();
+    const uint64_t seq = m->seq;
+    if (seq >= warmup_)
+      samples_->push_back(t1 - send_ts_[seq]);
+    ++recv_;
+
+    if (sent_ < total_)
+      send_one();               // refill the window
+    else if (recv_ == total_ && !signalled_)
+    {
+      *measured_wall_ns_ = t1 - win_start_;
+      signalled_ = true;
+      done_->set_value();
+    }
+  }
+
+  Actor* pong_;
+  size_t window_, warmup_, total_;
+  std::vector<uint64_t>* samples_;
+  std::promise<void>* done_;
+  uint64_t* measured_wall_ns_;
+  std::vector<uint64_t> send_ts_;
+  uint64_t win_start_ = 0;
+  size_t sent_ = 0;
+  size_t recv_ = 0;
+  bool signalled_ = false;
+};
+
+// Ungrouped burst run: pong on its own thread using mailbox `mbk`, driver
+// keeps `window` pings outstanding.
+template <class PingT, class PongT>
+perf::LatencyStats run_burst(const std::string& label, Actor::MailboxKind mbk,
+                             size_t window, size_t measured, size_t warmup)
+{
+  std::vector<uint64_t> samples;
+  std::promise<void> done;
+  auto fut = done.get_future();
+  uint64_t measured_wall = 0;
+
+  // Ring/overflow big enough to hold the burst; sharded uses a lane count.
+  const size_t cap = (mbk == Actor::MailboxKind::ShardedBQueue) ? 8 : 4 * window + 64;
+
+  Manager mgr("bench_mgr");
+  auto* pong = new PongActor<PingT, PongT>(mbk, cap);
+  auto* driver = new BurstDriverActor<PingT, PongT>(
+      pong, window, measured, warmup, &samples, &done, &measured_wall);
+
+  mgr.add_to_manage_q(pong);
+  mgr.add_to_manage_q(driver);
 
   mgr.init();
   fut.wait();
@@ -371,7 +476,7 @@ int main(int argc, char** argv)
   {
     if (std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0)
     {
-      std::printf("usage: %s [N] [warmup] [section: transport|alloc|fastsend|all]\n", argv[0]);
+      std::printf("usage: %s [N] [warmup] [section: transport|alloc|fastsend|batch|all]\n", argv[0]);
       return 0;
     }
     measured = std::strtoull(argv[1], nullptr, 10);
@@ -409,6 +514,18 @@ int main(int argc, char** argv)
     rows.push_back(run_fastsend_stack("fs stack+reply", measured, warmup));
     rows.push_back(run_fastsend_stack_noreply("fs stack noreply", measured, warmup));
     rows.push_back(run_direct_call("direct call (base)", measured, warmup));
+  }
+
+  if (all || section == "batch")
+  {
+    // A 16-deep burst keeps the receiver's mailbox backlogged, so the queue
+    // type (single vs whole-mailbox batch drain, sharded, lock-free) actually
+    // matters. amort is the per-message throughput under load.
+    const size_t W = 16;
+    rows.push_back(run_burst<Ping, Pong>("burst16 BQueue",        Actor::MailboxKind::BQueue,        W, measured, warmup));
+    rows.push_back(run_burst<Ping, Pong>("burst16 BQueueBatched", Actor::MailboxKind::BQueueBatched, W, measured, warmup));
+    rows.push_back(run_burst<Ping, Pong>("burst16 ShardedBQueue", Actor::MailboxKind::ShardedBQueue, W, measured, warmup));
+    rows.push_back(run_burst<Ping, Pong>("burst16 LockFreeMPSC",  Actor::MailboxKind::LockFreeMPSC,  W, measured, warmup));
   }
 
   if (rows.empty())

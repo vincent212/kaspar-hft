@@ -20,6 +20,11 @@
 #include <atomic>
 #include <cstring>
 #include <cassert>
+#include <variant>
+#include "actors/BQueue.hpp"
+#include "actors/BQueueBatched.hpp"
+#include "actors/ShardedBQueue.hpp"
+#include "actors/LockFreeMPSC.hpp"
 
 #define ACTOR_BQUEUE_SIZE 64
 #define ACTOR_HANDLER_CACHE_SIZE 2048
@@ -86,6 +91,11 @@ namespace actors
     // Non-copyable
     Actor(const Actor&) = delete;
     Actor& operator=(const Actor&) = delete;
+
+    // Which concrete mailbox an actor uses (see set_mailbox). Public so callers
+    // can name a kind; the setter itself is protected (an actor selects its own
+    // mailbox, in its constructor, before its thread starts).
+    enum class MailboxKind { BQueue, BQueueBatched, ShardedBQueue, LockFreeMPSC };
 
     /**
      * Send a message asynchronously (fire-and-forget)
@@ -156,10 +166,40 @@ namespace actors
     Actor *get_group() const;
     void process_message_internal(const Message *m, bool dontdel = false) noexcept;
 
-    // Message queue (protected to allow custom operator() implementations)
-    Queue<const Message *> *msgq;
+    // The mailbox. Held BY VALUE in a std::variant of the concrete queue types
+    // (a closed set) rather than behind a Queue<T>* base pointer. std::visit
+    // hands the producer/consumer a CONCRETE queue reference, so push/pop are
+    // devirtualized and the consumer drain loop inlines — no per-message vtable
+    // indirection. See tech_reports/queue_dispatch_design.md (issue #54).
+    using MailboxMsg = const Message *;
+    using Mailbox = std::variant<
+        BQueue<MailboxMsg>,
+        BQueueBatched<MailboxMsg>,
+        ShardedBQueue<MailboxMsg>,
+        LockFreeMPSC<MailboxMsg>>;
+    Mailbox msgq;
+
+    // Replace the mailbox with `kind`. Select BEFORE the actor thread starts
+    // (e.g. in the constructor); switching a live mailbox is not safe. `cap` is
+    // the queue's sizing hint:
+    // ring/overflow size for BQueue(Batched), lane count for ShardedBQueue,
+    // ring capacity for LockFreeMPSC.
+    void set_mailbox(MailboxKind kind, size_t cap = ACTOR_BQUEUE_SIZE)
+    {
+      switch (kind) {
+        case MailboxKind::BQueue:        msgq.emplace<BQueue<MailboxMsg>>(cap); break;
+        case MailboxKind::BQueueBatched: msgq.emplace<BQueueBatched<MailboxMsg>>(cap); break;
+        case MailboxKind::ShardedBQueue: msgq.emplace<ShardedBQueue<MailboxMsg>>(cap); break;
+        case MailboxKind::LockFreeMPSC:  msgq.emplace<LockFreeMPSC<MailboxMsg>>(cap); break;
+      }
+    }
 
   private:
+    // Consumer drain loop, instantiated per concrete queue type via std::visit
+    // (defined in Actor.cpp). BQueueBatched drains the whole mailbox per lock;
+    // the others drain one message at a time.
+    template <class Q> void run_loop(Q& q) noexcept;
+
     std::mutex fast_send_mutex;
     bool using_fast_send = false;
     const Message *reply_message = nullptr;
