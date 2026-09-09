@@ -13,7 +13,7 @@
 actor_ptr create_OB(
     actor_ptr binrec,
     bool spin,
-    bool do_cross_check,
+    [[maybe_unused]] bool do_cross_check,
     actors::Manager *man,
     uint _sym,
     boost::property_tree::ptree _pt)

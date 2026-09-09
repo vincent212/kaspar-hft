@@ -50,8 +50,6 @@ Actor::Actor()
 
 void Actor::send(const Message *m, Actor *sender) noexcept
 {
-  assert(this != nullptr && "send to null actor");
-
   if (terminated)
     return;
 
@@ -96,7 +94,6 @@ bool Actor::call_handler(const Message *m) noexcept
 void Actor::process_message_internal(const Message *m, bool dontdel) noexcept
 {
   std::lock_guard<std::mutex> lock(fast_send_mutex);
-  assert(this != nullptr && "no actor to handle message");
 
   msg_cnt++;
   using_fast_send = false;
@@ -114,7 +111,6 @@ std::unique_ptr<const Message> Actor::fast_send(const Message *m, Actor *sender)
 {
   std::lock_guard<std::mutex> lock(fast_send_mutex);
 
-  assert(this != nullptr && "fast send to null actor");
   assert(m != nullptr && "fast send with no message");
   assert(this != sender && "fast send to itself");
 
