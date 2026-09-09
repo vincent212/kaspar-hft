@@ -11,8 +11,8 @@ MDP 3.0 SBE market-data codecs, produced by the real-logic SBE tool from CME's
 `templates_FixBinary.xml`. They are git-ignored; regenerate with:
 
 ```bash
-make schema                 # from the repo root — both schemas, latest
-# or just this one, a specific version:
+make schema                 # from the repo root — both schemas, pinned versions
+# or just this one, a specific version (default is the pinned v12):
 python3 genschema/genschema.py --schema mdp3 --version <VER>
 ```
 

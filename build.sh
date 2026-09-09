@@ -44,7 +44,9 @@ cd "$KSPRPROJ"
 # .P files, it silently "gives up" with no diagnostic (Error 2, no message).
 # Detect that by sampling one .P for a referenced path that no longer exists,
 # and purge them all if so (make regenerates them on the next build).
-sample_P="$(find . -name '*.P' 2>/dev/null | head -1)"
+# `|| true`: head closing the pipe early can hand find a SIGPIPE, which would
+# abort the script under `set -o pipefail`.
+sample_P="$( { find . -name '*.P' 2>/dev/null | head -1; } || true )"
 if [ -n "$sample_P" ]; then
     stale=0
     while IFS= read -r hdr; do
@@ -65,7 +67,12 @@ case "${1:-}" in
     *)
         if ! ls mktdata_v12/*.h >/dev/null 2>&1 || ! ls ilink_v8/*.h >/dev/null 2>&1; then
             echo "[build] CME SBE codecs missing — generating (make schema)..."
-            make schema
+            if ! make schema; then
+                echo "[build] ERROR: could not generate the SBE codecs (needs Java," >&2
+                echo "        Python paramiko, and CME network access — see" >&2
+                echo "        genschema/README.md). Generate them, then re-run." >&2
+                exit 1
+            fi
         fi
         ;;
 esac

@@ -12,13 +12,18 @@
 
 actor_ptr create_OB(
     actor_ptr binrec,
-    bool spin,
-    [[maybe_unused]] bool do_cross_check,
+    [[maybe_unused]] bool spin,
+    bool do_cross_check,
     actors::Manager *man,
     uint _sym,
     boost::property_tree::ptree _pt)
 {
-    return new frame::ob::act::OB(binrec, spin, man, _sym, _pt);
+    // OB's constructor takes (binrec, do_cross_check, man, sym, pt) — it has no
+    // `spin` parameter. The call previously passed `spin` into the
+    // do_cross_check slot, so OB::do_cross_check was driven by `spin` and the
+    // caller's do_cross_check was dropped. Forward do_cross_check as intended;
+    // `spin` is unused here.
+    return new frame::ob::act::OB(binrec, do_cross_check, man, _sym, _pt);
 }
 
 void ob_set_debug(actor_ptr ob, uint64_t start_debug)

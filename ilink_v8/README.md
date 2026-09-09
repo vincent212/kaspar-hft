@@ -7,11 +7,11 @@
 # ilink_v8
 **Generated — do not edit or commit these headers.** The `*.h` here are the CME
 iLink 3 SBE order-entry codecs, produced by the real-logic SBE tool from CME's
-iLink 3 `templates_FixBinary` schema. They are git-ignored; regenerate with:
+iLink 3 `ilinkbinary.xml` schema (MSGW). They are git-ignored; regenerate with:
 
 ```bash
-make schema                 # from the repo root — both schemas, latest
-# or just this one, a specific version:
+make schema                 # from the repo root — both schemas, pinned versions
+# or just this one, a specific version (default is the pinned v8):
 python3 genschema/genschema.py --schema ilink --version <VER>
 ```
 

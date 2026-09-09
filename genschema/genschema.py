@@ -124,12 +124,18 @@ def sftp_open(tries=4):
     socket.setdefaulttimeout(40)
     last = None
     for i in range(tries):
+        t = None
         try:
             t = paramiko.Transport((SFTP_HOST, 22))
             t.connect(username=SFTP_USER, password=SFTP_PASS)
             return t, t.open_sftp_client()
         except Exception as e:  # CME occasionally drops the handshake; retry
             last = e
+            if t is not None:
+                try:
+                    t.close()  # don't leak the half-open transport across retries
+                except Exception:
+                    pass
             log(f"SFTP connect failed ({e}); retry {i + 1}/{tries}")
             time.sleep(5)
     sys.exit(f"[genschema] ERROR: could not connect to {SFTP_HOST}: {last}")
