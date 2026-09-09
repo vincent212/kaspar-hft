@@ -204,39 +204,24 @@ handle_messages!(MyStrategy,
 See [actors/cpp/CLAUDE_AGENT_GUIDE.md](actors/cpp/CLAUDE_AGENT_GUIDE.md) for the complete C++ framework
 reference, and [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) for the Rust API.
 
-### Message IDs — a gotcha when adding messages
+### Adding a message type
 
-Every actor message carries an integer ID that drives O(1) dispatch
-(`handler_cache[msg_id]`) and message-type identification. The ID is a data
-member set at construction; `get_message_id()` is a non-virtual accessor (no
-vtable call on the dispatch path).
-
-**Prefer `MessageT<Derived>`** — its ID is auto-assigned at first use from a
-counter starting at 512, so it is collision-free by construction:
+Inherit `MessageT<Derived>`. That's it — the dispatch ID is auto-assigned and
+collision-free by construction, so there's nothing to hand-pick:
 
 ```cpp
 struct MyMessage : public actors::MessageT<MyMessage> { /* ... */ };
 ```
 
-**`Message_N<N>`** fixes the ID to a compile-time constant in `[1, 511]` (use it
-only when you need `MyMessage::id` as a constant, e.g. a `case` label):
+Each message carries an integer ID that drives O(1) dispatch
+(`handler_cache[msg_id]`); with `MessageT` it's assigned at first use and
+`get_message_id()` is a non-virtual member read (no vtable on the dispatch path).
 
-```cpp
-struct MyMessage : public actors::Message_N<100> { /* ... */ };
-```
-
-For `Message_N`, **there is no compile-time check that IDs are unique** — if two
-types pick the same ID the collision is *silent*: messages get routed to the
-wrong handler or interpreted as the wrong type (undefined behavior), not a build
-error. So pick an ID nothing else uses and run the checker before committing — it
-scans the tree and flags any duplicate `Message_N<N>`:
-
-```bash
-python3 setclassid/setclassid.py     # exits noisily on a duplicate ID
-```
-
-See [`setclassid/README.md`](setclassid/README.md). (`MessageT` types need no
-such check — their 512+ IDs never overlap the hand-assigned range.)
+(A legacy `Message_N<N>` exists for the rare case that needs the ID as a
+compile-time constant. Its IDs are hand-assigned and *not* uniqueness-checked at
+compile time, so prefer `MessageT` — it removes the whole class of collision
+bugs. See [`setclassid/README.md`](setclassid/README.md) if you must audit
+existing `Message_N` IDs.)
 
 ## Console
 
@@ -354,7 +339,7 @@ kaspr {
 
 From the microbenchmarks in [`actors/cpp/perf`](actors/cpp/perf) (`bench_pingpong`),
 ping → pong → reply, one message in flight. Two machines — **indicative, not a
-spec; the ratios are the point.** macOS: Apple Silicon, `-O3 -march=native`, no
+spec; the ratios are the point.** macOS: Apple M3 (8-core, arm64), `-O3 -march=native`, no
 pinning. Linux: AMD EPYC 9374F, RHEL 9, g++ 15, `-O3 -march=native`, `taskset` to
 two cores (not fully quiesced — see [second data point](actors/cpp/perf/README.md#second-data-point-x86-64-linux)).
 

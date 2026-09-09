@@ -53,10 +53,10 @@ per-sample clock quantization and resolves costs below the clock tick.
 
 ## Results
 
-Apple Silicon (arm64), macOS, `-O3 -march=native`, native (not emulated), no CPU
+Apple M3 (8-core, arm64), macOS, `-O3 -march=native`, native (not emulated), no CPU
 pinning, N = 1,000,000, warmup = 10,000. **Indicative, not a spec** — absolute
 numbers move with hardware, allocator, and turbo state; the *ratios* are the
-point. A second run on x86-64 Linux (AMD EPYC) is in
+point. A second run on x86-64 Linux (AMD EPYC 9374F) is in
 [§ Second data point](#second-data-point-x86-64-linux) — the ratios reproduce,
 but the allocator and clock-resolution absolutes differ materially, so read that
 before quoting any single figure. **Note on the allocator:** glibc's small-object
