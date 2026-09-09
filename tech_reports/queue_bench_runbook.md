@@ -71,6 +71,8 @@ Paste, verbatim:
 1. `uname -srm`, the `lscpu` CPU model line, and the g++ version.
 2. The **`solo`** table (`solo1 *`) — window=1, lowest per-message latency.
 3. The **`batch`** table (`burst16 *`) — 16-deep burst, throughput under backlog.
+   Also the **`grouped`** table (`grp *`) — both actors on one thread, no
+   contention (compare `p50` per queue).
 4. The **`fanin`** table (`fanin *`) — many producers → one consumer. Include the
    `fan-in: N producer threads ...` line printed above it (N auto-scales to the
    box, so it will differ from macOS — that is the point). Here p50/p99 are PUSH

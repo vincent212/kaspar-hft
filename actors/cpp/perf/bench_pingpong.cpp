@@ -392,6 +392,48 @@ perf::LatencyStats run_fanin(const std::string& label, Actor::MailboxKind mbk,
   return s;
 }
 
+// A Group whose shared mailbox is a chosen kind (set_mailbox is protected on
+// Actor; a Group subclass can call it).
+class GroupMB : public Group
+{
+public:
+  GroupMB(const std::string& n, Actor::MailboxKind mbk, size_t cap) : Group(n)
+  {
+    set_mailbox(mbk, cap);
+  }
+};
+
+// Grouped: both actors share ONE group thread and the GROUP's mailbox, so the
+// mailbox is only ever touched by that single thread (it pushes when a handler
+// sends, then pops). No contention, no cross-core wakeup — the queue with the
+// least uncontended per-op overhead should win. window=1.
+template <class PingT, class PongT>
+perf::LatencyStats run_grouped(const std::string& label, Actor::MailboxKind mbk,
+                               size_t window, size_t measured, size_t warmup)
+{
+  std::vector<uint64_t> samples;
+  std::promise<void> done;
+  auto fut = done.get_future();
+  uint64_t measured_wall = 0;
+  const size_t cap = (mbk == Actor::MailboxKind::ShardedBQueue) ? 8 : 4 * window + 64;
+
+  Manager mgr("bench_mgr");
+  auto* pong = new PongActor<PingT, PongT>();  // own mailbox unused when grouped
+  auto* driver = new BurstDriverActor<PingT, PongT>(
+      pong, window, measured, warmup, &samples, &done, &measured_wall);
+  auto* g = new GroupMB("bench_group", mbk, cap);
+  g->add(pong);
+  g->add(driver);
+  mgr.add_to_manage_q(g);
+
+  mgr.init();
+  fut.wait();
+  mgr.end();
+  auto s = perf::LatencyStats::from(label, samples);
+  s.amortized = measured ? static_cast<double>(measured_wall) / measured : 0.0;
+  return s;
+}
+
 // fast_send round trip with a heap-allocated input message and a reply.
 template <class PingT, class PongT>
 perf::LatencyStats run_fastsend_heap(const std::string& label, size_t measured, size_t warmup)
@@ -567,7 +609,7 @@ int main(int argc, char** argv)
   {
     if (std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0)
     {
-      std::printf("usage: %s [N] [warmup] [section: transport|alloc|fastsend|solo|batch|fanin|all]\n", argv[0]);
+      std::printf("usage: %s [N] [warmup] [section: transport|alloc|fastsend|solo|batch|grouped|fanin|all]\n", argv[0]);
       return 0;
     }
     measured = std::strtoull(argv[1], nullptr, 10);
@@ -628,6 +670,16 @@ int main(int argc, char** argv)
     rows.push_back(run_burst<Ping, Pong>("burst16 BQueueBatched", Actor::MailboxKind::BQueueBatched, W, measured, warmup));
     rows.push_back(run_burst<Ping, Pong>("burst16 ShardedBQueue", Actor::MailboxKind::ShardedBQueue, W, measured, warmup));
     rows.push_back(run_burst<Ping, Pong>("burst16 LockFreeMPSC",  Actor::MailboxKind::LockFreeMPSC,  W, measured, warmup));
+  }
+
+  if (all || section == "grouped")
+  {
+    // Both actors on ONE group thread sharing the group's mailbox: single-
+    // threaded access, zero contention. The simplest queue should win.
+    rows.push_back(run_grouped<Ping, Pong>("grp BQueue",        Actor::MailboxKind::BQueue,        1, measured, warmup));
+    rows.push_back(run_grouped<Ping, Pong>("grp BQueueBatched", Actor::MailboxKind::BQueueBatched, 1, measured, warmup));
+    rows.push_back(run_grouped<Ping, Pong>("grp ShardedBQueue", Actor::MailboxKind::ShardedBQueue, 1, measured, warmup));
+    rows.push_back(run_grouped<Ping, Pong>("grp LockFreeMPSC",  Actor::MailboxKind::LockFreeMPSC,  1, measured, warmup));
   }
 
   if (all || section == "fanin")
