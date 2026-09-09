@@ -1017,7 +1017,7 @@ per-message operation should produce a measurable step down in latency. The
 actor framework's C++ microbenchmark suite measures exactly these steps on a
 \emph{sequential} round trip --- ping $\to$ pong $\to$ reply with a single
 message in flight, so each sample is a clean latency rather than a saturated
-throughput \cite{kasparperf}. All figures below were taken on Apple Silicon
+throughput \cite{kasparperf}. All figures below were taken on an Apple M3 (arm64)
 (arm64), macOS, compiled \texttt{-O3 -march=native}, without CPU pinning, over
 $N=10^6$ samples. They are \emph{indicative rather than a specification}:
 absolute numbers move with hardware, allocator, and turbo state, and this is
@@ -1182,8 +1182,8 @@ removing the allocator tail --- the one part of the pool's benefit that is
 platform-independent. What these numbers do
 \emph{not} establish is equally important: they are sequential latencies with one
 message in flight, not saturated throughput; they do not vary contention or chain
-depth; and they were taken primarily on Apple Silicon. A pinned cross-check on the
-x86-64 Linux target (AMD EPYC, \texttt{g++} 15) reproduces the \emph{ratios} ---
+depth; and they were taken primarily on an Apple M3. A pinned cross-check on the
+x86-64 Linux target (AMD EPYC 9374F, \texttt{g++} 15) reproduces the \emph{ratios} ---
 grouping still collapses the round trip, \fs{} still removes what remains, and its
 overhead over a bare call still measures single-digit nanoseconds ($+9$~ns there,
 about \emph{one} unpredictable virtual call) --- but not the allocator or
