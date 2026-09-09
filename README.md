@@ -59,11 +59,26 @@ sudo apt-get update && sudo apt-get install -y \
 Boost 1.88+ is newer than most distro packages — install a 1.88+ package or
 build it from source, then point the build at it.
 
+Generate the CME SBE codecs. `mktdata_v12/` (MDP3) and `ilink_v8/` (iLink 3) are
+**generated from CME's SBE templates, not committed** — generate them before the
+first build (needs Java and Python `paramiko`, plus network to Maven Central and
+CME SFTP; see `genschema/README.md`). By default this regenerates the pinned,
+tested versions (MDP3 v12 / iLink v8):
+
+```bash
+KSPRPROJ=$(pwd) make schema
+```
+
 Build the libraries (optimized):
 
 ```bash
-KSPRPROJ=$(pwd) make -j
+KSPRPROJ=$(pwd) make
 ```
+
+The build refuses to compile with a clear message (the `check-schema` guard) if
+the codecs are missing. (Prefer plain `make` over `make -j` for the first build:
+the schema guard is not parallel-safe, so on a fresh, un-generated tree `-j` can
+start a compile before the guard fires.)
 
 Build and run the actor-framework unit tests:
 
