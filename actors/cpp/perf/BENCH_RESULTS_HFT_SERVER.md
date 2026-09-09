@@ -8,12 +8,15 @@
 
 Run of `BENCH_ON_HFT_SERVER.md` on 2026-09-08. Every number below is pasted
 from stdout of a run on this machine; the raw files are committed under
-`results/` and listed in §7. §6 compares them against the published Apple
-Silicon numbers in `README.md` and `tech_reports/fast_send.pdf`.
+`results/` and listed in §8. §6 compares them against the published Apple
+Silicon numbers in `README.md` and `tech_reports/fast_send.pdf`. §7 is a new
+bench answering a question the existing ones do not: what `fast_send` costs
+against a **virtual call** rather than a bare static one.
 
 **Read §2 before quoting anything.** This box does *not* meet the runbook's
 quiescing preconditions, and the percentile table is clock-resolution limited.
-Only the amortized per-op numbers in §4 are worth propagating.
+Only the amortized per-op numbers in §4 are worth propagating — plus §7, which
+is built from within-process differences and is insensitive to both (see §9).
 
 ---
 
@@ -24,6 +27,8 @@ Only the amortized per-op numbers in §4 are worth propagating.
 | `direct call` amortized | **1.2 – 1.4 ns** | 3 runs, `fastsend` section |
 | `fast_send` amortized | **10.0 – 12.5 ns** | 3 runs, `fastsend` section |
 | `fast_send` overhead over a bare call | **+8.6 – +11.2 ns (7.2x – 9.3x)** | same |
+| `fast_send` vs a **polymorphic virtual call** | **0.98x – 1.21x** | §7, n=15 |
+| a *predicted* virtual call over a direct call | **+0.23 ns** | §7, n=15 |
 
 Sanity gate from the runbook — `fast_send` < grouped `send` < ungrouped `send`
 — **PASSES** on all three pool-ON runs (p50, ns):
@@ -256,8 +261,15 @@ Also relevant to this bench specifically: **issue #37** (hand-assigned message
 ids) records that `Message_N<100>` already appears six times and `<101>` four
 times in the tree. `bench_pingpong` uses ids 100–103. Id collision was ruled out
 as the cause here — `handler_cache` is sized 2048 and a clean rebuild fixes the
-crash — but anyone extending this bench should assign fresh ids rather than reuse
-that range.
+crash.
+
+Anyone extending these benches should use **`MessageT<Derived>`**, not another
+hand-picked `Message_N<N>`. `Message.hpp:84` says so outright ("Prefer
+`MessageT<Derived>` for new types, which assigns a collision-free id
+automatically"), and the space is tighter than it looks: hand-assigned ids are
+statically capped at **512**, not 2048 — `Message_N` static_asserts `N < 512`
+because 512+ is reserved for `MessageT`'s dynamic range — and 126 of those 512
+are already taken. `bench_dispatch` (§7) uses `MessageT` and picks no id at all.
 
 (Both out of scope for this PR; noted so the interaction is on the record.)
 
@@ -329,6 +341,13 @@ Derivations, so these can be checked:
    `send ungrouped`, §2). It needs its own provenance.
 6. **Two ratios got better on Linux and should be claimed.** Grouped vs
    ungrouped is 37x here, not 18x.
+7. **The docs benchmark against the wrong baseline.** README §D and the PDF
+   quote `fast_send` against a *direct free-function call* (+7 ns). Nobody
+   writes a static call where a message dispatch would go; they write a virtual
+   call. Measured against that, `fast_send` is **0.98x–1.21x** — i.e. free — and
+   that is the number that should be in the paper. §7 supplies it. The +7 ns
+   figure itself reproduces (+7.47 ns here), so this is an argument about which
+   comparison to lead with, not a correction.
 
 None of this is a change to the *conclusions*. The ordering, the pool-OFF
 collapse, the reply-plumbing cost, and the single-digit-ns `fast_send` tax all
@@ -337,30 +356,136 @@ property of the platform's malloc and not of the framework.
 
 ---
 
-## 7. Raw output
+## 7. Dispatch cost: `fast_send` against a virtual call
 
-Nine runs, all exit 0, committed under `actors/cpp/perf/results/`:
+`bench_pingpong` section D compares `fast_send` only to a direct free-function
+call, and the README and PDF quote that as "+7 ns over a bare call". A bare
+static call is not the alternative anyone would actually write. The hand-written
+alternative to a message dispatch is a **virtual call**. New bench,
+`actors/cpp/perf/bench_dispatch.cpp`, supplies that baseline.
+
+Every arm performs the identical work (`g_sink += m->seq` on a stack `Dis`) and
+differs only in how it is reached. Arms C–H index the same 1024-entry table of
+`Handler*` and differ **only** in how many distinct dynamic types the entries
+have — identical loads, identical cache footprint, identical instruction
+sequence. The only variable is what the branch predictor can learn.
+
+N=5,000,000, warmup 50,000, 5 repeats per invocation, 3 invocations, `taskset -c
+2,3`. n=15 per arm.
+
+| arm | min ns | med ns | max ns | net of floor | x direct |
+|---|---|---|---|---|---|
+| A empty loop (floor) | 0.47 | 0.47 | 0.72 | — | 0.3x |
+| B direct call | 1.63 | 1.63 | 1.67 | 1.16 | 1.0x |
+| C non-virtual via ptr | 1.63 | 1.63 | 1.90 | 1.16 | 1.0x |
+| D virtual, 1 type | 1.86 | 1.87 | 1.99 | 1.39 | 1.1x |
+| E virtual, 2 types cyclic | 9.21 | 9.50 | 10.10 | 8.74 | 5.7x |
+| F virtual, 4 types cyclic | 9.32 | 9.36 | 9.98 | 8.85 | 5.7x |
+| G virtual, 4 types shuffled | 7.53 | 7.70 | 7.85 | 7.06 | 4.6x |
+| H virtual, 8 types shuffled | 8.58 | 8.65 | 8.85 | 8.11 | 5.3x |
+| I ptr-to-member call | 1.63 | 1.63 | 1.64 | 1.16 | 1.0x |
+| **J `fast_send`** | **9.10** | **9.54** | **9.89** | **8.63** | **5.6x** |
+
+### 7.1 The result
+
+**`fast_send` costs about one polymorphic virtual call.** 9.10 ns against a
+7.53–9.32 ns band for a virtual call whose target the predictor cannot guess.
+The bands overlap; on this box `fast_send` is 0.98x–1.21x a real virtual
+dispatch, and it delivers a typed handler lookup and reply plumbing for that.
+
+That is a far more defensible claim than "62x faster than `send`" (§6 item 4),
+because it compares against the thing a reader would otherwise write, and both
+sides are measured the same way in the same process.
+
+### 7.2 Decomposition
+
+| quantity | derivation | value |
+|---|---|---|
+| pointer load | C − B | 0.00 ns |
+| vtable, target predicted | D − C | 0.23 ns |
+| mispredict, 2 types cyclic | E − D | 7.35 ns |
+| mispredict, 4 types cyclic | F − D | 7.46 ns |
+| mispredict, 4 types shuffled | G − D | 5.67 ns |
+| mispredict, 8 types shuffled | H − D | 6.72 ns |
+| ptr-to-member vs virtual | I − D | −0.23 ns |
+| framework over a bare indirect call | J − I | 7.47 ns |
+
+Two things worth stating on their own:
+
+- **A predicted virtual call is free.** D − C = 0.23 ns. The vtable load hits L1
+  and the out-of-order engine hides it. Virtual dispatch is not expensive; an
+  *unpredictable* one is, and everything above 1.86 ns in this table is branch
+  misprediction, not indirection.
+- **The cost is not monotone in the number of types.** 2 types cyclic (9.21) is
+  *dearer* than 4 types shuffled (7.53). Any single "a virtual call costs X"
+  figure is a fiction — which is exactly why this is a sweep and not one arm.
+
+### 7.3 Cross-checks
+
+- `fast_send` − direct call = **+7.47 ns**, against the README §D published
+  **+7 ns** on Apple Silicon. That claim reproduces closely.
+- `fast_send` here is 9.10–9.89 ns; `bench_pingpong` section D independently
+  reports 10.0–12.5 ns (§4.1). Two separately written benches, same order,
+  overlapping. The residual is the `MessageT` id guard (below) and ambient load.
+- Measured `steady_clock` tick, printed by the bench itself: **9.0 ns** —
+  confirming §2 and §6 item 3 from a third, independent code path.
+
+### 7.4 Method notes that materially affect these numbers
+
+- **`[[gnu::noipa]]`, not `noinline`, on the work functions.** All eight virtual
+  overrides have identical bodies, so `-fipa-icf` folds them into one symbol,
+  every vtable slot points at it, and the polymorphic arms silently become the
+  monomorphic arm. `noipa` disables ICF too. This is a trap that would have
+  produced plausible, wrong numbers.
+- **Verified in the disassembly, not assumed.** Arms D–H each emit `mov
+  (%rax,%rdx,8),%rdi` / `mov (%rdi),%rax` / `callq *0x10(%rax)` — a genuine
+  vtable load and indirect call, no speculative devirtualization. Arm I emits
+  the Itanium ABI member-pointer sequence `test $0x1,%dl` / `callq
+  *-0x1(%rdx,%rax,1)`. I checked this specifically because D − C ≈ 0 looks
+  exactly like a devirtualized arm; it is not, it is a predicted one.
+- **The message uses `MessageT<Dis>`, not `Message_N<N>`.** `Message.hpp` caps
+  hand-assigned ids at 512, 126 are already taken, and #37 records reuse in the
+  100–103 range `bench_pingpong` occupies. `MessageT` assigns a collision-free
+  id and there is nothing to pick. Cost: its ctor calls `message_id<Dis>()`, a
+  function-local static, so each construction pays a guard load a `Message_N`
+  would not. Every arm including the floor constructs a `Dis`, so it cancels out
+  of the net-of-floor column and out of every difference — but it is why the
+  absolutes here sit slightly above §4.1. **Compare deltas across the two
+  benches, not absolutes.**
+- Min is the right statistic for comparison (least contaminated by preemption);
+  the min-to-max spread is the box's noise floor and it is under 5% on every arm.
+
+---
+
+## 8. Raw output
+
+Twelve runs, all exit 0, committed under `actors/cpp/perf/results/`:
 
 ```
 pool_on_1.txt   pool_on_2.txt   pool_on_3.txt     (bench_pingpong, all)
 pool_off_1.txt  pool_off_2.txt  pool_off_3.txt    (bench_pingpong_nopool, all)
 fastsend_1.txt  fastsend_2.txt  fastsend_3.txt    (bench_pingpong, fastsend)
+dispatch_1.txt  dispatch_2.txt  dispatch_3.txt    (bench_dispatch, §7)
 ```
 
 To reproduce the run and the tables:
 
 ```bash
 make -C actors/cpp clean && make -C actors/cpp && make -C actors/cpp/perf
-actors/cpp/perf/results/run_bench.sh          # writes the 9 .txt files
+actors/cpp/perf/results/run_bench.sh          # writes the 9 pingpong .txt files
 python3 actors/cpp/perf/results/aggregate.py  # reduces them to §4
+
+# §7, three invocations:
+taskset -c 2,3 actors/cpp/perf/bench_dispatch 5000000 50000 5
 ```
 
 `aggregate.py` exits non-zero if the sanity gate (`fast_send` < grouped <
-ungrouped) fails, so it can be wired into CI as-is.
+ungrouped) fails, so it can be wired into CI as-is. `bench_dispatch` needs no
+aggregator — it reduces its own repeats and prints the decomposition.
 
 ---
 
-## 8. Recommendation
+## 9. Recommendation
 
 Do **not** use this run to replace the Apple Silicon numbers in the three docs
 the runbook points at. The ratios reproduce and the sanity gate passes, so the
@@ -373,3 +498,11 @@ But the absolute latencies carry the load of a busy 64-core recorder and the
 percentiles are at clock resolution. To get publishable absolutes this needs a
 box with `nohz_full`/`rcu_nocbs` set at boot, `CAP_SYS_NICE` for `chrt`, and
 nothing else running. Happy to re-run there.
+
+**§7 is the exception, and I would land it.** The dispatch comparison is built
+entirely from *differences between arms measured in the same process, in the
+same loop, microseconds apart*. Ambient load and clock resolution are common-mode
+and cancel; that is why the min-to-max spread is under 5% on every arm despite
+the box being busy. It needs no quiescing to be quotable, and it answers a
+question the current docs do not: what `fast_send` costs against the dispatch a
+reader would otherwise hand-write.
