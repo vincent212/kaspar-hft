@@ -914,8 +914,8 @@ path are the two asynchronous \snd{}s (reader$\to$buffer and
 signal$\to$order-handler); each such hop is the expensive operation, measured at
 $\sim\!2.25\,\mu$s per round trip (Table~\ref{tab:transport}), because it wakes
 another thread. The entire decode/book/signal servicing chain instead collapses
-onto a single thread via \fs{}, each hop costing $\sim\!36$~ns --- about
-$62\times$ less --- so it incurs no queue and no context switch. That servicing
+onto a single thread via \fs{}, each hop costing $\sim\!36$~ns --- roughly
+$55$--$62\times$ less (see Table~\ref{tab:transport}) --- so it incurs no queue and no context switch. That servicing
 chain is the M/M/1 stage of Section~\ref{sec:qtheory} whose per-message service
 time, and hence $\mu$, is set by the aggregate cost of these \fs{}s.}
 \label{fig:hftarch}
@@ -1043,9 +1043,14 @@ each a mutex acquisition plus a condition-variable signal that the receiving
 thread must be scheduled to service. This --- not ``message passing'' in the
 abstract --- is where actor latency actually comes from. Remove the thread
 crossing and the wakeups vanish; remove the queue as well and essentially
-nothing is left. The \fs{} row is the point of the paper: at $\sim\!36$~ns it is
-about $62\times$ cheaper than the cross-thread \snd{}, because it is, mechanically,
-a locked function call.
+nothing is left. The \fs{} row is the point of the paper: at $\sim\!36$~ns
+amortized it is roughly $55$--$62\times$ cheaper than the cross-thread \snd{} ---
+the exact multiple depends on the metric, since \fs{}'s per-sample $p50$ sits at
+the clock floor and its true cost is only resolved amortized, so this divides an
+amortized figure into a $p50$ and is approximate --- because it is, mechanically,
+a locked function call. A like-for-like comparison avoids the metric mismatch
+entirely: measured the same way in the same process, \fs{} costs about \emph{one}
+unpredictable virtual call.
 
 \begin{table}[!htb]
 \centering
@@ -1054,7 +1059,8 @@ round trip with a reply; only the delivery mechanism varies. Each row eliminates
 one operation relative to the row above. ``Thread hop'' is a cross-core mailbox
 wakeup (mutex $+$ condition variable); ``queue'' is a mailbox push/pop.
 $p50$/$p99$ are per-sample round-trip latency except the \fs{} row, which is
-amortized (see text). Ungrouped $p99$ is $6750$~ns; the grouped and \fs{} rows
+amortized (see text); its speedup therefore divides an amortized figure into a
+$p50$ and is approximate. Ungrouped $p99$ is $6750$~ns; the grouped and \fs{} rows
 show no meaningful spread.}
 \label{tab:transport}
 \small
@@ -1129,10 +1135,14 @@ heap input $+$ reply      & 2 global                & $65.8$ \\
 
 \paragraph{The memory pool cuts the tail by two orders of magnitude.}
 Table~\ref{tab:alloc} isolates the allocator with a compile-time switch, holding
-the message types fixed. At the median the pool's win is modest on this platform
---- macOS has a fast small-object allocator, so $124.5$~ns falls only to
-$92.8$~ns, and this understates what a busier or Linux allocator would show. The
-decisive effect is in the tail: in a separate run the \emph{maximum} round trip
+the message types fixed. At the median the pool's win is modest on this platform:
+$124.5$~ns falls to $92.8$~ns ($\sim\!26\%$). This median win is
+\emph{allocator-specific and does not travel}: on the x86-64 Linux target glibc's
+\texttt{tcache} is \emph{faster} than the macOS allocator on this pattern (a global
+\texttt{new}/\texttt{delete} costs $\sim\!3.6$~ns there vs $\sim\!15$~ns here), so
+the same median win \emph{shrinks} to $\sim\!7.5\%$ --- the opposite of what a
+``slower Linux allocator'' would suggest. The durable, portable benefit is not the
+median but the tail: in a separate run the \emph{maximum} round trip
 fell from $5.5$~ms to $33\,\mu$s once pooled, because the pool never takes the
 global allocator's occasional slow path. That is the number that matters for the
 queueing argument of Section~\ref{sec:queueing}: it is a two-order-of-magnitude
@@ -1164,11 +1174,18 @@ rule for hot-path callers: group the actors of a stage onto one thread; deliver
 with \fs{}; keep the request message on the stack when possible (it need never be
 heap-lived, because \fs{} blocks until the handler returns,
 Section~\ref{sec:mech}); and for any message that must outlive the call, draw it
-from a \texttt{MemoryPool}, turning a $\sim\!15$~ns global allocation into a
-$\sim\!2$~ns pooled one and removing the allocator tail. What these numbers do
+from a \texttt{MemoryPool}, turning a global allocation ($\sim\!15$~ns on macOS,
+$\sim\!3.6$~ns on glibc) into a $\sim\!2$--$3$~ns pooled one and, above all,
+removing the allocator tail --- the one part of the pool's benefit that is
+platform-independent. What these numbers do
 \emph{not} establish is equally important: they are sequential latencies with one
 message in flight, not saturated throughput; they do not vary contention or chain
-depth; and they were taken on Apple Silicon, not the x86-64 Linux target. That
+depth; and they were taken primarily on Apple Silicon. A pinned cross-check on the
+x86-64 Linux target (AMD EPYC, \texttt{g++} 15) reproduces the \emph{ratios} ---
+grouping still collapses the round trip, \fs{} still removes what remains, and its
+overhead over a bare call still measures single-digit nanoseconds ($+9$~ns there,
+about \emph{one} unpredictable virtual call) --- but not the allocator or
+clock-resolution \emph{absolutes} above. That
 multi-axis, saturated evaluation --- the subject of Section~\ref{sec:disc} ---
 remains future work. What is established is that \fs{} costs tens of nanoseconds,
 that its overhead is a function call plus whatever memory the caller chooses to
