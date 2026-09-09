@@ -73,10 +73,19 @@ debug: $(LIBG)
 REGISTRY_CLIENT_OBJ_OPT = $(OBJDIRO)/src/registry/RegistryClient.o
 REGISTRY_CLIENT_OBJ_DBG = $(OBJDIRG)/src/registry/RegistryClient.o
 
+# Remove the archive before rebuilding it. `ar rcs` inserts/replaces members by
+# name but never REMOVES ones that are no longer prerequisites, so an archive can
+# silently accumulate stale objects (e.g. `*.cpp.o` left by an old CMake `build/`
+# tree, whose names differ from the Makefile's `*.o`). The linker can then resolve
+# a symbol from a stale object compiled against old headers -> wrong struct layout
+# -> a hard-to-debug crash. `rm -f` first makes the archive exactly its
+# prerequisites on every build.
 $(LIB): $(OBJS_OPT) $(REGISTRY_CLIENT_OBJ_OPT) $(CONSOLE_OBJS_OPT)
+	rm -f $@
 	ar rcs $@ $^
 
 $(LIBG): $(OBJS_DBG) $(REGISTRY_CLIENT_OBJ_DBG) $(CONSOLE_OBJS_DBG)
+	rm -f $@
 	ar rcs $@ $^
 
 $(OBJDIRO)/%.o: %.cpp | $(OBJDIRO)
@@ -192,5 +201,6 @@ $(MONITORING_TEST_BIN): $(MONITORING_TEST_SRC) $(LIB)
 
 clean:
 	rm -rf $(OBJDIRO) $(OBJDIRG) $(LIB) $(LIBG) $(TEST_BIN) $(COORD_ACTOR_BIN) $(COORD_TEST_BIN) $(REGISTRY_BIN) $(REGISTRY_TEST_BIN) $(MONITORING_TEST_BIN) examples/ping_pong examples/remote_pong examples/remote_ping
+	rm -rf build   # stale CMake tree: its *.cpp.o objects can poison libactors.a (see $(LIB) rule)
 
 .PHONY: all opt debug clean examples test coordination-actor test-coordination registry test-registry test-monitoring
