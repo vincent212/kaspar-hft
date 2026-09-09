@@ -319,11 +319,3 @@ Find that regime. Ignore the rest.
 Linux 5.14, g++ 15.2.0, branch `feat/variant-mailbox` @ `d15b8a4`, market-data
 recorder stopped. 3 runs of every row, medians reported; raw output and the
 analysis scripts are in `actors/cpp/perf/results/linux_quiet/`.*
-
-*The companion post, [There Is No Fastest Queue](queue_types_article.md), runs
-the same benchmark on an Apple M3 at 6 producers. Three of its numbers do not
-survive the port to x86-64 — most notably its closing line, "BQueue: 42 ns
-median" — and the ranking inversions are catalogued in
-[`queue_bench_linux_results.md`](queue_bench_linux_results.md). Its thesis, that
-there is no fastest queue, survives being tested against a second machine. Its
-numbers do not.*
