@@ -27,6 +27,7 @@
 # layout; VERIFY them on first run and adjust SCHEMAS if CME differs.
 
 import argparse
+import glob
 import os
 import re
 import shutil
@@ -52,6 +53,13 @@ ENV_DIR = {"prod": "Production", "nrcert": "NRCert", "cert": "Cert"}
 # subdir the headers land in — we rewrite the template's `package` attribute to
 # this so the SBE tool emits into <repo>/<out_pkg>/.
 #
+# `pinned_version` is the SBE schema version the checked-in codecs were built and
+# tested against (the `sbeSchemaVersion()` in the generated headers). The code
+# depends on those struct/wire layouts, so by DEFAULT we regenerate that exact
+# version and REFUSE to silently emit a different one — if CME's current template
+# has moved on, generation stops with instructions rather than changing layouts
+# under the code's feet. Use --latest (or --version) to intentionally move.
+#
 # VERIFY these remote paths against CME (they could not be probed from the dev
 # box). MDP3's templates_FixBinary.xml lives under SBEFix/<Env>/Templates in the
 # standard layout; iLink 3 publishes its own SBE template — confirm its exact
@@ -61,11 +69,13 @@ SCHEMAS = {
         "remote_dir": "SBEFix/{env}/Templates",
         "remote_file": "templates_FixBinary.xml",
         "out_pkg": "mktdata_v12",
+        "pinned_version": 12,          # mktdata_v12: sbeSchemaId 1, sbeSchemaVersion 12
     },
     "ilink": {
         "remote_dir": "SBEFix/{env}/Templates",       # VERIFY: iLink 3 template location
         "remote_file": "templates_FixBinary_iLink3.xml",  # VERIFY: iLink 3 template name
         "out_pkg": "ilink_v8",
+        "pinned_version": 8,           # ilink_v8: sbeSchemaId 8, sbeSchemaVersion 8
     },
 }
 
@@ -113,15 +123,30 @@ def resolve_remote_file(sftp, remote_dir, remote_file, version, latest):
     # Versioned templates are conventionally <stem>.<version><ext> or carry the
     # version in the name; match those, else fall back to the plain file.
     cands = [e for e in entries if e.startswith(stem) and e.endswith(ext)]
+    if not cands:
+        sys.exit(f"[genschema] no template matching '{stem}*{ext}' in {remote_dir}: {entries}")
+    mtime = lambda e: sftp.stat(f"{remote_dir}/{e}").st_mtime
     if version is not None:
-        match = [e for e in cands if str(version) in e]
+        # Match the version as a whole number token, not a bare substring, so
+        # e.g. --version 1 doesn't match "v11"/"12". Among matches pick the
+        # newest by mtime (deterministic; lexicographic sort mis-orders 9 vs 11).
+        tok = re.compile(rf"(?<!\d){re.escape(str(version))}(?!\d)")
+        match = [e for e in cands if tok.search(e)]
         if not match:
             sys.exit(f"[genschema] no template for version {version} in {remote_dir}: {cands}")
-        return f"{remote_dir}/{sorted(match)[-1]}"
+        return f"{remote_dir}/{max(match, key=mtime)}"
     # --latest: newest by mtime
-    latest_e = max(cands, key=lambda e: sftp.stat(f"{remote_dir}/{e}").st_mtime)
+    latest_e = max(cands, key=mtime)
     log(f"latest template in {remote_dir}: {latest_e}")
     return f"{remote_dir}/{latest_e}"
+
+
+def schema_version_of(xml_path):
+    """Read the SBE schema version attribute from <sbe:messageSchema ...>."""
+    with open(xml_path, encoding="utf-8") as f:
+        xml = f.read()
+    m = re.search(r'<sbe:messageSchema\b[^>]*?\bversion="(\d+)"', xml)
+    return int(m.group(1)) if m else None
 
 
 def set_package(xml_path, pkg):
@@ -140,15 +165,18 @@ def set_package(xml_path, pkg):
 
 def generate(jar, template_xml, out_pkg):
     out_dir = os.path.join(REPO, out_pkg)
-    # Regenerate from scratch so stale headers can't linger (mirrors the
-    # rm-before-ar fix in actors/cpp/Makefile).
-    if os.path.isdir(out_dir):
-        shutil.rmtree(out_dir)
+    os.makedirs(out_dir, exist_ok=True)
+    # Clear stale generated headers so a renamed/removed message can't linger
+    # (mirrors the rm-before-ar fix in actors/cpp/Makefile). Remove only *.h —
+    # the dir also holds the tracked README.md and .gitignore, which the SBE
+    # tool does not regenerate, so an rmtree of the whole dir would delete them.
+    for h in glob.glob(os.path.join(out_dir, "*.h")):
+        os.remove(h)
     log(f"generating {out_pkg}/ from {os.path.basename(template_xml)}")
     subprocess.run(
         ["java", "-Dsbe.target.language=CPP", f"-Dsbe.output.dir={REPO}", "-jar", jar, template_xml],
         check=True)
-    n = len([f for f in os.listdir(out_dir)]) if os.path.isdir(out_dir) else 0
+    n = len(glob.glob(os.path.join(out_dir, "*.h")))
     if n == 0:
         sys.exit(f"[genschema] SBE tool produced no headers in {out_dir} "
                  f"(is the template's package attribute '{out_pkg}'?)")
@@ -175,10 +203,16 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         if args.template_file:
+            s = SCHEMAS[targets[0]]
             local = os.path.join(tmp, "template.xml")
             shutil.copyfile(args.template_file, local)
-            set_package(local, SCHEMAS[targets[0]]["out_pkg"])
-            generate(jar, local, SCHEMAS[targets[0]]["out_pkg"])
+            got = schema_version_of(local)
+            if got is not None and got != s["pinned_version"]:
+                log(f"WARNING: {args.template_file} is schema version {got}, but "
+                    f"{s['out_pkg']} is pinned to v{s['pinned_version']}; the code may "
+                    f"not match the regenerated layout.")
+            set_package(local, s["out_pkg"])
+            generate(jar, local, s["out_pkg"])
             return
 
         transport, sftp = sftp_open()
@@ -191,6 +225,19 @@ def main():
                 local = os.path.join(tmp, f"{name}.xml")
                 log(f"downloading {remote}")
                 sftp.get(remote, local)
+                # Default (no --version/--latest): refuse to regenerate a schema
+                # version other than the one the code was built against.
+                if not args.latest and args.version is None:
+                    pinned = s["pinned_version"]
+                    got = schema_version_of(local)
+                    if got is not None and got != pinned:
+                        sys.exit(
+                            f"[genschema] CME's current {name} template is schema version "
+                            f"{got}, but this repo is built against version {pinned} "
+                            f"({s['out_pkg']}). Regenerating would change the wire/struct "
+                            f"layout the code depends on. Fetch the archived v{pinned} "
+                            f"template and pass --template-file, or pass --latest to move "
+                            f"the repo to v{got} deliberately.")
                 set_package(local, s["out_pkg"])
                 generate(jar, local, s["out_pkg"])
         finally:

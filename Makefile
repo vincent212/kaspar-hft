@@ -4,7 +4,7 @@
 
 MKFLAGS= -k -w --no-print-directory --quiet
 
-all: check-schema install
+all: install
 
 # The CME SBE codecs (mktdata_v12/, ilink_v8/) are generated, not committed
 # (see genschema/). Fail fast with instructions if a fresh checkout hasn't
@@ -17,8 +17,12 @@ check-schema:
 	      echo "       They are generated from CME, not committed. Run: make schema"; \
 	      echo "       (see genschema/README.md for prerequisites)"; exit 1; }
 
-# Generate both SBE schemas from CME (latest). Pass args through GENSCHEMA_ARGS,
-# e.g.  make schema GENSCHEMA_ARGS='--version 12 --env prod'
+# Generate both SBE codecs from CME. By default genschema.py regenerates the
+# pinned schema versions the code is built against (MDP3 v12, iLink v8) and
+# refuses to emit a different version; it does NOT pull "latest". Pass args
+# through GENSCHEMA_ARGS to override, e.g.
+#   make schema GENSCHEMA_ARGS='--env cert'          # different CME environment
+#   make schema GENSCHEMA_ARGS='--schema mdp3 --latest'  # deliberately move up
 schema:
 	python3 $(KSPRPROJ)/genschema/genschema.py $(GENSCHEMA_ARGS)
 
@@ -83,11 +87,15 @@ lib14:
 	@$(MAKE) -C $(KSPRPROJ)/positionman/src $(MKFLAGS) $(TARGET)
 
 
-depend: libdepend clean
+# Every target that compiles or generates dependencies needs the SBE codecs, so
+# guard them all (not just `all`) — `make install`, `make debug`, and the
+# documented per-library builds must fail fast with instructions rather than a
+# cryptic missing-header error. `clean` deliberately does not require them.
+depend: check-schema libdepend clean
 
-install: libo
+install: check-schema libo
 
-debug: libd
+debug: check-schema libd
 
 clean: libc
 	@find . -name '*.P' -exec rm {} \;

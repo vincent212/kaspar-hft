@@ -12,15 +12,26 @@ fetches CME's `templates_FixBinary.xml` and runs the [real-logic SBE
 tool](https://github.com/real-logic/simple-binary-encoding) to emit the C++
 headers. The `*.h` are git-ignored (each dir keeps only its `README.md`).
 
+## Pinned versions
+
+The checked-in codecs were built and tested against **MDP3 schema v12**
+(`mktdata_v12/`) and **iLink 3 schema v8** (`ilink_v8/`) — the
+`sbeSchemaVersion()` in the generated headers. The rest of the code depends on
+those exact struct/wire layouts, so **`make schema` regenerates those versions
+by default and refuses to emit a different one**: if CME's current template has
+moved to a newer version, generation stops with instructions rather than
+silently changing layouts under the code. Move deliberately with `--latest` or
+`--version`.
+
 ## Usage
 
 ```bash
-# from the repo root — generate both schemas (current CME template)
+# from the repo root — regenerate the pinned versions (MDP3 v12, iLink v8)
 make schema
 
-# a specific CME schema version, or the newest on CME:
-python3 genschema/genschema.py --version 12
-python3 genschema/genschema.py --latest
+# deliberately move a schema to a different / the newest CME version:
+python3 genschema/genschema.py --schema mdp3 --version 13
+python3 genschema/genschema.py --schema mdp3 --latest
 
 # one schema only:
 python3 genschema/genschema.py --schema mdp3
@@ -49,7 +60,7 @@ python3 genschema/genschema.py --schema mdp3 --template-file path/to/templates_F
 |---|---|---|
 | `--schema mdp3\|ilink\|all` | which codec(s) to generate | `all` |
 | `--env prod\|nrcert\|cert` | CME environment | `prod` |
-| `--version VER` | fetch a specific CME schema version | current template |
+| `--version VER` | fetch a specific CME schema version | pinned (MDP3 v12 / iLink v8) |
 | `--latest` | fetch the newest template on CME | — |
 | `--sbe-version X` | real-logic `sbe-all` jar version | `1.30.0` |
 | `--template-file PATH` | use a local XML, skip SFTP (single `--schema`) | — |
@@ -59,10 +70,13 @@ python3 genschema/genschema.py --schema mdp3 --template-file path/to/templates_F
 1. Ensure `sbe-all-<ver>.jar` (download + cache).
 2. Fetch `templates_FixBinary.xml` from CME SFTP for the chosen env/version
    (or use `--template-file`).
-3. Rewrite the schema's `package` attribute to `mktdata_v12` / `ilink_v8` so the
+3. On the default path, verify the template's `sbeSchemaVersion` matches the
+   pinned version and abort if not.
+4. Rewrite the schema's `package` attribute to `mktdata_v12` / `ilink_v8` so the
    tool emits into the right repo subdir.
-4. Wipe and regenerate that subdir with `java -Dsbe.target.language=CPP
-   -Dsbe.output.dir=<repo> -jar sbe-all.jar <template.xml>`.
+5. Regenerate that subdir with `java -Dsbe.target.language=CPP
+   -Dsbe.output.dir=<repo> -jar sbe-all.jar <template.xml>`, removing stale
+   `*.h` first (the tracked `README.md` / `.gitignore` are left in place).
 
 ## Status / caveats
 
