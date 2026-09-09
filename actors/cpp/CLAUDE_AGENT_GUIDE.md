@@ -59,8 +59,8 @@ Each Actor:
 
 ### Adding a New Message Type
 
-Prefer `MessageT<Derived>` — its id is auto-assigned (collision-free, from a
-counter starting at 512):
+Inherit `MessageT<Derived>` — the id is auto-assigned and collision-free (from a
+counter starting at 512). **Do not hand-pick an id.**
 
 ```cpp
 #include "actors/Message.hpp"
@@ -75,22 +75,11 @@ struct OrderMessage : public MessageT<OrderMessage> {
 };
 ```
 
-Use `Message_N<N>` only when you need the id as a compile-time constant
-(`OrderMessage::id`, a `case` label). N must be a unique integer in 1–511 (512+
-is reserved for `MessageT`); IDs 1-9 are reserved for system messages, use >= 100
-for user messages. Run `setclassid/setclassid.py` to catch `Message_N` id
-collisions.
-
-```cpp
-struct OrderMessage : public Message_N<100> {
-    std::string order_id;
-    double price;
-    int quantity;
-
-    OrderMessage(std::string id = "", double p = 0.0, int q = 0)
-        : order_id(std::move(id)), price(p), quantity(q) {}
-};
-```
+> **Legacy `Message_N<N>`:** hard-codes the id to a compile-time constant and is
+> *not* uniqueness-checked, so two types can silently collide. Use it only if you
+> truly need the id as a constant expression (`OrderMessage::id`, a `case` label);
+> then run `setclassid/setclassid.py` to audit for duplicates. New messages use
+> `MessageT`.
 
 ### Adding a Message Handler
 
