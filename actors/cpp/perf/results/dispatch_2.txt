@@ -1,0 +1,53 @@
+# bench_dispatch run 2
+# host DINONY4-01  2026-09-08T20:10:10-04:00
+# taskset -c 2,3  N=5000000 warmup=50000 repeats=5
+# uptime:  20:10:10 up 203 days, 12:45,  2 users,  load average: 6.74, 6.00, 5.15
+
+dispatch cost: fast_send vs plain call vs virtual call
+  N=5000000  warmup=50000  repeats=5
+  steady_clock measured tick: 9.0 ns
+  (all arms do the identical work: g_sink += m->seq)
+
+arm                               min ns    med ns net of floor   x direct
+---                               ------    ------ -----------   --------
+A empty loop (floor)                0.47      0.47        0.00       0.3x
+B direct call                       1.63      1.63        1.17       1.0x
+C non-virtual via ptr               1.63      1.63        1.17       1.0x
+D virtual, 1 type                   1.86      1.87        1.40       1.1x
+E virtual, 2 types cyclic           9.50      9.50        9.03       5.8x
+F virtual, 4 types cyclic           9.76      9.76        9.29       6.0x
+G virtual, 4 types shuffled         7.78      7.81        7.31       4.8x
+H virtual, 8 types shuffled         8.75      8.79        8.29       5.4x
+I ptr-to-member call                1.63      1.63        1.17       1.0x
+J fast_send                         9.10      9.11        8.63       5.6x
+
+decomposition (min):
+  pointer load                = C - B :  -0.00 ns
+  vtable, target predicted    = D - C :   0.23 ns
+  mispredict, 2 types cyclic  = E - D :   7.63 ns
+  mispredict, 4 types cyclic  = F - D :   7.89 ns
+  mispredict, 4 types random  = G - D :   5.91 ns
+  mispredict, 8 types random  = H - D :   6.89 ns
+  ptr-to-member vs virtual    = I - D :  -0.23 ns
+  framework over a bare call  = J - I :   7.47 ns
+
+headline -- fast_send measured against each hand-written alternative:
+  vs direct call                    +7.47 ns  (5.57x)
+  vs virtual, 1 type                +7.23 ns  (4.88x)
+  vs virtual, 4 types cyclic        -0.66 ns  (0.93x)
+  vs virtual, 4 types shuffled      +1.32 ns  (1.17x)
+  vs virtual, 8 types shuffled      +0.34 ns  (1.04x)
+
+all runs, ns per op:
+  A empty loop (floor)               0.47     0.47     0.47     0.47     0.47
+  B direct call                      1.63     1.63     1.63     1.63     1.63
+  C non-virtual via ptr              1.64     1.63     1.63     1.63     1.63
+  D virtual, 1 type                  1.87     1.86     1.87     1.87     1.87
+  E virtual, 2 types cyclic          9.50     9.50     9.89    10.10     9.50
+  F virtual, 4 types cyclic          9.76     9.76     9.98     9.82     9.76
+  G virtual, 4 types shuffled        7.85     7.78     7.81     7.83     7.79
+  H virtual, 8 types shuffled        8.75     8.76     8.85     8.79     8.79
+  I ptr-to-member call               1.63     1.63     1.63     1.63     1.64
+  J fast_send                        9.56     9.34     9.10     9.11     9.11
+
+sink=637562373750000 (ignore; prevents dead-code elimination)

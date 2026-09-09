@@ -1,0 +1,47 @@
+set_manager(PongActor) actor=0x17000f0 mgr=0x7fffc8967270, get=0x7fffc8967270
+set_manager(DriverActor) actor=0x17089d0 mgr=0x7fffc8967270, get=0x7fffc8967270
+Manager::init sending start to PongActor
+Manager::init sending start to DriverActor
+PongActor NOT setting priority 0
+
+PongActor tid: 2427427
+DriverActor NOT setting priority 0
+
+DriverActor tid: 2427428
+set_manager(bench_group) actor=0x16f91e0 mgr=0x7fffc8967270, get=0x7fffc8967270
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 2428026
+set_manager(bench_group) actor=0x16fb3f0 mgr=0x7fffc8967270, get=0x7fffc8967270
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 2428028
+set_manager(bench_group) actor=0x16fd490 mgr=0x7fffc8967ff0, get=0x7fffc8967ff0
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 2428030
+
+build: MemoryPool DISABLED (global new/delete)
+
+=== actor messaging round-trip latency (measured=5000000, warmup=50000) ===
+mode                     p50       p90       p99     p99.9       min       max        mean       amort
+send ungrouped          3290      3420      3730      4720      1290   5193961      3317.6      3340.5
+send grouped              90        90       100       170        80      4900        90.2       112.1
+fast_send                 30        30        40        50        20      8960        28.7        58.3
+grouped plain-new         90        90       100       160        80      3770        89.6       111.4
+grouped pooled            90        90       100       149        80      6090        89.2       111.0
+fs heap+reply             30        30        49        50        20      9181        28.7        58.3
+fs heap noreply           30        30        31        40        20      7880        26.1        52.6
+fs pooled+reply           30        30        50        51        20     12100        29.0        58.7
+fs pooled noreply         30        30        31        40        20      7020        26.1        52.4
+fs stack+reply            30        30        50        50        20      7480        28.7        54.2
+fs stack noreply          30        30        40        40        20      6990        26.3        48.8
+direct call (base)        20        20        30        30         9      6910        20.2        42.2
+(one-way ~ round-trip / 2 for the symmetric echo handler; fast_send rows near ~40ns are at steady_clock resolution)
+
+fast_send vs direct function call (clean amortized, per op):
+  direct call :   1.2 ns
+  fast_send   :   8.6 ns  (+7.5 ns, 7.4x a bare call)

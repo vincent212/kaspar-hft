@@ -2,3 +2,4 @@
 bench_*
 !bench_*.cpp
 !bench_*.hpp
+!*.md

@@ -362,8 +362,9 @@ ping → pong → reply, one message in flight. Apple Silicon / macOS, `-O3
 | `send`, one `Group` thread | ~125 ns | no wakeup — queue push/pop + dispatch |
 | `fast_send` (inline) | ~24 ns\* | no queue, no thread hop; handler runs in the caller |
 
-\* per-sample timing quantizes to the ~40 ns `steady_clock` tick; ~24 ns is the
-amortized mean.
+\* per-sample timing quantizes to the `steady_clock` tick (~40 ns on this macOS
+box; ~10 ns on x86-64 Linux); ~24 ns is the amortized mean. Numbers are Apple
+Silicon / macOS, indicative — a second x86-64 Linux data point is noted below.
 
 **How much does the actor machinery cost over a bare function call?** Timed
 cleanly (one clock-read pair around a tight loop, identical trivial work on a
@@ -374,11 +375,13 @@ stack input):
 | direct function call | ~1 ns |
 | `fast_send` (dispatch, no reply) | ~8 ns |
 
-So **`fast_send` adds ~7 ns over a plain call** — the uncontended mutex, the
-message field writes, the `handler_cache[id]` pointer-to-member dispatch, and the
-reply `unique_ptr`. That is the entire framework tax on the fast path: single-digit
-nanoseconds, ~1/18 of a same-thread `send` and ~1/300 of a cross-thread one. How
-it's measured (`run_direct_call` vs `fast_send`, section D):
+So **`fast_send` adds ~7 ns over a plain call** (macOS; ~9 ns on an x86-64 Linux
+EPYC box) — the uncontended mutex, the message field writes, the
+`handler_cache[id]` pointer-to-member dispatch, and the reply `unique_ptr`. That is
+the entire framework tax on the fast path: single-digit nanoseconds. Put
+differently — a dispatch sweep on the Linux box shows `fast_send` costs **about one
+polymorphic virtual call** (a like-for-like comparison against the thing you'd
+otherwise write). How it's measured (`run_direct_call` vs `fast_send`, section D):
 [perf README](actors/cpp/perf/README.md#d-fast_send-vs-a-bare-function-call) ·
 [`bench_pingpong.cpp`](actors/cpp/perf/bench_pingpong.cpp).
 
@@ -390,11 +393,18 @@ Same pooled message types, grouped-send round trip (amortized ns):
 | per round trip (2 msgs) | **~92 ns** | ~128 ns (= plain `new`) |
 | allocator tail (`max`) | ~33 µs | ~5.5 ms |
 
-The pool removes the per-message allocation (~15 ns per global `new`+`delete`
-drops to ~2–3 ns) and, more importantly, cuts the allocator tail by ~100×.
-`fast_send` with a **stack** request message and a pooled reply avoids the heap
-entirely. Full tables, methodology, and caveats in the
-[perf README](actors/cpp/perf/README.md).
+The pool removes the per-message allocation (a global `new`+`delete` is ~15 ns on
+macOS, ~3.6 ns on glibc/Linux; a pooled alloc is ~2–3 ns on both) and, more
+importantly, cuts the allocator **tail** — the durable win. `fast_send` with a
+**stack** request message and a pooled reply avoids the heap entirely.
+
+**Second data point (x86-64 Linux, EPYC).** The ratios reproduce on a different
+ISA/OS/allocator (grouped ÷ ungrouped is even wider, 37×); the *absolutes* that
+don't travel are the `steady_clock` tick (~40 ns macOS vs ~10 ns Linux) and the
+global allocator (so the pool's median win shrinks to ~7.5 %). The macOS numbers
+above are indicative, not a spec. Full comparison, raw output, and the
+run-on-server runbook in the
+[perf README](actors/cpp/perf/README.md#second-data-point-x86-64-linux).
 
 ## Writing
 

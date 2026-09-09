@@ -1,0 +1,17 @@
+
+build: MemoryPool ENABLED
+
+=== actor messaging round-trip latency (measured=5000000, warmup=50000) ===
+mode                     p50       p90       p99     p99.9       min       max        mean       amort
+fs heap+reply             30        40        50        51        20      7900        32.9        70.6
+fs heap noreply           30        31        40        40        20      8570        28.3        61.1
+fs pooled+reply           40        40        40        50        20      7360        33.1        65.6
+fs pooled noreply         30        31        40        40        20     12910        27.1        54.9
+fs stack+reply            30        40        50        51        20      7410        32.2        60.8
+fs stack noreply          30        30        40        40        20      8890        26.1        49.4
+direct call (base)        20        20        30        31         9      7160        20.8        43.7
+(one-way ~ round-trip / 2 for the symmetric echo handler; fast_send rows near ~40ns are at steady_clock resolution)
+
+fast_send vs direct function call (clean amortized, per op):
+  direct call :   1.4 ns
+  fast_send   :  12.5 ns  (+11.2 ns, 9.3x a bare call)

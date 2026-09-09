@@ -1,0 +1,20 @@
+# QUIET box (kaspr STOPPED). DINONY4-01 2026-09-08T20:23:58-04:00
+# loadavg at start: 1.75 4.39 5.08 3/2288 2566735
+# kaspr running: 0
+
+build: MemoryPool ENABLED
+
+=== actor messaging round-trip latency (measured=5000000, warmup=50000) ===
+mode                     p50       p90       p99     p99.9       min       max        mean       amort
+fs heap+reply             30        30        31        31        20     21360        25.9        55.0
+fs heap noreply           20        30        31        31        20      3380        23.5        49.5
+fs pooled+reply           29        30        31        31        20      3840        25.1        51.7
+fs pooled noreply         20        30        31        31        20      3100        23.5        48.1
+fs stack+reply            30        30        31        31        20      3330        25.9        51.0
+fs stack noreply          20        30        31        31        20      3700        23.5        45.8
+direct call (base)        20        20        20        20         9      3050        20.0        41.8
+(one-way ~ round-trip / 2 for the symmetric echo handler; fast_send rows near ~40ns are at steady_clock resolution)
+
+fast_send vs direct function call (clean amortized, per op):
+  direct call :   1.2 ns
+  fast_send   :  10.2 ns  (+9.1 ns, 8.8x a bare call)

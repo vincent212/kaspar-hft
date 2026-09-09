@@ -56,8 +56,14 @@ per-sample clock quantization and resolves costs below the clock tick.
 Apple Silicon (arm64), macOS, `-O3 -march=native`, native (not emulated), no CPU
 pinning, N = 1,000,000, warmup = 10,000. **Indicative, not a spec** — absolute
 numbers move with hardware, allocator, and turbo state; the *ratios* are the
-point. macOS has a fast small-object allocator, so the pool's absolute win here
-is a lower bound on what a busier/Linux allocator would show.
+point. A second run on x86-64 Linux (AMD EPYC) is in
+[§ Second data point](#second-data-point-x86-64-linux) — the ratios reproduce,
+but the allocator and clock-resolution absolutes differ materially, so read that
+before quoting any single figure. **Note on the allocator:** glibc's small-object
+allocator (tcache) is *faster* than macOS's on this pattern (a global `new`+`delete`
+is ~3.6 ns on the Linux box vs ~15 ns here), so the pool's *median* win is
+**smaller** on Linux, not larger — its durable benefit is the allocator **tail**,
+which a quiesced box is needed to measure.
 
 ### A. Transport (p50 round-trip)
 
@@ -113,10 +119,12 @@ Backing out the costs:
 - **base `fast_send` dispatch ≈ 36 ns** (stack input, no reply — zero allocations).
 - **reply() plumbing alone ≈ 2–4 ns** — the *pooled* pair isolates it (its Pong
   alloc is only ~3 ns), so the ~4 ns delta is almost all plumbing.
-- **a reply that allocates its Pong from the global heap ≈ 15 ns** (stack pair
-  delta) — i.e. the reply's real cost is dominated by the *allocation*, not the
-  `reply()` mechanism.
-- global `new`+`delete` of a small message ≈ **15 ns**; a pooled alloc ≈ **2–3 ns**.
+- **a reply that allocates its Pong from the global heap ≈ 15 ns on macOS** (stack
+  pair delta) — i.e. the reply's real cost is dominated by the *allocation*, not the
+  `reply()` mechanism. **This figure is allocator-specific:** on the x86-64 Linux
+  box (glibc tcache) the same global `new`+`delete` is only ~3.6 ns.
+- global `new`+`delete` of a small message ≈ **15 ns (macOS) / ~3.6 ns (glibc)**;
+  a pooled alloc ≈ **2–3 ns** on both.
 
 With the pool off, `pooled+reply` rises to match `heap+reply` (its Pong alloc goes
 back to the global heap), as expected.
@@ -150,8 +158,10 @@ nanoseconds.
 
 ## Caveats
 
-- **Clock resolution.** `steady_clock` ticks at ~40 ns here, so per-sample
-  `fast_send` percentiles are quantized — read `amort` for those rows.
+- **Clock resolution is platform-specific.** `steady_clock` ticks at ~40 ns on
+  this macOS box (~9–10 ns on the x86-64 Linux box), so per-sample `fast_send`
+  percentiles are quantized — read `amort` for those rows. Don't hardcode the
+  tick; the bench prints the measured value.
 - **No CPU pinning.** The ungrouped cross-thread number especially will tighten
   with pinned cores and a quiet machine; `add_to_manage_q(actor, {core})` can pin
   (a soft hint on macOS).
@@ -162,6 +172,62 @@ nanoseconds.
   rows are the real allocation costs (the overhead cancels).
 - Numbers vary run-to-run (~10–30 % on the mean, driven by the tail); the `p50`
   and the cross-row ratios are stable.
+
+## Second data point: x86-64 Linux
+
+The same benches were run on **AMD EPYC 9374F, RHEL 9.2, g++ 15.2, `-O3
+-march=native`**, `taskset` to two physical cores, N = 5,000,000, over two passes:
+one with a co-resident market-data recorder running, and one with it stopped (box
+settled to loadavg ~2). The box still lacks isolated cores (`nohz_full`/`rcu_nocbs`
+are unset boot params) and `CAP_SYS_NICE`, so a full quiesce wasn't possible. What
+that means for each metric, from the two passes:
+
+- **`p50`, `p99.9`, and the amortized column are solid.** The `amort` column was
+  never contaminated — every row moved ≤ 0.5 ns between passes (e.g. `fast_send`
+  57.6 → 57.3 ns). With the recorder stopped, every `fast_send` `p99.9` tightened
+  to a flat **31 ns** against a `p50` of 30 (one clock tick, not a preemption
+  artifact). So the amort-based figures below and the dispatch result are
+  publishable as-is.
+- **`max` still is not.** Even quiet, one worst sample in 5 M still catches a
+  scheduler stall (3.9–11.7 µs) — that needs isolated cores, a boot-level change.
+  The pool's tail-latency win therefore can't be confirmed on this box yet.
+
+Full run, both passes, raw output, and methodology are in
+[`BENCH_RESULTS_HFT_SERVER.md`](BENCH_RESULTS_HFT_SERVER.md); the runbook is
+[`BENCH_ON_HFT_SERVER.md`](BENCH_ON_HFT_SERVER.md).
+
+**What reproduces** (the point of the exercise — the *shape* of the claims holds
+on a different ISA, OS, and allocator):
+
+| quantity | macOS (Apple, unpinned) | Linux (EPYC, pinned) |
+|---|---:|---:|
+| `send` ungrouped p50 | 2250 ns | 3370 ns |
+| `send` grouped p50 | 125 ns | 90 ns |
+| `fast_send` p50 | ~41 ns\* | ~30 ns\* |
+| `fast_send` p99.9 | — | 31 ns (quiet pass) |
+| grouped ÷ ungrouped | 18× | 37× |
+| `fast_send` over a bare call (Δ) | +7 ns | +9 ns |
+| pooled alloc | 2–3 ns | ~2 ns |
+| pool OFF ⇒ pooled collapses to plain | 128.1 ≈ 128.2 | 111.5 ≈ 111.4 |
+
+\* clock floor on both, not a measurement.
+
+**What does *not* travel** (why you can't quote one machine's absolutes as the
+spec):
+
+- **`steady_clock` tick:** ~40 ns (macOS) vs **~9–10 ns** (Linux). The bench
+  prints the measured value; don't hardcode it.
+- **Global `new`+`delete`:** ~15 ns (macOS) vs **~3.6 ns** (glibc tcache) — so the
+  pool's *median* win shrinks from ~26 % to ~7.5 % on Linux. The pool's durable
+  benefit is the allocator **tail**, which needs isolated cores to measure and is
+  not yet confirmed on this box.
+
+**A stronger framing for the fast path** came out of the Linux run's dispatch
+sweep (`bench_dispatch`): `fast_send` costs **about one polymorphic virtual call**
+(9.1 ns vs a 7.5–9.3 ns band for an unpredictable virtual dispatch) — a
+like-for-like comparison against the thing a caller would otherwise write, both
+measured the same way in the same process. Prefer that to any "N× faster than
+`send`" ratio, which mixes metrics (see below).
 
 ## Adding a benchmark
 
