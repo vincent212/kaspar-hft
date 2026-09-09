@@ -38,5 +38,37 @@ if [ "$#" -eq 0 ]; then
 fi
 
 cd "$KSPRPROJ"
+
+# The generated *.P dependency files bake in ABSOLUTE header paths. If the repo
+# was moved or renamed, those paths no longer exist; because make -include's the
+# .P files, it silently "gives up" with no diagnostic (Error 2, no message).
+# Detect that by sampling one .P for a referenced path that no longer exists,
+# and purge them all if so (make regenerates them on the next build).
+sample_P="$(find . -name '*.P' 2>/dev/null | head -1)"
+if [ -n "$sample_P" ]; then
+    stale=0
+    while IFS= read -r hdr; do
+        [ -z "$hdr" ] && continue
+        [ -e "$hdr" ] || { stale=1; break; }
+    done < <(grep -oE '/[^ 	\\]+\.(hpp|h)' "$sample_P" | sort -u)
+    if [ "$stale" -eq 1 ]; then
+        echo "[build] stale .P dependency files (repo moved?) — clearing"
+        find . -name '*.P' -delete
+    fi
+fi
+
+# If we're about to build and the generated CME SBE codecs aren't there yet,
+# generate them first instead of letting the check-schema guard fail. Skip this
+# for targets that don't compile (or that are the codegen/verify step itself).
+case "${1:-}" in
+    schema|check-schema|clean) ;;
+    *)
+        if ! ls mktdata_v12/*.h >/dev/null 2>&1 || ! ls ilink_v8/*.h >/dev/null 2>&1; then
+            echo "[build] CME SBE codecs missing — generating (make schema)..."
+            make schema
+        fi
+        ;;
+esac
+
 echo "[build] make $*"
 exec make "$@"
