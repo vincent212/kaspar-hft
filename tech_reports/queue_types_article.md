@@ -206,7 +206,7 @@ cd actors/cpp/perf && make            # build the benchmark
 
 `bench_pingpong [N] [warmup] [section]`, where `section` is
 `solo | batch | grouped | fanin | transport | all`. `solo`/`batch` are
-thread-to-thread window 1 / 16; `fanin` spins up `hardware_concurrency − 2`
+thread-to-thread window 1 / 16; `fanin` spins up `min(32, hardware_concurrency − 2)`
 producer threads into one consumer; `grouped` puts both actors on one thread. The
 queue each actor uses is the one `set_mailbox(...)` line above. That's the whole
 harness — run it on your own box and the ranking will shift with your core count.
@@ -223,3 +223,13 @@ judged on — and in trading, that's never the median.
 tables at 500k messages/row, the grouped table at 300k. The Linux x86-64 numbers
 — where more cores mean more producers and the sharded/lock-free advantage
 should widen — are coming in a follow-up.*
+
+> **Follow-up is in — see `queue_bench_linux_results.md`.** On a 32-core EPYC
+> (32 producers instead of six, 3 runs, recorder stopped) the fan-in prediction
+> holds and then some: ShardedBQueue sweeps p50, p99, p99.9 *and* throughput, by
+> up to 10.6×. Three things above do **not** survive the port, and they are
+> flagged there: the closing "42 ns median" (BQueue has the *worst* median of the
+> four at 32 producers), the Regime-1 ranking (thread placement moves that number
+> 2.2× and flips the winner, so it is not measurable unpinned), and the
+> LockFreeMPSC deep-tail win (inverted — ShardedBQueue takes p99.9). The thesis
+> survives intact; the specific numbers are M3 numbers.

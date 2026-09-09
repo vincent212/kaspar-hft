@@ -1,0 +1,193 @@
+# kaspar-hft feat/variant-mailbox @ d15b8a4
+# Linux 5.14.0-284.11.1.el9_2.x86_64 x86_64
+# Model name: AMD EPYC 9374F 32-Core Processor
+# g++ (GCC) 15.2.0
+# 2026-09-09T19:28:50-04:00  loadavg: 1.44 2.56 2.91 3/2278 558170
+# kaspr running: 0   (recorder STOPPED for this run)
+# unpinned: fan-in uses 32 producer threads; taskset would invalidate it
+# cmd: ./bench_pingpong 500000 20000 all
+set_manager(PongActor) actor=0x1613480 mgr=0x7fff12949280, get=0x7fff12949280
+set_manager(DriverActor) actor=0x161be40 mgr=0x7fff12949280, get=0x7fff12949280
+Manager::init sending start to PongActor
+Manager::init sending start to DriverActor
+PongActor NOT setting priority 0
+
+DriverActor NOT setting priority 0
+PongActor tid: 558175
+
+DriverActor tid: 558176
+set_manager(bench_group) actor=0x160c780 mgr=0x7fff12949280, get=0x7fff12949280
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 558188
+set_manager(bench_group) actor=0x160ee00 mgr=0x7fff12949280, get=0x7fff12949280
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 558190
+set_manager(bench_group) actor=0x1611100 mgr=0x7fff1294ac80, get=0x7fff1294ac80
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 558191
+set_manager(PongActor) actor=0x1612ec0 mgr=0x7fff12949240, get=0x7fff12949240
+set_manager(BurstDriver) actor=0x1626780 mgr=0x7fff12949240, get=0x7fff12949240
+Manager::init sending start to PongActor
+Manager::init sending start to BurstDriver
+PongActor NOT setting priority 0
+
+BurstDriver NOT setting priority 0
+PongActor tid: 558195
+
+BurstDriver tid: 558196
+set_manager(PongActor) actor=0x16270c0 mgr=0x7fff12949240, get=0x7fff12949240
+set_manager(BurstDriver) actor=0x1627c80 mgr=0x7fff12949240, get=0x7fff12949240
+Manager::init sending start to PongActor
+Manager::init sending start to BurstDriver
+PongActor NOT setting priority 0
+
+BurstDriver NOT setting priority 0
+PongActor tid: 558465
+BurstDriver tid: 
+558466
+set_manager(PongActor) actor=0x1628580 mgr=0x7fff12949240, get=0x7fff12949240
+set_manager(BurstDriver) actor=0x162a100 mgr=0x7fff12949240, get=0x7fff12949240
+Manager::init sending start to PongActor
+Manager::init sending start to BurstDriver
+PongActor NOT setting priority 0
+BurstDriver NOT setting priority 0
+
+
+BurstDriver tid: 558473
+PongActor tid: 558472
+set_manager(PongActor) actor=0x16293c0 mgr=0x7fff12949240, get=0x7fff12949240
+set_manager(BurstDriver) actor=0x162b540 mgr=0x7fff12949240, get=0x7fff12949240
+Manager::init sending start to PongActor
+Manager::init sending start to BurstDriver
+PongActor NOT setting priority 0
+
+PongActor tid: BurstDriver NOT setting priority 0
+558494
+
+BurstDriver tid: 558495
+set_manager(PongActor) actor=0x162ba00 mgr=0x7fff12949240, get=0x7fff12949240
+set_manager(BurstDriver) actor=0x162bf00 mgr=0x7fff12949240, get=0x7fff12949240
+Manager::init sending start to PongActor
+Manager::init sending start to BurstDriver
+PongActor NOT setting priority 0
+
+PongActor tid: BurstDriver NOT setting priority 0
+558768
+
+BurstDriver tid: 558769
+set_manager(PongActor) actor=0x1625ec0 mgr=0x7fff12949240, get=0x7fff12949240
+set_manager(BurstDriver) actor=0x16d0040 mgr=0x7fff12949240, get=0x7fff12949240
+Manager::init sending start to PongActor
+Manager::init sending start to BurstDriver
+PongActor NOT setting priority 0
+
+BurstDriver NOT setting priority 0
+PongActor tid: 
+BurstDriver tid: 558770
+558771
+set_manager(PongActor) actor=0x16d8900 mgr=0x7fff12949240, get=0x7fff12949240
+set_manager(BurstDriver) actor=0x16e24c0 mgr=0x7fff12949240, get=0x7fff12949240
+Manager::init sending start to PongActor
+Manager::init sending start to BurstDriver
+PongActor NOT setting priority 0
+
+PongActor tid: 558773
+BurstDriver NOT setting priority 0
+
+BurstDriver tid: 558774
+set_manager(PongActor) actor=0x16eb040 mgr=0x7fff12949240, get=0x7fff12949240
+set_manager(BurstDriver) actor=0x16f3c80 mgr=0x7fff12949240, get=0x7fff12949240
+Manager::init sending start to PongActor
+Manager::init sending start to BurstDriver
+PongActor NOT setting priority 0
+
+PongActor tid: 558776BurstDriver NOT setting priority 0
+
+BurstDriver tid: 
+558777
+set_manager(bench_group) actor=0x170cd00 mgr=0x7fff12949240, get=0x7fff12949240
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 558778
+set_manager(bench_group) actor=0x1726fc0 mgr=0x7fff12949240, get=0x7fff12949240
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 558780
+set_manager(bench_group) actor=0x1741180 mgr=0x7fff12949240, get=0x7fff12949240
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 558781
+set_manager(bench_group) actor=0x175c600 mgr=0x7fff12949240, get=0x7fff12949240
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 558782
+
+fan-in: 32 producer threads -> 1 consumer, 15625 msgs/producer
+set_manager(SinkCount) actor=0x1765b80 mgr=0x7fff12949280, get=0x7fff12949280
+Manager::init sending start to SinkCount
+SinkCount NOT setting priority 0
+
+SinkCount tid: 558784
+set_manager(SinkCount) actor=0x1771280 mgr=0x7fff12949280, get=0x7fff12949280
+Manager::init sending start to SinkCount
+SinkCount NOT setting priority 0
+
+SinkCount tid: 558817
+set_manager(SinkCount) actor=0x1771700 mgr=0x7fff12949280, get=0x7fff12949280
+Manager::init sending start to SinkCount
+SinkCount NOT setting priority 0
+
+SinkCount tid: 558851
+set_manager(SinkCount) actor=0x1771b40 mgr=0x7fff12949280, get=0x7fff12949280
+Manager::init sending start to SinkCount
+SinkCount NOT setting priority 0
+
+SinkCount tid: 558884
+
+build: MemoryPool ENABLED
+
+=== actor messaging round-trip latency (measured=500000, warmup=20000) ===
+mode                     p50       p90       p99     p99.9       min       max        mean       amort
+send ungrouped          7260      7530      8110     10070      4050     20500      7271.0      7294.2
+send grouped              90        91       100       130        80      4100        90.4       114.1
+fast_send                 30        30        31        31        20      5640        28.2        56.0
+grouped plain-new         90        91       129       171        80      3620        90.7       112.6
+grouped pooled            80       100       180       260        80      4090        92.2       112.5
+fs heap+reply             30        30        31        31        20      2860        28.2        55.9
+fs heap noreply           30        30        31        31        20      2740        25.9        50.6
+fs pooled+reply           30        30        31        31        20      2430        27.7        52.9
+fs pooled noreply         30        30        31        31        20      2620        25.9        49.0
+fs stack+reply            30        30        31        31        20      2840        28.2        52.0
+fs stack noreply          30        30        31        31        20      2240        25.9        46.9
+direct call (base)        20        20        20        20         9      2180        20.0        40.6
+solo1 BQueue            6700      7080      7450      9190      2490     26350      5653.7      5700.2
+solo1 BQueueBatched      6780      7090      7600      8850      3860    108910      6804.4      6825.8
+solo1 ShardedBQueue      3431      6680      7410      8160      2260     20590      3811.2      3831.8
+solo1 LockFreeMPSC      7340      7710      8210     10640      2070     30611      6830.9      6851.7
+burst16 BQueue          7670     12390     15740     18410      3391     25060      8645.1       542.3
+burst16 BQueueBatched      8160     12450     14910     17390      3180     45660      9332.2       584.9
+burst16 ShardedBQueue     14890     18550     22700     26360      4810     33170     14907.3       934.1
+burst16 LockFreeMPSC      9900     14800     18820     21700      3360     31410     10460.5       655.5
+grp BQueue                90       180       280       380        89      8160       105.9       126.4
+grp BQueueBatched        100       180       280       360        89      4670       106.9       127.4
+grp ShardedBQueue        170       171       300       411       160      4620       174.8       195.3
+grp LockFreeMPSC          80       170       260       320        69      2580        88.7       109.2
+fanin BQueue           12150     38120     69430    102581        20    774143     14509.3       493.9
+fanin BQueueBatched     14000     40471     72270    105881        20    211151     18178.6       581.8
+fanin ShardedBQueue      2210      3610      6420     11741        30     27260      2364.0       135.5
+fanin LockFreeMPSC      3220      9710     27620     55270        30    167381      4735.6       218.2
+(one-way ~ round-trip / 2 for the symmetric echo handler; fast_send rows near ~40ns are at steady_clock resolution)
+
+fast_send vs direct function call (clean amortized, per op):
+  direct call :   1.2 ns
+  fast_send   :   8.8 ns  (+7.7 ns, 7.6x a bare call)
