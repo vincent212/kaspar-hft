@@ -1024,7 +1024,9 @@ absolute numbers move with hardware, allocator, and turbo state, and this is
 neither the x86-64 Linux target nor a pinned, quiescent machine. The
 \emph{ratios} between rows --- each isolating one eliminated operation --- are
 the durable result. Because a \fs{} is so cheap that per-sample percentiles
-quantize to the $\sim\!40$~ns \texttt{steady\_clock} tick, its rows are reported
+quantize to the \texttt{steady\_clock} tick ($\sim\!40$~ns on this platform;
+$\sim\!10$~ns on the x86-64 Linux box, so the tick is platform-specific and the
+bench prints the measured value rather than asserting it), its rows are reported
 as amortized ns (total wall time over $N$, one clock-read pair), which resolves
 costs below the tick.
 
@@ -1070,7 +1072,7 @@ Delivery mode & Threads & Thread hop & Queue & $p50$ RT (ns) & Speedup \\
 \midrule
 \snd{}, ungrouped        & 2 & yes & yes & $2250$        & $1\times$ \\
 \snd{}, grouped          & 1 & no  & yes & $125$         & $18\times$ \\
-\fs{} (inline)           & 1 & no  & no  & $\sim\!36$    & $\sim\!62\times$ \\
+\fs{} (inline)           & 1 & no  & no  & $\sim\!36$    & $\sim\!55$--$62\times$ \\
 \bottomrule
 \end{tabular}
 \end{table}

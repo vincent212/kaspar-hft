@@ -74,6 +74,23 @@
 
 #include "bench_common.hpp"
 
+// This bench depends on [[gnu::noipa]] to defeat inlining AND identical-code
+// folding of the work functions (see the note above the handlers). Only GCC
+// implements `noipa`; clang parses it, warns "unknown attribute", and ignores
+// it -- with the barrier gone the tiny handlers inline/fold and every dispatch
+// arm silently collapses toward the empty-loop floor, producing numbers that
+// look plausible and are wrong. We do NOT hard-error (the perf Makefile globs
+// bench_*.cpp, so that would break the macOS build of the other benches); we
+// warn at compile time and print a loud runtime banner so no one trusts the
+// numbers on a compiler that drops the barrier. Run this bench with g++.
+#if defined(__GNUC__) && !defined(__clang__)
+#define BENCH_DISPATCH_NOIPA_OK 1
+#else
+#define BENCH_DISPATCH_NOIPA_OK 0
+#warning "bench_dispatch relies on [[gnu::noipa]], which this compiler ignores (clang); \
+the dispatch arms may inline/fold and collapse to the floor. Numbers are UNRELIABLE -- build with g++."
+#endif
+
 using namespace actors;
 
 namespace
@@ -209,6 +226,12 @@ int main(int argc, char** argv)
   const size_t measured = argc > 1 ? std::strtoull(argv[1], nullptr, 10) : 5000000;
   const size_t warmup = argc > 2 ? std::strtoull(argv[2], nullptr, 10) : 50000;
   const int repeats = argc > 3 ? std::atoi(argv[3]) : 5;
+
+  if (!BENCH_DISPATCH_NOIPA_OK)
+    std::fprintf(stderr,
+                 "\n*** WARNING: built without [[gnu::noipa]] support (not GCC). The dispatch\n"
+                 "*** arms may have inlined/folded and collapsed toward the floor. These\n"
+                 "*** numbers are UNRELIABLE -- rebuild with g++.\n\n");
 
   std::printf("dispatch cost: fast_send vs plain call vs virtual call\n");
   std::printf("  N=%zu  warmup=%zu  repeats=%d\n", measured, warmup, repeats);

@@ -42,13 +42,24 @@ echo "N=$N warmup=$W cores=$CORES runs=$RUNS -> $OUT"
 mkdir -p "$OUT"
 
 rc=0
+# Run one bench; abort the whole script if it crashes. A segfaulting bench (e.g.
+# the stale-archive crash of section 5) writes a table-less file, which
+# aggregate.py cannot parse -- fail loudly here rather than let a partial file
+# reach the aggregator. "do not publish a run that did not complete."
+run() {  # run() <out> <binary> <section>
+  taskset -c "$CORES" "$2" "$N" "$W" "$3" > "$1" 2>&1
+  local rc=$?
+  echo "$(basename "$1") exit=$rc"
+  if [ "$rc" -ne 0 ]; then
+    echo "ABORT: $2 $3 exited $rc -- output in $1 is incomplete, not publishing" >&2
+    exit "$rc"
+  fi
+}
+
 for i in $(seq 1 "$RUNS"); do
-  taskset -c "$CORES" "$B"  "$N" "$W" all      > "$OUT/pool_on_$i.txt"   2>&1
-  echo "pool_on_$i exit=$?"
-  taskset -c "$CORES" "$BN" "$N" "$W" all      > "$OUT/pool_off_$i.txt"  2>&1
-  echo "pool_off_$i exit=$?"
-  taskset -c "$CORES" "$B"  "$N" "$W" fastsend > "$OUT/fastsend_$i.txt"  2>&1
-  echo "fastsend_$i exit=$?"
+  run "$OUT/pool_on_$i.txt"  "$B"  all
+  run "$OUT/pool_off_$i.txt" "$BN" all
+  run "$OUT/fastsend_$i.txt" "$B"  fastsend
 done
 
 # aggregate.py exits non-zero if fast_send < grouped < ungrouped does not hold.
