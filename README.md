@@ -353,27 +353,29 @@ kaspr {
 ### Measured: actor messaging round-trip latency
 
 From the microbenchmarks in [`actors/cpp/perf`](actors/cpp/perf) (`bench_pingpong`),
-ping → pong → reply, one message in flight. Apple Silicon / macOS, `-O3
--march=native`, no CPU pinning — **indicative; the ratios are the point.**
+ping → pong → reply, one message in flight. Two machines — **indicative, not a
+spec; the ratios are the point.** macOS: Apple Silicon, `-O3 -march=native`, no
+pinning. Linux: AMD EPYC 9374F, RHEL 9, g++ 15, `-O3 -march=native`, `taskset` to
+two cores (not fully quiesced — see [second data point](actors/cpp/perf/README.md#second-data-point-x86-64-linux)).
 
-| path | p50 round-trip | notes |
-|---|---:|---|
-| `send`, separate threads | ~2250 ns | cross-core mailbox wakeup (mutex + condvar), twice |
-| `send`, one `Group` thread | ~125 ns | no wakeup — queue push/pop + dispatch |
-| `fast_send` (inline) | ~24 ns\* | no queue, no thread hop; handler runs in the caller |
+| path | macOS p50 | Linux p50 | notes |
+|---|---:|---:|---|
+| `send`, separate threads | ~2250 ns | ~3370 ns | cross-core mailbox wakeup (mutex + condvar), twice |
+| `send`, one `Group` thread | ~125 ns | ~90 ns | no wakeup — queue push/pop + dispatch |
+| `fast_send` (inline) | ~24 ns\* | ~30 ns\* | no queue, no thread hop; handler runs in the caller |
 
-\* per-sample timing quantizes to the `steady_clock` tick (~40 ns on this macOS
-box; ~10 ns on x86-64 Linux); ~24 ns is the amortized mean. Numbers are Apple
-Silicon / macOS, indicative — a second x86-64 Linux data point is noted below.
+\* `fast_send` p50 sits at the `steady_clock` tick (~40 ns macOS; ~10 ns Linux),
+so read its amortized cost, not p50: ~24 ns (macOS) / ~10 ns (Linux). The grouped
+÷ ungrouped ratio is **18× (macOS), 37× (Linux)** — the shape holds on both.
 
 **How much does the actor machinery cost over a bare function call?** Timed
 cleanly (one clock-read pair around a tight loop, identical trivial work on a
 stack input):
 
-| | per op |
-|---|---:|
-| direct function call | ~1 ns |
-| `fast_send` (dispatch, no reply) | ~8 ns |
+| | macOS | Linux |
+|---|---:|---:|
+| direct function call | ~1 ns | ~1 ns |
+| `fast_send` (dispatch, no reply) | ~8 ns | ~10 ns |
 
 So **`fast_send` adds ~7 ns over a plain call** (macOS; ~9 ns on an x86-64 Linux
 EPYC box) — the uncontended mutex, the message field writes, the
