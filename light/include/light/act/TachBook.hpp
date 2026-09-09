@@ -93,7 +93,7 @@ namespace light::tachbook
           return;
         }
 
-        if (delta < 0 && levels[px] <= std::abs(delta))
+        if (delta < 0 && levels[px] <= static_cast<uint>(std::abs(delta)))
         {
           levels[px] = 0; // todo: fix this
         }
@@ -169,7 +169,7 @@ namespace light::tachbook
 
     char name[256];
 
-    const char* get_name() const { return name; }
+    const char* get_name() const override { return name; }
 
     boost::intrusive_ptr<frame::mda::msg::data_pay_load> prev_pl=0;
 
