@@ -1,0 +1,51 @@
+# QUIET box (kaspr STOPPED). DINONY4-01 2026-09-08T20:24:00-04:00
+# loadavg at start: 1.75 4.39 5.08 3/2286 2566754
+# kaspr running: 0
+dispatch cost: fast_send vs plain call vs virtual call
+  N=5000000  warmup=50000  repeats=5
+  steady_clock measured tick: 9.0 ns
+  (all arms do the identical work: g_sink += m->seq)
+
+arm                               min ns    med ns net of floor   x direct
+---                               ------    ------ -----------   --------
+A empty loop (floor)                0.47      0.47        0.00       0.3x
+B direct call                       1.63      1.63        1.16       1.0x
+C non-virtual via ptr               1.63      1.63        1.16       1.0x
+D virtual, 1 type                   1.86      1.86        1.40       1.1x
+E virtual, 2 types cyclic           9.28      9.61        8.81       5.7x
+F virtual, 4 types cyclic           9.32      9.32        8.85       5.7x
+G virtual, 4 types shuffled         7.54      7.72        7.07       4.6x
+H virtual, 8 types shuffled         8.59      8.60        8.13       5.3x
+I ptr-to-member call                1.63      1.63        1.16       1.0x
+J fast_send                         9.08      9.55        8.62       5.6x
+
+decomposition (min):
+  pointer load                = C - B :  -0.00 ns
+  vtable, target predicted    = D - C :   0.23 ns
+  mispredict, 2 types cyclic  = E - D :   7.41 ns
+  mispredict, 4 types cyclic  = F - D :   7.46 ns
+  mispredict, 4 types random  = G - D :   5.67 ns
+  mispredict, 8 types random  = H - D :   6.73 ns
+  ptr-to-member vs virtual    = I - D :  -0.23 ns
+  framework over a bare call  = J - I :   7.45 ns
+
+headline -- fast_send measured against each hand-written alternative:
+  vs direct call                    +7.45 ns  (5.57x)
+  vs virtual, 1 type                +7.22 ns  (4.88x)
+  vs virtual, 4 types cyclic        -0.24 ns  (0.97x)
+  vs virtual, 4 types shuffled      +1.55 ns  (1.21x)
+  vs virtual, 8 types shuffled      +0.49 ns  (1.06x)
+
+all runs, ns per op:
+  A empty loop (floor)               0.47     0.47     0.47     0.47     0.47
+  B direct call                      1.63     1.63     1.63     1.63     1.63
+  C non-virtual via ptr              1.63     1.63     1.63     1.63     1.63
+  D virtual, 1 type                  1.86     1.86     1.86     1.86     1.86
+  E virtual, 2 types cyclic          9.28     9.68     9.78     9.55     9.61
+  F virtual, 4 types cyclic          9.32     9.40     9.32     9.32     9.32
+  G virtual, 4 types shuffled        7.64     7.79     7.72     7.74     7.54
+  H virtual, 8 types shuffled        8.59     8.62     8.60     8.60     8.60
+  I ptr-to-member call               1.63     1.63     1.63     1.63     1.63
+  J fast_send                        9.55     9.55     9.55     9.31     9.08
+
+sink=637562373750000 (ignore; prevents dead-code elimination)

@@ -1,0 +1,50 @@
+# QUIET box (kaspr STOPPED). DINONY4-01 2026-09-08T20:24:01-04:00
+# loadavg at start: 1.77 4.35 5.06 2/2288 2566767
+# kaspr running: 0
+set_manager(PongActor) actor=0x2109530 mgr=0x7ffd9f9d2b20, get=0x7ffd9f9d2b20
+set_manager(DriverActor) actor=0x2111e10 mgr=0x7ffd9f9d2b20, get=0x7ffd9f9d2b20
+Manager::init sending start to PongActor
+Manager::init sending start to DriverActor
+PongActor NOT setting priority 0
+
+DriverActor NOT setting priority 0
+PongActor tid: 2566772
+
+DriverActor tid: 2566773
+set_manager(bench_group) actor=0x2102620 mgr=0x7ffd9f9d2b20, get=0x7ffd9f9d2b20
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 2567773
+set_manager(bench_group) actor=0x2104830 mgr=0x7ffd9f9d2b20, get=0x7ffd9f9d2b20
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 2567783
+set_manager(bench_group) actor=0x21068d0 mgr=0x7ffd9f9d38a0, get=0x7ffd9f9d38a0
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 2568039
+
+build: MemoryPool ENABLED
+
+=== actor messaging round-trip latency (measured=5000000, warmup=50000) ===
+mode                     p50       p90       p99     p99.9       min       max        mean       amort
+send ungrouped          3580      3670      3770      4500      1420    194711      3583.7      3606.4
+send grouped              90       100       110       140        80      5690        93.5       115.3
+fast_send                 30        30        31        31        20      4040        28.2        57.3
+grouped plain-new         91       100       120       151        89      4720        95.7       117.5
+grouped pooled            90        91       140       150        80      4640        88.1       109.9
+fs heap+reply             30        30        31        31        20      3310        28.2        57.4
+fs heap noreply           30        30        31        31        20      3320        25.9        51.9
+fs pooled+reply           30        30        31        31        20      3500        27.7        54.0
+fs pooled noreply         30        30        31        31        20      3390        25.9        50.2
+fs stack+reply            30        30        31        31        20      3830        28.2        53.4
+fs stack noreply          30        30        31        31        20      4420        25.9        48.1
+direct call (base)        20        20        20        20         9      4410        20.0        41.9
+(one-way ~ round-trip / 2 for the symmetric echo handler; fast_send rows near ~40ns are at steady_clock resolution)
+
+fast_send vs direct function call (clean amortized, per op):
+  direct call :   1.2 ns
+  fast_send   :   9.8 ns  (+8.6 ns, 8.4x a bare call)

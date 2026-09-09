@@ -15,8 +15,11 @@ against a **virtual call** rather than a bare static one.
 
 **Read §2 before quoting anything.** This box does *not* meet the runbook's
 quiescing preconditions, and the percentile table is clock-resolution limited.
-Only the amortized per-op numbers in §4 are worth propagating — plus §7, which
-is built from within-process differences and is insensitive to both (see §9).
+The amortized per-op numbers in §4 are the ones to propagate, plus §7, which is
+built from within-process differences and is insensitive to both (see §9).
+**§4.4 re-runs the whole suite with the recorder stopped** to establish which
+of those caveats were real: `amort` was never affected, p99.9 becomes quotable
+quiet, and `max` stays an artifact either way.
 
 ---
 
@@ -60,10 +63,12 @@ threads resident on all 64 logical CPUs. Load average was 3.96.
 
 Consequences, stated plainly:
 
-- **Tails are meaningless here.** `max` on `send ungrouped` reached
-  **8,107,511 ns** (8.1 ms) in one pool-ON run. That is a scheduler preemption
-  by the recorder, not a property of the actor framework. Do not publish p99.9
-  or `max` from this run.
+- **`max` is meaningless here.** `max` on `send ungrouped` reached
+  **12,593,329 ns** (12.6 ms) in one pool-ON run. That is a scheduler preemption
+  by the recorder, not a property of the actor framework.
+  **This was re-tested by stopping the recorder — see §4.4.** Stopping it drops
+  that `max` to 195 µs (64.7x) and makes **p99.9 publishable**, but `max` stays
+  a scheduler artifact even on the quiet box. So: p99.9 yes, `max` no.
 - **p50/p90/p99 are quantized.** The bench measures with `steady_clock`, whose
   resolution here is ~10 ns. Every `fast_send` row reports p50=30, p90=30 —
   that is 2–3 clock ticks, not a measurement. The bench prints this caveat
@@ -160,6 +165,62 @@ p50 was identical across all 3 runs for every row except `send ungrouped`
 run-to-run spread. One pool-OFF run had a `send ungrouped` p50 of 1750 vs 3360
 in the other two — a 1.9x swing from ambient load alone. Any claim about the
 memory pool needs a quiesced box.
+
+### 4.4 Recorder stopped: which numbers were actually load-contaminated
+
+§2 originally said "do not publish p99.9 or `max`", and §9 asked for a box with
+`nohz_full`, `chrt` and no other load before quoting anything absolute. That
+bundled three preconditions that are not equally binding, so the recorder was
+**stopped** and the whole suite re-run to separate them.
+
+`kaspr/stop_kaspr.sh`, 90 s settle, three runs, then `run_local.sh -o -d` to
+restart. Load average 6.04 → **1.99**; recorder downtime 3.2 min; each raw file
+records `# kaspr running: 0` in its header. Files in `results/quiet/`.
+
+The two boot-level blockers were **unchanged** by this: `nohz_full=`/`rcu_nocbs=`
+are still empty (they are boot parameters — a process kill cannot set them) and
+`chrt -f 80` still returns `Operation not permitted` (`RLIMIT_RTPRIO=0`). So
+this isolates *ambient load only*.
+
+| mode | p99.9 busy | p99.9 quiet | max busy | max quiet | max ratio |
+|---|---|---|---|---|---|
+| send ungrouped | 4740 | **4480** | 12,593,329 | **194,711** | **64.7x** |
+| send grouped | 171 | **131** | 9,990 | 12,080 | 0.8x |
+| fast_send | 50 | **31** | 7,890 | 4,040 | 2.0x |
+| grouped plain-new | 180 | **150** | 22,560 | 5,029 | 4.5x |
+| grouped pooled | 160 | **150** | 9,830 | 4,710 | 2.1x |
+| fs heap+reply | 50 | **31** | 9,200 | 8,240 | 1.1x |
+| fs heap noreply | 40 | **31** | 11,751 | 11,660 | 1.0x |
+| fs pooled+reply | 40 | **31** | 8,970 | 3,880 | 2.3x |
+| fs pooled noreply | 40 | **31** | 10,440 | 6,010 | 1.7x |
+| fs stack+reply | 40 | **31** | 8,501 | 4,229 | 2.0x |
+| fs stack noreply | 40 | **31** | 8,420 | 4,420 | 1.9x |
+| direct call (base) | 30 | **20** | 9,730 | 5,020 | 1.9x |
+
+Three findings, and they do not all point the same way:
+
+1. **p99.9 becomes publishable.** Every `fast_send` variant tightens from 40–50
+   to a flat **31 ns**, against a p50 of 30 — i.e. p99.9 is now one clock tick
+   off the median rather than a preemption artifact. `direct call` p99.9 drops
+   30 → 20, equal to its own p50. The original "do not publish p99.9" was
+   correct *for the busy run* and is **wrong for the quiet one**.
+2. **`max` is still not publishable, and stopping the recorder does not fix
+   it.** Quiet `max` is still 3.9–11.7 µs, `fs heap noreply` barely moved
+   (11,751 → 11,660), and `send grouped` got *worse* (9,990 → 12,080). One worst
+   sample in 5,000,000 catches *something* on a box with no isolated cores, and
+   that is what `nohz_full` would address. Only the 12.6 ms outlier — three
+   orders of magnitude out — was the recorder.
+3. **The amortized numbers were never load-contaminated.** Every `amort` in
+   §4.2 moved by **≤0.5 ns** with the recorder gone (`fast_send` 57.6 → 57.3,
+   `direct call` 42.0 → 41.9, `fs stack noreply` 48.5 → 48.2). §4.1 and §6 rest
+   on `amort`, so **the hedging in §9 did not apply to them.** They stand as
+   published. `send ungrouped` is the lone exception (3412 → 3594 amort, p50
+   3370 → 3580), which is inside the 1.9x run-to-run swing §4.3 already records
+   for that row — noise, not a quiet-box effect.
+
+The pool ON/OFF question in §4.3 is **still not resolvable**: the pool deltas
+are ~1–4 ns and the quiet box only bought ~0.5 ns of stability on `amort`. That
+one needs the isolated cores, not just an idle box.
 
 ---
 
@@ -336,9 +397,14 @@ Derivations, so these can be checked:
    move in the same direction.
 5. **The 5.5 ms → 33 µs tail claim ships without its denominator** — "in a
    separate run", no N, no run count, no repeat. It is the load-bearing
-   evidence for the whole queueing argument in PDF §10. I can neither confirm
-   nor refute it here: my maxima are recorder-preemption dominated (8.1 ms on
-   `send ungrouped`, §2). It needs its own provenance.
+   evidence for the whole queueing argument in PDF §10. Still neither confirmed
+   nor refuted here, but the reason is now sharper: with the recorder stopped
+   (§4.4) my worst `max` falls from 12.6 ms to 195 µs, which shows a
+   millisecond-scale maximum on a shared box is a **scheduler** signature, not
+   an allocator one. The published 5.5 ms sits in exactly that range. Whatever
+   it measures, it needs its own provenance and a quiesced box before it can be
+   attributed to the pool. Note the quiet re-run covers pool ON only, so this
+   is not yet a pool ON/OFF tail comparison.
 6. **Two ratios got better on Linux and should be claimed.** Grouped vs
    ungrouped is 37x here, not 18x.
 7. **The docs benchmark against the wrong baseline.** README §D and the PDF
@@ -429,6 +495,20 @@ Two things worth stating on their own:
   overlapping. The residual is the `MessageT` id guard (below) and ambient load.
 - Measured `steady_clock` tick, printed by the bench itself: **9.0 ns** —
   confirming §2 and §6 item 3 from a third, independent code path.
+- **The "needs no quiescing" claim below was tested, not just argued.** All
+  three invocations were repeated with the recorder stopped (§4.4). Per-arm
+  minima, busy vs quiet, n=15 each:
+
+  | | A | B | C | D | E | F | G | H | I | J |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | busy | 0.47 | 1.63 | 1.63 | 1.86 | 9.21 | 9.32 | 7.53 | 8.58 | 1.63 | 9.10 |
+  | quiet | 0.47 | 1.63 | 1.63 | 1.86 | 9.28 | 9.32 | 7.49 | 8.59 | 1.63 | 8.85 |
+  | Δ | 0.00 | 0.00 | 0.00 | 0.00 | +0.07 | 0.00 | −0.04 | +0.01 | 0.00 | −0.25 |
+
+  Six arms are identical to 0.01 ns, the largest move is 0.25 ns, and the signs
+  are mixed — i.e. run-to-run noise, not a load effect. **A 580%-CPU recorder is
+  worth ≤0.25 ns to this bench.** The headline is unchanged: `fast_send` at
+  8.85–9.10 against a 7.49–9.32 polymorphic band is 0.95x–1.18x.
 
 ### 7.4 Method notes that materially affect these numbers
 
@@ -468,6 +548,13 @@ fastsend_1.txt  fastsend_2.txt  fastsend_3.txt    (bench_pingpong, fastsend)
 dispatch_1.txt  dispatch_2.txt  dispatch_3.txt    (bench_dispatch, §7)
 ```
 
+Nine more under `results/quiet/` — the same benches with the recorder stopped
+(§4.4). Each carries `# kaspr running: 0` and its start loadavg in the header:
+
+```
+quiet/pool_on_{1,2,3}.txt   quiet/fastsend_{1,2,3}.txt   quiet/dispatch_{1,2,3}.txt
+```
+
 To reproduce the run and the tables:
 
 ```bash
@@ -494,10 +581,22 @@ the runbook points at. The ratios reproduce and the sanity gate passes, so the
 - `fast_send` ≈ 3x faster than grouped `send`, ≈ 112x faster than ungrouped
 - `fast_send` costs ~9 ns over a direct call, ~9x a bare call
 
-But the absolute latencies carry the load of a busy 64-core recorder and the
-percentiles are at clock resolution. To get publishable absolutes this needs a
-box with `nohz_full`/`rcu_nocbs` set at boot, `CAP_SYS_NICE` for `chrt`, and
-nothing else running. Happy to re-run there.
+An earlier draft of this section asked for `nohz_full`, `chrt` **and** an idle
+box before quoting any absolute. That bundled three preconditions that are not
+equally binding, so the recorder was stopped and the suite re-run to separate
+them (**§4.4**). The result splits three ways:
+
+- **`amort` was never load-contaminated** — every row moved ≤0.5 ns with the
+  recorder stopped. §4.1, §4.2's `amort` column and all of §6 rest on `amort`,
+  so **they are quotable as they stand.** The hedge did not apply to them.
+- **p99.9 becomes quotable on the quiet box** — `fast_send` tightens to a flat
+  31 ns against a p50 of 30. Quote §4.4's quiet column, not §4.2's busy one.
+- **`max` remains unquotable** and stopping the recorder does not fix it: still
+  3.9–11.7 µs, and one row got worse. That is the part that genuinely needs
+  `nohz_full`/`rcu_nocbs`, which are boot parameters this box does not set.
+
+So the remaining ask is narrower than it was: a reboot with isolated cores buys
+`max` and the pool ON/OFF question (§4.3). Nothing else is waiting on it.
 
 **§7 is the exception, and I would land it.** The dispatch comparison is built
 entirely from *differences between arms measured in the same process, in the
