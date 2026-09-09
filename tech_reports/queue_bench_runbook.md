@@ -69,19 +69,21 @@ g++ --version | head -1
 Paste, verbatim:
 
 1. `uname -srm`, the `lscpu` CPU model line, and the g++ version.
-2. The **`batch`** table (the four `burst16 *` rows) — this is the queue-type
-   comparison:
+2. The **`solo`** table (`solo1 *`) — window=1, lowest per-message latency.
+3. The **`batch`** table (`burst16 *`) — 16-deep burst, throughput under backlog.
+4. The **`fanin`** table (`fanin *`) — many producers → one consumer. Include the
+   `fan-in: N producer threads ...` line printed above it (N auto-scales to the
+   box, so it will differ from macOS — that is the point). Here p50/p99 are PUSH
+   latency and amort is throughput.
+5. The **`transport`** rows (`send ungrouped`, `send grouped`, `fast_send`).
+6. The `build: MemoryPool ENABLED/DISABLED` line.
 
-   ```
-   mode                     p50   p90   p99   p99.9   min   max   mean   amort
-   burst16 BQueue          ...
-   burst16 BQueueBatched   ...
-   burst16 ShardedBQueue   ...
-   burst16 LockFreeMPSC    ...
-   ```
-3. The **`transport`** rows (`send ungrouped`, `send grouped`, `fast_send`) — the
-   no-queue / grouped baselines.
-4. The `build: MemoryPool ENABLED/DISABLED` line.
+All four queue tables share the format:
+
+```
+mode                     p50   p90   p99   p99.9   min   max   mean   amort
+<queue rows>            ...
+```
 
 ## 5. Notes / gotchas
 

@@ -35,12 +35,14 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <future>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "actors/Actor.hpp"
@@ -301,6 +303,95 @@ perf::LatencyStats run_burst(const std::string& label, Actor::MailboxKind mbk,
   return s;
 }
 
+// Counts inbound messages; signals when `target` have arrived. Used as the
+// single consumer in the fan-in benchmark.
+template <class PingT>
+class SinkCountActor : public Actor
+{
+public:
+  SinkCountActor(size_t target, std::promise<void>* done,
+                 Actor::MailboxKind mbk, size_t cap)
+  : target_(target), done_(done)
+  {
+    set_mailbox(mbk, cap);
+    std::strncpy(name, "SinkCount", sizeof(name) - 1);
+    MESSAGE_HANDLER(PingT, on_ping);
+  }
+
+private:
+  void on_ping(const PingT*) noexcept
+  {
+    if (++count_ == target_)
+      done_->set_value();
+  }
+  size_t target_;
+  size_t count_ = 0;
+  std::promise<void>* done_;
+};
+
+// Fan-in: `producers` raw threads all send() into ONE consumer actor whose
+// mailbox is `mbk`. This is the many-producers-one-consumer contention the
+// sharded / lock-free queues are built for. We record each producer's push()
+// latency (the cost of enqueuing under contention) and the end-to-end
+// throughput (amort = wall / total messages).
+template <class PingT>
+perf::LatencyStats run_fanin(const std::string& label, Actor::MailboxKind mbk,
+                             size_t producers, size_t per_producer, size_t warmup_per)
+{
+  const size_t total = producers * per_producer;
+  std::promise<void> done;
+  auto fut = done.get_future();
+
+  // Size the mailbox so enqueue contention — not backpressure — is what we
+  // measure: one lane per producer for sharded; a ring big enough to hold the
+  // whole run for the (bounded) lock-free queue; BQueue/Batched overflow into a
+  // deque so their ring size is not load-bearing.
+  size_t cap;
+  switch (mbk) {
+    case Actor::MailboxKind::ShardedBQueue: cap = producers; break;
+    case Actor::MailboxKind::LockFreeMPSC:  cap = total + 1024; break;
+    default:                                cap = 1024; break;
+  }
+
+  Manager mgr("fanin_mgr");
+  auto* sink = new SinkCountActor<PingT>(total, &done, mbk, cap);
+  mgr.add_to_manage_q(sink);
+  mgr.init();
+  // let the consumer thread reach its drain loop before producers start
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  std::vector<std::vector<uint64_t>> lat(producers);
+  std::atomic<bool> go{false};
+
+  std::vector<std::thread> threads;
+  for (size_t p = 0; p < producers; ++p)
+    threads.emplace_back([&, p] {
+      lat[p].reserve(per_producer - warmup_per);
+      while (!go.load(std::memory_order_acquire)) { /* start together */ }
+      for (size_t i = 0; i < per_producer; ++i) {
+        const uint64_t a = perf::now_ns();
+        sink->send(new PingT(i), nullptr);
+        const uint64_t b = perf::now_ns();
+        if (i >= warmup_per) lat[p].push_back(b - a);
+      }
+    });
+
+  const uint64_t t0 = perf::now_ns();
+  go.store(true, std::memory_order_release);
+  fut.wait();
+  const uint64_t t1 = perf::now_ns();
+  for (auto& t : threads) t.join();
+  mgr.end();
+
+  std::vector<uint64_t> samples;
+  samples.reserve(producers * (per_producer - warmup_per));
+  for (auto& v : lat) samples.insert(samples.end(), v.begin(), v.end());
+
+  auto s = perf::LatencyStats::from(label, samples);
+  s.amortized = static_cast<double>(t1 - t0) / total;  // throughput ns/msg
+  return s;
+}
+
 // fast_send round trip with a heap-allocated input message and a reply.
 template <class PingT, class PongT>
 perf::LatencyStats run_fastsend_heap(const std::string& label, size_t measured, size_t warmup)
@@ -476,7 +567,7 @@ int main(int argc, char** argv)
   {
     if (std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0)
     {
-      std::printf("usage: %s [N] [warmup] [section: transport|alloc|fastsend|batch|all]\n", argv[0]);
+      std::printf("usage: %s [N] [warmup] [section: transport|alloc|fastsend|solo|batch|fanin|all]\n", argv[0]);
       return 0;
     }
     measured = std::strtoull(argv[1], nullptr, 10);
@@ -516,6 +607,17 @@ int main(int argc, char** argv)
     rows.push_back(run_direct_call("direct call (base)", measured, warmup));
   }
 
+  if (all || section == "solo")
+  {
+    // One message outstanding (window 1), thread-to-thread. Lowest per-message
+    // latency: no queueing behind other messages, so p50 ~ the bare cross-core
+    // round trip. amort ~ p50 here (nothing overlaps).
+    rows.push_back(run_burst<Ping, Pong>("solo1 BQueue",        Actor::MailboxKind::BQueue,        1, measured, warmup));
+    rows.push_back(run_burst<Ping, Pong>("solo1 BQueueBatched", Actor::MailboxKind::BQueueBatched, 1, measured, warmup));
+    rows.push_back(run_burst<Ping, Pong>("solo1 ShardedBQueue", Actor::MailboxKind::ShardedBQueue, 1, measured, warmup));
+    rows.push_back(run_burst<Ping, Pong>("solo1 LockFreeMPSC",  Actor::MailboxKind::LockFreeMPSC,  1, measured, warmup));
+  }
+
   if (all || section == "batch")
   {
     // A 16-deep burst keeps the receiver's mailbox backlogged, so the queue
@@ -526,6 +628,23 @@ int main(int argc, char** argv)
     rows.push_back(run_burst<Ping, Pong>("burst16 BQueueBatched", Actor::MailboxKind::BQueueBatched, W, measured, warmup));
     rows.push_back(run_burst<Ping, Pong>("burst16 ShardedBQueue", Actor::MailboxKind::ShardedBQueue, W, measured, warmup));
     rows.push_back(run_burst<Ping, Pong>("burst16 LockFreeMPSC",  Actor::MailboxKind::LockFreeMPSC,  W, measured, warmup));
+  }
+
+  if (all || section == "fanin")
+  {
+    // Many producers -> one consumer: the contention the sharded / lock-free
+    // queues are built for. p50/p99 here are PUSH latency (enqueue cost under
+    // contention); amort is end-to-end throughput (ns/msg). Producer count
+    // auto-scales to the machine.
+    unsigned hw = std::thread::hardware_concurrency();
+    const size_t P = std::min<size_t>(32, std::max<size_t>(2, hw > 2 ? hw - 2 : 2));
+    const size_t per = std::max<size_t>(measured / P, 1);
+    const size_t wper = std::max<size_t>(warmup / P, 1);
+    std::printf("\nfan-in: %zu producer threads -> 1 consumer, %zu msgs/producer\n", P, per);
+    rows.push_back(run_fanin<Ping>("fanin BQueue",        Actor::MailboxKind::BQueue,        P, per, wper));
+    rows.push_back(run_fanin<Ping>("fanin BQueueBatched", Actor::MailboxKind::BQueueBatched, P, per, wper));
+    rows.push_back(run_fanin<Ping>("fanin ShardedBQueue", Actor::MailboxKind::ShardedBQueue, P, per, wper));
+    rows.push_back(run_fanin<Ping>("fanin LockFreeMPSC",  Actor::MailboxKind::LockFreeMPSC,  P, per, wper));
   }
 
   if (rows.empty())
