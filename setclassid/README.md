@@ -6,9 +6,14 @@
 
 # setclassid - Message ID Uniqueness Checker
 
+> **New messages should inherit `actors::MessageT<Derived>`, which auto-assigns a
+> collision-free id — do NOT hand-pick an id, and you do not need this tool.**
+> This checker exists only to **audit existing legacy `Message_N<N>`** ids. The
+> "assign a new id" workflow below is legacy; don't use it for new message types.
+
 ## Overview
 
-This script validates that all *hand-assigned* actor message IDs are unique across the entire codebase. Messages that inherit from `actors::Message_N<ID>` fix `ID` to a compile-time constant that must be a unique integer between 1 and 511. (Messages that inherit from `actors::MessageT<Derived>` instead get an id auto-assigned at runtime from a counter starting at 512, so they are collision-free by construction and are not the concern of this script.)
+This script validates that all *hand-assigned* (legacy `Message_N<N>`) actor message IDs are unique across the codebase. `Message_N<ID>` fixes `ID` to a compile-time constant that must be a unique integer between 1 and 511. Messages that inherit from `actors::MessageT<Derived>` instead get an id auto-assigned at runtime from a counter starting at 512, so they are collision-free by construction and are not the concern of this script.
 
 ## Why Message IDs Must Be Unique
 

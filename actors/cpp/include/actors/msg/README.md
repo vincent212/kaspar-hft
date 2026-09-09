@@ -117,12 +117,8 @@ publisher->send(new actors::msg::Subscribe(), this);
 
 ## Creating Custom Messages
 
-Two ways to define a message. Both give every type an integer id used for O(1)
-handler dispatch (`Actor::call_handler` indexes `handler_cache` by that id).
-`get_message_id()` is a non-virtual accessor over a data member set at
-construction — not a virtual call.
-
-**Preferred — `MessageT<Derived>` (auto-assigned, collision-free id):**
+Inherit `MessageT<Derived>`. The dispatch id is auto-assigned and collision-free
+by construction — **do not hand-pick an id.**
 
 ```cpp
 #include "actors/Message.hpp"
@@ -135,20 +131,11 @@ struct MyMessage : public actors::MessageT<MyMessage> {
 };
 ```
 
-The id is assigned automatically on first use from a counter starting at 512, so
-it can never collide with a hand-assigned id.
+Every type gets an integer id used for O(1) handler dispatch (`Actor::call_handler`
+indexes `handler_cache` by it); with `MessageT` it's assigned on first use from a
+counter starting at 512, and `get_message_id()` is a non-virtual member read.
 
-**Fixed id — `Message_N<N>` (compile-time constant id):**
-
-```cpp
-struct MyMessage : public actors::Message_N<100> {
-  int value;
-  MyMessage(int v) : value(v) {}
-};
-```
-
-Use `Message_N<N>` only when you need the id as a compile-time constant (e.g. a
-`case` label or a `msg::MyMessage::id` comparison). **N must be unique and in the
-range 1–511** (512+ is reserved for `MessageT`); there is no compile-time
-uniqueness check across the tree — run `setclassid/setclassid.py` to catch
-duplicates. IDs 1-99 are reserved for system messages; use >= 100 for user messages.
+> **Legacy:** `Message_N<N>` hard-codes the id to a compile-time constant. It is
+> not uniqueness-checked, so two types can silently collide — use it only if you
+> genuinely need the id as a constant expression (e.g. a `case` label), and run
+> `setclassid/setclassid.py` to audit existing ones. New messages use `MessageT`.

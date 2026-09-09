@@ -121,9 +121,10 @@ Additional per-component guides:
 ### Adding a new message type
 
 1. Create header at `<lib>/include/<lib>/msg/MyMsg.hpp`
-2. Extend `MessageT<MyMsg>` (auto-assigned collision-free id, preferred), or
-   `Message_N<N>` with a unique `N` in 1–511 if you need a compile-time-constant
-   id (run `setclassid/setclassid.py` to catch `Message_N` collisions)
+2. Extend `MessageT<MyMsg>` — the id is auto-assigned and collision-free. **Do
+   not hand-pick a message id.** (`Message_N<N>` is legacy: hard-coded id, not
+   uniqueness-checked; use only if you genuinely need a compile-time-constant id,
+   then run `setclassid/setclassid.py` to audit.)
 3. Register handler in receiving actor's constructor
 
 ### Modifying handler_if.hpp
