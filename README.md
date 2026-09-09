@@ -252,7 +252,7 @@ compile time, so prefer `MessageT` — it removes the whole class of collision
 bugs. See [`setclassid/README.md`](setclassid/README.md) if you must audit
 existing `Message_N` IDs.)
 
-## Console
+## Monitoring
 
 A running `kaspr` process exposes a **ZMQ request/reply control console** (the
 `mq0` server) for live monitoring and manual intervention — inspect books and
