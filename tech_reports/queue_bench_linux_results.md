@@ -7,6 +7,10 @@ sharded/lock-free advantage should widen — are coming in a follow-up."*
 This is that run. **The prediction holds for fan-in and fails for everything
 else**, and one of the article's two headline numbers does not survive.
 
+This document is the comparison against the M3. The standalone write-up of what
+this machine says on its own terms — where the headline is thread placement, not
+the queue — is `queue_types_article_epyc.md`.
+
 ## Machine and method
 
 ```
@@ -172,7 +176,9 @@ function of your core count.**
 M3, LockFree's 16,375 ns p99.9 beat ShardedBQueue's 33,625. Here it **inverts**:
 ShardedBQueue 11,980 vs LockFreeMPSC 32,670 — almost exactly the same two
 numbers with the labels swapped. LockFree is also the least stable row measured
-(p99.9 spread 1.8× across runs, and a 13 ms `max` in one unpinned run).
+(p99.9 spread 1.8× across runs: 30,540 / 32,670 / 55,270). It is unstable in the
+grouped table too — best p50 of the four at 70 ns, worst `max` of the four at
+16,060 / 13,950 ns in two of three reps, vs BQueue's 2,350–9,060.
 
 ## Summary against the article's table
 

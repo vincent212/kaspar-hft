@@ -233,3 +233,9 @@ should widen — are coming in a follow-up.*
 > 2.2× and flips the winner, so it is not measurable unpinned), and the
 > LockFreeMPSC deep-tail win (inverted — ShardedBQueue takes p99.9). The thesis
 > survives intact; the specific numbers are M3 numbers.
+>
+> The EPYC has its own post — `queue_types_article_epyc.md`, *"Your Queue Is
+> Worth 7%. Where You Put the Thread Is Worth 220%."* — because the headline
+> there is not a queue at all: on a 32-core, 8-CCD box, thread placement moves
+> the Regime-1 number more than the queue choice does, and three of the four
+> regimes cannot tell the four mailboxes apart.
