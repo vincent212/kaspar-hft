@@ -1051,8 +1051,17 @@ the exact multiple depends on the metric, since \fs{}'s per-sample $p50$ sits at
 the clock floor and its true cost is only resolved amortized, so this divides an
 amortized figure into a $p50$ and is approximate --- because it is, mechanically,
 a locked function call. A like-for-like comparison avoids the metric mismatch
-entirely: measured the same way in the same process, \fs{} costs about \emph{one}
-unpredictable virtual call.
+entirely. Measured the same way in the same process --- one clock-read pair
+around a tight loop of $N$ operations, so there is no per-call clock overhead and
+no quantization --- a bare (non-virtual) function call costs $\sim\!2.9$~ns and a
+\fs{} of a stack-allocated message with a trivial handler costs $\sim\!14$~ns.
+That is $\sim\!10$~ns of overhead over a direct call: the uncontended
+receiver-lock acquire/release, the message field setup, the handler-cache
+dispatch, and the reply wrapping --- on the order of one to two mispredicted
+virtual calls, not one. The $\sim\!36$~ns round-trip figure in
+Table~\ref{tab:transport} is larger because it additionally includes the two heap
+message allocations of the ping/pong pair (a stack message and the pool remove
+most of that; see Table~\ref{tab:alloc}).
 
 \begin{table}[!htb]
 \centering
