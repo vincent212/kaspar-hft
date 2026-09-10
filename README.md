@@ -252,6 +252,75 @@ compile time, so prefer `MessageT` — it removes the whole class of collision
 bugs. See [`setclassid/README.md`](setclassid/README.md) if you must audit
 existing `Message_N` IDs.)
 
+## Choosing the Right Queue for Your Actor
+
+Every actor has a **mailbox**: a multi-producer/single-consumer (MPSC) queue that
+other threads push messages into and the actor's own thread drains. Kaspar ships
+four mailbox implementations, and each actor picks one **in its constructor,
+before its thread starts**:
+
+```cpp
+enum class MailboxKind { BQueue, BQueueBatched, ShardedBQueue, LockFreeMPSC };
+void set_mailbox(MailboxKind kind, size_t cap = ACTOR_BQUEUE_SIZE);
+```
+
+- **BQueue** — mutex + condition variable around a ring buffer. Simple, FIFO,
+  sleeps when idle. **This is the default** (no `set_mailbox` call needed).
+- **BQueueBatched** — same, but the consumer drains the whole mailbox under one
+  lock instead of locking per message.
+- **ShardedBQueue** — the mailbox split into N independent lanes, each with its
+  own lock; producers round-robin across lanes to avoid contending on one lock.
+- **LockFreeMPSC** — a bounded lock-free ring; producers claim a slot with a
+  single atomic operation and never take a lock or park.
+
+The second argument is a sizing hint: ring/overflow capacity for
+`BQueue`/`BQueueBatched`/`LockFreeMPSC`, and **lane count** for `ShardedBQueue`.
+
+### When in doubt, use BQueue (the default)
+
+For the large majority of actors, **BQueue is the right choice and needs no
+configuration.** Most actors are low-contention — driven by one timer, one
+upstream stage, or grouped onto a shared thread — and in every one of those cases
+the four mailboxes are within a few percent of each other, while BQueue has the
+most stable latency tail of the four. Reaching for a "faster" queue here buys
+nothing measurable and can hurt: `ShardedBQueue` is actually the *slowest* of the
+four for a single producer or a grouped actor, because its lanes exist to spread
+contention that isn't there. Do not make it a global default.
+
+### Switch to ShardedBQueue for high-fan-in actors
+
+There is one case where the mailbox choice matters a great deal: an actor that
+**many threads write into concurrently** — for example an order book fed by a
+dozen market-data handlers at once. Under that fan-in, a single-mutex mailbox
+serializes every producer and its tail latency explodes; `ShardedBQueue` gives
+each producer its own lane and wins decisively (up to ~10× lower p99 under 32
+producers). Set the lane count to roughly the number of concurrent producers:
+
+```cpp
+class BookBuilder : public actors::Actor {
+public:
+  BookBuilder() {
+    // Many feed handlers push here at once -> shard to avoid lock contention.
+    set_mailbox(MailboxKind::ShardedBQueue, /*lanes=*/32);
+    MESSAGE_HANDLER(MDUpdate, on_update);
+  }
+};
+```
+
+### Quick guide
+
+| Actor's write pattern | Mailbox |
+|---|---|
+| Anything low-contention (one timer/upstream, or grouped) | **BQueue** (default) |
+| Many producer threads writing at once (order book, aggregators) | **ShardedBQueue**, lanes ≈ producers |
+| Unsure | **BQueue** |
+
+`LockFreeMPSC` has the lowest median in the single-thread/grouped case but a
+worse latency tail, and `BQueueBatched` ties `BQueue`; neither is worth switching
+to as a default. The full cross-regime benchmarks and the reasoning behind these
+recommendations are written up here:
+**[Not All Queues Fit All in Low-Latency Systems](https://vincentmayeski.substack.com/p/not-all-queues-fit-all-in-low-latency)**.
+
 ## Monitoring
 
 A running `kaspr` process exposes a **ZMQ request/reply control console** (the
