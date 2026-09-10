@@ -264,6 +264,16 @@ enum class MailboxKind { BQueue, BQueueBatched, ShardedBQueue, LockFreeMPSC };
 void set_mailbox(MailboxKind kind, size_t cap = 0);   // cap = 0 -> per-kind default
 ```
 
+> **Recommendation: do not call `set_mailbox` unless you are sure you need a
+> specific performance characteristic.** The default `BQueue` is the right
+> choice for almost every actor. Only override it when profiling shows a
+> particular actor's mailbox is a bottleneck *and* you understand the trade-offs
+> — otherwise you are likely to make things slower, not faster. The full
+> cross-regime benchmarks and the reasoning behind each queue are here:
+> [Not All Queues Fit All in Low-Latency Systems](https://vincentmayeski.substack.com/p/not-all-queues-fit-all-in-low-latency).
+
+The four implementations:
+
 - **BQueue** — mutex + condition variable around a ring buffer. Simple, FIFO,
   sleeps when idle. **This is the default** (no `set_mailbox` call needed).
 - **BQueueBatched** — same, but the consumer drains the whole mailbox under one
