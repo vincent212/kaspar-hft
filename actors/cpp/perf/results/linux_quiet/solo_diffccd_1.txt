@@ -1,0 +1,52 @@
+# placement=diffccd cpus=2,6 rep=1 2026-09-09T19:31:28-04:00
+# kaspr running: 0  loadavg: 1.04 1.97 2.63 3/2270 566010
+set_manager(PongActor) actor=0x17c0480 mgr=0x7fff7e6bf940, get=0x7fff7e6bf940
+set_manager(BurstDriver) actor=0x17c9080 mgr=0x7fff7e6bf940, get=0x7fff7e6bf940
+Manager::init sending start to PongActor
+Manager::init sending start to BurstDriver
+PongActor NOT setting priority 0
+BurstDriver NOT setting priority 0
+
+BurstDriver tid: 
+PongActor tid: 566013
+566012
+set_manager(PongActor) actor=0x17b83c0 mgr=0x7fff7e6bf940, get=0x7fff7e6bf940
+set_manager(BurstDriver) actor=0x17b8f80 mgr=0x7fff7e6bf940, get=0x7fff7e6bf940
+Manager::init sending start to PongActor
+Manager::init sending start to BurstDriver
+PongActor NOT setting priority 0
+BurstDriver NOT setting priority 0
+
+PongActor tid: 566020
+
+BurstDriver tid: 566021
+set_manager(PongActor) actor=0x17b9a00 mgr=0x7fff7e6bf940, get=0x7fff7e6bf940
+set_manager(BurstDriver) actor=0x17bb580 mgr=0x7fff7e6bf940, get=0x7fff7e6bf940
+Manager::init sending start to PongActor
+Manager::init sending start to BurstDriver
+PongActor NOT setting priority 0
+
+PongActor tid: 566023
+BurstDriver NOT setting priority 0
+
+BurstDriver tid: 566024
+set_manager(PongActor) actor=0x17bc140 mgr=0x7fff7e6bf940, get=0x7fff7e6bf940
+set_manager(BurstDriver) actor=0x17bcd80 mgr=0x7fff7e6bf940, get=0x7fff7e6bf940
+Manager::init sending start to PongActor
+Manager::init sending start to BurstDriver
+PongActor NOT setting priority 0
+
+PongActor tid: 566045BurstDriver
+ NOT setting priority 0
+
+BurstDriver tid: 566046
+
+build: MemoryPool ENABLED
+
+=== actor messaging round-trip latency (measured=500000, warmup=20000) ===
+mode                     p50       p90       p99     p99.9       min       max        mean       amort
+solo1 BQueue            6711      7080      7700      8669      3940    147061      6749.7      6773.2
+solo1 BQueueBatched      1449      1480      1650      2690      1370      7920      1452.5      1475.4
+solo1 ShardedBQueue      7070      7400      7980      9810      2040     52440      7107.8      7130.5
+solo1 LockFreeMPSC      1960      6860      7270      8050      1380     45340      2823.7      2844.6
+(one-way ~ round-trip / 2 for the symmetric echo handler; fast_send rows near ~40ns are at steady_clock resolution)

@@ -34,12 +34,15 @@
  *     warmup  discarded round trips per row  (default 10000)
  */
 
+#include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <future>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "actors/Actor.hpp"
@@ -84,8 +87,12 @@ template <class PingT, class PongT>
 class PongActor : public Actor
 {
 public:
-  PongActor()
+  // mbk selects this actor's mailbox (see Actor::set_mailbox). Default keeps the
+  // stock BQueue so existing rows are unchanged.
+  explicit PongActor(Actor::MailboxKind mbk = Actor::MailboxKind::BQueue,
+                     size_t cap = ACTOR_BQUEUE_SIZE)
   {
+    set_mailbox(mbk, cap);
     std::strncpy(name, "PongActor", sizeof(name) - 1);
     MESSAGE_HANDLER(PingT, on_ping);
   }
@@ -187,6 +194,237 @@ perf::LatencyStats run_send(const std::string& label, bool grouped, size_t measu
     mgr.add_to_manage_q(pong);
     mgr.add_to_manage_q(driver);
   }
+
+  mgr.init();
+  fut.wait();
+  mgr.end();
+  auto s = perf::LatencyStats::from(label, samples);
+  s.amortized = measured ? static_cast<double>(measured_wall) / measured : 0.0;
+  return s;
+}
+
+// Keeps `window` messages outstanding (a burst/pipeline) instead of one at a
+// time, so the receiver's mailbox actually accumulates a backlog — the load
+// that exercises batch drain and separates the queue types. Each ping carries
+// its send timestamp (via send_ts_ indexed by seq) so we still get a
+// per-message latency-under-load distribution; amort is the throughput.
+template <class PingT, class PongT>
+class BurstDriverActor : public Actor
+{
+public:
+  BurstDriverActor(Actor* pong, size_t window, size_t measured, size_t warmup,
+                   std::vector<uint64_t>* samples, std::promise<void>* done,
+                   uint64_t* measured_wall_ns)
+  : pong_(pong), window_(window), warmup_(warmup), total_(measured + warmup),
+    samples_(samples), done_(done), measured_wall_ns_(measured_wall_ns)
+  {
+    std::strncpy(name, "BurstDriver", sizeof(name) - 1);
+    samples_->reserve(measured);
+    send_ts_.resize(total_, 0);
+    MESSAGE_HANDLER(msg::Start, on_start);
+    MESSAGE_HANDLER(PongT, on_pong);
+  }
+
+private:
+  void send_one() noexcept
+  {
+    const uint64_t ts = perf::now_ns();
+    send_ts_[sent_] = ts;
+    if (sent_ == warmup_)
+      win_start_ = ts; // window opens when the first measured message is sent
+    pong_->send(new PingT(sent_), this);
+    ++sent_;
+  }
+
+  void on_start(const msg::Start*) noexcept
+  {
+    const size_t initial = std::min(window_, total_);
+    for (size_t i = 0; i < initial; ++i)
+      send_one();
+  }
+
+  void on_pong(const PongT* m) noexcept
+  {
+    const uint64_t t1 = perf::now_ns();
+    const uint64_t seq = m->seq;
+    if (seq >= warmup_)
+      samples_->push_back(t1 - send_ts_[seq]);
+    ++recv_;
+
+    if (sent_ < total_)
+      send_one();               // refill the window
+    else if (recv_ == total_ && !signalled_)
+    {
+      *measured_wall_ns_ = t1 - win_start_;
+      signalled_ = true;
+      done_->set_value();
+    }
+  }
+
+  Actor* pong_;
+  size_t window_, warmup_, total_;
+  std::vector<uint64_t>* samples_;
+  std::promise<void>* done_;
+  uint64_t* measured_wall_ns_;
+  std::vector<uint64_t> send_ts_;
+  uint64_t win_start_ = 0;
+  size_t sent_ = 0;
+  size_t recv_ = 0;
+  bool signalled_ = false;
+};
+
+// Ungrouped burst run: pong on its own thread using mailbox `mbk`, driver
+// keeps `window` pings outstanding.
+template <class PingT, class PongT>
+perf::LatencyStats run_burst(const std::string& label, Actor::MailboxKind mbk,
+                             size_t window, size_t measured, size_t warmup)
+{
+  std::vector<uint64_t> samples;
+  std::promise<void> done;
+  auto fut = done.get_future();
+  uint64_t measured_wall = 0;
+
+  // Ring/overflow big enough to hold the burst; sharded uses a lane count.
+  const size_t cap = (mbk == Actor::MailboxKind::ShardedBQueue) ? 8 : 4 * window + 64;
+
+  Manager mgr("bench_mgr");
+  auto* pong = new PongActor<PingT, PongT>(mbk, cap);
+  auto* driver = new BurstDriverActor<PingT, PongT>(
+      pong, window, measured, warmup, &samples, &done, &measured_wall);
+
+  mgr.add_to_manage_q(pong);
+  mgr.add_to_manage_q(driver);
+
+  mgr.init();
+  fut.wait();
+  mgr.end();
+  auto s = perf::LatencyStats::from(label, samples);
+  s.amortized = measured ? static_cast<double>(measured_wall) / measured : 0.0;
+  return s;
+}
+
+// Counts inbound messages; signals when `target` have arrived. Used as the
+// single consumer in the fan-in benchmark.
+template <class PingT>
+class SinkCountActor : public Actor
+{
+public:
+  SinkCountActor(size_t target, std::promise<void>* done,
+                 Actor::MailboxKind mbk, size_t cap)
+  : target_(target), done_(done)
+  {
+    set_mailbox(mbk, cap);
+    std::strncpy(name, "SinkCount", sizeof(name) - 1);
+    MESSAGE_HANDLER(PingT, on_ping);
+  }
+
+private:
+  void on_ping(const PingT*) noexcept
+  {
+    if (++count_ == target_)
+      done_->set_value();
+  }
+  size_t target_;
+  size_t count_ = 0;
+  std::promise<void>* done_;
+};
+
+// Fan-in: `producers` raw threads all send() into ONE consumer actor whose
+// mailbox is `mbk`. This is the many-producers-one-consumer contention the
+// sharded / lock-free queues are built for. We record each producer's push()
+// latency (the cost of enqueuing under contention) and the end-to-end
+// throughput (amort = wall / total messages).
+template <class PingT>
+perf::LatencyStats run_fanin(const std::string& label, Actor::MailboxKind mbk,
+                             size_t producers, size_t per_producer, size_t warmup_per)
+{
+  const size_t total = producers * per_producer;
+  std::promise<void> done;
+  auto fut = done.get_future();
+
+  // Size the mailbox so enqueue contention — not backpressure — is what we
+  // measure: one lane per producer for sharded; a ring big enough to hold the
+  // whole run for the (bounded) lock-free queue; BQueue/Batched overflow into a
+  // deque so their ring size is not load-bearing.
+  size_t cap;
+  switch (mbk) {
+    case Actor::MailboxKind::ShardedBQueue: cap = producers; break;
+    case Actor::MailboxKind::LockFreeMPSC:  cap = total + 1024; break;
+    default:                                cap = 1024; break;
+  }
+
+  Manager mgr("fanin_mgr");
+  auto* sink = new SinkCountActor<PingT>(total, &done, mbk, cap);
+  mgr.add_to_manage_q(sink);
+  mgr.init();
+  // let the consumer thread reach its drain loop before producers start
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  std::vector<std::vector<uint64_t>> lat(producers);
+  std::atomic<bool> go{false};
+
+  std::vector<std::thread> threads;
+  for (size_t p = 0; p < producers; ++p)
+    threads.emplace_back([&, p] {
+      lat[p].reserve(per_producer - warmup_per);
+      while (!go.load(std::memory_order_acquire)) { /* start together */ }
+      for (size_t i = 0; i < per_producer; ++i) {
+        const uint64_t a = perf::now_ns();
+        sink->send(new PingT(i), nullptr);
+        const uint64_t b = perf::now_ns();
+        if (i >= warmup_per) lat[p].push_back(b - a);
+      }
+    });
+
+  const uint64_t t0 = perf::now_ns();
+  go.store(true, std::memory_order_release);
+  fut.wait();
+  const uint64_t t1 = perf::now_ns();
+  for (auto& t : threads) t.join();
+  mgr.end();
+
+  std::vector<uint64_t> samples;
+  samples.reserve(producers * (per_producer - warmup_per));
+  for (auto& v : lat) samples.insert(samples.end(), v.begin(), v.end());
+
+  auto s = perf::LatencyStats::from(label, samples);
+  s.amortized = static_cast<double>(t1 - t0) / total;  // throughput ns/msg
+  return s;
+}
+
+// A Group whose shared mailbox is a chosen kind (set_mailbox is protected on
+// Actor; a Group subclass can call it).
+class GroupMB : public Group
+{
+public:
+  GroupMB(const std::string& n, Actor::MailboxKind mbk, size_t cap) : Group(n)
+  {
+    set_mailbox(mbk, cap);
+  }
+};
+
+// Grouped: both actors share ONE group thread and the GROUP's mailbox, so the
+// mailbox is only ever touched by that single thread (it pushes when a handler
+// sends, then pops). No contention, no cross-core wakeup — the queue with the
+// least uncontended per-op overhead should win. window=1.
+template <class PingT, class PongT>
+perf::LatencyStats run_grouped(const std::string& label, Actor::MailboxKind mbk,
+                               size_t window, size_t measured, size_t warmup)
+{
+  std::vector<uint64_t> samples;
+  std::promise<void> done;
+  auto fut = done.get_future();
+  uint64_t measured_wall = 0;
+  const size_t cap = (mbk == Actor::MailboxKind::ShardedBQueue) ? 8 : 4 * window + 64;
+
+  Manager mgr("bench_mgr");
+  auto* pong = new PongActor<PingT, PongT>();  // own mailbox unused when grouped
+  auto* driver = new BurstDriverActor<PingT, PongT>(
+      pong, window, measured, warmup, &samples, &done, &measured_wall);
+  auto* g = new GroupMB("bench_group", mbk, cap);
+  g->add(pong);
+  g->add(driver);
+  mgr.add_to_manage_q(g);
 
   mgr.init();
   fut.wait();
@@ -371,7 +609,7 @@ int main(int argc, char** argv)
   {
     if (std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0)
     {
-      std::printf("usage: %s [N] [warmup] [section: transport|alloc|fastsend|all]\n", argv[0]);
+      std::printf("usage: %s [N] [warmup] [section: transport|alloc|fastsend|solo|batch|grouped|fanin|all]\n", argv[0]);
       return 0;
     }
     measured = std::strtoull(argv[1], nullptr, 10);
@@ -409,6 +647,56 @@ int main(int argc, char** argv)
     rows.push_back(run_fastsend_stack("fs stack+reply", measured, warmup));
     rows.push_back(run_fastsend_stack_noreply("fs stack noreply", measured, warmup));
     rows.push_back(run_direct_call("direct call (base)", measured, warmup));
+  }
+
+  if (all || section == "solo")
+  {
+    // One message outstanding (window 1), thread-to-thread. Lowest per-message
+    // latency: no queueing behind other messages, so p50 ~ the bare cross-core
+    // round trip. amort ~ p50 here (nothing overlaps).
+    rows.push_back(run_burst<Ping, Pong>("solo1 BQueue",        Actor::MailboxKind::BQueue,        1, measured, warmup));
+    rows.push_back(run_burst<Ping, Pong>("solo1 BQueueBatched", Actor::MailboxKind::BQueueBatched, 1, measured, warmup));
+    rows.push_back(run_burst<Ping, Pong>("solo1 ShardedBQueue", Actor::MailboxKind::ShardedBQueue, 1, measured, warmup));
+    rows.push_back(run_burst<Ping, Pong>("solo1 LockFreeMPSC",  Actor::MailboxKind::LockFreeMPSC,  1, measured, warmup));
+  }
+
+  if (all || section == "batch")
+  {
+    // A 16-deep burst keeps the receiver's mailbox backlogged, so the queue
+    // type (single vs whole-mailbox batch drain, sharded, lock-free) actually
+    // matters. amort is the per-message throughput under load.
+    const size_t W = 16;
+    rows.push_back(run_burst<Ping, Pong>("burst16 BQueue",        Actor::MailboxKind::BQueue,        W, measured, warmup));
+    rows.push_back(run_burst<Ping, Pong>("burst16 BQueueBatched", Actor::MailboxKind::BQueueBatched, W, measured, warmup));
+    rows.push_back(run_burst<Ping, Pong>("burst16 ShardedBQueue", Actor::MailboxKind::ShardedBQueue, W, measured, warmup));
+    rows.push_back(run_burst<Ping, Pong>("burst16 LockFreeMPSC",  Actor::MailboxKind::LockFreeMPSC,  W, measured, warmup));
+  }
+
+  if (all || section == "grouped")
+  {
+    // Both actors on ONE group thread sharing the group's mailbox: single-
+    // threaded access, zero contention. The simplest queue should win.
+    rows.push_back(run_grouped<Ping, Pong>("grp BQueue",        Actor::MailboxKind::BQueue,        1, measured, warmup));
+    rows.push_back(run_grouped<Ping, Pong>("grp BQueueBatched", Actor::MailboxKind::BQueueBatched, 1, measured, warmup));
+    rows.push_back(run_grouped<Ping, Pong>("grp ShardedBQueue", Actor::MailboxKind::ShardedBQueue, 1, measured, warmup));
+    rows.push_back(run_grouped<Ping, Pong>("grp LockFreeMPSC",  Actor::MailboxKind::LockFreeMPSC,  1, measured, warmup));
+  }
+
+  if (all || section == "fanin")
+  {
+    // Many producers -> one consumer: the contention the sharded / lock-free
+    // queues are built for. p50/p99 here are PUSH latency (enqueue cost under
+    // contention); amort is end-to-end throughput (ns/msg). Producer count
+    // auto-scales to the machine.
+    unsigned hw = std::thread::hardware_concurrency();
+    const size_t P = std::min<size_t>(32, std::max<size_t>(2, hw > 2 ? hw - 2 : 2));
+    const size_t per = std::max<size_t>(measured / P, 1);
+    const size_t wper = std::max<size_t>(warmup / P, 1);
+    std::printf("\nfan-in: %zu producer threads -> 1 consumer, %zu msgs/producer\n", P, per);
+    rows.push_back(run_fanin<Ping>("fanin BQueue",        Actor::MailboxKind::BQueue,        P, per, wper));
+    rows.push_back(run_fanin<Ping>("fanin BQueueBatched", Actor::MailboxKind::BQueueBatched, P, per, wper));
+    rows.push_back(run_fanin<Ping>("fanin ShardedBQueue", Actor::MailboxKind::ShardedBQueue, P, per, wper));
+    rows.push_back(run_fanin<Ping>("fanin LockFreeMPSC",  Actor::MailboxKind::LockFreeMPSC,  P, per, wper));
   }
 
   if (rows.empty())

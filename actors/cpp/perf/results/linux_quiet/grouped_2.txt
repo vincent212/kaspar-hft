@@ -1,0 +1,38 @@
+# kaspar-hft feat/variant-mailbox @ d15b8a4
+# Linux 5.14.0-284.11.1.el9_2.x86_64 x86_64
+# Model name: AMD EPYC 9374F 32-Core Processor
+# g++ (GCC) 15.2.0
+# 2026-09-09T19:29:29-04:00  loadavg: 1.57 2.43 2.85 3/2275 559975
+# kaspr running: 0   (recorder STOPPED for this run)
+# unpinned: fan-in uses 32 producer threads; taskset would invalidate it
+# cmd: ./bench_pingpong 300000 10000 grouped
+set_manager(bench_group) actor=0x1d5c8c0 mgr=0x7ffcedc07040, get=0x7ffcedc07040
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 559980
+set_manager(bench_group) actor=0x1d44600 mgr=0x7ffcedc07040, get=0x7ffcedc07040
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 559981
+set_manager(bench_group) actor=0x1d46a80 mgr=0x7ffcedc07040, get=0x7ffcedc07040
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 559982
+set_manager(bench_group) actor=0x1d4a080 mgr=0x7ffcedc07040, get=0x7ffcedc07040
+Manager::init sending start to bench_group
+bench_group NOT setting priority 0
+
+bench_group tid: 559983
+
+build: MemoryPool ENABLED
+
+=== actor messaging round-trip latency (measured=300000, warmup=10000) ===
+mode                     p50       p90       p99     p99.9       min       max        mean       amort
+grp BQueue                90        91       120       140        80      2350        91.4       113.6
+grp BQueueBatched         91       100       120       131        89      2960        95.8       118.0
+grp ShardedBQueue        190       190       220       260       180      4470       188.0       210.2
+grp LockFreeMPSC          70        80        90       100        69      2910        74.7        95.2
+(one-way ~ round-trip / 2 for the symmetric echo handler; fast_send rows near ~40ns are at steady_clock resolution)

@@ -33,12 +33,12 @@ using namespace actors;
 
 Actor::~Actor()
 {
-  delete msgq;
+  // msgq is a value member (std::variant) now — nothing to delete.
 }
 
 Actor::Actor()
+  : msgq(std::in_place_type<BQueue<const Message *>>, ACTOR_BQUEUE_SIZE)
 {
-  msgq = new BQueue<const Message *>(ACTOR_BQUEUE_SIZE);
   handler_cache.resize(ACTOR_HANDLER_CACHE_SIZE, nullptr);
   dont_have_handler.resize(ACTOR_HANDLER_CACHE_SIZE, false);
 
@@ -140,6 +140,65 @@ std::unique_ptr<const Message> Actor::fast_send(const Message *m, Actor *sender)
   return std::unique_ptr<const Message>(reply_message);
 }
 
+namespace {
+  // Only BQueueBatched drives the whole-mailbox batch drain; every other queue
+  // type drains one message at a time.
+  template <class Q> struct mailbox_batched : std::false_type {};
+  template <class T> struct mailbox_batched<actors::BQueueBatched<T>> : std::true_type {};
+}
+
+template <class Q>
+void Actor::run_loop(Q& q) noexcept
+{
+  if constexpr (mailbox_batched<Q>::value) {
+    // Batch drain: one pop_batch pulls the whole mailbox, but each message is
+    // dispatched under its OWN fast_send_mutex acquisition (process_message_internal)
+    // — the same granularity as the single-message path — so a concurrent
+    // fast_send interleaves between messages instead of blocking for the whole
+    // batch.
+    std::vector<const Message *> batch;
+    while (true) {
+      q.pop_batch(batch);
+      bool stop = false;
+      for (size_t i = 0; i < batch.size(); ++i) {
+        const Message *m = batch[i];
+        // `last` == "mailbox empty after this message" (same meaning as the
+        // single-message path), not merely "end of this batch snapshot".
+        m->last = (i + 1 == batch.size()) && q.is_empty();
+        reply_to = m->sender;
+        bool is_shutdown = m->get_message_id() == msg::Shutdown::id;
+
+        process_message_internal(m);   // per-message lock + dispatch + delete
+
+        if (is_shutdown || terminated) {
+          stop = true;
+          // Drained the whole mailbox but terminating now — delete the
+          // co-drained tail we won't process, or it leaks.
+          for (size_t k = i + 1; k < batch.size(); ++k)
+            delete batch[k];
+          break;
+        }
+      }
+      if (stop) break;
+    }
+  } else {
+    // Single-message drain (unchanged semantics from the pointer-based loop).
+    while (true) {
+      auto r = q.pop();
+      const Message *m = std::get<0>(r);
+      m->last = std::get<1>(r);
+      reply_to = m->sender;
+
+      bool is_shutdown = m->get_message_id() == msg::Shutdown::id;
+
+      process_message_internal(m);
+
+      if (is_shutdown || terminated)
+        break;
+    }
+  }
+}
+
 void Actor::operator()() noexcept
 {
 #ifdef __linux__
@@ -154,21 +213,10 @@ void Actor::operator()() noexcept
   std::cerr << endl << get_name() << " tid: " << tid << endl;
   init();
 
-  while (true) {
-    auto r = msgq->pop();
-    auto *m = std::get<0>(r);
-    auto last = std::get<1>(r);
-    m->last = last;
-    reply_to = m->sender;
-
-    bool is_shutdown = m->get_message_id() == msg::Shutdown::id;
-
-    process_message_internal(m);
-
-    if (is_shutdown || terminated) {
-      break;
-    }
-  }
+  // Visit ONCE to resolve the concrete queue type, then run the whole drain
+  // loop against it — the loop is monomorphic and inlinable, no per-message
+  // vtable indirection.
+  std::visit([this](auto& q) { this->run_loop(q); }, msgq);
 
   terminated = true;
   end();
@@ -200,17 +248,17 @@ void Actor::fast_terminate() noexcept
 
 void Actor::add_message_to_queue(const Message *m)
 {
-  msgq->push(m);
+  std::visit([m](auto& q) { q.push(m); }, msgq);
 }
 
 std::size_t Actor::queue_length() const noexcept
 {
-  return msgq->length();
+  return std::visit([](const auto& q) { return q.length(); }, msgq);
 }
 
 const Message* Actor::peek() const
 {
-  return msgq->peek();
+  return std::visit([](const auto& q) { return q.peek(); }, msgq);
 }
 
 void Actor::set_group(Actor *pgroup)
