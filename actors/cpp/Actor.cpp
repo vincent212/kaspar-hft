@@ -151,35 +151,32 @@ template <class Q>
 void Actor::run_loop(Q& q) noexcept
 {
   if constexpr (mailbox_batched<Q>::value) {
-    // Batch drain: one pop_batch + one fast_send_mutex hold for the whole
-    // batch (N messages, one lock). fast_send waits for the batch — the
-    // documented throughput/latency tradeoff of BQueueBatched.
+    // Batch drain: one pop_batch pulls the whole mailbox, but each message is
+    // dispatched under its OWN fast_send_mutex acquisition (process_message_internal)
+    // — the same granularity as the single-message path — so a concurrent
+    // fast_send interleaves between messages instead of blocking for the whole
+    // batch.
     std::vector<const Message *> batch;
     while (true) {
       q.pop_batch(batch);
       bool stop = false;
-      {
-        std::lock_guard<std::mutex> lock(fast_send_mutex);
-        for (size_t i = 0; i < batch.size(); ++i) {
-          const Message *m = batch[i];
-          m->last = (i + 1 == batch.size());
-          reply_to = m->sender;
-          bool is_shutdown = m->get_message_id() == msg::Shutdown::id;
+      for (size_t i = 0; i < batch.size(); ++i) {
+        const Message *m = batch[i];
+        // `last` == "mailbox empty after this message" (same meaning as the
+        // single-message path), not merely "end of this batch snapshot".
+        m->last = (i + 1 == batch.size()) && q.is_empty();
+        reply_to = m->sender;
+        bool is_shutdown = m->get_message_id() == msg::Shutdown::id;
 
-          msg_cnt++;
-          using_fast_send = false;
-          if (!call_handler(m))
-            process_message(m);
-          delete m;
+        process_message_internal(m);   // per-message lock + dispatch + delete
 
-          if (is_shutdown || terminated) {
-            stop = true;
-            // Drained the whole mailbox but terminating now — delete the
-            // co-drained tail we won't process, or it leaks.
-            for (size_t k = i + 1; k < batch.size(); ++k)
-              delete batch[k];
-            break;
-          }
+        if (is_shutdown || terminated) {
+          stop = true;
+          // Drained the whole mailbox but terminating now — delete the
+          // co-drained tail we won't process, or it leaks.
+          for (size_t k = i + 1; k < batch.size(); ++k)
+            delete batch[k];
+          break;
         }
       }
       if (stop) break;

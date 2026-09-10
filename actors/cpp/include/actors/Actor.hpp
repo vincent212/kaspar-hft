@@ -180,17 +180,22 @@ namespace actors
     Mailbox msgq;
 
     // Replace the mailbox with `kind`. Select BEFORE the actor thread starts
-    // (e.g. in the constructor); switching a live mailbox is not safe. `cap` is
-    // the queue's sizing hint:
-    // ring/overflow size for BQueue(Batched), lane count for ShardedBQueue,
-    // ring capacity for LockFreeMPSC.
-    void set_mailbox(MailboxKind kind, size_t cap = ACTOR_BQUEUE_SIZE)
+    // (e.g. in the constructor); switching a live mailbox is not safe.
+    //
+    // `cap` is a sizing hint that means different things per kind:
+    //   BQueue / BQueueBatched : ring/overflow size
+    //   ShardedBQueue          : LANE count
+    //   LockFreeMPSC           : ring capacity (rounded up to a power of two)
+    // Pass cap = 0 (the default) to use each kind's own sensible default rather
+    // than forcing one number across kinds — ACTOR_BQUEUE_SIZE for BQueue(Batched),
+    // 8 lanes for ShardedBQueue, 1024 slots for LockFreeMPSC.
+    void set_mailbox(MailboxKind kind, size_t cap = 0)
     {
       switch (kind) {
-        case MailboxKind::BQueue:        msgq.emplace<BQueue<MailboxMsg>>(cap); break;
-        case MailboxKind::BQueueBatched: msgq.emplace<BQueueBatched<MailboxMsg>>(cap); break;
-        case MailboxKind::ShardedBQueue: msgq.emplace<ShardedBQueue<MailboxMsg>>(cap); break;
-        case MailboxKind::LockFreeMPSC:  msgq.emplace<LockFreeMPSC<MailboxMsg>>(cap); break;
+        case MailboxKind::BQueue:        msgq.emplace<BQueue<MailboxMsg>>(cap ? cap : ACTOR_BQUEUE_SIZE); break;
+        case MailboxKind::BQueueBatched: msgq.emplace<BQueueBatched<MailboxMsg>>(cap ? cap : ACTOR_BQUEUE_SIZE); break;
+        case MailboxKind::ShardedBQueue: msgq.emplace<ShardedBQueue<MailboxMsg>>(cap ? cap : 8); break;
+        case MailboxKind::LockFreeMPSC:  msgq.emplace<LockFreeMPSC<MailboxMsg>>(cap ? cap : 1024); break;
       }
     }
 

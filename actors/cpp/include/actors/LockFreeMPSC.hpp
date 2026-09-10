@@ -34,8 +34,11 @@ namespace actors
    * consumer is actually asleep (never, under load). A bounded wait_for() is a
    * safety net against a missed wakeup.
    *
-   * Bounded: if the ring is full, push() spins until the consumer frees a slot.
-   * Size the ring for peak backlog.
+   * Bounded: if the ring is full, push() first spins briefly (keeping the
+   * low-latency fast path for transient fullness), then backs off to a
+   * periodic-poll block on a not-full condvar, so a sustained-full ring — or a
+   * stalled/stopped consumer — never busy-burns a core. Size the ring for peak
+   * backlog to stay on the park-free fast path.
    */
   template <class T>
   class LockFreeMPSC : public Queue<T>
@@ -71,6 +74,23 @@ namespace actors
     alignas(64) std::mutex          wait_mtx_;
     std::condition_variable         cv_;
     std::atomic<bool>               parked_{false};
+
+    // producer wakeup — used only when the ring is full (rare). A blocked
+    // producer increments producers_waiting_; the consumer wakes it after
+    // freeing a slot. The 1ms wait_for() poll also bounds the wait if a wakeup
+    // is ever missed, so a full ring never busy-spins and never hangs.
+    alignas(64) std::mutex          space_mtx_;
+    std::condition_variable         space_cv_;
+    std::atomic<uint32_t>           producers_waiting_{0};
+
+    static constexpr int            kPushSpin = 1024;  // spin budget before blocking
+
+    void notify_space() noexcept {
+      if (producers_waiting_.load(std::memory_order_relaxed)) {
+        std::lock_guard<std::mutex> lk(space_mtx_);
+        space_cv_.notify_all();
+      }
+    }
 
   public:
     explicit LockFreeMPSC(size_t capacity = 1024)
@@ -125,7 +145,21 @@ namespace actors
 
     // --- Queue<T> interface ---
     void push(const T& x) noexcept override {
-      while (!try_push(x)) cpu_relax();   // ring full: spin (pause) until consumer drains
+      if (!try_push(x)) {
+        // Ring full. Spin briefly for transient fullness (keeps the low-latency
+        // fast path), then back off to a periodic-poll block: as soon as the
+        // consumer frees a slot we succeed; if the consumer has stopped we sleep
+        // rather than busy-burning a core. The old code spun here forever.
+        bool done = false;
+        for (int i = 0; i < kPushSpin && !done; ++i) { cpu_relax(); done = try_push(x); }
+        if (!done) {
+          std::unique_lock<std::mutex> lk(space_mtx_);
+          producers_waiting_.fetch_add(1, std::memory_order_relaxed);
+          while (!try_push(x))
+            space_cv_.wait_for(lk, std::chrono::milliseconds(1));
+          producers_waiting_.fetch_sub(1, std::memory_order_relaxed);
+        }
+      }
       // Matching seq_cst fence for the transition-notify handshake (see the
       // consumer's fence below). Without a fence on BOTH sides the producer can
       // read parked_==false stale and skip the wakeup while the consumer parks on
@@ -142,7 +176,7 @@ namespace actors
       for (;;) {
         T v;
         while (out.size() < kMaxDrain && try_pop(v)) out.push_back(v);
-        if (!out.empty()) return;
+        if (!out.empty()) { notify_space(); return; }
         // empty: park with a bounded safety-net wait
         std::unique_lock<std::mutex> lk(wait_mtx_);
         parked_.store(true, std::memory_order_relaxed);
@@ -151,6 +185,7 @@ namespace actors
           parked_.store(false, std::memory_order_relaxed);
           out.push_back(v);
           while (out.size() < kMaxDrain && try_pop(v)) out.push_back(v);
+          notify_space();
           return;
         }
         cv_.wait_for(lk, std::chrono::milliseconds(1));
@@ -161,11 +196,11 @@ namespace actors
     std::tuple<T, bool> pop() noexcept override {
       for (;;) {
         T v;
-        if (try_pop(v)) return std::make_tuple(v, is_empty());
+        if (try_pop(v)) { notify_space(); return std::make_tuple(v, is_empty()); }
         std::unique_lock<std::mutex> lk(wait_mtx_);
         parked_.store(true, std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_seq_cst);   // pairs w/ producer
-        if (try_pop(v)) { parked_.store(false, std::memory_order_relaxed); return std::make_tuple(v, is_empty()); }
+        if (try_pop(v)) { parked_.store(false, std::memory_order_relaxed); notify_space(); return std::make_tuple(v, is_empty()); }
         cv_.wait_for(lk, std::chrono::milliseconds(1));
         parked_.store(false, std::memory_order_relaxed);
       }
@@ -189,5 +224,8 @@ namespace actors
       size_t d = dequeue_pos_.load(std::memory_order_relaxed);
       return e > d ? e - d : 0;
     }
+
+    // Ring capacity in slots (power of two). Test/introspection helper.
+    std::size_t capacity() const noexcept { return buf_.size(); }
   };
 }

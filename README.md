@@ -261,7 +261,7 @@ before its thread starts**:
 
 ```cpp
 enum class MailboxKind { BQueue, BQueueBatched, ShardedBQueue, LockFreeMPSC };
-void set_mailbox(MailboxKind kind, size_t cap = ACTOR_BQUEUE_SIZE);
+void set_mailbox(MailboxKind kind, size_t cap = 0);   // cap = 0 -> per-kind default
 ```
 
 - **BQueue** — mutex + condition variable around a ring buffer. Simple, FIFO,
@@ -270,11 +270,19 @@ void set_mailbox(MailboxKind kind, size_t cap = ACTOR_BQUEUE_SIZE);
   lock instead of locking per message.
 - **ShardedBQueue** — the mailbox split into N independent lanes, each with its
   own lock; producers round-robin across lanes to avoid contending on one lock.
+  It does **not** preserve FIFO across lanes, so use it only for actors whose
+  handlers are order-independent (an aggregator / order book), never where a
+  Start-before-Data or sequence-number ordering is assumed.
 - **LockFreeMPSC** — a bounded lock-free ring; producers claim a slot with a
-  single atomic operation and never take a lock or park.
+  single atomic operation. Park-free while space is available; if the ring
+  fills, a producer spins briefly then blocks (so size the ring for peak
+  backlog).
 
-The second argument is a sizing hint: ring/overflow capacity for
-`BQueue`/`BQueueBatched`/`LockFreeMPSC`, and **lane count** for `ShardedBQueue`.
+The second argument is a sizing hint whose meaning depends on the kind: ring
+capacity for `BQueue`/`BQueueBatched`/`LockFreeMPSC`, and **lane count** for
+`ShardedBQueue`. Pass `0` (the default) to get each kind's own sensible default
+(64 for `BQueue`/`BQueueBatched`, 8 lanes for `ShardedBQueue`, 1024 slots for
+`LockFreeMPSC`).
 
 ### When in doubt, use BQueue (the default)
 

@@ -54,7 +54,10 @@ namespace actors
     std::vector<Lane>          lanes_;
     const size_t               n_;
     std::atomic<uint64_t>      push_cursor_{0};
-    size_t                     pull_cursor_ = 0;  // consumer-only
+    // Consumer writes this; peek()/is_empty() may run on another thread, so it
+    // is atomic (relaxed) to avoid a data race — a stale read only picks a
+    // slightly different starting lane, never corrupts.
+    std::atomic<size_t>        pull_cursor_{0};
 
     // shared consumer wakeup
     std::mutex                 wait_mtx_;
@@ -112,8 +115,9 @@ namespace actors
         // or we hit the per-call cap.
         for (;;) {
           bool progressed = false;
+          const size_t base = pull_cursor_.load(std::memory_order_relaxed);
           for (size_t j = 0; j < n_; j++) {
-            Lane& L = lanes_[(pull_cursor_ + j) % n_];
+            Lane& L = lanes_[(base + j) % n_];
             std::lock_guard<std::mutex> lk(L.mtx);
             if (!L.dq.empty()) { out.push_back(L.dq.front()); L.dq.pop_front(); progressed = true; }
           }
@@ -135,13 +139,14 @@ namespace actors
     // item is available.
     std::tuple<T, bool> pop() noexcept override {
       for (;;) {
+        const size_t base = pull_cursor_.load(std::memory_order_relaxed);
         for (size_t j = 0; j < n_; j++) {
-          Lane& L = lanes_[(pull_cursor_ + j) % n_];
+          Lane& L = lanes_[(base + j) % n_];
           std::unique_lock<std::mutex> lk(L.mtx);
           if (!L.dq.empty()) {
             T v = L.dq.front();
             L.dq.pop_front();
-            pull_cursor_ = (pull_cursor_ + j + 1) % n_;  // advance past the lane we took from
+            pull_cursor_.store((base + j + 1) % n_, std::memory_order_relaxed);  // advance past the lane we took from
             lk.unlock();
             return std::make_tuple(v, !any_nonempty());
           }
@@ -156,8 +161,9 @@ namespace actors
     }
 
     T peek() const noexcept override {
+      const size_t base = pull_cursor_.load(std::memory_order_relaxed);
       for (size_t j = 0; j < n_; j++) {
-        auto& L = const_cast<Lane&>(lanes_[(pull_cursor_ + j) % n_]);
+        auto& L = const_cast<Lane&>(lanes_[(base + j) % n_]);
         std::lock_guard<std::mutex> lk(L.mtx);
         if (!L.dq.empty()) return L.dq.front();
       }
@@ -182,5 +188,8 @@ namespace actors
       }
       return total;
     }
+
+    // Lane count. Test/introspection helper.
+    std::size_t lanes() const noexcept { return n_; }
   };
 }
