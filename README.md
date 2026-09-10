@@ -284,6 +284,32 @@ capacity for `BQueue`/`BQueueBatched`/`LockFreeMPSC`, and **lane count** for
 (64 for `BQueue`/`BQueueBatched`, 8 lanes for `ShardedBQueue`, 1024 slots for
 `LockFreeMPSC`).
 
+### How to set the mailbox
+
+Call `set_mailbox` **once, in the actor's constructor**, before the actor's
+thread starts (switching a live mailbox is not supported). Pick exactly one kind
+— or call nothing at all to keep the `BQueue` default:
+
+```cpp
+class MyActor : public actors::Actor {
+public:
+  MyActor() {
+    // Choose ONE of the following (or omit to keep the default BQueue):
+    set_mailbox(MailboxKind::BQueue);              // default: FIFO, mutex + condvar, unbounded overflow
+    set_mailbox(MailboxKind::BQueueBatched);       // FIFO; consumer drains the whole mailbox under one lock
+    set_mailbox(MailboxKind::ShardedBQueue, 32);   // 32 lanes for many concurrent producers (NOT FIFO)
+    set_mailbox(MailboxKind::LockFreeMPSC, 4096);  // 4096-slot lock-free ring (bounded)
+
+    MESSAGE_HANDLER(MyMessage, on_my_message);     // register handlers as usual
+  }
+  // ...
+};
+```
+
+Omit the second argument (or pass `0`) to use the kind's default size; pass an
+explicit value to size the ring (or lane count, for `ShardedBQueue`) for your
+expected load.
+
 ### When in doubt, use BQueue (the default)
 
 For the large majority of actors, **BQueue is the right choice and needs no
