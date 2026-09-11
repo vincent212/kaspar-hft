@@ -582,8 +582,7 @@ and the technical report [**shadow_pov.pdf**](tech_reports/shadow_pov.pdf).
 
 ## Versioning & compatibility
 
-Releases are tagged; `main` tracks ongoing development and may contain breaking
-changes ahead of the next tag.
+Releases are tagged; `main` tracks ongoing development. Always use the main branch unless there is a reason not to.
 
 | Tag | Actor `Message` ABI | Pin with |
 |---|---|---|
