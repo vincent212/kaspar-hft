@@ -221,7 +221,9 @@ M4) are all just different ways to estimate **P(fill)** and the conditional move
 and how far should I skew them?"** They feed shadow's *placement and skew*, not the keep/cancel call —
 the inventory-risk overlay that sits on top of the fill/toxicity signal.
 
-#### B0 — Queue-Imbalance / OFI (linear predictor)
+---
+
+### B0 — Queue-Imbalance / OFI (linear predictor)
 
 **Core idea.** The cheapest signal that works: the sizes resting at the top of book already tell you
 which way the next tick is likely to go. If far more size is queued on the bid than the ask, buyers
@@ -257,7 +259,9 @@ move, signed to your side) and essentially nothing for **P(fill)**. So inside sh
 **toxicity veto**: bid-heavy (I>0) ⇒ up-drift ⇒ resting on the bid is benign ⇒ keep; ask-heavy (I<0)
 ⇒ down-drift ⇒ a bid fill would be adverse ⇒ cancel. It is the baseline every model below must beat.
 
-#### M0 — Cont–Stoikov–Talreja (zero-intelligence Markov)
+---
+
+### M0 — Cont–Stoikov–Talreja (zero-intelligence Markov)
 
 **Core idea.** Model the whole book as a system of queues receiving completely random (Poisson) order
 flow at *constant* rates, then read off *probabilities of book events* — will this level empty, will
@@ -380,11 +384,13 @@ Memorylessness means `h` at any state equals the rate-weighted average of `h` at
 away. Collect those equations into one linear system:
 
 $$
-Q\,h = 0, \qquad
-\begin{cases}
-h = 1 & \text{on every state where } a = 0 \ (\text{ask empty} \to \text{up-move}) \\
-h = 0 & \text{on every state where } b = 0 \ (\text{bid empty} \to \text{down-move})
-\end{cases}
+Q\,h = 0
+$$
+
+with boundary conditions
+
+$$
+h = 1 \ \text{ where } a = 0 \ (\text{ask empty} \to \text{up-move}), \qquad h = 0 \ \text{ where } b = 0 \ (\text{bid empty} \to \text{down-move})
 $$
 
 where:
@@ -427,11 +433,15 @@ Chaining that one identity across the queue steps is, in the end, what every met
 the observed data most probable. For Poisson rates the MLE reduces to "count events, divide by time":
 
 $$
-\begin{aligned}
-\hat{\lambda}(i) &= \frac{\text{number of limit orders added at level } i}{\text{total time observed}} \\[6pt]
-\hat{\mu} &= \frac{\text{number of market orders}}{\text{total time observed}} \\[6pt]
-\hat{\theta} &= \frac{\text{number of cancellations}}{\text{total lot-seconds resting}}
-\end{aligned}
+\hat{\lambda}(i) = \frac{\text{number of limit orders added at level } i}{\text{total time observed}}
+$$
+
+$$
+\hat{\mu} = \frac{\text{number of market orders}}{\text{total time observed}}
+$$
+
+$$
+\hat{\theta} = \frac{\text{number of cancellations}}{\text{total lot-seconds resting}}
 $$
 
 where *lot-seconds resting* = summed over resting orders, how long each one stayed in the book (each lot
@@ -446,7 +456,9 @@ P(market-sells + cancels-ahead drain the queue to my position before the level's
 distributions that do **not** match real books (real queues are hump-shaped), plus no clustering and no
 reaction to imbalance. That's the point — it's the floor M1–M3 must beat.
 
-#### M1 — Queue-Reactive (Huang–Lehalle–Rosenbaum)
+---
+
+### M1 — Queue-Reactive (Huang–Lehalle–Rosenbaum)
 
 **Core idea.** Keep CST's queueing picture but fix its worst lie: in real markets the order-arrival and
 cancellation rates depend on **how full the queue already is**. Traders pile into thin queues and pull
@@ -479,12 +491,10 @@ or down (a market order or cancellation removes a lot), so it is still a **birth
 one change from CST: the three rates are no longer constants but **functions of the current size `q`**:
 
 $$
-\begin{aligned}
-\text{limit-order arrival rate at size } q &: \ \lambda_{\text{limit}}(q) \\
-\text{cancellation rate at size } q &: \ \lambda_{\text{cancel}}(q) \\
-\text{market-order rate at size } q &: \ \lambda_{\text{market}}(q)
-\end{aligned}
+\lambda_{\text{limit}}(q) \qquad \lambda_{\text{cancel}}(q) \qquad \lambda_{\text{market}}(q)
 $$
+
+(limit-order arrival, cancellation, and market-order rates — each a function of the current size `q`).
 
 where:
 
@@ -565,7 +575,9 @@ underneath it. The workhorse model for a 1-tick market.
 burst and a lull with the same queue sizes look identical), and Model I assumes independent queues. M2
 adds the time dimension; M3 adds both.
 
-#### M2 — Multivariate Hawkes (self/cross-exciting point process)
+---
+
+### M2 — Multivariate Hawkes (self/cross-exciting point process)
 
 **Core idea.** Neither Markov model has memory: they react to the *current* queue sizes but not to the
 fact that a burst just happened. Real order flow **clusters** — a trade makes the next trade more
@@ -605,14 +617,17 @@ exponentially.* **Self-excitation** is `α_{mm}` (trades beget trades); **cross-
 for `m ≠ n` — a market-buy lifting the ask begets more buys and more ask-side cancels, the math of
 "reading the tape."
 
-**Why it's cheap online.** With the exponential kernel you never re-scan history. Keep a running `λ`;
-it decays between events and jumps at each event:
+**Why it's cheap online.** With the exponential kernel you never re-scan history. Keep a running `λ`.
+Between events it decays toward its baseline:
 
 $$
-\begin{aligned}
-\text{between events:}\quad & \lambda_m(t) = \mu_m + \big(\lambda_m(t_{\text{last}}) - \mu_m\big)\, e^{-\beta\,(t - t_{\text{last}})} \\[4pt]
-\text{at a type-}n\text{ event:}\quad & \lambda_m \leftarrow \lambda_m + \alpha_{mn} \quad (\text{for every } m)
-\end{aligned}
+\lambda_m(t) = \mu_m + \big(\lambda_m(t_{\text{last}}) - \mu_m\big)\, e^{-\beta\,(t - t_{\text{last}})}
+$$
+
+and at each type-`n` event every intensity jumps up (for every `m`):
+
+$$
+\lambda_m \;\leftarrow\; \lambda_m + \alpha_{mn}
 $$
 
 One multiply + one add per event — **O(1)** — which is what lets it run in shadow's hot path.
@@ -682,7 +697,9 @@ self-excited sell intensity ⇒ "about to be filled *because* a sweep is running
 queue is (no true queue position). Kernel/dimension choice matters; churn can inflate excitation. M3
 fixes the missing queue state.
 
-#### M3 — Queue-Reactive Hawkes (hybrid)
+---
+
+### M3 — Queue-Reactive Hawkes (hybrid)
 
 **Core idea.** M1 knows the queue state but not time-clustering; M2 knows time-clustering but not the
 queue state. M3 is the union: **Hawkes intensities that are also modulated by the current book state.**
@@ -732,7 +749,9 @@ question the benchmark is built to answer.
 **Limitations.** Most parameters, most compute, highest overfitting risk; the online state carries both
 the Hawkes intensities and the discretised book state, so its C++ hot-path update is the heaviest here.
 
-#### M4 — DeepLOB (supervised deep net)
+---
+
+### M4 — DeepLOB (supervised deep net)
 
 **Core idea.** Drop all queueing / point-process structure and just **learn** the map from recent book
 snapshots to the next price move, letting a neural net discover whatever patterns predict direction. It
@@ -779,7 +798,9 @@ table?"*
 **Limitations.** Black box (hard to attribute a decision), data-hungry, leakage-prone, inference
 latency in the hot path, and no notion of queue position or of your own order — direction only.
 
-#### M5 — Avellaneda–Stoikov (optimal-control inventory quoting)
+---
+
+### M5 — Avellaneda–Stoikov (optimal-control inventory quoting)
 
 **Core idea.** A different question from every model above: not "will this order fill / which way will
 price go," but **"given the inventory I already hold, where should I place my bid and ask to earn the
@@ -851,7 +872,9 @@ overlay on top of the fill/toxicity models.
 **Limitations.** Assumes constant book depth and continuous fills (no queue position, no discrete tick
 grid), a single price level, and a fixed horizon `T`. Excellent for skew; blind to microstructure.
 
-#### M6 — Guéant–Lehalle–Fernandez-Tapia (production-grade inventory control)
+---
+
+### M6 — Guéant–Lehalle–Fernandez-Tapia (production-grade inventory control)
 
 **Core idea.** Same optimal-control objective as A–S, but made **usable in production**: exact, fast
 solutions over realistic (finite) horizons, with hard inventory limits and arbitrary (non-exponential)
