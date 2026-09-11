@@ -541,36 +541,104 @@ fact that a burst just happened. Real order flow **clusters** — a trade makes 
 likely, a cancel triggers more cancels. A Hawkes process encodes exactly that: every event temporarily
 raises the intensity of future events.
 
-**State / representation.** Not a discrete queue chain — a **point process** on event times, one
-"dimension" per event type `m ∈ {market-buy, market-sell, limit-add-bid, limit-add-ask, cancel-bid,
-cancel-ask, …}` (`M ≈ 4–12`). The tracked object is the **intensity vector** `λ(t) ∈ ℝ^M`; with
-exponential kernels this vector is itself **Markov** — a *continuous* state, not a finite one.
+**State / representation.** A Hawkes model does *not* track queue sizes; it tracks **event times**, and
+from them an **intensity** for each kind of event — the instantaneous rate at which that event is about
+to happen. There is one intensity per event **type** `m`:
 
-**Dynamics / equations.** `λ_m(t) = μ_m + Σ_n Σ_{t_i^n < t} α_{mn}·e^{−β_{mn}(t − t_i^n)}`. Read:
-type-`m` intensity = baseline `μ_m` + a decaying bump `α_{mn}` for every past type-`n` event, fading at
-rate `β_{mn}`. The exponential kernel gives the crucial **O(1) online recursion**: between events each
-`λ_m` decays toward `μ_m` (`dλ_m/dt = −β(λ_m − μ_m)`), and at a type-`n` event every `λ_m` jumps by
-`α_{mn}`. So the whole state updates with a decay-multiply and an add per event — no history re-scan,
-which is what makes it viable in shadow's hot path. **Cross-excitation** (`α_{mn}`, `m≠n`) is the
-tape-reading part: a market-buy lifting the ask excites more buying and more ask-side cancels.
+```
+event types m ∈ { market-buy, market-sell, limit-add-bid, limit-add-ask, cancel-bid, cancel-ask, … }
+```
 
-**Branching ratio / regime.** Let `Γ_{mn} = ∫_0^∞ φ_{mn} = α_{mn}/β_{mn}`. The **branching ratio
-`n* = spectral radius(Γ)`** is the expected number of child events per parent; stationarity needs
-`n* < 1`. `n*→1` = near-critical, self-igniting, **fast market**; small `n*` = mostly exogenous, **slow
-market**. This single number is shadow's fast/slow regime flag.
+with `M` types in total (`M ≈ 4–12`). The state is the vector of current rates
+`λ(t) = (λ_1(t), …, λ_M(t))`, where an **intensity** `λ_m(t)` means: `λ_m(t) · dt` = probability that a
+type-`m` event happens in the next tiny slice of time `dt`.
 
-**Computing the probabilities.** (1) **Likelihood** for calibration:
-`log L = Σ_i log λ_{m_i}(t_i) − Σ_m ∫_0^T λ_m(s) ds`; with exponential kernels both the sum and the
-compensator integral have O(N) recursions — maximise over `{μ, α, β}`. (2) **Fill probability**: for a
-resting bid, the event "a market-sell (or a cancel that reaches me) fires" *is* the fill, so the
-market-sell intensity is the instantaneous **fill hazard** and
-`P(fill in [t, t+h]) = 1 − exp(−∫_t^{t+h} E[λ_sell(s)] ds)`. (3) **Direction**: compare aggressive-buy
-vs aggressive-sell expected intensities over the horizon; a fill coinciding with a self-excited sell
-burst is a toxic fill.
+**Dynamics — the intensity equation.**
 
-**Calibration.** MLE of `μ` (M), `α` (M²), `β` (M²) — use **sum-of-two-exponentials** kernels for a
-materially better fit, and the `tick` library rather than hand-rolling. Handle the ~10:1
-add/cancel-to-trade churn by fitting each stream separately and survival-weighting ephemeral quotes.
+```
+λ_m(t) = μ_m + Σ_{n=1}^{M} Σ_{t_i^n < t}  α_{mn} · e^{−β_{mn}·(t − t_i^n)}
+```
+
+where:
+
+- `λ_m(t)` — intensity (rate) of event type `m` at time `t`.  *(output)*
+- `μ_m` — the calm **baseline** rate of type `m` when nothing has happened recently.  *(param)*
+- the double sum — over every past event: `n` ranges over event types, `t_i^n` over the times type-`n`
+  events fired before `t`.
+- `α_{mn}` — **excitation**: how much one type-`n` event bumps type-`m`'s intensity right after it.  *(param)*
+- `β_{mn}` — **decay rate**: how fast that bump fades.  *(param)*
+- `e^{−β(t − t_i)}` — the fading factor: 1 the instant the event fires, shrinking toward 0 as time passes.
+
+In words: *the rate of event `m` = its calm baseline + a bump for every recent event, each bump fading
+exponentially.* **Self-excitation** is `α_{mm}` (trades beget trades); **cross-excitation** is `α_{mn}`
+for `m ≠ n` — a market-buy lifting the ask begets more buys and more ask-side cancels, the math of
+"reading the tape."
+
+**Why it's cheap online.** With the exponential kernel you never re-scan history. Keep a running `λ`;
+it decays between events and jumps at each event:
+
+```
+between events:    λ_m(t) = μ_m + (λ_m(t_last) − μ_m) · e^{−β·(t − t_last)}
+at a type-n event: λ_m ← λ_m + α_{mn}          (for every m)
+```
+
+One multiply + one add per event — **O(1)** — which is what lets it run in shadow's hot path.
+
+**Branching ratio — the fast/slow-market number.** The total excitation of type `m` by one type-`n`
+event is the area under its kernel:
+
+```
+Γ_{mn} = ∫_0^∞ α_{mn} · e^{−β_{mn}·u} du = α_{mn} / β_{mn}
+```
+
+= the expected number of type-`m` events *directly* triggered by one type-`n` event. The **branching
+ratio** `n*` is the largest eigenvalue (**spectral radius**) of the matrix `Γ`:
+
+```
+n* = spectral_radius(Γ),    with   0 ≤ n* < 1 required for stability
+```
+
+where:
+
+- `n* ≈ 0` — events are mostly independent (exogenous) → **slow, calm market**.
+- `n* → 1` — each event nearly triggers another whole event → self-igniting cascades → **fast market**
+  (the model is non-stationary / blows up if `n* ≥ 1`).
+
+This one number is shadow's fast/slow regime flag.
+
+**Computing the probabilities.**
+*(1) Calibration by likelihood.* The log-likelihood of an observed event stream is
+
+```
+log L = Σ_i log λ_{m_i}(t_i)  −  Σ_{m=1}^{M} ∫_0^T λ_m(s) ds
+```
+
+where:
+
+- first sum — over all observed events `i` (time `t_i`, type `m_i`): reward for putting high intensity
+  where events actually occurred.
+- second term (the **compensator**) — total intensity integrated over the window `[0, T]`: penalty for
+  predicting events that did not happen.
+- *output* — a score; maximise it over `{μ, α, β}` to fit the model (this is **MLE**). Both terms have
+  O(N) recursions with exponential kernels.
+
+*(2) Fill probability.* For a resting bid, "getting filled" = a market-sell (or a cancel reaching your
+spot) fires, so the market-sell intensity *is* your instantaneous **fill hazard**. Over a horizon `h`:
+
+```
+P(fill within h) = 1 − exp( −∫_t^{t+h} λ_sell(s) ds )
+```
+
+Fills therefore cluster — the probability jumps right after a sell burst.
+
+*(3) Direction / toxicity.* Compare expected aggressive-buy vs aggressive-sell intensity over the
+horizon; if sell intensity is spiking, a fill on your bid is likely **toxic** (you buy just as sellers
+run the price down).
+
+**Calibration (parameters).** Fit `μ` (M numbers), `α` (M×M), `β` (M×M) by MLE — use a **sum-of-two-
+exponentials** kernel (two decay rates) for a materially better fit, and the `tick` library rather than
+hand-rolling. The ~10:1 add/cancel-to-trade churn is handled by fitting each stream separately and
+down-weighting quotes that vanish within milliseconds.
 
 **Keep/cancel (what shadow gets).** **P(fill)** = the market-order fill hazard on your side;
 **E[move|fill]** = whether that flow is a directional sweep (via cross-excitation). A spike in
@@ -586,23 +654,38 @@ fixes the missing queue state.
 **Core idea.** M1 knows the queue state but not time-clustering; M2 knows time-clustering but not the
 queue state. M3 is the union: **Hawkes intensities that are also modulated by the current book state.**
 
-**State / representation.** A coupled system: the **intensity vector** `λ(t) ∈ ℝ^M` (as in M2) *and* a
-discrete **book/queue state** `X(t)` (queue sizes / imbalance bucket, as in M1). The two interact both
-ways — events fire according to `λ`, each event moves the queues (updates `X`), and `X` in turn
-modulates `λ`. With exponential kernels + a finite discretisation of `X`, the pair is still Markov (a
-"Markov-modulated Hawkes" / hybrid marked point process, Morariu-Patrichi–Pakkanen).
+**State / representation.** Two things are tracked together:
 
-**Dynamics / equations.** `λ_m(t) = φ_m(X(t))·[ μ_m + Σ α_{mn} e^{−β_{mn}(t − t_i^n)} ]` — the M2
-intensity scaled by a **state factor** `φ_m(X)` that says "in this queue regime, type-`m` events are
-faster/slower" (additive state terms are an alternative parametrisation). So both "an event just fired,
-expect more" *and* "behaviour changes because the queue is nearly empty / very full" live in one
-intensity.
+- the **intensity vector** `λ(t) ∈ ℝ^M` — the recent-burst memory, from M2;
+- a discrete **book state** `X(t)` — queue sizes / imbalance bucket, from M1.
 
-**Computing the probabilities.** Same likelihood form as M2, but `λ` now carries `φ(X(t))`, so you must
-**replay `X(t)` along the event path** while evaluating the compensator — heavier but still O(N).
-Simulation is by Ogata **thinning** (propose at the current intensity upper bound, accept with prob
-`λ/λ̄`, update `X` on each accepted event). Fill and direction probabilities are read off exactly as in
-M2, but conditioned on the live queue state as well as the excitation.
+They feed back on each other: events fire at rate `λ`; each event changes the queues (updates `X`); and
+`X` in turn scales `λ`. With exponential kernels plus a finite set of book states, the pair `(λ, X)` is
+still Markov — a "Markov-modulated Hawkes" (hybrid marked point process, Morariu-Patrichi–Pakkanen).
+
+**Dynamics — the intensity equation.**
+
+```
+λ_m(t) = φ_m(X(t)) · [ μ_m + Σ_n Σ_{t_i^n < t} α_{mn} · e^{−β_{mn}·(t − t_i^n)} ]
+```
+
+where:
+
+- the bracket `[ … ]` — the ordinary **M2 Hawkes intensity** (baseline + fading bumps).
+- `φ_m(X)` — a **state factor**: a multiplier that speeds up (`φ > 1`) or slows down (`φ < 1`) type-`m`
+  events depending on the current book state `X`.
+- `X(t)` — the current queue / imbalance state.
+
+In words: *take the Hawkes rate, then multiply it by how likely this event is in the current queue
+configuration.* So both "an event just fired, expect more" *and* "behaviour changes because the queue is
+nearly empty / very full" live in one intensity.
+
+**Computing the probabilities.** Same likelihood as M2, but `λ` now carries `φ(X(t))`, so you must
+**replay the book state `X(t)` along the event path** while scoring — heavier, still O(N). To *simulate*,
+use **Ogata thinning**: propose candidate events at a rate `λ̄` that upper-bounds the true intensity,
+keep each with probability `λ / λ̄`, and update `X` on every kept event (the standard accept/reject
+recipe for point processes). Fill and direction probabilities come out exactly as in M2, now conditioned
+on both the burst state and the queue state.
 
 **Calibration.** Initialise `φ(X)` from M1's state-binned rates and `{α, β}` from M2's kernels, then
 **joint MLE**. It has the most parameters of any model here, so judge it strictly **out-of-sample**
@@ -622,22 +705,37 @@ the Hawkes intensities and the discretised book state, so its C++ hot-path updat
 snapshots to the next price move, letting a neural net discover whatever patterns predict direction. It
 is not a book model and cannot simulate a book — it's a classifier used as an accuracy yardstick.
 
-**Input / representation.** A tensor of the last `T` book snapshots (typically `T ≈ 100`) × top **10
-levels** × {price, size} on both sides — i.e. a `T × 40` "image" of the order book over a short window.
-No hand-built features; the raw ladder is the input.
+**Input.** A snapshot ladder over a short window:
 
-**Architecture.** Stacked **convolution** blocks first combine price+size within a level, then aggregate
-across the 10 levels (learning imbalance-like and micro-price-like features); an **Inception** module
-mixes several receptive-field sizes; an **LSTM** models how those features evolve across the `T`
-snapshots; a final softmax outputs `P(down), P(flat), P(up)` for the mid over a forward horizon `k`.
+```
+input = last T snapshots × top 10 levels × {price, size} on both sides   (≈ T × 40 numbers)
+```
 
-**Computing the probability.** A **forward pass** — no state machine, no transition rates. The softmax
-*is* the probability; "how it's computed" is matrix multiplies through the trained weights.
+with `T ≈ 100` recent book updates. No hand-built features — the raw ladder goes straight in.
 
-**Calibration / training.** Supervised cross-entropy against labels from the smoothed future mid move
-(up/flat/down by a threshold `α`), trained by SGD. Needs a lot of data and **strict session-level
-train/val/test splits** — snapshot autocorrelation makes leakage easy and inflates accuracy.
-Benchmarks: FI-2010, or our own ES/NQ.
+**Architecture (what each layer does).**
+
+- **Convolution (CNN) blocks** — small learned filters that first combine price+size *within* a level,
+  then combine *across* the 10 levels, building features like imbalance and micro-price automatically.
+- **Inception module** — runs several filter sizes in parallel and concatenates them, so the net sees
+  patterns at multiple scales at once.
+- **LSTM (recurrent layer)** — reads the sequence of those features across the `T` snapshots, capturing
+  how the book is evolving over time.
+- **Softmax output** — three numbers that sum to 1:
+
+```
+output = ( P(down), P(flat), P(up) )   for the mid over a forward horizon k
+```
+
+**Computing the probability.** A single **forward pass**: the input numbers are multiplied through the
+trained network weights to produce the softmax. There is no state machine and no transition rates —
+"how it's computed" is just matrix multiplies.
+
+**Calibration / training.** Supervised learning: the labels are the smoothed future mid move bucketed
+`up / flat / down` by a threshold `α`; the weights are trained by gradient descent to minimise
+**cross-entropy** (the standard classification loss). It needs a lot of data and **strict session-level
+train/val/test splits** — consecutive snapshots are highly correlated, so sloppy splitting leaks the
+answer and inflates accuracy. Benchmarks: FI-2010, or our own ES/NQ.
 
 **Keep/cancel (what shadow gets).** Supplies only the **E[move|fill]** direction term (a learned
 P(up/down)); it has **no fill model**. shadow either combines it with another model's P(fill) or uses
