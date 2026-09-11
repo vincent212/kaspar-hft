@@ -548,7 +548,7 @@ them off the data. For each queue size `q`, count the events that happened while
 `q` lots and divide by the time spent at that size:
 
 $$
-\hat{\lambda}_{\text{limit}}(q) = \frac{\text{\# limit orders added while the queue held } q \text{ lots}}{\text{time the queue spent at size } q}
+\hat{\lambda}_{\text{limit}}(q) = \frac{\text{number of limit orders added while the queue held } q \text{ lots}}{\text{time the queue spent at size } q}
 $$
 
 and likewise `λ̂_cancel(q)` and `λ̂_market(q)`. That gives the whole rate-vs-size *curve* directly from
