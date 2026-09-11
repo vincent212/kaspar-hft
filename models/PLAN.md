@@ -67,18 +67,75 @@ confirm that exact question is unanswered.
 
 ## 1. Models in scope
 
-Four published book/order-flow models feed shadow's placement + fill-prob logic, over a
-near-free linear baseline every heavier model must beat. One supervised ML model is added as an
-accuracy reference for the directional signal.
+The models fall into **three paradigms**, defined by *which question* they answer for a market-making
+/ execution algorithm like shadow. shadow makes two distinct decisions, and different paradigms feed
+different ones:
 
-| # | Model | Reference | Class | What it gives shadow |
-|---|-------|-----------|-------|----------------------|
-| B0 | **Queue-Imbalance / OFI** | Cont, Kukanov & Stoikov (2014), *The price impact of order book events*, J. Fin. Econometrics; Gould & Bonart (2016), *Queue imbalance as a one-tick-ahead price predictor* | Linear one-tick predictor | Near-zero-cost directional gate + fill-side signal. The **"must-beat" baseline** — especially strong in large-tick ES/NQ; if a heavy model can't out-execute it inside shadow, that is itself a finding. |
-| M0 | **Cont–Stoikov–Talreja (CST)** | Cont, Stoikov & Talreja (2010), *A stochastic model for order book dynamics*, Oper. Res. | Zero-intelligence Markov, constant Poisson rates | Baseline fill-probability from constant rates. Deliberately naive floor. |
-| M1 | **Queue-Reactive (QR)** | Huang, Lehalle & Rosenbaum (2015), *Simulating and analyzing order book data: the queue-reactive model*, JASA | State-dependent Markov; intensities λ(q) depend on queue size | Queue-position-aware fill prob and level-survival — the canonical model for 1-tick markets like ES/NQ. |
-| M2 | **Multivariate Hawkes** | Bacry, Delattre, Hoffmann & Muzy (2013); Bacry & Muzy (2014) | Self/cross-exciting point process | Order-flow clustering + branching ratio → fast/slow regime; cross-excitation imbalance signal for shadow entry/pull. |
-| M3 | **Queue-Reactive Hawkes (hybrid)** | Morariu-Patrichi & Pakkanen (2019), *Hybrid marked point processes*; (2022) *State-dependent Hawkes* | Hawkes intensities modulated by queue state | Clustering *and* queue-dependence in one fill-prob/pull signal. Superset of M1+M2. |
-| M4 | **DeepLOB** | Zhang, Zohren & Roberts (2019), *DeepLOB*, IEEE TSP | Supervised CNN+LSTM classifier | Mid-move direction accuracy ceiling; optional directional gate for shadow. |
+- **where to quote and how far to skew for inventory** — fed by **Paradigm 1** (optimal control);
+- **keep or cancel a resting order** (the `EV_keep` call) — fed by the fill-probability and toxicity
+  signals of **Paradigms 2 and 3**.
+
+**Paradigm 1 — Optimal control & inventory.** Compute the optimal bid/ask quotes by trading off spread
+capture against inventory risk, via continuous-time stochastic control (an HJB equation). *Avellaneda–
+Stoikov (M5), Guéant et al. (M6).*
+**Paradigm 2 — Microstructure & point processes.** Capture temporal clustering, self-excitation and
+order-flow toxicity. *Hawkes (M2), CST Markov (M0).*
+**Paradigm 3 — Queueing & fill probability.** Your order's queue position and its fill odds on a FIFO
+book. *Queue-Reactive (M1)*; the linear imbalance baseline *B0* sits in front as the cheap direction
+cue. *DeepLOB (M4)* is a supervised accuracy reference cutting across Paradigms 2–3.
+
+Together they form the standard HFT pipeline — Hawkes → toxicity, Queue-Reactive → fill probability,
+Avellaneda–Stoikov/Guéant → inventory-skewed base quotes, combined at a quote/risk gate (see the
+pipeline diagram below).
+
+| # | Model | Paradigm | Reference | Class | What it gives shadow |
+|---|-------|----------|-----------|-------|----------------------|
+| B0 | **Queue-Imbalance / OFI** | 3 | Cont, Kukanov & Stoikov (2014), *The price impact of order book events*, J. Fin. Econometrics; Gould & Bonart (2016), *Queue imbalance as a one-tick-ahead price predictor* | Linear one-tick predictor | Near-zero-cost directional gate + fill-side signal. The **"must-beat" baseline** — especially strong in large-tick ES/NQ; if a heavy model can't out-execute it inside shadow, that is itself a finding. |
+| M0 | **Cont–Stoikov–Talreja (CST)** | 2 | Cont, Stoikov & Talreja (2010), *A stochastic model for order book dynamics*, Oper. Res. | Zero-intelligence Markov, constant Poisson rates | Baseline fill-probability from constant rates. Deliberately naive floor. |
+| M1 | **Queue-Reactive (QR)** | 3 | Huang, Lehalle & Rosenbaum (2015), *Simulating and analyzing order book data: the queue-reactive model*, JASA | State-dependent Markov; intensities λ(q) depend on queue size | Queue-position-aware fill prob and level-survival — the canonical model for 1-tick markets like ES/NQ. |
+| M2 | **Multivariate Hawkes** | 2 | Bacry, Delattre, Hoffmann & Muzy (2013); Bacry, Mastromatteo & Muzy (2015), *Hawkes processes in finance* | Self/cross-exciting point process | Order-flow clustering + branching ratio → fast/slow regime; cross-excitation toxicity signal for shadow entry/pull. |
+| M3 | **Queue-Reactive Hawkes (hybrid)** | 2+3 | Morariu-Patrichi & Pakkanen (2019), *Hybrid marked point processes*; (2022) *State-dependent Hawkes* | Hawkes intensities modulated by queue state | Clustering *and* queue-dependence in one fill-prob/pull signal. Superset of M1+M2. |
+| M4 | **DeepLOB** | 2+3 | Zhang, Zohren & Roberts (2019), *DeepLOB*, IEEE TSP | Supervised CNN+LSTM classifier | Mid-move direction accuracy ceiling; optional directional gate for shadow. |
+| M5 | **Avellaneda–Stoikov** | 1 | Avellaneda & Stoikov (2008), *High-frequency trading in a limit order book*, Quant. Finance | Optimal control (HJB); inventory-risk quoting | Reservation-price skew + optimal half-spread: **where** shadow should quote given inventory, vol, horizon. |
+| M6 | **Guéant–Lehalle–Fernandez-Tapia** | 1 | Guéant, Lehalle & Fernandez-Tapia (2013), *Dealing with the inventory risk*, Math. Fin. Econ. | Optimal control; closed-form/ODE approximation of A–S | Production-grade multi-tier inventory-skewed quotes without HJB numerical instability. |
+
+### How the models combine — the HFT pipeline
+
+The three paradigms are complementary, not competitors: in a full stack each feeds a different part of
+the quoting decision, exactly as in a production HFT market maker.
+
+```
+[ L3 / MBO market-data feed ]
+          │
+          ├──> [ Hawkes  (M2 / M3) ] ──────────────> toxicity / adverse-selection signal
+          │
+          ├──> [ Queue-Reactive (M1), CST (M0), B0 ] > fill probability + level survival
+          │
+          └──> [ Avellaneda–Stoikov (M5) / Guéant (M6) ] > inventory-skewed base quotes
+                        │
+                        ▼
+             [ shadow quote generator + risk gate ]   (combines EV_keep + inventory skew)
+                        │
+                        ▼
+              [ SOM (simulated fills) | iLink (live) ]
+```
+
+DeepLOB (M4) plugs in as an optional directional gate alongside the toxicity signal. In the benchmark
+we ablate paradigms independently *and* in combination, so we can attribute any shadow-P&L change to a
+specific paradigm rather than the stack as a whole.
+
+### Model comparison matrix
+
+| Model | Primary inputs | Key output | Main strength | Main limitation |
+|-------|----------------|-----------|---------------|-----------------|
+| B0 Imbalance/OFI | best-level sizes, OFI | next-tick direction | near-zero cost; strong in large-tick | direction only; no fill/queue notion |
+| M0 CST | level volumes, constant rates | first-passage fill / price-move prob | closed-form, simple | constant rates ⇒ wrong queue-size dist |
+| M1 Queue-Reactive | level depth, queue position `k` | queue fill probability | accurate for FIFO matching | needs tick-level L3 / MBO |
+| M2 Hawkes | event timestamps (MO/LO/cancel) | dynamic intensities `λ_i(t)` | captures clustering / toxicity | heavy to calibrate online |
+| M3 QR-Hawkes | events + queue state | state-dependent intensities | clustering + queue in one | most params; overfit risk |
+| M4 DeepLOB | 10-level book snapshots | `P(mid up/flat/down)` | learns nonlinear signal (accuracy ceiling) | black box; data-hungry; no fill model |
+| M5 Avellaneda–Stoikov | vol `σ`, risk aversion `γ`, arrival `k`, inventory `q` | reservation price + half-spread | closed-form inventory control | assumes constant depth & continuous fills |
+| M6 Guéant et al. | arbitrary `λ(δ)`, inventory limit `Q` | multi-tier skewed quotes | fast ODE solve; multi-tier | ignores microstructural queue priority |
 
 **Excluded** (can add later): Cont–de Larrard diffusion-limit queueing model; modern generative
 LOB models (autoregressive S5 arXiv:2309.00638, diffusion arXiv:2509.05107) — heavy training,
@@ -100,6 +157,7 @@ calibrate against them, don't depend on them. Reuse where noted; implement B0 an
 | M2 Hawkes | [ZhangMian-CentraleSupelec/…-Limit-Order-Book](https://github.com/ZhangMian-CentraleSupelec/High-Frequency-Data-and-Limit-Order-Book) | Smaller academic Hawkes-sim + LOB analysis. |
 | M4 DeepLOB | [zcakhaa/DeepLOB-…](https://github.com/zcakhaa/DeepLOB-Deep-Convolutional-Neural-Networks-for-Limit-Order-Books) | **Authors' official** PyTorch/TF impl — use directly. |
 | M4 DeepLOB | [Jeonghwan-Cheon/lob-deep-learning](https://github.com/Jeonghwan-Cheon/lob-deep-learning) | Clean reimpls of DeepLOB, TransLOB, DeepFolio in one repo. |
+| M5/M6 inventory | **mbt_gym** (Jerome, Savani et al. — model-based market-making RL gym) + Cartea–Jaimungal–Penalva reference code | Implements Avellaneda–Stoikov / Guéant inventory-quoting dynamics; reference for the HJB/ODE quoting layer. *Verify exact repo URL before use.* |
 | B0, M0 | — | No canonical repo; implement ourselves (few lines each). |
 
 **LOB simulators / Tier-D environment references** (kaspar's own SOM is our simulator, but these
@@ -130,9 +188,13 @@ price p:
 The second term is the catch: you tend to get filled *exactly* when an informed seller is running
 the price down, so a fill can arrive **with** an adverse move. **Keep the order while EV_keep > 0**
 (fills are likely benign and the drift is in your favour); **cancel the moment EV_keep turns
-negative** (you'd be filled into a market moving against you). Everything below is just a different
-way to estimate **P(fill)** and the conditional move **E[·|fill]** — that is the entire point of
-plugging a model into shadow.
+negative** (you'd be filled into a market moving against you). The Paradigm-2/3 models below (B0, M0–
+M4) are all just different ways to estimate **P(fill)** and the conditional move **E[·|fill]**.
+
+**The exception — Paradigm 1 (M5, M6).** The inventory models answer a *different* question: not
+"keep or cancel this order," but **"given the inventory I already hold, where should I place my quotes
+and how far should I skew them?"** They feed shadow's *placement and skew*, not the keep/cancel call —
+the inventory-risk overlay that sits on top of the fill/toxicity signal.
 
 #### B0 — Queue-Imbalance / OFI (linear predictor)
 
@@ -586,6 +648,115 @@ table?"*
 **Limitations.** Black box (hard to attribute a decision), data-hungry, leakage-prone, inference
 latency in the hot path, and no notion of queue position or of your own order — direction only.
 
+#### M5 — Avellaneda–Stoikov (optimal-control inventory quoting)
+
+**Core idea.** A different question from every model above: not "will this order fill / which way will
+price go," but **"given the inventory I already hold, where should I place my bid and ask to earn the
+spread without taking on too much price risk?"** It is a stochastic **optimal-control** problem —
+maximise the expected utility of end-of-day wealth, trading spread capture against the variance of
+holding inventory.
+
+**Setup / assumptions.** The mid-price is a random walk (arithmetic Brownian motion):
+
+```
+dS_t = σ · dW_t
+```
+
+where:
+
+- `S_t` — mid-price at time `t`.
+- `σ`   — volatility (how fast the mid diffuses).
+- `W_t` — standard Brownian motion (the random-walk driver); `dW_t` is its increment.
+
+Our quotes sit a distance `δ` from the mid; the farther out, the less often we fill. Fills arrive as a
+Poisson process whose rate decays with distance:
+
+```
+λ(δ) = A · e^{−k·δ}
+```
+
+where `λ(δ)` = fill rate at quote distance `δ`, `A` = base fill rate at the touch (`δ = 0`), `k` = how
+fast the fill rate falls as you quote farther out.
+
+**Output 1 — reservation price.** The inventory-adjusted "fair value" the maker centres its quotes on.
+Holding a long position (`q > 0`) shifts it *down* (you want to sell, so lean cheaper); short shifts it
+up:
+
+```
+r(s, q, t) = s − q · γ · σ^2 · (T − t)
+```
+
+where:
+
+- `r` — reservation price (the skewed centre).  *(output)*
+- `s` — current mid.               *(input)*
+- `q` — current inventory, signed. *(input)*
+- `γ` — risk aversion (how much you dislike inventory variance). *(input)*
+- `σ` — volatility.                *(input)*
+- `(T − t)` — time remaining to the horizon `T`. *(input)*
+
+**Output 2 — optimal total half-spread.** How wide to quote around the reservation price:
+
+```
+δ_a + δ_b = γ · σ^2 · (T − t) + (2 / γ) · ln(1 + γ / k)
+```
+
+where `δ_a, δ_b` = the ask-side and bid-side distances from `r`; the first term is the inventory/vol
+risk premium, the second a fill-rate term (wider when fills are scarce, i.e. small `k`). The quotes are
+then placed at `r + ½(δ_a+δ_b)` (ask) and `r − ½(δ_a+δ_b)` (bid).
+
+**How it's solved.** Dynamic programming: the value function obeys a **Hamilton–Jacobi–Bellman (HJB)**
+partial differential equation, and A–S give the closed-form approximations above in the small-inventory
+/ short-horizon limit.
+
+**Calibration.** Estimate `σ` from mid returns, `A` and `k` from the empirical fill-rate-versus-distance
+curve (how often orders resting at distance `δ` actually fill), and pick `γ` as the risk knob (tuned to
+hold inventory inside a target band).
+
+**Keep/cancel — what shadow gets.** Feeds shadow's **placement and skew**, *not* the `EV_keep`
+toxicity call: it sets where to rest and how far to lean given current inventory — the inventory-risk
+overlay on top of the fill/toxicity models.
+
+**Limitations.** Assumes constant book depth and continuous fills (no queue position, no discrete tick
+grid), a single price level, and a fixed horizon `T`. Excellent for skew; blind to microstructure.
+
+#### M6 — Guéant–Lehalle–Fernandez-Tapia (production-grade inventory control)
+
+**Core idea.** Same optimal-control objective as A–S, but made **usable in production**: exact, fast
+solutions over realistic (finite) horizons, with hard inventory limits and arbitrary (non-exponential)
+fill-intensity functions.
+
+**Key trick — linearise the HJB.** A change of variable collapses the coupled nonlinear HJB equations
+into a solvable linear system:
+
+```
+v_q(t) = exp(−α · q^2) · u_q(t)
+```
+
+where:
+
+- `q` — inventory level (bounded, `q ∈ {−Q, …, +Q}`).
+- `v_q(t)` — the value function at inventory `q` and time `t`.
+- `u_q(t)` — the transformed unknown to solve for.
+- `α` — a constant chosen to kill the nonlinear term.
+
+After the substitution the `u_q(t)` obey a **system of linear ODEs** (ordinary differential equations —
+equations in the time-derivatives of the `u_q`), which solve exactly and fast. No fragile numerical PDE
+solve, so quotes update in real time.
+
+**What it adds over A–S.** Finite inventory bounds `q ∈ {−Q, …, +Q}`; arbitrary fill-intensity `λ(δ)`
+(not just `A·e^{−kδ}`); and stable multi-tier quotes.
+
+**Calibration.** Same inputs as A–S (`σ`, the fill-intensity curve, `γ`, inventory band `Q`) plus the
+horizon; fit `λ(δ)` non-parametrically instead of assuming the exponential shape.
+
+**Keep/cancel — what shadow gets.** The production inventory-skew engine: real-time skewed multi-tier
+base quotes that shadow's risk gate combines with the M0–M3 fill/toxicity signals.
+
+**Limitations.** Still an inventory-control layer — it ignores **microstructural queue priority** (no
+notion of your FIFO position), which is exactly what M1/M3 supply. The two are complementary, not
+substitutes.
+
 ### Glossary
 
 Plain-language definitions of every technical term used above, grouped by theme.
@@ -674,6 +845,24 @@ Plain-language definitions of every technical term used above, grouped by theme.
   Long Short-Term Memory (a recurrent net that learns temporal patterns across snapshots).
 - **Out-of-sample / train-val-test split** — fit on one set of sessions, tune on a second, judge on a
   third never seen during fitting; prevents crediting a model for memorising its training data.
+
+**Optimal control / inventory**
+- **Optimal control** — choosing actions over time (here: where to quote) to maximise an objective
+  (expected utility of wealth) under randomness; solved by dynamic programming.
+- **Inventory** — the signed position the market maker is currently holding; the core risk in market
+  making (an unwanted long/short exposed to price moves).
+- **Risk aversion (`γ`)** — a dial for how much you dislike inventory variance; higher `γ` ⇒ tighter
+  inventory control, wider/more-skewed quotes.
+- **Brownian motion** — the canonical continuous random walk; here the model for the mid-price.
+- **Reservation price** — the inventory-adjusted fair value a maker centres its quotes on; skews away
+  from the mid as inventory grows.
+- **Utility / value function** — the objective being maximised / the best achievable objective from a
+  given state; the thing the HJB equation characterises.
+- **HJB (Hamilton–Jacobi–Bellman) equation** — the partial differential equation the value function
+  satisfies in a continuous-time control problem.
+- **PDE / ODE** — Partial / Ordinary Differential Equation: an equation in the derivatives of an
+  unknown function (of several / one variable). Guéant et al. reduce the HJB PDE to linear ODEs.
+- **Half-spread** — the distance from the reservation price to each quote; total spread = `δ_a + δ_b`.
 
 **This project**
 - **shadow** — kaspar's passive execution algorithm (`light22`); the fixed strategy each model plugs
@@ -806,11 +995,15 @@ parameter-transfer (fit ES, run NQ, and vice versa).
   **Exit:** does the superset actually improve shadow P&L OOS (BIC-honest)?
 - **Phase 5 — M4 directional gate.** Add DeepLOB as an optional entry gate + as the Tier-C accuracy
   ceiling. **Exit:** does a learned directional filter add to the best book model's shadow P&L?
-- **Phase 6 — NQ replication + transfer.** Re-run best models on NQ; ES↔NQ transfer tests.
+- **Phase 6 — Inventory paradigm (M5/M6).** Add Avellaneda–Stoikov then Guéant et al. as shadow's
+  placement/skew layer (reservation-price + optimal half-spread), on top of the best fill/toxicity
+  model. Calibrate `σ`, the fill-rate curve `λ(δ)`, and `γ`. **Exit:** does inventory-aware skew
+  improve shadow's risk-adjusted P&L (and cut inventory excursions) vs the zero-inventory baseline?
+- **Phase 7 — NQ replication + transfer.** Re-run best models on NQ; ES↔NQ transfer tests.
   **Exit:** cross-instrument execution comparison.
-- **Phase 7 — Write-up.** Execution tables (baseline vs each model, per regime, ES & NQ), signal
+- **Phase 8 — Write-up.** Execution tables (baseline vs each model, per regime, ES & NQ), signal
   diagnostics, transfer, limitations. Candidate `tech_reports/` paper alongside `shadow_pov`.
-- **Phase 8 — Open-source release.** Land the model implementations in kaspar and tag the release
+- **Phase 9 — Open-source release.** Land the model implementations in kaspar and tag the release
   referenced by the arXiv paper (see §7).
 
 ---
