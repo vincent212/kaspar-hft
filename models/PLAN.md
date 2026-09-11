@@ -177,40 +177,174 @@ flow at *constant* rates, then read off *probabilities of book events* — will 
 my order fill, which way will the price move — from the mathematics of that random system. It is
 "zero-intelligence" because nothing reacts: the rates never change.
 
-**State space.** The state is the vector of queue sizes at each price level, `X = (n₁, …, n_K)` for the
-`K` tracked levels on each side (measured relative to the best/reference). Each `n_i ∈ {0,1,2,…}`, so
-the raw state space is `ℕ^{2K}` — countably **infinite**. In practice you truncate each queue at `Q_max`
-and track `k` levels a side, giving on the order of `(Q_max+1)^{2k}` states — which explodes
-combinatorially (e.g. 100 lots × 4 levels a side ≈ 100⁸). That blow-up is exactly why you do **not**
-brute-force the full chain but exploit its structure below.
+**State space — what one "state" is.**
+Picture the price axis as a fixed ladder of tick-spaced slots. *Price is the slot's position on the
+ladder, not a number we store*; what we store at each slot is its **queue size** — how many lots are
+resting there right now. So one *state* of the model is a snapshot of the whole book: a list giving
+the queue size at every slot.
 
-**Dynamics / rates.** Three independent Poisson streams act on each level `i` (distance from the
-opposite best):
-- **limit order** at rate `λ(i)` → `n_i → n_i + 1`;
-- **market order** at rate `μ` hits the opposite best → best queue `− 1`;
-- **cancellation**: each resting order leaves at rate `θ(i)`, so a level holding `n_i` orders cancels
-  at total rate `n_i·θ(i)` → `n_i → n_i − 1`.
-Every rate is constant or linear in `n_i`, so each queue is a **birth–death process** (birth `λ`, death
-`μ + n·θ`) and the full book is a continuous-time Markov chain (CTMC) with generator `Q`. A **price
-move** happens when a best queue hits 0 (that level is exhausted, the best rolls one tick) — the event
-that couples the queues.
+```
+X = (n_1, n_2, …, n_K)
+```
 
-**Computing the probabilities.** Everything shadow needs is a **first-passage / hitting probability** of
-this CTMC, obtainable three ways (increasing generality):
-1. **Single queue, closed form.** One queue is an M/M/1-type birth–death chain; the time to hit 0 from
-   size `n`, and the probability it grows vs shrinks, have analytic Laplace-transform expressions (the
-   CST results). An order's fill time is the time for the queue ahead of it to drain.
-2. **Coupled top-of-book, linear solve.** "P(ask empties before bid)" (= P(up move)) is a **harmonic
-   function** `h` of the generator: solve `Q·h = 0` with `h = 1` on `{Q_ask = 0}` and `h = 0` on
-   `{Q_bid = 0}`. That's a sparse linear system on the truncated 2-D grid — a discrete Dirichlet
-   problem, the continuous analogue of "which axis does the random walk hit first."
-3. **Monte Carlo.** Simulate the CTMC forward (exponential inter-event times; pick the event with
-   probability proportional to its rate) and count outcomes — used when the exact routes are too big.
-The atom under all three: for competing Poisson streams with rates `a, b`, the next event is type A
-with probability `a/(a+b)`; chaining that over the birth–death steps gives the hitting probabilities.
+where:
 
-**Calibration.** Trivial MLE — each rate is `#events / exposure-time`: limit adds at level `i` over
-time for `λ(i)`, market orders over total time for `μ`, cancels over (time × size exposed) for `θ`.
+- `X`   — one complete book configuration (one "state").
+- `K`   — how many price levels we track on each side (e.g. 5 or 10).
+- `n_i` — the number of lots resting at the i-th price level; `n_i` is 0, 1, 2, …
+- `i`   — the level index. **This is where price lives:** `i = 1` is the best price, `i = 2` is one
+  tick behind it, and so on, all measured relative to a moving reference price `p_ref`.
+
+So **sizes are the values `n_i`; prices are the positions `i`.** Example: best bid holding 40 lots, one
+tick behind it 120 lots, best ask 12 lots — those are three of the numbers in `X`. A market buy that
+takes all 12 ask lots sets that entry `12 → 0`, the level is gone, and the ladder shifts up one slot
+(the reference price moved).
+
+*How many states are there?* Each `n_i` can be any non-negative integer, so the exact set of states is
+infinite. To actually compute, cap each queue at a maximum size `Q_max` and track `k` levels a side.
+The number of distinct states is then
+
+```
+N_states ≈ (Q_max + 1) ^ (2k)
+```
+
+where:
+
+- `Q_max`    — the largest queue size we allow (e.g. 500 lots).
+- `k`        — levels tracked per side; `2k` — total tracked levels (both sides).
+- `N_states` — the number of possible book configurations.
+
+Even small numbers explode: `Q_max = 100`, `k = 4` gives `101^8 ≈ 10^16` states — far too many to list
+one-by-one. That is why we never enumerate the chain; we use its structure (below) to get the single
+probability we want without touching every state.
+
+**Dynamics — how the book changes over time.**
+Only three things ever happen to a queue, and each is a **Poisson process** — a stream of random events
+arriving at a steady average rate, the timing otherwise memoryless ("rate `μ`" means, on average, `μ`
+events per second):
+
+1. A **limit order** joins a level → that queue grows by one lot. Arrival rate `λ(i)` (may depend on
+   the level `i`).
+2. A **market order** hits the best level on the opposite side → that best queue shrinks by one lot.
+   Arrival rate `μ`.
+3. A **cancellation** removes a resting order → the queue shrinks by one lot. Each resting order is
+   cancelled independently at rate `θ`, so a level holding `n` lots is cancelling at total rate
+   `n × θ` (more orders resting ⇒ cancellations happen faster).
+
+Track a single queue: it steps **up** by one when a limit order arrives, **down** by one when a market
+order or a cancellation removes a lot. Its up-rate and down-rate are
+
+```
+up-rate   (a lot joins)  :  b(n) = λ
+down-rate (a lot leaves) :  d(n) = μ + n·θ
+```
+
+where:
+
+- `n` — current queue size (lots).
+- `λ` — limit-order arrival rate.
+- `μ` — market-order rate.
+- `θ` — per-order cancellation rate.
+
+A process that only steps up or down by one, with an up-rate and a down-rate, is a **birth–death
+process** (births = orders arriving, deaths = orders leaving). Stack all the queues together and the
+whole book is a **continuous-time Markov chain (CTMC)**: *Markov* = the future depends only on the
+current state `X`, not on the path that led there; *continuous-time* = events can occur at any instant.
+The table listing every jump rate between states is the **generator matrix** `Q` (entry `Q[X → X']` =
+the rate of jumping from configuration `X` to `X'`).
+
+One rule links the queues: **when a best queue reaches 0, that price level is empty, the best price
+rolls one tick, and `p_ref` updates.** A queue hitting zero is exactly what turns queue dynamics into
+*price* moves.
+
+**Computing the probabilities — the formulas, with inputs and outputs.**
+Everything shadow needs is a **first-passage probability** (a.k.a. hitting probability): the chance the
+system reaches one target before another — e.g. "does the ask queue empty before the bid queue?" (an
+up-move). Three ways to get it, simplest first.
+
+*Method 1 — one queue, closed form (gambler's ruin).* Starting from size `n`, does the queue hit `0`
+(empty) before it grows to a barrier `N`? For a birth–death process this is the classic **gambler's-
+ruin** formula. Let `r = d / b` be the down-rate-to-up-rate ratio (rates taken roughly constant). Then
+
+```
+P(empty before reaching N | start at n)  =  (r^N − r^n) / (r^N − 1),    for r ≠ 1
+```
+
+where:
+
+- `n` — starting queue size.  *(input)*
+- `N` — upper barrier size.   *(input)*
+- `r = d/b` — down/up rate ratio; `r > 1` means the queue tends to drain.  *(input)*
+- *output* — the probability the queue empties before it ever reaches `N`.
+
+Sanity check: `n = 0` gives probability `1` (already empty); `n = N` gives `0`. The matching *fill-time*
+question ("how long until the queue ahead of my order drains?") uses the same birth–death first-passage
+math via a **Laplace transform** (a standard integral transform that turns a timing question into
+algebra). With cancellations the down-rate `d = μ + nθ` depends on `n`, so the exact answer replaces the
+single ratio `r` with the general birth–death first-passage sum; gambler's ruin is the clean constant-
+rate illustration.
+
+*Method 2 — two queues, linear solve.* Use bid size and ask size together. Define
+
+```
+h(a, b) = P(ask empties before bid | ask has a lots, bid has b lots)     # = P(up-move)
+```
+
+Memorylessness means `h` at any state equals the rate-weighted average of `h` at the states one jump
+away. Collect those equations into one linear system:
+
+```
+Q · h = 0,   with   h = 1 on every state where a = 0   (ask empty → up-move happened)
+                    h = 0 on every state where b = 0   (bid empty → down-move happened)
+```
+
+where:
+
+- `Q` — the generator matrix built from `λ, μ, θ`.  *(input)*
+- the two boundary conditions above.                *(input)*
+- `h(a, b)` — the up-move probability for every current `(a, b)`.  *(output)*
+
+This is a **system of linear equations** on the truncated `a`–`b` grid (solved like any sparse linear
+system). A function satisfying `Q·h = 0` is called **harmonic**: its value at each point is the average
+of its neighbours' — the same math as "which wall does a random walk hit first."
+
+*Method 3 — Monte Carlo (simulation).* When the grid is too large to solve exactly, **simulate**: from
+the current state draw the time to the next event (exponential, rate = sum of all active rates), pick
+which event fired (an event of rate `a` fires with probability `a / Σrates`), update the queues, repeat
+until a best queue empties. Then
+
+```
+P(up-move) ≈ (number of runs where the ask emptied first) / (total runs M)
+```
+
+where:
+
+- the current state and the rates `λ, μ, θ`.  *(input)*
+- `M` — number of simulation runs.            *(input)*
+- *output* — a Monte-Carlo estimate whose error shrinks like `1/√M`.
+
+*Monte Carlo* just means "estimate a probability by random simulation and counting." The single fact
+under all three methods: for two independent Poisson streams with rates `a` and `b`, the next event
+comes from the first with probability
+
+```
+P(next event is A) = a / (a + b)
+```
+
+Chaining that one identity across the queue steps is, in the end, what every method computes.
+
+**Calibration — getting λ, μ, θ from data.** These rates are the only unknowns, each fitted by
+**maximum-likelihood estimation (MLE)** — the standard recipe of picking the parameter values that make
+the observed data most probable. For Poisson rates the MLE reduces to "count events, divide by time":
+
+```
+λ̂(i) = (number of limit orders added at level i) / (total time observed)
+μ̂    = (number of market orders)                 / (total time observed)
+θ̂    = (number of cancellations)                 / (total lot-seconds resting)
+```
+
+where *lot-seconds resting* = summed over resting orders, how long each one stayed in the book (each lot
+is exposed to cancellation for exactly that long). The hat `λ̂` denotes "the estimate of `λ`."
 
 **Keep/cancel (what shadow gets).** Both EV terms come from the same first-passage: **P(fill)** =
 P(market-sells + cancels-ahead drain the queue to my position before the level's price moves), and
@@ -228,30 +362,105 @@ cancellation rates depend on **how full the queue already is**. Traders pile int
 out of overcrowded ones; big queues get cancelled faster than they trade. Make the rates functions of
 the queue size and the model suddenly reproduces the real book.
 
-**State space.** Same shape as CST — a vector of queue sizes `X = (q_{−K}, …, q_{−1}, q_1, …, q_K)` at
-`K` levels each side around a **reference price** `p_ref`, each `q_i ∈ {0,…,Q_max}`. What's new is a
-**two-timescale** structure: (i) *fast* — the queues evolve with `p_ref` held fixed; (ii) *slow* — when
-the best queue depletes / the book is one-sided, `p_ref` updates by a tick and the state is re-centred.
-Centring is what keeps the model stationary and the state space bounded.
+**State space.** Same picture as CST — a snapshot of queue sizes:
 
-**Dynamics / rates.** Each queue `i` is again a birth–death chain, but with **state-dependent**
-intensities `λ_limit,i(q)`, `λ_cancel,i(q)`, `λ_market,i(q)` — arbitrary functions of the current size
-`q`, not constants. In "Model I" the queues are independent given `p_ref`; Models II/III let the
-intensities depend on the whole book (e.g. on imbalance), coupling the queues.
+```
+X = (q_{−K}, …, q_{−1}, q_1, …, q_K)
+```
 
-**Computing the probabilities.** The headline object is the **stationary distribution of a single
-queue**, which for a birth–death chain is the closed-form product `π(q) ∝ Π_{j=1}^{q} λ(j−1)/μ(j)`,
-with `λ(·)` the arrival intensity and `μ(·) =` cancel+market departure intensity. Because `λ, μ` depend
-on `q`, `π` comes out **hump-shaped**, matching the empirical queue-size histogram — the thing CST's
-geometric distribution cannot do, and their central validation. Fill and level-survival probabilities
-are again first-passage on the birth–death chain, now with the `q`-dependent rates: the same hitting-
-time recursions with `λ(q), μ(q)` in place of constants (a tractable tridiagonal linear system per
-queue). Price-move probability comes from the reference-price mechanism plus which best queue reaches 0.
+where:
 
-**Calibration.** **Non-parametric binning.** For each queue size `q`, estimate
-`λ_limit(q) = (# limit adds that occurred while the queue held q lots) / (time the queue spent at q)`,
-and likewise for cancels and market orders — the rate-vs-size *curves* straight from the L3 stream.
-Then check the implied `π(q)` against the empirical histogram.
+- `q_i`   — lots resting at level `i`; `q_i` runs `0 … Q_max`.
+- negative `i` — bid-side levels; positive `i` — ask-side levels.
+- `p_ref` — the **reference price** the ladder is measured from.
+
+What's new is a **two-timescale** design:
+
+- *fast timescale* — with `p_ref` held fixed, each queue fills and drains (the dynamics below);
+- *slow timescale* — when a best queue empties (or the book goes one-sided), `p_ref` moves one tick and
+  the whole ladder is re-centred on the new mid.
+
+Re-centring is what keeps the model **stationary** (its statistics don't drift over time) and the state
+space bounded.
+
+**Dynamics — rates that depend on the queue size.** As in CST each queue moves up (a limit order joins)
+or down (a market order or cancellation removes a lot), so it is still a **birth–death process**. The
+one change from CST: the three rates are no longer constants but **functions of the current size `q`**:
+
+```
+limit-order arrival rate at size q :  λ_limit(q)
+cancellation rate at size q        :  λ_cancel(q)
+market-order rate at size q        :  λ_market(q)
+```
+
+where:
+
+- `q` — the queue's current size (lots).
+- `λ_limit(q)` — how fast new orders join *when the queue already holds `q` lots* (usually falls as `q`
+  grows — nobody wants to join a 20,000-lot queue).
+- `λ_cancel(q)` — how fast lots are cancelled at size `q` (usually rises with `q`).
+- `λ_market(q)` — how fast market orders eat the level at size `q`.
+
+Group the two ways a lot can leave into one **departure rate**
+
+```
+μ(q) = λ_cancel(q) + λ_market(q)
+```
+
+so the queue climbs at rate `λ_limit(q)` and falls at rate `μ(q)`. (In the simplest "Model I" the queues
+move independently once `p_ref` is fixed; richer variants — Models II/III — let each queue's rates also
+depend on the rest of the book, e.g. on the bid/ask imbalance, which couples them.)
+
+**Computing the probabilities.**
+*The headline result — the queue-size distribution.* Run one queue for a long time; what fraction of the
+time does it hold exactly `q` lots? That long-run fraction is the **stationary distribution** `π(q)`.
+For a birth–death process it has a simple closed form — a running product of up/down rate ratios:
+
+```
+π(q) = π(0) · Π_{j=1}^{q}  λ_limit(j−1) / μ(j)
+```
+
+where:
+
+- `π(q)` — long-run probability the queue holds `q` lots.  *(output)*
+- `π(0)` — a normalising constant, fixed by making all the `π(q)` sum to 1.
+- `Π_{j=1}^{q}` — "multiply the following term for `j = 1, 2, …, q`" (a product).
+- `λ_limit(j−1)` — arrival rate when the queue holds `j−1` lots.  *(input)*
+- `μ(j)` — departure rate when the queue holds `j` lots.          *(input)*
+
+Because the rates vary with size, this product comes out **hump-shaped** (rises, then falls) — exactly
+the shape real ES/NQ queue-size histograms have, and precisely what CST's constant-rate version (a plain
+geometric decay) *cannot* reproduce. Matching this histogram is the paper's central validation.
+
+*Fill and level-survival probabilities.* Same **first-passage** question as CST — will the queue drain to
+my position / to zero before it grows — but now solved with the size-dependent rates. Let `f(q)` be the
+probability the level empties starting from size `q`; it satisfies one balance equation per size:
+
+```
+μ(q)·f(q−1) + λ_limit(q)·f(q+1) = (λ_limit(q) + μ(q))·f(q),    with   f(0) = 1
+```
+
+where:
+
+- `f(q)` — probability of reaching size 0 (level empties) starting from size `q`.  *(output)*
+- `f(0) = 1` — boundary condition (already empty).
+- `λ_limit(q), μ(q)` — the calibrated size-dependent rates.  *(input)*
+
+Each equation links only `f(q−1), f(q), f(q+1)`, so this is a **tridiagonal linear system** (fast to
+solve). *Price-move* probability then combines these per-queue survival odds with the reference-price
+rule (which best queue empties first).
+
+**Calibration — non-parametric binning.** You do not assume a formula for the rate curves; you read
+them off the data. For each queue size `q`, count the events that happened while the queue held exactly
+`q` lots and divide by the time spent at that size:
+
+```
+λ̂_limit(q) = (# limit orders added while the queue held q lots) / (time the queue spent at size q)
+```
+
+and likewise `λ̂_cancel(q)` and `λ̂_market(q)`. That gives the whole rate-vs-size *curve* directly from
+the L3 event stream. Then plug the curves into the `π(q)` formula above and check it against the
+empirical queue-size histogram as a fit test.
 
 **Keep/cancel (what shadow gets).** Genuinely **queue-position-aware**: **P(fill)** and level-survival
 use the size-dependent drain rates (a deep queue that cancels fast has a very different fill profile
@@ -376,6 +585,102 @@ table?"*
 
 **Limitations.** Black box (hard to attribute a decision), data-hungry, leakage-prone, inference
 latency in the hot path, and no notion of queue position or of your own order — direction only.
+
+### Glossary
+
+Plain-language definitions of every technical term used above, grouped by theme.
+
+**Order-book / market-microstructure**
+- **Limit order** — an order to buy/sell at a set price that *rests* in the book until matched. Adds
+  depth (liquidity) to a price level.
+- **Market order** — an order that executes immediately against the best resting orders. Removes depth;
+  the *aggressor* in a trade.
+- **Cancellation** — removal of a resting limit order before it trades.
+- **Queue / queue size** — the lots resting at one price level, waiting to trade, ordered by arrival.
+- **Queue position / queue rank (FIFO)** — how many lots sit *ahead* of your order in the first-in-
+  first-out priority line at a level; you fill only after they do. FIFO = first-in, first-out.
+- **Best bid / best ask (top of book)** — the highest buy price and lowest sell price currently resting.
+- **Mid / mid-price** — the average of best bid and best ask.
+- **Spread** — best ask minus best bid, usually measured in ticks.
+- **Tick** — the minimum price increment (ES = 0.25 index points; a "1-tick" or "large-tick" market
+  usually has the spread pinned at one tick).
+- **Reference price (`p_ref`)** — a slowly-updated anchor the model measures level positions from, so the
+  price ladder "moves with" the market.
+- **Imbalance** — `(bid size − ask size)/(bid size + ask size)`; how lopsided the top of book is.
+- **OFI (order-flow imbalance)** — running signed change in top-of-book size; net buying pressure at the
+  touch (Cont–Kukanov–Stoikov).
+- **Adverse selection / toxic fill** — getting filled right before the price moves against you (e.g. your
+  bid fills just as the market drops). The core risk shadow manages.
+- **Mark-out** — the mid-price change measured a fixed time after a fill (+1s, +5s…); the standard way to
+  score whether a fill was benign or toxic.
+- **MBO / MBP** — Market-By-Order (every individual order visible, needed for true queue position) vs
+  Market-By-Price (only aggregated size per level). Our data is MBO.
+- **L1 / L2 / L3** — market-data depth: L1 = best bid/ask only; L2 = aggregated depth per level; L3 =
+  every individual order (same detail as MBO).
+
+**Probability / stochastic-process**
+- **Poisson process** — a stream of random events arriving at a steady average **rate**; gaps between
+  events are memoryless (exponentially distributed).
+- **Rate / intensity (`λ`)** — expected number of events per unit time. "Intensity" is used when the rate
+  can itself change over time or with state.
+- **Markov property / Markov chain** — the future depends only on the *current* state, not on how you got
+  there. A **CTMC (continuous-time Markov chain)** is a Markov chain whose jumps can happen at any instant.
+- **Generator matrix (`Q`)** — the table of all state-to-state jump rates that defines a CTMC.
+- **Birth–death process** — a chain whose state only steps up by one ("birth") or down by one ("death"),
+  each with its own rate; a single queue is one.
+- **First-passage / hitting probability** — the chance the process reaches one target state before
+  another (e.g. ask queue empties before bid queue).
+- **Gambler's ruin** — the classic first-passage formula for a birth–death walk hitting `0` before a
+  barrier `N`.
+- **Harmonic function** — a function whose value at each state equals the (rate-weighted) average of its
+  neighbours'; hitting probabilities are harmonic, solving `Q·h = 0`.
+- **Stationary / invariant distribution (`π`)** — the long-run fraction of time the process spends in each
+  state, once it has settled.
+- **Tridiagonal system** — a linear system where each equation touches only its immediate neighbours
+  (`f(q−1), f(q), f(q+1)`); very fast to solve.
+- **Laplace transform** — an integral transform that turns questions about *timing* into algebra.
+- **Monte Carlo** — estimating a probability by simulating the process many times and counting outcomes;
+  error shrinks like `1/√M` for `M` runs.
+
+**Point-process / Hawkes**
+- **Point process** — a random model of *event times* on a timeline (rather than of queue sizes).
+- **Hawkes process** — a point process where each event temporarily raises the intensity of future
+  events (self- and cross-excitation) — captures clustering.
+- **Kernel (`φ`)** — the function giving how much, and for how long, one event lifts future intensity
+  (here `α·e^{−β·Δt}`, an exponential kernel).
+- **Self- / cross-excitation** — an event raising the rate of the *same* type (self) or of *other* types
+  (cross).
+- **Branching ratio (`n*`)** — expected number of "child" events triggered per event; `n* < 1` required
+  for stability; `n*→1` = near-critical / fast market. Equals the **spectral radius** (largest eigenvalue
+  magnitude) of the excitation matrix.
+- **Compensator** — the integrated intensity `∫λ dt`; appears in the likelihood and in fill-probability
+  `1 − e^{−∫λ}`.
+- **Ogata thinning** — a standard way to *simulate* a point process: propose events at an upper-bound rate
+  and randomly accept them with probability `λ/λ̄`.
+
+**Estimation / evaluation / ML**
+- **MLE (maximum-likelihood estimation)** — choose the parameter values that make the observed data most
+  probable; for Poisson rates this is just "count events / time."
+- **Likelihood / log-likelihood** — how probable the data is under a given parameter set; models are fit
+  by maximising it and compared by its out-of-sample value.
+- **AIC / BIC** — information criteria that score fit *minus* a penalty for the number of parameters
+  (guards against overfitting); lower is better.
+- **OLS (ordinary least squares)** — fit a linear model by minimising squared errors.
+- **Logistic regression** — a linear model whose output is squashed to a probability by the logistic
+  function `σ`.
+- **Softmax / cross-entropy** — softmax turns network outputs into class probabilities; cross-entropy is
+  the loss used to train classifiers against labels.
+- **CNN / LSTM** — Convolutional Neural Network (learns spatial patterns, here across book levels) /
+  Long Short-Term Memory (a recurrent net that learns temporal patterns across snapshots).
+- **Out-of-sample / train-val-test split** — fit on one set of sessions, tune on a second, judge on a
+  third never seen during fitting; prevents crediting a model for memorising its training data.
+
+**This project**
+- **shadow** — kaspar's passive execution algorithm (`light22`); the fixed strategy each model plugs
+  into. Baseline = shadow as-is.
+- **EV_keep** — the keep-vs-cancel expected value `P(fill) × E[mid_after_fill − price | fill]`; keep the
+  order while positive, cancel when negative.
+- **SOM** — kaspar's Simulated Order Manager; the queue-aware fill simulator used for the backtest.
 
 ---
 
