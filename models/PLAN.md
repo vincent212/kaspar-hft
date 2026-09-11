@@ -204,8 +204,11 @@ tick: *keep it here, or cancel it?* Every model answers the **same** question �
 of holding the order — and differs only in how it estimates the pieces. For a resting **buy** at
 price p:
 
-> **EV_keep ≈ P(fill) × E[ mid_after_fill − p | fill ]**
-> — *(chance I actually get filled here) × (which way the market goes once I'm filled)*.
+$$
+\text{EV}_{\text{keep}} \;\approx\; P(\text{fill}) \times \mathbb{E}\big[\, \text{mid}_{\text{after fill}} - p \,\big|\, \text{fill} \,\big]
+$$
+
+*(chance I actually get filled here) × (which way the market goes once I'm filled).*
 
 The second term is the catch: you tend to get filled *exactly* when an informed seller is running
 the price down, so a fill can arrive **with** an adverse move. **Keep the order while EV_keep > 0**
@@ -267,9 +270,9 @@ ladder, not a number we store*; what we store at each slot is its **queue size**
 resting there right now. So one *state* of the model is a snapshot of the whole book: a list giving
 the queue size at every slot.
 
-```
-X = (n_1, n_2, …, n_K)
-```
+$$
+X = (n_1,\, n_2,\, \dots,\, n_K)
+$$
 
 where:
 
@@ -288,9 +291,9 @@ takes all 12 ask lots sets that entry `12 → 0`, the level is gone, and the lad
 infinite. To actually compute, cap each queue at a maximum size `Q_max` and track `k` levels a side.
 The number of distinct states is then
 
-```
-N_states ≈ (Q_max + 1) ^ (2k)
-```
+$$
+N_{\text{states}} \;\approx\; (Q_{\max} + 1)^{\,2k}
+$$
 
 where:
 
@@ -318,10 +321,9 @@ events per second):
 Track a single queue: it steps **up** by one when a limit order arrives, **down** by one when a market
 order or a cancellation removes a lot. Its up-rate and down-rate are
 
-```
-up-rate   (a lot joins)  :  b(n) = λ
-down-rate (a lot leaves) :  d(n) = μ + n·θ
-```
+$$
+b(n) = \lambda \quad\text{(up-rate: a lot joins)} \qquad\qquad d(n) = \mu + n\,\theta \quad\text{(down-rate: a lot leaves)}
+$$
 
 where:
 
@@ -350,9 +352,9 @@ up-move). Three ways to get it, simplest first.
 (empty) before it grows to a barrier `N`? For a birth–death process this is the classic **gambler's-
 ruin** formula. Let `r = d / b` be the down-rate-to-up-rate ratio (rates taken roughly constant). Then
 
-```
-P(empty before reaching N | start at n)  =  (r^N − r^n) / (r^N − 1),    for r ≠ 1
-```
+$$
+P(\text{empty before reaching } N \mid \text{start at } n) \;=\; \frac{r^N - r^n}{r^N - 1}, \qquad r \neq 1
+$$
 
 where:
 
@@ -370,17 +372,20 @@ rate illustration.
 
 *Method 2 — two queues, linear solve.* Use bid size and ask size together. Define
 
-```
-h(a, b) = P(ask empties before bid | ask has a lots, bid has b lots)     # = P(up-move)
-```
+$$
+h(a, b) = P(\text{ask empties before bid} \mid \text{ask} = a \text{ lots},\ \text{bid} = b \text{ lots}) \quad (=\ P(\text{up-move}))
+$$
 
 Memorylessness means `h` at any state equals the rate-weighted average of `h` at the states one jump
 away. Collect those equations into one linear system:
 
-```
-Q · h = 0,   with   h = 1 on every state where a = 0   (ask empty → up-move happened)
-                    h = 0 on every state where b = 0   (bid empty → down-move happened)
-```
+$$
+Q\,h = 0, \qquad
+\begin{cases}
+h = 1 & \text{on every state where } a = 0 \ (\text{ask empty} \to \text{up-move}) \\
+h = 0 & \text{on every state where } b = 0 \ (\text{bid empty} \to \text{down-move})
+\end{cases}
+$$
 
 where:
 
@@ -397,9 +402,9 @@ the current state draw the time to the next event (exponential, rate = sum of al
 which event fired (an event of rate `a` fires with probability `a / Σrates`), update the queues, repeat
 until a best queue empties. Then
 
-```
-P(up-move) ≈ (number of runs where the ask emptied first) / (total runs M)
-```
+$$
+P(\text{up-move}) \;\approx\; \frac{\text{number of runs where the ask emptied first}}{\text{total runs } M}
+$$
 
 where:
 
@@ -411,9 +416,9 @@ where:
 under all three methods: for two independent Poisson streams with rates `a` and `b`, the next event
 comes from the first with probability
 
-```
-P(next event is A) = a / (a + b)
-```
+$$
+P(\text{next event is } A) = \frac{a}{a + b}
+$$
 
 Chaining that one identity across the queue steps is, in the end, what every method computes.
 
@@ -421,11 +426,13 @@ Chaining that one identity across the queue steps is, in the end, what every met
 **maximum-likelihood estimation (MLE)** — the standard recipe of picking the parameter values that make
 the observed data most probable. For Poisson rates the MLE reduces to "count events, divide by time":
 
-```
-λ̂(i) = (number of limit orders added at level i) / (total time observed)
-μ̂    = (number of market orders)                 / (total time observed)
-θ̂    = (number of cancellations)                 / (total lot-seconds resting)
-```
+$$
+\begin{aligned}
+\hat{\lambda}(i) &= \frac{\text{number of limit orders added at level } i}{\text{total time observed}} \\[6pt]
+\hat{\mu} &= \frac{\text{number of market orders}}{\text{total time observed}} \\[6pt]
+\hat{\theta} &= \frac{\text{number of cancellations}}{\text{total lot-seconds resting}}
+\end{aligned}
+$$
 
 where *lot-seconds resting* = summed over resting orders, how long each one stayed in the book (each lot
 is exposed to cancellation for exactly that long). The hat `λ̂` denotes "the estimate of `λ`."
@@ -448,9 +455,9 @@ the queue size and the model suddenly reproduces the real book.
 
 **State space.** Same picture as CST — a snapshot of queue sizes:
 
-```
-X = (q_{−K}, …, q_{−1}, q_1, …, q_K)
-```
+$$
+X = (q_{-K},\, \dots,\, q_{-1},\, q_1,\, \dots,\, q_K)
+$$
 
 where:
 
@@ -471,11 +478,13 @@ space bounded.
 or down (a market order or cancellation removes a lot), so it is still a **birth–death process**. The
 one change from CST: the three rates are no longer constants but **functions of the current size `q`**:
 
-```
-limit-order arrival rate at size q :  λ_limit(q)
-cancellation rate at size q        :  λ_cancel(q)
-market-order rate at size q        :  λ_market(q)
-```
+$$
+\begin{aligned}
+\text{limit-order arrival rate at size } q &: \ \lambda_{\text{limit}}(q) \\
+\text{cancellation rate at size } q &: \ \lambda_{\text{cancel}}(q) \\
+\text{market-order rate at size } q &: \ \lambda_{\text{market}}(q)
+\end{aligned}
+$$
 
 where:
 
@@ -487,9 +496,9 @@ where:
 
 Group the two ways a lot can leave into one **departure rate**
 
-```
-μ(q) = λ_cancel(q) + λ_market(q)
-```
+$$
+\mu(q) = \lambda_{\text{cancel}}(q) + \lambda_{\text{market}}(q)
+$$
 
 so the queue climbs at rate `λ_limit(q)` and falls at rate `μ(q)`. (In the simplest "Model I" the queues
 move independently once `p_ref` is fixed; richer variants — Models II/III — let each queue's rates also
@@ -500,9 +509,9 @@ depend on the rest of the book, e.g. on the bid/ask imbalance, which couples the
 time does it hold exactly `q` lots? That long-run fraction is the **stationary distribution** `π(q)`.
 For a birth–death process it has a simple closed form — a running product of up/down rate ratios:
 
-```
-π(q) = π(0) · Π_{j=1}^{q}  λ_limit(j−1) / μ(j)
-```
+$$
+\pi(q) = \pi(0) \cdot \prod_{j=1}^{q} \frac{\lambda_{\text{limit}}(j-1)}{\mu(j)}
+$$
 
 where:
 
@@ -520,9 +529,9 @@ geometric decay) *cannot* reproduce. Matching this histogram is the paper's cent
 my position / to zero before it grows — but now solved with the size-dependent rates. Let `f(q)` be the
 probability the level empties starting from size `q`; it satisfies one balance equation per size:
 
-```
-μ(q)·f(q−1) + λ_limit(q)·f(q+1) = (λ_limit(q) + μ(q))·f(q),    with   f(0) = 1
-```
+$$
+\mu(q)\,f(q-1) + \lambda_{\text{limit}}(q)\,f(q+1) = \big(\lambda_{\text{limit}}(q) + \mu(q)\big)\,f(q), \qquad f(0) = 1
+$$
 
 where:
 
@@ -538,9 +547,9 @@ rule (which best queue empties first).
 them off the data. For each queue size `q`, count the events that happened while the queue held exactly
 `q` lots and divide by the time spent at that size:
 
-```
-λ̂_limit(q) = (# limit orders added while the queue held q lots) / (time the queue spent at size q)
-```
+$$
+\hat{\lambda}_{\text{limit}}(q) = \frac{\text{\# limit orders added while the queue held } q \text{ lots}}{\text{time the queue spent at size } q}
+$$
 
 and likewise `λ̂_cancel(q)` and `λ̂_market(q)`. That gives the whole rate-vs-size *curve* directly from
 the L3 event stream. Then plug the curves into the `π(q)` formula above and check it against the
@@ -567,9 +576,9 @@ raises the intensity of future events.
 from them an **intensity** for each kind of event — the instantaneous rate at which that event is about
 to happen. There is one intensity per event **type** `m`:
 
-```
-event types m ∈ { market-buy, market-sell, limit-add-bid, limit-add-ask, cancel-bid, cancel-ask, … }
-```
+$$
+m \in \{\, \text{market-buy},\ \text{market-sell},\ \text{limit-add-bid},\ \text{limit-add-ask},\ \text{cancel-bid},\ \text{cancel-ask},\ \dots \,\}
+$$
 
 with `M` types in total (`M ≈ 4–12`). The state is the vector of current rates
 `λ(t) = (λ_1(t), …, λ_M(t))`, where an **intensity** `λ_m(t)` means: `λ_m(t) · dt` = probability that a
@@ -577,9 +586,9 @@ type-`m` event happens in the next tiny slice of time `dt`.
 
 **Dynamics — the intensity equation.**
 
-```
-λ_m(t) = μ_m + Σ_{n=1}^{M} Σ_{t_i^n < t}  α_{mn} · e^{−β_{mn}·(t − t_i^n)}
-```
+$$
+\lambda_m(t) \;=\; \mu_m \;+\; \sum_{n=1}^{M} \sum_{t_i^n < t} \alpha_{mn}\, e^{-\beta_{mn}\,(t - t_i^n)}
+$$
 
 where:
 
@@ -599,26 +608,28 @@ for `m ≠ n` — a market-buy lifting the ask begets more buys and more ask-sid
 **Why it's cheap online.** With the exponential kernel you never re-scan history. Keep a running `λ`;
 it decays between events and jumps at each event:
 
-```
-between events:    λ_m(t) = μ_m + (λ_m(t_last) − μ_m) · e^{−β·(t − t_last)}
-at a type-n event: λ_m ← λ_m + α_{mn}          (for every m)
-```
+$$
+\begin{aligned}
+\text{between events:}\quad & \lambda_m(t) = \mu_m + \big(\lambda_m(t_{\text{last}}) - \mu_m\big)\, e^{-\beta\,(t - t_{\text{last}})} \\[4pt]
+\text{at a type-}n\text{ event:}\quad & \lambda_m \leftarrow \lambda_m + \alpha_{mn} \quad (\text{for every } m)
+\end{aligned}
+$$
 
 One multiply + one add per event — **O(1)** — which is what lets it run in shadow's hot path.
 
 **Branching ratio — the fast/slow-market number.** The total excitation of type `m` by one type-`n`
 event is the area under its kernel:
 
-```
-Γ_{mn} = ∫_0^∞ α_{mn} · e^{−β_{mn}·u} du = α_{mn} / β_{mn}
-```
+$$
+\Gamma_{mn} = \int_0^\infty \alpha_{mn}\, e^{-\beta_{mn}\, u}\, du = \frac{\alpha_{mn}}{\beta_{mn}}
+$$
 
 = the expected number of type-`m` events *directly* triggered by one type-`n` event. The **branching
 ratio** `n*` is the largest eigenvalue (**spectral radius**) of the matrix `Γ`:
 
-```
-n* = spectral_radius(Γ),    with   0 ≤ n* < 1 required for stability
-```
+$$
+n^* = \rho(\Gamma) \quad (\text{spectral radius}), \qquad 0 \le n^* < 1 \ \text{required for stability}
+$$
 
 where:
 
@@ -631,9 +642,9 @@ This one number is shadow's fast/slow regime flag.
 **Computing the probabilities.**
 *(1) Calibration by likelihood.* The log-likelihood of an observed event stream is
 
-```
-log L = Σ_i log λ_{m_i}(t_i)  −  Σ_{m=1}^{M} ∫_0^T λ_m(s) ds
-```
+$$
+\log L = \sum_i \log \lambda_{m_i}(t_i) \;-\; \sum_{m=1}^{M} \int_0^T \lambda_m(s)\, ds
+$$
 
 where:
 
@@ -647,9 +658,9 @@ where:
 *(2) Fill probability.* For a resting bid, "getting filled" = a market-sell (or a cancel reaching your
 spot) fires, so the market-sell intensity *is* your instantaneous **fill hazard**. Over a horizon `h`:
 
-```
-P(fill within h) = 1 − exp( −∫_t^{t+h} λ_sell(s) ds )
-```
+$$
+P(\text{fill within } h) = 1 - \exp\!\left( -\int_t^{t+h} \lambda_{\text{sell}}(s)\, ds \right)
+$$
 
 Fills therefore cluster — the probability jumps right after a sell burst.
 
@@ -687,9 +698,9 @@ still Markov — a "Markov-modulated Hawkes" (hybrid marked point process, Morar
 
 **Dynamics — the intensity equation.**
 
-```
-λ_m(t) = φ_m(X(t)) · [ μ_m + Σ_n Σ_{t_i^n < t} α_{mn} · e^{−β_{mn}·(t − t_i^n)} ]
-```
+$$
+\lambda_m(t) = \varphi_m\big(X(t)\big) \left[ \mu_m + \sum_n \sum_{t_i^n < t} \alpha_{mn}\, e^{-\beta_{mn}\,(t - t_i^n)} \right]
+$$
 
 where:
 
@@ -745,9 +756,9 @@ with `T ≈ 100` recent book updates. No hand-built features — the raw ladder 
   how the book is evolving over time.
 - **Softmax output** — three numbers that sum to 1:
 
-```
-output = ( P(down), P(flat), P(up) )   for the mid over a forward horizon k
-```
+$$
+\text{output} = \big(\, P(\text{down}),\ P(\text{flat}),\ P(\text{up}) \,\big) \quad \text{for the mid over a forward horizon } k
+$$
 
 **Computing the probability.** A single **forward pass**: the input numbers are multiplied through the
 trained network weights to produce the softmax. There is no state machine and no transition rates —
@@ -778,9 +789,9 @@ holding inventory.
 
 **Setup / assumptions.** The mid-price is a random walk (arithmetic Brownian motion):
 
-```
-dS_t = σ · dW_t
-```
+$$
+dS_t = \sigma\, dW_t
+$$
 
 where:
 
@@ -791,9 +802,9 @@ where:
 Our quotes sit a distance `δ` from the mid; the farther out, the less often we fill. Fills arrive as a
 Poisson process whose rate decays with distance:
 
-```
-λ(δ) = A · e^{−k·δ}
-```
+$$
+\lambda(\delta) = A\, e^{-k\,\delta}
+$$
 
 where `λ(δ)` = fill rate at quote distance `δ`, `A` = base fill rate at the touch (`δ = 0`), `k` = how
 fast the fill rate falls as you quote farther out.
@@ -802,9 +813,9 @@ fast the fill rate falls as you quote farther out.
 Holding a long position (`q > 0`) shifts it *down* (you want to sell, so lean cheaper); short shifts it
 up:
 
-```
-r(s, q, t) = s − q · γ · σ^2 · (T − t)
-```
+$$
+r(s, q, t) = s - q\,\gamma\,\sigma^2\,(T - t)
+$$
 
 where:
 
@@ -817,9 +828,9 @@ where:
 
 **Output 2 — optimal total half-spread.** How wide to quote around the reservation price:
 
-```
-δ_a + δ_b = γ · σ^2 · (T − t) + (2 / γ) · ln(1 + γ / k)
-```
+$$
+\delta_a + \delta_b = \gamma\,\sigma^2\,(T - t) + \frac{2}{\gamma}\,\ln\!\left(1 + \frac{\gamma}{k}\right)
+$$
 
 where `δ_a, δ_b` = the ask-side and bid-side distances from `r`; the first term is the inventory/vol
 risk premium, the second a fill-rate term (wider when fills are scarce, i.e. small `k`). The quotes are
@@ -849,9 +860,9 @@ fill-intensity functions.
 **Key trick — linearise the HJB.** A change of variable collapses the coupled nonlinear HJB equations
 into a solvable linear system:
 
-```
-v_q(t) = exp(−α · q^2) · u_q(t)
-```
+$$
+v_q(t) = \exp(-\alpha\, q^2)\, u_q(t)
+$$
 
 where:
 
