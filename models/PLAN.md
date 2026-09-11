@@ -913,7 +913,79 @@ substitutes.
 
 ### Glossary
 
-Plain-language definitions of every technical term used above, grouped by theme.
+Self-contained: plain-language definitions of every symbol and term used above, so this section can
+be read on its own. Symbols first, then concepts by theme.
+
+**Symbols — Greek letters**
+- **λ (lambda)** — a *rate* / *intensity*: how many events happen per unit time. Appears subscripted or
+  in parentheses by context: `λ(i)` = limit-order rate at level `i` (M0); `λ_limit(q)`, `λ_cancel(q)`,
+  `λ_market(q)` = size-dependent rates (M1); `λ_m(t)` = intensity of event type `m` at time `t` (M2/M3);
+  `λ(δ) = A·e^{−kδ}` = fill rate as a function of quote distance (M5).
+- **μ (mu)** — the market-order arrival rate (M0/M1); in Hawkes, the *baseline* intensity `μ_m` (M2/M3);
+  `μ(q)` = a queue's total departure rate = cancellations + market orders (M1).
+- **θ (theta)** — the *per-order cancellation rate*: each resting order is cancelled independently at
+  rate `θ`, so a level holding `n` lots cancels at total rate `n·θ` (M0).
+- **σ (sigma, lower-case)** — volatility: the standard deviation of price returns (M5/M6).
+- **γ (gamma)** — risk aversion: how strongly the market maker penalises holding inventory (M5/M6).
+- **α (alpha)** — Hawkes *excitation*: the jump one event adds to another's intensity, `α_{mn}` (M2/M3);
+  separately, the label threshold for up/flat/down in DeepLOB (M4), and a constant in Guéant's change of
+  variable (M6).
+- **β (beta)** — Hawkes *decay rate*: how fast an excitation bump fades, `β_{mn}` (M2/M3).
+- **δ (delta)** — the distance of a quote from the mid (M5); `δ_a`, `δ_b` are the ask- and bid-side
+  half-spreads.
+- **φ (phi)** — the *state factor* `φ_m(X)`: a multiplier that scales the Hawkes intensity by the current
+  book state (M3).
+- **π (pi)** — the *stationary distribution* `π(q)`: the long-run fraction of time a queue holds `q`
+  lots; `π(0)` is its normalising constant (M1). (Not the number 3.14 here.)
+- **Γ (Gamma, capital)** — the *branching matrix*, `Γ_{mn} = α_{mn}/β_{mn}`: the expected number of
+  type-`m` events triggered by one type-`n` event (M2).
+- **ρ (rho)** — *spectral radius*: the largest eigenvalue magnitude of a matrix; `ρ(Γ) = n*` is the
+  branching ratio.
+- **Σ (Sigma, capital)** — summation (add up a series of terms). **Π (Pi, capital)** — product (multiply
+  a series of terms).
+
+**Symbols — Latin letters**
+- **t** — time; **T** — the trading horizon / total observation window; **t_i** (or `t_i^n`) — the time
+  of the i-th (type-`n`) event; **t_last** — the time of the previous event.
+- **X** — the *state*: the vector of queue sizes (M0/M1), or the book/queue state that scales the Hawkes
+  intensity (M3).
+- **n** — a queue size (M0); also an event-type index inside Hawkes sums (M2/M3). **n\*** — the branching
+  ratio (see ρ).
+- **N** — an upper barrier queue size in the gambler's-ruin formula (M0); also the number of data points
+  in BIC.
+- **q** — a queue size (M1); *and* the inventory position (M5/M6) — two distinct uses, always clear from
+  the model.
+- **Q** — the *generator matrix* of the Markov chain (M0); `Q_max` = the queue-size cap; `Q` = the
+  inventory bound (M6); `Q_bid`, `Q_ask` = best-level sizes (B0).
+- **k** — the number of levels tracked per side (M0); the fill-rate decay constant in `λ(δ)=A·e^{−kδ}`
+  (M5); the forward horizon of the DeepLOB label (M4).
+- **K** — the number of price levels tracked (per side).
+- **i** — a price-level index (distance from the best) and/or an event index.
+- **m** — an event type and its index; **M** — the number of event types (M2/M3); `M` is *also* the number
+  of Monte-Carlo runs (M0) — clear from context.
+- **r** — the down-rate/up-rate ratio in gambler's ruin (M0); *and* the reservation price `r(s,q,t)` (M5).
+- **b(n), d(n)** — the birth (up) and death (down) rates of a queue at size `n` (M0).
+- **a, b** — generic competing-event rates in `a/(a+b)`; *also* the ask/bid queue sizes in `h(a,b)` (M0).
+- **h** — a hitting/harmonic probability `h(a,b)` (M0); *also* the forward horizon in `P(fill within h)`
+  (M2). **f(q)** — the probability a level empties starting from size `q` (M1).
+- **s** — the mid-price (M5); *also* a dummy integration variable in `∫ λ(s) ds`.
+- **p** — the price of your own resting order (in `EV_keep`); **p_ref** — the reference price the price
+  ladder is centred on.
+- **A** — the base fill rate at the touch in `λ(δ)=A·e^{−kδ}` (M5).
+- **W_t** — standard Brownian motion (the random-walk driver of the mid); `dW_t` its increment (M5).
+- **v_q(t), u_q(t)** — the value function at inventory `q`, and its transformed unknown (M6).
+- **I** — the queue imbalance `(Q_bid − Q_ask)/(Q_bid + Q_ask)` (B0).
+
+**Symbols — operators & notation**
+- **∫_a^b … ds** — an integral from `a` to `b`: a continuous sum over the variable `s`.
+- **E[· | ·]** (or 𝔼) — a *conditional expectation*: the average value of a quantity given a condition.
+- **P(·)** — the probability of an event.
+- **e^{x}, exp(x)** — the exponential function; **ln(x)** — the natural logarithm.
+- **x̂ (hat)** — an *estimate* of `x` computed from data (e.g. `λ̂` estimates `λ`).
+- **∈** — "is a member of"; **{ … }** — a set; **ℝ** — the real numbers; **ℕ** — the non-negative
+  integers {0, 1, 2, …}.
+- **≈** — approximately equal; **→** — "tends to / maps to"; **←** — "is updated to" (assignment);
+  **∞** — infinity; **dt, ds, du** — infinitesimal increments of time or a variable.
 
 **Order-book / market-microstructure**
 - **Limit order** — an order to buy/sell at a set price that *rests* in the book until matched. Adds
