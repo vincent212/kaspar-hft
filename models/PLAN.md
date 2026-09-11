@@ -86,6 +86,33 @@ overlap DeepLOB; compound/order-size QR (arXiv:2405.18594) — better as an orde
 M1/M2 than a standalone model; agent-based / SantaFe; rough-vol book models; neural-Hawkes. Note
 **LOB-Bench (arXiv:2502.09172)** as the standard realism benchmark — cite in related work.
 
+### Reference implementations (open source)
+
+Existing GitHub code to reuse or study per model. Most are academic/small repos, not production —
+calibrate against them, don't depend on them. Reuse where noted; implement B0 and CST ourselves.
+
+| Model | Repo | Reuse note |
+|-------|------|-----------|
+| M1 QR | [jvallikivi/lobsim](https://github.com/jvallikivi/lobsim) | Experimental LOB sim built on Huang–Lehalle–Rosenbaum. Closest reference impl. |
+| M1 QR | [TomasEspana/qrm_optimal_execution](https://github.com/TomasEspana/qrm_optimal_execution) | Implements QR "Model I" + RL execution — relevant since it also does execution. |
+| M2 Hawkes | [X-DataInitiative/tick](https://github.com/X-DataInitiative/tick) | **Use directly** for multivariate Hawkes MLE + simulation — don't hand-roll the estimator. |
+| M2/M3 Hawkes | [sohaibelkarmi/High-Frequency-Trading-Simulator](https://github.com/sohaibelkarmi/High-Frequency-Trading-Simulator) | C++ LOB engine + marked multivariate Hawkes generator (C++ **and** Python). Code for arXiv:2510.08085. **Architecturally closest to kaspar** — study it. |
+| M2 Hawkes | [ZhangMian-CentraleSupelec/…-Limit-Order-Book](https://github.com/ZhangMian-CentraleSupelec/High-Frequency-Data-and-Limit-Order-Book) | Smaller academic Hawkes-sim + LOB analysis. |
+| M4 DeepLOB | [zcakhaa/DeepLOB-…](https://github.com/zcakhaa/DeepLOB-Deep-Convolutional-Neural-Networks-for-Limit-Order-Books) | **Authors' official** PyTorch/TF impl — use directly. |
+| M4 DeepLOB | [Jeonghwan-Cheon/lob-deep-learning](https://github.com/Jeonghwan-Cheon/lob-deep-learning) | Clean reimpls of DeepLOB, TransLOB, DeepFolio in one repo. |
+| B0, M0 | — | No canonical repo; implement ourselves (few lines each). |
+
+**LOB simulators / Tier-D environment references** (kaspar's own SOM is our simulator, but these
+are the standard comparators): [ABIDES](https://github.com/abides-sim/abides) (agent-based,
+widely cited), [DrAshBooth/PyLOB](https://github.com/DrAshBooth/PyLOB) (fast Python matching
+engine), [JAX-LOB](https://arxiv.org/pdf/2308.13289) (GPU, for large-scale RL),
+[LeonardoBerti00/DeepMarket](https://github.com/LeonardoBerti00/DeepMarket) (generative/diffusion
+on ABIDES — the excluded generative family).
+
+**Not found on GitHub:** any implementation of the plan's actual contribution — published models
+ablated *inside a fixed execution algorithm*, ranked by execution P&L on real MBO futures. The
+components exist; the benchmark does not.
+
 ### Model primers — how each one works
 
 Read this first if the models are unfamiliar. Each primer: the core idea, the mechanism, the key
