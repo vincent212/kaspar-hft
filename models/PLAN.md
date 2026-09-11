@@ -88,16 +88,38 @@ Together they form the standard HFT pipeline — Hawkes → toxicity, Queue-Reac
 Avellaneda–Stoikov/Guéant → inventory-skewed base quotes, combined at a quote/risk gate (see the
 pipeline diagram below).
 
-| # | Model | Paradigm | Reference | Class | What it gives shadow |
-|---|-------|----------|-----------|-------|----------------------|
-| B0 | **Queue-Imbalance / OFI** | 3 | Cont, Kukanov & Stoikov (2014), *The price impact of order book events*, J. Fin. Econometrics; Gould & Bonart (2016), *Queue imbalance as a one-tick-ahead price predictor* | Linear one-tick predictor | Near-zero-cost directional gate + fill-side signal. The **"must-beat" baseline** — especially strong in large-tick ES/NQ; if a heavy model can't out-execute it inside shadow, that is itself a finding. |
-| M0 | **Cont–Stoikov–Talreja (CST)** | 2 | Cont, Stoikov & Talreja (2010), *A stochastic model for order book dynamics*, Oper. Res. | Zero-intelligence Markov, constant Poisson rates | Baseline fill-probability from constant rates. Deliberately naive floor. |
-| M1 | **Queue-Reactive (QR)** | 3 | Huang, Lehalle & Rosenbaum (2015), *Simulating and analyzing order book data: the queue-reactive model*, JASA | State-dependent Markov; intensities λ(q) depend on queue size | Queue-position-aware fill prob and level-survival — the canonical model for 1-tick markets like ES/NQ. |
-| M2 | **Multivariate Hawkes** | 2 | Bacry, Delattre, Hoffmann & Muzy (2013); Bacry, Mastromatteo & Muzy (2015), *Hawkes processes in finance* | Self/cross-exciting point process | Order-flow clustering + branching ratio → fast/slow regime; cross-excitation toxicity signal for shadow entry/pull. |
-| M3 | **Queue-Reactive Hawkes (hybrid)** | 2+3 | Morariu-Patrichi & Pakkanen (2019), *Hybrid marked point processes*; (2022) *State-dependent Hawkes* | Hawkes intensities modulated by queue state | Clustering *and* queue-dependence in one fill-prob/pull signal. Superset of M1+M2. |
-| M4 | **DeepLOB** | 2+3 | Zhang, Zohren & Roberts (2019), *DeepLOB*, IEEE TSP | Supervised CNN+LSTM classifier | Mid-move direction accuracy ceiling; optional directional gate for shadow. |
-| M5 | **Avellaneda–Stoikov** | 1 | Avellaneda & Stoikov (2008), *High-frequency trading in a limit order book*, Quant. Finance | Optimal control (HJB); inventory-risk quoting | Reservation-price skew + optimal half-spread: **where** shadow should quote given inventory, vol, horizon. |
-| M6 | **Guéant–Lehalle–Fernandez-Tapia** | 1 | Guéant, Lehalle & Fernandez-Tapia (2013), *Dealing with the inventory risk*, Math. Fin. Econ. | Optimal control; closed-form/ODE approximation of A–S | Production-grade multi-tier inventory-skewed quotes without HJB numerical instability. |
+| # | Model | Paradigm | Outputs (fill / dir) | Reference | Class | What it gives shadow |
+|---|-------|----------|----------------------|-----------|-------|----------------------|
+| B0 | **Queue-Imbalance / OFI** | 3 | **dir ✓** · fill ✗ (proxy only) | Cont, Kukanov & Stoikov (2014), *The price impact of order book events*, J. Fin. Econometrics; Gould & Bonart (2016), *Queue imbalance as a one-tick-ahead price predictor* | Linear one-tick predictor | Near-zero-cost directional gate + fill-side signal. The **"must-beat" baseline** — especially strong in large-tick ES/NQ; if a heavy model can't out-execute it inside shadow, that is itself a finding. |
+| M0 | **Cont–Stoikov–Talreja (CST)** | 2 | **fill ✓ · dir ✓** | Cont, Stoikov & Talreja (2010), *A stochastic model for order book dynamics*, Oper. Res. | Zero-intelligence Markov, constant Poisson rates | Baseline fill-probability from constant rates. Deliberately naive floor. |
+| M1 | **Queue-Reactive (QR)** | 3 | **fill ✓✓ · dir ✓** | Huang, Lehalle & Rosenbaum (2015), *Simulating and analyzing order book data: the queue-reactive model*, JASA | State-dependent Markov; intensities λ(q) depend on queue size | Queue-position-aware fill prob and level-survival — the canonical model for 1-tick markets like ES/NQ. |
+| M2 | **Multivariate Hawkes** | 2 | **fill ✓ · dir ✓** | Bacry, Delattre, Hoffmann & Muzy (2013); Bacry, Mastromatteo & Muzy (2015), *Hawkes processes in finance* | Self/cross-exciting point process | Order-flow clustering + branching ratio → fast/slow regime; cross-excitation toxicity signal for shadow entry/pull. |
+| M3 | **Queue-Reactive Hawkes (hybrid)** | 2+3 | **fill ✓✓ · dir ✓** | Morariu-Patrichi & Pakkanen (2019), *Hybrid marked point processes*; (2022) *State-dependent Hawkes* | Hawkes intensities modulated by queue state | Clustering *and* queue-dependence in one fill-prob/pull signal. Superset of M1+M2. |
+| M4 | **DeepLOB** | 2+3 | **dir ✓** · fill ✗ | Zhang, Zohren & Roberts (2019), *DeepLOB*, IEEE TSP | Supervised CNN+LSTM classifier | Mid-move direction accuracy ceiling; optional directional gate for shadow. |
+| M5 | **Avellaneda–Stoikov** | 1 | neither → **quotes/skew** (takes λ(δ) as *input*) | Avellaneda & Stoikov (2008), *High-frequency trading in a limit order book*, Quant. Finance | Optimal control (HJB); inventory-risk quoting | Reservation-price skew + optimal half-spread: **where** shadow should quote given inventory, vol, horizon. |
+| M6 | **Guéant–Lehalle–Fernandez-Tapia** | 1 | neither → **quotes/skew** (takes λ(δ) as *input*) | Guéant, Lehalle & Fernandez-Tapia (2013), *Dealing with the inventory risk*, Math. Fin. Econ. | Optimal control; closed-form/ODE approximation of A–S | Production-grade multi-tier inventory-skewed quotes without HJB numerical instability. |
+
+**Reading the Outputs column — and why it drives the whole design.** The keep/cancel decision is
+`EV_keep = P(fill) × E[move|fill]`, so it needs **both** a fill probability and a direction. The models
+split three ways on what they can supply:
+
+- **Both fill + direction (M0, M1, M2, M3).** These four can answer keep/cancel *on their own*. Only
+  **M1 and M3** produce a *queue-position-aware* `P(fill)` (marked `fill ✓✓`) — a fill probability that
+  depends on where your order sits in the FIFO line — which is the entire reason they matter on a
+  large-tick market like ES/NQ. M0's and M2's fill probabilities are real but coarser (M0 assumes
+  constant rates; M2 knows *when* fills cluster but not *how deep* your queue is).
+- **Direction only (B0, M4).** They give `E[move|fill]` but no usable `P(fill)`, so they are either
+  **paired** with a fill estimate from M0–M3, or used as a **veto** ("model says down with high
+  confidence → cancel the bid, ignore fill odds"). B0's "fill proxy" is a crude
+  closeness-to-front heuristic, not a real fill model — do not trust its magnitude.
+- **Neither (M5, M6).** The inventory models don't predict fills or direction at all; they answer a
+  *different* question — **where to quote and how far to skew for inventory** — and they actually
+  *consume* a fill-rate curve `λ(δ)` as an **input**. They sit on shadow's placement/skew lever, not the
+  keep/cancel lever, and are meant to run *on top of* one of the fill/direction models above.
+
+Practical consequence: a complete shadow configuration is usually **one fill/direction model (M0–M3)**
+`+` optionally **a directional veto (B0 or M4)** `+` optionally **an inventory overlay (M5/M6)** — the
+benchmark ablates each slot independently so we can attribute any P&L change to the right piece.
 
 ### How the models combine — the HFT pipeline
 
