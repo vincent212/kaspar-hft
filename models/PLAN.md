@@ -1344,7 +1344,8 @@ gives **true queue position** — no MBP approximation anywhere in this project.
 Databento .pcap.zst  (ES ch.310 / NQ ch.318, many files per day)
    → dbento_pcap_to_bin  (PCAPReader → MsgBuf → MessageProcessor → handler_if → BinRecorder)
    → <chan>.<date>.databento.bin   gzip'd l3_mbo_v2_packed_t                    [D0a — DONE]
-        ├→ build_universe  → universe CSV/JSON (securityID → symbol, front-month pick)
+        ├→ build_universe  → universe CSV/JSON (securityID → symbol)               [D0a-2]
+        │     └→ merge → master_universe.<chan>.json → BFA securityID map
         └→ binstats / verify_merged → per-session acceptance gate
    → BFA replay into kaspr  (--replay)                                          [D0b — TODO]
    → l3 → columnar exporter                                                     [D1]
@@ -1517,19 +1518,130 @@ free fill.
 > by placing far more aggressively has not beaten the baseline; it has left the regime where the
 > simulator is valid.
 
-### What D0b must deliver for this to run
+### What D0b must deliver: the `sim` binary
 
-The pipeline above is blocked on one missing piece (see §2): nothing replays a `.bin` back through
-the books. Concretely, D0b owes:
+There is **no simulator executable in this repo**. `kaspr` is the only trading binary and it wires
+live multicast only. The harness that produces slippage numbers exists upstream as `sim_kaspr`
+(`m2_kspr/sim/`, ~1,720 lines across 5 files) and must be ported, the way `dbento_pcap_parse/` was.
 
-1. `kaspr --replay <file.bin.gz>` — construct `BFA`, add to its Group **last** per `BFA_USAGE.md`.
-2. A **fire scheduler** actor: on Timer alarms, step `targetpos` through 10 lock-step chunks via
-   `light::msg::Set(TARGET_POS, …)` / `TRADING_ON`, and cache the BBO mid at each alarm. Direction
-   is a run parameter so the same session can be fired long and short.
-3. Persist SOM records for the run (set `handler->binrec`, or a dedicated SOM recorder) so vwap is
-   computed from binary records rather than parsed text.
-4. A small aggregator (Python is fine — this is offline) that reads the two direction-runs, emits
-   per-session slippage in ticks and dollars, and pools with confidence intervals.
+#### Actor graph for one run
+
+```
+ BFA(--datafile <chan>.<date>.databento.bin)        replays L3 records, one per Continue
+   └─> OB  (ES front month; cross_check on)         reconstructs the book
+         └─> light22 x4 BUY + x4 SEL                shadow placement/cancel
+               │   (QCoord per light, PCoord per instrument)
+               └─> SOM (sim_mode=true)              queue-position-aware fills
+                         └─> Fill  ──> fills CSV row (+ mid_at_fire)
+
+ Timer (anchored to the ES book's EOB2)             ALL time comes from market data
+   ├─> TradeScheduler                               fires the parent
+   │     reads instructions JSON: {time_et, side, qty, chunks}
+   │     on each chunk alarm:  snapshot BBO mid  ->  FireRecord.mid_fire
+   │                           AddToPos(instrument, side, chunk_qty) -> PositionManager
+   └─> PositionManager                              parent -> per-light targets
+         arm_pulse_timer / pulse_alarm_handler: chunk N+1 fires one SIM second
+         after chunk N drains, via set_sim_timer(timer)
+```
+
+**Why PositionManager is required and not optional.** The parent order is not a single
+`Set(TARGET_POS)`; it is *N chunks that must drain in lock-step*. `PositionManager` owns that: it
+receives `AddToPos(instrument, side, size)` and steps the per-instrument `PCoord` the lights read,
+releasing the next chunk only once the previous one has filled. Driving `targetpos` directly from
+the scheduler would fire all chunks at once and measure something else entirely.
+
+> **`set_sim_timer(timer)` is not a detail — it is a correctness requirement.** The pulse timer
+> must run on **sim time**, not wall-clock. The replay processes many seconds of market data per
+> wall-clock second, so a wall-clock cadence stretches the real inter-chunk gap and **biases the
+> fill prices that slippage is computed from**. Upstream hit this and fixed it; any port that
+> forgets it will produce numbers that look plausible and are wrong.
+
+#### Two runs per session
+
+Slippage needs both directions on the **same** session (§ the headline metric above): run A fires
+the parent LONG, run B fires it SHORT, identical data file and config. `Slippage =
+½(vwap_buy − vwap_sel)`; the fire-time mid cancels. At ~40 s per session this doubling is minutes
+across the corpus, not hours.
+
+#### Component inventory for the port
+
+| Component | In kaspar-hft? | Action |
+|---|---|---|
+| `create_BFA<TreasOnly>(order_books, data_file, manager)` | yes — `interface/mda/if/BFA.hpp` | use; see universe gap below |
+| `OB`, `Timer`, `SOM(sim_mode)` | yes | use |
+| `light22` Shadow BUY/SEL, `QCoord`, `PCoord` | yes | use — **fresh QCoord per light** (a shared QCoord's `mmid_orders` bitmask desyncs and trips the "already have this mm id" assert) |
+| `PositionManager` | partial — `AddToPos`/`GetPos` only | **port `set_sim_timer` + `arm_pulse_timer` + `pulse_alarm_handler`** |
+| `TradeScheduler` | **no** | port (`sim/include/TradeScheduler.hpp`, `sim/src/TradeScheduler.cpp`) |
+| `Aggregator` | removed by design (`CLAUDE.md`) | **drop** — nothing in this path consumes it |
+| `MarketMaker` | no | **drop** — it simulates a counterparty; we fill against recorded flow |
+| ZMQ / registry / coordinator / Python-MM | present but irrelevant | **drop** — offline single-process run |
+| two-leg spread (`AddSpreadOrder`, 2nd PM) | no | **drop for now** — ES outright first |
+
+Dropping Aggregator, MarketMaker, the remote plumbing and the spread path removes roughly half of
+upstream's `sim_kaspr.cpp` and all of its optional flags (`--no-mm`, `--no-agg`, `--registry-address`,
+`--coordinator`, `--zmq-port`).
+
+#### D0a-2 — universe generation (a required pipeline stage, not an afterthought)
+
+A `.bin` is a stream of `securityID`s. Nothing downstream — not the sim, not the models, not the
+front-month selection — can act on it without a `securityID -> instrument` map. Producing that map
+is a pipeline stage in its own right:
+
+```
+<chan>.<date>.databento.bin
+   └─ build_universe <bin>
+        ├─ universe.<chan>.<date>.<ts>.csv       parsed fields (secID, symbol, asset, tick, type)
+        └─ universe.<chan>.<date>.<ts>.json.gz   full FDF/ODF/SDF messages
+             └─ merge across dates ─> master_universe.<chan>.json
+                  └─ BFA::set_universe_map  ->  books created on MBO ADD for securityIDs
+                                                whose FDF never arrived in-band
+```
+
+`build_universe` already exists (`dbento_pcap_parse/build_universe/`) and scans a `.bin` for FDF
+(futures), ODF (options) and SDF (spread) definitions. What is missing is the **merge step** and
+the **BFA wiring** (`create_BFA` here takes no universe map; upstream's does).
+
+Run it per session, as part of the same batch that produces the `.bin` — a session whose universe
+cannot be built is not an admissible session, and that check belongs next to `binstats` in the
+acceptance gate rather than being discovered later when the sim produces no fills.
+
+##### Root cause found: we ingest 1 of 7 instrument-definition windows
+
+`binstats` on `310.20250115.databento.bin` shows **FDF total=12** and the highest-activity
+instrument resolving as an unnamed `SEC_5002` (4.08 M adds — this is the ES front month), while
+low-activity spreads and far-dated outrights (`ESH5-ESU5`, `ESH6`) name correctly. The definitions
+are not merely late; most of them are absent.
+
+The cause is in our own converter, not the data. `PcapFileManager.hpp`:
+
+```cpp
+// Prepend just the first snap file (earliest timestamp) for instrument definitions.
+if (!snap_files.empty())
+    pcap_files_.insert(pcap_files_.begin(), snap_files.front());
+```
+
+It even prints `"(snap; 7 files, using first)"`. For 2025-01-15 the IR stream
+(`224.0.31.43`) has **seven** 10-minute windows (22:00-23:00). CME broadcasts the instrument
+definition set as a **repeating cycle**, so one 10-minute window carries only part of it —
+whichever instruments happened to be transmitted in that slice. Taking `snap_files.front()`
+therefore yields an arbitrary fraction of the universe, which is exactly the 12-of-N we observe.
+
+**Fix (preferred): prepend all IR snap files, not just the first.** They are small relative to the
+incrementals, they sort chronologically, and ingesting the full cycle is what makes the `.bin`
+self-describing. This removes the need for the upstream `universe_map` workaround entirely and
+benefits every downstream consumer, not just the sim.
+
+Order of work:
+1. Change the snap selection to take **all** IR files (keep them sorted, still ahead of the
+   incrementals). Re-convert one session and confirm FDF count jumps and `SEC_5002` resolves to
+   the ES front month.
+2. Re-run `build_universe` and confirm the front month appears with its real symbol and tick size.
+3. Only if definitions are *still* incomplete, port `universe_map` / `set_universe_map` as the
+   fallback.
+4. Re-convert the corpus (363 sessions, ~5 min) once the fix is proven on one date.
+
+Until step 1 lands, **any slippage number is meaningless** — the sim cannot trade an instrument it
+cannot name.
 
 ### Supporting diagnostics (explain the execution result, not the point)
 - **Signal accuracy (Tier C):** fill-probability calibration curves, level-break AUC, mid-move
