@@ -61,7 +61,7 @@ constexpr int kAsk = 23994;
 enum Col {
   kFireTs = 0, kSym, kParentSz, kMidFire, kBuyVwap, kBuyFilled, kBuyFills,
   kBuyNs, kMidSell, kSelVwap, kSelFilled, kSelFills, kSelNs,
-  kSlipBuy, kSlipSel, kSlipPaired,
+  kSlipBuy, kSlipSel, kSlipPaired, kSlipLegsum,
   kBuyMktVol, kSelMktVol, kBuyPart, kSelPart, kOutcome, kNumCols
 };
 

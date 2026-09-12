@@ -240,7 +240,7 @@ void SlippageProbe::emit_header()
   fprintf(out,
           "fire_ts,sym,parent_sz,mid_fire,buy_vwap,buy_filled,buy_fills,buy_ns,"
           "mid_sell,sel_vwap,sel_filled,sel_fills,sel_ns,"
-          "slip_buy_ticks,slip_sel_ticks,slip_paired_ticks,"
+          "slip_buy_ticks,slip_sel_ticks,slip_paired_ticks,slip_legsum_ticks,"
           "buy_mkt_vol,sel_mkt_vol,buy_part,sel_part,outcome\n");
   fflush(out);
 }
@@ -255,39 +255,43 @@ void SlippageProbe::emit_row(const char *outcome)
 
   const double slip_buy    = buy_leg.filled > 0 ? bv - midf : 0.0;
   const double slip_sel    = sel_leg.filled > 0 ? mids - sv : 0.0;
-  // HALF THE SUM OF THE LEG COSTS, not half the difference of the VWAPs.
+  // The paper's definition: half the gap between what the buyer paid and what
+  // the seller received. Direction-agnostic, and it needs no mid at all --
+  // which is the point, since it cannot be corrupted by mis-capturing one.
   //
-  // The two are algebraically identical only when both legs were referenced to
-  // the same mid. They are not: a passive buy fills when the price comes down
-  // to it, so by the time the sell leg starts the mid has systematically moved
-  // -- measured at -7.9 ticks on average. Taking (bv - sv)/2 silently folds
-  // that drift into the result and reported free money on 23% of fires.
-  //
-  // Each leg cost is already referenced to its own contemporaneous mid, so
-  // summing them is drift-free and is what the paper's definition actually
-  // says.
+  // Algebraically this is 1/2(cost_buy + cost_sel) only when both legs saw the
+  // same mid. Our legs are sequential, so they differ by whatever the market
+  // did in between: measured at -0.097 ticks mean over 3,018 round trips,
+  // moving the result by 0.049. Small, but it is market drift rather than
+  // execution cost, so slip_legsum below reports the drift-free form alongside
+  // and the gap between the two columns IS the drift term.
   const double slip_paired = (buy_leg.filled > 0 && sel_leg.filled > 0)
+                               ? (bv - sv) / 2.0 : 0.0;
+
+  // Each leg against its own contemporaneous mid. Immune to drift between the
+  // legs, but it depends on having captured both mids correctly.
+  const double slip_legsum = (buy_leg.filled > 0 && sel_leg.filled > 0)
                                ? (slip_buy + slip_sel) / 2.0 : 0.0;
 
   log_inf("FIRE DONE %s: buy %.0f@%.2f sel %.0f@%.2f "
-          "slip_buy=%.3f slip_sel=%.3f slip_paired=%.3f "
+          "slip_buy=%.3f slip_sel=%.3f slip_paired=%.3f legsum=%.3f "
           "part_buy=%.4f part_sel=%.4f",
           outcome, buy_leg.filled, bv, sel_leg.filled, sv,
-          slip_buy, slip_sel, slip_paired,
+          slip_buy, slip_sel, slip_paired, slip_legsum,
           buy_leg.participation(), sel_leg.participation());
 
   if (!out) return;
   fprintf(out,
           "%llu,%s,%d,%.2f,%.4f,%.0f,%d,%llu,"
           "%.2f,%.4f,%.0f,%d,%llu,"
-          "%.4f,%.4f,%.4f,"
+          "%.4f,%.4f,%.4f,%.4f,"
           "%.0f,%.0f,%.6f,%.6f,%s\n",
           (unsigned long long)fire_ts, cfg.sym_name.c_str(), cfg.parent_sz, midf,
           bv, buy_leg.filled, buy_leg.n_fills,
           (unsigned long long)(buy_leg.ended - buy_leg.started),
           mids, sv, sel_leg.filled, sel_leg.n_fills,
           (unsigned long long)(sel_leg.ended - sel_leg.started),
-          slip_buy, slip_sel, slip_paired,
+          slip_buy, slip_sel, slip_paired, slip_legsum,
           buy_leg.mkt_vol, sel_leg.mkt_vol,
           buy_leg.participation(), sel_leg.participation(), outcome);
   fflush(out);
