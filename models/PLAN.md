@@ -1101,8 +1101,158 @@ be read on its own. Symbols first, then concepts by theme.
 
 ## 2. Data: MBO L3 from kaspar
 
+### How PCAPs are actually processed today (verified in-tree, 2026-09-12)
+
+Short answer to "do the PCAPs go into `.bin` files?" — **that is the intended path, and every
+piece of it exists, but no part of it is wired into the `kaspr` binary today.** Both ends
+(PCAP → live decode, and `.bin.gz` → replay) are library-only. This is the single biggest
+prerequisite for the whole bake-off and is why D0 below comes before D1.
+
+#### The two halves of the pipeline
+
+```
+ (A) capture → decode                          (B) record → replay
+ ────────────────────────                      ─────────────────────────
+ .pcap / .pcap.zst                             .bin.gz  (gzip stream of packed L3 records)
+   → PCAPReader          [actor, exists]         → BFA               [actor, exists, NOT wired]
+   → MsgBuf              [actor, exists]         → bfile::read_l3    [exists]
+   → MessageProcessor    (SBE decode)            → OB / TachBook actors
+   → handler_if MBO handlers                     → light22 → SOM → fills
+   → { binrec?  →  BinRecorder → bfile::write_l3 → .bin.gz }
+   → OB / TachBook
+```
+
+Half (A) turns wire packets into decoded L3 events. Half (B) is the **fast replay loop** — once a
+session is recorded to `.bin.gz` you never re-parse Ethernet/UDP/SBE again, which is what makes
+20+ sessions × N models tractable. The `.bin.gz` file *is* the canonical intermediate.
+
+#### (A) PCAP → decoded L3
+
+`mcast_recv::PCAPReader<seqnumT, N>` (`mcast_recv/include/mcast_recv/act/PCAPReader.hpp`):
+
+- Opens `.pcap` directly via `pcap_open_offline`, or `.pcap.zst` by piping through `zstdcat`
+  into `pcap_fopen_offline` — **zstd-compressed captures are read natively, no pre-decompression.**
+- Reads **one packet per `actors::msg::Continue`** sent to itself, so replay is a self-clocked
+  actor loop, not a blocking read. EOF sends `ShutdownThisActor`.
+- Parses Ethernet (incl. 802.1Q VLAN) → IPv4/IPv6 → UDP by hand; the UDP payload is the MDP3
+  packet, whose first 4 bytes are the `MsgSeqNum`.
+- Optionally strips a **hardware-timestamp trailer** (`TrailerSpec`, e.g. Metamako) appended after
+  the UDP payload, and sanity-checks the configured layout against the wire on the first packet —
+  a mis-configured trailer fails loudly rather than silently corrupting payloads.
+- Emits `msg::ProcessQ` carrying **two timestamps**: `recv_ts` (pcap record header, software) and
+  `hw_ts` (trailer, 0 if none) — on top of the `transactTime` / `sendingTime` that come from MDP3
+  itself. Worth deciding explicitly which clock each model's inter-arrival times are measured on.
+- Hardcodes `buf.chan = 'A'`, with the comment *"Databento data is de-duplicated, always use
+  Feed A"* — so the captures this path targets are already A/B-arbitrated. **No A/B feed
+  arbitration and no recovery/snapshot replay happens in PCAP mode** (`create_all_mdp3_pcap` passes
+  `recovery_processor = nullptr`). Gaps in a capture are therefore *not* repaired.
+
+Assembly is `create_all_mdp3_pcap()` in `interface/mdp3/if/mdp3.hpp` — same `MessageProcessor` and
+`handler_if` as live, minus recovery. It accepts an A and a B file but points both at the same
+`MsgBuf`.
+
+#### (B) The `.bin.gz` record format
+
+`BinRecorder` (`frame_kaspr/include/frame/mda/act/BinRecorder.hpp`) is a ~60-line actor: `gzopen`
+on Start, `bfile::write_l3(outf, m->l3)` per `mda::msg::Data`, `gzflush(Z_FINISH)` on Shutdown.
+Note it flushes but deliberately never `gzclose()`s (arena-corruption workaround) — the deflate
+state is leaked on exit by design.
+
+The file is a **flat gzip stream of length-implicit, type-tagged packed structs** — no framing, no
+index, no footer. Each record is a 1-byte `l3_typ_t` tag followed by the remainder of the
+corresponding `[[gnu::packed]]` struct; `bfile::read_l3` reads the tag, then `switch`es to read
+`sizeof(rec) - 1` more bytes. Consequences worth planning around: **the format is not
+self-delimiting without the type table, it is not seekable, and it is ABI-coupled to the struct
+layout in `chutil/include/bfile/r_l3.hpp`.** Any exporter must link that header, not re-implement it.
+
+Record types relevant to us (`en::l3`, from `chutil/gencode/enum/def/l3.enum`):
+
+| Tag | Struct | Carries |
+|---|---|---|
+| `MBO_V2` | `l3_mbo_v2_packed_t` | the per-order event stream — add/modify/delete |
+| `MBOT_V2` | `l3_mbo_trd_v2_packed_t` | trades (order-level) |
+| `MBOS` | `l3_mbo_snap_packed_t` | MBO snapshot, incl. chunking fields |
+| `FDF` | `l3_fdf_packed_t` | instrument definitions — **BFA needs these to map `securityID` → asset** |
+| `GAP_V2`, `CHR_V2` | — | gap / channel-reset markers |
+
+`l3_mbo_v2_packed_t` in full: `typ, venue, transactTime, sendingTime, handlerendtim,
+orderUpdateAction, securityID, orderID, priority, pxd (double), displayQty, side, endOfEvent,
+lastQuote, recovery, order_flags, visibility_group`. Beyond the fields listed further down, three
+matter for modeling: `sendingTime`/`handlerendtim` give a second and third clock; `recovery` marks
+events replayed from a snapshot/recovery burst rather than seen live — **these must be filtered
+out of any intensity fit**; and `priority` is the CME-assigned queue priority, which is what makes
+true queue rank available without reconstruction guesswork.
+
+Naming convention, per `BFA_USAGE.md`: `sec_id.YYYYMMDD.bin.gz` (e.g. `490.20250124.bin.gz`).
+
+#### (B) Replay: BFA
+
+`BFA` (`frame_kaspr/include/frame/mda/act/BFA.hpp`) mirrors PCAPReader's shape: `gzopen` in the
+constructor, one `bfile::read_l3` per `Continue`, `manager->terminate()` at EOF. Useful properties
+already built in:
+
+- `start_h` / `end_h` hour filters, with early termination once `end_hour` is crossed (the file is
+  chronologically ordered) — handy for RTH-only or event-window fits.
+- A `time_warp` facility and a `FactoryFunc` hook that creates actors on first sight of an
+  instrument's `FDF`/`ODF`.
+- **All timing comes from the data**, never wall-clock — `BFA_USAGE.md` is explicit that the Timer
+  actor is driven by market-data timestamps. Backtests are therefore deterministic and reproducible.
+- Must be added to its Group **last**, after OBs/lights/SOM exist, or it starts pushing data into
+  actors that aren't ready.
+
+#### What is wired vs. what exists
+
+| Piece | Status | Evidence |
+|---|---|---|
+| `PCAPReader` actor | exists, complete | `mcast_recv/include/mcast_recv/act/PCAPReader.hpp` |
+| `create_all_mdp3_pcap()` | exists, **zero callers** | `interface/mdp3/if/mdp3.hpp` |
+| `kaspr` PCAP replay mode | **not wired** — `kaspr.cpp:361` calls `create_all_mdp3()` (live multicast) | `kaspr/src/kaspr.cpp` |
+| `kaspr` CLI flag for a PCAP file | **none** — `main()` parses only a config path and `--reset-positions` | `kaspr/src/kaspr.cpp:446` |
+| `-lpcap` in the link | present but currently unused by `kaspr.cpp` | `kaspr/src/Makefile:17` |
+| `BinRecorder` actor + `create_BinRecorder()` | exists | `frame_kaspr/src/BinRecorder_if.cpp` |
+| Recording actually enabled | **no** — `handler->binrec = nullptr` | `kaspr/src/kaspr.cpp:354` |
+| `handler_if` record call sites | exist, ~12 of them, all guarded `if (binrec)` | `mdp3/include/mdp3/handler_if.hpp` |
+| `BFA` actor | exists, **never instantiated** | grep: only its own header |
+| `bfile::write_l3` / `read_l3` | exist, symmetric, cover all record types | `chutil/include/bfile/r_l3.hpp` |
+
+`STRATEGY_SIMULATOR_GUIDE.md` needs a correction on both counts: its mode-1 diagram says
+`PCAP file → SocketReader → MDP3 → OB.cpp` (it is **PCAPReader**, and `MsgBuf` +
+`MessageProcessor` sit in between), and its "Known Gaps" says PCAP replay *is* supported — true of
+the library, not of the shipped binary.
+
+#### D0 — wire the capture/replay path (new, blocks everything else)
+
+Small, mechanical, and entirely additive — no new dependencies:
+
+1. **`kaspr` PCAP replay mode.** Add a `--pcap <file>` (and optional `--pcap-b`) argument; when
+   set, call `create_all_mdp3_pcap()` instead of `create_all_mdp3()`. Everything downstream —
+   `handler_if`, OB, TachBook, light22, SOM — is already agnostic to the source.
+2. **`kaspr` record mode.** Add `--record <out.bin.gz>`; construct `create_BinRecorder(path)`, add
+   it to the manager, and set `handler->binrec = rec` instead of `nullptr`. The ~12 guarded call
+   sites in `handler_if` then start emitting with no further change.
+3. **Wire `BFA`** as a third source (`--replay <file.bin.gz>`), added to its Group last per
+   `BFA_USAGE.md`. This is the loop the bake-off actually runs in.
+4. **Round-trip test.** Replay one PCAP twice: once straight, once via `--record` then `--replay`
+   of the resulting `.bin.gz`. The book state and the SOM fill sequence must be byte-identical.
+   This is the correctness gate for every number the study reports, and it also pins the
+   `r_l3.hpp` struct ABI.
+5. **Decide the clock.** Fix, once and in writing, which of `transactTime` / `sendingTime` /
+   `recv_ts` / `hw_ts` the Hawkes and QR fits use. Exponential-kernel MLE is sensitive to this and
+   the four differ by microseconds-to-milliseconds.
+
+Only after D0 does D1 (export) make sense — otherwise there is nothing to export.
+
+> **Dependency note on D1:** `CLAUDE.md` states *"Do not add Arrow/Parquet dependencies — they were
+> removed intentionally."* The Parquet exporter proposed in D1 below therefore needs either an
+> explicit reversal of that decision or a different target format. The cheap alternative that
+> respects the constraint: have D1 emit **CSV or raw little-endian binary on stdout** from a tool
+> that links `bfile::read_l3`, and let the Python side (`pandas` / `pyarrow` **outside** the C++
+> build) do the columnar conversion. Recommended — it keeps Parquet entirely on the Python side of
+> the fence, where it is a research-time dependency rather than a build-time one.
+
+
 The PCAPs are **MBO** (order-by-order, full L3). kaspar reconstructs them via the MBO path
-(`TachBook` / `handler_if` MBO handlers) and `BinRecorder` already dumps the per-order event
+(`TachBook` / `handler_if` MBO handlers), and `BinRecorder` can dump the per-order event
 stream through `bfile::write_l3` — gzip'd `l3_mbo_v2_packed_t` records carrying `transactTime`,
 `orderUpdateAction` (add/modify/delete/trade), `securityID`, `orderID`, `priority`, `pxd`,
 `displayQty`, `side`, `endOfEvent`. That is exactly the per-order stream every model needs, and it
@@ -1112,13 +1262,16 @@ gives **true queue position** — no MBP approximation anywhere in this project.
 ```
 MBO PCAP (ES ch.310 / NQ ch.318)
    → kaspar replay (MDP3 → handler_if MBO → book)
-   → BinRecorder (bfile::write_l3, gzip'd l3_mbo_v2_packed_t)      [exists]
-   → NEW: l3 → columnar exporter (Parquet)                        [D1]
+   → BinRecorder (bfile::write_l3, gzip'd l3_mbo_v2_packed_t)      [exists, NOT wired — D0]
+   → .bin.gz  →  BFA replay loop                                  [exists, NOT wired — D0]
+   → NEW: l3 → columnar exporter                                  [D1]
    → NEW: Python event reader + book re-walker                    [D2]
 ```
 
-- **D1** — small C++ tool linking `bfile::read/write_l3` that streams the gzip record file to
-  Parquet. Reuses the project's own decoder; deterministic.
+- **D0** — wire PCAP replay, `--record`, and BFA into the `kaspr` binary (see above). Blocks D1/D2.
+- **D1** — small C++ tool linking `bfile::read/write_l3` that streams the gzip record file to a
+  columnar format. Reuses the project's own decoder; deterministic. Note the Arrow/Parquet
+  constraint in `CLAUDE.md` — emit CSV/raw binary from C++ and convert on the Python side.
 - **D2** — Python reader over the Parquet, plus a **book re-walker** that replays the L3 events to
   attach, at each event: `mid`, `spread`, `level_index` (ticks from mid), `queue_size_before`, and
   **per-order queue rank** (position ahead in FIFO priority). This queue rank is the feature that
