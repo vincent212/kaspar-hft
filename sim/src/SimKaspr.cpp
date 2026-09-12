@@ -36,7 +36,8 @@ SimKaspr::SimKaspr(std::string data_file,
                    uint64_t end_ts,
                    int place_rate_bp,
                    uint32_t rng_seed,
-                   int ord_sz)
+                   int ord_sz,
+                   int ob_delay_us)
     : Manager("sim_manager")
     , data_file_(std::move(data_file))
     , universe_json_(std::move(universe_json))
@@ -48,6 +49,7 @@ SimKaspr::SimKaspr(std::string data_file,
     , place_rate_bp_(place_rate_bp)
     , rng_seed_(rng_seed)
     , ord_sz_(ord_sz)
+    , ob_delay_us_(ob_delay_us)
 {
   std::cerr << "SimKaspr: data=" << data_file_ << "\n"
             << "          universe=" << universe_json_ << "\n"
@@ -212,10 +214,17 @@ void SimKaspr::create_order_books()
     // debug on once txtim passes it), which is how you narrow in on a cross
     // without tracing the whole session.
     if (ob_debug_from_) ob_set_debug(ob, ob_debug_from_);
+    // Wire latency. OB defaults to 1000 us, which is an order of magnitude
+    // slower than a colocated CME round trip and so is pessimistic about how
+    // much flow gets in front of us -- set it per run rather than inherit it.
+    if (ob_delay_us_ >= 0) ob_set_delay(ob, ob_delay_us_);
 
     std::cerr << "SimKaspr: OB " << a->name << " assetID=" << j
               << " secID=" << a->sec_id
-              << (ob_debug_from_ ? " [debug armed]" : "") << std::endl;
+              << (ob_debug_from_ ? " [debug armed]" : "")
+              << " delay=" << (ob_delay_us_ >= 0 ? std::to_string(ob_delay_us_)
+                                                 : std::string("default")) << "us"
+              << std::endl;
   }
   ASSERT(!books_.empty(), "no order books created - check --contract and the universe");
 }

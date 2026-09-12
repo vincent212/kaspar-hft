@@ -63,6 +63,12 @@ int main(int argc, char* argv[])
                     "deterministic seed for light placement; 0 = use lights.ini")
       ("ord-sz",    po::value<int>()->default_value(-1),
                     "per-placement child size; -1 = use lights.ini")
+      ("ob-delay-us", po::value<int>()->default_value(-1),
+                    "modelled one-way wire latency to the matching engine, in "
+                    "microseconds. OB holds each of our orders on its delay "
+                    "queue until ts0 + this has passed in MARKET time, so it "
+                    "decides how much real flow gets in front of us. Floor is "
+                    "40us. -1 = OB's own default (1000us).")
       ("logdebug",  "enable debug logs");
 
   po::variables_map vm;
@@ -97,7 +103,8 @@ int main(int argc, char* argv[])
                             vm["end-ts"].as<uint64_t>(),
                             vm["place-rate-bp"].as<int>(),
                             vm["rng-seed"].as<uint32_t>(),
-                            vm["ord-sz"].as<int>());
+                            vm["ord-sz"].as<int>(),
+                            vm["ob-delay-us"].as<int>());
   } catch (const std::exception& e) {
     cerr << "ERROR constructing SimKaspr: " << e.what() << "\n";
     return 1;

@@ -45,7 +45,8 @@ namespace sim
              uint64_t end_ts = 0,
              int place_rate_bp = -1,
              uint32_t rng_seed = 0,
-             int ord_sz = -1);
+             int ord_sz = -1,
+             int ob_delay_us = -1);
     ~SimKaspr() override = default;
 
   private:
@@ -62,6 +63,11 @@ namespace sim
     int      place_rate_bp_;
     uint32_t rng_seed_;
     int      ord_sz_;
+    // Modelled one-way wire latency to the matching engine, microseconds.
+    // OB holds every sim order on its del_q until ts0 + delay has passed in
+    // market time, so this is the single knob that decides how much of the
+    // real flow gets in front of us. -1 = leave OB's own default (1000 us).
+    int      ob_delay_us_;
 
     actors::Group* group_ = nullptr;
     polonaise::logger::act::Logger* logger_ = nullptr;
