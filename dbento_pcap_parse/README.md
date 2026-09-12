@@ -20,7 +20,8 @@ would have produced.
                                                             │
                                                             ├→ build_universe  →  universe.<chan>.<date>.csv + .json.gz
                                                             ├→ merge_bins      →  one ts-ordered .bin
-                                                            └→ verify_merged   →  monotonicity check
+                                                            ├→ verify_merged   →  monotonicity check
+                                                            └→ binstats        →  record/instrument inventory
 ```
 
 ## Tools
@@ -32,6 +33,7 @@ would have produced.
 | `merge_bins` | Merges several `.bin` files into one timestamp-ordered stream. |
 | `verify_merged` | Walks a merged `.bin` and reports any out-of-order timestamps. |
 | `pcap_list_ips` | Dry-run inspector: lists src IPs / dst ports present in a capture directory. Use it when a channel yields zero packets. |
+| `binstats` | Inventories a `.bin`: instrument-definition counts by updateAction, per-securityID MBO activity, full instrument list, and counts of other record types. |
 | `extract_futures.sh` / `extract_options.sh` | Parallel, resume-safe batch wrappers over `dbento_pcap_to_bin`. |
 
 ## Build
@@ -75,7 +77,15 @@ export KSPRPROJ=~/kaspar-hft
 
 # universe from the resulting bin
 ./build_universe 310.20260119.databento.bin.gz
+
+# sanity-check what actually landed in the bin
+./binstats --datafile 310.20260119.databento.bin.gz
 ```
+
+`binstats` is the first thing to run on a new `.bin`. It flags the failure mode
+that matters most downstream: a file whose FDF count is non-zero but which
+carries no Add/Modify actions cannot build a symbol table, so every consumer of
+it will come up empty.
 
 Output is written to the **current working directory** (`BinRecorder` opens a
 relative path), named `<chan>.<date>.databento.bin`. The batch scripts `cd` into

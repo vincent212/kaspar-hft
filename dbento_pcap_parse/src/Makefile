@@ -10,7 +10,7 @@
 #   KSPRPROJ=~/kaspar-hft make debug    # build all tools (debug)
 #   KSPRPROJ=~/kaspar-hft make clean
 
-TOOLS = dbento_pcap_to_bin pcap_list_ips build_universe merge_bins verify_merged
+TOOLS = dbento_pcap_to_bin pcap_list_ips build_universe merge_bins verify_merged binstats
 
 .PHONY: all opt debug clean $(TOOLS)
 

@@ -94,4 +94,5 @@ dbento_pcap_parse/src/build_universe
 dbento_pcap_parse/src/merge_bins
 dbento_pcap_parse/src/verify_merged
 dbento_pcap_parse/src/pcap_list_ips
+dbento_pcap_parse/src/binstats
 dbento_pcap_parse/src/out/
