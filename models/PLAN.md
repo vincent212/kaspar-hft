@@ -1605,43 +1605,83 @@ Run it per session, as part of the same batch that produces the `.bin` — a ses
 cannot be built is not an admissible session, and that check belongs next to `binstats` in the
 acceptance gate rather than being discovered later when the sim produces no fills.
 
-##### Root cause found: we ingest 1 of 7 instrument-definition windows
+##### Root cause and fix: definitions need a SEPARATE PASS
 
-`binstats` on `310.20250115.databento.bin` shows **FDF total=12** and the highest-activity
-instrument resolving as an unnamed `SEC_5002` (4.08 M adds — this is the ES front month), while
-low-activity spreads and far-dated outrights (`ESH5-ESU5`, `ESH6`) name correctly. The definitions
-are not merely late; most of them are absent.
+The instrument definitions are present in the captures. We were discarding them.
 
-The cause is in our own converter, not the data. `PcapFileManager.hpp`:
+**Why.** `MessageProcessor::processq_handler` gates on a monotonic sequence number:
 
 ```cpp
-// Prepend just the first snap file (earliest timestamp) for instrument definitions.
-if (!snap_files.empty())
-    pcap_files_.insert(pcap_files_.begin(), snap_files.front());
+if (m->buf.seqnum <= qseq_num || stopq) return;   // silently dropped
 ```
 
-It even prints `"(snap; 7 files, using first)"`. For 2025-01-15 the IR stream
-(`224.0.31.43`) has **seven** 10-minute windows (22:00-23:00). CME broadcasts the instrument
-definition set as a **repeating cycle**, so one 10-minute window carries only part of it —
-whichever instruments happened to be transmitted in that slice. Taking `snap_files.front()`
-therefore yields an arbitrary fraction of the universe, which is exactly the 12-of-N we observe.
+CME's Instrument Replay (IR) stream **loops, restarting its sequence on every cycle** — observed
+`last_seqnum` across the seven 2025-01-15 IR windows was 6, 3, 13, 10, 7, 5, 9. Concatenating those
+windows into one decode stream means `qseq_num` climbs past them almost immediately and every
+later IR packet is dropped as stale. ~71,000 IR packets in, 12 definitions out. The gate is
+*correct* for the incremental stream and must not be weakened — it is the same code the live feed
+handler uses.
 
-**Fix (preferred): prepend all IR snap files, not just the first.** They are small relative to the
-incrementals, they sort chronologically, and ingesting the full cycle is what makes the `.bin`
-self-describing. This removes the need for the upstream `universe_map` workaround entirely and
-benefits every downstream consumer, not just the sim.
+**Measured proof.** Converting each IR window in its own process (fresh `qseq_num = 0`) and
+extracting with `build_universe`:
 
-Order of work:
-1. Change the snap selection to take **all** IR files (keep them sorted, still ahead of the
-   incrementals). Re-convert one session and confirm FDF count jumps and `SEC_5002` resolves to
-   the ES front month.
-2. Re-run `build_universe` and confirm the front month appears with its real symbol and tick size.
-3. Only if definitions are *still* incomplete, port `universe_map` / `set_universe_map` as the
-   fallback.
-4. Re-convert the corpus (363 sessions, ~5 min) once the fix is proven on one date.
+| IR window (UTC) | FDFs recovered |
+|---|---|
+| 22:00 | 12 |
+| 22:10 | 15 |
+| 22:20 | 21 |
+| **22:30** | **32 — including `5002 ESH5`, `4916 ESM5`, `14160 ESU5`** |
+| 22:40 / 22:50 / 23:00 | 11 / 14 / 15 |
 
-Until step 1 lands, **any slippage number is meaningless** — the sim cannot trade an instrument it
-cannot name.
+The 22:30 window carries the **front month**. No single window carries the whole universe; the
+union does. Note the front-month securityIDs are low (`5002`, `4916`, `14160`) while the
+rarely-traded contracts are `42xxxxxx` — so "all securityIDs look like 42xxxxxx" is not a valid
+sanity check.
+
+**The fix: a definitions pass, separate from the market-data pass.**
+
+```
+                 ┌─ pass 1: DEFINITIONS ─────────────────────────────┐
+                 │  for each IR snap file (224.0.31.43), separately: │
+ <date>/*.pcap.zst  │    fresh MessageProcessor (qseq_num = 0)         │
+                 │    decode -> FDF/ODF/SDF                          │
+                 │  union across windows                             │
+                 └──────────────┬────────────────────────────────────┘
+                                │
+                                ▼   universe.<chan>.<date>.json   (secID -> symbol, tick, expiry)
+                 ┌─ pass 2: MARKET DATA ─────────────────────────────┐
+                 │  incrementals (224.0.31.1) as today               │
+                 │  -> <chan>.<date>.databento.bin                   │
+                 └──────────────┬────────────────────────────────────┘
+                                │
+                                ▼
+                        sim / models: universe resolves securityID -> instrument,
+                        front month selected by volume within the ES asset
+```
+
+Each IR window is processed **independently** so its sequence space starts clean — the same reason
+a separate pass is needed rather than simply prepending all seven files (that was tried; it
+changed nothing, because concatenation shares one `qseq_num`).
+
+Implementation options, cheapest first:
+
+1. **`--snap-only` mode in `dbento_pcap_to_bin`**: iterate the IR files, restarting the decode
+   context per file, and emit a definitions-only `.bin` (or JSON directly). `build_universe` then
+   unions them. No change to the live decode path.
+2. **Loop the existing binary once per IR file** from the batch script and union the
+   `build_universe` outputs. Zero C++ changes; proven to work (this is how the table above was
+   produced). Good enough to unblock, uglier operationally.
+3. Reset `qseq_num` between files inside `PcapFileManager` — smaller code, but it touches shared
+   decode state used by the live path. Least preferred.
+
+**Merge across dates** into `master_universe.<chan>.json` so a session whose own IR capture is thin
+still resolves; definitions are stable across adjacent dates. This also gives the roll calendar
+needed for front-month selection across the corpus's five quarterly rolls.
+
+**Acceptance gate addition:** a session is admissible only if its universe resolves the
+front-month securityID that carries the session's dominant MBO volume. Catching this at conversion
+time is the difference between noticing in seconds and discovering it when the sim produces no
+fills.
 
 ### Supporting diagnostics (explain the execution result, not the point)
 - **Signal accuracy (Tier C):** fill-probability calibration curves, level-break AUC, mid-move

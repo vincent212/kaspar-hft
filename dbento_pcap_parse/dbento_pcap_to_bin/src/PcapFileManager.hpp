@@ -211,14 +211,26 @@ private:
                            + " in " + pcap_dir_);
         }
 
-        // Prepend just the first snap file (earliest timestamp) for instrument definitions.
+        // Prepend ALL IR snap files, in timestamp order, for instrument definitions.
+        //
+        // CME broadcasts the instrument-definition set as a REPEATING CYCLE on the
+        // IR stream, so any single 10-minute capture window carries only whichever
+        // slice of the universe happened to be transmitted in that interval. Taking
+        // just snap_files.front() therefore yields an arbitrary fraction of the
+        // definitions: on 2025-01-15 chan 310 that was 12 FDFs, with the ES front
+        // month (securityID 5002, 4.08M MBO adds) left undefined while low-activity
+        // spreads and far-dated outrights resolved fine. Ingesting the whole cycle
+        // is what makes the .bin self-describing.
+        //
+        // They are small relative to the incrementals and already sorted, so the
+        // cost is negligible and ordering is preserved.
         if (!snap_files.empty()) {
-            pcap_files_.insert(pcap_files_.begin(), snap_files.front());
+            pcap_files_.insert(pcap_files_.begin(), snap_files.begin(), snap_files.end());
         }
 
         std::cout << "Format:             PER_CHANNEL" << std::endl;
         std::cout << "Incremental filter: *" << incr_port_suffix_ << " (non-snap)" << std::endl;
-        std::cout << "Snap filter:        *" << snap_filter_ << " (snap; " << snap_files.size() << " files, using first)" << std::endl;
+        std::cout << "Snap filter:        *" << snap_filter_ << " (snap; using all " << snap_files.size() << " IR files)" << std::endl;
         std::cout << "Found " << pcap_files_.size() << " files to process in " << pcap_dir_ << std::endl;
         std::cout << "  First: " << fs::path(pcap_files_.front()).filename().string() << std::endl;
         std::cout << "  Last:  " << fs::path(pcap_files_.back()).filename().string() << std::endl;

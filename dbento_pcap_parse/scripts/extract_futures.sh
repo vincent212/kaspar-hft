@@ -8,7 +8,8 @@
 # Parallel, resume-safe (skips combos whose bin already exists), nice.
 #
 # Usage: ./extract_futures.sh [DATE ...]   (no args = all dates in source dir)
-# Tune:  NJOBS=8 ./extract_futures.sh      (default 16)
+# Tune:  NJOBS=8 ./extract_futures.sh      (default: nproc)
+# Product: CHANNELS="310" ./extract_futures.sh   (ES only; default 310 318 326)
 
 set -u
 cd "$(dirname "$0")" || { echo "[fatal] cannot cd to script directory" >&2; exit 1; }
@@ -20,8 +21,10 @@ export KSPRPROJ=${KSPRPROJ:-$(cd ../.. && pwd)}
 SRC=${SRC:-/nvs/vendor/databento/pcaps/glbx/futures-xcme}
 OUT_DIR=$PWD/out
 BIN=${BIN:-$PWD/../dbento_pcap_to_bin/src/dbento_pcap_to_bin}
-CHANNELS=(310 318 326)
-NJOBS=${NJOBS:-16}
+# Channels to extract. Override for a single-product pull, e.g.
+#   CHANNELS="310" ./extract_futures.sh          # ES only
+read -r -a CHANNELS <<< "${CHANNELS:-310 318 326}"
+NJOBS=${NJOBS:-$(nproc 2>/dev/null || echo 16)}
 
 # Per-(chan,date) worker. Exported so xargs bash subshells can find it.
 run_one() {
