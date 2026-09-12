@@ -1269,12 +1269,18 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
     // and carry on — a single corrupt print is not worth losing a session, but
     // it must be visible.
     {
-      const auto units = ref::RefData::inst().get_asset(sym)->get_units();
-      const double ticks = units > 0.0 ? mbo.pxd / units : -1.0;
-      if (!(ticks > 0.0 && ticks < double(maxprice)))
+      // Convert with ref::Price, NOT by hand. Price is what turns a price into
+      // the tick index that addresses bidqs/askqs, so doing the arithmetic
+      // separately here means the guard can disagree with the thing it exists
+      // to guard -- which is exactly what happened: the guard divided by
+      // Asset::units while the ladder was sized from minPriceIncrement, and
+      // when the two conventions diverged by dispFactor the guard rejected
+      // every record in the session without anything looking wrong.
+      const int ticks = ref::Price((long double)mbo.pxd, sym).to_int();
+      if (!(ticks > 0 && ticks < maxprice))
       {
         log_err("BAD PRICE %s: dropping MBO oid=%llu action=%d side=%c pxd=%.1f "
-                "(%.0f ticks, maxpx %d) tx=%llu",
+                "(%d ticks, maxpx %d) tx=%llu",
                 get_name(), (unsigned long long)mbo.orderID, int(mbo.orderUpdateAction),
                 mbo.side, mbo.pxd, ticks, maxprice,
                 (unsigned long long)mbo.transactTime);

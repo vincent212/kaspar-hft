@@ -1,6 +1,6 @@
 # unit_test — Google Test suite
 
-270 tests over the pieces that decide what the simulator does: the shadow light,
+275 tests over the pieces that decide what the simulator does: the shadow light,
 the coordination objects it shares, reference data, the timer, the simulated
 order manager, and position tracking.
 
@@ -39,6 +39,7 @@ cmake --build build -j8 && cmake --install build
 | `test_cache_array.cpp` | `chutil::cache_array` |
 | `test_qcoord.cpp` / `test_pcoord.cpp` | working-order and position coordination |
 | `test_refdata.cpp` | universe loading, asset lookup |
+| `test_price_units.cpp` | tick units vs the price ladder they address |
 | `test_timer.cpp` | `frame::mtim::Timer` |
 | `test_som.cpp` | simulated order manager |
 | `test_position.cpp` | position arithmetic |
@@ -61,8 +62,10 @@ CvolActor and the spread path do not exist in this repo.
 
 ## Fixture data
 
-`unit_test/config/universe.csv` — a five-instrument universe, self-contained on
-purpose. `sim/` has no universe CSV (it seeds `RefData` empty and registers
+`unit_test/config/universe.csv` — a six-instrument universe, self-contained on
+purpose. Five rows use `units 1`, which hides every price conversion; **ESZ5 is
+shaped like the real thing** (native `minPriceIncrement` 25, `maxpx` 25592 =
+639800/25) and is what any test touching the price ladder should use. `sim/` has no universe CSV (it seeds `RefData` empty and registers
 instruments from the universe JSON), so the tests must not depend on it.
 
 ## Adding a test

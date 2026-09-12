@@ -15,6 +15,7 @@ SRC = test_cache_array.cpp \
       test_qcoord.cpp \
       test_pcoord.cpp \
       test_refdata.cpp \
+      test_price_units.cpp \
       test_timer.cpp \
       test_som.cpp \
       test_som_cancel_latency.cpp \

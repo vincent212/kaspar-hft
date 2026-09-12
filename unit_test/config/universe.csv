@@ -10,3 +10,10 @@ F,ESM6,ES,ES,1.,1,1,100000,1,1,unk,x,0,CMEMD
 F,NQH6,NQ,NQ,1.,1,1,100000,1,1,unk,x,0,CMEMD
 F,ZNH6,ZN,ZN,1.,1,1,100000,1,1,unk,x,0,CMEMD
 F,ZNM6,ZN,ZN,1.,1,1,100000,1,1,unk,x,0,CMEMD
+#
+# ESZ5 is shaped like the real thing, and the others are not: units is CME's
+# NATIVE minPriceIncrement (25, not the 0.25 display tick) and maxpx is the
+# daily high limit on that same native scale (639800 / 25 = 25592). The rows
+# above use units 1, which hides every conversion. Anything testing the price
+# ladder should use this one.
+F,ESZ5,ES,ES,25.,1,1,25592,1,1,unk,x,5002,CMEMD
