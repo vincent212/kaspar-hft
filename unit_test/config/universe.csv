@@ -1,0 +1,12 @@
+# Fixture universe for the unit tests. Self-contained on purpose: sim/ has no
+# universe.csv (it seeds RefData empty and registers instruments from the
+# universe JSON), so the tests must not depend on it.
+#
+# 14 columns, matching frame::ref::Asset(uint, vector<string>&):
+#   typ,name,btec_equiv,mnemonic,units,bo_spread,rng_adj,maxpx,has_book,
+#   contract_size,cfi_code,security_group,sec_id,exchange_md
+F,ESH6,ES,ES,1.,1,1,100000,1,1,unk,x,0,CMEMD
+F,ESM6,ES,ES,1.,1,1,100000,1,1,unk,x,0,CMEMD
+F,NQH6,NQ,NQ,1.,1,1,100000,1,1,unk,x,0,CMEMD
+F,ZNH6,ZN,ZN,1.,1,1,100000,1,1,unk,x,0,CMEMD
+F,ZNM6,ZN,ZN,1.,1,1,100000,1,1,unk,x,0,CMEMD

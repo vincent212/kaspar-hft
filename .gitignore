@@ -35,6 +35,7 @@ actors/cpp/src/registry/global_registry_main
 *.parquet
 *.csv
 !kaspr/config/universe.csv
+!unit_test/config/universe.csv
 
 # Logs
 *.log
