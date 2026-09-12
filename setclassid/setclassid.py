@@ -125,9 +125,16 @@ def main():
                     continue
             by_id[val].append((rel, n, raw, tname))
 
+    # Two declarations of the SAME logical type sharing an id is the protocol
+    # (remote_ping / remote_pong); two DIFFERENT types sharing one is the bug.
+    # Key on (file, type) rather than the bare type name: this tree is full of
+    # repeated short names (Start, Stop, Set, Pos, Log) in different libraries,
+    # and collapsing on the name alone would hide exactly the collision this
+    # audit exists to catch.
     duplicates = {
         i: sites for i, sites in by_id.items()
-        if len({t for *_, t in sites if t != "?"}) > 1
+        if len({(rel, t) for rel, _n, _raw, t in sites}) > 1
+           and len({t for *_, t in sites if t != "?"}) > 1
         or (len(sites) > 1 and any(t == "?" for *_, t in sites))
     }
     out_of_range = {i: sites for i, sites in by_id.items() if i >= HAND_ASSIGNED_CAP}

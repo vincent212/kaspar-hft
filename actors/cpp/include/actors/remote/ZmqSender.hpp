@@ -34,9 +34,9 @@ class ZmqSender;
 
 /**
  * Internal message for async remote sends
- * Message ID 10 (reserved for internal use)
+ * Id is auto-assigned (MessageT); this message never leaves the process.
  */
-class RemoteSendRequest : public MessageT<RemoteActorRef> {
+class RemoteSendRequest : public MessageT<RemoteSendRequest> {
 public:
     std::string endpoint;
     std::string actor_name;
