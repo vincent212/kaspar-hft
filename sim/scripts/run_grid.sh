@@ -59,16 +59,19 @@ grid_tsv="$OUT/grid.tsv"
   done
 } > "$grid_tsv"
 
-# ---- front month by date (CME quarterly roll: Thursday 8 days before the
-#      3rd Friday of the contract month) --------------------------------
+# ---- front month by date, from traded volume ---------------------------
+# NOT a roll calendar. A hand-written one was 4-5 days early on every roll,
+# which would have run part of the corpus in the illiquid contract: on
+# 2025-03-13 ESH5 still traded 2,057,715 against ESM5's 318,192. The table is
+# produced by volstats, which counts lastQty over the trade records and picks
+# the most-traded outright. See models/PLAN.md, "Session inputs".
+FRONT_TSV=${FRONT_TSV:-$KSPRPROJ/dbento_pcap_parse/scripts/front_month.310.tsv}
+[ -f "$FRONT_TSV" ] || { echo "missing $FRONT_TSV -- regenerate with volstats" >&2; exit 2; }
+
+# Looked up per call rather than held in an associative array: those do not
+# survive into the xargs subshells, and one grep is nothing beside a 134s run.
 front_month() {
-  local d=$1
-  if   [ "$d" -lt 20250313 ]; then echo ESH5
-  elif [ "$d" -lt 20250612 ]; then echo ESM5
-  elif [ "$d" -lt 20250911 ]; then echo ESU5
-  elif [ "$d" -lt 20251211 ]; then echo ESZ5
-  else                             echo ESH6
-  fi
+  awk -F'\t' -v d="$1" '$1==d {print $2; exit}' "$FRONT_TSV"
 }
 
 # ---- the runnable sessions -------------------------------------------
@@ -103,18 +106,19 @@ run_one() {
   [ -s "$csv" ] && return 0                      # resume
 
   local contract; contract=$(front_month "$date")
-
-  # Prefer the per-date universe: its daily price limits are the ones that
-  # actually applied, and maxpx sizes OB's ladder. But CME's instrument-replay
-  # cycle does not always emit the front month during the windows a given date
-  # captured, so a per-date universe can simply be missing the contract we
-  # want to trade. Fall back to the master for those -- its limits are merged
-  # across dates and so approximate, but a slightly wrong ladder is a far
-  # smaller error than not running the session at all.
-  local uni="$SRC/universe/310/universe.310.$date.json"
-  if [ ! -f "$uni" ] || ! grep -q "\"$contract\"" "$uni"; then
-    uni="$SRC/universe/310/master_universe.310.json"
+  if [ -z "$contract" ]; then
+    printf '%s,%s,%s,%s,"%s"\n' "$name" "$date" "no-front" "" \
+      "no front month for this date in $FRONT_TSV" >> "$OUT/failures.csv"
+    return 0
   fi
+
+  # One universe for every session, so the corpus is not split between two
+  # treatments. 152 of 265 per-date universes do not contain their own front
+  # month -- the IR stream restarts its sequence each cycle, so which
+  # definitions a date captured is arbitrary. Definitions are static anyway;
+  # the only daily quantity is the price limit, and grid_universe widens each
+  # contract's to the maximum seen in 2025 so the ladder cannot clip.
+  local uni="$SRC/universe/310/grid_universe.310.json"
   # 16:30 ET, computed per date so the DST change on 2025-03-09 is handled.
   local cut; cut=$(TZ=America/New_York date -d "${date:0:4}-${date:4:2}-${date:6:2} 16:30:00" +%s)
 
@@ -150,7 +154,7 @@ run_one() {
   return 0
 }
 export -f run_one front_month
-export OUT SRC BIN CONFIG_DIR SEED
+export OUT SRC BIN CONFIG_DIR SEED FRONT_TSV
 
 echo "name,date,rc,contract,last_line" > "$OUT/failures.csv"
 

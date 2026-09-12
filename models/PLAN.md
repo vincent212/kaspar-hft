@@ -1762,6 +1762,74 @@ number in `tech_reports/shadow_pov.pdf`** — see below for why the published on
 Full working log, with the debugging history behind each item:
 `~/.claude/plans/ok-we-still-have-resilient-crab.md` §6.8.
 
+#### Session inputs: front month and universe
+
+Two upstream facts had to be established from the data before any run is
+meaningful. Both were wrong on the first attempt, and both are silent failures
+— the sweep completes and produces numbers either way.
+
+**Front month comes from traded volume, not a roll calendar.** A hand-written
+roll table was 4–5 days early on every roll, which would have executed part of
+the corpus in the illiquid contract:
+
+| roll | hand-written | actual (volume) | front-month volume on the date I would have switched |
+|---|---|---|---|
+| ESH5 → ESM5 | 20250313 | **20250317** | ESH5 2,057,715 vs ESM5 318,192 |
+| ESM5 → ESU5 | 20250612 | **20250616** | ESM5 1,250,123 vs ESU5 191,811 |
+| ESU5 → ESZ5 | 20250911 | **20250916** | — |
+| ESZ5 → ESH6 | 20251211 | **20251215** | — |
+
+`volstats` now **counts** traded quantity — summing `lastQty` over the trade
+records, attributed through its `orderID → securityID` map — rather than
+reading CME's `l3_vol` statistic. `l3_vol` only appears when the capture
+contains the windows carrying it, so an instrument can look dormant purely
+because that message was not captured; every fill is a record we have already
+read. Counted volume lands within ~7% of the reported figure, the gap being
+trades whose order we never saw an ADD for.
+
+The front month is the most-traded **outright**: ranking on volume alone put
+the calendar spread `ESH5-ESM5` (202,930) above the deferred outright `ESM5`
+(141,162) on the roll date, and a spread is not executable as the front
+contract.
+
+Regenerate with:
+
+```bash
+volstats --datafile 310.<date>.databento.bin --universe <universe>.json --out vol.<date>.json
+# -> dbento_pcap_parse/scripts/front_month.310.tsv   (date, front, securityID, traded_qty)
+```
+
+**The universe is the master, not the per-date file.** 152 of 265 sessions have
+a per-date universe that does not contain that session's front month at all.
+This is not a roll artefact — it is the IR cycle: CME's instrument-replay
+stream loops and restarts its sequence each cycle, so whether the front month's
+definition appears depends on which IR windows a given date happened to
+capture. Instrument definitions (symbol, securityID, tick) are static, so there
+is no reason to source them per date.
+
+The one genuinely daily quantity is the price limit, which is used for exactly
+one thing: sizing OB's ladder (`maxpx = high_limit_px / minPriceIncrement`).
+The master's merged limit is *below* the widest limit actually seen for every
+contract (e.g. ESZ5 master 650,975 vs 737,025 observed), and a ladder that is
+too small silently deletes far-resting orders — the bad-price path now removes
+an order it cannot place rather than stranding it, so clipping is invisible
+rather than fatal. A ladder that is too large costs one pointer per tick per
+side.
+
+So `grid_universe.310.json` = master definitions with each contract's limit
+widened to the maximum it carried anywhere in 2025:
+
+| contract | high_limit_px | ladder |
+|---|---|---|
+| ESH5 | 656,450 | 26,258 ticks |
+| ESM5 | 662,275 | 26,491 |
+| ESU5 | 709,775 | 28,391 |
+| ESZ5 | 737,025 | 29,481 |
+| ESH6 | 746,750 | 29,870 |
+
+Every session then runs against one universe, so the corpus is not split
+between two treatments.
+
 #### Axes
 
 **A. rate × size** — both latencies 500 µs (`--ob-delay-us 500 --ob-cancel-delay-us 500`):
