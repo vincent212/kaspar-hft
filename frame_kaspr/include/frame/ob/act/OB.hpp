@@ -245,8 +245,22 @@ namespace frame
         // same wire, so the same number is the physically right default;
         // -1 means "use delay". Separate only so an experiment can test the
         // asymmetric case.
+        //
+        // Must not be SHORTER than delay. del_q is FIFO and process_q stops at
+        // the first entry that is not yet due, so a cancel sitting behind a
+        // still-in-flight order cannot overtake it however short its own
+        // deadline -- the knob would silently do nothing. Making process_q
+        // scan past the blockage instead would be worse: a cancel could then
+        // be applied to an order that is not in the book yet.
+        //
+        // Call set_delay() first; this checks against whatever delay is set.
         void set_cancel_delay(int _d)
         {
+          ASSERTF(_d < 0 || _d >= delay,
+                  boost::format("cancel_delay %d < delay %d: del_q is FIFO, so a "
+                                "cancel cannot overtake an order still in flight "
+                                "and the shorter latency would never be applied")
+                    % _d % delay);
           cancel_delay = _d;
         }
 

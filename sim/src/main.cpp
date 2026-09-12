@@ -72,7 +72,10 @@ int main(int argc, char* argv[])
       ("ob-cancel-delay-us", po::value<int>()->default_value(-1),
                     "modelled wire latency for CANCELS, microseconds. A cancel "
                     "goes over the same wire as an order, so -1 (= --ob-delay-us) "
-                    "is the right default; set it only to test the asymmetric case.")
+                    "is the right default; set it only to test the asymmetric "
+                    "case. Must be >= --ob-delay-us: the delay queue is FIFO, so "
+                    "a cancel cannot overtake an order still in flight and a "
+                    "shorter value would silently do nothing.")
       ("logdebug",  "enable debug logs");
 
   po::variables_map vm;

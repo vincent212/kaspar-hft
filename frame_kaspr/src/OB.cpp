@@ -160,6 +160,29 @@ void act::OB::get_handler(const frame::cons::msg::Get *msg) noexcept
     auto rep = (boost::format("BBBO: %d %d") % best_bid % best_ask).str();
     reply(new frame::cons::msg::Page(rep));
   }
+  else if (msg->what == "simsz")
+  {
+    // Our own resting size at one price level. Deliberately NOT visible
+    // through "bbbo": sim orders are excluded from the BBO (process_add_or_mod
+    // bails early, and the BBO walk uses isempty_or_allsim) so that a strategy
+    // cannot react to its own quote. That makes this the only way to ask
+    // whether one of our orders has actually reached the book yet -- which is
+    // exactly the question OB's delay queue exists to answer, and which was
+    // unanswerable, and so untested, until now.
+    //
+    //   kv["side"] = "B" | "S", kv["px"] = price in ticks
+    int simsz = -1;
+    auto sideit = msg->kv.find("side");
+    auto pxit   = msg->kv.find("px");
+    if (sideit != msg->kv.end() && pxit != msg->kv.end())
+    {
+      const auto px = std::stoi(pxit->second);
+      const auto &qv = (sideit->second == "B") ? bidqs : askqs;
+      if (px > 0 && px < int(qv.size()) && qv[px])
+        simsz = qv[px]->get_sim_in_book();
+    }
+    reply(new frame::cons::msg::Page((boost::format("SIMSZ: %d") % simsz).str()));
+  }
 }
 
 void act::OB::start_handler(const actors::msg::Start *) noexcept

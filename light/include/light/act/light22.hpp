@@ -124,7 +124,18 @@ namespace light::act
       {
         if (this->ord_info.has_value() && !this->ord_info.get_canc())
         {
-          log_inf("executing delayed cancel");
+          // Advance the market clock before cancelling. curr_tx_time was last
+          // written by the EOB that STARTED this wait, so using it would stamp
+          // the cancel delayed_cancel_ms in the past -- and with the default
+          // 1000us wire latency any delay over 1 ms then has a deadline that
+          // is already expired, so OB releases the cancel on the next record
+          // with no latency at all. That is precisely the bug this branch
+          // fixes, re-created one path over. The Timer runs on market time and
+          // stamps every Alarm with it (Timer.cpp:110).
+          const uint64_t alarm_tim = const_cast<frame::mtim::msg::Alarm *>(m)->currtim._epoch_;
+          if (alarm_tim > this->curr_tx_time)
+            this->curr_tx_time = alarm_tim;
+          log_inf("executing delayed cancel at %lu", this->curr_tx_time);
           this->cancel_order();
         }
         return true;  // Handled

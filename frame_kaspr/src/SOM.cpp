@@ -1089,12 +1089,13 @@ void act::SOM::bbbochg_handler(const ob::msg::BBBOChg *m) noexcept
 {
   best_bid[m->sym] = m->best_bid;
   best_ask[m->sym] = m->best_ask;
-  currtim = m->tx_time;
+  note_market_time(m->tx_time);
 }
 
 void act::SOM::order_handler(const msg::Order *m) noexcept
 {
   ASSERT(m->sender, "no sender");
+  note_market_time(m->ts);
   ASSERT(m->sz > 0, "order for 0 size");
   ASSERT(m->sz < CHOPIN_MAX_ORD_SZ, "bad size");
 
@@ -1484,6 +1485,7 @@ void act::SOM::canc_handler(const msg::Cancel *m) noexcept
     return;
   }
 
+  note_market_time(m->ts);
   cancel_order(m->id, *ord, m->ts);
 }
 
@@ -1834,9 +1836,9 @@ void frame::som::act::SOM::cancel_order(uint id, const msg::Order &ord, uint64_t
     // the adverse fill a real one would have cost.
     //
     // Prefer the canceller's own market time; fall back to the SOM's clock
-    // (currtim, fed by BBBOChg -- live but gappy, since OB suppresses the
-    // notification on a locked book); fall back last to o.ts, which at least
-    // keeps the ts0 > 0 invariant.
+    // (see note_market_time) for the internal cancels that have no message of
+    // their own; fall back last to o.ts, which at least keeps the ts0 > 0
+    // invariant that OB asserts on.
     payload->ts0 = canc_ts ? canc_ts : (currtim ? currtim : o.ts);
     ASSERT(payload->ts0 > 0, "bad ts0");
     d->israw = false; // it actually defaults to false

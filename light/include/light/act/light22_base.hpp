@@ -313,11 +313,17 @@ namespace light::act
         cancel_requests.insert(ord_info.get_oid());
         if (!from_rej)
         {
-          // Stamp with market time, the same clock place_order() passes as
-          // msg::Order::ts, so the cancel pays the same modelled wire latency
-          // as the order did. curr_tx_time is set at the top of eob_handler;
-          // on the reject and alarm paths it is the last EOB's time, which is
-          // the most recent market time this light has seen.
+          // Stamp with market time so the cancel pays the same modelled wire
+          // latency as the order did. curr_tx_time is set at the top of
+          // eob_handler; the alarm path refreshes it from the Alarm's own
+          // market time before getting here, and the reject paths use the last
+          // EOB, which is the freshest market time this light has.
+          //
+          // In a TIMTRACE build place_order() is handed hndl_tim_epoch rather
+          // than txtim_epoch (light22.hpp), so orders and cancels would come
+          // off two different clocks while process_q compares both against the
+          // same to_proc->tim. TIMTRACE is off (mk_kaspr/glob_begin.mk) and
+          // turning it on needs this stamp switched to match.
           frame::som::msg::Cancel cancel_msg(ord_info.get_oid(), curr_tx_time);
           som->fast_send(&cancel_msg, this);
         }
