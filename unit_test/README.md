@@ -1,6 +1,6 @@
 # unit_test — Google Test suite
 
-232 tests over the pieces that decide what the simulator does: the shadow light,
+253 tests over the pieces that decide what the simulator does: the shadow light,
 the coordination objects it shares, reference data, the timer, the simulated
 order manager, and position tracking.
 
@@ -46,6 +46,9 @@ cmake --build build -j8 && cmake --install build
 | `test_light22.cpp` | light22 messages, enums, placement/cancel conditions |
 | `test_light22_order.cpp` | order lifecycle |
 | `test_light22_integration.cpp` | real `light22` against mock SOM/OB/Timer |
+| `test_som_cancel_latency.cpp` | the ts0 SOM stamps on orders and cancels |
+| `test_ob_delay_queue.cpp` | OB's delay queue: the wire-latency model |
+| `test_slippage_probe.cpp` | the probe's 30-minute fire cadence |
 
 `test_light22_integration.cpp` is the one that matters most: it instantiates the
 actual `light22<BUY>` / `light22<SEL>` and drives it with `EndOfBurst` messages,

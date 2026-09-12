@@ -34,6 +34,8 @@ namespace sim
    * (it simulates a counterparty; we fill against recorded flow), and the
    * ZMQ/registry/coordinator plumbing. See models/PLAN.md D0b.
    */
+  struct SlippageProbe;
+
   struct SimKaspr : public actors::Manager
   {
     SimKaspr(std::string data_file,
@@ -47,7 +49,10 @@ namespace sim
              uint32_t rng_seed = 0,
              int ord_sz = -1,
              int ob_delay_us = -1,
-             int ob_cancel_delay_us = -1);
+             int ob_cancel_delay_us = -1,
+             int probe_size = 0,
+             std::string probe_out = "",
+             std::vector<uint64_t> probe_fires = {});
     ~SimKaspr() override = default;
 
   private:
@@ -72,8 +77,16 @@ namespace sim
     // Cancel latency. Same wire as an order, so -1 (= ob_delay_us) is the
     // physically right default; set it only to test the asymmetric case.
     int      ob_cancel_delay_us_;
+    // SlippageProbe: parent size per leg (0 = no probe), CSV path, and the
+    // fire times as epoch ns. The times are computed by the caller against a
+    // real tz database -- see main.cpp -- because chutil::Time is UTC and a
+    // fixed wall-clock hour would drift against ET when DST starts.
+    int                   probe_size_;
+    std::string           probe_out_;
+    std::vector<uint64_t> probe_fires_;
 
     actors::Group* group_ = nullptr;
+    SlippageProbe* probe_ = nullptr;
     polonaise::logger::act::Logger* logger_ = nullptr;
 
     // Dense [venue][asset_id] layout, which is what SOM expects.
@@ -100,6 +113,7 @@ namespace sim
     void create_order_books();
     void create_timer();
     void create_som();
+    void create_probe();
     void create_lights();
     void create_position_manager();
     void create_bfa();

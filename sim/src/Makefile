@@ -8,7 +8,7 @@ include $(KSPRPROJ)/mk_kaspr/glob_begin.mk
 # sim/include holds the SimKaspr header
 EXTRA_INCL = -I$(KSPRPROJ)/sim/include
 
-SRC = SimKaspr.cpp main.cpp
+SRC = SimKaspr.cpp SlippageProbe.cpp main.cpp
 APPNAM = sim
 
 include $(KSPRPROJ)/mk_kaspr/app_template.mk

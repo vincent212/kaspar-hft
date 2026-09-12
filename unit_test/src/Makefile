@@ -19,6 +19,8 @@ SRC = test_cache_array.cpp \
       test_som.cpp \
       test_som_cancel_latency.cpp \
       test_ob_delay_queue.cpp \
+      test_slippage_probe.cpp \
+      SlippageProbe.cpp \
       test_position.cpp \
       test_position_manager.cpp \
       test_light22.cpp \
@@ -27,7 +29,11 @@ SRC = test_cache_array.cpp \
 
 APPNAM = run_tests
 
-INCL  += -I$(KSPRPROJ)/unit_test/include -I$(GTEST_PATH)/include
+# SlippageProbe lives in sim/, which is an application rather than a library,
+# so its source is compiled straight into the test binary.
+vpath %.cpp $(KSPRPROJ)/sim/src
+
+INCL  += -I$(KSPRPROJ)/unit_test/include -I$(KSPRPROJ)/sim/include -I$(GTEST_PATH)/include
 LIBSO += -L$(GTEST_PATH)/lib -lgtest -lgtest_main
 LIBSG += -L$(GTEST_PATH)/lib -lgtest -lgtest_main
 

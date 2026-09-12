@@ -23,6 +23,7 @@
 #include "som/if/SOM.hpp"
 #include "light/if/light22.hpp"
 #include "positionman/if/PositionManager.hpp"
+#include "sim/act/SlippageProbe.hpp"
 
 namespace sim
 {
@@ -38,7 +39,10 @@ SimKaspr::SimKaspr(std::string data_file,
                    uint32_t rng_seed,
                    int ord_sz,
                    int ob_delay_us,
-                   int ob_cancel_delay_us)
+                   int ob_cancel_delay_us,
+                   int probe_size,
+                   std::string probe_out,
+                   std::vector<uint64_t> probe_fires)
     : Manager("sim_manager")
     , data_file_(std::move(data_file))
     , universe_json_(std::move(universe_json))
@@ -52,6 +56,9 @@ SimKaspr::SimKaspr(std::string data_file,
     , ord_sz_(ord_sz)
     , ob_delay_us_(ob_delay_us)
     , ob_cancel_delay_us_(ob_cancel_delay_us)
+    , probe_size_(probe_size)
+    , probe_out_(std::move(probe_out))
+    , probe_fires_(std::move(probe_fires))
 {
   std::cerr << "SimKaspr: data=" << data_file_ << "\n"
             << "          universe=" << universe_json_ << "\n"
@@ -71,8 +78,13 @@ SimKaspr::SimKaspr(std::string data_file,
   create_order_books();
   create_timer();
   logger_->set_timer(timer_);
+  // Before the SOM: the probe is its fill subscriber. After the lights: the
+  // probe drives them, and they do not exist yet.
+  create_probe();
   create_som();
   create_lights();
+  if (probe_ && !lights_.empty())
+    probe_->set_lights(lights_[0], lights_[1]);
   create_position_manager();
   create_bfa();
 
@@ -243,11 +255,46 @@ void SimKaspr::create_timer()
   group_->add(timer_);
 }
 
+void SimKaspr::create_probe()
+{
+  if (probe_size_ <= 0 || probe_fires_.empty())
+    return;
+
+  // The probe measures one instrument against one mid. With more than one book
+  // there is no single "the contract", so require --contract rather than pick
+  // one silently.
+  if (books_.size() != 1)
+  {
+    std::cerr << "SimKaspr: --probe-size needs exactly one book; pass --contract "
+              << "(have " << books_.size() << ")" << std::endl;
+    return;
+  }
+
+  auto a = frame::ref::RefData::inst().get_asset(book_syms_[0]);
+  ASSERT(a, "probe: no asset for the book");
+
+  SlippageProbe::Config cfg;
+  cfg.sym_name  = a->name;
+  cfg.sym       = book_syms_[0];
+  cfg.parent_sz = probe_size_;
+  cfg.fire_ts   = probe_fires_;
+  cfg.out_path  = probe_out_;
+
+  probe_ = new SlippageProbe(books_[0], timer_, cfg);
+  group_->add(probe_);
+
+  std::cerr << "SimKaspr: probe on " << cfg.sym_name << " parent_sz=" << probe_size_
+            << " fires=" << probe_fires_.size()
+            << (probe_out_.empty() ? "" : (" out=" + probe_out_)) << std::endl;
+}
+
 void SimKaspr::create_som()
 {
   boost::property_tree::ptree pt_som;
   boost::property_tree::read_info(config_dir_ + "/som.ini", pt_som);
-  som_ = create_SOM(venue_, nullptr, pt_som, order_books_, true /*sim_mode*/, false /*spin*/);
+  som_ = create_SOM(venue_, nullptr, pt_som, order_books_, true /*sim_mode*/,
+                    false /*spin*/, false /*reset_positions*/,
+                    probe_ /*fill_subscriber*/);
   group_->add(som_);
 }
 

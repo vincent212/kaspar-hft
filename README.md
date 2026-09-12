@@ -115,6 +115,55 @@ Notes:
 - The Linux build targets x86-64 (`-mcx16`, `-mfpmath=sse`, `-march=native`);
   build on an x86-64 host (or under emulation).
 
+## Tests
+
+253 Google Test cases over the pieces that decide what the simulator does: the
+shadow light, the order book's delay queue, the coordination objects, reference
+data, the timer, the simulated order manager, position tracking, and the
+slippage probe.
+
+```bash
+export KSPRPROJ=~/kaspar-hft
+eval "$(mk_kaspr/detect_paths.sh)"     # must produce GTEST_PATH
+make test                              # builds the libs, builds the tests, runs them
+```
+
+Or directly, which is what you want while iterating:
+
+```bash
+cd unit_test/src && make && ./run_tests
+./run_tests --gtest_filter='SlippageProbeTest.*'
+./run_tests --gtest_list_tests
+```
+
+`make test` is deliberately **not** part of `make install`: gtest is an extra
+dependency and a fresh checkout should build the system without it. If
+`detect_paths.sh` does not find gtest, `detect_paths.sh --check` prints install
+hints (`apt: libgtest-dev | dnf: gtest-devel | brew: googletest`), or build it
+into a home prefix:
+
+```bash
+git clone --depth 1 -b v1.14.0 https://github.com/google/googletest
+cmake -S googletest -B build -DCMAKE_INSTALL_PREFIX=$HOME/local
+cmake --build build -j8 && cmake --install build
+```
+
+The tests run synchronously through `TestHelper::invoke_handler` — no Manager,
+no threads — so they are deterministic and the whole suite takes about 80 ms.
+Mocks live in `unit_test/include/unit_test/`. See `unit_test/README.md` for the
+per-file inventory and how to add a case.
+
+Two suites are worth knowing about because they cover things that were silently
+broken and are easy to break again:
+
+- **`test_ob_delay_queue.cpp`** — the latency model. Our orders are held on
+  `del_q` until `ts0 + wire latency` has passed in *market* time; these pin the
+  withholding, the 40 us floor, and that cancels pay it too.
+- **`test_slippage_probe.cpp`** — the probe's cadence: twelve fires, one per
+  half hour from 09:30 to 15:00 ET, none in between and none after. A full
+  session's schedule is exercised in microseconds instead of the twenty minutes
+  a replay takes.
+
 ## Operating Modes
 
 | Mode | Data Source | Execution | Order Book | Use Case |

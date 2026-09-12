@@ -13,13 +13,80 @@
 #include <boost/filesystem.hpp>
 #include <boost/thread/thread.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <csignal>
+#include <cstdlib>
+#include <ctime>
 #include <fenv.h>
 #include <iostream>
+#include <string>
 #include <unistd.h>
+#include <vector>
 
 namespace po = boost::program_options;
 using namespace std;
+
+
+// ET wall-clock -> epoch ns, through the host tz database.
+//
+// Not chutil::Time: it formats with gmtime_r, so every wall-clock accessor on
+// it is UTC. A probe schedule expressed as a fixed UTC hour would silently
+// shift an hour against the exchange when DST starts on 2025-03-09, which is
+// inside the test window. mktime() with TZ set does the real conversion.
+static uint64_t et_to_epoch_ns(int y, int mo, int d, int h, int mi)
+{
+  char *old_tz = getenv("TZ");
+  std::string saved = old_tz ? old_tz : "";
+  setenv("TZ", "America/New_York", 1);
+  tzset();
+
+  struct tm tm {};
+  tm.tm_year = y - 1900;
+  tm.tm_mon  = mo - 1;
+  tm.tm_mday = d;
+  tm.tm_hour = h;
+  tm.tm_min  = mi;
+  tm.tm_isdst = -1;            // let the tz database decide
+  const time_t t = mktime(&tm);
+
+  if (old_tz) setenv("TZ", saved.c_str(), 1); else unsetenv("TZ");
+  tzset();
+
+  return uint64_t(t) * 1000000000ull;
+}
+
+// 09:30 to 15:00 ET inclusive, every `every_min` minutes.
+static std::vector<uint64_t> probe_schedule(const std::string &date_yyyymmdd, int every_min)
+{
+  std::vector<uint64_t> out;
+  if (date_yyyymmdd.size() != 8) return out;
+  const int y  = std::stoi(date_yyyymmdd.substr(0, 4));
+  const int mo = std::stoi(date_yyyymmdd.substr(4, 2));
+  const int d  = std::stoi(date_yyyymmdd.substr(6, 2));
+  for (int mins = 9 * 60 + 30; mins <= 15 * 60; mins += every_min)
+    out.push_back(et_to_epoch_ns(y, mo, d, mins / 60, mins % 60));
+  return out;
+}
+
+// Pull the session date out of a name like 310.20250115.databento.bin, so the
+// common case needs no extra flag.
+static std::string date_from_datafile(const std::string &path)
+{
+  size_t slash = path.find_last_of('/');
+  std::string base = (slash == std::string::npos) ? path : path.substr(slash + 1);
+  for (size_t i = 0; i + 8 <= base.size(); ++i)
+  {
+    if (std::all_of(base.begin() + i, base.begin() + i + 8, ::isdigit) &&
+        (i == 0 || !isdigit(base[i - 1])) &&
+        (i + 8 == base.size() || !isdigit(base[i + 8])))
+    {
+      std::string cand = base.substr(i, 8);
+      if (cand.substr(0, 2) == "20") return cand;
+    }
+  }
+  return "";
+}
 
 int main(int argc, char* argv[])
 {
@@ -37,6 +104,7 @@ int main(int argc, char* argv[])
   cout << argv[0] << endl;
   cout << boost::filesystem::current_path() << endl;
   cout << "pid: " << getpid() << endl;
+
 
   po::options_description desc("Allowed options");
   desc.add_options()
@@ -76,6 +144,18 @@ int main(int argc, char* argv[])
                     "case. Must be >= --ob-delay-us: the delay queue is FIFO, so "
                     "a cancel cannot overtake an order still in flight and a "
                     "shorter value would silently do nothing.")
+      ("probe-size", po::value<int>()->default_value(0),
+                    "SlippageProbe parent size in contracts per leg; 0 = no probe. "
+                    "Every 30 min from 09:30 to 15:00 ET the probe buys this many "
+                    "through the shadow lights, sells back to flat, and records "
+                    "each leg's VWAP against the mid it started from.")
+      ("probe-out", po::value<string>()->default_value(""),
+                    "CSV for the probe's per-fire rows; empty = log only")
+      ("probe-date", po::value<string>()->default_value(""),
+                    "session date YYYYMMDD for the probe schedule; empty = take it "
+                    "from the datafile name. ET wall-clock, DST handled.")
+      ("probe-every-min", po::value<int>()->default_value(30),
+                    "minutes between probe fires")
       ("logdebug",  "enable debug logs");
 
   po::variables_map vm;
@@ -99,6 +179,28 @@ int main(int argc, char* argv[])
   polonaise::logger::act::Logger::log_debug  = vm.count("logdebug") > 0;
   polonaise::logger::act::Logger::synchrolog = vm.count("logdebug") > 0;
 
+  const int probe_size = vm["probe-size"].as<int>();
+  std::vector<uint64_t> probe_fires;
+  if (probe_size > 0)
+  {
+    std::string pdate = vm["probe-date"].as<string>();
+    if (pdate.empty()) pdate = date_from_datafile(vm["datafile"].as<string>());
+    if (pdate.empty())
+    {
+      cerr << "Error: --probe-size given but no --probe-date and none found in the "
+              "datafile name\n";
+      return 1;
+    }
+    probe_fires = probe_schedule(pdate, vm["probe-every-min"].as<int>());
+    if (probe_fires.empty())
+    {
+      cerr << "Error: could not build a probe schedule for date " << pdate << "\n";
+      return 1;
+    }
+    cerr << "probe schedule: " << probe_fires.size() << " fires on " << pdate
+         << " ET, first=" << probe_fires.front() << " last=" << probe_fires.back() << "\n";
+  }
+
   sim::SimKaspr* mgr = nullptr;
   try {
     mgr = new sim::SimKaspr(vm["datafile"].as<string>(),
@@ -112,7 +214,10 @@ int main(int argc, char* argv[])
                             vm["rng-seed"].as<uint32_t>(),
                             vm["ord-sz"].as<int>(),
                             vm["ob-delay-us"].as<int>(),
-                            vm["ob-cancel-delay-us"].as<int>());
+                            vm["ob-cancel-delay-us"].as<int>(),
+                            probe_size,
+                            vm["probe-out"].as<string>(),
+                            probe_fires);
   } catch (const std::exception& e) {
     cerr << "ERROR constructing SimKaspr: " << e.what() << "\n";
     return 1;
