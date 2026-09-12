@@ -233,6 +233,19 @@ void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
 
   log_inf("fill %s %.0f @ %d pos=%d (leg filled=%.0f vwap=%.2f)",
           en::to_string(m->side), sz, m->pxi, position, leg.filled, leg.vwap());
+
+  // Transition HERE, on the fill that completes the leg -- not at the next
+  // clock tick. The leg is over the instant the last contract prints, and
+  // market volume is accumulated by phase, so leaving the phase set until a
+  // tick notices would keep counting volume the leg was not actually working
+  // for. At a 1s tick and a 1-lot leg that filled in 0.2s, the denominator
+  // covered 5x the interval the numerator did, which deflated participation
+  // hardest at exactly the small sizes the size axis is measuring.
+  const uint64_t now = m->tim ? m->tim : last_tim;
+  if (phase == Phase::BUYING && buy_leg.filled >= cfg.parent_sz)
+    begin_sell_leg(now);
+  else if (phase == Phase::SELLING && position <= 0)
+    finish_fire(now, buy_leg.filled >= cfg.parent_sz ? "ok" : "buy_short");
 }
 
 void SlippageProbe::emit_header()
@@ -241,7 +254,7 @@ void SlippageProbe::emit_header()
           "fire_ts,sym,parent_sz,mid_fire,buy_vwap,buy_filled,buy_fills,buy_ns,"
           "mid_sell,sel_vwap,sel_filled,sel_fills,sel_ns,"
           "slip_buy_ticks,slip_sel_ticks,slip_paired_ticks,slip_legsum_ticks,"
-          "buy_mkt_vol,sel_mkt_vol,buy_part,sel_part,outcome\n");
+          "buy_leg_mkt_vol,sel_leg_mkt_vol,buy_part,sel_part,outcome\n");
   fflush(out);
 }
 

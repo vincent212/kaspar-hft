@@ -127,10 +127,12 @@ namespace sim
       int      n_fills  = 0;
       uint64_t started  = 0;
       uint64_t ended    = 0;
-      // Market volume that traded while this leg was working. The denominator
-      // of realised participation, and the reason the probe listens to trades
-      // at all: without it the run measures what we paid but not what share of
-      // the market we were.
+      // TOTAL market volume that traded while this leg was working -- not
+      // buy-side volume. Every trade has a buyer and a seller, so a buy/sell
+      // split of the same interval would be identical; what differs between
+      // the legs is the INTERVAL, since the buy leg and the sell leg run at
+      // different times and for different durations. The denominator of
+      // realised participation.
       double   mkt_vol  = 0;
 
       double vwap() const { return filled > 0 ? notional / filled : 0.0; }

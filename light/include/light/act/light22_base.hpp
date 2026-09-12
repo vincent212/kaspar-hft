@@ -290,7 +290,13 @@ namespace light::act
       ord_sz = pt.get<int>("ord_sz");
       auto lev_orders_max_ = pt.get<int>("lev_orders_max");
       lev_orders_max = lev_orders_max_;
-      all_orders_max = lev_orders_max * (nlevels + 3);
+      // Deliberately generous: this is a safety ceiling on total working
+      // orders, not the depth control. max_dist is what limits how deep we
+      // rest, and if this cap bound first it would silently become the real
+      // constraint and confound any sweep of max_dist.
+      // Assigned ONCE: place<> is write-once and asserts on a second write.
+      all_orders_max = std::max(lev_orders_max * (nlevels + 3),
+                                (pt.template get<int>("max_dist", 4) + 1) * lev_orders_max);
 
       std::cerr << get_name() << " nlevels: " << nlevels << std::endl;
       std::cerr << get_name() << " lev_orders_max: " << lev_orders_max << std::endl;

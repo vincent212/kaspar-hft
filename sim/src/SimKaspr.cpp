@@ -40,6 +40,7 @@ SimKaspr::SimKaspr(std::string data_file,
                    int ord_sz,
                    int ob_delay_us,
                    int ob_cancel_delay_us,
+                   int max_dist,
                    int probe_size,
                    std::string probe_out,
                    std::vector<uint64_t> probe_fires)
@@ -56,6 +57,7 @@ SimKaspr::SimKaspr(std::string data_file,
     , ord_sz_(ord_sz)
     , ob_delay_us_(ob_delay_us)
     , ob_cancel_delay_us_(ob_cancel_delay_us)
+    , max_dist_(max_dist)
     , probe_size_(probe_size)
     , probe_out_(std::move(probe_out))
     , probe_fires_(std::move(probe_fires))
@@ -323,9 +325,11 @@ void SimKaspr::create_lights()
   if (place_rate_bp_ >= 0) pt_light.put("place_rate_bp", place_rate_bp_);
   if (rng_seed_)           pt_light.put("rng_seed", rng_seed_);
   if (ord_sz_ > 0)         pt_light.put("ord_sz", ord_sz_);
+  if (max_dist_ > 0)       pt_light.put("max_dist", max_dist_);
   std::cerr << "SimKaspr: lights place_rate_bp=" << pt_light.get<int>("place_rate_bp", 300)
             << " ord_sz=" << pt_light.get<int>("ord_sz", 1)
-            << " rng_seed=" << pt_light.get<uint32_t>("rng_seed", 1) << std::endl;
+            << " rng_seed=" << pt_light.get<uint32_t>("rng_seed", 1)
+            << " max_dist=" << pt_light.get<int>("max_dist", 4) << std::endl;
 
   for (size_t i = 0; i < books_.size(); ++i) {
     auto ob  = books_[i];

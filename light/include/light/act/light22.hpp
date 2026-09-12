@@ -53,10 +53,20 @@ namespace light::act
     std::mt19937 rng{1};            // per-light, deterministically seeded
     int eob_counter = 0;
 
-    // Maximum distance (in ticks) from best bid/ask to place orders
-    static constexpr int max_dist = 4;
-    // Maximum distance (in ticks) from best bid/ask before cancelling (more loose than placement)
-    static constexpr int max_dist_cancel = 6;
+    // How deep into the book we are willing to rest, in ticks from the touch.
+    //
+    // This is the binding constraint on how much size can be working at once:
+    // at most (max_dist + 1) price levels x lev_orders_max per level. With the
+    // 4/5 defaults that is 25 contracts, so a 100-lot parent cannot be worked
+    // in one pass and is forced into refill rounds -- which shows up as a
+    // longer leg and higher cost, and is a property of THIS configuration
+    // rather than of passive execution. It is configurable so the size axis
+    // can be separated from the depth cap.
+    int max_dist = 4;
+    // Looser than placement, so an order is not cancelled the moment the touch
+    // ticks away from it. Defaults to max_dist + 2, preserving the original
+    // 4/6 relationship at any depth.
+    int max_dist_cancel = 6;
 
     light22(
         const std::string &prefix,
@@ -89,6 +99,13 @@ namespace light::act
       // experiment sweeps 0.5% / 1% / 3% / 5%, and the previous
       // `std::rand() % 100` could not represent 0.5 at all.
       place_rate_bp = this->pt.template get<int>("place_rate_bp", 300);   // 3%
+      max_dist = this->pt.template get<int>("max_dist", 4);
+      max_dist_cancel = this->pt.template get<int>("max_dist_cancel", max_dist + 2);
+      ASSERTF(max_dist_cancel >= max_dist,
+              boost::format("max_dist_cancel %d < max_dist %d: an order would be "
+                            "cancelled at a distance it is still allowed to be "
+                            "placed at, so placement would thrash")
+                % max_dist_cancel % max_dist);
       delayed_cancel_ms = this->pt.template get<int>("delayed_cancel_ms", 0);
       delayed_cancel_events = this->pt.template get<int>("delayed_cancel_events", 0);
       ASSERT(!(delayed_cancel_ms && delayed_cancel_events),
@@ -155,6 +172,9 @@ namespace light::act
       log_inf("mmid: %d, trader: %s", this->mmid.get(), en::to_string(this->owner));
       log_inf("nlevels: %d, lev_orders_max: %d, all_orders_max: %d, ord_sz: %d",
               this->nlevels.get(), this->lev_orders_max.get(), this->all_orders_max.get(), this->ord_sz.get());
+      log_inf("max_dist: %d, max_dist_cancel: %d, max working size: %d",
+              max_dist, max_dist_cancel,
+              std::min((max_dist + 1) * this->lev_orders_max.get(), this->all_orders_max.get()));
     }
 
     void start_handler(const actors::msg::Start *)

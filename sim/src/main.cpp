@@ -156,6 +156,11 @@ int main(int argc, char* argv[])
                     "from the datafile name. ET wall-clock, DST handled.")
       ("probe-every-min", po::value<int>()->default_value(30),
                     "minutes between probe fires")
+      ("max-dist",  po::value<int>()->default_value(-1),
+                    "how deep the light rests, in ticks from the touch. Bounds "
+                    "working size at (max_dist+1) x lev_orders_max, so at a "
+                    "large parent this -- not the size -- can be what sets the "
+                    "cost. -1 = use lights.ini (4).")
       ("quiet",     "log only errors, warnings and operator lines. A session "
                     "writes ~600MB of INFO otherwise, which bounds a sweep by "
                     "disk rather than by CPU.")
@@ -219,6 +224,7 @@ int main(int argc, char* argv[])
                             vm["ord-sz"].as<int>(),
                             vm["ob-delay-us"].as<int>(),
                             vm["ob-cancel-delay-us"].as<int>(),
+                            vm["max-dist"].as<int>(),
                             probe_size,
                             vm["probe-out"].as<string>(),
                             probe_fires);

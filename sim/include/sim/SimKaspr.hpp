@@ -50,6 +50,7 @@ namespace sim
              int ord_sz = -1,
              int ob_delay_us = -1,
              int ob_cancel_delay_us = -1,
+             int max_dist = -1,
              int probe_size = 0,
              std::string probe_out = "",
              std::vector<uint64_t> probe_fires = {});
@@ -77,6 +78,10 @@ namespace sim
     // Cancel latency. Same wire as an order, so -1 (= ob_delay_us) is the
     // physically right default; set it only to test the asymmetric case.
     int      ob_cancel_delay_us_;
+    // How deep the light will rest, in ticks from the touch. The binding
+    // limit on working size: (max_dist + 1) levels x lev_orders_max.
+    // -1 = leave lights.ini alone.
+    int      max_dist_;
     // SlippageProbe: parent size per leg (0 = no probe), CSV path, and the
     // fire times as epoch ns. The times are computed by the caller against a
     // real tz database -- see main.cpp -- because chutil::Time is UTC and a

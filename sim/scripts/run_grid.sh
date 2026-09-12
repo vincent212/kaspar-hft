@@ -43,19 +43,32 @@ cp "$BIN_SRC" "$OUT/sim.pinned"
 BIN="$OUT/sim.pinned"
 
 # ---- the 29 configs ---------------------------------------------------
-# name  grid  place_rate_bp  probe_size  ord_sz  delay_us  cancel_delay_us
+# name  grid  place_rate_bp  probe_size  ord_sz  delay_us  cancel_delay_us  max_dist
 grid_tsv="$OUT/grid.tsv"
 {
   for bp in 50 100 300 500; do
     for sz in 1 10 100; do
-      printf 'rate%s_sz%s\tA\t%s\t%s\t-1\t500\t500\n' "$bp" "$sz" "$bp" "$sz"
+      printf 'rate%s_sz%s\tA\t%s\t%s\t-1\t500\t500\t-1\n' "$bp" "$sz" "$bp" "$sz"
     done
   done
   for q in 1 2 5 10 20 50 100 200; do
-    printf 'Q%s\tB\t300\t%s\t1\t500\t500\n' "$q" "$q"
+    printf 'Q%s\tB\t300\t%s\t1\t500\t500\t-1\n' "$q" "$q"
   done
   for us in 0 100 200 400 500 800 1600 3200 6400; do
-    printf 'lat%s\tC\t300\t100\t-1\t%s\t%s\n' "$us" "$us" "$us"
+    printf 'lat%s\tC\t300\t100\t-1\t%s\t%s\t-1\n' "$us" "$us" "$us"
+  done
+  # D: depth sweep at 100 lots. The 4-tick default caps working size at 25
+  # contracts, so a 100-lot parent is forced into refill rounds and the size
+  # result partly measures the cap rather than the size. This separates them.
+  # 10 lots is the control: the cap never binds there (10 < 25 even at depth 3),
+  # so whatever depth does to the 10-lot cost is the genuine effect of resting
+  # deeper -- better prices when the market comes to you, against a lower fill
+  # probability. Any EXTRA movement at 100 lots is the cap being relieved.
+  # Without the 10-lot arm the two effects are inseparable.
+  for md in 3 5 10 15; do
+    for sz in 10 100; do
+      printf 'depth%s_sz%s\tD\t300\t%s\t-1\t500\t500\t%s\n' "$md" "$sz" "$sz" "$md"
+    done
   done
 } > "$grid_tsv"
 
@@ -99,7 +112,7 @@ echo "jobs   : $NJOBS"
 
 # ---- one run ----------------------------------------------------------
 run_one() {
-  local name=$1 gridid=$2 bp=$3 psz=$4 osz=$5 dly=$6 cdly=$7 date=$8
+  local name=$1 gridid=$2 bp=$3 psz=$4 osz=$5 dly=$6 cdly=$7 mdist=$8 date=$9
 
   local csv="$OUT/csv/$name/$date.csv"
   local log="$OUT/log/$name/$date.log"
@@ -124,6 +137,8 @@ run_one() {
 
   local ordsz_arg=()
   [ "$osz" != "-1" ] && ordsz_arg=(--ord-sz "$osz")
+  local mdist_arg=()
+  [ "$mdist" != "-1" ] && mdist_arg=(--max-dist "$mdist")
 
   local wd; wd=$(mktemp -d "${TMPDIR:-/tmp}/grid.$name.$date.XXXXXX")
   ( cd "$wd" && nice -n 19 ionice -c 3 "$BIN" \
@@ -137,7 +152,7 @@ run_one() {
       --rng-seed "$SEED" \
       --ob-delay-us "$dly" \
       --ob-cancel-delay-us "$cdly" \
-      "${ordsz_arg[@]}" \
+      "${ordsz_arg[@]}" "${mdist_arg[@]}" \
       --probe-out "$csv" \
       --quiet ) > "$log" 2>&1
   local rc=$?
@@ -160,12 +175,12 @@ echo "name,date,rc,contract,last_line" > "$OUT/failures.csv"
 
 # ---- fan out ----------------------------------------------------------
 started=$(date +%s)
-while IFS=$'\t' read -r name gridid bp psz osz dly cdly; do
+while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist; do
   [ -n "$ONLY_GRID" ] && [ "$gridid" != "$ONLY_GRID" ] && continue
   mkdir -p "$OUT/csv/$name" "$OUT/log/$name"
   printf '%s\n' "${dates[@]}" \
     | xargs -P "$NJOBS" -I{} bash -c 'run_one "$@"' _ \
-        "$name" "$gridid" "$bp" "$psz" "$osz" "$dly" "$cdly" {}
+        "$name" "$gridid" "$bp" "$psz" "$osz" "$dly" "$cdly" "$mdist" {}
   ok=$(ls "$OUT/csv/$name" | wc -l)
   echo "[$(date +%H:%M:%S)] $name: $ok/${#dates[@]} sessions  ($(( $(date +%s) - started ))s elapsed)"
 done < "$grid_tsv"
