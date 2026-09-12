@@ -255,8 +255,19 @@ void SlippageProbe::emit_row(const char *outcome)
 
   const double slip_buy    = buy_leg.filled > 0 ? bv - midf : 0.0;
   const double slip_sel    = sel_leg.filled > 0 ? mids - sv : 0.0;
+  // HALF THE SUM OF THE LEG COSTS, not half the difference of the VWAPs.
+  //
+  // The two are algebraically identical only when both legs were referenced to
+  // the same mid. They are not: a passive buy fills when the price comes down
+  // to it, so by the time the sell leg starts the mid has systematically moved
+  // -- measured at -7.9 ticks on average. Taking (bv - sv)/2 silently folds
+  // that drift into the result and reported free money on 23% of fires.
+  //
+  // Each leg cost is already referenced to its own contemporaneous mid, so
+  // summing them is drift-free and is what the paper's definition actually
+  // says.
   const double slip_paired = (buy_leg.filled > 0 && sel_leg.filled > 0)
-                               ? (bv - sv) / 2.0 : 0.0;
+                               ? (slip_buy + slip_sel) / 2.0 : 0.0;
 
   log_inf("FIRE DONE %s: buy %.0f@%.2f sel %.0f@%.2f "
           "slip_buy=%.3f slip_sel=%.3f slip_paired=%.3f "
