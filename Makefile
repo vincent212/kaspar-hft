@@ -6,14 +6,14 @@ MKFLAGS= -k -w --no-print-directory --quiet
 
 all: install
 
-# The CME SBE codecs (mktdata_v12/, ilink_v8/) are generated, not committed
+# The CME SBE codecs (mdp3_sbe/, ilink3_sbe/) are generated, not committed
 # (see genschema/). Fail fast with instructions if a fresh checkout hasn't
 # generated them yet, rather than emit a cryptic missing-header compile error.
 .PHONY: check-schema schema
 check-schema:
-	@test -d "$(KSPRPROJ)/mktdata_v12" && ls "$(KSPRPROJ)"/mktdata_v12/*.h >/dev/null 2>&1 \
-	 && test -d "$(KSPRPROJ)/ilink_v8" && ls "$(KSPRPROJ)"/ilink_v8/*.h >/dev/null 2>&1 \
-	 || { echo "ERROR: SBE schema codecs missing (mktdata_v12/ ilink_v8/)."; \
+	@test -d "$(KSPRPROJ)/mdp3_sbe" && ls "$(KSPRPROJ)"/mdp3_sbe/*.h >/dev/null 2>&1 \
+	 && test -d "$(KSPRPROJ)/ilink3_sbe" && ls "$(KSPRPROJ)"/ilink3_sbe/*.h >/dev/null 2>&1 \
+	 || { echo "ERROR: SBE schema codecs missing (mdp3_sbe/ ilink3_sbe/)."; \
 	      echo "       They are generated from CME, not committed. Run: make schema"; \
 	      echo "       (see genschema/README.md for prerequisites)"; exit 1; }
 

@@ -6,7 +6,7 @@
 
 # genschema — generate the CME SBE codecs
 
-`mktdata_v12/` (MDP 3.0 market data) and `ilink_v8/` (iLink 3 order entry) are the
+`mdp3_sbe/` (MDP 3.0 market data) and `ilink3_sbe/` (iLink 3 order entry) are the
 CME SBE message codecs. They are **generated, not committed** — `genschema.py`
 fetches CME's `templates_FixBinary.xml` and runs the [real-logic SBE
 tool](https://github.com/real-logic/simple-binary-encoding) to emit the C++
@@ -15,7 +15,7 @@ headers. The `*.h` are git-ignored (each dir keeps only its `README.md`).
 ## Pinned versions
 
 The checked-in codecs were built and tested against **MDP3 schema v12**
-(`mktdata_v12/`) and **iLink 3 schema v8** (`ilink_v8/`) — the
+(`mdp3_sbe/`) and **iLink 3 schema v8** (`ilink3_sbe/`) — the
 `sbeSchemaVersion()` in the generated headers. The rest of the code depends on
 those exact struct/wire layouts, so **`make schema` regenerates those versions
 by default and refuses to emit a different one**: if CME's current template has
@@ -76,7 +76,7 @@ python3 genschema/genschema.py --schema mdp3 --template-file path/to/templates_F
 4. Rewrite the schema's `package` attribute to `sbe` (the namespace the code
    uses: `sbe::NewOrderSingle514`, …).
 5. Run `java -Dsbe.target.language=CPP -jar sbe-all.jar <template.xml>` into a
-   temp dir and copy the headers into `mktdata_v12/` / `ilink_v8/`, removing
+   temp dir and copy the headers into `mdp3_sbe/` / `ilink3_sbe/`, removing
    stale `*.h` first (the tracked `README.md` / `.gitignore` are left in place).
 
 ## Status / caveats

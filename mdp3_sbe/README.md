@@ -4,7 +4,7 @@
     Licensed under the MIT License. See LICENSE file in the project root.
 -->
 
-# mktdata_v12
+# mdp3_sbe
 
 **Generated — do not edit or commit these headers.** The `*.h` here are the CME
 MDP 3.0 SBE market-data codecs, produced by the real-logic SBE tool from CME's

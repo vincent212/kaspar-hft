@@ -73,7 +73,7 @@ sudo apt-get update && sudo apt-get install -y \
 Boost 1.88+ is newer than most distro packages — install a 1.88+ package or
 build it from source, then point the build at it.
 
-Generate the CME SBE codecs. `mktdata_v12/` (MDP3) and `ilink_v8/` (iLink 3) are
+Generate the CME SBE codecs. `mdp3_sbe/` (MDP3) and `ilink3_sbe/` (iLink 3) are
 **generated from CME's SBE templates, not committed** — generate them before the
 first build (needs Java and Python `paramiko`, plus network to Maven Central and
 CME SFTP; see `genschema/README.md`). By default this regenerates the pinned,
@@ -136,8 +136,8 @@ kaspar/
 ├── frame_ref/      Reference data & shared value types — instrument `Asset` defs, `Price`, the `RefData` universe
 ├── light/          Shadow / POV execution algorithm — the per-side `light22` lights
 ├── ilink/          CME iLink 3 order-entry session — SBE, HMAC auth, seq management, primary/secondary failover
-├── ilink_v8/       Generated iLink v8 SBE protocol headers
-├── mktdata_v12/    Generated MDP3 v12 SBE market-data headers
+├── ilink3_sbe/       Generated iLink v8 SBE protocol headers
+├── mdp3_sbe/    Generated MDP3 v12 SBE market-data headers
 ├── chutil/         Core utilities — time, sockets, enums, binary/CSV formats, assert/macros
 ├── interface/      Factory-function headers that create actors (keeps wiring decoupled from impl)
 ├── db/             Database persistence actor (stubbed)

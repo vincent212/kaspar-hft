@@ -8,7 +8,7 @@
  */
 
 #include "actors/Message.hpp"
-#include "ilink_v8/FTI.h"
+#include "ilink3_sbe/FTI.h"
 
 namespace ilink::msg
 {

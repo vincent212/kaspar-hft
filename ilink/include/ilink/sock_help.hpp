@@ -17,7 +17,7 @@
 #include <iostream>
 #include <optional>
 
-#include "ilink_v8/NegotiationResponse501.h"
+#include "ilink3_sbe/NegotiationResponse501.h"
 
 namespace m2::ilink::sockhelp
 {

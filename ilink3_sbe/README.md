@@ -4,7 +4,7 @@
     Licensed under the MIT License. See LICENSE file in the project root.
 -->
 
-# ilink_v8
+# ilink3_sbe
 **Generated — do not edit or commit these headers.** The `*.h` here are the CME
 iLink 3 SBE order-entry codecs, produced by the real-logic SBE tool from CME's
 iLink 3 `ilinkbinary.xml` schema (MSGW). They are git-ignored; regenerate with:

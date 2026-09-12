@@ -8,7 +8,7 @@
  */
 
 #include <stdint.h>
-#include "ilink_v8/FTI.h"
+#include "ilink3_sbe/FTI.h"
 
 namespace m2::ilink
 {

@@ -7,7 +7,7 @@
  */
 
 #include "actors/Message.hpp"
-#include "ilink_v8/PartyDetailRole.h"
+#include "ilink3_sbe/PartyDetailRole.h"
 
 namespace ilink::msg
 {

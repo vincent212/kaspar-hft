@@ -7,8 +7,8 @@
 
 #include "actors/Message.hpp"
 
-#include "ilink_v8/FTI.h"
-#include "ilink_v8/KeepAliveLapsed.h"
+#include "ilink3_sbe/FTI.h"
+#include "ilink3_sbe/KeepAliveLapsed.h"
 
 namespace ilink::msg
 {
