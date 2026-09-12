@@ -84,3 +84,14 @@ cmake_install.cmake
 # NFS
 .nfs*
 **/.nfs*
+
+# dbento_pcap_parse build artifacts
+dbento_pcap_parse/src/obj/
+dbento_pcap_parse/src/objg/
+dbento_pcap_parse/src/*.P
+dbento_pcap_parse/src/dbento_pcap_to_bin
+dbento_pcap_parse/src/build_universe
+dbento_pcap_parse/src/merge_bins
+dbento_pcap_parse/src/verify_merged
+dbento_pcap_parse/src/pcap_list_ips
+dbento_pcap_parse/src/out/
