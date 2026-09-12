@@ -1480,10 +1480,10 @@ different market states, and that session should be quarantined rather than aver
                             │                         Timer alarms at 15:57 ET; caches BBO mid
                             │                         at each alarm  →  mid_fire
                             │
-                            └─ SOM emits l3_som_t records (somcode, side, px, sz, symid,
-                               som_tim_epoch) — every field slippage needs
+                            └─ SOM Fill → fills CSV row:
+                               ts, side, px, sz, symbol, chunk, mid_at_fire
    │
-   ├─ per-leg vwap  = Σ(px·sz)/Σ(sz) over Fill records for that leg/direction
+   ├─ per-leg vwap  = Σ(px·sz)/Σ(sz) over fill rows for that leg/direction
    ├─ Slippage      = ½(vwap_buy − vwap_sel)          [mid cancels]
    └─ aggregate across sessions → mean, CI, per-regime split
 ```
@@ -1493,10 +1493,16 @@ different market states, and that session should be quarantined rather than aver
 directions makes the metric independent of that snapshot. It doubles compute — at ~40 s per
 session that is still minutes, not hours, for the whole corpus.
 
-**Where the fills come from.** `l3_som_t` already carries everything needed and is written through
-the same `bfile::write_l3` path as market data, so a run's fills can be persisted alongside its
-book events and re-read deterministically. `BFA` also writes a plain-text `som<pid>.out`; prefer
-the binary records for anything that feeds a number in the paper.
+**Where the fills come from — decided: CSV.** The sim writes one row per fill via
+`--fills-output`: `ts, side, px, sz, symbol, chunk, mid_at_fire`. The fire-time mid rides on every
+row, so the two direction-runs pair up from the fills file alone with no second artefact to keep
+in sync. The offline aggregator is Python and reads this directly.
+
+`l3_som_t` records carry the same fields (`somcode`, `side`, `px`, `sz`, `symid`,
+`som_tim_epoch`) and can be persisted through `bfile::write_l3` for archival or replay
+verification, but the **CSV is the source of truth for reported numbers** — a binary path would
+need a reader written before any figure comes out. `BFA` also drops a plain-text `som<pid>.out`;
+that is a debugging artefact, not an input.
 
 **Per-run acceptance gate** (a run that fails any of these is quarantined, not averaged in):
 1. Both direction-runs completed and filled the full parent (`still_to_be_filled == 0`).
