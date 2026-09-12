@@ -71,6 +71,28 @@ CSV=$OUT/universe.$CHAN.$DATE.csv
     zcat "$TMP"/*/universe.*.csv.gz 2>/dev/null | grep -v "^type," | sort -t, -k2,2n -u
 } > "$CSV"
 
+# JSON union too — this is the form BFA's securityID map is loaded from
+# ({"instruments":[...]}), so it must carry the full per-instrument record,
+# not just the CSV columns. Newest sighting per securityID wins.
+JSON=$OUT/universe.$CHAN.$DATE.json
+python3 - "$JSON" "$CHAN" "$DATE" "$TMP" <<'PYEOF'
+import glob, gzip, json, sys
+out, chan, date, tmp = sys.argv[1:5]
+by_id = {}
+for f in sorted(glob.glob(f"{tmp}/*/universe.*.json.gz")):
+    try:
+        with gzip.open(f, "rt") as fh:
+            for inst in json.load(fh).get("instruments", []):
+                sid = inst.get("securityID")
+                if sid is not None:
+                    by_id[int(sid)] = inst
+    except Exception:
+        continue
+json.dump({"channel": chan, "date": date,
+           "instruments": [by_id[k] for k in sorted(by_id)]},
+          open(out, "w"), indent=1)
+PYEOF
+
 n=$(($(wc -l < "$CSV") - 1))
 fdf=$(awk -F, '$1=="FDF"' "$CSV" | wc -l)
-echo "[ok] chan=$CHAN date=$DATE windows=$n_win instruments=$n fdf=$fdf -> $CSV"
+echo "[ok] chan=$CHAN date=$DATE windows=$n_win instruments=$n fdf=$fdf -> $CSV + $(basename "$JSON")"
