@@ -159,6 +159,57 @@ fill probabilities in a LOB — the closest existing methodology for scoring a f
 directly rather than through execution. Cite it as precedent for the approach, and differentiate on
 the label: ours is *filled AND not adversely selected*, not merely filled.
 
+### References to add to Paper 1 (`tech_reports/shadow_pov.tex`)
+
+Format matches the existing `thebibliography` block. Keys chosen to sit alongside the current
+ones; `negdrift2024` and `moallemi2016` are already cited and only need *engaging with* rather
+than adding.
+
+```latex
+\bibitem{latencyexec2025} A.~Kumar and S.~Jaimungal.
+  \emph{The Effect of Latency on Optimal Order Execution Policy.}
+  arXiv:2504.00846, 2025.
+
+\bibitem{stochdelay2022} Á.~Cartea, S.~Jaimungal, and L.~Sánchez-Betancourt.
+  \emph{Optimal Execution with Stochastic Delay.}
+  Finance and Stochastics, 26:773--812, 2022.
+
+\bibitem{bybitlatency2025} (authors TBC).
+  \emph{The Good, the Bad, and Latency: Exploratory Trading on Bybit and Binance.}
+  Quantitative Finance, 2025. DOI 10.1080/14697688.2025.2515933.
+
+\bibitem{flowhft2025} (authors TBC).
+  \emph{FlowHFT: Imitation Learning via Flow Matching Policy for Optimal
+  High-Frequency Trading under Diverse Market Conditions.}
+  arXiv:2505.05784, 2025.
+
+\bibitem{kanformer2025} (authors TBC).
+  \emph{KANFormer: Predicting Fill Probabilities via Survival Analysis in
+  Limit Order Books.}
+  arXiv:2512.05734, 2025.
+
+\bibitem{statefill2024} (authors TBC).
+  \emph{Fill Probabilities in a Limit Order Book with State-Dependent
+  Stochastic Order Flows.}
+  arXiv:2403.02572, 2024.
+```
+
+Author lists and exact venues are **unverified** — taken from search result titles, not from the
+papers. Fill them in from the sources before submission.
+
+**Where each is used.**
+
+| key | section | what it does for us |
+|---|---|---|
+| `latencyexec2025` | latency sensitivity | The nearest neighbour, and the one a reviewer will raise. Differentiate on *theoretical optimal limit price under latency* vs *measured cost across a latency range on real MBO*. |
+| `stochdelay2022` | latency sensitivity | Establishes delay as a studied control problem, reinforcing that the empirical curve is the gap. |
+| `bybitlatency2025` | latency sensitivity | The only empirical latency work found; differentiate on venue (crypto), instrument, and that it studies exploratory trading rather than passive execution cost. |
+| `negdrift2024` *(already cited)* | slippage definition / results | Reports a limit-order fill penalty near ½ tick on 10Y futures. **Our first session measured +0.500 exactly.** Engage with this directly — it is either independent corroboration or a rounding artefact. |
+| `moallemi2016` *(already cited)* | latency sensitivity | The theoretical anchor: latency degrades execution *through* queue position, so the curve measures queue-position value along a different axis. Currently cited only for per-fill randomness; promote it. |
+| `flowhft2025` | related work | One sentence of differentiation: imitation learning mimics an *expert policy*; shadow attaches to individual live orders by identifier and learns nothing. |
+| `kanformer2025` | (Paper 2) predictive scoring | Methodological precedent for scoring fill-probability models directly. Differentiate on the label: *filled AND not adversely selected*. |
+| `statefill2024` | (Paper 2) predictive scoring | State-dependent fill probability — the quantity B0/M0 estimate. |
+
 ### Verification still owed (before submission)
 Read in full (only abstracts/excerpts reviewed so far): arXiv:2409.12721 and arXiv:2501.08822.
 Run one more targeted sweep on "does statistical LOB realism predict execution performance" to
