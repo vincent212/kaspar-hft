@@ -42,7 +42,10 @@ namespace sim
              std::string config_dir,
              en::x venue,
              uint64_t ob_debug_from = 0,
-             uint64_t end_ts = 0);
+             uint64_t end_ts = 0,
+             int place_rate_bp = -1,
+             uint32_t rng_seed = 0,
+             int ord_sz = -1);
     ~SimKaspr() override = default;
 
   private:
@@ -53,6 +56,12 @@ namespace sim
     en::x venue_;
     uint64_t ob_debug_from_;  // 0 = off; else arm OB debug from this epoch (ns)
     uint64_t end_ts_;         // 0 = whole file; else stop replay past this transactTime
+    // Per-run light overrides. The experiment sweeps placement rate and size,
+    // so these belong on the command line, not in a config file that would have
+    // to be edited per grid cell. -1 / 0 means "leave lights.ini alone".
+    int      place_rate_bp_;
+    uint32_t rng_seed_;
+    int      ord_sz_;
 
     actors::Group* group_ = nullptr;
     polonaise::logger::act::Logger* logger_ = nullptr;

@@ -56,6 +56,13 @@ int main(int argc, char* argv[])
                     "stop the replay once transactTime passes this epoch-ns "
                     "(0 = whole file). Use it to end a session at a wall-clock ET "
                     "time; compute per date so DST is handled.")
+      ("place-rate-bp", po::value<int>()->default_value(-1),
+                    "shadow placement rate in basis points of EOB ADDs "
+                    "(e.g. 50=0.5%, 100=1%, 300=3%, 500=5%); -1 = use lights.ini")
+      ("rng-seed",  po::value<uint32_t>()->default_value(0),
+                    "deterministic seed for light placement; 0 = use lights.ini")
+      ("ord-sz",    po::value<int>()->default_value(-1),
+                    "per-placement child size; -1 = use lights.ini")
       ("logdebug",  "enable debug logs");
 
   po::variables_map vm;
@@ -87,7 +94,10 @@ int main(int argc, char* argv[])
                             vm["config"].as<string>(),
                             venue,
                             vm["ob-debug"].as<uint64_t>(),
-                            vm["end-ts"].as<uint64_t>());
+                            vm["end-ts"].as<uint64_t>(),
+                            vm["place-rate-bp"].as<int>(),
+                            vm["rng-seed"].as<uint32_t>(),
+                            vm["ord-sz"].as<int>());
   } catch (const std::exception& e) {
     cerr << "ERROR constructing SimKaspr: " << e.what() << "\n";
     return 1;

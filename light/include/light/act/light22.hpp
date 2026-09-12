@@ -34,6 +34,12 @@ namespace light::act
     // Default is 5 (place after 5 EOB ADD messages)
     int place_after_n_eob = 5;
     int place_rate_bp = 300;        // stochastic placement rate, basis points
+    // Delay between the shadowed ("attached") order being hit or pulled and our
+    // own cancel going out. A real performance lever, not a detail: cancel too
+    // quickly and we give up fills we would have got; too slowly and we wear the
+    // adverse selection that took the attached order out. Swept by the
+    // experiment, so it must be configurable rather than a literal.
+    int delayed_cancel_ms = 500;
     std::mt19937 rng{1};            // per-light, deterministically seeded
     int eob_counter = 0;
 
@@ -73,6 +79,7 @@ namespace light::act
       // experiment sweeps 0.5% / 1% / 3% / 5%, and the previous
       // `std::rand() % 100` could not represent 0.5 at all.
       place_rate_bp = this->pt.template get<int>("place_rate_bp", 300);   // 3%
+      delayed_cancel_ms = this->pt.template get<int>("delayed_cancel_ms", 500);
 
       // Per-light deterministic RNG. std::rand() is process-global, unseeded and
       // shared with every other caller, so two runs of the same session placed
@@ -552,7 +559,10 @@ namespace light::act
         log_trd("CANCORD id: %d, scheduling delayed cancel for attached_order_id: %lu",
                 this->ord_info.get_oid(), attached_order_id);
         this->pcoord->incr_attached_order_id_match();
-        this->timer->send(new frame::mtim::msg::AlarmClockSub(0, 500, this->DELAYED_CANCEL, false), this);
+        this->timer->send(new frame::mtim::msg::AlarmClockSub(
+                              delayed_cancel_ms / 1000, delayed_cancel_ms % 1000,
+                              this->DELAYED_CANCEL, false),
+                          this);
         this->attached_order_id = 0;
         RET;
       }

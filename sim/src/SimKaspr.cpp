@@ -33,7 +33,10 @@ SimKaspr::SimKaspr(std::string data_file,
                    std::string config_dir,
                    en::x venue,
                    uint64_t ob_debug_from,
-                   uint64_t end_ts)
+                   uint64_t end_ts,
+                   int place_rate_bp,
+                   uint32_t rng_seed,
+                   int ord_sz)
     : Manager("sim_manager")
     , data_file_(std::move(data_file))
     , universe_json_(std::move(universe_json))
@@ -42,6 +45,9 @@ SimKaspr::SimKaspr(std::string data_file,
     , venue_(venue)
     , ob_debug_from_(ob_debug_from)
     , end_ts_(end_ts)
+    , place_rate_bp_(place_rate_bp)
+    , rng_seed_(rng_seed)
+    , ord_sz_(ord_sz)
 {
   std::cerr << "SimKaspr: data=" << data_file_ << "\n"
             << "          universe=" << universe_json_ << "\n"
@@ -234,6 +240,15 @@ void SimKaspr::create_lights()
 {
   boost::property_tree::ptree pt_light;
   boost::property_tree::read_info(config_dir_ + "/lights.ini", pt_light);
+
+  // CLI overrides win over the config file, so a sweep is a matter of arguments
+  // rather than editing lights.ini for every cell of the grid.
+  if (place_rate_bp_ >= 0) pt_light.put("place_rate_bp", place_rate_bp_);
+  if (rng_seed_)           pt_light.put("rng_seed", rng_seed_);
+  if (ord_sz_ > 0)         pt_light.put("ord_sz", ord_sz_);
+  std::cerr << "SimKaspr: lights place_rate_bp=" << pt_light.get<int>("place_rate_bp", 300)
+            << " ord_sz=" << pt_light.get<int>("ord_sz", 1)
+            << " rng_seed=" << pt_light.get<uint32_t>("rng_seed", 1) << std::endl;
 
   for (size_t i = 0; i < books_.size(); ++i) {
     auto ob  = books_[i];
