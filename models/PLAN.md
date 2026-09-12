@@ -1816,18 +1816,68 @@ sessions) exists for this: it is what makes the arms comparable.
 
 #### 3. Stylized-fact comparison (only for generative use)
 
-If a model is used *generatively* — M0 simulating a book rather than emitting a
+If a model is used *generatively* — simulating a book rather than emitting a
 signal — then the usual check applies: simulate, and compare order-flow, queue
-length, spread and return distributions against the real corpus. Irrelevant
-when the model is only a signal, which is how B0 and M0 enter shadow here.
+length, spread and return distributions against the real corpus.
 
-#### What none of these can do
+Dormant as planned: B0 and M0 both enter shadow *discriminatively*. B0 emits
+`I` and `OFI`; M0 is queried as a precomputed `fill_prob[level][queue_rank]`
+table. Nothing is ever run forward, so there is no synthetic output to check.
+It becomes the gating test the moment we use M0 the other way — see below.
 
-The simulator does not model the market's reaction to our own orders. A model
-that wins by placing more aggressively is partly exploiting that blind spot.
-Report volume share per config alongside every result — the probe now measures
-it per leg — and treat a config whose share is large as outside the regime
-where the number means anything.
+#### What none of these can do — and the one way out
+
+**The simulator does not model the market's reaction to our own orders.** Every
+fill is matched against recorded flow as though our presence did not perturb
+it. A model that wins by placing more aggressively is partly exploiting that
+blind spot, so report volume share per config alongside every result (the probe
+measures it per leg now) and treat a config whose share is large as outside the
+regime where the number means anything.
+
+This cannot be fixed by replaying harder. A recording cannot respond to us.
+
+**Future work: impact from M0 run generatively.** M0 is not only a lookup
+table — Cont–Stoikov–Talreja is a birth–death process per price level, so with
+the three rates already being estimated for the discriminative use
+
+```
+lambda_limit(i)   adds at level i, per unit time
+lambda_cancel(i)  per-order cancel rate at level i
+lambda_market     marketable executions at the touch
+```
+
+the same fitted object can be run *forward* to generate a book rather than
+queried about one. That is the only route we have to an impact estimate: place
+an order into the simulated book, let the arrival and cancellation rates
+respond to the changed queue state, and measure what the response costs.
+
+Shape of the work, in the order it has to happen:
+
+1. **`ratefit`** — scan the corpus for the three rates per level, per side, per
+   regime (RTH/ETH). Already required for M0's discriminative use, so this is
+   shared, not extra.
+2. **Forward simulator** — drive a book from those rates and confirm it
+   reproduces the corpus's stylized facts: fat-tailed returns, volatility
+   clustering, long-memory in order signs, the hump-shaped depth profile. This
+   is where §3 above stops being dormant. A synthetic book with Gaussian
+   returns and no clustering is not a market, and an impact number from it is
+   worthless.
+3. **Reactive placement** — make the arrival rates state-dependent on our own
+   resting size, so adding depth at a level changes the flow into it. The
+   crudest version (queue-position-only) already captures the first-order
+   effect: our order pushes everyone behind us further back.
+4. **Impact curve** — slippage versus participation under the generative model,
+   compared against the replay result. Where the two diverge is where the
+   replay's zero-impact assumption stops holding, which is the number the
+   paper's threats-to-validity section currently has to assert without
+   evidence.
+
+The honest framing: this measures impact *under a model*, and a zero-intelligence
+birth–death process is a weak model of a market that contains strategic
+participants. It bounds the error in the replay result rather than replacing it,
+and the bound is only as good as step 2's stylized-fact agreement. That is still
+considerably better than the current position, which is a caveat with no number
+attached.
 
 #### Sequencing
 
