@@ -37,6 +37,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -135,6 +136,25 @@ protected:
   void del(en::bs side, int px, uint32_t qty, uint64_t txtim, uint64_t oid,
            bool eoe = true) {
     mbo(2, side, double(px), qty, txtim, oid, eoe);
+  }
+
+  // A channel-wide security-status record, shaped as CME sends it: no
+  // securityID (INT32_MAX is the SBE null), so BFA broadcasts it to every book.
+  void status(uint8_t trading_status, uint8_t halt_reason = 0) {
+    bfile::l3_sst_t r{};
+    r.typ           = en::l3::SST;
+    r.venue         = char(en::x::CMEMD);
+    r.txtim         = kT0;
+    r.sendtim       = kT0;
+    r.securityID    = std::numeric_limits<int32_t>::max();
+    r.tradingStatus = trading_status;
+    r.haltReason    = halt_reason;
+    r.tradingEvent  = 0;
+
+    auto d = std::make_unique<mda::msg::Data>();
+    d->israw = true;
+    d->l3    = r;
+    dispatch(d.get());
   }
 
   std::pair<int, int> bbo() {
@@ -281,6 +301,73 @@ TEST_F(OBBookTest, ACrossIsNotReportedUntilTheNextTransactionArrives) {
 
   EXPECT_EQ(bbo(), std::make_pair(104, 102))
       << "the book is crossed but no further transaction has arrived";
+}
+
+// ---------------------------------------------------------------------------
+// The invariant only holds while the exchange is matching
+// ---------------------------------------------------------------------------
+
+// 2025-01-15, the CPI release: CME fired a Velocity Logic event and put the
+// channel into PreOpen (tradingStatus 21, haltReason 2 MarketEvent) at
+// 13:30:01.217639991 -- the exact nanosecond an aggressive bid rested 18 ticks
+// through the ask stack -- then reopened (15 -> 17) five seconds later, at the
+// exact nanosecond those orders were cleared. Orders rest and cancel during a
+// reserve but do not match, so the crossed book was the exchange's own correct
+// state. The capture is complete across it: no sequence gaps, and every order
+// involved has exactly its NEW and its DELETE.
+TEST_F(OBBookTest, ACrossWhileHaltedIsAllowed) {
+  status(21, 2);   // PreOpen on a market event
+
+  add(en::bs::BUY, 100, 5, kT0);
+  add(en::bs::SEL, 102, 5, kT0 + 1000);
+  add(en::bs::BUY, 104, 5, kT0 + 2000);   // rests through the ask: no matching
+  add(en::bs::SEL, 106, 5, kT0 + 3000);   // next transaction -> check would run
+
+  EXPECT_EQ(bbo(), std::make_pair(104, 102))
+      << "a crossed book is legitimate while the instrument is not matching";
+}
+
+TEST_F(OBBookTest, ACrossAfterTheMarketReopensStillAborts) {
+  EXPECT_DEATH(
+      {
+        status(21, 2);                          // halted
+        add(en::bs::BUY, 100, 5, kT0);
+        add(en::bs::SEL, 102, 5, kT0 + 1000);
+        status(17);                             // ReadyToTrade: matching again
+        add(en::bs::BUY, 104, 5, kT0 + 2000);
+        add(en::bs::SEL, 106, 5, kT0 + 3000);
+      },
+      "CROSSED book");
+}
+
+// Only ReadyToTrade means matching. Everything else -- halt, close, pre-open,
+// the price-indication phase of an open -- accepts orders without crossing
+// them off.
+TEST_F(OBBookTest, OnlyReadyToTradeCountsAsMatching) {
+  for (uint8_t st : {uint8_t(2), uint8_t(4), uint8_t(15), uint8_t(18),
+                     uint8_t(21), uint8_t(24), uint8_t(25), uint8_t(26)}) {
+    SetUp();                     // a fresh book per status
+    status(st);
+    add(en::bs::BUY, 100, 5, kT0);
+    add(en::bs::SEL, 102, 5, kT0 + 1000);
+    add(en::bs::BUY, 104, 5, kT0 + 2000);
+    add(en::bs::SEL, 106, 5, kT0 + 3000);
+    EXPECT_EQ(bbo().first, 104) << "status " << int(st) << " must not match";
+  }
+}
+
+// Silence is not permission: a session that never carries a status record has
+// to keep enforcing the invariant, because catching our own reconstruction
+// bugs is the entire point of it.
+TEST_F(OBBookTest, WithNoStatusMessageTheInvariantIsStillEnforced) {
+  EXPECT_DEATH(
+      {
+        add(en::bs::BUY, 100, 5, kT0);
+        add(en::bs::SEL, 102, 5, kT0 + 1000);
+        add(en::bs::BUY, 104, 5, kT0 + 2000);
+        add(en::bs::SEL, 106, 5, kT0 + 3000);
+      },
+      "CROSSED book");
 }
 
 // ---------------------------------------------------------------------------

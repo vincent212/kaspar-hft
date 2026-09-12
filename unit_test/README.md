@@ -1,6 +1,6 @@
 # unit_test — Google Test suite
 
-275 tests over the pieces that decide what the simulator does: the shadow light,
+282 tests over the pieces that decide what the simulator does: the shadow light,
 the coordination objects it shares, reference data, the timer, the simulated
 order manager, and position tracking.
 

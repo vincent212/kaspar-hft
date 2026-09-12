@@ -1434,6 +1434,20 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
             volumefound, volumeall, volumembp);
     return;
   }
+  else if (std::holds_alternative<bfile::l3_sst_t>(m->l3))
+  {
+    // Security status. These carry no securityID -- CME leaves it null
+    // (INT32_MAX) because the message applies to the whole group -- so BFA
+    // broadcasts them to every book and each one tracks its own copy.
+    const auto &sst = std::get<bfile::l3_sst_t>(m->l3);
+    const bool was = matching;
+    matching = is_matching_status(sst.tradingStatus);
+    if (was != matching)
+      log_opr("%s trading status %u (haltReason %u): matching %s",
+              get_name(), unsigned(sst.tradingStatus), unsigned(sst.haltReason),
+              matching ? "ON" : "OFF");
+    return;
+  }
   else if (
       std::holds_alternative<bfile::l3_chr_v2_t>(m->l3) ||
       std::holds_alternative<bfile::l3_eob_t>(m->l3) ||
@@ -2198,7 +2212,29 @@ void act::OB::process_market_data(
   // deletes) and the 2025-01-10 case above.
   //
   // Locked (bid == ask) is permitted; only a genuine inversion aborts.
-  if (xcheck_tx && got_payload->tim != xcheck_tx)
+  //
+  // And only while the instrument is MATCHING. When it is not -- pre-open, a
+  // halt, or a Velocity Logic reserve -- CME accepts orders and cancels but
+  // does not cross them off against each other, so a crossed book is the
+  // exchange's own correct state and not our bug. Observed 2025-01-15 at the
+  // CPI release: tradingStatus 21 (PreOpen) haltReason 2 (MarketEvent) at
+  // 13:30:01.217639991, the exact nanosecond an aggressive bid rested 18 ticks
+  // through the ask stack, then 15 -> 17 (ReadyToTrade) five seconds later at
+  // 13:30:06.217000000, the exact nanosecond those orders were cleared. The
+  // capture is complete across that window: no sequence gaps, and every order
+  // involved has exactly its NEW and its DELETE.
+  //
+  // A boundary is transactTime ADVANCING, not merely differing. Real records
+  // are not always monotonic -- 2025-01-15 tx 1736961632175701683 is followed
+  // by a genuine exchange record 335ms EARLIER -- and on `!=` that reads as
+  // "the transaction finished", so the invariant runs against a book that is
+  // still mid-update and reports a cross that is not one.
+  //
+  // Our own orders are skipped outright: they arrive off del_q, they are not
+  // exchange transactions, and they must neither define a boundary nor trip
+  // the check.
+  if (matching && xcheck_tx && !got_payload->is_sim() &&
+      got_payload->tim > xcheck_tx)
   {
     ASSERTF(best_bid <= best_ask,
             boost::format("CROSSED book %s after transaction %llu: best_bid %d > best_ask %d "
@@ -2207,7 +2243,8 @@ void act::OB::process_market_data(
               % en::to_string(got_payload->side) % got_payload->px.to_int()
               % got_payload->sz % got_payload->ex_order_id % got_payload->tim);
   }
-  xcheck_tx = got_payload->tim;
+  if (!got_payload->is_sim() && got_payload->tim > xcheck_tx)
+    xcheck_tx = got_payload->tim;
 
   process_add_or_mod(got_payload, sender);
 

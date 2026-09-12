@@ -35,6 +35,8 @@
 
 #include <gtest/gtest.h>
 #include "frame/ref/Asset.hpp"
+#include "frame/ref/RefData.hpp"
+#include <cstdlib>
 #include "enum/e_names.hpp"
 #include <vector>
 #include <string>
@@ -759,3 +761,69 @@ TEST(RefDataDocumentationTest, DocumentAssetExchangeConfiguration) {
   SUCCEED();
 }
 
+// ---------------------------------------------------------------------------
+// Dynamic assets and the asset-id extent
+// ---------------------------------------------------------------------------
+
+// num_assets() is not a count for display: SOM, DB, MTD and kaspr all size
+// vectors by it and then index those vectors BY ASSET ID. So it has to cover
+// every id in use, including ids handed out by add_future_asset().
+//
+// It did not. The simulator seeds RefData from an empty CSV and registers all
+// 32 instruments dynamically, so num_assets() stayed at 1 while ids ran to 32,
+// and the first order placed for asset 2 indexed past the end of
+// SOM::pos[trader] and segfaulted.
+class RefDataDynamicAssetTest : public ::testing::Test {
+protected:
+  // The singleton is shared across every suite in this binary, so make sure it
+  // is built from the fixture universe before touching it. Adding assets only
+  // grows the id space, which no other suite depends on.
+  static void SetUpTestSuite() {
+    const char* proj_root = std::getenv("KSPRPROJ");
+    std::string universe_path = proj_root
+        ? std::string(proj_root) + "/unit_test/config/universe.csv"
+        : "../config/universe.csv";
+    frame::ref::RefData::set_universe(universe_path, "");
+    frame::ref::RefData::inst();
+  }
+};
+
+TEST_F(RefDataDynamicAssetTest, ANewAssetExtendsTheAssetIdSpace) {
+  const auto before = frame::ref::RefData::inst().num_assets();
+
+  auto a = frame::ref::RefData::add_future_asset(
+      "TESTFUT1", en::x::CMEMD, 987001, "FFIXSX", "TG", 25.0);
+  ASSERT_NE(a, nullptr);
+
+  EXPECT_GE(frame::ref::RefData::inst().num_assets(), std::size_t(a->id) + 1)
+      << "num_assets() must cover every id in use, or anything sized by it and "
+         "indexed by asset id writes out of bounds";
+  EXPECT_GE(frame::ref::RefData::inst().num_assets(), before);
+}
+
+TEST_F(RefDataDynamicAssetTest, EveryDynamicIdIsAddressable) {
+  // Several in a row: ids are handed out by a counter, so the extent has to
+  // keep up with the largest, not merely with the count of calls.
+  const frame::ref::Asset* last = nullptr;
+  for (int i = 0; i < 4; i++) {
+    last = frame::ref::RefData::add_future_asset(
+        "TESTFUT" + std::to_string(100 + i), en::x::CMEMD, 987100 + i,
+        "FFIXSX", "TG", 25.0);
+    ASSERT_NE(last, nullptr);
+    EXPECT_LT(std::size_t(last->id), frame::ref::RefData::inst().num_assets())
+        << "id " << last->id << " is not addressable";
+  }
+}
+
+// Re-registering a symbol returns the existing asset, so the extent must not
+// creep upward on every call.
+TEST_F(RefDataDynamicAssetTest, ReRegisteringDoesNotGrowTheIdSpace) {
+  frame::ref::RefData::add_future_asset("TESTFUT2", en::x::CMEMD, 987002,
+                                        "FFIXSX", "TG", 25.0);
+  const auto after_first = frame::ref::RefData::inst().num_assets();
+
+  auto again = frame::ref::RefData::add_future_asset("TESTFUT2", en::x::CMEMD,
+                                                     987002, "FFIXSX", "TG", 25.0);
+  ASSERT_NE(again, nullptr);
+  EXPECT_EQ(frame::ref::RefData::inst().num_assets(), after_first);
+}

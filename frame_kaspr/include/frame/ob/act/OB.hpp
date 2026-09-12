@@ -287,6 +287,21 @@ namespace frame
         }
 
       private:
+        // Is the instrument matching right now? Fed by l3_sst records. The
+        // no-cross invariant only holds while it is true: an exchange that is
+        // not matching will happily hold a crossed book.
+        //
+        // Defaults to true so a session with no status message still enforces
+        // the invariant -- the point of it is to catch our own reconstruction
+        // bugs, and silence should not switch it off.
+        bool matching = true;
+
+        // MDP3 SecurityTradingStatus. 17 ReadyToTrade is the only one that
+        // matches; 2 TradingHalt, 4 Close, 15 NewPriceIndication, 18
+        // NotAvailableForTrading, 21 PreOpen, 24 PreCross, 25 Cross and 26
+        // PostClose all accept orders without crossing them off.
+        static bool is_matching_status(uint8_t s) { return s == 17; }
+
         int delay = 1000;        // micros
         int cancel_delay = -1;   // micros; -1 = same as delay
         uint32_t exec_orders_not_found = 0;

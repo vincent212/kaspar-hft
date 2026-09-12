@@ -57,6 +57,7 @@ const char* action_name(int a)
     case 3:  return "DELETE_THRU";
     case 4:  return "DELETE_FROM";
     case 5:  return "OVERLAY";
+    case 100: return "TRADE";
     default: return "?";
   }
 }
@@ -75,13 +76,18 @@ std::string tfmt(uint64_t ns)
 
 struct Event {
   uint64_t t;
-  int      action;
+  int      action;      // MBO orderUpdateAction, or kTrade
   double   pxd;
   uint32_t qty;
   char     side;
   uint64_t prio;
   int32_t  sec;
 };
+
+// A fill is not an orderUpdateAction, but it is an event in the life of an
+// order and it removes liquidity, so it belongs in the same timeline. Without
+// it a trace shows an order resting long after the market consumed it.
+constexpr int kTrade = 100;
 
 struct Resting {
   double   pxd;
@@ -108,12 +114,21 @@ collect_events(const std::string& file, const std::set<uint64_t>& oids, int32_t 
   bfile::l3_t l3;
   uint64_t ts = 0;
   while (bfile::read_l3(f, l3, ts)) {
-    if (!std::holds_alternative<bfile::l3_mbo_v2_t>(l3)) continue;
-    const auto& m = std::get<bfile::l3_mbo_v2_t>(l3);
-    if (sec_filter && m.securityID != sec_filter) continue;
-    if (!oids.count(m.orderID)) continue;
-    out[m.orderID].push_back({m.transactTime, m.orderUpdateAction, m.pxd,
-                              m.displayQty, m.side, m.priority, m.securityID});
+    if (std::holds_alternative<bfile::l3_mbo_v2_t>(l3)) {
+      const auto& m = std::get<bfile::l3_mbo_v2_t>(l3);
+      if (sec_filter && m.securityID != sec_filter) continue;
+      if (!oids.count(m.orderID)) continue;
+      out[m.orderID].push_back({m.transactTime, m.orderUpdateAction, m.pxd,
+                                m.displayQty, m.side, m.priority, m.securityID});
+    }
+    else if (std::holds_alternative<bfile::l3_mbo_trd_v2_t>(l3)) {
+      // Trades carry orderID but NO securityID, so they cannot be filtered by
+      // instrument here -- order ids are unique enough to stand on their own.
+      const auto& t = std::get<bfile::l3_mbo_trd_v2_t>(l3);
+      if (!oids.count(t.orderID)) continue;
+      out[t.orderID].push_back({t.transactTime, kTrade, 0.0,
+                                uint32_t(t.lastQty), '?', 0, 0});
+    }
   }
   gzclose(f);
   return out;
@@ -142,7 +157,14 @@ int main(int argc, char* argv[])
                    "stale audit: only orders at or above this tick (bid side)")
       ("units",    po::value<double>()->default_value(25.0),
                    "minPriceIncrement in native units; ticks = pxd / units")
-      ("limit",    po::value<int>()->default_value(40), "max orders to report");
+      ("limit",    po::value<int>()->default_value(40), "max orders to report")
+      ("status",   po::bool_switch(),
+                   "status mode: dump security-status records around --at. A "
+                   "crossed book is legal when the instrument is not matching "
+                   "-- pre-open, halt, or a velocity-logic reserve -- so this "
+                   "is what separates our bug from the exchange's own state.")
+      ("window-s", po::value<double>()->default_value(60.0),
+                   "status mode: seconds either side of --at");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -183,6 +205,39 @@ int main(int argc, char* argv[])
                   << " qty=" << e.qty << " prio=" << e.prio
                   << " secID=" << e.sec << "\n";
     }
+    return 0;
+  }
+
+  // ---- mode 1b: security status around a time --------------------------
+  if (vm["status"].as<bool>())
+  {
+    const uint64_t at  = vm["at"].as<uint64_t>();
+    const int32_t  sec = vm["secid"].as<int32_t>();
+    if (!at) { std::cerr << "Error: --status needs --at\n"; return 1; }
+    const auto win = uint64_t(vm["window-s"].as<double>() * 1e9);
+    const uint64_t lo = at > win ? at - win : 0;
+    const uint64_t hi = at + win;
+
+    gzFile f = must_open(vm["datafile"].as<std::string>());
+    bfile::l3_t l3;
+    uint64_t ts = 0;
+    int n = 0;
+    std::printf("security status for secID %d, %.1fs either side of %llu\n\n",
+                sec, vm["window-s"].as<double>(), (unsigned long long)at);
+    while (bfile::read_l3(f, l3, ts)) {
+      if (!std::holds_alternative<bfile::l3_sst_t>(l3)) continue;
+      const auto& r = std::get<bfile::l3_sst_t>(l3);
+      if (sec && r.securityID != sec) continue;
+      if (r.txtim < lo || r.txtim > hi) continue;
+      const double rel = (double(r.txtim) - double(at)) / 1e9;
+      std::printf("%s  %+9.4fs  secID=%d tradingStatus=%u haltReason=%u tradingEvent=%u\n",
+                  tfmt(r.txtim).c_str(), rel, r.securityID,
+                  unsigned(r.tradingStatus), unsigned(r.haltReason),
+                  unsigned(r.tradingEvent));
+      ++n;
+    }
+    gzclose(f);
+    if (!n) std::printf("(no security-status records in the window)\n");
     return 0;
   }
 
