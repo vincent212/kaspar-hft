@@ -6,39 +6,112 @@
 
 # Kaspr Strategy Simulator — Developer Guide
 
-Kaspr is a CME market data and execution system for ES and NQ futures. It supports three operating modes: backtesting with recorded data, paper trading with live data, and live trading with iLink.
+Kaspr is a CME market data and execution system for ES and NQ futures. Market data can come from a live multicast feed, a PCAP capture, or a decoded binary record file; orders can be filled by the simulated order manager or routed live over iLink. The two choices are independent.
 
 ## Operating Modes
 
-### 1. Simulation — PCAP Replay
+It helps to think of a run as two independent choices: **where market data comes
+from**, and **where orders go**. Any data source can be paired with either
+execution path.
 
-Replay recorded multicast data against the simulated order manager (SOM). Fills are simulated by matching orders against the reconstructed order book.
+| | Data source | Reader actor | Clock |
+|---|---|---|---|
+| **Live multicast** | CME MDP3 groups (310 / 318 / 344) | `SocketReader` → `MsgBuf` | real time |
+| **PCAP replay** | `.pcap` / `.pcap.zst` capture of those same groups | `PCAPReader` → `MsgBuf` | timestamps in the capture |
+| **Binary replay** | `.bin.gz` of decoded L3 records | `BFA` (straight to the books) | timestamps in the file |
+
+| | Execution |
+|---|---|
+| **Simulated (`sim_mode=true`)** | SOM matches orders against the reconstructed book |
+| **Live** | SOM routes to CME Globex over iLink 3 |
+
+Everything downstream of `MsgBuf` — `MessageProcessor`, `handler_if`, `OB` /
+`TachBook`, `light22`, `SOM` — is identical no matter which source feeds it.
+That is the point of the design: a strategy cannot tell whether it is being run
+on a capture or on the live feed.
+
+### 1. Paper trading — live data, simulated execution
+
+The default, and what `./kaspr config/kaspr.ini` gives you today.
 
 ```
-PCAP file → SocketReader → MDP3 → OB.cpp → Lights → SOM (sim_mode=true)
-```
-
-- Data source: `.pcap` files captured from CME multicast
-- Order book: `OB.cpp` (MBP, market-by-price)
-- Execution: SOM simulates fills against OB
-- Use case: backtesting, strategy development
-
-### 2. Paper Trading — Live Data, Simulated Execution
-
-Connect to live CME multicast feeds. Orders execute against the simulated order manager, not the exchange.
-
-```
-CME Multicast → SocketReader → MDP3 → OB.cpp → Lights → SOM (sim_mode=true)
+CME Multicast → SocketReader → MsgBuf → MessageProcessor → handler_if → OB.cpp → Lights → SOM (sim_mode=true)
 ```
 
 - Data source: live MDP3 multicast (channels 310, 318, 344)
-- Order book: `OB.cpp` (MBP)
-- Execution: SOM simulates fills against OB
-- Use case: forward testing, strategy validation with real market conditions
+- Order book: `OB.cpp` (MBP), optionally `TachBook` alongside it
+- Execution: SOM simulates fills against the book
+- Use case: forward testing, strategy validation under real market conditions
 
-### 3. Live Trading — iLink
+**Simulated execution does not require recorded data.** The `SocketReader` path
+is fully supported for simulation — it simply runs on real-time data, so a
+session lasts as long as you let it run and is not repeatable. Use it when you
+want live market conditions; use PCAP or binary replay when you want the same
+session twice.
 
-Connect to live CME multicast for data and iLink for order execution. TachBook replaces OB.cpp for full MBO (market-by-order) book reconstruction.
+### 2. Simulation — PCAP replay
+
+Replay a capture of the same multicast groups against the simulated order
+manager. Identical decode path, deterministic and repeatable.
+
+```
+.pcap / .pcap.zst → PCAPReader → MsgBuf → MessageProcessor → handler_if → OB.cpp → Lights → SOM (sim_mode=true)
+```
+
+- Data source: `.pcap` or `.pcap.zst` files captured from CME multicast.
+  `.zst` is read natively by piping through `zstdcat` — no need to decompress first.
+- Reader: `mcast_recv::PCAPReader` (`mcast_recv/include/mcast_recv/act/PCAPReader.hpp`),
+  assembled by `create_all_mdp3_pcap()` in `interface/mdp3/if/mdp3.hpp`
+- Order book: `OB.cpp` (MBP), or `TachBook` for order-by-order
+- Execution: SOM simulates fills against the book
+- Use case: backtesting, strategy development, regression testing
+
+What `PCAPReader` does per packet: parses Ethernet (incl. 802.1Q VLAN) → IPv4/IPv6
+→ UDP, optionally strips a hardware-timestamp trailer (`TrailerSpec`, e.g. Metamako —
+validated against the wire on the first packet so a misconfiguration fails loudly),
+and hands the MDP3 payload to `MsgBuf` carrying both a software capture timestamp
+(`recv_ts`, from the pcap record header) and a hardware one (`hw_ts`, from the
+trailer; 0 if absent). It reads **one packet per `Continue` message to itself**, so
+replay is a self-clocked actor loop rather than a blocking read; EOF triggers
+`ShutdownThisActor`.
+
+Two limits worth knowing:
+
+- **No recovery and no A/B arbitration.** `create_all_mdp3_pcap()` passes a null
+  recovery processor, and `PCAPReader` stamps every packet as feed `'A'`. Captures
+  are expected to be already de-duplicated (as Databento's are). A gap in the
+  capture is not repaired — it propagates to the book.
+- **Timing comes from the data, never the wall clock.** The `Timer` actor is driven
+  by market-data timestamps, which is what makes replay deterministic.
+
+### 3. Simulation — binary (`.bin.gz`) replay
+
+The fast path for repeated backtests. Once a session has been decoded once, the
+per-order L3 event stream can be written to a gzip'd record file and replayed
+without re-parsing Ethernet/UDP/SBE.
+
+```
+.bin.gz → BFA → OB.cpp / TachBook → Lights → SOM (sim_mode=true)
+```
+
+- Writer: `BinRecorder` (`frame/mda/act/BinRecorder.hpp`) — set `handler->binrec`
+  and it records every L3 event via `bfile::write_l3`
+- Reader: `BFA` (`frame/mda/act/BFA.hpp`) — see
+  [`BFA_USAGE.md`](frame_kaspr/include/frame/mda/act/BFA_USAGE.md)
+- Format: flat gzip stream of type-tagged packed structs from
+  `chutil/include/bfile/r_l3.hpp` (`MBO_V2`, `MBOT_V2`, `MBOS`, `FDF`, …). Not
+  seekable, no index; the struct layout is the format.
+- Naming convention: `<sec_id>.<YYYYMMDD>.bin.gz`, e.g. `490.20250124.bin.gz`
+- `BFA` supports `start_h` / `end_h` hour filtering with early termination, useful
+  for RTH-only runs
+
+`BFA` must be added to its `Group` **last**, after the OBs, lights and SOM exist —
+otherwise it starts pushing data into actors that are not ready.
+
+### 4. Live trading — iLink
+
+Live multicast for data, iLink 3 for execution. `TachBook` replaces `OB.cpp` for
+full MBO book reconstruction.
 
 ```
 CME Multicast → SocketReader → MDP3 → TachBook → Lights → SOM → iLink → CME
@@ -48,6 +121,16 @@ CME Multicast → SocketReader → MDP3 → TachBook → Lights → SOM → iLin
 - Order book: `TachBook` (MBO L3, order-by-order) — build with `USE_TACHBOOK=1`
 - Execution: iLink session to CME Globex
 - Requires: iLink credentials (firm ID, session keys, access token)
+
+### Wiring status
+
+The `kaspr` binary currently constructs the **live multicast** path only —
+`kaspr.cpp` calls `create_all_mdp3()`, sets `handler->binrec = nullptr`, and
+`main()` accepts only a config path and `--reset-positions`. The PCAP and binary
+replay paths above are present and complete as libraries but are **not yet
+reachable from the command line**; wiring them is three small changes in
+`kaspr.cpp` (select `create_all_mdp3_pcap()` on a `--pcap` flag, construct a
+`BinRecorder` on a `--record` flag, add `BFA` on a `--replay` flag).
 
 ## Build
 
@@ -138,7 +221,7 @@ Key properties:
 - **Self-managing** — automatic cancellation on position breach, price drift, or attached order execution
 - **Configurable throttle** — deterministic (every N events) or stochastic (3% probability)
 
-See [light/SHADOW_ALGORITHM.md](../light/SHADOW_ALGORITHM.md) for the full algorithm description.
+See [light/SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) for the full algorithm description.
 
 ## Console Commands
 
@@ -187,5 +270,11 @@ F,NQM6,NQ,NQ,1.,1,1,200000,1,1,unk,x,0,CMEMDFUT
 
 ## Known Gaps
 
-- **Binary file reader**: `.bin` replay (BinRecorder format) is not yet implemented in this repo. PCAP replay is supported.
+- **Replay not reachable from the CLI**: `PCAPReader`, `BinRecorder` and `BFA` are all
+  implemented, but `kaspr.cpp` only constructs the live-multicast path — there are no
+  `--pcap` / `--record` / `--replay` flags yet. See *Wiring status* above.
+- **Producing `.bin.gz` from vendor captures**: `BinRecorder` writes the format, but
+  batch conversion of a day of vendor PCAPs (many files per channel, snapshot/IR streams
+  for instrument definitions) is handled by separate M2-internal tooling that is not part
+  of this repository.
 - **iLink configuration**: iLink credential management and session config need to be added for live trading mode.
