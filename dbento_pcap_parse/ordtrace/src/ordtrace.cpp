@@ -1,0 +1,284 @@
+/*
+ * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
+ * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ *
+ * Licensed under the MIT License. See LICENSE file in the project root.
+ */
+
+/**
+ * ordtrace — trace individual orders through a .bin, and audit "stale" orders.
+ *
+ * Two modes:
+ *
+ *   1. Trace: --orderid N (repeatable) lists every MBO event for those order
+ *      ids, in file order, with timestamps and the decoded action.
+ *
+ *   2. Stale audit: --secid S --at T rebuilds the book from the raw MBO stream
+ *      up to time T, lists what is still resting on the chosen side within a
+ *      price window, and then scans the REST of the file for each of those
+ *      orders to answer the question that matters: does the capture actually
+ *      contain a cancel for it?
+ *
+ * Mode 2 is the one that distinguishes "our book missed a cancel" from "the
+ * capture never carried one".
+ *
+ * Prices: pxd is in CME native units. ticks = pxd / minPriceIncrement
+ * (25 for ES). Sides in the MBO stream are '0' = bid, '1' = ask.
+ */
+
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
+#include <ctime>
+#include <iostream>
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
+
+#include <boost/program_options.hpp>
+
+#include "chutil/Macros.hpp"
+#include "bfile/r_l3.hpp"
+
+namespace po = boost::program_options;
+
+namespace {
+
+constexpr char SIDE_BID = '0';
+constexpr char SIDE_ASK = '1';
+
+const char* action_name(int a)
+{
+  switch (a) {
+    case 0:  return "NEW";
+    case 1:  return "CHANGE";
+    case 2:  return "DELETE";
+    case 3:  return "DELETE_THRU";
+    case 4:  return "DELETE_FROM";
+    case 5:  return "OVERLAY";
+    default: return "?";
+  }
+}
+
+std::string tfmt(uint64_t ns)
+{
+  const time_t s = static_cast<time_t>(ns / 1000000000ULL);
+  struct tm tv;
+  gmtime_r(&s, &tv);
+  char b[32];
+  strftime(b, sizeof b, "%Y-%m-%d %H:%M:%S", &tv);
+  char out[64];
+  snprintf(out, sizeof out, "%s.%09llu", b, static_cast<unsigned long long>(ns % 1000000000ULL));
+  return out;
+}
+
+struct Event {
+  uint64_t t;
+  int      action;
+  double   pxd;
+  uint32_t qty;
+  char     side;
+  uint64_t prio;
+  int32_t  sec;
+};
+
+struct Resting {
+  double   pxd;
+  uint32_t qty;
+  char     side;
+  uint64_t added;     // when it first appeared
+  uint64_t last_upd;  // last NEW/CHANGE
+  uint64_t prio;
+};
+
+gzFile must_open(const std::string& path)
+{
+  gzFile f = gzopen(path.c_str(), "rb");
+  if (!f) ERRF(boost::format("cannot open %s") % path);
+  return f;
+}
+
+// Every MBO event for a set of order ids, whole file.
+std::map<uint64_t, std::vector<Event>>
+collect_events(const std::string& file, const std::set<uint64_t>& oids, int32_t sec_filter)
+{
+  std::map<uint64_t, std::vector<Event>> out;
+  gzFile f = must_open(file);
+  bfile::l3_t l3;
+  uint64_t ts = 0;
+  while (bfile::read_l3(f, l3, ts)) {
+    if (!std::holds_alternative<bfile::l3_mbo_v2_t>(l3)) continue;
+    const auto& m = std::get<bfile::l3_mbo_v2_t>(l3);
+    if (sec_filter && m.securityID != sec_filter) continue;
+    if (!oids.count(m.orderID)) continue;
+    out[m.orderID].push_back({m.transactTime, m.orderUpdateAction, m.pxd,
+                              m.displayQty, m.side, m.priority, m.securityID});
+  }
+  gzclose(f);
+  return out;
+}
+
+} // namespace
+
+int main(int argc, char* argv[])
+{
+  SET_ARGS;
+
+  po::options_description desc("ordtrace options");
+  desc.add_options()
+      ("help",     "produce help message")
+      ("datafile", po::value<std::string>(), "gzip'd L3 .bin to scan (required)")
+      ("orderid",  po::value<std::vector<uint64_t>>()->multitoken(),
+                   "trace these order ids (repeatable)")
+      ("secid",    po::value<int32_t>()->default_value(0), "restrict to this securityID")
+      ("at",       po::value<uint64_t>()->default_value(0),
+                   "stale audit: rebuild the book up to this transactTime (ns)")
+      ("side",     po::value<std::string>()->default_value("ask"),
+                   "stale audit: which side to examine (ask|bid)")
+      ("px-max",   po::value<int>()->default_value(0),
+                   "stale audit: only orders at or below this tick (ask side)")
+      ("px-min",   po::value<int>()->default_value(0),
+                   "stale audit: only orders at or above this tick (bid side)")
+      ("units",    po::value<double>()->default_value(25.0),
+                   "minPriceIncrement in native units; ticks = pxd / units")
+      ("limit",    po::value<int>()->default_value(40), "max orders to report");
+
+  po::variables_map vm;
+  po::store(po::parse_command_line(argc, argv, desc), vm);
+  po::notify(vm);
+
+  if (vm.count("help") || argc == 1) {
+    std::cout << desc << "\n"
+              << "Examples:\n"
+              << "  # every event for one order\n"
+              << "  ordtrace --datafile 310.20250110.databento.bin --orderid 6414296120517\n\n"
+              << "  # what was still resting on the ask at/below tick 23724 at the cross,\n"
+              << "  # and does the capture contain a cancel for each?\n"
+              << "  ordtrace --datafile 310.20250110.databento.bin --secid 5002 \\\n"
+              << "           --at 1736467515805034641 --side ask --px-max 23724\n";
+    return 1;
+  }
+  if (!vm.count("datafile")) { std::cerr << "Error: --datafile required\n"; return 1; }
+
+  const auto file  = vm["datafile"].as<std::string>();
+  const auto sec   = vm["secid"].as<int32_t>();
+  const auto units = vm["units"].as<double>();
+  const auto limit = vm["limit"].as<int>();
+
+  // ---- mode 1: trace explicit order ids -------------------------------
+  if (vm.count("orderid")) {
+    std::set<uint64_t> oids;
+    for (auto id : vm["orderid"].as<std::vector<uint64_t>>()) oids.insert(id);
+    auto ev = collect_events(file, oids, sec);
+    for (auto id : oids) {
+      auto it = ev.find(id);
+      std::cout << "=== order " << id << " : "
+                << (it == ev.end() ? 0 : it->second.size()) << " events ===\n";
+      if (it == ev.end()) { std::cout << "  NOT PRESENT in this file\n"; continue; }
+      for (const auto& e : it->second)
+        std::cout << "  " << tfmt(e.t) << "Z  " << action_name(e.action)
+                  << " side=" << (e.side == SIDE_ASK ? "ask" : "bid")
+                  << " px=" << e.pxd << " (" << int(e.pxd / units + 0.1) << "t)"
+                  << " qty=" << e.qty << " prio=" << e.prio
+                  << " secID=" << e.sec << "\n";
+    }
+    return 0;
+  }
+
+  // ---- mode 2: stale audit --------------------------------------------
+  const auto at = vm["at"].as<uint64_t>();
+  if (!at) { std::cerr << "Error: --at required (or use --orderid)\n"; return 1; }
+  if (!sec) { std::cerr << "Error: --secid required for the stale audit\n"; return 1; }
+
+  const bool want_ask = vm["side"].as<std::string>() != "bid";
+  const int  px_max   = vm["px-max"].as<int>();
+  const int  px_min   = vm["px-min"].as<int>();
+
+  // Pass 1: rebuild the book from raw MBO up to `at`.
+  std::map<uint64_t, Resting> book;
+  {
+    gzFile f = must_open(file);
+    bfile::l3_t l3;
+    uint64_t ts = 0;
+    long n = 0;
+    while (bfile::read_l3(f, l3, ts)) {
+      if (!std::holds_alternative<bfile::l3_mbo_v2_t>(l3)) continue;
+      const auto& m = std::get<bfile::l3_mbo_v2_t>(l3);
+      if (m.securityID != sec) continue;
+      if (m.transactTime > at) break;
+      ++n;
+      if (m.orderUpdateAction == 0 || m.orderUpdateAction == 1) {
+        auto it = book.find(m.orderID);
+        if (it == book.end())
+          book[m.orderID] = {m.pxd, m.displayQty, m.side, m.transactTime, m.transactTime, m.priority};
+        else { it->second.pxd = m.pxd; it->second.qty = m.displayQty;
+               it->second.last_upd = m.transactTime; it->second.prio = m.priority; }
+      } else {
+        book.erase(m.orderID);
+      }
+    }
+    gzclose(f);
+    std::cout << "replayed " << n << " MBO events for secID " << sec
+              << " up to " << tfmt(at) << "Z\n"
+              << "resting orders in the TRUE book: " << book.size() << "\n";
+  }
+
+  // True top of book, for context.
+  {
+    int tb = -1, ta = INT32_MAX;
+    for (const auto& kv : book) {
+      const int t = int(kv.second.pxd / units + 0.1);
+      if (kv.second.side == SIDE_ASK) ta = std::min(ta, t);
+      else                            tb = std::max(tb, t);
+    }
+    std::cout << "TRUE best_bid=" << tb << "t  best_ask=" << ta
+              << "t  spread=" << (ta - tb) << "t\n\n";
+  }
+
+  // Candidates: resting on the chosen side inside the price window.
+  std::set<uint64_t> candidates;
+  for (const auto& kv : book) {
+    const auto& r = kv.second;
+    if (want_ask != (r.side == SIDE_ASK)) continue;
+    const int t = int(r.pxd / units + 0.1);
+    if (want_ask && px_max && t > px_max) continue;
+    if (!want_ask && px_min && t < px_min) continue;
+    candidates.insert(kv.first);
+  }
+
+  std::cout << "=== orders still resting on the "
+            << (want_ask ? "ASK" : "BID") << " side inside the window: "
+            << candidates.size() << " ===\n";
+  if (candidates.empty()) {
+    std::cout << "  (none) -- the TRUE book is not crossed here; any cross is our own\n"
+                 "  stale state, not something the capture contains.\n";
+    return 0;
+  }
+
+  // Pass 2: for each candidate, does the capture contain a LATER cancel?
+  auto ev = collect_events(file, candidates, sec);
+  int shown = 0, with_cancel = 0, without = 0;
+  for (auto id : candidates) {
+    const auto& r = book.at(id);
+    const auto& evs = ev[id];
+    uint64_t cancel_t = 0;
+    for (const auto& e : evs)
+      if (e.t > at && e.action >= 2) { cancel_t = e.t; break; }
+
+    if (cancel_t) ++with_cancel; else ++without;
+    if (shown++ < limit) {
+      std::cout << "oid=" << id << " px=" << int(r.pxd / units + 0.1) << "t qty=" << r.qty
+                << " added=" << tfmt(r.added) << "Z age="
+                << double(at - r.added) / 1e9 << "s events=" << evs.size() << "\n";
+      if (cancel_t)
+        std::cout << "    CANCEL PRESENT in capture at " << tfmt(cancel_t)
+                  << "Z (+" << double(cancel_t - at) / 1e9 << "s after the cross)\n";
+      else
+        std::cout << "    NO CANCEL anywhere in the capture after this point\n";
+    }
+  }
+  std::cout << "\nsummary: " << with_cancel << " have a later cancel in the capture, "
+            << without << " do not\n";
+  return 0;
+}

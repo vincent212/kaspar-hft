@@ -77,6 +77,21 @@ private:
         return value;
     }
 
+    // securityID -> daily price limits, from l3_lim records.
+    std::map<int32_t, bfile::l3_lim_t> limits_;
+
+    // Limit price for a securityID, preferring the dedicated l3_lim record and
+    // falling back to whatever the definition carried. Returns null when
+    // neither is usable, so the consumer can apply its own default.
+    json limit_px(int32_t sec_id, bool high, double def_from_definition) {
+        auto it = limits_.find(sec_id);
+        if (it != limits_.end()) {
+            const double v = high ? it->second.pxh : it->second.pxl;
+            if (v > 0.0 && v < 1e8) return v;
+        }
+        return sanitize_price(def_from_definition);
+    }
+
     void parse_filename() {
         fs::path p(bin_file_);
         std::string filename = p.filename().string();
@@ -121,8 +136,8 @@ private:
             {"asset", entry.asset},
             {"venue", en::to_string(en::x(fdf.venue))},
             {"cfiCode", sanitize(fdf.cfiCode, 8)},
-            {"high_limit_px", sanitize_price(fdf.high_limit_px)},
-            {"low_limit_px", sanitize_price(fdf.low_limit_px)},
+            {"high_limit_px", limit_px(fdf.securityID, true,  fdf.high_limit_px)},
+            {"low_limit_px", limit_px(fdf.securityID, false, fdf.low_limit_px)},
             {"minPriceIncrement", sanitize_price(fdf.minPriceIncrement)},
             {"dispFactor", fdf.dispFactor},
             {"securityType", entry.securityType},
@@ -234,6 +249,14 @@ public:
             } else if (std::holds_alternative<bfile::l3_odf_t>(l3)) {
                 add_odf(std::get<bfile::l3_odf_t>(l3));
                 odf_count++;
+            } else if (std::holds_alternative<bfile::l3_lim_t>(l3)) {
+                // Daily price limits arrive as their own record, separate from
+                // the instrument definition. CME leaves high/low_limit_px unset
+                // on the FDF for equity futures, so this is the only place the
+                // ladder bounds appear — and OB needs them to size its price
+                // array. Last sighting wins.
+                const auto& lim = std::get<bfile::l3_lim_t>(l3);
+                limits_[lim.securityID] = lim;
             } else if (std::holds_alternative<bfile::l3_sdf_t>(l3)) {
                 add_sdf(std::get<bfile::l3_sdf_t>(l3));
                 sdf_count++;

@@ -39,7 +39,14 @@ IR_IP=$(awk -v c="chan$CHAN" '
     "$KSPRPROJ/genconfig/mdp3_prod.info")
 [ -n "$IR_IP" ] || { echo "[FAIL] no group_ir for chan $CHAN in mdp3_prod.info" >&2; exit 1; }
 
-IR_PORT=$((14000 + CHAN))
+# Read port_ir from config rather than computing 14000+chan: the convention
+# does not hold for every channel (mdp3_prod.info has chan323 -> port_ir 14346),
+# and dbento_pcap_to_bin.cpp documents the same caveat. Computing it silently
+# matches no files for those channels.
+IR_PORT=$(awk -v c="chan$CHAN" '
+    $1==c {inb=1} inb && $1=="port_ir" {print $2; exit}' \
+    "$KSPRPROJ/genconfig/mdp3_prod.info")
+[ -n "$IR_PORT" ] || { echo "[FAIL] no port_ir for chan $CHAN in mdp3_prod.info" >&2; exit 1; }
 mapfile -t IR_FILES < <(ls "$DAY"/*-snap-*"${IR_IP}_${IR_PORT}.pcap.zst" 2>/dev/null | sort)
 [ ${#IR_FILES[@]} -gt 0 ] || { echo "[FAIL] no IR files for chan=$CHAN date=$DATE (ip=$IR_IP)" >&2; exit 1; }
 
