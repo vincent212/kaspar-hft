@@ -1752,6 +1752,90 @@ fills.
 **Cross-instrument (ES-first):** everything built on ES; NQ added later as replication + ES↔NQ
 parameter-transfer (fit ES, run NQ, and vice versa).
 
+### How to compare models — and why the execution backtest is the weakest test
+
+Plugging a model into shadow and measuring slippage is the obvious comparison
+and the one this document is built around. It is also the least informative of
+the three available, and should not be the only one.
+
+**It is confounded.** A slippage difference between shadow and shadow+model may
+come from the model, or from its interaction with the throttle, the cancel
+policy and the QCoord/PCoord coordination. Nothing in the output separates them.
+
+**It throws away almost all the evidence.** The grid yields 3,180 fires per
+config, and the effect being hunted is perhaps 0.1–0.3 ticks. Each session
+meanwhile contains millions of ADD events about which the model made an
+implicit prediction. The backtest discards ~99.99% of them.
+
+**It cannot say why.** "M0 beat B0 by 0.15 ticks" offers no mechanism — better
+fill probability, better adverse-selection filter, or noise.
+
+#### 1. Predictive scoring (do this first; it is nearly free)
+
+Full MBO means the ground truth for the model's actual question is *derivable*,
+with no simulator. For any real ADD, every subsequent add, cancel and trade at
+that price is in the capture, so we know whether an order joining that queue at
+that position would have filled before the level was abandoned.
+
+| target | label from the `.bin` | score |
+|---|---|---|
+| fill probability | did a join at this queue rank fill before the level died | log-loss, Brier, AUC, **calibration curve** |
+| level survival | time until the level was abandoned | concordance index, Brier over horizons |
+| adverse selection | mark-out at +1s/+5s/+30s on the hypothetical fill | AUC of `adverse()` against a toxic-fill label |
+
+Millions of labels per session, decoupled from the algorithm, and diagnostic:
+it says *which* of the model's three jobs it does well. Calibration matters as
+much as discrimination — a model whose 0.3 fills 30% of the time can be used to
+size and to choose between levels; one that only ranks correctly cannot.
+
+**The trap.** A model that predicts *fills* better can make execution worse.
+Shadow's edge is not getting filled, it is avoiding being filled when the price
+is about to go through. Optimising for fill rate selects for toxic fills. The
+label must be **filled AND not adversely selected** — the fill conditioned on
+its mark-out — not merely filled.
+
+#### 2. Paired execution backtest (the arbiter of economic value)
+
+"Paired" is a statistical design, not an arm composition: run shadow and
+shadow+model over the **same sessions with the same RNG seed**, so the two arms
+see an identical placement stream and differ only where the model intervenes.
+Day-level noise — that session's volatility, trend, spread regime — is common
+to both and cancels in the difference.
+
+    unpaired:  A = 0.50 ± 0.30,  B = 0.45 ± 0.30      overlapping, inconclusive
+    paired:    d = A − B = 0.05 ± 0.02                 significant, same data
+
+Pair at the **fire** level (same session, same fire time, same seed), not just
+the session, and report the distribution of `d` rather than two means. Because
+the model only gates placements, one run can log what it said at every ADD
+shadow would have taken, so both arms can often be evaluated from a single
+pass.
+
+The seed policy in the grid (seed 1 everywhere, variation supplied by the 265
+sessions) exists for this: it is what makes the arms comparable.
+
+#### 3. Stylized-fact comparison (only for generative use)
+
+If a model is used *generatively* — M0 simulating a book rather than emitting a
+signal — then the usual check applies: simulate, and compare order-flow, queue
+length, spread and return distributions against the real corpus. Irrelevant
+when the model is only a signal, which is how B0 and M0 enter shadow here.
+
+#### What none of these can do
+
+The simulator does not model the market's reaction to our own orders. A model
+that wins by placing more aggressively is partly exploiting that blind spot.
+Report volume share per config alongside every result — the probe now measures
+it per leg — and treat a config whose share is large as outside the regime
+where the number means anything.
+
+#### Sequencing
+
+Predictive scoring first: it is cheap, has enormous N, and kills bad models
+before any CPU is spent on them. Then the paired execution backtest on the
+survivors, as the test of whether the predictive edge is worth anything after
+the algorithm, the queue and the latency have had their say.
+
 ### The shadow baseline grid — run this before any model arm
 
 Shadow is the model-free baseline every model in §1 is scored against. Until its cost curve is
