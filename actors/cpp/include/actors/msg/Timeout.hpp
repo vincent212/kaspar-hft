@@ -12,7 +12,7 @@
 
 namespace actors::msg {
   /// Sent when a timer expires
-  struct Timeout : public MessageT<Timeout> {
+  struct Timeout : public Message_N<8> {
     int data;
     Timeout(int d = std::numeric_limits<int>::max()) : data(d) {}
   };

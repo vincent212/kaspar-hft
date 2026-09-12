@@ -166,7 +166,7 @@ void Actor::run_loop(Q& q) noexcept
         // single-message path), not merely "end of this batch snapshot".
         m->last = (i + 1 == batch.size()) && q.is_empty();
         reply_to = m->sender;
-        bool is_shutdown = m->get_message_id() == message_id<msg::Shutdown>();
+        bool is_shutdown = m->get_message_id() == msg::Shutdown::id;
 
         process_message_internal(m);   // per-message lock + dispatch + delete
 
@@ -189,7 +189,7 @@ void Actor::run_loop(Q& q) noexcept
       m->last = std::get<1>(r);
       reply_to = m->sender;
 
-      bool is_shutdown = m->get_message_id() == message_id<msg::Shutdown>();
+      bool is_shutdown = m->get_message_id() == msg::Shutdown::id;
 
       process_message_internal(m);
 

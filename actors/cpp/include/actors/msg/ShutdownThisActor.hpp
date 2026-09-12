@@ -25,7 +25,7 @@ namespace msg {
  * - Send ActorRemoved notification to the requester
  * - Keep other group members running
  */
-struct ShutdownThisActor : public MessageT<ShutdownThisActor> {
+struct ShutdownThisActor : public Message_N<15> {
     ShutdownThisActor() = default;
 };
 

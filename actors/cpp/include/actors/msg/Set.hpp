@@ -13,7 +13,7 @@
 
 namespace actors::msg {
   /// Set a variable on an actor
-  struct Set : public MessageT<Set> {
+  struct Set : public Message_N<4> {
     std::string varname;
     std::any value;
     Set(const std::string& name, const std::any& val = false)

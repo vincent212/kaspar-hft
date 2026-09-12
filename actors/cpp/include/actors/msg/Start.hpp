@@ -11,5 +11,5 @@
 
 namespace actors::msg {
   /// Sent to actors when they are initialized
-  struct Start : public MessageT<Start> {};
+  struct Start : public Message_N<6> {};
 }

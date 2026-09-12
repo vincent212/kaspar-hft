@@ -1239,7 +1239,28 @@ byte-identical to what the live handler would have produced. What remains is the
 | `pcap_list_ips` | dry-run: what src IPs / dst ports are actually in a capture dir |
 | `scripts/extract_futures.sh` | parallel, resume-safe batch over dates × channels |
 
-##### D0a — acquire one month of ES (the first concrete milestone)
+##### D0a — acquire ES sessions  [DONE 2026-09-12]
+
+**Status: complete, and well past one month.** The full Databento archive on disk was converted:
+**363 ES (ch. 310) sessions, 2025-01-01 to 2026-02-27, 73 GB of `.bin`**, zero failures. Wall-clock
+was 277 s for the 260 remaining sessions at `NJOBS=59` (all dates run concurrently; a single
+session is ~3-77 s and cannot use more than ~2 cores, so across-date parallelism is the only kind
+available). Sizing, which the plan flagged as unmeasured: **~200 MB of `.bin` per normal weekday
+session** from ~373 MB of compressed pcap.
+
+Two things that fell out of doing it, both now fixed and worth remembering:
+- Session size tracks the calendar, not correctness: Sundays are ~2-4 MB (the 18:00 ET open only),
+  holidays ~3 MB, shortened sessions 30-60 MB, normal weekdays 120-400 MB. The
+  "event count within band of the median" gate **must bucket by session type** or it will flag
+  every Sunday as truncated.
+- The converter deadlocked at shutdown after migrating the actor framework's own messages to
+  `MessageT`. Data was intact (the hang is after the last record is written) but no `.ok` marker
+  was produced. The framework messages in `actors/cpp/include/actors/msg/` keep hand-assigned ids.
+
+The corpus spans **five ES quarterly rolls** (Mar/Jun/Sep/Dec 2025), so front-month selection and
+roll segmentation is now real work rather than the footnote it was for a single clean month.
+
+##### D0a (original plan) — acquire one month of ES
 
 ES is **channel 310**. One calendar month is ~21–22 trading sessions, which already satisfies the
 ≥ 20-session floor in *Coverage* below, so this is the right first pull.
@@ -1412,6 +1433,103 @@ sessions:
 - **cancel efficiency**: pulls that avoided a sweep vs pulls that missed free fills.
 
 Head-to-head table: baseline vs M0–M3 (M4 as optional directional gate), per regime (RTH/ETH).
+
+### The headline metric: direction-agnostic slippage
+
+Slippage is the number this study lives or dies by, so it is defined here exactly as in
+`tech_reports/shadow_pov.pdf` §Experimental Evaluation, and every model is scored on the same
+definition. **Do not invent a new one per model.**
+
+Fire the *same* parent both long and short on the same session. For each leg let `mid` be the BBO
+midpoint cached at the instant the chunk alarm fires, and `vwap` the size-weighted execution price
+for that leg:
+
+```
+cost_buy = vwap_buy − mid
+cost_sel = mid      − vwap_sel
+Slippage = ½(cost_buy + cost_sel) = ½(vwap_buy − vwap_sel)
+```
+
+The fire-time `mid` **cancels algebraically** in the second equality, so the reported figure is
+exactly *half the gap between what the buyer of a leg paid and what the seller received* —
+independent of which mid was captured, and robust to a mis-timed mid snapshot. **Positive = a
+loss.** A *negative* value is not a win; it is a diagnostic that the two direction-runs saw
+different market states, and that session should be quarantined rather than averaged in.
+
+- **Units.** 1 tick = 0.25 pt. ES: `0.25 × $50 = $12.50` per tick per contract.
+- **Reference to beat.** The published shadow-as-is result is ES **+0.45 ticks = +$5.59 per
+  contract** at the close, over 31,354 contracts / 137 date-pairs. Any model that does not move
+  this number has not earned its complexity.
+- **Close cohort only.** The paper fires at 09:29 and 15:57 ET and reports the **close**. At the
+  open, price drift inside the 60-second window (100+ NQ points observed, 171 on one date) means
+  the two direction-runs sample different price levels and the drift swamps the execution effect.
+  Fire at the open for diagnostics if useful, but **the headline is the close.**
+
+### Slippage measurement pipeline
+
+```
+.bin session (D0a, on disk: 363 ES sessions 2025-01-01..2026-02-27)
+   │
+   ├─ run A: parent LONG   ─┐
+   └─ run B: parent SHORT  ─┤   same session, same seed, same config
+                            │
+   BFA --replay  →  OB / TachBook  →  light22 (+ ModelSignal)  →  SOM (sim fills)
+                            │                      │
+                            │                      └─ fire scheduler: 10 lock-step chunks on
+                            │                         Timer alarms at 15:57 ET; caches BBO mid
+                            │                         at each alarm  →  mid_fire
+                            │
+                            └─ SOM emits l3_som_t records (somcode, side, px, sz, symid,
+                               som_tim_epoch) — every field slippage needs
+   │
+   ├─ per-leg vwap  = Σ(px·sz)/Σ(sz) over Fill records for that leg/direction
+   ├─ Slippage      = ½(vwap_buy − vwap_sel)          [mid cancels]
+   └─ aggregate across sessions → mean, CI, per-regime split
+```
+
+**Why two runs per session and not one.** With a single direction you must trust the captured
+`mid` absolutely; any error in *when* it was sampled goes straight into the result. Running both
+directions makes the metric independent of that snapshot. It doubles compute — at ~40 s per
+session that is still minutes, not hours, for the whole corpus.
+
+**Where the fills come from.** `l3_som_t` already carries everything needed and is written through
+the same `bfile::write_l3` path as market data, so a run's fills can be persisted alongside its
+book events and re-read deterministically. `BFA` also writes a plain-text `som<pid>.out`; prefer
+the binary records for anything that feeds a number in the paper.
+
+**Per-run acceptance gate** (a run that fails any of these is quarantined, not averaged in):
+1. Both direction-runs completed and filled the full parent (`still_to_be_filled == 0`).
+2. Slippage is positive. Negative means the two runs saw different market states — investigate,
+   do not average.
+3. Fill count and contract count within band of the corpus median for that fire time.
+4. Participation rate ρ stays small (the paper used ρ≈1.5%); see the impact caveat below.
+
+**Secondary metrics** (explain the slippage number, never replace it): fill ratio and
+passive-fill share; mark-out at +1s/+5s/+30s after fill (adverse selection); realized fill
+queue-rank distribution; cancel efficiency — pulls that avoided a sweep vs pulls that missed a
+free fill.
+
+> **Impact caveat, inherited from the paper and applying unchanged to every model here.** The
+> simulator does not model the market's reaction to our own orders: each shadow fills against the
+> recorded feed as though its presence did not perturb the flow it follows. This is sound at small
+> size and breaks once a shadow is a material fraction of resting liquidity. **Report ρ alongside
+> every slippage figure, and do not extrapolate to sizes where ρ is large.** A model that "wins"
+> by placing far more aggressively has not beaten the baseline; it has left the regime where the
+> simulator is valid.
+
+### What D0b must deliver for this to run
+
+The pipeline above is blocked on one missing piece (see §2): nothing replays a `.bin` back through
+the books. Concretely, D0b owes:
+
+1. `kaspr --replay <file.bin.gz>` — construct `BFA`, add to its Group **last** per `BFA_USAGE.md`.
+2. A **fire scheduler** actor: on Timer alarms, step `targetpos` through 10 lock-step chunks via
+   `light::msg::Set(TARGET_POS, …)` / `TRADING_ON`, and cache the BBO mid at each alarm. Direction
+   is a run parameter so the same session can be fired long and short.
+3. Persist SOM records for the run (set `handler->binrec`, or a dedicated SOM recorder) so vwap is
+   computed from binary records rather than parsed text.
+4. A small aggregator (Python is fine — this is offline) that reads the two direction-runs, emits
+   per-session slippage in ticks and dollars, and pools with confidence intervals.
 
 ### Supporting diagnostics (explain the execution result, not the point)
 - **Signal accuracy (Tier C):** fill-probability calibration curves, level-break AUC, mid-move
