@@ -18,7 +18,7 @@ namespace frame
     namespace msg
     {
 
-      class TimeOutSub : public  actors::Message_N<21>
+      class TimeOutSub : public actors::MessageT<TimeOutSub>
       {
       public:
 

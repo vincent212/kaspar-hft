@@ -15,7 +15,7 @@
 
 namespace frame::som::msg
 {
-  struct SOMAction : public actors::Message_N<251> , public actors::MemoryPool<SOMAction>
+  struct SOMAction : public actors::MessageT<SOMAction> , public actors::MemoryPool<SOMAction>
   {
     en::som som_code;
     uint32_t ordid;

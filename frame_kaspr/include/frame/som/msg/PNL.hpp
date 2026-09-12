@@ -17,7 +17,7 @@ namespace frame
     {
         namespace msg
         {
-            struct PNL : public  actors::Message_N<39>
+            struct PNL : public actors::MessageT<PNL>
             {
                 std::vector<pos::Position> pos;
                 std::vector<int> pnl;

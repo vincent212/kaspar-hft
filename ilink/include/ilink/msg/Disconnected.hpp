@@ -9,7 +9,7 @@
 
 namespace ilink::msg
 {
-    struct Disconnected : public  actors::Message_N<116>
+    struct Disconnected : public actors::MessageT<Disconnected>
     {
         bool is_primary;
         Disconnected(bool _is_primary) : is_primary(_is_primary) {}

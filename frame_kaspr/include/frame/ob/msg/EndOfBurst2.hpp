@@ -18,7 +18,7 @@ using book_arry_t = std::array<int, NLEVELS>;
 
 namespace frame::ob::msg
 {
-  struct EndOfBurst2 : public  actors::Message_N<74>  , public actors::MemoryPool<EndOfBurst2, 32, 16, 1024>
+  struct EndOfBurst2 : public actors::MessageT<EndOfBurst2>  , public actors::MemoryPool<EndOfBurst2, 32, 16, 1024>
   {
     uint sym = 0;
     int bb = 0, ba = 0;

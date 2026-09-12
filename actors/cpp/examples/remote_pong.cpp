@@ -21,14 +21,14 @@ using namespace std;
 
 // Define Ping message (ID=13). Hand-assigned on purpose: this is a
 // cross-process wire protocol, so both ends must agree on the id.
-class Ping : public Message_N<13> {
+class Ping : public MessageT<Ping> {
 public:
     int count;
     Ping(int c = 0) : count(c) {}
 };
 
 // Define Pong message (ID=14)
-class Pong : public Message_N<14> {
+class Pong : public MessageT<Pong> {
 public:
     int count;
     Pong(int c = 0) : count(c) {}

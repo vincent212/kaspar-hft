@@ -12,7 +12,7 @@
 
 namespace positionman::msg
 {
-  struct AddToPos : public actors::Message_N<160>
+  struct AddToPos : public actors::MessageT<AddToPos>
   {
     std::string instrument;
     en::bs side;

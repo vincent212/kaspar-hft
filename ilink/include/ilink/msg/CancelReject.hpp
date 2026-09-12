@@ -10,7 +10,7 @@
 
 namespace ilink::msg
 {
-    struct CancelReject : public  actors::Message_N<101>
+    struct CancelReject : public actors::MessageT<CancelReject>
     {
         // variables
         m2::ilink::CBIF::canc_rej_param_t cancel_reject_param;

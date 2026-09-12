@@ -9,7 +9,7 @@
 
 namespace ilink::msg
 {
-    struct DoBind : public  actors::Message_N<118>
+    struct DoBind : public actors::MessageT<DoBind>
     {
         uint64_t uuid;
         uint32_t nextseq_from_us; 

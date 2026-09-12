@@ -11,7 +11,7 @@
 
 namespace mq0::msg
 {
-  struct MQ0_Msg : public cfsm::Message_N<190>
+  struct MQ0_Msg : public cfsm::MessageT<MQ0_Msg>
   {
     std::string msg;
     MQ0_Msg(const std::string &message) : msg(message)

@@ -16,7 +16,7 @@ namespace frame
     {
         namespace msg
         {
-            struct RiskInfo : public actors::Message_N<45>
+            struct RiskInfo : public actors::MessageT<RiskInfo>
             {
                 double pnl;
                 en::x venu;

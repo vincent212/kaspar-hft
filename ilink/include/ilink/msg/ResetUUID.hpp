@@ -9,7 +9,7 @@
 
 namespace ilink::msg
 {
-    struct ResetUUID : public  actors::Message_N<120>
+    struct ResetUUID : public actors::MessageT<ResetUUID>
     {
     };
 }

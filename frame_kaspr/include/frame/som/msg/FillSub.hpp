@@ -11,6 +11,6 @@
 
 namespace frame::som::msg
 {
-    struct FillSub : public actors::Message_N<36>
+    struct FillSub : public actors::MessageT<FillSub>
     {};
 }

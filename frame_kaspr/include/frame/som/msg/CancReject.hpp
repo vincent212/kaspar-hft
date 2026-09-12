@@ -15,7 +15,7 @@
 namespace frame::som::msg
 {
 
-    struct CancReject : public  actors::Message_N<33> , public actors::MemoryPool<CancReject>
+    struct CancReject : public actors::MessageT<CancReject> , public actors::MemoryPool<CancReject>
     {
         enum
         {

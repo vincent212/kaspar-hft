@@ -16,7 +16,7 @@ namespace frame
   {
     namespace msg
     {
-      struct CancNotify : public  actors::Message_N<24>
+      struct CancNotify : public actors::MessageT<CancNotify>
       {
         CancNotify(
         en::bs _side,

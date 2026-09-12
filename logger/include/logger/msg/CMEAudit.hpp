@@ -13,7 +13,7 @@
 
 namespace polonaise::logger::msg
 {
-    struct CMEAudit : public  actors::Message_N<121>
+    struct CMEAudit : public actors::MessageT<CMEAudit>
     {
         std::vector<std::any> val_arr;
         CMEAudit(std::vector<std::any> _val_arr) : val_arr(_val_arr) {}

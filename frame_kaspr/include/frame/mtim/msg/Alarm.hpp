@@ -16,7 +16,7 @@ namespace frame
     {
         namespace msg
         {
-            class Alarm : public actors::Message_N<19>
+            class Alarm : public actors::MessageT<Alarm>
             {
             public:
 

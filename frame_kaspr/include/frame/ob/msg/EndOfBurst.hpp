@@ -13,7 +13,7 @@
 
 namespace frame::ob::msg
 {
-  struct EndOfBurst : public  actors::Message_N<75> , public actors::MemoryPool<EndOfBurst, 256, 16, 4096>
+  struct EndOfBurst : public actors::MessageT<EndOfBurst> , public actors::MemoryPool<EndOfBurst, 256, 16, 4096>
   {
 
     using payload_ptr_t = boost::intrusive_ptr<const frame::mda::msg::data_pay_load>;

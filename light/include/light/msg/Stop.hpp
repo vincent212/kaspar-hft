@@ -13,7 +13,7 @@ namespace light
 {
   namespace msg
   {
-    struct Stop : public actors::Message_N<72>
+    struct Stop : public actors::MessageT<Stop>
     {
       Stop() {}
     };

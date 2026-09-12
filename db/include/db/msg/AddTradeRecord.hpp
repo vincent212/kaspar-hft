@@ -12,7 +12,7 @@
 
 namespace postrade::msg
 {
-  struct AddTradeRecord : public actors::Message_N<180>
+  struct AddTradeRecord : public actors::MessageT<AddTradeRecord>
   {
         unsigned long long epoch;
         std::string venue;

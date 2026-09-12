@@ -11,7 +11,7 @@
 
 namespace frame::som::msg
 {
-    struct Start : public actors::Message_N<41>
+    struct Start : public actors::MessageT<Start>
     {
         Start() {}
         virtual ~Start() {}

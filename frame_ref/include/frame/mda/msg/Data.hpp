@@ -523,7 +523,7 @@ namespace frame
       // way it can be stored unlike the data message which will
       // get automaticaly deleted usually
       //
-      struct Data : public  actors::Message_N<17>  , public actors::MemoryPool<Data, 16, 16, 2048>
+      struct Data : public actors::MessageT<Data>  , public actors::MemoryPool<Data, 16, 16, 2048>
       {
         Data(bool israw = false) : 
           israw(israw), ts0(sys_nanoseconds{})

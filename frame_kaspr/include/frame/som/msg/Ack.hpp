@@ -18,7 +18,7 @@ namespace frame
     {
         namespace msg
         {
-            struct Ack : public  actors::Message_N<31> , public actors::MemoryPool<Ack>
+            struct Ack : public actors::MessageT<Ack> , public actors::MemoryPool<Ack>
             {
                 uint id = 0;
                 uint64_t xordid = 0;

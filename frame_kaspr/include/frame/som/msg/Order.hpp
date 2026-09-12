@@ -26,7 +26,7 @@ namespace frame
   {
     namespace msg
     {
-      struct Order : public  actors::Message_N<38>
+      struct Order : public actors::MessageT<Order>
       {
         uint64_t ts = 0;
         en::x venue;

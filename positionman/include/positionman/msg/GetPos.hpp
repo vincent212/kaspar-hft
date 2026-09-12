@@ -11,7 +11,7 @@
 
 namespace positionman::msg
 {
-  struct GetPos : public actors::Message_N<162>
+  struct GetPos : public actors::MessageT<GetPos>
   {
     std::string instrument;
     GetPos(const std::string& instrument) : instrument(instrument) {}

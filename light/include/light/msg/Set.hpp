@@ -13,7 +13,7 @@ namespace light
 {
   namespace msg
   {
-    struct Set : public  actors::Message_N<70>
+    struct Set : public actors::MessageT<Set>
     {
       enum action_t
       {

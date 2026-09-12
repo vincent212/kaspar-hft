@@ -16,7 +16,7 @@ namespace frame
   {
     namespace msg
     {
-      struct CheckSim : public  actors::Message_N<27>
+      struct CheckSim : public actors::MessageT<CheckSim>
       {
         CheckSim(uint _sym, en::bs _side, int _px, uint32_t _sz)
           :sym(_sym), side(_side), px(_px), sz(_sz)

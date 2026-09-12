@@ -16,7 +16,7 @@ namespace frame
   {
     namespace msg
     {
-      struct CheckRes : public  actors::Message_N<26>
+      struct CheckRes : public actors::MessageT<CheckRes>
       {
         CheckRes(bool _res)
           :res(_res)

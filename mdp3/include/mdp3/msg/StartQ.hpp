@@ -14,7 +14,7 @@ namespace mdp3
 {
   namespace msg
   {
-    struct StartQ : public chutil::PooledObject<StartQ, actors::Message_N<152>>
+    struct StartQ : public chutil::PooledObject<StartQ, actors::MessageT<StartQ>>
     {
       StartQ()
           {}

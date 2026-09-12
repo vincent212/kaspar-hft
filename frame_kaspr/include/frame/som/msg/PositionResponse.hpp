@@ -18,7 +18,7 @@ namespace frame::som::msg
    * Sent by: DB actor
    * Received by: SOM
    */
-  struct PositionResponse : public actors::Message_N<261>, public actors::MemoryPool<PositionResponse>
+  struct PositionResponse : public actors::MessageT<PositionResponse>, public actors::MemoryPool<PositionResponse>
   {
     int sym;           // Symbol ID
     en::trader trader; // Trader ID

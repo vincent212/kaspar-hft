@@ -18,7 +18,7 @@ namespace frame::som::msg
    * Sent by: SOM (on startup)
    * Received by: DB actor
    */
-  struct GetPosition : public actors::Message_N<260>, public actors::MemoryPool<GetPosition>
+  struct GetPosition : public actors::MessageT<GetPosition>, public actors::MemoryPool<GetPosition>
   {
     int sym;           // Symbol ID (0=ES, 1=NQ, etc.)
     en::trader trader; // Trader ID (SIMULATOR, etc.)

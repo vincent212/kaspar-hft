@@ -17,7 +17,7 @@ namespace frame
   {
     namespace msg
     {
-      struct Reject : public  actors::Message_N<40> , public actors::MemoryPool<Reject>
+      struct Reject : public actors::MessageT<Reject> , public actors::MemoryPool<Reject>
       {
         enum
         {

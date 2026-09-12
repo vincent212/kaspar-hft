@@ -9,7 +9,7 @@
 
 namespace ilink::msg
 {
-    struct StartReceiving : public  actors::Message_N<119>
+    struct StartReceiving : public actors::MessageT<StartReceiving>
     {
     };
 }

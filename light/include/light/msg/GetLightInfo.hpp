@@ -14,7 +14,7 @@ namespace light
 {
   namespace msg
   {
-    struct GetLightInfo : public  actors::Message_N<80>
+    struct GetLightInfo : public actors::MessageT<GetLightInfo>
     {
     };
   }

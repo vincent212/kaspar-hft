@@ -15,7 +15,7 @@ namespace frame
   {
     namespace msg
     {
-      struct BBBOSub : public  actors::Message_N<23>
+      struct BBBOSub : public actors::MessageT<BBBOSub>
       {
         BBBOSub()
         {}

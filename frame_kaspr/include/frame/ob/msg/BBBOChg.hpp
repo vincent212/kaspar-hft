@@ -19,7 +19,7 @@ namespace frame
   {
     namespace msg
     {
-      struct BBBOChg : public actors::Message_N<22>  , public actors::MemoryPool<BBBOChg, 16, 16, 1024>
+      struct BBBOChg : public actors::MessageT<BBBOChg>  , public actors::MemoryPool<BBBOChg, 16, 16, 1024>
       {
         en::x venue;
         int best_bid;

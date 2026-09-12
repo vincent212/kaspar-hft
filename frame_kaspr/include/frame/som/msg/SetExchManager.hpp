@@ -13,7 +13,7 @@
 
 namespace frame::som::msg
 {
-    struct SetExchManager : public  actors::Message_N<49>
+    struct SetExchManager : public actors::MessageT<SetExchManager>
     {
         en::x venue;
         actor_ptr manager;

@@ -15,7 +15,7 @@ namespace frame
   {
     namespace msg
     {
-      struct GapDetected : public  actors::Message_N<73>
+      struct GapDetected : public actors::MessageT<GapDetected>
       {
         int sym;
         GapDetected(int _sym)

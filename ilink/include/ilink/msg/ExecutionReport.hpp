@@ -11,7 +11,7 @@
 namespace ilink::msg
 {
 
-    struct ExecutionReport : public  actors::Message_N<104>
+    struct ExecutionReport : public actors::MessageT<ExecutionReport>
     {
         // variables
         m2::ilink::CBIF::exec_report_param_t exec_report_param;

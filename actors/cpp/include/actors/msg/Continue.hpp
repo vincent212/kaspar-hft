@@ -11,7 +11,7 @@
 
 namespace actors::msg {
   /// Used for continuation/callback patterns
-  struct Continue : public Message_N<1> {
+  struct Continue : public MessageT<Continue> {
     int id;
     Continue(int _id = 0) : id(_id) {}
   };

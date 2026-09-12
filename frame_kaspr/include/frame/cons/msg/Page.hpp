@@ -16,7 +16,7 @@ namespace frame
     {
         namespace msg
         {
-            struct Page : public actors::Message_N<133>
+            struct Page : public actors::MessageT<Page>
             {
                 std::string val;
                 Page(const std::string&_val):val(_val)

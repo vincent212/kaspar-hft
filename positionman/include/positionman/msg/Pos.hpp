@@ -11,7 +11,7 @@
 
 namespace positionman::msg
 {
-  struct Pos : public actors::Message_N<163>
+  struct Pos : public actors::MessageT<Pos>
   {
     std::string instrument;
     int position;

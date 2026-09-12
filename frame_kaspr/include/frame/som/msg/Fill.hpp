@@ -24,7 +24,7 @@ namespace frame
   {
     namespace msg
     {
-      struct Fill : public actors::Message_N<35> , public actors::MemoryPool<Fill>
+      struct Fill : public actors::MessageT<Fill> , public actors::MemoryPool<Fill>
       {
         uint id = 0;
         double sz = 0;

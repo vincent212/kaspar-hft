@@ -23,7 +23,7 @@ namespace polonaise
     namespace msg
     {
 
-      class Log : public actors::Message_N<16>  , public actors::MemoryPool<Log,64,64,4096>
+      class Log : public actors::MessageT<Log>  , public actors::MemoryPool<Log,64,64,4096>
       {
 
       public:

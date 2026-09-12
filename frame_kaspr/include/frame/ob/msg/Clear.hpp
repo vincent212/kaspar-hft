@@ -16,7 +16,7 @@ namespace frame
   {
     namespace msg
     {
-      struct Clear : public  actors::Message_N<28>
+      struct Clear : public actors::MessageT<Clear>
       {
         int sym;
         Clear(int _sym)

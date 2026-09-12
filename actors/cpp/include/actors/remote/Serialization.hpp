@@ -141,7 +141,7 @@ inline bool is_registered(const std::string& type_name) {
  * REGISTER_REMOTE_MESSAGE_1 - Register a message with 1 field
  *
  * Usage:
- *   class Ping : public Message_N<100> {
+ *   class Ping : public MessageT<Ping> {
  *   public:
  *       int count;
  *       Ping(int c = 0) : count(c) {}

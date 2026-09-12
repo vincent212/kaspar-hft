@@ -11,5 +11,5 @@
 
 namespace actors::msg {
   /// Subscribe to events from another actor
-  struct Subscribe : public Message_N<7> {};
+  struct Subscribe : public MessageT<Subscribe> {};
 }

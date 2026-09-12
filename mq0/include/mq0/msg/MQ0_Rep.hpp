@@ -11,7 +11,7 @@
 
 namespace mq0::msg
 {
-  struct MQ0_Rep : public cfsm::Message_N<191>
+  struct MQ0_Rep : public cfsm::MessageT<MQ0_Rep>
   {
     std::string msg;
     int status = 0; // 0 = success, 1 = error

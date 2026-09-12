@@ -12,7 +12,7 @@
 
 namespace frame::cons::msg
 {
-    struct CmdR : public actors::Message_N<131>
+    struct CmdR : public actors::MessageT<CmdR>
     {
         std::string res;
         CmdR(const std::string&_res):res(_res){}

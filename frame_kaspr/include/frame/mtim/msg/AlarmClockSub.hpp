@@ -20,7 +20,7 @@ namespace frame
     namespace msg
     {
 
-      class AlarmClockSub : public actors::Message_N<20>
+      class AlarmClockSub : public actors::MessageT<AlarmClockSub>
       {
         int h,m,s,ms;
         bool is_relative, adjusted;

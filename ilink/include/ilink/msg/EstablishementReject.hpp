@@ -9,7 +9,7 @@
 
 namespace ilink::msg
 {
-    struct EstablishmentReject : public  actors::Message_N<102>
+    struct EstablishmentReject : public actors::MessageT<EstablishmentReject>
     {
         // variables
         uint64_t RequestTimeStamp;

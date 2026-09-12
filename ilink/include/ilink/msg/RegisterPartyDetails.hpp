@@ -9,7 +9,7 @@
 
 namespace ilink::msg
 {
-    struct  RegisterPartyDetails : public  actors::Message_N<109>
+    struct  RegisterPartyDetails : public actors::MessageT<RegisterPartyDetails>
     {
         RegisterPartyDetails()
         {

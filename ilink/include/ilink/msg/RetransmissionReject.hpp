@@ -9,7 +9,7 @@
 
 namespace ilink::msg
 {
-    struct RetransmissionReject : public  actors::Message_N<111>
+    struct RetransmissionReject : public actors::MessageT<RetransmissionReject>
     {
         // variables
         uint64_t UUID;

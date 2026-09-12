@@ -20,7 +20,7 @@ namespace frame
   {
     namespace msg
     {
-      struct Cancel : public  actors::Message_N<34> , public actors::MemoryPool<Cancel>
+      struct Cancel : public actors::MessageT<Cancel> , public actors::MemoryPool<Cancel>
       {
         uint id;
         uint32_t sz; // partial cancels not supported

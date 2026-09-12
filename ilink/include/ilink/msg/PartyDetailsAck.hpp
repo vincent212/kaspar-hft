@@ -11,7 +11,7 @@
 
 namespace ilink::msg
 {
-    struct PartyDetailsAck : public  actors::Message_N<108>
+    struct PartyDetailsAck : public actors::MessageT<PartyDetailsAck>
     {
         // variables
         uint64_t UUID;

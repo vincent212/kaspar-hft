@@ -10,7 +10,7 @@
 
 namespace ilink::msg
 {
-    struct NegotiationReject : public  actors::Message_N<105>
+    struct NegotiationReject : public actors::MessageT<NegotiationReject>
     {
         uint64_t RequestTimeStamp;
         uint64_t UUID;

@@ -15,7 +15,7 @@ namespace frame
     {
         namespace msg
         {
-            struct GetPNL : public actors::Message_N<37>
+            struct GetPNL : public actors::MessageT<GetPNL>
             {
               int owner;
               GetPNL(int _owner) : owner(_owner) {}

@@ -11,7 +11,7 @@
 
 namespace frame::som::msg
 {
-    struct Stop : public actors::Message_N<42>
+    struct Stop : public actors::MessageT<Stop>
     {
         Stop() {}
     };

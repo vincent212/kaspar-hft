@@ -17,7 +17,7 @@ namespace frame
   {
     namespace msg
     {
-      class Subscribe : public  actors::Message_N<18>
+      class Subscribe : public actors::MessageT<Subscribe>
       {
         unsigned int sym;
 

@@ -12,7 +12,7 @@
 
 namespace light::msg
 {
-  struct LightSetOffTR : public actors::Message_N<166>
+  struct LightSetOffTR : public actors::MessageT<LightSetOffTR>
   {
     const std::string offtr_sym;
     const std::string mat;

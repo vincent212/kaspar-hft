@@ -14,7 +14,7 @@
 namespace mcast_recv::msg
 {
   template <typename seqnumT>
-  struct ProcessQ : public actors::Message_N<129>, public actors::MemoryPool<ProcessQ<seqnumT>,16,16,4096>
+  struct ProcessQ : public actors::MessageT<ProcessQ<seqnumT>>, public actors::MemoryPool<ProcessQ<seqnumT>,16,16,4096>
   {
     message_buffer buf;
   };

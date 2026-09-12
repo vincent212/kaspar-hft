@@ -9,7 +9,7 @@
 
 namespace ilink::msg
 {
-    struct InitPrimary : public  actors::Message_N<151>
+    struct InitPrimary : public actors::MessageT<InitPrimary>
     {
     };
 }

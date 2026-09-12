@@ -17,7 +17,7 @@ namespace frame::som::msg
    * Sent by: SOM (on startup if reset_positions=true)
    * Received by: DB actor
    */
-  struct ResetPositions : public actors::Message_N<263>, public actors::MemoryPool<ResetPositions>
+  struct ResetPositions : public actors::MessageT<ResetPositions>, public actors::MemoryPool<ResetPositions>
   {
     ResetPositions() {}
 

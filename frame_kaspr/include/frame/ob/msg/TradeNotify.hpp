@@ -13,7 +13,7 @@
 
 namespace frame::ob::msg
 {
-  struct TradeNotify : public actors::Message_N<76>  , public actors::MemoryPool<TradeNotify,64,16,2048>
+  struct TradeNotify : public actors::MessageT<TradeNotify>  , public actors::MemoryPool<TradeNotify,64,16,2048>
   {
 
     using payload_ptr_t = boost::intrusive_ptr<const frame::mda::msg::data_pay_load>;

@@ -13,7 +13,7 @@ namespace mdp3
 {
   namespace msg
   {
-    struct EndDataRecovery : public actors::Message_N<63>
+    struct EndDataRecovery : public actors::MessageT<EndDataRecovery>
     {
       uint64_t last_seq;
       EndDataRecovery(uint64_t _last_seq) {last_seq = _last_seq;}

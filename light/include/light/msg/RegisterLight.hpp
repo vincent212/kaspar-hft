@@ -12,7 +12,7 @@
 
 namespace light::msg
 {
-  struct RegisterLight : public actors::Message_N<183>
+  struct RegisterLight : public actors::MessageT<RegisterLight>
   {
     cfsmp light;
     RegisterLight(cfsmp _light)

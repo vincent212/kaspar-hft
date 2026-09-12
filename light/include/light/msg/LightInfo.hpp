@@ -14,7 +14,7 @@ namespace light
 {
   namespace msg
   {
-    struct LightInfo : public  actors::Message_N<81>
+    struct LightInfo : public actors::MessageT<LightInfo>
     {
       typedef std::tuple<frame::som::msg::Fill, uint64_t> last_fill_msg_t; // with timestamp
       typedef std::list<std::tuple<frame::som::msg::Fill, uint64_t>> last_fill_msg_list_t;

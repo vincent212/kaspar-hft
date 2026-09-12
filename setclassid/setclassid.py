@@ -35,10 +35,12 @@ HAND_ASSIGNED_CAP = 512
 RESERVED = {0, 3}
 
 # The Rust<->C++ interop ABI pins message ids on BOTH sides: the C ABI header
-# (actors/rust/interop/messages/interop_messages.h) reserves this range, and
-# the Rust dispatch tables match on the literal integers. These ids ARE the
-# cross-language dispatch key, so they can never move to MessageT.
+# (actors/rust/interop/messages/interop_messages.h) reserves 400-499, and the
+# Rust dispatch tables match on the literal integers. These ids ARE the
+# cross-language dispatch key, so they can never move to MessageT. Everything
+# else has been migrated; a Message_N outside these files is now a red flag.
 INTEROP_RANGE = range(400, 500)
+INTEROP_FILES = {"actors/rust/interop/generated/cpp/InteropMessages.hpp"}
 
 # Directories with no hand-written message types (generated codecs, build
 # output, vendored toolchains). Skipping them keeps the scan fast and stops
@@ -132,14 +134,17 @@ def main():
 
     used = set(by_id)
     free = [i for i in range(HAND_ASSIGNED_CAP) if i not in used and i not in RESERVED]
-    interop_used = sorted(i for i in used if i in INTEROP_RANGE)
-    migratable = sorted(i for i in used if i not in INTEROP_RANGE)
+    def _interop(i):
+        return any(rel in INTEROP_FILES for rel, *_ in by_id[i])
+    interop_used = sorted(i for i in used if _interop(i))
+    migratable = sorted(i for i in used if not _interop(i))
 
     if not args.quiet:
         print(f"root: {root}")
         print(f"scanned {len(files)} source files\n")
         for i in sorted(by_id):
-            tag = "  [interop: pinned]" if i in INTEROP_RANGE else ""
+            tag = ("  [interop: pinned]"
+                   if any(rel in INTEROP_FILES for rel, *_ in by_id[i]) else "")
             for rel, n, raw, tname in by_id[i]:
                 shown = f"{raw} -> {i}" if raw != str(i) else str(i)
                 print(f"  {i:>3}  {tname:<28} {rel}:{n}  ({shown}){tag}")

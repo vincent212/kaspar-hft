@@ -11,8 +11,7 @@
 
 namespace frame::som::msg
 {
-    struct UnStash : public
-         actors::Message_N<51>
+    struct UnStash : public actors::MessageT<UnStash>
     {
         uint64_t ts;
         UnStash(uint64_t _ts) : ts(_ts)

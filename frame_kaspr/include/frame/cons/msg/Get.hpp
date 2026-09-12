@@ -18,7 +18,7 @@ namespace frame
   {
     namespace msg
     {
-      struct Get : public  actors::Message_N<132>
+      struct Get : public actors::MessageT<Get>
       {
         std::string what;
         std::map<std::string, std::string> kv;

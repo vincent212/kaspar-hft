@@ -9,7 +9,7 @@
 
 namespace ilink::msg
 {
-    struct NotApplied : public  actors::Message_N<107>
+    struct NotApplied : public actors::MessageT<NotApplied>
     {
         // variables
         uint64_t RequestTimeStamp;

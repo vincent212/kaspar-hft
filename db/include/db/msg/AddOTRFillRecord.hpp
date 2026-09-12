@@ -11,7 +11,7 @@
 
 namespace postrade::msg
 {
-  struct AddOTRFillRecord : public actors::Message_N<181>
+  struct AddOTRFillRecord : public actors::MessageT<AddOTRFillRecord>
   {
         int bench_px;
         int offtr_px;

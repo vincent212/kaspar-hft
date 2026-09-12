@@ -24,7 +24,7 @@ namespace actors::coordination {
  * RegisterGroup message wrapper (ID 1010)
  * Sent by Group to CoordinatorActor to register the group
  */
-struct RegisterGroupMessage : public Message_N<500> {
+struct RegisterGroupMessage : public MessageT<RegisterGroupMessage> {
     RegisterGroup reg;
 
     RegisterGroupMessage() = default;
@@ -35,7 +35,7 @@ struct RegisterGroupMessage : public Message_N<500> {
  * RegisterActor message wrapper (ID 1011)
  * Sent by Group to CoordinatorActor to register an actor within a group
  */
-struct RegisterActorMessage : public Message_N<501> {
+struct RegisterActorMessage : public MessageT<RegisterActorMessage> {
     RegisterActor reg;
 
     RegisterActorMessage() = default;
@@ -46,7 +46,7 @@ struct RegisterActorMessage : public Message_N<501> {
  * RegisterAck message wrapper (ID 1012)
  * Sent by CoordinatorActor to Group to acknowledge successful registration
  */
-struct RegisterAckMessage : public Message_N<502> {
+struct RegisterAckMessage : public MessageT<RegisterAckMessage> {
     RegisterAck ack;
 
     RegisterAckMessage() = default;
@@ -57,7 +57,7 @@ struct RegisterAckMessage : public Message_N<502> {
  * RegisterNack message wrapper (ID 1013)
  * Sent by CoordinatorActor to Group to indicate registration failure
  */
-struct RegisterNackMessage : public Message_N<503> {
+struct RegisterNackMessage : public MessageT<RegisterNackMessage> {
     RegisterNack nack;
 
     RegisterNackMessage() = default;
@@ -68,7 +68,7 @@ struct RegisterNackMessage : public Message_N<503> {
  * PermissionToken message wrapper (ID 1014)
  * Sent by CoordinatorActor to Group to forward a permission token
  */
-struct PermissionTokenMessage : public Message_N<504> {
+struct PermissionTokenMessage : public MessageT<PermissionTokenMessage> {
     PermissionToken token;
 
     PermissionTokenMessage() = default;
@@ -79,7 +79,7 @@ struct PermissionTokenMessage : public Message_N<504> {
  * PermissionRequest message wrapper (ID 1015)
  * Sent by Group to CoordinatorActor to request permission to send
  */
-struct PermissionRequestMessage : public Message_N<505> {
+struct PermissionRequestMessage : public MessageT<PermissionRequestMessage> {
     PermissionRequest request;
 
     PermissionRequestMessage() = default;
@@ -90,7 +90,7 @@ struct PermissionRequestMessage : public Message_N<505> {
  * PermissionGrant message wrapper (ID 1016)
  * Sent by CoordinatorActor to Group to grant permission to send
  */
-struct PermissionGrantMessage : public Message_N<506> {
+struct PermissionGrantMessage : public MessageT<PermissionGrantMessage> {
     PermissionGrant grant;
 
     PermissionGrantMessage() = default;
@@ -101,7 +101,7 @@ struct PermissionGrantMessage : public Message_N<506> {
  * PermissionWait message wrapper (ID 1017)
  * Sent by CoordinatorActor to Group to indicate waiting in queue
  */
-struct PermissionWaitMessage : public Message_N<507> {
+struct PermissionWaitMessage : public MessageT<PermissionWaitMessage> {
     PermissionWait wait;
 
     PermissionWaitMessage() = default;
@@ -112,7 +112,7 @@ struct PermissionWaitMessage : public Message_N<507> {
  * PermissionDone message wrapper (ID 1018)
  * Sent by Group to CoordinatorActor to signal completion of send
  */
-struct PermissionDoneMessage : public Message_N<508> {
+struct PermissionDoneMessage : public MessageT<PermissionDoneMessage> {
     PermissionDone done;
 
     PermissionDoneMessage() = default;
@@ -123,7 +123,7 @@ struct PermissionDoneMessage : public Message_N<508> {
  * DebugFlush message wrapper (ID 1019)
  * Debug command to flush coordinator token queue and pending requests
  */
-struct DebugFlushMessage : public Message_N<509> {
+struct DebugFlushMessage : public MessageT<DebugFlushMessage> {
     DebugFlushMessage() = default;
 };
 
@@ -131,7 +131,7 @@ struct DebugFlushMessage : public Message_N<509> {
  * DebugContinue message wrapper (ID 1020)
  * Debug command to resume coordination (exit debug pause)
  */
-struct DebugContinueMessage : public Message_N<510> {
+struct DebugContinueMessage : public MessageT<DebugContinueMessage> {
     DebugContinueMessage() = default;
 };
 
@@ -139,7 +139,7 @@ struct DebugContinueMessage : public Message_N<510> {
  * DebugStop message wrapper (ID 1021)
  * Debug command to pause coordination
  */
-struct DebugStopMessage : public Message_N<511> {
+struct DebugStopMessage : public MessageT<DebugStopMessage> {
     std::string reason;
 
     DebugStopMessage() = default;

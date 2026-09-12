@@ -11,7 +11,7 @@
 
 namespace ilink::msg
 {
-    struct Terminate : public  actors::Message_N<112>
+    struct Terminate : public actors::MessageT<Terminate>
     {
         // variables
         uint64_t UUID;

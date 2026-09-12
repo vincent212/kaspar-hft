@@ -17,7 +17,7 @@ namespace frame
     {
         namespace msg
         {
-            struct CancAck : public actors::Message_N<32> , public actors::MemoryPool<CancAck>
+            struct CancAck : public actors::MessageT<CancAck> , public actors::MemoryPool<CancAck>
             {
                 uint id = 0;
                 int fillsz = 0; // how much got cancelled

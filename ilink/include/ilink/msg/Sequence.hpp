@@ -12,7 +12,7 @@
 
 namespace ilink::msg
 {
-    struct Sequence : public  actors::Message_N<113>
+    struct Sequence : public actors::MessageT<Sequence>
     {
         // variables
         uint32_t NextSeqNo;

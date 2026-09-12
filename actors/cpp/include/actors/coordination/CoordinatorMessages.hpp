@@ -20,7 +20,7 @@ namespace actors::coordination {
  * Message from ZmqRouterActor to CoordinatorActor
  * Contains a received ZMQ message with identity and payload
  */
-struct IncomingZmqMessage : public Message_N<490> {
+struct IncomingZmqMessage : public MessageT<IncomingZmqMessage> {
     std::string identity;  // ZMQ ROUTER identity
     std::vector<uint8_t> data;  // Message payload
 
@@ -32,7 +32,7 @@ struct IncomingZmqMessage : public Message_N<490> {
  * Message from CoordinatorActor to ZmqRouterActor
  * Requests sending a message to a specific identity
  */
-struct OutgoingZmqMessage : public Message_N<491> {
+struct OutgoingZmqMessage : public MessageT<OutgoingZmqMessage> {
     std::string identity;  // ZMQ ROUTER identity
     MsgType msg_type;      // Message type
     std::vector<uint8_t> data;  // Serialized message
@@ -44,14 +44,14 @@ struct OutgoingZmqMessage : public Message_N<491> {
 /**
  * Timer message for periodic tasks
  */
-struct TimerTick : public Message_N<492> {
+struct TimerTick : public MessageT<TimerTick> {
     TimerTick() = default;
 };
 
 /**
  * Shutdown signal from main
  */
-struct ShutdownSignal : public Message_N<493> {
+struct ShutdownSignal : public MessageT<ShutdownSignal> {
     std::string reason;
     bool force;
 

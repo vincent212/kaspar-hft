@@ -22,7 +22,7 @@ namespace msg {
  * - Initialize and start the actor
  * - Track the sender for later ActorRemoved notification
  */
-struct AddActor : public Message_N<11> {  // Use unique message ID
+struct AddActor : public MessageT<AddActor> {  // Use unique message ID
     actor_ptr actor;  // The actor to add to the group
 
     AddActor(actor_ptr a) : actor(a) {}

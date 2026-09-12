@@ -11,5 +11,5 @@
 
 namespace actors::msg {
   /// Sent to actors for graceful shutdown (ID=5, do not change)
-  struct Shutdown : public Message_N<5> {};
+  struct Shutdown : public MessageT<Shutdown> {};
 }

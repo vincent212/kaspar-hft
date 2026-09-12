@@ -13,7 +13,7 @@ namespace mdp3
 {
   namespace msg
   {
-    struct DoDataRecovery : public actors::Message_N<61>
+    struct DoDataRecovery : public actors::MessageT<DoDataRecovery>
     {
       DoDataRecovery() {}
       virtual ~DoDataRecovery(){}

@@ -19,7 +19,7 @@ namespace frame {
 namespace cons {
 
 // Internal message for polling cycle
-struct PollTimeout : public actors::Message_N<204> {};
+struct PollTimeout : public actors::MessageT<PollTimeout> {};
 
 /**
  * MQ0ServerActor - ZMQ REP server for monitoring

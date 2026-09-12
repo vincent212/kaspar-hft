@@ -12,7 +12,7 @@
 
 namespace ilink::msg
 {
-    struct NegotiationResponse : public  actors::Message_N<106>
+    struct NegotiationResponse : public actors::MessageT<NegotiationResponse>
     {
         uint64_t RequestTimeStamp;
         uint64_t UUID;

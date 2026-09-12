@@ -12,7 +12,7 @@
 
 namespace frame::cons::msg
 {
-    struct Cmd : public actors::Message_N<130>
+    struct Cmd : public actors::MessageT<Cmd>
     {
         static const int buflen=5000;
         char buf[buflen];

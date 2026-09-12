@@ -21,9 +21,10 @@ namespace actors::msg {
  * - Target actor not found
  * - Deserialization failure
  *
- * Message ID: 9 (matches Rust/Python convention)
+ * Id is auto-assigned (MessageT). The remote wire format carries the type
+ * NAME ("Reject"), never the numeric id, so peers key on the string.
  */
-class Reject : public Message_N<9> {
+class Reject : public MessageT<Reject> {
 public:
     std::string message_type;   // Type of the rejected message
     std::string reason;         // Why it was rejected
@@ -42,7 +43,7 @@ public:
 // Register Reject for remote serialization
 namespace {
     static bool Reject_registered_ = []() {
-        actors::serialization::register_message(9, "Reject",
+        actors::serialization::register_message(actors::msg::Reject().get_message_id(), "Reject",
             // Serialize
             [](const actors::Message* m) -> nlohmann::json {
                 const actors::msg::Reject* msg = static_cast<const actors::msg::Reject*>(m);

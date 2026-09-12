@@ -11,7 +11,7 @@ namespace ilink
 {
     namespace msg
     {
-        struct EstablishmentAck : public  actors::Message_N<103>
+        struct EstablishmentAck : public actors::MessageT<EstablishmentAck>
         {
             // variables
             uint64_t RequestTimeStamp;

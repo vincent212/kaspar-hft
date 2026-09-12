@@ -10,7 +10,7 @@
 namespace ilink::msg
 {
 
-    struct BusinessReject : public  actors::Message_N<100>
+    struct BusinessReject : public actors::MessageT<BusinessReject>
     {
         // variables
         uint64_t UUID;

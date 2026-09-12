@@ -16,7 +16,7 @@ namespace frame
     {
         namespace msg
         {
-            struct ExitPos : public actors::Message_N<44>
+            struct ExitPos : public actors::MessageT<ExitPos>
             {
                 en::x venu;
                 ExitPos(en::x _venu) :  venu(_venu) {}

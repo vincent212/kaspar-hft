@@ -9,7 +9,7 @@
 
 namespace ilink::msg
 {
-    struct Connected : public  actors::Message_N<115>
+    struct Connected : public actors::MessageT<Connected>
     {
         bool is_primary;
         Connected(bool _is_primary) : is_primary(_is_primary) {}
