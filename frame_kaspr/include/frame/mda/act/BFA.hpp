@@ -56,6 +56,10 @@ namespace frame::mda::act
     // Time filtering for debugging (by hour: 0-23)
     int start_hour = -1;
     int end_hour = -1;
+    // Absolute cutoff in transactTime ns (0 = none). Hour filters cannot
+    // express a half-hour boundary and would drift across a DST change,
+    // so callers that need an exact session cutoff pass epoch ns instead.
+    uint64_t end_ts = 0;
     uint64_t filtered_before_start = 0;
     bool reached_end_time = false;
 
@@ -110,7 +114,8 @@ namespace frame::mda::act
         int tw_start_h = 0,
         int tw_start_m = 0,
         int start_h = -1,
-        int end_h = -1)
+        int end_h = -1,
+        uint64_t _end_ts = 0)
         : manager(_manager),
           dataAdapter(dataAdapter),
           factory_(factory),
@@ -119,7 +124,8 @@ namespace frame::mda::act
           tw_start_m(tw_start_m),
           flip_sym_asset(flip_sym_asset),
           start_hour(start_h),
-          end_hour(end_h)
+          end_hour(end_h),
+          end_ts(_end_ts)
     {
       file = gzopen(infname.c_str(), "rb");
       ASSERTF(file, boost::format("not open: %s") % infname);
@@ -166,6 +172,23 @@ namespace frame::mda::act
         log_inf("end of file");
         manager->terminate();
         return;
+      }
+
+      // Absolute cutoff: stop the replay once transactTime passes end_ts. The
+      // .bin is chronologically ordered, so nothing later can be in-window.
+      // Used to end a session at a wall-clock ET time (e.g. 16:30) without the
+      // hour filter's granularity limit or its DST drift.
+      if (end_ts) {
+        uint64_t mt = 0;
+        if (std::holds_alternative<bfile::l3_mbo_v2_t>(l3))
+          mt = std::get<bfile::l3_mbo_v2_t>(l3).transactTime;
+        else if (std::holds_alternative<bfile::l3_mbo_trd_v2_t>(l3))
+          mt = std::get<bfile::l3_mbo_trd_v2_t>(l3).transactTime;
+        if (mt && mt > end_ts) {
+          std::cerr << "BFA: reached end_ts " << end_ts << " — stopping replay" << std::endl;
+          manager->terminate();
+          return;
+        }
       }
 
       // Time filtering for debugging (by hour: 0-23)

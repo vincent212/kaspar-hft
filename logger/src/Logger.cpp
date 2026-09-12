@@ -469,9 +469,11 @@ void act::Logger::output(
     std::cerr << e.what() << '\n';
   }
 
-  if (cnt++ % flush_period)
-    log_file.flush();
-  else if (synchrolog)
+  // Flush every flush_period'th write, not every write. The condition used to
+  // be `if (cnt++ % flush_period)`, which is non-zero 24 times out of 25 — so it
+  // flushed on ~96% of writes and skipped the one it meant to flush on. That
+  // made debug logging dominated by fsync traffic.
+  if (synchrolog || (cnt++ % flush_period) == 0)
     log_file.flush();
 }
 

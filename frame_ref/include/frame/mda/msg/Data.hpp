@@ -94,6 +94,23 @@ namespace frame
           ex_order_id = 0;
           eoe = false;
           recovery = false;
+
+          // These were previously left to the caller, on the assumption that
+          // make_payload() — which takes all of them as parameters — is the only
+          // construction path. It is not: SOM.cpp:1294/:1819 and the CHR/GAP/EOB
+          // block in OB.cpp do `new data_pay_load()` and fill in only some
+          // fields. data_pay_load is MemoryPool-allocated, so a recycled object
+          // then carries the PREVIOUS payload's values here — a plausible-looking
+          // stale timestamp rather than obvious garbage, which is worse.
+          //
+          // `tim` in particular is what the OB no-cross check uses to detect a
+          // transaction boundary; a stale value makes it fire at an arbitrary
+          // point and report a cross that never happened.
+          ts0 = 0;
+          tim = 0;
+          send_tim = 0;
+          sym = 0;
+          px = ref::Price();
         }
 
         bool is_valid() const
