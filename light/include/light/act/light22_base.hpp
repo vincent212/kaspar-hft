@@ -128,6 +128,25 @@ namespace light::act
 
     using payload_ptr_t = boost::intrusive_ptr<const frame::mda::msg::data_pay_load>;
 
+    // The clock an order or a cancel is stamped with, from the market-data
+    // record that prompted it.
+    //
+    // ONE definition on purpose. SOM turns this into the book payload's ts0,
+    // and OB's delay queue holds the message until ts0 + wire latency has
+    // passed in market time -- so if the two legs came off different clocks,
+    // the modelled cancel latency would be wrong by the difference between
+    // them. They used to: place_order() read hndl_tim_epoch under TIMTRACE
+    // while the cancel path always read txtim_epoch, which would have skewed
+    // every cancel the moment anyone turned tracing on.
+    static inline uint64_t stamp_of(const payload_ptr_t &p) noexcept
+    {
+#ifdef TIMTRACE
+      return p->hndl_tim_epoch;
+#else
+      return p->txtim_epoch;
+#endif
+    }
+
     pbool trading;
     pint mmid;
     char *sim_env = 0;
@@ -313,17 +332,11 @@ namespace light::act
         cancel_requests.insert(ord_info.get_oid());
         if (!from_rej)
         {
-          // Stamp with market time so the cancel pays the same modelled wire
-          // latency as the order did. curr_tx_time is set at the top of
-          // eob_handler; the alarm path refreshes it from the Alarm's own
-          // market time before getting here, and the reject paths use the last
-          // EOB, which is the freshest market time this light has.
-          //
-          // In a TIMTRACE build place_order() is handed hndl_tim_epoch rather
-          // than txtim_epoch (light22.hpp), so orders and cancels would come
-          // off two different clocks while process_q compares both against the
-          // same to_proc->tim. TIMTRACE is off (mk_kaspr/glob_begin.mk) and
-          // turning it on needs this stamp switched to match.
+          // Same stamp an order gets: curr_tx_time is stamp_of() the last EOB.
+          // In-band cancels run inside eob_handler, so it was refreshed on this
+          // very message; the alarm path refreshes it from the Alarm's own
+          // market time first; the reject paths use the last EOB, the freshest
+          // market time this light has.
           frame::som::msg::Cancel cancel_msg(ord_info.get_oid(), curr_tx_time);
           som->fast_send(&cancel_msg, this);
         }

@@ -376,17 +376,10 @@ namespace light::act
       if (!this->dry_run)
       {
 
-#ifdef TIMTRACE
         auto id = this->place_order(
             bestpx,
             possible_order_sz,
-            payload->hndl_tim_epoch);
-#else
-        auto id = this->place_order(
-            bestpx,
-            possible_order_sz,
-            payload->txtim_epoch);
-#endif
+            this->stamp_of(payload));
 
         // place_order returns -1 if rate-limited by gunning protection
         if (id < 0)
@@ -536,7 +529,7 @@ namespace light::act
       auto msg_sector = sym_a->mnemonic;
 
       auto pld = m->payload;
-      this->curr_tx_time = pld->txtim_epoch;
+      this->curr_tx_time = this->stamp_of(pld);
       const auto &pt = m->payload->point_;
 
       ASSERT(pld->is_valid(), "not valid");
