@@ -57,19 +57,15 @@ grid_tsv="$OUT/grid.tsv"
   for us in 0 100 200 400 500 800 1600 3200 6400; do
     printf 'lat%s\tC\t300\t100\t-1\t%s\t%s\t-1\n' "$us" "$us" "$us"
   done
-  # D: depth sweep at 100 lots. The 4-tick default caps working size at 25
-  # contracts, so a 100-lot parent is forced into refill rounds and the size
-  # result partly measures the cap rather than the size. This separates them.
-  # 10 lots is the control: the cap never binds there (10 < 25 even at depth 3),
-  # so whatever depth does to the 10-lot cost is the genuine effect of resting
-  # deeper -- better prices when the market comes to you, against a lower fill
-  # probability. Any EXTRA movement at 100 lots is the cap being relieved.
-  # Without the 10-lot arm the two effects are inseparable.
-  for md in 3 5 10 15; do
-    for sz in 10 100; do
-      printf 'depth%s_sz%s\tD\t300\t%s\t-1\t500\t500\t%s\n' "$md" "$sz" "$sz" "$md"
-    done
-  done
+  # Grid D (max_dist sweep, 4 depths x 2 sizes) removed. Its premise was that
+  # the 4-tick default caps working size at (max_dist+1) x lev_orders_max, so a
+  # large parent is forced into refill rounds and raising max_dist relieves the
+  # cap. There is no such cap: a light holds exactly ONE order at one price
+  # (ord_info_t is a single slot) and each light has its own QCoord, so
+  # sz_at_px and total_sz() are 0 whenever a light is about to place. The
+  # all_orders_max ceiling is never reached and lev_orders_max never wins the
+  # min against ord_sz. What actually decides how many prices the shadow rests
+  # at is the LIGHT COUNT, which is what the two arm configs vary.
 } > "$grid_tsv"
 
 # ---- front month by date, from traded volume ---------------------------
