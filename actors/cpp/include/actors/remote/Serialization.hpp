@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -141,7 +141,7 @@ inline bool is_registered(const std::string& type_name) {
  * REGISTER_REMOTE_MESSAGE_1 - Register a message with 1 field
  *
  * Usage:
- *   class Ping : public Message_N<100> {
+ *   class Ping : public MessageT<Ping> {
  *   public:
  *       int count;
  *       Ping(int c = 0) : count(c) {}

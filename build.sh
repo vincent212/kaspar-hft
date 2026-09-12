@@ -13,11 +13,60 @@
 #   ./build.sh check-schema    # just verify the codecs are present
 #   ./build.sh debug           # debug build
 #   ./build.sh clean           # clean
+#
+# Builds with -j<all cores> by default (the codecs are generated first, so the
+# check-schema race doesn't apply). Override with JOBS=8 ./build.sh, or pass
+# your own -j and it is left alone.
 #   ./build.sh -C actors/cpp   # build only the actor framework (any make args pass through)
 #
 # Anything after the first argument is passed straight to make.
 
 set -euo pipefail
+
+usage() {
+    cat <<'EOF_HELP'
+build.sh -- build kaspar-hft. Sets KSPRPROJ and the external-library paths, then
+forwards everything to make. Run it from anywhere; no exports needed.
+
+USAGE
+    ./build.sh [TARGET] [make args...]
+
+TARGETS
+    (none)          full build == all == install: check-schema, check-msgids, libs, kaspr
+    install         same as the default
+    debug           debug build (libs + binaries with -O0 -DDEBUG, the 'g' suffix)
+    clean           remove objects, libraries, binaries and the .P dependency files
+    test            build and run the Google Test suite (needs GTEST_PATH)
+    schema          generate the CME SBE codecs (pinned MDP3 v12 / iLink v8)
+    check-schema    verify the generated codecs are present, generate nothing
+    msgids          print the hand-assigned message-id allocation report
+    check-msgids    audit hand-assigned message ids for collisions
+    depend          regenerate the .P dependency files
+    libo|libd|libc  libraries only: opt | debug | clean
+
+ENVIRONMENT
+    JOBS=N          parallelism; defaults to nproc (this box: 59).
+                    Passing your own -j suppresses the default.
+    KSPRPROJ        forced to this script's own directory; do not set it.
+
+EXAMPLES
+    ./build.sh                      # full optimized build, all cores
+    ./build.sh debug                # debug build
+    JOBS=8 ./build.sh               # limit parallelism
+    ./build.sh clean && ./build.sh  # from scratch
+    ./build.sh test                 # run the unit tests
+    ./build.sh -C actors/cpp        # one directory; any make args pass through
+
+NOTES
+    Stale .P files (repo moved or renamed) are detected and purged automatically.
+    The SBE codecs are generated on demand if missing, before anything compiles.
+EOF_HELP
+}
+
+case "${1:-}" in
+    -h|--help|help) usage; exit 0 ;;
+esac
+
 
 # Repo root = directory this script lives in.
 KSPRPROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -65,7 +114,7 @@ fi
 case "${1:-}" in
     schema|check-schema|clean) ;;
     *)
-        if ! ls mktdata_v12/*.h >/dev/null 2>&1 || ! ls ilink_v8/*.h >/dev/null 2>&1; then
+        if ! ls mdp3_sbe/*.h >/dev/null 2>&1 || ! ls ilink3_sbe/*.h >/dev/null 2>&1; then
             echo "[build] CME SBE codecs missing — generating (make schema)..."
             if ! make schema; then
                 echo "[build] ERROR: could not generate the SBE codecs (needs Java," >&2
@@ -77,5 +126,18 @@ case "${1:-}" in
         ;;
 esac
 
-echo "[build] make $*"
-exec make "$@"
+# Parallelism. The codecs are guaranteed present by the block above (or the
+# target doesn't compile), so the check-schema/compile race the README warns
+# about can't happen here — that caveat applies to running `make -j` by hand on
+# a fresh, un-generated tree, not to this script. Default to all cores; override
+# with JOBS=N, or pass your own -j and we won't add one.
+JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
+jflag=(-j"$JOBS")
+for a in "$@"; do
+    case "$a" in
+        -j|-j*|--jobs|--jobs=*) jflag=() ;;   # caller specified their own
+    esac
+done
+
+echo "[build] make ${jflag[*]} $*"
+exec make "${jflag[@]}" "$@"

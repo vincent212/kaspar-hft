@@ -2,18 +2,22 @@
 #
 # Licensed under the MIT License. See LICENSE file in the project root.
 
+# No -j here on purpose: sub-makes are invoked as $(MAKE), so they inherit the
+# top-level jobserver and share one pool of slots. Putting -jN in MKFLAGS
+# overrides that and gives EACH of the twelve libraries its own N jobs, which
+# oversubscribes the box rather than parallelising it. Build with `make -j59`.
 MKFLAGS= -k -w --no-print-directory --quiet
 
 all: install
 
-# The CME SBE codecs (mktdata_v12/, ilink_v8/) are generated, not committed
+# The CME SBE codecs (mdp3_sbe/, ilink3_sbe/) are generated, not committed
 # (see genschema/). Fail fast with instructions if a fresh checkout hasn't
 # generated them yet, rather than emit a cryptic missing-header compile error.
 .PHONY: check-schema schema
 check-schema:
-	@test -d "$(KSPRPROJ)/mktdata_v12" && ls "$(KSPRPROJ)"/mktdata_v12/*.h >/dev/null 2>&1 \
-	 && test -d "$(KSPRPROJ)/ilink_v8" && ls "$(KSPRPROJ)"/ilink_v8/*.h >/dev/null 2>&1 \
-	 || { echo "ERROR: SBE schema codecs missing (mktdata_v12/ ilink_v8/)."; \
+	@test -d "$(KSPRPROJ)/mdp3_sbe" && ls "$(KSPRPROJ)"/mdp3_sbe/*.h >/dev/null 2>&1 \
+	 && test -d "$(KSPRPROJ)/ilink3_sbe" && ls "$(KSPRPROJ)"/ilink3_sbe/*.h >/dev/null 2>&1 \
+	 || { echo "ERROR: SBE schema codecs missing (mdp3_sbe/ ilink3_sbe/)."; \
 	      echo "       They are generated from CME, not committed. Run: make schema"; \
 	      echo "       (see genschema/README.md for prerequisites)"; exit 1; }
 
@@ -25,6 +29,19 @@ check-schema:
 #   make schema GENSCHEMA_ARGS='--schema mdp3 --latest'  # deliberately move up
 schema:
 	python3 $(KSPRPROJ)/genschema/genschema.py $(GENSCHEMA_ARGS)
+
+# Hand-assigned message ids (Message_N<N>) are not checked for uniqueness by the
+# compiler -- the static_assert in Message.hpp only constrains the range. Two
+# types sharing an id silently cross-dispatch, so audit them as part of the
+# build. MessageT<Derived> ids (512+) are collision-free by construction and are
+# not audited here.
+.PHONY: check-msgids
+check-msgids:
+	@python3 $(KSPRPROJ)/setclassid/setclassid.py --root $(KSPRPROJ) --quiet
+
+.PHONY: msgids
+msgids:
+	@python3 $(KSPRPROJ)/setclassid/setclassid.py --root $(KSPRPROJ)
 
 .PHONY: libdepend
 libdepend: TARGET=depend
@@ -93,9 +110,18 @@ lib14:
 # cryptic missing-header error. `clean` deliberately does not require them.
 depend: check-schema libdepend clean
 
-install: check-schema libo
+install: check-schema check-msgids libo
 
-debug: check-schema libd
+debug: check-schema check-msgids libd
 
 clean: libc
 	@find . -name '*.P' -exec rm {} \;
+	@$(MAKE) -C $(KSPRPROJ)/unit_test/src $(MKFLAGS) clean
+
+.PHONY: test
+# Google Test suite. Not part of `install` — it needs gtest, which is an extra
+# dependency, so it stays opt-in. Run `mk_kaspr/detect_paths.sh --check` if
+# GTEST_PATH is not found.
+test: libo
+	@$(MAKE) -C $(KSPRPROJ)/unit_test/src $(MKFLAGS)
+	@$(KSPRPROJ)/unit_test/src/run_tests

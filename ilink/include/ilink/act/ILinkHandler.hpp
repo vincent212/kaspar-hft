@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -39,9 +39,9 @@
 #include "ilink/msg/StartReceiving.hpp"
 #include "ilink/msg/ResetUUID.hpp"
 
-#include "ilink_v8/TimeInForce.h"
-#include "ilink_v8/OrderType.h"
-#include "ilink_v8/SideReq.h"
+#include "ilink3_sbe/TimeInForce.h"
+#include "ilink3_sbe/OrderType.h"
+#include "ilink3_sbe/SideReq.h"
 
 #include "frame/som/msg/Order.hpp"
 #include "frame/som/msg/Cancel.hpp"
@@ -60,18 +60,18 @@
 
 #include "logger/act/Logger.hpp"
 
-#include "ilink_v8/OrderCancelReject535.h"
-#include "ilink_v8/OrderCancelReplaceReject536.h"
-#include "ilink_v8/ExecutionReportNew522.h"
-#include "ilink_v8/ExecutionReportReject523.h"
-#include "ilink_v8/ExecutionReportModify531.h"
-#include "ilink_v8/ExecutionReportCancel534.h"
-#include "ilink_v8/ExecutionReportStatus532.h"
-#include "ilink_v8/ExecutionReportTradeOutright525.h"
-#include "ilink_v8/ExecutionReportTradeSpread526.h"
-#include "ilink_v8/ExecutionReportTradeAddendumOutright548.h"
-#include "ilink_v8/ExecutionReportElimination524.h"
-#include "ilink_v8/Sequence506.h"
+#include "ilink3_sbe/OrderCancelReject535.h"
+#include "ilink3_sbe/OrderCancelReplaceReject536.h"
+#include "ilink3_sbe/ExecutionReportNew522.h"
+#include "ilink3_sbe/ExecutionReportReject523.h"
+#include "ilink3_sbe/ExecutionReportModify531.h"
+#include "ilink3_sbe/ExecutionReportCancel534.h"
+#include "ilink3_sbe/ExecutionReportStatus532.h"
+#include "ilink3_sbe/ExecutionReportTradeOutright525.h"
+#include "ilink3_sbe/ExecutionReportTradeSpread526.h"
+#include "ilink3_sbe/ExecutionReportTradeAddendumOutright548.h"
+#include "ilink3_sbe/ExecutionReportElimination524.h"
+#include "ilink3_sbe/Sequence506.h"
 
 #include "enum/e_names.hpp"
 

@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -353,6 +353,16 @@ namespace frame::ref
       theRefData->name_to_asset[a->name] = a;
       theRefData->sec_id_to_asset[security_id] = a;
       a->sec_id = security_id;
+
+      // num_sym is the EXTENT of the asset id space, and half the system sizes
+      // vectors by it and then indexes them by asset id -- SOM's position,
+      // limit and BBO tables, DB, MTD, kaspr itself. An asset created here
+      // without extending it is an out-of-bounds write waiting to happen: the
+      // sim seeds RefData from an empty CSV and registers every instrument
+      // through this path, so num_assets() read 1 while ids ran to 32, and the
+      // first order placed for asset 2 walked off the end of pos[trader].
+      if (std::size_t(a->id) + 1 > theRefData->num_sym)
+        theRefData->num_sym = std::size_t(a->id) + 1;
 
       std::cerr << "RefData: dynamically created future asset: " << symbol
                 << " id=" << a->id << " securityID=" << security_id << std::endl;

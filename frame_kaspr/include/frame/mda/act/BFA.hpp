@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -56,6 +56,10 @@ namespace frame::mda::act
     // Time filtering for debugging (by hour: 0-23)
     int start_hour = -1;
     int end_hour = -1;
+    // Absolute cutoff in transactTime ns (0 = none). Hour filters cannot
+    // express a half-hour boundary and would drift across a DST change,
+    // so callers that need an exact session cutoff pass epoch ns instead.
+    uint64_t end_ts = 0;
     uint64_t filtered_before_start = 0;
     bool reached_end_time = false;
 
@@ -110,7 +114,8 @@ namespace frame::mda::act
         int tw_start_h = 0,
         int tw_start_m = 0,
         int start_h = -1,
-        int end_h = -1)
+        int end_h = -1,
+        uint64_t _end_ts = 0)
         : manager(_manager),
           dataAdapter(dataAdapter),
           factory_(factory),
@@ -119,7 +124,8 @@ namespace frame::mda::act
           tw_start_m(tw_start_m),
           flip_sym_asset(flip_sym_asset),
           start_hour(start_h),
-          end_hour(end_h)
+          end_hour(end_h),
+          end_ts(_end_ts)
     {
       file = gzopen(infname.c_str(), "rb");
       ASSERTF(file, boost::format("not open: %s") % infname);
@@ -166,6 +172,23 @@ namespace frame::mda::act
         log_inf("end of file");
         manager->terminate();
         return;
+      }
+
+      // Absolute cutoff: stop the replay once transactTime passes end_ts. The
+      // .bin is chronologically ordered, so nothing later can be in-window.
+      // Used to end a session at a wall-clock ET time (e.g. 16:30) without the
+      // hour filter's granularity limit or its DST drift.
+      if (end_ts) {
+        uint64_t mt = 0;
+        if (std::holds_alternative<bfile::l3_mbo_v2_t>(l3))
+          mt = std::get<bfile::l3_mbo_v2_t>(l3).transactTime;
+        else if (std::holds_alternative<bfile::l3_mbo_trd_v2_t>(l3))
+          mt = std::get<bfile::l3_mbo_trd_v2_t>(l3).transactTime;
+        if (mt && mt > end_ts) {
+          std::cerr << "BFA: reached end_ts " << end_ts << " — stopping replay" << std::endl;
+          manager->terminate();
+          return;
+        }
       }
 
       // Time filtering for debugging (by hour: 0-23)
@@ -370,9 +393,16 @@ namespace frame::mda::act
               }
             }
             r.update_sec_id(fdf.securityID, &a_);
-            a_.cfi_code = std::string(fdf.cfiCode, sizeof(fdf.cfiCode));
+            // strnlen, not sizeof: CME's SBE char fields are fixed width and
+            // NUL-padded, so sizeof() pulls the padding into the std::string.
+            // Those embedded NULs then reach every log line that prints the
+            // asset, which makes the whole log file `binary` to grep -- it
+            // silently prints nothing rather than matching, so a failure
+            // triage over these logs comes back empty and looks clean.
+            // Lines ~436 below already do it this way.
+            a_.cfi_code = std::string(fdf.cfiCode, strnlen(fdf.cfiCode, sizeof(fdf.cfiCode)));
             a_.cme_activation = fdf.activation;
-            a_.security_group = std::string(fdf.securityGroup, sizeof(fdf.securityGroup));
+            a_.security_group = std::string(fdf.securityGroup, strnlen(fdf.securityGroup, sizeof(fdf.securityGroup)));
             double unit = fdf.minPriceIncrement;
             a_.set_units(unit);
             if constexpr (TreasOnly) {

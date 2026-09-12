@@ -1,8 +1,10 @@
 #pragma once
 
+#include <random>
+
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -31,12 +33,40 @@ namespace light::act
     // Deterministic order placement: place order after every N EOB ADD messages
     // Default is 5 (place after 5 EOB ADD messages)
     int place_after_n_eob = 5;
+    int place_rate_bp = 300;        // stochastic placement rate, basis points
+    // Delay between the shadowed ("attached") order being hit or pulled and our
+    // own cancel going out. A real performance lever, not a detail: cancel too
+    // quickly and we give up fills we would have got; too slowly and we wear the
+    // adverse selection that took the attached order out. Swept by the
+    // experiment, so it must be configurable rather than a literal.
+    //
+    // Two units, because wall-clock is the wrong clock for this. What eats the
+    // order after the attached one leaves is *flow*, not time: N more book
+    // events is the same amount of danger whether they arrive in 2 ms at the
+    // open or 2 s at lunch. `delayed_cancel_events` counts EndOfBurst messages
+    // (one per MDP3 incremental cycle for our instrument) and is the preferred
+    // knob; `delayed_cancel_ms` keeps the fixed wall-clock variant so the two
+    // can be compared on the same corpus. At most one may be non-zero. Both
+    // zero (the default) = cancel immediately, which is the usual case.
+    int delayed_cancel_events = 0;
+    int delayed_cancel_ms = 0;
+    std::mt19937 rng{1};            // per-light, deterministically seeded
     int eob_counter = 0;
 
-    // Maximum distance (in ticks) from best bid/ask to place orders
-    static constexpr int max_dist = 4;
-    // Maximum distance (in ticks) from best bid/ask before cancelling (more loose than placement)
-    static constexpr int max_dist_cancel = 6;
+    // How deep into the book we are willing to rest, in ticks from the touch.
+    //
+    // This is the binding constraint on how much size can be working at once:
+    // at most (max_dist + 1) price levels x lev_orders_max per level. With the
+    // 4/5 defaults that is 25 contracts, so a 100-lot parent cannot be worked
+    // in one pass and is forced into refill rounds -- which shows up as a
+    // longer leg and higher cost, and is a property of THIS configuration
+    // rather than of passive execution. It is configurable so the size axis
+    // can be separated from the depth cap.
+    int max_dist = 4;
+    // Looser than placement, so an order is not cancelled the moment the touch
+    // ticks away from it. Defaults to max_dist + 2, preserving the original
+    // 4/6 relationship at any depth.
+    int max_dist_cancel = 6;
 
     light22(
         const std::string &prefix,
@@ -64,6 +94,36 @@ namespace light::act
       // Read deterministic placement interval from config (default 5 = place after 5 EOB ADD messages)
       place_after_n_eob = this->pt.template get<int>("place_after_n_eob", 5);
 
+      // Stochastic placement rate, in BASIS POINTS of EOB ADD messages acted on.
+      // Basis points rather than percent so sub-1% rates are expressible: the
+      // experiment sweeps 0.5% / 1% / 3% / 5%, and the previous
+      // `std::rand() % 100` could not represent 0.5 at all.
+      place_rate_bp = this->pt.template get<int>("place_rate_bp", 300);   // 3%
+      max_dist = this->pt.template get<int>("max_dist", 4);
+      max_dist_cancel = this->pt.template get<int>("max_dist_cancel", max_dist + 2);
+      ASSERTF(max_dist_cancel >= max_dist,
+              boost::format("max_dist_cancel %d < max_dist %d: an order would be "
+                            "cancelled at a distance it is still allowed to be "
+                            "placed at, so placement would thrash")
+                % max_dist_cancel % max_dist);
+      delayed_cancel_ms = this->pt.template get<int>("delayed_cancel_ms", 0);
+      delayed_cancel_events = this->pt.template get<int>("delayed_cancel_events", 0);
+      ASSERT(!(delayed_cancel_ms && delayed_cancel_events),
+             "delayed_cancel_ms and delayed_cancel_events are alternatives; set at most one");
+
+      // Per-light deterministic RNG. std::rand() is process-global, unseeded and
+      // shared with every other caller, so two runs of the same session placed
+      // different orders — which makes the long and short legs of a slippage
+      // fire incomparable and nothing reproducible. Seed from the config plus
+      // the light's own name so buy/sell and each instrument differ, but any
+      // given run repeats exactly.
+      {
+        const auto seed = this->pt.template get<uint32_t>("rng_seed", 1);
+        uint32_t h = seed;
+        for (char c : _name) h = h * 31u + uint8_t(c);
+        rng.seed(h);
+      }
+
       // Register message handlers for derived implementation
       MESSAGE_HANDLER(actors::msg::Start, start_handler);
       MESSAGE_HANDLER(frame::ob::msg::EndOfBurst, eob_handler);
@@ -81,7 +141,17 @@ namespace light::act
       {
         if (this->ord_info.has_value() && !this->ord_info.get_canc())
         {
-          log_inf("executing delayed cancel");
+          // Advance the market clock before cancelling. curr_tx_time was last
+          // written by the EOB that STARTED this wait, so using it would stamp
+          // the cancel delayed_cancel_ms in the past -- and with the default
+          // 1000us wire latency any delay over 1 ms then has a deadline that
+          // is already expired, so OB releases the cancel on the next record
+          // with no latency at all. That is precisely the bug this branch
+          // fixes, re-created one path over. The Timer runs on market time and
+          // stamps every Alarm with it (Timer.cpp:110), and the sim is one
+          // ordered queue, so that stamp is never behind what we last saw.
+          this->curr_tx_time = m->currtim._epoch_;
+          log_inf("executing delayed cancel at %lu", this->curr_tx_time);
           this->cancel_order();
         }
         return true;  // Handled
@@ -102,6 +172,9 @@ namespace light::act
       log_inf("mmid: %d, trader: %s", this->mmid.get(), en::to_string(this->owner));
       log_inf("nlevels: %d, lev_orders_max: %d, all_orders_max: %d, ord_sz: %d",
               this->nlevels.get(), this->lev_orders_max.get(), this->all_orders_max.get(), this->ord_sz.get());
+      log_inf("max_dist: %d, max_dist_cancel: %d, max working size: %d",
+              max_dist, max_dist_cancel,
+              std::min((max_dist + 1) * this->lev_orders_max.get(), this->all_orders_max.get()));
     }
 
     void start_handler(const actors::msg::Start *)
@@ -289,47 +362,43 @@ namespace light::act
         return;
       }
 
-      #ifdef DETERMINISTIC_PLACEMENT
-
-      // Deterministic placement: increment counter and place only after N EOB ADD messages
-      eob_counter++;
-      if (eob_counter < place_after_n_eob)
+      // Placement mode is a runtime choice, not a compile-time one: this used to
+      // be `#ifdef DETERMINISTIC_PLACEMENT`, which meant the deterministic path
+      // was unreachable in every build anyone actually produced (nothing defined
+      // the macro) and the unit tests that exercise it could not be linked.
+      //
+      //   place_rate_bp > 0  -> stochastic, act on that many basis points of ADDs
+      //   place_rate_bp <= 0 -> deterministic, act on every place_after_n_eob'th ADD
+      if (place_rate_bp > 0)
       {
-        log_inf("skipping order placement: eob_counter=%d, place_after_n_eob=%d", eob_counter, place_after_n_eob);
-        return;
-      }
-
-      #else
-
-      // Non-deterministic placement: 3% chance to place an order on this EOB
-      if ((std::rand() % 100) >= 3)
-      {
-        log_inf("skipping order placement randomly: eob_counter=%d", eob_counter);  
-        return;
+        if (int(rng() % 10000u) >= place_rate_bp)
+        {
+          log_inf("skipping order placement randomly: eob_counter=%d", eob_counter);
+          return;
+        }
+        log_inf("randomly placing order: eob_counter=%d", eob_counter);
       }
       else
       {
-        log_inf("randomly placing order: eob_counter=%d", eob_counter);
+        eob_counter++;
+        if (eob_counter < place_after_n_eob)
+        {
+          log_inf("skipping order placement: eob_counter=%d, place_after_n_eob=%d",
+                  eob_counter, place_after_n_eob);
+          return;
+        }
       }
 
-      #endif
       // Reset counter after placing order
       eob_counter = 0;
 
       if (!this->dry_run)
       {
 
-#ifdef TIMTRACE
         auto id = this->place_order(
             bestpx,
             possible_order_sz,
-            payload->hndl_tim_epoch);
-#else
-        auto id = this->place_order(
-            bestpx,
-            possible_order_sz,
-            payload->txtim_epoch);
-#endif
+            this->stamp_of(payload));
 
         // place_order returns -1 if rate-limited by gunning protection
         if (id < 0)
@@ -337,6 +406,7 @@ namespace light::act
 
         // Record the exchange order ID from the market data message that triggered this order placement
         this->qcoord->set_attached_order_id(attached_order_id);
+        this->pending_cancel_eob = 0;
 
         log_trd("PLACEORD placing order id: %d, bestpx: %d, possisble_order_sz: %d, act_lev_orders_max: %d, diff_from_target: %d, sz_at_px: %d, act_ord_sz: %d",
                 id,
@@ -478,7 +548,7 @@ namespace light::act
       auto msg_sector = sym_a->mnemonic;
 
       auto pld = m->payload;
-      this->curr_tx_time = pld->txtim_epoch;
+      this->curr_tx_time = this->stamp_of(pld);
       const auto &pt = m->payload->point_;
 
       ASSERT(pld->is_valid(), "not valid");
@@ -492,6 +562,19 @@ namespace light::act
       if (m->payload->mkt != this->md_venue)
       {
         return;
+      }
+
+      // Event-count cancel delay: one tick per EOB on our instrument. Armed when
+      // the attached order went away (below); cleared by cancel_order() and by a
+      // fresh placement, so a countdown can never outlive the order it was armed
+      // for.
+      if (this->pending_cancel_eob > 0 && --this->pending_cancel_eob == 0)
+      {
+        if (this->ord_info.has_value() && !this->ord_info.get_canc())
+        {
+          log_inf("executing delayed cancel after %d events", delayed_cancel_events);
+          this->cancel_order();
+        }
       }
 
       if (this->skip-- > 0)
@@ -526,12 +609,25 @@ namespace light::act
       if (this->ord_info.has_value() && !this->ord_info.get_canc() &&
           pld->ex_order_id == this->attached_order_id && this->attached_order_id != 0)
       {
-        log_trd("CANCORD id: %d, scheduling delayed cancel for attached_order_id: %lu",
+        log_trd("CANCORD id: %d, attached_order_id %lu gone",
                 this->ord_info.get_oid(), attached_order_id);
         this->pcoord->incr_attached_order_id_match();
-        this->timer->send(new frame::mtim::msg::AlarmClockSub(0, 500, this->DELAYED_CANCEL, false), this);
         this->attached_order_id = 0;
-        RET;
+
+        if (delayed_cancel_events > 0)
+        {
+          this->pending_cancel_eob = delayed_cancel_events;
+          return;              // deliberately not RET: RET cancels immediately
+        }
+        if (delayed_cancel_ms > 0)
+        {
+          this->timer->send(new frame::mtim::msg::AlarmClockSub(
+                                delayed_cancel_ms / 1000, delayed_cancel_ms % 1000,
+                                this->DELAYED_CANCEL, false),
+                            this);
+          return;              // ditto
+        }
+        RET;                   // no delay configured: cancel now
       }
 
       // No order exists and signal is ADD -> place new order

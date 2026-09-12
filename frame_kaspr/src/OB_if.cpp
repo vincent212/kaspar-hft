@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -34,10 +34,10 @@ void ob_set_debug(actor_ptr ob, uint64_t start_debug)
     }
 }
 
-void ob_set_delay(actor_ptr ob, int _d)
+void ob_set_delay(actor_ptr ob, int order_us, int cancel_us)
 {
     auto ob_ptr = dynamic_cast<frame::ob::act::OB*>(ob);
     if (ob_ptr) {
-        ob_ptr->set_delay(_d);
+        ob_ptr->set_delay(order_us, cancel_us);
     }
 }

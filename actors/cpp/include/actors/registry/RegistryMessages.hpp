@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -31,7 +31,7 @@ constexpr int MSG_HEARTBEAT_ACK = 307;
  * Sent during Manager::manage() to register actor name -> ActorRef mapping.
  * GlobalRegistry replies with RegistrationOk or RegistrationFailed.
  */
-struct RegisterActor : public Message_N<MSG_REGISTER_ACTOR> {
+struct RegisterActor : public MessageT<RegisterActor> {
   std::string manager_id;
   std::string actor_name;
   ActorRef actor_ref;
@@ -48,7 +48,7 @@ struct RegisterActor : public Message_N<MSG_REGISTER_ACTOR> {
  *
  * Sent when an actor is stopped or Manager shuts down.
  */
-struct UnregisterActor : public Message_N<MSG_UNREGISTER_ACTOR> {
+struct UnregisterActor : public MessageT<UnregisterActor> {
   std::string actor_name;
 
   UnregisterActor() = default;
@@ -59,7 +59,7 @@ struct UnregisterActor : public Message_N<MSG_UNREGISTER_ACTOR> {
 /**
  * RegistrationOk - Confirms successful actor registration
  */
-struct RegistrationOk : public Message_N<MSG_REGISTRATION_OK> {
+struct RegistrationOk : public MessageT<RegistrationOk> {
   std::string actor_name;
 
   RegistrationOk() = default;
@@ -72,7 +72,7 @@ struct RegistrationOk : public Message_N<MSG_REGISTRATION_OK> {
  *
  * Common reasons: name already registered, invalid ActorRef
  */
-struct RegistrationFailed : public Message_N<MSG_REGISTRATION_FAILED> {
+struct RegistrationFailed : public MessageT<RegistrationFailed> {
   std::string actor_name;
   std::string reason;
 
@@ -88,7 +88,7 @@ struct RegistrationFailed : public Message_N<MSG_REGISTRATION_FAILED> {
  * Manager sends this when local lookup fails.
  * GlobalRegistry replies with LookupResult via standard reply() mechanism.
  */
-struct LookupActor : public Message_N<MSG_LOOKUP_ACTOR> {
+struct LookupActor : public MessageT<LookupActor> {
   std::string actor_name;
 
   LookupActor() = default;
@@ -103,7 +103,7 @@ struct LookupActor : public Message_N<MSG_LOOKUP_ACTOR> {
  * If actor_ref is empty, the actor was not found.
  * If online is false, the actor's Manager has missed heartbeats.
  */
-struct LookupResult : public Message_N<MSG_LOOKUP_RESULT> {
+struct LookupResult : public MessageT<LookupResult> {
   std::string actor_name;
   std::optional<ActorRef> actor_ref;
   bool online;
@@ -121,7 +121,7 @@ struct LookupResult : public Message_N<MSG_LOOKUP_RESULT> {
  * Managers send this every 2 seconds.
  * GlobalRegistry marks Manager offline after 6 seconds without heartbeat.
  */
-struct Heartbeat : public Message_N<MSG_HEARTBEAT> {
+struct Heartbeat : public MessageT<Heartbeat> {
   std::string manager_id;
   uint64_t timestamp;  // milliseconds since epoch
 
@@ -135,7 +135,7 @@ struct Heartbeat : public Message_N<MSG_HEARTBEAT> {
 /**
  * HeartbeatAck - Acknowledgement of heartbeat
  */
-struct HeartbeatAck : public Message_N<MSG_HEARTBEAT_ACK> {
+struct HeartbeatAck : public MessageT<HeartbeatAck> {
   HeartbeatAck() = default;
 };
 

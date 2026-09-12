@@ -18,7 +18,7 @@ Unlike toy backtesting engines that assume instant fills at mid, Kaspar models r
 
 Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) — *"a peak of a long crest in the Western Tatras, one of Poland's main winter ski areas."*
 
-**Author:** [Vincent Mayeski](https://www.linkedin.com/in/vmayeski/) — [v@m2te.ch](mailto:v@m2te.ch) | [GitHub](https://github.com/vincent212)
+**Author:** [Vincent Mayeski](https://www.linkedin.com/in/vmayeski/) — [mayeski@gmail.com](mailto:mayeski@gmail.com) | [GitHub](https://github.com/vincent212)
 
 ## Key Features
 
@@ -73,7 +73,7 @@ sudo apt-get update && sudo apt-get install -y \
 Boost 1.88+ is newer than most distro packages — install a 1.88+ package or
 build it from source, then point the build at it.
 
-Generate the CME SBE codecs. `mktdata_v12/` (MDP3) and `ilink_v8/` (iLink 3) are
+Generate the CME SBE codecs. `mdp3_sbe/` (MDP3) and `ilink3_sbe/` (iLink 3) are
 **generated from CME's SBE templates, not committed** — generate them before the
 first build (needs Java and Python `paramiko`, plus network to Maven Central and
 CME SFTP; see `genschema/README.md`). By default this regenerates the pinned,
@@ -115,6 +115,59 @@ Notes:
 - The Linux build targets x86-64 (`-mcx16`, `-mfpmath=sse`, `-march=native`);
   build on an x86-64 host (or under emulation).
 
+## Tests
+
+295 Google Test cases over the pieces that decide what the simulator does: the
+shadow light, the order book's delay queue, the coordination objects, reference
+data, the timer, the simulated order manager, position tracking, and the
+slippage probe.
+
+```bash
+export KSPRPROJ=~/kaspar-hft
+eval "$(mk_kaspr/detect_paths.sh)"     # must produce GTEST_PATH
+make test                              # builds the libs, builds the tests, runs them
+```
+
+Or directly, which is what you want while iterating:
+
+```bash
+cd unit_test/src && make && ./run_tests
+./run_tests --gtest_filter='SlippageProbeTest.*'
+./run_tests --gtest_list_tests
+```
+
+`make test` is deliberately **not** part of `make install`: gtest is an extra
+dependency and a fresh checkout should build the system without it. If
+`detect_paths.sh` does not find gtest, `detect_paths.sh --check` prints install
+hints (`apt: libgtest-dev | dnf: gtest-devel | brew: googletest`), or build it
+into a home prefix:
+
+```bash
+git clone --depth 1 -b v1.14.0 https://github.com/google/googletest
+cmake -S googletest -B build -DCMAKE_INSTALL_PREFIX=$HOME/local
+cmake --build build -j8 && cmake --install build
+```
+
+The tests run synchronously through `TestHelper::invoke_handler` — no Manager,
+no threads — so they are deterministic and the whole suite takes about 80 ms.
+Mocks live in `unit_test/include/unit_test/`. See `unit_test/README.md` for the
+per-file inventory and how to add a case.
+
+Two suites are worth knowing about because they cover things that were silently
+broken and are easy to break again:
+
+- **`test_ob_book.cpp`** — book reconstruction and the no-cross invariant. Two
+  death tests encode the whole crossed-book investigation: a genuine inversion
+  surviving to end-of-transaction must kill the run, and a sweep's
+  intra-transaction cross must not.
+- **`test_ob_delay_queue.cpp`** — the latency model. Our orders are held on
+  `del_q` until `ts0 + wire latency` has passed in *market* time; these pin the
+  withholding, the 40 us floor, and that cancels pay it too.
+- **`test_slippage_probe.cpp`** — the probe's cadence: twelve fires, one per
+  half hour from 09:30 to 15:00 ET, none in between and none after. A full
+  session's schedule is exercised in microseconds instead of the twenty minutes
+  a replay takes.
+
 ## Operating Modes
 
 | Mode | Data Source | Execution | Order Book | Use Case |
@@ -136,8 +189,8 @@ kaspar/
 ├── frame_ref/      Reference data & shared value types — instrument `Asset` defs, `Price`, the `RefData` universe
 ├── light/          Shadow / POV execution algorithm — the per-side `light22` lights
 ├── ilink/          CME iLink 3 order-entry session — SBE, HMAC auth, seq management, primary/secondary failover
-├── ilink_v8/       Generated iLink v8 SBE protocol headers
-├── mktdata_v12/    Generated MDP3 v12 SBE market-data headers
+├── ilink3_sbe/       Generated iLink v8 SBE protocol headers
+├── mdp3_sbe/    Generated MDP3 v12 SBE market-data headers
 ├── chutil/         Core utilities — time, sockets, enums, binary/CSV formats, assert/macros
 ├── interface/      Factory-function headers that create actors (keeps wiring decoupled from impl)
 ├── db/             Database persistence actor (stubbed)

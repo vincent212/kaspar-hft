@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -125,6 +125,11 @@ namespace frame
         char name[256];
         // ref::Asset* a;
         bool do_cross_check;
+        // transactTime of the last payload seen. The no-cross check fires when
+        // this changes, i.e. once every record of a transaction is applied.
+        uint64_t xcheck_tx = 0;
+        // MBO records dropped for an impossible price (see data_handler).
+        uint64_t num_bad_px = 0;
 
         std::ofstream obfile;
 
@@ -229,9 +234,30 @@ namespace frame
           start_debug = _start_debug;
         }
 
-        void set_delay(int _d)
+        // Modelled one-way latency to the matching engine, microseconds. OB
+        // holds every order of ours on del_q until ts0 + this has passed in
+        // MARKET time, so it is the knob that decides how much real flow gets
+        // in front of us.
+        //
+        // ONE setter for both, deliberately: they are not independent. A cancel
+        // is slower than a new order on every real venue -- the engine has to
+        // locate the resting order before it can pull it -- so cancel_us must
+        // be >= order_us. With two setters the check could only test against
+        // whichever value happened to be set first, and calling them in the
+        // other order silently undid it.
+        //
+        // cancel_us < 0 means "same as the order latency": the floor of the
+        // realistic range, not a separate mode.
+        void set_delay(int order_us, int cancel_us = -1)
         {
-          delay = _d;
+          ASSERTF(cancel_us < 0 || cancel_us >= order_us,
+                  boost::format("cancel latency %d us < order latency %d us: a "
+                                "cancel is never faster than a new order, the "
+                                "matching engine has to locate the resting "
+                                "order first")
+                    % cancel_us % order_us);
+          delay = order_us;
+          cancel_delay = cancel_us;
         }
 
         void
@@ -261,7 +287,23 @@ namespace frame
         }
 
       private:
-        int delay = 1000; // micros
+        // Is the instrument matching right now? Fed by l3_sst records. The
+        // no-cross invariant only holds while it is true: an exchange that is
+        // not matching will happily hold a crossed book.
+        //
+        // Defaults to true so a session with no status message still enforces
+        // the invariant -- the point of it is to catch our own reconstruction
+        // bugs, and silence should not switch it off.
+        bool matching = true;
+
+        // MDP3 SecurityTradingStatus. 17 ReadyToTrade is the only one that
+        // matches; 2 TradingHalt, 4 Close, 15 NewPriceIndication, 18
+        // NotAvailableForTrading, 21 PreOpen, 24 PreCross, 25 Cross and 26
+        // PostClose all accept orders without crossing them off.
+        static bool is_matching_status(uint8_t s) { return s == 17; }
+
+        int delay = 1000;        // micros
+        int cancel_delay = -1;   // micros; -1 = same as delay
         uint32_t exec_orders_not_found = 0;
         uint32_t volume_executed = 0;
         std::list<

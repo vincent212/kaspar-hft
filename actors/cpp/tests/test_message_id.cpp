@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
@@ -24,7 +24,7 @@ using namespace actors;
 
 namespace {
 
-struct FixedMsg : public Message_N<123> { int payload = 7; };
+struct FixedMsg : public MessageT<FixedMsg> { int payload = 7; };
 
 struct AutoA : public MessageT<AutoA> {};
 struct AutoB : public MessageT<AutoB> {};
@@ -43,7 +43,9 @@ static_assert(!std::is_default_constructible_v<Message>,
 
 // Message_N exposes its id as a compile-time constant.
 static_assert(Message_N<42>::id == 42, "Message_N<N>::id must be N");
-static_assert(msg::Shutdown::id == 5, "Shutdown id is 5");
+// msg::Shutdown is MessageT now: its id is a runtime value, not a constant.
+static_assert(std::is_base_of_v<actors::MessageT<msg::Shutdown>, msg::Shutdown>,
+              "Shutdown should use the auto-assigned id path");
 
 // Layout guard: msg_id_ is declared last so it packs into the tail padding
 // after the two bools. On LP64 that keeps Message at 32 bytes

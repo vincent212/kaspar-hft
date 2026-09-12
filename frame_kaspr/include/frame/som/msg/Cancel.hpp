@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -20,17 +20,32 @@ namespace frame
   {
     namespace msg
     {
-      struct Cancel : public  actors::Message_N<34> , public actors::MemoryPool<Cancel>
+      struct Cancel : public actors::MessageT<Cancel> , public actors::MemoryPool<Cancel>
       {
         uint id;
         uint32_t sz; // partial cancels not supported
         uint64_t order_ref = 0; // this is only set by the SOM
+
+        // Market time at which the sender decided to cancel, epoch ns -- the
+        // same clock msg::Order::ts carries. In sim mode the SOM stamps the
+        // book payload's ts0 with this, and OB's delay queue holds the cancel
+        // until ts + wire latency has passed, exactly as it does for a new
+        // order. Without it the SOM had nothing to use but the ORIGINAL
+        // order's ts, whose deadline is always already past, so every cancel
+        // reached the book on the next record with no latency at all.
+        //
+        // 0 means "sender did not know the time"; the SOM then falls back to
+        // its own market clock. Live mode ignores it.
+        uint64_t ts = 0;
+
         std::string dealerweb_trading_account;
 
         Cancel(
-          uint _id
+          uint _id,
+          uint64_t _ts = 0
         ) :
-          id(_id)
+          id(_id),
+          ts(_ts)
         {
           sz = std::numeric_limits<int>::max();
           order_ref = 0;
@@ -71,9 +86,9 @@ namespace frame
 
         static void
           send(actors::Actor* sender, actor_ptr som,
-            uint32_t id)
+            uint32_t id, uint64_t ts = 0)
         {
-          auto o = new Cancel(id);
+          auto o = new Cancel(id, ts);
           som->send(o, sender);
         }
 

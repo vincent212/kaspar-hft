@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -1041,6 +1041,30 @@ struct handler_if : public mdp3::feed_handler_if
     l3.tradingEvent = tradingEvent;
     l3.tradingStatus = tradingStatus;
     l3.txtim = transactTime;
+
+    // Forward to the books, the way Gap() and ChannelReset() below do.
+    //
+    // This used to go to binrec only. The consequence was that OB::matching --
+    // which gates the no-cross invariant, because CME legitimately holds a
+    // crossed book while an instrument is halted or in pre-open -- was fed
+    // ONLY when replaying a .bin, where BFA broadcasts the recorded record.
+    // Live and paper never received one, so matching stayed at its `true`
+    // default for the whole session and the halt exemption did not exist on
+    // the path it matters most for. The record was built, written to file,
+    // and dropped.
+    //
+    // CME sends these group-scoped with securityID null (INT32_MAX observed on
+    // every record across four sampled channel-310 sessions), so every book on
+    // the channel is the correct audience -- same as Gap.
+    for (const auto book : mbo_order_books)
+    {
+      if (!book)
+        continue;
+      frame::mda::msg::Data msg;
+      msg.l3 = l3;
+      msg.israw = true;
+      BOOKSEND(&msg);
+    }
 
     if (binrec)
     {

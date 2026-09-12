@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
@@ -59,24 +59,24 @@ namespace
 {
 
 // Plain messages: global new/delete.
-struct Ping : public Message_N<100>
+struct Ping : public MessageT<Ping>
 {
   uint64_t seq;
   explicit Ping(uint64_t s) : seq(s) {}
 };
-struct Pong : public Message_N<101>
+struct Pong : public MessageT<Pong>
 {
   uint64_t seq;
   explicit Pong(uint64_t s) : seq(s) {}
 };
 
 // Pooled messages: allocation served by the framework MemoryPool.
-struct PingPool : public Message_N<102>, public MemoryPool<PingPool, 64, 16, 4096>
+struct PingPool : public MessageT<PingPool>, public MemoryPool<PingPool, 64, 16, 4096>
 {
   uint64_t seq;
   explicit PingPool(uint64_t s) : seq(s) {}
 };
-struct PongPool : public Message_N<103>, public MemoryPool<PongPool, 64, 16, 4096>
+struct PongPool : public MessageT<PongPool>, public MemoryPool<PongPool, 64, 16, 4096>
 {
   uint64_t seq;
   explicit PongPool(uint64_t s) : seq(s) {}

@@ -2,9 +2,9 @@
 #
 # Licensed under the MIT License. See LICENSE file in the project root.
 
-include $(KSPRPROJ)/mk/glob_begin.mk
+include $(KSPRPROJ)/mk_kaspr/glob_begin.mk
 
 LIBSRC = random.cpp Stats.cpp
 NAM = oogsl
 
-include $(KSPRPROJ)/mk/lib_template.mk
+include $(KSPRPROJ)/mk_kaspr/lib_template.mk

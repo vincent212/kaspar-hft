@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -460,7 +460,7 @@ namespace frame::ob::act
               mbo.transactTime,
               mbo.sendingTime,
               mbo.venue,
-              mbo.endOfEvent || mbo.lastQuote,
+              mbo.endOfEvent,   // NOT || lastQuote: that is set on 99.6% of records
               mbo.recovery);
           pl->hndl_tim_epoch = mbo.handlerendtim;
           pl->txtim_epoch = mbo.transactTime;
@@ -656,7 +656,7 @@ namespace frame::ob::act
               mbo.transactTime,
               mbo.sendingTime,
               mbo.venue,
-              mbo.endOfEvent || mbo.lastQuote,
+              mbo.endOfEvent,   // NOT || lastQuote: that is set on 99.6% of records
               mbo.recovery);
           pl->hndl_tim_epoch = mbo.handlerendtim;
           pl->txtim_epoch = mbo.transactTime;
@@ -714,7 +714,7 @@ namespace frame::ob::act
               mbo.transactTime,
               mbo.sendingTime,
               mbo.venue,
-              mbo.endOfEvent || mbo.lastQuote,
+              mbo.endOfEvent,   // NOT || lastQuote: that is set on 99.6% of records
               mbo.recovery);
           pl->hndl_tim_epoch = mbo.handlerendtim;
           pl->txtim_epoch = mbo.transactTime;
@@ -772,7 +772,7 @@ namespace frame::ob::act
               mbot.transactTime,
               mbot.sendingTime,
               mbot.venue,
-              mbot.endOfEvent || mbot.lastTrade,
+              mbot.endOfEvent,  // NOT || lastTrade: per-order flag, set on 96% of trades
               false);
           pl->hndl_tim_epoch = mbot.handlerendtim;
           pl->txtim_epoch = mbot.transactTime;

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
 # Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
-# Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+# Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
 #
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# Generate the CME SBE message codecs (mktdata_v12/ = MDP3, ilink_v8/ = iLink 3)
+# Generate the CME SBE message codecs (mdp3_sbe/ = MDP3, ilink3_sbe/ = iLink 3)
 # from CME's published SBE templates, instead of committing the generated
 # headers. Fetches templates_FixBinary.xml from CME's SFTP server (same host and
 # credentials as genconfig/), then runs the real-logic SBE tool's C++ generator.
@@ -71,16 +71,16 @@ SCHEMAS = {
         "latest_file": "templates_FixBinary.xml",
         "version_dir": "SBEFix/{env}/Templates/Archive",
         "version_file": "templates_FixBinary_v{ver}.xml",
-        "out_pkg": "mktdata_v12",
-        "pinned_version": 12,          # mktdata_v12: sbeSchemaId 1, sbeSchemaVersion 12
+        "out_pkg": "mdp3_sbe",
+        "pinned_version": 12,          # mdp3_sbe: sbeSchemaId 1, sbeSchemaVersion 12
     },
     "ilink": {
         "latest_dir": "MSGW/{env}/Templates",
         "latest_file": "ilinkbinary.xml",
         "version_dir": "MSGW/{env}/Templates",
         "version_file": "ilinkbinary_v{ver}.xml",
-        "out_pkg": "ilink_v8",
-        "pinned_version": 8,           # ilink_v8: sbeSchemaId 8, sbeSchemaVersion 8
+        "out_pkg": "ilink3_sbe",
+        "pinned_version": 8,           # ilink3_sbe: sbeSchemaId 8, sbeSchemaVersion 8
     },
 }
 
@@ -88,7 +88,7 @@ SCHEMAS = {
 # sbe::NewOrderSingle514 etc.), regardless of which directory they sit in. CME's
 # templates declare package "mktdata" / "iLinkBinary"; we rewrite that to `sbe`
 # so the generated types land in the namespace the code expects. The per-schema
-# directory (mktdata_v12/ ilink_v8/) is the include path, decoupled from the
+# directory (mdp3_sbe/ ilink3_sbe/) is the include path, decoupled from the
 # package — generate() puts the headers there directly.
 SBE_PACKAGE = "sbe"
 
@@ -183,7 +183,7 @@ def generate(jar, template_xml, out_pkg):
     log(f"generating {out_pkg}/ from {os.path.basename(template_xml)}")
     # The SBE tool emits into <output.dir>/<package-as-path> (here <tmp>/sbe/),
     # so generate into a temp dir and copy the headers into out_pkg/. This keeps
-    # the include directory (mktdata_v12/, ilink_v8/) independent of the `sbe`
+    # the include directory (mdp3_sbe/, ilink3_sbe/) independent of the `sbe`
     # package/namespace.
     with tempfile.TemporaryDirectory() as td:
         subprocess.run(

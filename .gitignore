@@ -35,6 +35,7 @@ actors/cpp/src/registry/global_registry_main
 *.parquet
 *.csv
 !kaspr/config/universe.csv
+!unit_test/config/universe.csv
 
 # Logs
 *.log
@@ -84,3 +85,28 @@ cmake_install.cmake
 # NFS
 .nfs*
 **/.nfs*
+
+# dbento_pcap_parse build artifacts
+dbento_pcap_parse/*/src/obj/
+dbento_pcap_parse/*/src/objg/
+dbento_pcap_parse/*/src/*.P
+dbento_pcap_parse/dbento_pcap_to_bin/src/dbento_pcap_to_bin
+dbento_pcap_parse/build_universe/src/build_universe
+dbento_pcap_parse/merge_bins/src/merge_bins
+dbento_pcap_parse/verify_merged/src/verify_merged
+dbento_pcap_parse/pcap_list_ips/src/pcap_list_ips
+dbento_pcap_parse/binstats/src/binstats
+dbento_pcap_parse/scripts/out/
+
+# genconfig outputs are fetched from CME SFTP by genconfig.sh, not committed
+genconfig/*.info
+
+# built binaries
+sim/src/sim
+sim/src/simg
+unit_test/src/run_tests
+unit_test/src/run_testsg
+
+# core dumps
+core
+core.*

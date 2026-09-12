@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -765,7 +765,7 @@ void act::SOM::cancel_all_orders() noexcept
       continue;
 
     log_opr("cancelling on stop order: %d", k);
-    cancel_order(k, order);
+    cancel_order(k, order);   // no cancel time: applied without delay
   }
 
 }
@@ -883,7 +883,7 @@ void act::SOM::ack_handler(const som::msg::Ack *m) noexcept
     {
 
       ASSERT(uint(order->oid) == m->id, "must be same id");
-      cancel_order(m->id, *order);
+      cancel_order(m->id, *order);   // ditto
     }
   }
 }
@@ -1162,7 +1162,11 @@ void act::SOM::order_handler(const msg::Order *m) noexcept
               sym,
               working_sz,
               current_pos,
-              pos_limit[m->sz],
+              // [m->sym], not [m->sz]. Indexed by SIZE this read another
+              // asset's limit (an order of 5 printed pos_limit[5]) and was an
+              // out-of-bounds read for any size past the asset count -- in the
+              // one message whose whole job is to say which limit was hit.
+              pos_limit[m->sym],
               size_limit[m->sym],
               mda::OrderID::id(m->oid),
               en::to_string(m->venue),
@@ -1262,7 +1266,7 @@ void act::SOM::order_handler(const msg::Order *m) noexcept
       cout << ">>> CREP: " << m->oid_to_cancel << " " << m->oid << endl;
 #endif
       if (sim_mode)
-        cancel_order(m->oid_to_cancel, *ord);
+        cancel_order(m->oid_to_cancel, *ord, m->ts);   // the replace's own send time
     }
   }
   else
@@ -1484,7 +1488,7 @@ void act::SOM::canc_handler(const msg::Cancel *m) noexcept
     return;
   }
 
-  cancel_order(m->id, *ord);
+  cancel_order(m->id, *ord, m->ts);
 }
 
 void act::SOM::canc_ack_handler(const msg::CancAck *m) noexcept
@@ -1778,7 +1782,7 @@ act::SOM::get_long_pnl_string(en::trader owner) const noexcept
   return ostr.str();
 }
 
-void frame::som::act::SOM::cancel_order(uint id, const msg::Order &ord) noexcept
+void frame::som::act::SOM::cancel_order(uint id, const msg::Order &ord, uint64_t canc_ts) noexcept
 {
 
   //
@@ -1826,8 +1830,21 @@ void frame::som::act::SOM::cancel_order(uint id, const msg::Order &ord) noexcept
     payload->order_ref = mda::OrderID::longid(en::x::SIM, id);
     payload->mev = en::md::MOD;
     payload->disp_sz = 0;
-    payload->ts0 = o.ts;
-    ASSERT(payload->ts0 > 0, "bad ts0");
+    // NOT o.ts. o.ts is when the ORIGINAL ORDER was sent, and OB releases a
+    // queued item once ts0 + wire latency has passed in market time -- a
+    // deadline the order already crossed when it was itself released. Stamping
+    // the cancel with it made every cancel arrive on the next record with no
+    // latency at all, so our cancels always beat the flow and we never wore
+    // the adverse fill a real one would have cost.
+    //
+    // The canceller's own market time, or 0 when it had none -- the SOM's own
+    // internal cancels (the unwind on stop, the ack path) and console cancels.
+    // 0 is passed through as 0 on purpose: OB applies an untimed message
+    // without delay rather than model a latency it has no clock for. NOT
+    // o.ts, which is when the ORIGINAL ORDER was sent: its deadline is already
+    // past, so that silently gave every cancel zero latency while looking like
+    // it modelled one.
+    payload->ts0 = canc_ts;
     d->israw = false; // it actually defaults to false
     d->payload = payload;
     log_dbg("placed sim order canc for id: %d, for venue: %s, orderref: %lu", id, en::to_string(o.venue), payload->order_ref);
@@ -1846,7 +1863,7 @@ void frame::som::act::SOM::cancel_order(uint id, const msg::Order &ord) noexcept
       return;
     }
     // forward this message on
-    auto fwd_msg = new msg::Cancel(id);
+    auto fwd_msg = new msg::Cancel(id, canc_ts);   // live path ignores ts, carry it anyway
     //fwd_msg->destination = 0;
     fwd_msg->order_ref = mda::OrderID::longid(venue, id);
     itVenue->send(fwd_msg, this);

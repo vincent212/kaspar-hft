@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -67,6 +67,20 @@ namespace polonaise
         alignas(64) uint tot_err_cnt;
         alignas(64) static Logger *theLogger;
         alignas(64) static bool log_debug;
+        // Grid runs: keep only what is needed to diagnose a failed session and
+        // drop the narrative. A single replayed session writes ~600 MB of INFO,
+        // so a sweep of thousands of runs is bounded by log volume rather than
+        // by CPU -- 10,000 runs would be petabytes. Errors, warnings, operator
+        // lines, rejects and limit breaches survive; everything else is
+        // discarded before it is formatted.
+        alignas(64) static bool quiet;
+
+        static constexpr bool kept_when_quiet(msg::Log::Level l)
+        {
+          return l == msg::Log::Level::_ERROR_ || l == msg::Log::Level::_WARN_ ||
+                 l == msg::Log::Level::_OPER_  || l == msg::Log::Level::_REJECT_ ||
+                 l == msg::Log::Level::_LIMIT_;
+        }
         alignas(64) static bool synchrolog;
         alignas(64) static bool rt;
         alignas(64) static bool disable;
@@ -152,6 +166,8 @@ namespace polonaise
       {
         if (level == msg::Log::Level::_DBG_ && !Logger::log_debug) [[unlikely]]
           return;
+        if (Logger::quiet && !Logger::kept_when_quiet(level)) [[unlikely]]
+          return;
 
         if (Logger::theLogger)
         {
@@ -183,6 +199,8 @@ namespace polonaise
       {
         if (level == msg::Log::Level::_DBG_ && !Logger::log_debug) [[unlikely]]
           return;
+        if (Logger::quiet && !Logger::kept_when_quiet(level)) [[unlikely]]
+          return;
 
         if (Logger::theLogger)
         {
@@ -212,6 +230,8 @@ namespace polonaise
           double value)
       {
         if (level == msg::Log::Level::_DBG_ && !Logger::log_debug) [[unlikely]]
+          return;
+        if (Logger::quiet && !Logger::kept_when_quiet(level)) [[unlikely]]
           return;
 
         if (Logger::theLogger)
@@ -243,6 +263,8 @@ namespace polonaise
       {
         if (level == msg::Log::Level::_DBG_ && !Logger::log_debug) [[unlikely]]
           return;
+        if (Logger::quiet && !Logger::kept_when_quiet(level)) [[unlikely]]
+          return;
 
         if (Logger::theLogger)
         {
@@ -272,6 +294,8 @@ namespace polonaise
           const Values &...values)
       {
         if (level == msg::Log::Level::_DBG_ && !Logger::log_debug) [[unlikely]]
+          return;
+        if (Logger::quiet && !Logger::kept_when_quiet(level)) [[unlikely]]
           return;
 
         std::array<std::any, MAX_LOG_ARGS> val_arr;
