@@ -96,3 +96,6 @@ dbento_pcap_parse/verify_merged/src/verify_merged
 dbento_pcap_parse/pcap_list_ips/src/pcap_list_ips
 dbento_pcap_parse/binstats/src/binstats
 dbento_pcap_parse/scripts/out/
+
+# genconfig outputs are fetched from CME SFTP by genconfig.sh, not committed
+genconfig/*.info
