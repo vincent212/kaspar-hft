@@ -117,7 +117,7 @@ Notes:
 
 ## Tests
 
-282 Google Test cases over the pieces that decide what the simulator does: the
+295 Google Test cases over the pieces that decide what the simulator does: the
 shadow light, the order book's delay queue, the coordination objects, reference
 data, the timer, the simulated order manager, position tracking, and the
 slippage probe.
