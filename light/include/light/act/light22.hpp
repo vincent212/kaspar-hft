@@ -1,5 +1,7 @@
 #pragma once
 
+#include <random>
+
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
  * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
@@ -31,6 +33,8 @@ namespace light::act
     // Deterministic order placement: place order after every N EOB ADD messages
     // Default is 5 (place after 5 EOB ADD messages)
     int place_after_n_eob = 5;
+    int place_rate_bp = 300;        // stochastic placement rate, basis points
+    std::mt19937 rng{1};            // per-light, deterministically seeded
     int eob_counter = 0;
 
     // Maximum distance (in ticks) from best bid/ask to place orders
@@ -63,6 +67,25 @@ namespace light::act
     {
       // Read deterministic placement interval from config (default 5 = place after 5 EOB ADD messages)
       place_after_n_eob = this->pt.template get<int>("place_after_n_eob", 5);
+
+      // Stochastic placement rate, in BASIS POINTS of EOB ADD messages acted on.
+      // Basis points rather than percent so sub-1% rates are expressible: the
+      // experiment sweeps 0.5% / 1% / 3% / 5%, and the previous
+      // `std::rand() % 100` could not represent 0.5 at all.
+      place_rate_bp = this->pt.template get<int>("place_rate_bp", 300);   // 3%
+
+      // Per-light deterministic RNG. std::rand() is process-global, unseeded and
+      // shared with every other caller, so two runs of the same session placed
+      // different orders — which makes the long and short legs of a slippage
+      // fire incomparable and nothing reproducible. Seed from the config plus
+      // the light's own name so buy/sell and each instrument differ, but any
+      // given run repeats exactly.
+      {
+        const auto seed = this->pt.template get<uint32_t>("rng_seed", 1);
+        uint32_t h = seed;
+        for (char c : _name) h = h * 31u + uint8_t(c);
+        rng.seed(h);
+      }
 
       // Register message handlers for derived implementation
       MESSAGE_HANDLER(actors::msg::Start, start_handler);
@@ -301,10 +324,10 @@ namespace light::act
 
       #else
 
-      // Non-deterministic placement: 3% chance to place an order on this EOB
-      if ((std::rand() % 100) >= 3)
+      // Stochastic placement: act on place_rate_bp basis points of EOB ADDs.
+      if (int(rng() % 10000u) >= place_rate_bp)
       {
-        log_inf("skipping order placement randomly: eob_counter=%d", eob_counter);  
+        log_inf("skipping order placement randomly: eob_counter=%d", eob_counter);
         return;
       }
       else
