@@ -313,7 +313,12 @@ namespace light::act
         cancel_requests.insert(ord_info.get_oid());
         if (!from_rej)
         {
-          frame::som::msg::Cancel cancel_msg(ord_info.get_oid());
+          // Stamp with market time, the same clock place_order() passes as
+          // msg::Order::ts, so the cancel pays the same modelled wire latency
+          // as the order did. curr_tx_time is set at the top of eob_handler;
+          // on the reject and alarm paths it is the last EOB's time, which is
+          // the most recent market time this light has seen.
+          frame::som::msg::Cancel cancel_msg(ord_info.get_oid(), curr_tx_time);
           som->fast_send(&cancel_msg, this);
         }
         ord_info.set_canc();
@@ -542,13 +547,13 @@ namespace light::act
       {
         log_err("sleeping resending canc for INTERNALOIDTOCANC reject");
         skip = 50;
-        som->send(new frame::som::msg::Cancel(m->id), this);
+        som->send(new frame::som::msg::Cancel(m->id, curr_tx_time), this);
       }
       else if (m->reason == frame::som::msg::CancReject::REJECTONMOD)
       {
         log_err("sleeping resending canc for REJECTONMOD reject");
         skip = 50;
-        som->send(new frame::som::msg::Cancel(m->id), this);
+        som->send(new frame::som::msg::Cancel(m->id, curr_tx_time), this);
       }
       else if (m->reason == frame::som::msg::CancReject::FILLEDALREADY)
       {
@@ -600,7 +605,7 @@ namespace light::act
       {
         log_err("THROTTLE resending canc got can rej id: %d, reason: %d", m->id, m->reason);
         skip = 1000;
-        som->send(new frame::som::msg::Cancel(m->id), this);
+        som->send(new frame::som::msg::Cancel(m->id, curr_tx_time), this);
       }
       else
       {

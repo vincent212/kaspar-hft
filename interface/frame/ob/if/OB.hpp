@@ -23,3 +23,4 @@ cfsmp create_OB(
 void ob_set_debug(cfsmp ob, uint64_t start_debug = 0);
 
 void ob_set_delay(cfsmp ob, int _d);
+void ob_set_cancel_delay(cfsmp ob, int _d);

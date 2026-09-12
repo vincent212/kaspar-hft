@@ -765,7 +765,7 @@ void act::SOM::cancel_all_orders() noexcept
       continue;
 
     log_opr("cancelling on stop order: %d", k);
-    cancel_order(k, order);
+    cancel_order(k, order);   // no cancel time: SOM's own clock, see cancel_order
   }
 
 }
@@ -883,7 +883,7 @@ void act::SOM::ack_handler(const som::msg::Ack *m) noexcept
     {
 
       ASSERT(uint(order->oid) == m->id, "must be same id");
-      cancel_order(m->id, *order);
+      cancel_order(m->id, *order);   // ditto -- an ack carries no market time
     }
   }
 }
@@ -1262,7 +1262,7 @@ void act::SOM::order_handler(const msg::Order *m) noexcept
       cout << ">>> CREP: " << m->oid_to_cancel << " " << m->oid << endl;
 #endif
       if (sim_mode)
-        cancel_order(m->oid_to_cancel, *ord);
+        cancel_order(m->oid_to_cancel, *ord, m->ts);   // the replace's own send time
     }
   }
   else
@@ -1484,7 +1484,7 @@ void act::SOM::canc_handler(const msg::Cancel *m) noexcept
     return;
   }
 
-  cancel_order(m->id, *ord);
+  cancel_order(m->id, *ord, m->ts);
 }
 
 void act::SOM::canc_ack_handler(const msg::CancAck *m) noexcept
@@ -1778,7 +1778,7 @@ act::SOM::get_long_pnl_string(en::trader owner) const noexcept
   return ostr.str();
 }
 
-void frame::som::act::SOM::cancel_order(uint id, const msg::Order &ord) noexcept
+void frame::som::act::SOM::cancel_order(uint id, const msg::Order &ord, uint64_t canc_ts) noexcept
 {
 
   //
@@ -1826,7 +1826,18 @@ void frame::som::act::SOM::cancel_order(uint id, const msg::Order &ord) noexcept
     payload->order_ref = mda::OrderID::longid(en::x::SIM, id);
     payload->mev = en::md::MOD;
     payload->disp_sz = 0;
-    payload->ts0 = o.ts;
+    // NOT o.ts. o.ts is when the ORIGINAL ORDER was sent, and OB releases a
+    // queued item once ts0 + wire latency has passed in market time -- a
+    // deadline the order already crossed when it was itself released. Stamping
+    // the cancel with it made every cancel arrive on the next record with no
+    // latency at all, so our cancels always beat the flow and we never wore
+    // the adverse fill a real one would have cost.
+    //
+    // Prefer the canceller's own market time; fall back to the SOM's clock
+    // (currtim, fed by BBBOChg -- live but gappy, since OB suppresses the
+    // notification on a locked book); fall back last to o.ts, which at least
+    // keeps the ts0 > 0 invariant.
+    payload->ts0 = canc_ts ? canc_ts : (currtim ? currtim : o.ts);
     ASSERT(payload->ts0 > 0, "bad ts0");
     d->israw = false; // it actually defaults to false
     d->payload = payload;
@@ -1846,7 +1857,7 @@ void frame::som::act::SOM::cancel_order(uint id, const msg::Order &ord) noexcept
       return;
     }
     // forward this message on
-    auto fwd_msg = new msg::Cancel(id);
+    auto fwd_msg = new msg::Cancel(id, canc_ts);   // live path ignores ts, carry it anyway
     //fwd_msg->destination = 0;
     fwd_msg->order_ref = mda::OrderID::longid(venue, id);
     itVenue->send(fwd_msg, this);

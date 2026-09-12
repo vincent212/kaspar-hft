@@ -46,7 +46,8 @@ namespace sim
              int place_rate_bp = -1,
              uint32_t rng_seed = 0,
              int ord_sz = -1,
-             int ob_delay_us = -1);
+             int ob_delay_us = -1,
+             int ob_cancel_delay_us = -1);
     ~SimKaspr() override = default;
 
   private:
@@ -68,6 +69,9 @@ namespace sim
     // market time, so this is the single knob that decides how much of the
     // real flow gets in front of us. -1 = leave OB's own default (1000 us).
     int      ob_delay_us_;
+    // Cancel latency. Same wire as an order, so -1 (= ob_delay_us) is the
+    // physically right default; set it only to test the asymmetric case.
+    int      ob_cancel_delay_us_;
 
     actors::Group* group_ = nullptr;
     polonaise::logger::act::Logger* logger_ = nullptr;

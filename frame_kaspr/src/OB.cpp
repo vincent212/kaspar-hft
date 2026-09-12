@@ -2055,7 +2055,13 @@ if (debug)
     ASSERT(p_->ts0 > 0, "bad ts0");
     auto ts0_tim = p_->ts0;
     auto order_leave_time = ts0_tim; // p_->ts0 > 0 ? ts0_tim : p_->send_tim;
-    auto order_engine_arrive_time = order_leave_time + std::max(40, delay) * 1000; // 40 us delay
+    // A cancel and a new order traverse the same wire, so cancel_delay is
+    // normally -1 (= delay); it exists only so an experiment can make the two
+    // asymmetric. Note ts0 for a cancel is the time the CANCEL was decided,
+    // not the original order's -- see SOM::cancel_order.
+    const int eff_delay = (p_->action == en::mt::CANCD && cancel_delay >= 0)
+                            ? cancel_delay : delay;
+    auto order_engine_arrive_time = order_leave_time + std::max(40, eff_delay) * 1000; // 40 us floor
     if (order_engine_arrive_time < to_proc->tim)
     {
 
@@ -2065,7 +2071,7 @@ if (debug)
            << " sent at " << order_leave_time.to_string()
            << " arrved at " << order_engine_arrive_time.to_string()
            << " because tx nowis " << to_proc->tim.to_string()
-           << " d = " << delay << endl;
+           << " d = " << eff_delay << endl;
 #endif
 
       log_dbg("popping order id: %d sent at: %d, arrived at: %d, because time now is: %d, del: %d",
@@ -2073,7 +2079,7 @@ if (debug)
               order_leave_time,
               order_engine_arrive_time,
               to_proc->tim,
-              delay);
+              eff_delay);
 
       // we let this order through
 
@@ -2088,14 +2094,14 @@ if (debug)
            << " sent at " << p_->send_tim.to_string()
            << " because trans time is "
            << to_proc->tim.to_string()
-           << " delay = " << delay
+           << " delay = " << eff_delay
            << " current sent time is "
            << to_proc->send_tim.to_string()
            << endl;
 #endif
 
       log_trc("NO POP order id: %d, sent at: %s, bacause tx time is: %s, del: %d, current time: %s",
-              mda::OrderID::id(p_->order_ref), p_->send_tim.to_string(), to_proc->tim.to_string(), delay, to_proc->send_tim.to_string());
+              mda::OrderID::id(p_->order_ref), p_->send_tim.to_string(), to_proc->tim.to_string(), eff_delay, to_proc->send_tim.to_string());
 
       // leave the order on the q
       break;

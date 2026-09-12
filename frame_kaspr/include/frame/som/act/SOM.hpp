@@ -175,7 +175,12 @@ namespace frame::som::act
   protected:
     void canc_handler(const msg::Cancel *) noexcept;
     bool internal_reject(int id, const msg::Order *&) noexcept;
-    void cancel_order(uint id, const msg::Order &ord) noexcept;
+    // canc_ts: market time (epoch ns) at which the cancel was decided. In sim
+    // mode it becomes the book payload's ts0, so OB's delay queue makes the
+    // cancel pay wire latency the same way a new order does. 0 = caller did
+    // not know, fall back to the SOM's own market clock and then to the
+    // order's own ts.
+    void cancel_order(uint id, const msg::Order &ord, uint64_t canc_ts = 0) noexcept;
     void order_handler(const msg::Order *) noexcept;
     void canc_ack_handler(const msg::CancAck *) noexcept;
     void bbbochg_handler(const ob::msg::BBBOChg *) noexcept;

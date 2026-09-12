@@ -234,9 +234,20 @@ namespace frame
           start_debug = _start_debug;
         }
 
+        // One-way wire latency to the matching engine, microseconds. OB holds
+        // every sim order on del_q until ts0 + this has passed in MARKET time.
         void set_delay(int _d)
         {
           delay = _d;
+        }
+
+        // Cancel latency, microseconds. An order and its cancel go over the
+        // same wire, so the same number is the physically right default;
+        // -1 means "use delay". Separate only so an experiment can test the
+        // asymmetric case.
+        void set_cancel_delay(int _d)
+        {
+          cancel_delay = _d;
         }
 
         void
@@ -266,7 +277,8 @@ namespace frame
         }
 
       private:
-        int delay = 1000; // micros
+        int delay = 1000;        // micros
+        int cancel_delay = -1;   // micros; -1 = same as delay
         uint32_t exec_orders_not_found = 0;
         uint32_t volume_executed = 0;
         std::list<
