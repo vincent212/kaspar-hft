@@ -102,10 +102,19 @@ run_one() {
   local log="$OUT/log/$name/$date.log"
   [ -s "$csv" ] && return 0                      # resume
 
-  local uni="$SRC/universe/310/universe.310.$date.json"
-  [ -f "$uni" ] || uni="$SRC/universe/310/master_universe.310.json"
-
   local contract; contract=$(front_month "$date")
+
+  # Prefer the per-date universe: its daily price limits are the ones that
+  # actually applied, and maxpx sizes OB's ladder. But CME's instrument-replay
+  # cycle does not always emit the front month during the windows a given date
+  # captured, so a per-date universe can simply be missing the contract we
+  # want to trade. Fall back to the master for those -- its limits are merged
+  # across dates and so approximate, but a slightly wrong ladder is a far
+  # smaller error than not running the session at all.
+  local uni="$SRC/universe/310/universe.310.$date.json"
+  if [ ! -f "$uni" ] || ! grep -q "\"$contract\"" "$uni"; then
+    uni="$SRC/universe/310/master_universe.310.json"
+  fi
   # 16:30 ET, computed per date so the DST change on 2025-03-09 is handled.
   local cut; cut=$(TZ=America/New_York date -d "${date:0:4}-${date:4:2}-${date:6:2} 16:30:00" +%s)
 

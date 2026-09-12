@@ -50,6 +50,11 @@ struct Stat {
   uint64_t records  = 0;   // how many l3_vol records
   uint64_t adds     = 0;   // MBO adds, as an activity cross-check
   uint64_t trades   = 0;   // MBO trade-action count
+  // Traded quantity summed from the trade records themselves. This is the
+  // volume that actually printed, counted rather than reported: l3_vol is
+  // CME's own statistic and is only as good as the windows the capture
+  // happens to contain, whereas every fill is a record we already read.
+  uint64_t traded_qty = 0;
   std::string symbol;
 };
 
@@ -139,7 +144,11 @@ int main(int argc, char* argv[])
       // No securityID on the trade record — attribute via the order map.
       const auto& t = std::get<bfile::l3_mbo_trd_v2_t>(l3);
       auto it = order_sec.find(t.orderID);
-      if (it != order_sec.end()) ++stats[it->second].trades;
+      if (it != order_sec.end()) {
+        auto& s2 = stats[it->second];
+        ++s2.trades;
+        if (t.lastQty > 0) s2.traded_qty += uint64_t(t.lastQty);
+      }
     }
   }
   gzclose(f);
@@ -149,10 +158,20 @@ int main(int argc, char* argv[])
     kv.second.symbol = (it == symbols.end()) ? "" : it->second;
   }
 
-  // Rank by volume; [0] is the front month.
+  // Rank by traded quantity; [0] is the front month.
+  //
+  // Counted from the trade records, not taken from l3_vol. l3_vol is CME's own
+  // statistic and only appears when the capture contains the windows carrying
+  // it, so an instrument can look dormant purely because that message was not
+  // captured. Every fill, by contrast, is a record we have already read. Ties
+  // fall back to l3_vol so a session with no trades still ranks something.
   std::vector<std::pair<int32_t, Stat>> ranked(stats.begin(), stats.end());
   std::sort(ranked.begin(), ranked.end(),
-            [](const auto& a, const auto& b) { return a.second.vol_max > b.second.vol_max; });
+            [](const auto& a, const auto& b) {
+              if (a.second.traded_qty != b.second.traded_qty)
+                return a.second.traded_qty > b.second.traded_qty;
+              return a.second.vol_max > b.second.vol_max;
+            });
 
   std::string out = vm["out"].as<std::string>();
   if (out.empty()) out = "volume." + chan + "." + date + ".json";
@@ -160,10 +179,22 @@ int main(int argc, char* argv[])
   ASSERTF(o.is_open(), boost::format("cannot write %s") % out);
 
   o << "{\n \"channel\": \"" << chan << "\",\n \"date\": \"" << date << "\",\n";
-  if (!ranked.empty() && !ranked[0].second.symbol.empty())
-    o << " \"front\": \"" << ranked[0].second.symbol << "\",\n";
-  if (!ranked.empty())
-    o << " \"front_security_id\": " << ranked[0].first << ",\n";
+  if (!ranked.empty() && !ranked[0].second.symbol.empty()) {
+    // The front month is the most-traded OUTRIGHT. Calendar spreads
+    // (ESH5-ESM5) trade heavily around a roll and can outrank a deferred
+    // outright, but they are a different instrument and nothing downstream can
+    // execute one as if it were the front contract.
+    auto is_outright = [](const std::string& sym) {
+      return !sym.empty() && sym.find('-') == std::string::npos;
+    };
+    const Stat* front = nullptr;
+    int32_t front_id = ranked[0].first;
+    for (const auto& r : ranked)
+      if (is_outright(r.second.symbol)) { front = &r.second; front_id = r.first; break; }
+    if (!front) front = &ranked[0].second;
+    o << " \"front\": \"" << front->symbol << "\",\n";
+    o << " \"front_security_id\": " << front_id << ",\n";
+  }
   o << " \"instruments\": [\n";
   for (size_t i = 0; i < ranked.size(); ++i) {
     const auto& [sid, s] = ranked[i];
@@ -173,7 +204,8 @@ int main(int argc, char* argv[])
       << ", \"volume_last\": " << s.vol_last
       << ", \"vol_records\": " << s.records
       << ", \"mbo_adds\": " << s.adds
-      << ", \"trades\": " << s.trades << "}"
+      << ", \"trades\": " << s.trades
+      << ", \"traded_qty\": " << s.traded_qty << "}"
       << (i + 1 < ranked.size() ? ",\n" : "\n");
   }
   o << " ]\n}\n";
@@ -186,7 +218,8 @@ int main(int argc, char* argv[])
     const auto& [sid, s] = ranked[i];
     std::cerr << "  " << (s.symbol.empty() ? "?" : s.symbol)
               << " secID=" << sid << " vol=" << s.vol_max
-              << " adds=" << s.adds << " trades=" << s.trades << "\n";
+              << " adds=" << s.adds << " trades=" << s.trades
+              << " traded_qty=" << s.traded_qty << "\n";
   }
   return 0;
 }
