@@ -1752,6 +1752,102 @@ fills.
 **Cross-instrument (ES-first):** everything built on ES; NQ added later as replication + ES↔NQ
 parameter-transfer (fit ES, run NQ, and vice versa).
 
+### The shadow baseline grid — run this before any model arm
+
+Shadow is the model-free baseline every model in §1 is scored against. Until its cost curve is
+measured across size, participation and latency there is nothing to beat, and any claimed
+improvement is unfalsifiable. This grid is that measurement. It also **replaces every empirical
+number in `tech_reports/shadow_pov.pdf`** — see below for why the published ones cannot stand.
+
+Full working log, with the debugging history behind each item:
+`~/.claude/plans/ok-we-still-have-resilient-crab.md` §6.8.
+
+#### Axes
+
+**A. rate × size** — both latencies 500 µs (`--ob-delay-us 500 --ob-cancel-delay-us 500`):
+
+| | 1 lot | 10 | 100 |
+|---|---|---|---|
+| 0.5% (`--place-rate-bp 50`)  | · | · | · |
+| 1%   (`--place-rate-bp 100`) | · | · | · |
+| 3%   (`--place-rate-bp 300`) | · | · | · |
+| 5%   (`--place-rate-bp 500`) | · | · | · |
+
+12 configs. Yields the slippage surface **and** the order-placement-rate → realised-participation
+map. The paper has neither: it reports ρ≈1.5% as a *placement* rate and models participation
+separately, never connecting the two.
+
+**B. size depth at 3%** — `Q ∈ {1, 2, 5, 10, 20, 50, 100, 200}` with `ord_sz 1`, so the parent size
+*is* the child-fill count and `Q` matches the paper's axis. 8 configs.
+
+**C. latency sensitivity** at 3% / 100 lots — order = cancel latency ∈
+`{0, 100, 200, 400, 500, 800, 1600, 3200, 6400}` µs. 9 configs. The 500 µs point is deliberate: it
+makes C's curve pass through A's (300bp, 100) cell so the two grids cross-validate. `0` floors at
+OB's 40 µs minimum.
+
+**29 configs × 363 sessions = 10,527 runs**; 12 fires per session gives 4,356 samples per config.
+
+#### Cost (measured, not estimated)
+
+One full session to 16:30 ET, `--quiet`, with the probe: **131 s**. So **383 CPU-hours** →
+**7.7 h wall at 50-way**. Disk is not a constraint (~3 GB quiet, ~6 TB unquiet, against 74 TB free
+on `/vast/home`); `--quiet` exists because the volume buys nothing and the runs share an NFS filer.
+
+#### What this fixes in the paper
+
+1. **Size dependence becomes empirical.** The published section is an exponential/Gamma Monte Carlo
+   and says so — *"a scaling law under a stylized model, not an empirical claim."* Its Table 2 is
+   simulated, not measured. Grid B replaces it.
+2. **One placement rate becomes four.** Everything published rests on the hardcoded
+   `std::rand() % 128 >= 2`, i.e. ρ≈1.5%.
+3. **Latency gets a section at all.** The paper never treats it as a parameter. Worse,
+   `m2_kspr/frame_kaspr/src/SOM.cpp:1935` carries the same `payload->ts0 = o.ts` bug fixed on
+   `feat/cancel-latency`, so the published figures were produced with new orders paying 1000 µs and
+   **cancels paying zero**. They are optimistic by an unmeasured amount.
+4. **Two fires per date becomes twelve.** The paper fires at 09:29 and 15:57 and then *discards*
+   the open cohort because intraday drift contaminates it. Twelve fires measure the drift instead.
+5. **ρ (our share of volume) is reported per fire**, so the threats-to-validity caveat about the
+   zero-impact assumption becomes a measurement. Configs where our share is large must be flagged,
+   not averaged — this matters most in the 100-lot row, which is exactly the extrapolation the
+   paper warns against.
+
+Not fixed by the grid: there is still **no competing baseline**. The paper concedes the benchmark
+role is *"proposed rather than demonstrated"*. That is what M0–M3 in this document are for, which
+is the other reason the grid has to land first.
+
+#### Prerequisites (done)
+
+- **Participation is now measured.** `SlippageProbe` subscribes to `TradeNotify` and accumulates
+  market volume per leg, emitting `buy_mkt_vol`, `sel_mkt_vol`, `buy_part`, `sel_part`. Without it
+  realised participation — our filled quantity over market volume in the window — is unobtainable.
+- **Leg times come from the fill,** not from the 1 s clock tick that noticed the leg was done. The
+  first real results had every `buy_ns` at 1.00–1.02 s, an artefact of the observer: harmless for
+  slippage, fatal for anything per unit time.
+- **`Q` semantics.** Child size is clamped by
+  `min(ord_sz, lev_orders_max − sz_at_px, diff_from_target, payload_sz)`, so with `ord_sz 5` a
+  100-lot parent is ~20+ children and the count is emergent. Grid B pins `ord_sz 1`; elsewhere
+  report the measured `n_fills` as the empirical `Q`.
+
+#### Open before launch
+
+- **20250210 still aborts** on a crossed book — OB retains an ask whose DELETE is present in the
+  capture (order `6414436033822`, NEW 00:00:13, DELETE 00:24:09, still in the book at 17:59). Not
+  the halt gating, not a missing packet, not an unhandled `orderUpdateAction`, not a recovery-gate
+  drop — all four were checked and refuted. A session that hits this dies mid-sweep.
+- **Only one session is proven clean.** A ~20-session smoke test across the year (Sundays,
+  holidays, the 2025-03-09 DST change, the March roll) should precede 10,527 runs.
+- **No runner yet**: pinned binary, per-date universe with master fallback, DST-correct 16:30 ET
+  cutoff, retry, and CSV aggregation.
+
+#### Open question
+
+The paper evaluates a **two-leg NQ/ES spread** fired in ten lock-step chunks. This grid is **ES
+outright**, single parent via `targetpos`. The numbers are therefore a *different experiment*, not
+a better-powered version of the published one — either the paper's framing changes, or the probe
+grows a spread mode.
+
+---
+
 ---
 
 ## 6. Phased milestones (ES-first)
