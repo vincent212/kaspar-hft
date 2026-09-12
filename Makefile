@@ -26,6 +26,19 @@ check-schema:
 schema:
 	python3 $(KSPRPROJ)/genschema/genschema.py $(GENSCHEMA_ARGS)
 
+# Hand-assigned message ids (Message_N<N>) are not checked for uniqueness by the
+# compiler -- the static_assert in Message.hpp only constrains the range. Two
+# types sharing an id silently cross-dispatch, so audit them as part of the
+# build. MessageT<Derived> ids (512+) are collision-free by construction and are
+# not audited here.
+.PHONY: check-msgids
+check-msgids:
+	@python3 $(KSPRPROJ)/setclassid/setclassid.py --root $(KSPRPROJ) --quiet
+
+.PHONY: msgids
+msgids:
+	@python3 $(KSPRPROJ)/setclassid/setclassid.py --root $(KSPRPROJ)
+
 .PHONY: libdepend
 libdepend: TARGET=depend
 libdepend: loop
@@ -93,9 +106,9 @@ lib14:
 # cryptic missing-header error. `clean` deliberately does not require them.
 depend: check-schema libdepend clean
 
-install: check-schema libo
+install: check-schema check-msgids libo
 
-debug: check-schema libd
+debug: check-schema check-msgids libd
 
 clean: libc
 	@find . -name '*.P' -exec rm {} \;

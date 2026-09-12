@@ -25,12 +25,12 @@ using namespace actors;
 using namespace std;
 
 // Custom message with a counter
-struct Ping : public Message_N<100> {
+struct Ping : public MessageT<Ping> {
   int count;
   Ping(int c) : count(c) {}
 };
 
-struct Pong : public Message_N<101> {
+struct Pong : public MessageT<Pong> {
   int count;
   Pong(int c) : count(c) {}
 };

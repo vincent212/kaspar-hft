@@ -18,15 +18,16 @@
 using namespace actors;
 using namespace std;
 
-// Define Ping message (ID=100)
-class Ping : public Message_N<100> {
+// Define Ping message (ID=13). Hand-assigned on purpose: this is a
+// cross-process wire protocol, so both ends must agree on the id.
+class Ping : public Message_N<13> {
 public:
     int count;
     Ping(int c = 0) : count(c) {}
 };
 
-// Define Pong message (ID=101)
-class Pong : public Message_N<101> {
+// Define Pong message (ID=14)
+class Pong : public Message_N<14> {
 public:
     int count;
     Pong(int c = 0) : count(c) {}

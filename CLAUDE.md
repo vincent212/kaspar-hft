@@ -132,10 +132,20 @@ Additional per-component guides:
 ### Adding a new message type
 
 1. Create header at `<lib>/include/<lib>/msg/MyMsg.hpp`
-2. Extend `MessageT<MyMsg>` — the id is auto-assigned and collision-free. **Do
-   not hand-pick a message id.** (`Message_N<N>` is legacy: hard-coded id, not
-   uniqueness-checked; use only if you genuinely need a compile-time-constant id,
-   then run `setclassid/setclassid.py` to audit.)
+2. Extend `MessageT<MyMsg>` — the id is auto-assigned (512+) and collision-free.
+   **This is the default; do not hand-pick a message id.**
+
+   `Message_N<N>` is still supported and is the right choice in exactly one
+   situation: **the id has to be agreed on outside this translation unit.** That
+   means the Rust/C++ interop ABI (ids 400-499, pinned on both sides — see
+   `actors/rust/interop/messages/interop_messages.h`) and cross-process wire
+   protocols where both ends match on the integer. Everything else should be
+   `MessageT`.
+
+   Hand-assigned ids live in [0, 512) and are **not** checked for uniqueness by
+   the compiler — two types sharing an id silently cross-dispatch. `make
+   check-msgids` audits them and is wired into `install` and `debug`; `make
+   msgids` prints the full allocation report.
 3. Register handler in receiving actor's constructor
 
 ### Modifying handler_if.hpp
