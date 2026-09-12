@@ -123,7 +123,7 @@ void SlippageProbe::eob_handler(const frame::ob::msg::EndOfBurst *m) noexcept
 {
   if (!enabled()) return;
   auto pld = m->payload;
-  if (uint32_t(pld->point_.sym) != cfg.sym) return;
+  if (uint32_t(pld->sym) != cfg.sym) return;
 
   ++n_eob;
   const int bid = pld->point_.bid_px[0];

@@ -152,7 +152,20 @@ size_t SimKaspr::load_universe()
                       : venue_str == "CMEMD"    ? en::x::CMEMD
                                                 : venue_;
 
-    auto* a = frame::ref::RefData::add_future_asset(sym, venue, sec_id, cfi, group, mpi * df);
+    // Tick size in the units the DATA uses, which is native: the .bin carries
+    // securityID-native prices (ESH5 at 5884.00 appears as 588400) and OB
+    // hands mbo.pxd straight to ref::Price, whose tick index is pxd / units.
+    // So units must be minPriceIncrement itself (25), NOT mpi * dispFactor
+    // (0.25) -- that product is the tick of the DISPLAY price and belongs on a
+    // path that has already applied dispFactor.
+    //
+    // Getting this wrong is silent and total: with units = 0.25 every ES
+    // record converts to ~2.35M ticks against a 25,592-tick ladder, so the
+    // price guard drops all of them, no book is ever built, no EndOfBurst is
+    // published, and the run completes reporting nothing. It is consistent
+    // with maxpx below, which is hi / mpi on the same native convention.
+    (void)df;
+    auto* a = frame::ref::RefData::add_future_asset(sym, venue, sec_id, cfi, group, mpi);
 
     // add_future_asset leaves maxpx at -1, its "unset" sentinel. OB sizes its
     // price ladder from maxpx and asserts maxpx > 1, so it must be real before
