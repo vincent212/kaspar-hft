@@ -20,6 +20,7 @@ SlippageProbe::SlippageProbe(actor_ptr _ob, actor_ptr _timer, const Config &_cfg
   MESSAGE_HANDLER(actors::msg::Shutdown, shutdown_handler);
   MESSAGE_HANDLER(frame::mtim::msg::Alarm, alarm_handler);
   MESSAGE_HANDLER(frame::ob::msg::EndOfBurst, eob_handler);
+  MESSAGE_HANDLER(frame::ob::msg::TradeNotify, trade_handler);
   MESSAGE_HANDLER(frame::som::msg::Fill, fill_handler);
   snprintf(name, sizeof(name), "SlipProbe_%s", cfg.sym_name.c_str());
 }
@@ -94,7 +95,7 @@ void SlippageProbe::begin_fire(uint64_t now) noexcept
 
 void SlippageProbe::begin_sell_leg(uint64_t now) noexcept
 {
-  buy_leg.ended   = now;
+  if (!buy_leg.ended) buy_leg.ended = now;   // no fills: fall back to the tick
   mid_sell        = last_bid + last_ask;
   sel_leg.started = now;
   phase = Phase::SELLING;
@@ -106,7 +107,7 @@ void SlippageProbe::begin_sell_leg(uint64_t now) noexcept
 
 void SlippageProbe::finish_fire(uint64_t now, const char *why) noexcept
 {
-  sel_leg.ended = now;
+  if (!sel_leg.ended) sel_leg.ended = now;
   emit_row(why);
 
   if (strcmp(why, "ok") == 0) ++fires_done;
@@ -197,6 +198,18 @@ void SlippageProbe::on_clock(uint64_t now) noexcept
   }
 }
 
+// Every execution in the market, ours or anyone's. Counted into whichever leg
+// is working so that participation is measured over exactly the window we were
+// actually trying to trade in.
+void SlippageProbe::trade_handler(const frame::ob::msg::TradeNotify *m) noexcept
+{
+  if (!enabled() || !m->payload) return;
+  if (uint32_t(m->payload->sym) != cfg.sym) return;
+
+  if (phase == Phase::BUYING)       buy_leg.mkt_vol += m->payload->sz;
+  else if (phase == Phase::SELLING) sel_leg.mkt_vol += m->payload->sz;
+}
+
 void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
 {
   if (!enabled()) return;
@@ -212,6 +225,11 @@ void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
   leg.notional += px * sz;
   leg.filled   += sz;
   ++leg.n_fills;
+  // Stamp the leg from the FILL, not from the tick that later notices the leg
+  // is done. The clock ticks once a second, so taking the end time there
+  // quantises every leg to a second -- invisible in a slippage number, fatal
+  // to anything per unit time.
+  if (m->tim) leg.ended = m->tim;
 
   log_inf("fill %s %.0f @ %d pos=%d (leg filled=%.0f vwap=%.2f)",
           en::to_string(m->side), sz, m->pxi, position, leg.filled, leg.vwap());
@@ -222,7 +240,8 @@ void SlippageProbe::emit_header()
   fprintf(out,
           "fire_ts,sym,parent_sz,mid_fire,buy_vwap,buy_filled,buy_fills,buy_ns,"
           "mid_sell,sel_vwap,sel_filled,sel_fills,sel_ns,"
-          "slip_buy_ticks,slip_sel_ticks,slip_paired_ticks,outcome\n");
+          "slip_buy_ticks,slip_sel_ticks,slip_paired_ticks,"
+          "buy_mkt_vol,sel_mkt_vol,buy_part,sel_part,outcome\n");
   fflush(out);
 }
 
@@ -240,21 +259,26 @@ void SlippageProbe::emit_row(const char *outcome)
                                ? (bv - sv) / 2.0 : 0.0;
 
   log_inf("FIRE DONE %s: buy %.0f@%.2f sel %.0f@%.2f "
-          "slip_buy=%.3f slip_sel=%.3f slip_paired=%.3f",
+          "slip_buy=%.3f slip_sel=%.3f slip_paired=%.3f "
+          "part_buy=%.4f part_sel=%.4f",
           outcome, buy_leg.filled, bv, sel_leg.filled, sv,
-          slip_buy, slip_sel, slip_paired);
+          slip_buy, slip_sel, slip_paired,
+          buy_leg.participation(), sel_leg.participation());
 
   if (!out) return;
   fprintf(out,
           "%llu,%s,%d,%.2f,%.4f,%.0f,%d,%llu,"
           "%.2f,%.4f,%.0f,%d,%llu,"
-          "%.4f,%.4f,%.4f,%s\n",
+          "%.4f,%.4f,%.4f,"
+          "%.0f,%.0f,%.6f,%.6f,%s\n",
           (unsigned long long)fire_ts, cfg.sym_name.c_str(), cfg.parent_sz, midf,
           bv, buy_leg.filled, buy_leg.n_fills,
           (unsigned long long)(buy_leg.ended - buy_leg.started),
           mids, sv, sel_leg.filled, sel_leg.n_fills,
           (unsigned long long)(sel_leg.ended - sel_leg.started),
-          slip_buy, slip_sel, slip_paired, outcome);
+          slip_buy, slip_sel, slip_paired,
+          buy_leg.mkt_vol, sel_leg.mkt_vol,
+          buy_leg.participation(), sel_leg.participation(), outcome);
   fflush(out);
 }
 

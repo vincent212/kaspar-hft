@@ -80,6 +80,7 @@
 #include "frame/mtim/msg/Alarm.hpp"
 #include "frame/mtim/msg/AlarmClockSub.hpp"
 #include "frame/ob/msg/EndOfBurst.hpp"
+#include "frame/ob/msg/TradeNotify.hpp"
 #include "frame/som/msg/Fill.hpp"
 #include "light/msg/Set.hpp"
 #include "logger/act/Logger.hpp"
@@ -126,8 +127,17 @@ namespace sim
       int      n_fills  = 0;
       uint64_t started  = 0;
       uint64_t ended    = 0;
+      // Market volume that traded while this leg was working. The denominator
+      // of realised participation, and the reason the probe listens to trades
+      // at all: without it the run measures what we paid but not what share of
+      // the market we were.
+      double   mkt_vol  = 0;
 
       double vwap() const { return filled > 0 ? notional / filled : 0.0; }
+      // Realised participation: our share of everything that traded while we
+      // were working. This is the delivered quantity, NOT the order-placement
+      // rate that produced it -- mapping one to the other is the point.
+      double participation() const { return mkt_vol > 0 ? filled / mkt_vol : 0.0; }
       void   reset() { *this = Leg{}; }
     };
 
@@ -137,6 +147,7 @@ namespace sim
     void shutdown_handler(const actors::msg::Shutdown *) noexcept;
     void alarm_handler(const frame::mtim::msg::Alarm *m) noexcept;
     void eob_handler(const frame::ob::msg::EndOfBurst *m) noexcept;
+    void trade_handler(const frame::ob::msg::TradeNotify *m) noexcept;
     void fill_handler(const frame::som::msg::Fill *m) noexcept;
     void on_clock(uint64_t now) noexcept;
 

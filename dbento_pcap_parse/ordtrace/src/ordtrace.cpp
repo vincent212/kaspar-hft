@@ -57,7 +57,6 @@ const char* action_name(int a)
     case 3:  return "DELETE_THRU";
     case 4:  return "DELETE_FROM";
     case 5:  return "OVERLAY";
-    case 100: return "TRADE";
     default: return "?";
   }
 }
@@ -76,18 +75,18 @@ std::string tfmt(uint64_t ns)
 
 struct Event {
   uint64_t t;
-  int      action;      // MBO orderUpdateAction, or kTrade
+  int      action;
   double   pxd;
   uint32_t qty;
   char     side;
   uint64_t prio;
   int32_t  sec;
+  // OB gates records on the recovery flag, so a delete that carries it can be
+  // dropped while the add that preceded it was applied -- which leaves
+  // liquidity in the book that the exchange has removed.
+  bool     recovery;
+  bool     eoe;
 };
-
-// A fill is not an orderUpdateAction, but it is an event in the life of an
-// order and it removes liquidity, so it belongs in the same timeline. Without
-// it a trace shows an order resting long after the market consumed it.
-constexpr int kTrade = 100;
 
 struct Resting {
   double   pxd;
@@ -119,15 +118,8 @@ collect_events(const std::string& file, const std::set<uint64_t>& oids, int32_t 
       if (sec_filter && m.securityID != sec_filter) continue;
       if (!oids.count(m.orderID)) continue;
       out[m.orderID].push_back({m.transactTime, m.orderUpdateAction, m.pxd,
-                                m.displayQty, m.side, m.priority, m.securityID});
-    }
-    else if (std::holds_alternative<bfile::l3_mbo_trd_v2_t>(l3)) {
-      // Trades carry orderID but NO securityID, so they cannot be filtered by
-      // instrument here -- order ids are unique enough to stand on their own.
-      const auto& t = std::get<bfile::l3_mbo_trd_v2_t>(l3);
-      if (!oids.count(t.orderID)) continue;
-      out[t.orderID].push_back({t.transactTime, kTrade, 0.0,
-                                uint32_t(t.lastQty), '?', 0, 0});
+                                m.displayQty, m.side, m.priority, m.securityID,
+                                m.recovery, m.endOfEvent});
     }
   }
   gzclose(f);
@@ -164,7 +156,12 @@ int main(int argc, char* argv[])
                    "-- pre-open, halt, or a velocity-logic reserve -- so this "
                    "is what separates our bug from the exchange's own state.")
       ("window-s", po::value<double>()->default_value(60.0),
-                   "status mode: seconds either side of --at");
+                   "status mode: seconds either side of --at")
+      ("actions",  po::bool_switch(),
+                   "action mode: histogram of orderUpdateAction. MDP3 defines "
+                   "3 DELETE_THRU, 4 DELETE_FROM and 5 OVERLAY as well as the "
+                   "usual 0/1/2, and a book that ignores those keeps liquidity "
+                   "the exchange has removed.");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -203,8 +200,50 @@ int main(int argc, char* argv[])
                   << " side=" << (e.side == SIDE_ASK ? "ask" : "bid")
                   << " px=" << e.pxd << " (" << int(e.pxd / units + 0.1) << "t)"
                   << " qty=" << e.qty << " prio=" << e.prio
-                  << " secID=" << e.sec << "\n";
+                  << " secID=" << e.sec
+                  << (e.recovery ? "  RECOVERY" : "")
+                  << (e.eoe ? " eoe" : "") << "\n";
     }
+    return 0;
+  }
+
+  // ---- mode 1a: orderUpdateAction histogram ----------------------------
+  if (vm["actions"].as<bool>())
+  {
+    const int32_t sec = vm["secid"].as<int32_t>();
+    gzFile f = must_open(vm["datafile"].as<std::string>());
+    bfile::l3_t l3;
+    uint64_t ts = 0;
+    long long counts[256] = {0};
+    long long total = 0;
+    // OB drops any non-recovery record at or before the newest recovery record
+    // it has seen, so the presence and time span of these decides whether that
+    // gate can silently eat live data.
+    long long recov = 0;
+    uint64_t recov_lo = 0, recov_hi = 0;
+    while (bfile::read_l3(f, l3, ts)) {
+      if (!std::holds_alternative<bfile::l3_mbo_v2_t>(l3)) continue;
+      const auto& m = std::get<bfile::l3_mbo_v2_t>(l3);
+      if (sec && m.securityID != sec) continue;
+      ++counts[m.orderUpdateAction & 0xff];
+      ++total;
+      if (m.recovery) {
+        ++recov;
+        if (!recov_lo || m.transactTime < recov_lo) recov_lo = m.transactTime;
+        if (m.transactTime > recov_hi) recov_hi = m.transactTime;
+      }
+    }
+    gzclose(f);
+    std::printf("orderUpdateAction histogram for secID %d (%lld MBO records)\n\n",
+                sec, total);
+    for (int a = 0; a < 256; a++)
+      if (counts[a])
+        std::printf("  %3d %-12s %12lld  %6.3f%%\n", a, action_name(a), counts[a],
+                    total ? 100.0 * double(counts[a]) / double(total) : 0.0);
+    std::printf("\n  recovery-flagged: %lld", recov);
+    if (recov) std::printf("  spanning %s .. %s", tfmt(recov_lo).c_str(),
+                           tfmt(recov_hi).c_str());
+    std::printf("\n");
     return 0;
   }
 

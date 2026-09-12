@@ -55,10 +55,14 @@ constexpr int kAsk = 23994;
 // Columns of the emitted CSV, in the order emit_header() writes them. The CSV
 // is the probe's real product -- a caller reads these numbers, never the leg
 // state -- so the arithmetic is asserted where it actually lands.
+// Mirrors SlippageProbe::emit_header(). Kept exact on purpose: the CSV is the
+// experiment's output, and a column silently moving would corrupt every
+// downstream number without failing anything.
 enum Col {
   kFireTs = 0, kSym, kParentSz, kMidFire, kBuyVwap, kBuyFilled, kBuyFills,
   kBuyNs, kMidSell, kSelVwap, kSelFilled, kSelFills, kSelNs,
-  kSlipBuy, kSlipSel, kSlipPaired, kOutcome, kNumCols
+  kSlipBuy, kSlipSel, kSlipPaired,
+  kBuyMktVol, kSelMktVol, kBuyPart, kSelPart, kOutcome, kNumCols
 };
 
 class SlippageProbeTest : public ::testing::Test {
