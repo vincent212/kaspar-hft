@@ -765,7 +765,7 @@ void act::OB::mod(
 
   //bool found_order = q->ordermap.get(id, orderptr);
 
-  auto mod_order_that_is_not_found = [sim, this, modtyp, sender, id]()
+  auto mod_order_that_is_not_found = [sim, this, modtyp, sender, id, px, side, exordid]()
   {
     if (sim)
     {
@@ -811,6 +811,37 @@ void act::OB::mod(
       }
 
       log_trc("got mod %s but order not found sym: %d id: %d id: %d", en::to_string(modtyp), sym, id, mda::OrderID::id(id));
+
+      // A real cancel/modify we cannot match is how the book goes stale: the
+      // order stays resting AND the early return below skips the best_bid /
+      // best_ask re-walk, so the BBO stays pinned to a level we never emptied.
+      // log_trc above is compiled out unless -DTRACE, which is why this went
+      // unseen — report it properly, and say WHERE the order actually is so we
+      // can tell a dropped message from a price mismatch.
+      if (debug)
+      {
+        int found_at = -1;
+        char found_side = '?';
+        auto scan = [&](const qvec_t &v, char sd) {
+          if (found_at >= 0) return;
+          for (size_t lvl = 0; lvl < v.size(); ++lvl)
+            if (v[lvl] && v[lvl]->qordermap.count(id)) { found_at = int(lvl); found_side = sd; return; }
+        };
+        scan(bidqs, 'B');
+        scan(askqs, 'S');
+
+        log_err("STALE-RISK %s: %s for id %d (exordid %d) not found at px %d side %s; "
+                "order is %s%d — BBO re-walk skipped, best_bid %d best_ask %d",
+                get_name(), en::to_string(modtyp), id, int(exordid), px,
+                en::to_string(side),
+                found_at >= 0 ? "resting elsewhere: side/level " : "not in the book at all ",
+                found_at, best_bid, best_ask);
+        OBFILE << "STALE-RISK " << get_name() << " " << en::to_string(modtyp)
+               << " id=" << id << " exordid=" << exordid
+               << " msg_px=" << px << " side=" << en::to_string(side)
+               << " found_at_level=" << found_at << " found_side=" << found_side
+               << " best_bid=" << best_bid << " best_ask=" << best_ask << "\n";
+      }
 
       return;
     }
@@ -1185,6 +1216,35 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
   if (std::holds_alternative<bfile::l3_mbo_v2_t>(m->l3))
   {
     const auto &mbo = std::get<bfile::l3_mbo_v2_t>(m->l3);
+
+    // Reject a price that cannot exist before it reaches the ladder.
+    //
+    // Observed 2025-01-30 on ESH5 (1 record in 11,673,971): an order resting at
+    // 610600 was CHANGEd to 610608800, then back to 608800 nine seconds later.
+    // That value is 610600 and 608800 run together — a packing/decode fault in
+    // the source, not a market event. Converted it is 24,424,352 ticks against
+    // a ladder of 25,592, so it indexes ~1000x past the end of askqs and the
+    // process dies on a signal rather than an assert.
+    //
+    // The existing `px >= maxprice` guards in add()/mod() are too late: the
+    // payload (and its Price conversion) is built here first. Drop the record
+    // and carry on — a single corrupt print is not worth losing a session, but
+    // it must be visible.
+    {
+      const auto units = ref::RefData::inst().get_asset(sym)->get_units();
+      const double ticks = units > 0.0 ? mbo.pxd / units : -1.0;
+      if (!(ticks > 0.0 && ticks < double(maxprice)))
+      {
+        log_err("BAD PRICE %s: dropping MBO oid=%llu action=%d side=%c pxd=%.1f "
+                "(%.0f ticks, maxpx %d) tx=%llu",
+                get_name(), (unsigned long long)mbo.orderID, int(mbo.orderUpdateAction),
+                mbo.side, mbo.pxd, ticks, maxprice,
+                (unsigned long long)mbo.transactTime);
+        ++num_bad_px;
+        return;
+      }
+    }
+
     current_mbo = mbo;
     ex_sym_id = get_ex_id(sym);
     if (mbo.securityID != ex_sym_id && mbo.securityID != int(sym))
@@ -1623,7 +1683,7 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
         extim,
         sendtim,
         mbo.venue,
-        mbo.endOfEvent || mbo.lastQuote,
+        mbo.endOfEvent,   // NOT || lastQuote: that is set on 99.6% of records
         mbo.recovery);
     pl->txtim_epoch = txtim_epoch;
     pl->sendtim_epoch = sendtim_epoch;
@@ -1681,7 +1741,7 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
         extim,
         sendtim,
         mbot.venue,
-        mbot.endOfEvent || mbot.lastTrade,
+        mbot.endOfEvent,  // NOT || lastTrade: per-order flag, set on 96% of trades
         false);
     pl->txtim_epoch = txtim_epoch;
     pl->sendtim_epoch = sendtim_epoch;
@@ -1789,7 +1849,7 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
           extim,
           sendtim,
           mbo.venue,
-          mbo.endOfEvent || mbo.lastQuote,
+          mbo.endOfEvent,   // NOT || lastQuote: that is set on 99.6% of records
           false);
       pl2->txtim_epoch = txtim_epoch;
       pl2->sendtim_epoch = sendtim_epoch;
@@ -1827,7 +1887,7 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
           extim,
           sendtim,
           mbo.venue,
-          mbo.endOfEvent || mbo.lastQuote,
+          mbo.endOfEvent,   // NOT || lastQuote: that is set on 99.6% of records
           mbo.recovery);
       pl->txtim_epoch = txtim_epoch;
       pl->sendtim_epoch = sendtim_epoch;
@@ -1878,7 +1938,7 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
         extim,
         sendtim,
         mbo.venue,
-        mbo.endOfEvent || mbo.lastQuote,
+        mbo.endOfEvent,   // NOT || lastQuote: that is set on 99.6% of records
         mbo.recovery);
     pl->txtim_epoch = txtim_epoch;
     pl->sendtim_epoch = sendtim_epoch;
@@ -2052,7 +2112,41 @@ void act::OB::process_market_data(
 
   ASSERT(got_payload->mev != en::md::UNI, "uninitialied md type");
 
+  // No-cross invariant, checked once a whole TRANSACTION has been applied —
+  // i.e. on the first record of the next one.
+  //
+  // Neither per-record flag works here:
+  //
+  //  * endOfEvent marks the end of a PACKET, not of a transaction, and CME can
+  //    put two flagged records in one transaction. 2025-01-10 tx
+  //    1736515801223219749: the aggressing NEW bid at 23708 carries
+  //    endOfEvent=1, and the DELETE of the ask at 23707 it just traded against
+  //    arrives after it in the SAME transaction, also flagged. Checking on the
+  //    first flag sees 23708 > 23707 — a book that is merely mid-transaction.
+  //
+  //  * lastQuote / lastTrade are per-order flags (set on 99.6% / 96% of
+  //    records) and were previously OR-ed into eoe, making it fire constantly.
+  //
+  // A transaction is every record sharing one transactTime, and the book is
+  // whole once all of them are applied. Both observed sweeps resolve inside a
+  // single transactTime: 2025-02-10 tx 1739147206116582643 (NEW bid + 10 ask
+  // deletes) and the 2025-01-10 case above.
+  //
+  // Locked (bid == ask) is permitted; only a genuine inversion aborts.
+  if (xcheck_tx && got_payload->tim != xcheck_tx)
+  {
+    ASSERTF(best_bid <= best_ask,
+            boost::format("CROSSED book %s after transaction %llu: best_bid %d > best_ask %d "
+                          "(next record: %s px=%d sz=%d exordid=%llu tim=%llu)")
+              % get_name() % xcheck_tx % best_bid % best_ask
+              % en::to_string(got_payload->side) % got_payload->px.to_int()
+              % got_payload->sz % got_payload->ex_order_id % got_payload->tim);
+  }
+  xcheck_tx = got_payload->tim;
+
   process_add_or_mod(got_payload, sender);
+
+
 
   if (got_payload->is_sim())
   {
@@ -2173,10 +2267,6 @@ void act::OB::process_market_data(
   };
 
   calc_ba();
-
-#ifdef NOXMKT
-  ASSERT(best_bid <= best_ask, "book locked");
-#endif
 
   frame::mda::msg::data_pay_load *payload =
       const_cast<frame::mda::msg::data_pay_load *>(got_payload.get());
@@ -2406,16 +2496,31 @@ void act::OB::check_bbbo()
     ASSERT(best_ask < maxprice - 10, "ask is zero");
   }
 
-  for (uint i = best_bid + 1; i < uint(maxprice - 1); i++)
+  // No bids above the best bid, no asks below the best ask.
+  //
+  // These loops used to run to the end of the ladder while indexing a FIXED
+  // level ([best_bid+1] / [best_ask-1]) — the loop variable was unused, so they
+  // re-checked one level tens of thousands of times per order. On ESH5
+  // (maxpx 25592, 4.08M adds) that is ~10^11 assert evaluations and makes
+  // --ob-debug unusable. Index i as intended, and only scan a window past the
+  // inside: a violation shows up immediately next to the BBO, and anything
+  // deeper is caught on the next update as the BBO walks.
+  constexpr uint kCheckWindow = 64;
+
+  const uint bid_hi = std::min<uint>(best_bid + 1 + kCheckWindow, uint(maxprice - 1));
+  for (uint i = best_bid + 1; i < bid_hi; i++)
   {
-    auto q2 = bidqs[best_bid + 1];
-    ASSERT(q2->isempty_or_allsim(), "must be empty");
+    ASSERTF(bidqs[i]->isempty_or_allsim(),
+            boost::format("bid above the inside: %s level %d (best_bid %d)")
+              % get_name() % i % best_bid);
   }
 
-  for (uint i = best_ask - 1; i > 1; i--)
+  const uint ask_lo = (uint(best_ask) > kCheckWindow + 1) ? uint(best_ask) - kCheckWindow : 2;
+  for (uint i = uint(best_ask) - 1; i >= ask_lo && i > 1; i--)
   {
-    auto q3 = askqs[best_ask - 1];
-    ASSERT(q3->isempty_or_allsim(), "must be empty");
+    ASSERTF(askqs[i]->isempty_or_allsim(),
+            boost::format("ask below the inside: %s level %d (best_ask %d)")
+              % get_name() % i % best_ask);
   }
 }
 
@@ -2792,19 +2897,22 @@ void act::OB::check_sim_handler(const frame::ob::msg::CheckSim *m) noexcept
 void act::OB::shutdown_handler(const actors::msg::Shutdown *) noexcept
 {
   std::cerr << get_name() << " shutting down numadd: " << num_add
-            << " numexec: " << num_exec << std::endl;
+            << " numexec: " << num_exec
+            << " badpx: " << num_bad_px << std::endl;
 }
 
 void act::OB::cross_check(boost::intrusive_ptr<const mda::msg::data_pay_load> got_payload)
 {
-
-  ERRF(boost::format("CROSSCHECK>>>> book locked best_bid: %d == best_ask: %d") % best_bid % best_ask);
-
-
   if (!do_cross_check)
     return;
 
-  auto staleorders = [got_payload](ob::OrderQ *q)
+  // List the orders resting at a level, for diagnostics. This used to also call
+  // q->canc_notify_all() — wiping every order at the level, real and sim alike,
+  // without recomputing the BBO afterwards — as a way to "uncross" the book.
+  // That is a bug: there should be no cross, so deleting real orders hides a
+  // reconstruction error and leaves best_bid/best_ask pointing at an emptied
+  // level. Diagnostics only now; the crossed branch aborts.
+  auto staleorders = [](const ob::OrderQ *q)
   {
     auto h = q->get_head();
     std::string ret = "STALE: ";
@@ -2813,7 +2921,6 @@ void act::OB::cross_check(boost::intrusive_ptr<const mda::msg::data_pay_load> go
       ret += boost::lexical_cast<std::string>(h->get_exordid()) + " ";
       h = static_cast<frame::ob::Order *>(h->next);
     }
-    q->canc_notify_all();
     return ret;
   };
 
@@ -2862,18 +2969,32 @@ void act::OB::cross_check(boost::intrusive_ptr<const mda::msg::data_pay_load> go
       }
     }
 
-    // SNGH;
-
     crossed_data.push_back(got_payload);
+
+    // Report only — do NOT abort here. cross_check runs on an EOB record, i.e.
+    // a PACKET boundary, and a CME transaction can span packets (2025-02-10 tx
+    // 1739147206116582643 -> ...116833517), so the book is legitimately crossed
+    // at this point mid-transaction. The authoritative no-cross check lives in
+    // process_market_data and fires on the first record of the next
+    // transaction, once every record of the previous one is applied.
   }
 
   // for btec the book is often locked temporarily
   // for btec the book is often locked temporarily
 #define ALERTLOCKEDBOOK
 #ifdef ALERTLOCKEDBOOK
-  else if (best_bid <= best_ask)
+  // Locked, not crossed. This used to test `best_bid <= best_ask`, which is the
+  // complement of the crossed branch above and therefore matched EVERY healthy
+  // book — and then aborted on it via ERRF. That also made the final else
+  // (the crossed-duration report, and the only crossed_data.clear()) dead code.
+  // Warn only: per decision a lock is reported, not fatal. The "btec is often
+  // locked temporarily" note below refers to BrokerTec, not CME — on CME a
+  // locked book is still not expected.
+  else if (best_bid == best_ask)
   {
-    ERRF(boost::format("book locked best_bid: %d == best_ask: %d") % best_bid % best_ask);
+    log_err("BOOK LOCKED %s: best_bid %d == best_ask %d, arriving exordid: %llu",
+            get_name(), best_bid, best_ask,
+            (unsigned long long)got_payload->ex_order_id);
     #ifdef UNLOCK
     log_err("book locked best_bid: %d == best_ask: %d", best_bid, best_ask);
     std::cerr << "ERR BOOK LOCKED: "

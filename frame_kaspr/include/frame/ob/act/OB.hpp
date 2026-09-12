@@ -125,6 +125,11 @@ namespace frame
         char name[256];
         // ref::Asset* a;
         bool do_cross_check;
+        // transactTime of the last payload seen. The no-cross check fires when
+        // this changes, i.e. once every record of a transaction is applied.
+        uint64_t xcheck_tx = 0;
+        // MBO records dropped for an impossible price (see data_handler).
+        uint64_t num_bad_px = 0;
 
         std::ofstream obfile;
 
