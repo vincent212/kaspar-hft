@@ -131,20 +131,23 @@ namespace light::act
     // The clock an order or a cancel is stamped with, from the market-data
     // record that prompted it.
     //
-    // ONE definition on purpose. SOM turns this into the book payload's ts0,
-    // and OB's delay queue holds the message until ts0 + wire latency has
-    // passed in market time -- so if the two legs came off different clocks,
-    // the modelled cancel latency would be wrong by the difference between
-    // them. They used to: place_order() read hndl_tim_epoch under TIMTRACE
-    // while the cancel path always read txtim_epoch, which would have skewed
-    // every cancel the moment anyone turned tracing on.
+    // ONE definition on purpose, and always the EXCHANGE clock. SOM turns this
+    // into the book payload's ts0 and OB's delay queue holds the message until
+    // ts0 + wire latency has passed -- measured against the next record's
+    // transactTime. So ts0 has to be on that same clock or the comparison is
+    // meaningless.
+    //
+    // place_order() used to read hndl_tim_epoch under TIMTRACE while the cancel
+    // path always read txtim_epoch. Unifying the two on hndl_tim_epoch would
+    // have been the wrong direction: handler_if sets it from recv_time, the
+    // local host clock, and to literally 0 for recovery and snapshot records --
+    // so a TIMTRACE build would have compared a host clock against exchange
+    // time, and stamped ts0 = 0 after a snapshot. hndl_tim_epoch is for
+    // measuring our own latency; it is not market time and does not belong in
+    // the fill model.
     static inline uint64_t stamp_of(const payload_ptr_t &p) noexcept
     {
-#ifdef TIMTRACE
-      return p->hndl_tim_epoch;
-#else
       return p->txtim_epoch;
-#endif
     }
 
     pbool trading;
