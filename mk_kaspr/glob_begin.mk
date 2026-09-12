@@ -54,6 +54,7 @@ ifeq ($(UNAME_S),Darwin)
     ZMQ_PATH      ?= /opt/homebrew/opt/zeromq
     JSON_PATH     ?= /opt/homebrew/opt/nlohmann-json
     CRYPTOPP_PATH ?= /opt/homebrew/opt/cryptopp
+    GTEST_PATH    ?= /opt/homebrew/opt/googletest
 else
     BOOST_PATH    ?= /usr/local
     ZLIB_PATH     ?= /usr
@@ -62,6 +63,7 @@ else
     ZMQ_PATH      ?= /usr/local
     JSON_PATH     ?= /usr/local
     CRYPTOPP_PATH ?= /usr/local
+    GTEST_PATH    ?= /usr
 endif
 
 # Extra -L / rpath root for home-dir installs (Linux links -L$(LOCAL_LIB_PATH)/lib).

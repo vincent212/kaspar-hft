@@ -94,6 +94,10 @@ namespace light::act
     int skip = 0;
     bool delay = false;
 
+    // EOB countdown until a deferred cancel fires; 0 = nothing pending.
+    // Armed and ticked by the derived light (see light22::eob_handler).
+    int pending_cancel_eob = 0;
+
     int num_canc_rej_from_exchange = 0;
     int num_rej_from_exchange = 0;
     int num_canc_rej_unk = 0;
@@ -303,6 +307,7 @@ namespace light::act
       {
         return;
       }
+      pending_cancel_eob = 0;   // any cancel voids a deferred one
       if (!ord_info.get_canc())
       {
         cancel_requests.insert(ord_info.get_oid());

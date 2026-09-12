@@ -112,3 +112,12 @@ debug: check-schema check-msgids libd
 
 clean: libc
 	@find . -name '*.P' -exec rm {} \;
+	@$(MAKE) -C $(KSPRPROJ)/unit_test/src clean
+
+.PHONY: test
+# Google Test suite. Not part of `install` — it needs gtest, which is an extra
+# dependency, so it stays opt-in. Run `mk_kaspr/detect_paths.sh --check` if
+# GTEST_PATH is not found.
+test: libo
+	@$(MAKE) -C $(KSPRPROJ)/unit_test/src $(MKFLAGS)
+	@$(KSPRPROJ)/unit_test/src/run_tests

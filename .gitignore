@@ -99,3 +99,13 @@ dbento_pcap_parse/scripts/out/
 
 # genconfig outputs are fetched from CME SFTP by genconfig.sh, not committed
 genconfig/*.info
+
+# built binaries
+sim/src/sim
+sim/src/simg
+unit_test/src/run_tests
+unit_test/src/run_testsg
+
+# core dumps
+core
+core.*
