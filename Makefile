@@ -2,6 +2,10 @@
 #
 # Licensed under the MIT License. See LICENSE file in the project root.
 
+# No -j here on purpose: sub-makes are invoked as $(MAKE), so they inherit the
+# top-level jobserver and share one pool of slots. Putting -jN in MKFLAGS
+# overrides that and gives EACH of the twelve libraries its own N jobs, which
+# oversubscribes the box rather than parallelising it. Build with `make -j59`.
 MKFLAGS= -k -w --no-print-directory --quiet
 
 all: install
@@ -112,7 +116,7 @@ debug: check-schema check-msgids libd
 
 clean: libc
 	@find . -name '*.P' -exec rm {} \;
-	@$(MAKE) -C $(KSPRPROJ)/unit_test/src clean
+	@$(MAKE) -C $(KSPRPROJ)/unit_test/src $(MKFLAGS) clean
 
 .PHONY: test
 # Google Test suite. Not part of `install` — it needs gtest, which is an extra

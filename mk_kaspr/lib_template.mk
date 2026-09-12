@@ -60,4 +60,14 @@ $(OBJDIRO):
 	@sed 's/\($*\)\.o[ :]*/$(OBJDIRG)\/\1.o $(OBJDIRO)\/\1.o $@ : /g' < $*.d > $@; \
 		rm -f $*.d; [ -s $@ ] || rm -f $@
 
+# Dependency files. `-include` makes make REGENERATE a missing .P before it will
+# run any goal -- `clean` included -- which means a clean compiles every source
+# just to throw the result away. Worse, the top-level clean does
+# `find . -name '*.P' -exec rm {}`, so each clean deletes the deps the next one
+# then rebuilds, and if the compiler cannot run (an unset BOOST_PATH, say) a
+# plain `make clean` fails with a wall of include errors. Skip the include when
+# the only goals are ones that do not need deps.
+DEPGOALS := $(filter-out clean depend distclean,$(or $(MAKECMDGOALS),opt))
+ifneq (,$(DEPGOALS))
 -include $(LIBSRC:.cpp=.P)
+endif

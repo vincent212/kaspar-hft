@@ -54,7 +54,8 @@ ifeq ($(UNAME_S),Darwin)
     ZMQ_PATH      ?= /opt/homebrew/opt/zeromq
     JSON_PATH     ?= /opt/homebrew/opt/nlohmann-json
     CRYPTOPP_PATH ?= /opt/homebrew/opt/cryptopp
-    GTEST_PATH    ?= /opt/homebrew/opt/googletest
+    GTEST_PATH    ?= $(firstword $(foreach p,/opt/homebrew/opt/googletest $(HOME)/local /usr/local,\
+                       $(if $(wildcard $(p)/include/gtest/gtest.h),$(p))) /opt/homebrew/opt/googletest)
 else
     BOOST_PATH    ?= /usr/local
     ZLIB_PATH     ?= /usr
@@ -63,7 +64,12 @@ else
     ZMQ_PATH      ?= /usr/local
     JSON_PATH     ?= /usr/local
     CRYPTOPP_PATH ?= /usr/local
-    GTEST_PATH    ?= /usr
+    # gtest has no distro package on this box -- it is a home-dir install. Probe
+    # for the header instead of hardcoding a prefix, so `make test` works without
+    # having run `eval "$(mk_kaspr/detect_paths.sh)"` first. That eval finds it
+    # too; this is the fallback for a shell that has not been through it.
+    GTEST_PATH    ?= $(firstword $(foreach p,$(HOME)/local /usr/local /usr,\
+                       $(if $(wildcard $(p)/include/gtest/gtest.h),$(p))) /usr)
 endif
 
 # Extra -L / rpath root for home-dir installs (Linux links -L$(LOCAL_LIB_PATH)/lib).
@@ -114,8 +120,20 @@ endif
 
 DEFINES_COMMON=-fPIC
 # TIMTRACE enables timing logs and assertions - comment out for simulation
-#DEFINES_OPT=-DCONSTR_NO_CHECK_NAN -fno-plt -DTIMTRACE
-DEFINES_OPT=-DCONSTR_NO_CHECK_NAN -fno-plt
+#DEFINES_OPT=-DCONSTR_NO_CHECK_NAN -DPLACES_NO_CHECK_CONSTRAINT -fno-plt -DTIMTRACE
+#
+# PLACES_NO_CHECK_CONSTRAINT compiles out the place<> guards in opt. It covers
+# more than the write-once check: get()/getr() lose their read-before-write
+# guard too, and that one is on the hot path (every config read per message),
+# which is where the win is. The cost is that an unassigned field returns
+# uninitialised memory instead of aborting. Debug builds keep both.
+#
+# So: after any change that touches a place<> field, run the workload in DEBUG
+# first and confirm the guards stay silent. Compiling out a check you have not
+# seen pass is how a config field that is written twice -- or read before it is
+# written -- turns into a plausible wrong number instead of an abort. The whole
+# point of the guard is that it fires once, in debug, on your machine.
+DEFINES_OPT=-DCONSTR_NO_CHECK_NAN -DPLACES_NO_CHECK_CONSTRAINT -fno-plt
 DEFINES_DBG=-DNOINLINE
 
 # OS-specific build flags

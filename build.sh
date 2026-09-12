@@ -23,6 +23,51 @@
 
 set -euo pipefail
 
+usage() {
+    cat <<'EOF_HELP'
+build.sh -- build kaspar-hft. Sets KSPRPROJ and the external-library paths, then
+forwards everything to make. Run it from anywhere; no exports needed.
+
+USAGE
+    ./build.sh [TARGET] [make args...]
+
+TARGETS
+    (none)          full build == all == install: check-schema, check-msgids, libs, kaspr
+    install         same as the default
+    debug           debug build (libs + binaries with -O0 -DDEBUG, the 'g' suffix)
+    clean           remove objects, libraries, binaries and the .P dependency files
+    test            build and run the Google Test suite (needs GTEST_PATH)
+    schema          generate the CME SBE codecs (pinned MDP3 v12 / iLink v8)
+    check-schema    verify the generated codecs are present, generate nothing
+    msgids          print the hand-assigned message-id allocation report
+    check-msgids    audit hand-assigned message ids for collisions
+    depend          regenerate the .P dependency files
+    libo|libd|libc  libraries only: opt | debug | clean
+
+ENVIRONMENT
+    JOBS=N          parallelism; defaults to nproc (this box: 59).
+                    Passing your own -j suppresses the default.
+    KSPRPROJ        forced to this script's own directory; do not set it.
+
+EXAMPLES
+    ./build.sh                      # full optimized build, all cores
+    ./build.sh debug                # debug build
+    JOBS=8 ./build.sh               # limit parallelism
+    ./build.sh clean && ./build.sh  # from scratch
+    ./build.sh test                 # run the unit tests
+    ./build.sh -C actors/cpp        # one directory; any make args pass through
+
+NOTES
+    Stale .P files (repo moved or renamed) are detected and purged automatically.
+    The SBE codecs are generated on demand if missing, before anything compiles.
+EOF_HELP
+}
+
+case "${1:-}" in
+    -h|--help|help) usage; exit 0 ;;
+esac
+
+
 # Repo root = directory this script lives in.
 KSPRPROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export KSPRPROJ
