@@ -100,10 +100,74 @@ does not necessarily produce the best execution, or vice versa). That decoupling
 themselves — is the contribution. Novelty is thin if framed as "we assembled known models";
 strong if framed as "realism ≠ execution edge, measured head-to-head on real MBO futures".
 
+### Prior art for Paper 1 (searched 2026-09)
+
+§0 above was written for the models paper. Paper 1's new contributions — the latency curve,
+measured participation-vs-size, and shadowing-by-identifier — need their own check.
+
+**The latency curve still looks unoccupied.** The closest work is theoretical:
+
+- **arXiv:2504.00846, "The effect of latency on optimal order execution policy"** — the title is
+  alarming but the content is a stochastic optimal control problem with Brownian price dynamics
+  and closed-form approximations. It derives how *optimal limit price* should respond to
+  submission latency. It does not measure execution cost against latency on real data.
+- **"Optimal execution with stochastic delay"** (Finance & Stochastics, 2022) — likewise
+  theoretical, delay as a stochastic control problem.
+- **"The good, the bad, and latency"** (Quantitative Finance, 2025) — empirical, but crypto
+  (Bybit/Binance) and about exploratory trading, not passive execution cost.
+
+So an **empirical slippage-versus-wire-latency curve for passive execution on futures MBO** does
+not appear to exist. Grid C produces exactly that, over 40 µs – 6.4 ms. This strengthens the case
+for it leading Paper 1.
+
+**The ½-tick result is the one to engage with directly.** *"The Negative Drift of a Limit Order
+Fill"* (arXiv:2407.16527, already cited as `negdrift2024`) argues both theoretically and
+empirically — on 10Y Treasury futures — that limit-order fills coincide with adverse moves, and
+secondary sources report the magnitude as **close to ½ tick**. Our very first measured session came
+in at **mean slip_buy = +0.500 ticks**.
+
+That is either a validation or a coincidence, and it must be resolved rather than quietly enjoyed:
+if shadow's measured slippage matches an independent theoretical prediction of the same quantity,
+it corroborates the simulator; if it matches *too exactly* it may be an artefact of tick rounding
+in a 1-lot experiment. Check the ½-tick figure in the source, and check whether our number moves
+off ½ at larger sizes and rates. **Owed before submission.**
+
+**Queue-position value is the theoretical anchor for the latency curve.** Moallemi & Yuan
+(`moallemi2016`) decompose queue-position value into a static component — the spread/adverse-
+selection trade-off, worsening with position — and a dynamic component, the optionality of holding
+a position. Latency degrades execution *through* queue position, so the latency curve is an
+empirical measurement of that value along a different axis. Related empirics: orders later in the
+queue suffer higher adverse selection because they execute against larger, better-informed trades.
+Paper 1 should connect the two explicitly rather than presenting the curve bare.
+
+**Differentiate from imitation learning, which a reviewer will conflate with shadowing.**
+FlowHFT (arXiv:2505.05784) and FlowOE (arXiv:2506.05755) use flow-matching imitation learning to
+train a policy that mimics an *expert's decisions*. Shadow does not learn, imitate a policy, or
+train anything: it attaches to individual live orders by exchange identifier. One sentence of
+explicit differentiation is cheap insurance.
+
+**Participation dispersion vs parent size: practitioner-known, academically unmeasured.** POV
+algorithms routinely run with realised-participation bounds (e.g. 19–21% for a 20% target) and
+deviation is a standard TCA concern, which supports the plan's existing framing that this is a
+recognised source of tracking error (`kissell`, `cjp2015`, `bialkowski2008`, `freiwestray2015`).
+What does not appear to exist is a measured distribution of realised participation as a function of
+parent size on real data — which is precisely what Grid B produces, replacing the paper's stylized
+Gamma Monte Carlo.
+
+**For Paper 2's predictive-scoring arm.** KANFormer (arXiv:2512.05734) does survival analysis for
+fill probabilities in a LOB — the closest existing methodology for scoring a fill-probability model
+directly rather than through execution. Cite it as precedent for the approach, and differentiate on
+the label: ours is *filled AND not adversely selected*, not merely filled.
+
 ### Verification still owed (before submission)
 Read in full (only abstracts/excerpts reviewed so far): arXiv:2409.12721 and arXiv:2501.08822.
 Run one more targeted sweep on "does statistical LOB realism predict execution performance" to
 confirm that exact question is unanswered.
+
+For Paper 1: confirm the ½-tick figure in arXiv:2407.16527 against our measured +0.500, and check
+whether ours moves off ½ at larger sizes and rates — a 1-lot experiment on a 1-tick-spread
+instrument can produce ½ by rounding alone. Read arXiv:2504.00846 in full to confirm it contains
+no empirical latency/cost curve.
 
 ---
 
