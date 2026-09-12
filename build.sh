@@ -13,6 +13,10 @@
 #   ./build.sh check-schema    # just verify the codecs are present
 #   ./build.sh debug           # debug build
 #   ./build.sh clean           # clean
+#
+# Builds with -j<all cores> by default (the codecs are generated first, so the
+# check-schema race doesn't apply). Override with JOBS=8 ./build.sh, or pass
+# your own -j and it is left alone.
 #   ./build.sh -C actors/cpp   # build only the actor framework (any make args pass through)
 #
 # Anything after the first argument is passed straight to make.
@@ -65,7 +69,7 @@ fi
 case "${1:-}" in
     schema|check-schema|clean) ;;
     *)
-        if ! ls mktdata_v12/*.h >/dev/null 2>&1 || ! ls ilink_v8/*.h >/dev/null 2>&1; then
+        if ! ls mdp3_sbe/*.h >/dev/null 2>&1 || ! ls ilink3_sbe/*.h >/dev/null 2>&1; then
             echo "[build] CME SBE codecs missing — generating (make schema)..."
             if ! make schema; then
                 echo "[build] ERROR: could not generate the SBE codecs (needs Java," >&2
@@ -77,5 +81,18 @@ case "${1:-}" in
         ;;
 esac
 
-echo "[build] make $*"
-exec make "$@"
+# Parallelism. The codecs are guaranteed present by the block above (or the
+# target doesn't compile), so the check-schema/compile race the README warns
+# about can't happen here — that caveat applies to running `make -j` by hand on
+# a fresh, un-generated tree, not to this script. Default to all cores; override
+# with JOBS=N, or pass your own -j and we won't add one.
+JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
+jflag=(-j"$JOBS")
+for a in "$@"; do
+    case "$a" in
+        -j|-j*|--jobs|--jobs=*) jflag=() ;;   # caller specified their own
+    esac
+done
+
+echo "[build] make ${jflag[*]} $*"
+exec make "${jflag[@]}" "$@"
