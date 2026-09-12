@@ -87,6 +87,12 @@ front_month() {
   awk -F'\t' -v d="$1" '$1==d {print $2; exit}' "$FRONT_TSV"
 }
 
+# A run counts as done only if its CSV carries a fire, i.e. more than the header
+# line. See the resume comment in run_one.
+done_already() {
+  [ -s "$1" ] && [ "$(wc -l < "$1")" -gt 1 ]
+}
+
 # ---- the runnable sessions -------------------------------------------
 dates_all=()
 for f in "$SRC"/bin/310/310.2025*.databento.bin; do
@@ -116,7 +122,13 @@ run_one() {
 
   local csv="$OUT/csv/$name/$date.csv"
   local log="$OUT/log/$name/$date.log"
-  [ -s "$csv" ] && return 0                      # resume
+  # Resume. NOT `[ -s "$csv" ]`: --probe-out writes the header the instant the
+  # sim opens the file, so every run that was in flight when a sweep was killed
+  # leaves a non-empty, fire-less CSV behind. Testing for size alone would count
+  # each of those as done and skip it forever -- a silent hole in the corpus,
+  # with no failures.csv row to point at it. A finished run has at least one
+  # fire, so require a second line.
+  done_already "$csv" && return 0
 
   local contract; contract=$(front_month "$date")
   if [ -z "$contract" ]; then
@@ -158,7 +170,7 @@ run_one() {
   local rc=$?
   rm -rf "$wd"
 
-  if [ $rc -ne 0 ] || [ ! -s "$csv" ]; then
+  if [ $rc -ne 0 ] || ! done_already "$csv"; then
     # One bad session is one missing data point, not a stopped sweep. Record
     # enough to reproduce it: config, date, exit code, and the last line of
     # the log, which is where an assert prints.
@@ -168,7 +180,7 @@ run_one() {
   fi
   return 0
 }
-export -f run_one front_month
+export -f run_one front_month done_already
 export OUT SRC BIN CONFIG_DIR SEED FRONT_TSV
 
 echo "name,date,rc,contract,last_line" > "$OUT/failures.csv"
@@ -181,7 +193,9 @@ while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist; do
   printf '%s\n' "${dates[@]}" \
     | xargs -P "$NJOBS" -I{} bash -c 'run_one "$@"' _ \
         "$name" "$gridid" "$bp" "$psz" "$osz" "$dly" "$cdly" "$mdist" {}
-  ok=$(ls "$OUT/csv/$name" | wc -l)
+  # Same definition as the resume guard: header-only files are not results.
+  ok=0
+  for c in "$OUT/csv/$name"/*.csv; do done_already "$c" && ok=$((ok + 1)); done
   echo "[$(date +%H:%M:%S)] $name: $ok/${#dates[@]} sessions  ($(( $(date +%s) - started ))s elapsed)"
 done < "$grid_tsv"
 

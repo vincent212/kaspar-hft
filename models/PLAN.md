@@ -2053,6 +2053,30 @@ number in `tech_reports/shadow_pov.pdf`** — see below for why the published on
 Full working log, with the debugging history behind each item:
 `~/.claude/plans/ok-we-still-have-resilient-crab.md` §6.8.
 
+#### Before any sweep: run one session in DEBUG
+
+`PLACES_NO_CHECK_CONSTRAINT` is set in `DEFINES_OPT`, so optimised builds
+compile out the `place<>` guards — both the write-once check and, more
+importantly, the read-before-write check in `get()`/`getr()`, which is on the
+hot path. In an opt build a config field that was never assigned returns
+uninitialised memory instead of aborting.
+
+That is an acceptable trade only if the invariant has been *observed* to hold.
+So after any change touching a `place<>` field, and before committing CPU to a
+sweep:
+
+```bash
+KSPRPROJ=~/kaspar-hft make debug
+cd sim/src && make debug
+./simg --datafile ... --probe-size 10 ...     # one session is enough
+```
+
+The guards fire at construction and on first read, so a short run exercises
+them. A clean debug session is the evidence that the opt build's silence means
+correctness rather than a compiled-out check. This is not hypothetical: an
+`all_orders_max` assigned twice was caught exactly this way, and would
+otherwise have silently taken the second value.
+
 #### Session inputs: front month and universe
 
 Two upstream facts had to be established from the data before any run is
