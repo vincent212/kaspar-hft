@@ -1204,43 +1204,104 @@ already built in:
 
 | Piece | Status | Evidence |
 |---|---|---|
-| `PCAPReader` actor | exists, complete | `mcast_recv/include/mcast_recv/act/PCAPReader.hpp` |
-| `create_all_mdp3_pcap()` | exists, **zero callers** | `interface/mdp3/if/mdp3.hpp` |
-| `kaspr` PCAP replay mode | **not wired** — `kaspr.cpp:361` calls `create_all_mdp3()` (live multicast) | `kaspr/src/kaspr.cpp` |
-| `kaspr` CLI flag for a PCAP file | **none** — `main()` parses only a config path and `--reset-positions` | `kaspr/src/kaspr.cpp:446` |
-| `-lpcap` in the link | present but currently unused by `kaspr.cpp` | `kaspr/src/Makefile:17` |
-| `BinRecorder` actor + `create_BinRecorder()` | exists | `frame_kaspr/src/BinRecorder_if.cpp` |
-| Recording actually enabled | **no** — `handler->binrec = nullptr` | `kaspr/src/kaspr.cpp:354` |
-| `handler_if` record call sites | exist, ~12 of them, all guarded `if (binrec)` | `mdp3/include/mdp3/handler_if.hpp` |
-| `BFA` actor | exists, **never instantiated** | grep: only its own header |
+| `PCAPReader` actor | exists, complete; **now has a caller** | `mcast_recv/.../act/PCAPReader.hpp` |
+| PCAP → `.bin` conversion | **wired and usable** — this is the D0a path | `dbento_pcap_parse/dbento_pcap_to_bin/` |
+| `BinRecorder` + `create_BinRecorder()` | exists; **instantiated by the converter** | `frame_kaspr/src/BinRecorder_if.cpp` |
+| `handler_if` record call sites | ~12, all guarded `if (binrec)`; live in the converter's path | `mdp3/include/mdp3/handler_if.hpp` |
 | `bfile::write_l3` / `read_l3` | exist, symmetric, cover all record types | `chutil/include/bfile/r_l3.hpp` |
+| `create_all_mdp3_pcap()` | exists, **zero callers** | `interface/mdp3/if/mdp3.hpp` |
+| `kaspr` PCAP replay mode | **not wired** — `kaspr.cpp` calls `create_all_mdp3()` (live multicast) | `kaspr/src/kaspr.cpp` |
+| `kaspr` CLI flags for replay | **none** — `main()` parses only a config path and `--reset-positions` | `kaspr/src/kaspr.cpp` |
+| Recording inside `kaspr` | **no** — `handler->binrec = nullptr` (the converter sets its own) | `kaspr/src/kaspr.cpp` |
+| `BFA` actor | exists, **never instantiated** — the D0b gap | grep: only its own header |
 
-`STRATEGY_SIMULATOR_GUIDE.md` needs a correction on both counts: its mode-1 diagram says
-`PCAP file → SocketReader → MDP3 → OB.cpp` (it is **PCAPReader**, and `MsgBuf` +
-`MessageProcessor` sit in between), and its "Known Gaps" says PCAP replay *is* supported — true of
-the library, not of the shipped binary.
+So the picture has shifted since this section was first written: **PCAP → `.bin` is done**, via
+`dbento_pcap_parse/` rather than via flags on `kaspr`. The remaining gap is one-directional —
+nothing replays a `.bin` back through the books yet (D0b).
 
-#### D0 — wire the capture/replay path (new, blocks everything else)
+`STRATEGY_SIMULATOR_GUIDE.md` has been corrected on both counts (its mode-1 diagram named
+`SocketReader` where it is **PCAPReader**, omitting `MsgBuf`/`MessageProcessor`; and its "Known
+Gaps" had the `.bin`/PCAP support backwards).
 
-Small, mechanical, and entirely additive — no new dependencies:
+#### D0 — the Databento parsing pipeline (in-repo as of 2026-09-12)
 
-1. **`kaspr` PCAP replay mode.** Add a `--pcap <file>` (and optional `--pcap-b`) argument; when
-   set, call `create_all_mdp3_pcap()` instead of `create_all_mdp3()`. Everything downstream —
-   `handler_if`, OB, TachBook, light22, SOM — is already agnostic to the source.
-2. **`kaspr` record mode.** Add `--record <out.bin.gz>`; construct `create_BinRecorder(path)`, add
-   it to the manager, and set `handler->binrec = rec` instead of `nullptr`. The ~12 guarded call
-   sites in `handler_if` then start emitting with no further change.
-3. **Wire `BFA`** as a third source (`--replay <file.bin.gz>`), added to its Group last per
-   `BFA_USAGE.md`. This is the loop the bake-off actually runs in.
-4. **Round-trip test.** Replay one PCAP twice: once straight, once via `--record` then `--replay`
-   of the resulting `.bin.gz`. The book state and the SOM fill sequence must be byte-identical.
-   This is the correctness gate for every number the study reports, and it also pins the
-   `r_l3.hpp` struct ABI.
+**Status change:** the PCAP → `.bin` half is no longer a to-do. `dbento_pcap_parse/` was ported
+from the internal tree and relicensed MIT; it wraps the same `PCAPReader → MsgBuf →
+MessageProcessor → handler_if → BinRecorder` chain the live system uses, so a converted session is
+byte-identical to what the live handler would have produced. What remains is the *replay* side.
+
+| Tool (`dbento_pcap_parse/<tool>/src/`) | Role |
+|---|---|
+| `dbento_pcap_to_bin` | one channel, one day of `.pcap.zst` → one `.bin` |
+| `build_universe` | `.bin` → `universe.<chan>.<date>.csv` + `.json.gz` from FDF/ODF/SDF |
+| `binstats` | per-`.bin` inventory: definition counts by updateAction, per-securityID MBO activity |
+| `merge_bins` / `verify_merged` | merge to one ts-ordered stream; assert monotonicity |
+| `pcap_list_ips` | dry-run: what src IPs / dst ports are actually in a capture dir |
+| `scripts/extract_futures.sh` | parallel, resume-safe batch over dates × channels |
+
+##### D0a — acquire one month of ES (the first concrete milestone)
+
+ES is **channel 310**. One calendar month is ~21–22 trading sessions, which already satisfies the
+≥ 20-session floor in *Coverage* below, so this is the right first pull.
+
+```bash
+# once: the converter resolves multicast IP/ports from this file (CME SFTP)
+cd genconfig && ./genconfig.sh          # writes genconfig/mdp3_prod.info
+
+export KSPRPROJ=~/kaspar-hft
+cd dbento_pcap_parse/scripts
+SRC=/path/to/databento/pcaps/glbx/futures-xcme NJOBS=16 ./extract_futures.sh 20260202 20260203 ...
+```
+
+`extract_futures.sh` iterates channels `{310, 318, 326}`; for an ES-only pull either edit
+`CHANNELS=(310)` in a copy, or loop the dates calling `dbento_pcap_to_bin --chan 310` directly.
+Output lands in `out/bin/310/310.<date>.databento.bin`, resume-safe behind `.ok` markers.
+
+**Per-session acceptance gate.** A day is only admitted to the study if all four pass:
+
+1. `binstats --datafile <bin>` shows FDF count > 0 **with Add/Modify actions present**. A file whose
+   definitions are all Deletes cannot build a symbol table and every consumer silently comes up
+   empty — this is the failure mode `binstats` exists to catch.
+2. `verify_merged` reports zero out-of-order timestamps.
+3. `PCAPReader` did not print its zero-matching-packets warning, and the filtered-drop count at EOF
+   is plausible for the layout (near-zero per-channel; ~95% consolidated).
+4. Session event count is within a sane band of the month's median — an order-of-magnitude outlier
+   means a truncated capture, not a quiet day.
+
+**Open items that must be settled on day 1, not day 21:**
+
+- **Sizing.** Nobody has measured a day of ES 310 MBO through this path yet. Convert one session
+  first and record `.bin` size, wall-clock, and peak RSS, then multiply by 22 before committing
+  disk. Do not budget from a guess.
+- **Contract selection / the roll.** `.bin` files carry every ES expiry. The study needs the front
+  month, chosen per session from `build_universe` output plus volume. ES rolls quarterly (Mar /
+  Jun / Sep / Dec); **if a roll falls inside the chosen month the series splits**, and fitting
+  across it mixes two different liquidity regimes. Either pick a month without a roll, or treat
+  pre- and post-roll as separate fitting segments — decide before pulling.
+- **No recovery, no A/B arbitration.** PCAP mode passes a null recovery processor and stamps every
+  packet feed `'A'`; captures must already be de-duplicated (Databento's are). A gap in the capture
+  propagates to the book and is *not* repaired. Gap/`CHR` records in the `.bin` mark where.
+- **The `recovery` flag.** `l3_mbo_v2_packed_t.recovery` marks events replayed from a snapshot or
+  recovery burst rather than seen live. These **must be filtered out of every intensity fit** — they
+  are not real arrivals and will bias λ and the Hawkes branching ratio upward.
+
+##### D0b — what is still unwired
+
+1. **`kaspr` replay mode.** Add `--replay <file.bin.gz>`; construct `BFA` and add it to its Group
+   **last** per `BFA_USAGE.md`. This is the loop the bake-off actually runs in, and it is the one
+   genuinely missing piece.
+2. **`kaspr` PCAP mode** (`--pcap <file>` → `create_all_mdp3_pcap()`). Not needed for the study —
+   `dbento_pcap_to_bin` already covers PCAP ingestion — but cheap, and useful for debugging a
+   single capture against the live decode path.
+3. **`kaspr --record`** (set `handler->binrec` instead of `nullptr`). Also not needed for data
+   production any more; keep it for recording *live* sessions.
+4. **Round-trip test.** Convert one PCAP to `.bin`, then replay that `.bin` through `--replay` and
+   through a direct `--pcap` run of the same capture. Book state and SOM fill sequence must match.
+   This is the correctness gate for every number the study reports, and it pins the `r_l3.hpp`
+   struct ABI.
 5. **Decide the clock.** Fix, once and in writing, which of `transactTime` / `sendingTime` /
    `recv_ts` / `hw_ts` the Hawkes and QR fits use. Exponential-kernel MLE is sensitive to this and
    the four differ by microseconds-to-milliseconds.
-
-Only after D0 does D1 (export) make sense — otherwise there is nothing to export.
 
 > **Dependency note on D1:** `CLAUDE.md` states *"Do not add Arrow/Parquet dependencies — they were
 > removed intentionally."* The Parquet exporter proposed in D1 below therefore needs either an
@@ -1249,7 +1310,6 @@ Only after D0 does D1 (export) make sense — otherwise there is nothing to expo
 > that links `bfile::read_l3`, and let the Python side (`pandas` / `pyarrow` **outside** the C++
 > build) do the columnar conversion. Recommended — it keeps Parquet entirely on the Python side of
 > the fence, where it is a research-time dependency rather than a build-time one.
-
 
 The PCAPs are **MBO** (order-by-order, full L3). kaspar reconstructs them via the MBO path
 (`TachBook` / `handler_if` MBO handlers), and `BinRecorder` can dump the per-order event
@@ -1260,15 +1320,19 @@ gives **true queue position** — no MBP approximation anywhere in this project.
 
 ### Pipeline
 ```
-MBO PCAP (ES ch.310 / NQ ch.318)
-   → kaspar replay (MDP3 → handler_if MBO → book)
-   → BinRecorder (bfile::write_l3, gzip'd l3_mbo_v2_packed_t)      [exists, NOT wired — D0]
-   → .bin.gz  →  BFA replay loop                                  [exists, NOT wired — D0]
-   → NEW: l3 → columnar exporter                                  [D1]
-   → NEW: Python event reader + book re-walker                    [D2]
+Databento .pcap.zst  (ES ch.310 / NQ ch.318, many files per day)
+   → dbento_pcap_to_bin  (PCAPReader → MsgBuf → MessageProcessor → handler_if → BinRecorder)
+   → <chan>.<date>.databento.bin   gzip'd l3_mbo_v2_packed_t                    [D0a — DONE]
+        ├→ build_universe  → universe CSV/JSON (securityID → symbol, front-month pick)
+        └→ binstats / verify_merged → per-session acceptance gate
+   → BFA replay into kaspr  (--replay)                                          [D0b — TODO]
+   → l3 → columnar exporter                                                     [D1]
+   → Python event reader + book re-walker                                       [D2]
 ```
 
-- **D0** — wire PCAP replay, `--record`, and BFA into the `kaspr` binary (see above). Blocks D1/D2.
+- **D0a** — pull one month of ES (ch. 310) through `dbento_pcap_parse/`. The converter exists; the
+  work is acquisition, the per-session acceptance gate, and the roll/contract decision.
+- **D0b** — wire `--replay` (BFA) into `kaspr`. The one genuinely missing piece; blocks the backtest.
 - **D1** — small C++ tool linking `bfile::read/write_l3` that streams the gzip record file to a
   columnar format. Reuses the project's own decoder; deterministic. Note the Arrow/Parquet
   constraint in `CLAUDE.md` — emit CSV/raw binary from C++ and convert on the Python side.
@@ -1281,8 +1345,13 @@ MBO PCAP (ES ch.310 / NQ ch.318)
 side, price, level_index, size, order_id, priority, queue_size_before, queue_rank, mid, spread`.
 
 ### Coverage
-- ≥ 20 sessions ES first (NQ later). Split train/val/test by **whole sessions** (no intra-session
-  leakage).
+- **First pull: one month of ES (ch. 310)** — ~21–22 sessions, which clears the ≥ 20-session floor
+  in one acquisition. NQ (ch. 318) later; the same scripts cover it by channel number.
+- Split train/val/test by **whole sessions** (no intra-session leakage). With ~22 sessions a
+  14 / 4 / 4 split is the natural starting point — thin for M4 (DeepLOB), which is a further
+  argument for treating it as a reference rather than a core model at this data scale.
+- A month is enough to fit M0/M1/B0 comfortably and M2/M3 adequately; if the Hawkes branching
+  ratio proves unstable across sessions, extend to a quarter before blaming the model.
 - Fit and evaluate **RTH and ETH/overnight separately** — intensities and branching ratios differ.
 - Include ≥ 1 high-vol day (CPI/FOMC) for the fast-market regime.
 
@@ -1359,8 +1428,16 @@ parameter-transfer (fit ES, run NQ, and vice versa).
 
 ## 6. Phased milestones (ES-first)
 
-- **Phase 0 — Data spike.** Export one ES session MBO PCAP → Parquet (D1) and build the reader +
-  book re-walker with queue rank (D2). Sanity-check event counts, queue-rank distribution,
+- **Phase 0a — One month of ES.** Run `dbento_pcap_to_bin` over ~21–22 ES (ch. 310) sessions
+  (D0a). Measure one session first for size/wall-clock/RSS before committing disk. Gate every
+  session on `binstats` (FDF Adds present) + `verify_merged` + plausible filtered-drop counts.
+  Settle the front-month/roll decision. **Exit:** a month of accepted `.bin` files plus their
+  `build_universe` output, and a written note fixing which timestamp field is *the* clock.
+- **Phase 0b — Replay path.** Wire `--replay` (BFA) into `kaspr` and pass the round-trip test
+  (D0b). **Exit:** a `.bin` replays through the books and SOM deterministically, matching a direct
+  PCAP run.
+- **Phase 0c — Data spike.** Export one ES session to the columnar format (D1) and build the reader
+  + book re-walker with queue rank (D2). Sanity-check event counts, queue-rank distribution,
   add/cancel/trade ratios. **Exit:** clean canonical ES event file with per-order queue rank.
 - **Phase 1 — Signal interface + shadow harness + B0/CST.** Define the `ModelSignal` interface, wire
   the shadow simulator backtest, and run **shadow-as-is vs B0 (queue-imbalance/OFI) vs M0 (CST)** —
