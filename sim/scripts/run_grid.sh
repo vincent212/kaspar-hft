@@ -24,6 +24,7 @@ OUT=${OUT:-/vast/home/vmayeski/gridruns/$(date +%Y%m%d_%H%M%S)}
 NJOBS=${NJOBS:-56}
 CONFIG_DIR=${CONFIG_DIR:-$KSPRPROJ/sim/config}
 SEED=${SEED:-1}
+GRID_SET=${GRID_SET:-1}   # 1 = full sweep (config_a); 2 = follow-up (config_b)
 MIN_BIN_BYTES=${MIN_BIN_BYTES:-10000000}   # below this: weekend/holiday, no RTH
 
 SMOKE=0; ONLY_GRID=""
@@ -45,27 +46,40 @@ BIN="$OUT/sim.pinned"
 # ---- the 29 configs ---------------------------------------------------
 # name  grid  place_rate_bp  probe_size  ord_sz  delay_us  cancel_delay_us  max_dist
 grid_tsv="$OUT/grid.tsv"
+
+# Two grid sets. GRID_SET=1 is the full sweep and runs under config_a; GRID_SET=2
+# is the follow-up under config_b, which is deliberately smaller.
+#
+# Set 2 drops grid A entirely -- the rate x size surface is established by set 1
+# and does not need re-measuring at a second light count -- and starts B at 20
+# lots, because the interesting question for the 12-light arm is what happens to
+# LARGE parents when the shadow can rest at twice as many prices. Below 20 lots
+# the two arms have little room to differ: the clip is capped by the shadowed
+# order (73% of ES adds are 1 lot), so a small parent is filled in a handful of
+# children either way.
 {
-  for bp in 50 100 300 500; do
-    for sz in 1 10 100; do
-      printf 'rate%s_sz%s\tA\t%s\t%s\t-1\t500\t500\t-1\n' "$bp" "$sz" "$bp" "$sz"
+  if [ "$GRID_SET" = "2" ]; then
+    for q in 20 50 100 200; do
+      printf 'Q%s\tB2\t300\t%s\t1\t500\t500\t-1\n' "$q" "$q"
     done
-  done
-  for q in 1 2 5 10 20 50 100 200; do
-    printf 'Q%s\tB\t300\t%s\t1\t500\t500\t-1\n' "$q" "$q"
-  done
-  for us in 0 100 200 400 500 800 1600 3200 6400; do
-    printf 'lat%s\tC\t300\t100\t-1\t%s\t%s\t-1\n' "$us" "$us" "$us"
-  done
-  # Grid D (max_dist sweep, 4 depths x 2 sizes) removed. Its premise was that
-  # the 4-tick default caps working size at (max_dist+1) x lev_orders_max, so a
-  # large parent is forced into refill rounds and raising max_dist relieves the
-  # cap. There is no such cap: a light holds exactly ONE order at one price
-  # (ord_info_t is a single slot) and each light has its own QCoord, so
-  # sz_at_px and total_sz() are 0 whenever a light is about to place. The
-  # all_orders_max ceiling is never reached and lev_orders_max never wins the
-  # min against ord_sz. What actually decides how many prices the shadow rests
-  # at is the LIGHT COUNT, which is what the two arm configs vary.
+    for us in 0 100 200 400 500 800 1600 3200 6400; do
+      printf 'lat%s\tC2\t300\t100\t-1\t%s\t%s\t-1\n' "$us" "$us" "$us"
+    done
+  else
+    for bp in 50 100 300 500; do
+      for sz in 1 10 100; do
+        printf 'rate%s_sz%s\tA\t%s\t%s\t-1\t500\t500\t-1\n' "$bp" "$sz" "$bp" "$sz"
+      done
+    done
+    for q in 1 2 5 10 20 50 100 200; do
+      printf 'Q%s\tB\t300\t%s\t1\t500\t500\t-1\n' "$q" "$q"
+    done
+    for us in 0 100 200 400 500 800 1600 3200 6400; do
+      printf 'lat%s\tC\t300\t100\t-1\t%s\t%s\t-1\n' "$us" "$us" "$us"
+    done
+  fi
+  # Grid D (max_dist sweep) removed -- see the commit; a light holds one order at
+  # one price, so there was no working-size cap for max_dist to relieve.
 } > "$grid_tsv"
 
 # ---- front month by date, from traded volume ---------------------------
