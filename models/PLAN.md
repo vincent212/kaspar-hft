@@ -15,6 +15,48 @@ ES↔NQ transfer test). (2) **Shadow-execution backtest is the primary deliverab
 (3) **DeepLOB (M4) included** as a signal-accuracy yardstick.
 (4) **Open-source the model implementations in kaspar** (MIT, alongside the existing code) as the
 reproducibility artifact backing the arXiv paper.
+(5) **Two papers, not one** — see below.
+
+---
+
+## Two papers
+
+`tech_reports/shadow_pov.tex` is internal and unpublished, which means the empirical results in
+it can simply be replaced rather than corrected in public. They do have to be replaced: they were
+produced with cancels paying **zero** modelled latency — the same `payload->ts0 = o.ts` bug fixed
+on this branch, still present at `m2_kspr/frame_kaspr/src/SOM.cpp:1935` — so every published
+figure is optimistic by an unmeasured amount.
+
+**Paper 1 — Shadow-PPOV, revised.** Same method, but the evaluation becomes a different object:
+four placement rates instead of one hardcoded 1.5%; size dependence **measured** rather than a
+stylized Gamma Monte Carlo the paper itself disclaims as *"not an empirical claim"*; a **latency
+sensitivity curve**, which the current paper does not treat as a parameter at all; twelve fires a
+session instead of two, so intraday drift is measured rather than the open cohort discarded; and
+realised participation counted per leg, so the order-placement-rate → participation map exists.
+
+The framing shifts with it. Not *"here is our execution method"* but **"here is a characterised
+model-free baseline for passive placement"** — fully specified, and now measured across size,
+participation and latency, so that someone else can position against it. That is the contribution
+that makes shadow usable as a benchmark by anyone other than us.
+
+Publishable as soon as the grid lands. It does not wait on the models.
+
+**Paper 2 — the models.** B0, M0–M3, M4 as the yardstick: predictive scoring, the paired
+execution backtest, and the generative-impact work. This is the whole of §1 and §5 of this
+document and would be crushed into a subsection of Paper 1.
+
+**Why the split is here and not elsewhere.** The current paper concedes that its benchmark role is
+*"proposed rather than demonstrated"*, and Paper 1 cannot fix that: a benchmark with nothing
+benchmarked against it never demonstrates anything. What Paper 1 can do is make the baseline
+usable — specified and characterised. Paper 2 is the demonstration, and its headline is exactly
+the question that motivates this document: does a model beat model-free shadow, and by how much?
+
+**One open question, resolved by data we are about to have.** If the latency curve is close to
+flat from 40 µs to 6.4 ms, that is a striking result on its own — passive execution cost is largely
+speed-insensitive, which cuts against the arms-race narrative. If it is steep, it quantifies what
+colocation is worth for passive flow. Either way the curve does not appear to exist in the
+literature, and if it is the standout result it should lead Paper 1 rather than sit in a
+sensitivity section.
 
 ---
 
