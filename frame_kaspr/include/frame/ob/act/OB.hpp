@@ -234,28 +234,30 @@ namespace frame
           start_debug = _start_debug;
         }
 
-        // One-way wire latency to the matching engine, microseconds. OB holds
-        // every sim order on del_q until ts0 + this has passed in MARKET time.
-        void set_delay(int _d)
-        {
-          delay = _d;
-        }
-
-        // Cancel latency, microseconds. An order and its cancel go over the
-        // same wire, so the same number is the physically right default;
-        // -1 means "use delay". Separate only so an experiment can test the
-        // asymmetric case.
+        // Modelled one-way latency to the matching engine, microseconds. OB
+        // holds every order of ours on del_q until ts0 + this has passed in
+        // MARKET time, so it is the knob that decides how much real flow gets
+        // in front of us.
         //
-        // May be shorter than `delay`. del_q is FIFO and process_q stops at the
-        // first entry not yet due, so a cancel queued behind its OWN still-in-
-        // flight order waits for it regardless -- but that is the physically
-        // right answer, not a limitation: the exchange cannot cancel an order
-        // it has not received yet. In the ordinary case, cancelling something
-        // already resting, del_q is empty when the cancel arrives and a shorter
-        // latency applies exactly as configured.
-        void set_cancel_delay(int _d)
+        // ONE setter for both, deliberately: they are not independent. A cancel
+        // is slower than a new order on every real venue -- the engine has to
+        // locate the resting order before it can pull it -- so cancel_us must
+        // be >= order_us. With two setters the check could only test against
+        // whichever value happened to be set first, and calling them in the
+        // other order silently undid it.
+        //
+        // cancel_us < 0 means "same as the order latency": the floor of the
+        // realistic range, not a separate mode.
+        void set_delay(int order_us, int cancel_us = -1)
         {
-          cancel_delay = _d;
+          ASSERTF(cancel_us < 0 || cancel_us >= order_us,
+                  boost::format("cancel latency %d us < order latency %d us: a "
+                                "cancel is never faster than a new order, the "
+                                "matching engine has to locate the resting "
+                                "order first")
+                    % cancel_us % order_us);
+          delay = order_us;
+          cancel_delay = cancel_us;
         }
 
         void

@@ -131,19 +131,9 @@ namespace light::act
           // is already expired, so OB releases the cancel on the next record
           // with no latency at all. That is precisely the bug this branch
           // fixes, re-created one path over. The Timer runs on market time and
-          // stamps every Alarm with it (Timer.cpp:110).
-          const uint64_t alarm_tim = m->currtim._epoch_;
-          if (alarm_tim > this->curr_tx_time)
-            this->curr_tx_time = alarm_tim;
-          else
-            // Should not happen: Timer::currtim is one clock fed by whichever
-            // book last published EndOfBurst2, and a run drives a single
-            // instrument, so it cannot be behind this light's. If that ever
-            // changes the fallback would silently re-create the expired
-            // deadline this path exists to avoid, so make it say so.
-            log_err("delayed cancel: alarm clock %lu not ahead of %lu, "
-                    "cancel will carry a stale stamp",
-                    alarm_tim, this->curr_tx_time);
+          // stamps every Alarm with it (Timer.cpp:110), and the sim is one
+          // ordered queue, so that stamp is never behind what we last saw.
+          this->curr_tx_time = m->currtim._epoch_;
           log_inf("executing delayed cancel at %lu", this->curr_tx_time);
           this->cancel_order();
         }

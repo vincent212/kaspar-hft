@@ -304,15 +304,14 @@ TEST_F(OBDelayQueueTest, DelayHasAFortyMicrosecondFloor) {
   EXPECT_EQ(our_size_at(kOurPx), 1);
 }
 
-// An order and its cancel share a wire, so cancel_delay defaults to -1 (=
-// delay). Set it and only cancels should move. It may only be made LONGER --
-// del_q is FIFO, so a shorter cancel cannot overtake an order still in flight
-// and set_cancel_delay() rejects it.
+// The cancel latency defaults to -1 (= the order latency) and may only be made
+// LONGER, which is the direction real venues go: the matching engine has to
+// locate the resting order before it can pull it.
 TEST_F(OBDelayQueueTest, CancelDelayCanBeMadeAsymmetric) {
   constexpr int kSlowCancelUs = 50000;
   constexpr uint64_t kSlowCancelNs = uint64_t(kSlowCancelUs) * 1000;
 
-  ob->set_cancel_delay(kSlowCancelUs);
+  ob->set_delay(kDelayUs, kSlowCancelUs);   // order at the default, cancel slower
   seed_book(kT0);
   const uint64_t sent = kT0 + 10;
 
@@ -333,33 +332,40 @@ TEST_F(OBDelayQueueTest, CancelDelayCanBeMadeAsymmetric) {
 }
 
 
-// A cancel FASTER than an order. This was briefly rejected outright on the
-// grounds that del_q is FIFO so a cancel can never overtake an order in front
-// of it -- true, but only of a cancel queued behind its OWN in-flight order.
-// In the ordinary case the order is already resting, del_q is empty when the
-// cancel arrives, and the shorter latency applies exactly as configured.
-TEST_F(OBDelayQueueTest, CancelDelayMayBeShorterThanTheOrderDelay) {
-  constexpr int kFastCancelUs = 100;
-  constexpr uint64_t kFastCancelNs = uint64_t(kFastCancelUs) * 1000;
 
-  ob->set_cancel_delay(kFastCancelUs);      // < the default 1000us
+// A cancel may not be modelled as FASTER than a new order: the matching engine
+// has to locate the resting order before it can pull it, so on a real venue
+// the cancel path is the slower one. Getting this backwards would flatter the
+// shadow -- our cancels would beat flow they should have worn.
+TEST_F(OBDelayQueueTest, ACancelFasterThanAnOrderIsRejected) {
+  EXPECT_DEATH(ob->set_delay(1000, 500), "cancel latency");
+}
+
+TEST_F(OBDelayQueueTest, EqualLatenciesAreAccepted) {
+  ob->set_delay(1000, 1000);
+  seed_book(kT0);
+  const uint64_t sent = kT0 + 10;
+  place_ours(kOurPx, sent);
+  market_add(en::bs::SEL, kAskPx + 5, 1, sent + kDelayNs + 1);
+  EXPECT_EQ(our_size_at(kOurPx), 1) << "equal is the floor, not a violation";
+}
+
+// -1 is "same as the order latency", the default.
+TEST_F(OBDelayQueueTest, NegativeCancelLatencyMeansSameAsTheOrder) {
+  ob->set_delay(1000, -1);
   seed_book(kT0);
   const uint64_t sent = kT0 + 10;
 
-  // Placement still pays the full order latency.
   place_ours(kOurPx, sent);
-  market_add(en::bs::SEL, kAskPx + 5, 1, sent + kFastCancelNs + 1);
-  EXPECT_EQ(our_size_at(kOurPx), 0)
-      << "the order must not arrive at the cancel latency";
-  market_add(en::bs::SEL, kAskPx + 6, 1, sent + kDelayNs + 1);
-  ASSERT_EQ(our_size_at(kOurPx), 1) << "precondition: our order is resting";
+  market_add(en::bs::SEL, kAskPx + 5, 1, sent + kDelayNs + 1);
+  ASSERT_EQ(our_size_at(kOurPx), 1);
 
-  // The cancel, against an order already in the book, gets the short one.
   const uint64_t cancelled_at = sent + kDelayNs + 100;
   cancel_ours(kOurPx, cancelled_at);
-  market_add(en::bs::SEL, kAskPx + 7, 1, cancelled_at + kFastCancelNs + 1);
-  EXPECT_EQ(our_size_at(kOurPx), 0)
-      << "a cancel delay shorter than the order delay must actually apply";
+  market_add(en::bs::SEL, kAskPx + 6, 1, cancelled_at + kDelayNs / 2);
+  EXPECT_EQ(our_size_at(kOurPx), 1) << "half the latency is not enough";
+  market_add(en::bs::SEL, kAskPx + 7, 1, cancelled_at + kDelayNs + 1);
+  EXPECT_EQ(our_size_at(kOurPx), 0) << "the order latency applies to the cancel";
 }
 
 }  // namespace

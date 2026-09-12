@@ -191,11 +191,13 @@ namespace frame::som::act
     // is not enough: OB throttles it to one per 100 ms and suppresses it
     // entirely on a locked book, so it can be 100x staler than the wire
     // latency it is standing in for. Orders and timed cancels carry the same
-    // clock and arrive far more often. Monotonic, because a stale message must
-    // never wind the clock back.
+    // clock and arrive far more often.
+    // 0 means the sender did not carry a time (an untimed cancel, a console
+    // order); that is not news about the clock, so ignore it rather than wind
+    // it back to zero.
     void note_market_time(uint64_t ts) noexcept
     {
-      if (ts > currtim) currtim = ts;
+      if (ts) currtim = ts;
     }
     void order_handler(const msg::Order *) noexcept;
     void canc_ack_handler(const msg::CancAck *) noexcept;

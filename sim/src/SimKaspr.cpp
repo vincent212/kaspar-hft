@@ -231,8 +231,10 @@ void SimKaspr::create_order_books()
     // Wire latency. OB defaults to 1000 us, which is an order of magnitude
     // slower than a colocated CME round trip and so is pessimistic about how
     // much flow gets in front of us -- set it per run rather than inherit it.
-    if (ob_delay_us_ >= 0) ob_set_delay(ob, ob_delay_us_);
-    if (ob_cancel_delay_us_ >= 0) ob_set_cancel_delay(ob, ob_cancel_delay_us_);
+    // One call, because the cancel latency is constrained by the order latency
+    // and OB checks them together.
+    if (ob_delay_us_ >= 0 || ob_cancel_delay_us_ >= 0)
+      ob_set_delay(ob, ob_delay_us_ >= 0 ? ob_delay_us_ : 1000, ob_cancel_delay_us_);
 
     std::cerr << "SimKaspr: OB " << a->name << " assetID=" << j
               << " secID=" << a->sec_id

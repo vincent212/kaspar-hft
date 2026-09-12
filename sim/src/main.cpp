@@ -141,9 +141,9 @@ int main(int argc, char* argv[])
                     "modelled wire latency for CANCELS, microseconds. A cancel "
                     "goes over the same wire as an order, so -1 (= --ob-delay-us) "
                     "is the right default; set it only to test the asymmetric "
-                    "case. A shorter value is allowed; a cancel queued behind "
-                    "its own still-in-flight order waits for it either way, "
-                    "which is what the exchange would do.")
+                    "case. Must be >= --ob-delay-us: a cancel is never faster "
+                    "than a new order, since the matching engine has to locate "
+                    "the resting order before it can pull it.")
       ("probe-size", po::value<int>()->default_value(0),
                     "SlippageProbe parent size in contracts per leg; 0 = no probe. "
                     "Every 30 min from 09:30 to 15:00 ET the probe buys this many "

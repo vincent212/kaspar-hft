@@ -22,5 +22,7 @@ cfsmp create_OB(
 
 void ob_set_debug(cfsmp ob, uint64_t start_debug = 0);
 
-void ob_set_delay(cfsmp ob, int _d);
-void ob_set_cancel_delay(cfsmp ob, int _d);
+// Modelled latency to the matching engine, microseconds. cancel_us < 0 means
+// "same as order_us"; it may not be smaller, since a cancel is never faster
+// than a new order.
+void ob_set_delay(cfsmp ob, int order_us, int cancel_us = -1);
