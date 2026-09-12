@@ -1471,8 +1471,9 @@ different market states, and that session should be quarantined rather than aver
 ```
 .bin session (D0a, on disk: 363 ES sessions 2025-01-01..2026-02-27)
    │
-   ├─ run A: parent LONG   ─┐
-   └─ run B: parent SHORT  ─┤   same session, same seed, same config
+   └─ ONE run per session. SlippageProbe fires every 30 min, 09:30-15:00 ET
+      (12 fires); each fire is a round trip (buy then sell back to flat), so
+      both directions are measured in the same run and the mid still cancels.
                             │
    BFA --replay  →  OB / TachBook  →  light22 (+ ModelSignal)  →  SOM (sim fills)
                             │                      │
@@ -1488,10 +1489,12 @@ different market states, and that session should be quarantined rather than aver
    └─ aggregate across sessions → mean, CI, per-regime split
 ```
 
-**Why two runs per session and not one.** With a single direction you must trust the captured
-`mid` absolutely; any error in *when* it was sampled goes straight into the result. Running both
-directions makes the metric independent of that snapshot. It doubles compute — at ~40 s per
-session that is still minutes, not hours, for the whole corpus.
+**Why both directions, and why one run is enough.** With a single direction you must trust the
+captured `mid` absolutely; any error in *when* it was sampled goes straight into the result.
+Measuring both directions makes the metric independent of that snapshot. Upstream got both by
+running each session twice; `SlippageProbe` instead makes **each fire a round trip that returns to
+flat**, so buy and sell are measured in the same run, in the same market state. One run per
+session, 12 samples from it.
 
 **Where the fills come from — decided: CSV.** The sim writes one row per fill via
 `--fills-output`: `ts, side, px, sz, symbol, chunk, mid_at_fire`. The fire-time mid rides on every
@@ -1505,9 +1508,10 @@ need a reader written before any figure comes out. `BFA` also drops a plain-text
 that is a debugging artefact, not an input.
 
 **Per-run acceptance gate** (a run that fails any of these is quarantined, not averaged in):
-1. Both direction-runs completed and filled the full parent (`still_to_be_filled == 0`).
-2. Slippage is positive. Negative means the two runs saw different market states — investigate,
-   do not average.
+1. Both legs of the fire completed and filled the full parent (`still_to_be_filled == 0`); a
+   fire whose leg timed out is quarantined, and the probe must return to flat before the next fire.
+2. Slippage is positive. Negative means the two legs saw materially different market states
+   (a fast move between them) — investigate, do not average.
 3. Fill count and contract count within band of the corpus median for that fire time.
 4. Participation rate ρ stays small (the paper used ρ≈1.5%); see the impact caveat below.
 
@@ -1527,65 +1531,113 @@ free fill.
 ### What D0b must deliver: the `sim` binary
 
 There is **no simulator executable in this repo**. `kaspr` is the only trading binary and it wires
-live multicast only. The harness that produces slippage numbers exists upstream as `sim_kaspr`
-(`m2_kspr/sim/`, ~1,720 lines across 5 files) and must be ported, the way `dbento_pcap_parse/` was.
+live multicast only. Build one in kaspar-hft: `sim/src/sim.cpp` + `sim/include/`, using the
+`mk_kaspr` templates like every other component.
 
-#### Actor graph for one run
+#### Build order
+
+1. **The sim binary skeleton** — Manager + Group + Logger; `--datafile`, `--universe`,
+   `--contract`, `--fills-output`. Wires BFA → OB → Timer → light22 → SOM → PositionManager.
+2. **Universe at startup** (see below) — the securityID wiring.
+3. **`SlippageProbe`** — the firing actor (see below).
+4. **Offline aggregator** — Python, reads the fills CSV, emits slippage.
+
+**Explicitly NOT ported:** `Aggregator` (removed from this repo by design; nothing in this path
+consumes it), `MarketMaker` (it simulates a counterparty — we fill against recorded flow),
+ZMQ/registry/coordinator/Python-MM, and the two-leg spread path.
+
+#### Universe at startup — pre-populate RefData, do not touch the `.bin`
+
+The `.bin` files are correct and must not be rewritten. The securityID wiring is a **startup**
+concern:
 
 ```
- BFA(--datafile <chan>.<date>.databento.bin)        replays L3 records, one per Continue
-   └─> OB  (ES front month; cross_check on)         reconstructs the book
-         └─> light22 x4 BUY + x4 SEL                shadow placement/cancel
-               │   (QCoord per light, PCoord per instrument)
-               └─> SOM (sim_mode=true)              queue-position-aware fills
-                         └─> Fill  ──> fills CSV row (+ mid_at_fire)
-
- Timer (anchored to the ES book's EOB2)             ALL time comes from market data
-   ├─> TradeScheduler                               fires the parent
-   │     reads instructions JSON: {time_et, side, qty, chunks}
-   │     on each chunk alarm:  snapshot BBO mid  ->  FireRecord.mid_fire
-   │                           AddToPos(instrument, side, chunk_qty) -> PositionManager
-   └─> PositionManager                              parent -> per-light targets
-         arm_pulse_timer / pulse_alarm_handler: chunk N+1 fires one SIM second
-         after chunk N drains, via set_sim_timer(timer)
+universe.310.<date>.json            (D0a-2, already generated for all 363 dates)
+   └─ at sim startup, for each FDF entry:
+        RefData::add_future_asset(symbol, venue, securityID, cfiCode,
+                                  securityGroup, minPriceIncrement * dispFactor)
+   └─ create an OB per contract of interest
+   └─ build BFA's dataAdapter directly:   sparse[venue][asset->sec_id] = ob
 ```
 
-**Why PositionManager is required and not optional.** The parent order is not a single
-`Set(TARGET_POS)`; it is *N chunks that must drain in lock-step*. `PositionManager` owns that: it
-receives `AddToPos(instrument, side, size)` and steps the per-instrument `PCoord` the lights read,
-releasing the next chunk only once the previous one has filled. Driving `targetpos` directly from
-the scheduler would fire all chunks at once and measure something else entirely.
+`RefData::add_future_asset` is static and idempotent (returns the existing Asset if the symbol is
+already known), so this is safe to run over the whole universe.
 
-> **`set_sim_timer(timer)` is not a detail — it is a correctness requirement.** The pulse timer
-> must run on **sim time**, not wall-clock. The replay processes many seconds of market data per
-> wall-clock second, so a wall-clock cadence stretches the real inter-chunk gap and **biases the
-> fill prices that slippage is computed from**. Upstream hit this and fixed it; any port that
-> forgets it will produce numbers that look plausible and are wrong.
+> **Do not use the `create_BFA` wrapper in `interface/mda/if/BFA.hpp`.** It converts a dense
+> `order_books[venue][asset_id]` into BFA's sparse map by treating *the vector index as the
+> securityID*. That is only correct when `asset_id == securityID`, which is false for CME
+> (ESH5 is asset id ~1 and securityID 5002). This conflation is what produced
+> `out of range: unordered_map::at venue:CMEMD sym: 5002` and zero fills in the smoke test.
+> `BFA`'s own constructor already takes the sparse `vector<unordered_map<int32_t, actor_ptr>>`
+> keyed by securityID — construct it directly and the problem disappears. No BFA change, no
+> universe-map parameter, no `.bin` rewrite.
 
-#### Two runs per session
+BFA can also create books from an in-stream FDF via its factory (and will even call
+`RefData::add_future_asset` itself for unknown symbols), but relying on that means relying on the
+definition happening to be in the capture window — which for the front month it is not. Pre-
+populating at startup is deterministic.
 
-Slippage needs both directions on the **same** session (§ the headline metric above): run A fires
-the parent LONG, run B fires it SHORT, identical data file and config. `Slippage =
-½(vwap_buy − vwap_sel)`; the fire-time mid cancels. At ~40 s per session this doubling is minutes
-across the corpus, not hours.
+#### `SlippageProbe` — the firing actor (NEW, replaces upstream's TradeScheduler design)
 
-#### Component inventory for the port
+**How m2_kspr did it.** `TradeScheduler` subscribes to `BBBOChg` from every OB, keeps a
+`bbo_cache_` keyed by `(venue, sym)`, and on each pulse fire writes a `FireRecord`
+(`fire_id, time_et, chunks, send_ts_ns, legs[{contract, total_sz, best_bid_at_fire,
+best_ask_at_fire, bbo_ts_ns}]`). **No actor computes slippage** — the C++ side only *collects* the
+fire-time BBO and the fills; an offline "slippage analyzer" pairs them. We keep that split: C++
+collects, Python computes.
 
-| Component | In kaspar-hft? | Action |
-|---|---|---|
-| `create_BFA<TreasOnly>(order_books, data_file, manager)` | yes — `interface/mda/if/BFA.hpp` | use; see universe gap below |
-| `OB`, `Timer`, `SOM(sim_mode)` | yes | use |
-| `light22` Shadow BUY/SEL, `QCoord`, `PCoord` | yes | use — **fresh QCoord per light** (a shared QCoord's `mmid_orders` bitmask desyncs and trips the "already have this mm id" assert) |
-| `PositionManager` | partial — `AddToPos`/`GetPos` only | **port `set_sim_timer` + `arm_pulse_timer` + `pulse_alarm_handler`** |
-| `TradeScheduler` | **no** | port (`sim/include/TradeScheduler.hpp`, `sim/src/TradeScheduler.cpp`) |
-| `Aggregator` | removed by design (`CLAUDE.md`) | **drop** — nothing in this path consumes it |
-| `MarketMaker` | no | **drop** — it simulates a counterparty; we fill against recorded flow |
-| ZMQ / registry / coordinator / Python-MM | present but irrelevant | **drop** — offline single-process run |
-| two-leg spread (`AddSpreadOrder`, 2nd PM) | no | **drop for now** — ES outright first |
+What we do differently: upstream fires **twice per session** (09:29 and 15:57 ET) and needs two
+runs per session to get both directions. Instead:
 
-Dropping Aggregator, MarketMaker, the remote plumbing and the spread path removes roughly half of
-upstream's `sim_kaspr.cpp` and all of its optional flags (`--no-mm`, `--no-agg`, `--registry-address`,
-`--coordinator`, `--zmq-port`).
+**`SlippageProbe` fires every 30 minutes from 09:30 to 15:00 ET — 12 fires per session — and
+collects a buy price and a sell price at each fire.**
+
+```
+for each fire time in {09:30, 10:00, 10:30, ..., 14:30, 15:00} ET:      # 12 fires
+    snapshot mid = (best_bid + best_ask)/2 from the BBO cache          # fire-time reference
+    fire LONG  leg:  AddToPos(contract, BUY,  size)  -> PositionManager -> shadow lights
+    wait for the parent to fill (chunks drain in lock-step)
+    record vwap_buy
+    fire SHORT leg:  AddToPos(contract, SEL,  size)  -> returns to flat
+    wait for fill
+    record vwap_sel
+    emit:  Slippage_i = 1/2 (vwap_buy - vwap_sel)
+```
+
+Each fire is a **round trip that returns to flat**, so both directions are measured *in the same
+run, in the same market state, minutes apart* — the fire-time mid still cancels, and we no longer
+need two separate runs per session. Position starts and ends flat at every fire, so fires do not
+contaminate each other.
+
+**Why this is better than the paper's design:**
+
+- **~4,356 samples instead of 274.** 12 fires × 363 sessions, versus 2 fires × 137 date-pairs.
+  Confidence intervals on the model comparisons get far tighter, which matters because the
+  differences between M0-M3 are expected to be small.
+- **Intraday coverage.** The paper could only report the close cohort, because the open was
+  swamped by drift. Sampling every 30 minutes gives a slippage *profile* across the session
+  (open effects, lunchtime illiquidity, close) rather than one number, and makes the RTH/regime
+  split in *Coverage* a real analysis rather than an aspiration.
+- **One run per session, not two.** Halves the compute and removes the risk that the two
+  direction-runs diverge.
+
+**Subscriptions and outputs.** `SlippageProbe` needs `BBBOSub` on the ES book (for the fire-time
+mid), `FillSub` on SOM (to know when a leg is done and to record fill prices), and Timer alarms at
+the 12 fire times. It writes one CSV row per fill:
+
+```
+fire_id, time_et, ts, contract, side, px, sz, chunk, mid_at_fire, bbo_ts_ns
+```
+
+**Open design points to settle when building it:**
+
+- **Fill timeout.** A leg that does not fill within the 30-minute window must be abandoned and the
+  fire marked incomplete, or the next fire starts from a non-flat position. Abandoned fires are
+  quarantined, not averaged.
+- **Size per fire.** Must stay small enough that participation rate rho remains in the regime where
+  the simulator is valid (the paper used rho ~= 1.5%). Report rho per fire.
+- **Sim time, not wall-clock.** The 30-minute cadence is *market* time from the Timer, which is
+  driven by data timestamps. Same reason `PositionManager::set_sim_timer` matters.
 
 #### D0a-2 — universe generation (a required pipeline stage, not an afterthought)
 
