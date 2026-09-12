@@ -1229,6 +1229,86 @@ void act::OB::process_message(cmsgt msg) noexcept
   }
 }
 
+/**
+ * @brief Live recovery from a crossed book: delete the stale orders, re-walk
+ *        the BBO, carry on.
+ *
+ * Restores what this code did before the simulator work: on a cross, cancel the
+ * contra side's inside level -- the level the arriving order crossed into --
+ * and notify subscribers, so SOM and the lights see the removal rather than
+ * silently disagreeing with the book.
+ *
+ * Two things the original did not do, both necessary:
+ *
+ *   1. It left best_bid/best_ask pointing at the level it had just emptied, so
+ *      the BBO stayed crossed until some later record happened to move it. The
+ *      re-walk below is the same loop mod() runs after a delete.
+ *   2. It used canc_notify_all(), which also cancels OUR OWN resting orders.
+ *      In live those are managed by SOM, and dropping them from the book
+ *      without telling anyone leaves SOM working a position the book no longer
+ *      has. Only exchange orders are removed here.
+ *
+ * One wipe may not uncross the book -- if the contra side has orders at several
+ * levels inside the touch, the next record trips this again and removes the
+ * next one. That is deliberate: each pass removes the minimum that cannot
+ * coexist, rather than clearing a range on one guess about which side is stale.
+ */
+void act::OB::recover_from_cross(payload_ptr_t got_payload) noexcept
+{
+  const auto mkt = got_payload->mkt;
+  const int  bid0 = best_bid, ask0 = best_ask;
+
+  // The side the arriving order is on decides which side is stale: a BUY that
+  // lands above the best ask means the asks it crossed should already be gone.
+  const bool incoming_buy = (got_payload->side == en::bs::BUY);
+  OrderQ *q = incoming_buy ? askqs[best_ask] : bidqs[best_bid];
+
+  if (!q || !q->get_head_no_sim())
+  {
+    // Nothing of the exchange's to remove -- only our own orders sit here, so
+    // removing them would be wrong and would not uncross anything either.
+    log_err("%s CROSSED best_bid %d > best_ask %d but no real order on the %s "
+            "side to remove", get_name(), best_bid, best_ask,
+            incoming_buy ? "ask" : "bid");
+    return;
+  }
+
+  std::string stale = "STALE:";
+  for (const frame::ob::OrderQNode *n = q->get_head(); n; n = n->next)
+  {
+    auto *o = static_cast<const frame::ob::Order *>(n);
+    if (!o->issim())
+      stale += " " + std::to_string(o->get_exordid());
+  }
+
+  const int removed = q->canc_notify_all_real();
+  ++num_cross_recover;
+
+  // Re-walk the side we just emptied. Same loop as mod(): step past levels that
+  // hold nothing but our own orders, bounded by the ladder.
+  const auto maxprice = ref::RefData::inst().get_asset(sym)->maxpx;
+  if (incoming_buy)
+  {
+    while (askqs[best_ask]->isempty_or_allsim() && best_ask < maxprice - 1)
+      ++best_ask;
+  }
+  else
+  {
+    while (bidqs[best_bid]->isempty_or_allsim() && best_bid > 1)
+      --best_bid;
+  }
+
+  log_err("%s CROSSED book recovered: best_bid %d > best_ask %d, removed %d %s "
+          "order(s) at %d, BBO now %d/%d (arriving %s px %d id %llu). %s",
+          get_name(), bid0, ask0, removed, incoming_buy ? "ask" : "bid",
+          incoming_buy ? ask0 : bid0, best_bid, best_ask,
+          en::to_string(got_payload->side), got_payload->px.to_int(),
+          (unsigned long long)got_payload->ex_order_id, stale.c_str());
+
+  if (best_bid > 0 && best_ask > 0)
+    notifybbbosubs(got_payload->tim, incoming_buy ? en::bs::SEL : en::bs::BUY, mkt);
+}
+
 void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
 {
 
@@ -2323,6 +2403,26 @@ void act::OB::process_market_data(
       }
       OBFILE.flush();
     }
+    // Two different jobs for the same condition.
+    //
+    // SIMULATION (do_cross_check true, set by SimKaspr) aborts. A crossed book
+    // there means the reconstruction is wrong and every fill after it is
+    // fiction, so the only useful thing is to stop with the state intact --
+    // which is how 20250210's stranded-order bug and 20250509's bad capture
+    // were both found.
+    //
+    // LIVE (do_cross_check false, kaspr.cpp) cannot abort: that would leave
+    // real orders resting at CME with nothing managing them. It deletes the
+    // stale orders instead and keeps going, which is what this code did before
+    // the simulator work replaced it with an assert. The orders removed are the
+    // contra side's inside level -- the level the arriving order crossed into,
+    // i.e. exactly the set that cannot legitimately coexist with it.
+    if (best_bid > best_ask && !do_cross_check)
+    {
+      recover_from_cross(got_payload);
+      return;
+    }
+
     ASSERTF(best_bid <= best_ask,
             boost::format("CROSSED book %s after transaction %llu: best_bid %d > best_ask %d "
                           "(next record: %s px=%d sz=%d exordid=%llu tim=%llu)")

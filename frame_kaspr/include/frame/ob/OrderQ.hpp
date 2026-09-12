@@ -287,6 +287,37 @@ namespace frame
 
     public:
 
+      // Cancel every EXCHANGE order in this queue, leaving our own alone, and
+      // return how many went. Used by OB's live crossed-book recovery: at a
+      // crossed level the exchange orders are the ones that cannot legitimately
+      // be there, while our own are managed by SOM -- dropping those from the
+      // book without telling anyone leaves SOM working a position the book no
+      // longer has.
+      //
+      // Restarts the scan after each cancel, because canc_notify() erases from
+      // qordermap and invalidates the iterator. Quadratic in the worst case,
+      // which is fine: it runs only on a crossed book, at one level, and never
+      // on the hot path.
+      int canc_notify_all_real() noexcept
+      {
+        int n = 0;
+        for (bool again = true; again;)
+        {
+          again = false;
+          for (auto &kv : qordermap)
+          {
+            auto o = kv.second;
+            if (o->issim())
+              continue;
+            canc_notify(o, o->sz, 0, en::mt::CANCD);
+            ++n;
+            again = true;
+            break;
+          }
+        }
+        return n;
+      }
+
       // used to clear the book
       void canc_notify_all() noexcept
       {

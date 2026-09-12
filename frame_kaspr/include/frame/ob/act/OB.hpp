@@ -130,6 +130,12 @@ namespace frame
         uint64_t xcheck_tx = 0;
         // MBO records dropped for an impossible price (see data_handler).
         uint64_t num_bad_px = 0;
+        // Crossed books recovered from on the live path (see
+        // recover_from_cross). Should be 0. A non-zero count means the book was
+        // corrupt and we deleted orders to carry on, so any fill simulated
+        // around that moment is suspect -- it is reported at shutdown rather
+        // than left for someone to notice in a log.
+        uint64_t num_cross_recover = 0;
 
         std::ofstream obfile;
 
@@ -386,6 +392,10 @@ namespace frame
         void end() override;
         void check_bbbo();
         void cross_check(boost::intrusive_ptr<const mda::msg::data_pay_load>);
+        // Live recovery from a crossed book: delete the stale orders on the
+        // contra side, re-walk the BBO, continue. Only reached when
+        // do_cross_check is false; simulation aborts instead.
+        void recover_from_cross(payload_ptr_t) noexcept;
         std::size_t index_of_darr(
             const double[], std::size_t,
             double) const noexcept;
