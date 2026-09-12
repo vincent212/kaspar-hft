@@ -680,6 +680,7 @@ act::Logger::getdata(const boost::circular_buffer<std::string> &v, const string 
 
 alignas(64) polonaise::logger::act::Logger *polonaise::logger::act::Logger::theLogger = 0;
 alignas(64) bool polonaise::logger::act::Logger::log_debug = true;
+alignas(64) bool polonaise::logger::act::Logger::quiet = false;
 alignas(64) bool polonaise::logger::act::Logger::synchrolog = false;
 alignas(64) bool polonaise::logger::act::Logger::rt = false;
 alignas(64) bool polonaise::logger::act::Logger::disable = false;
