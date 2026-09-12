@@ -14,7 +14,7 @@ export KSPRPROJ=${KSPRPROJ:-$(cd ../.. && pwd)}
 
 SRC=${SRC:-/nvs/vendor/databento/pcaps/glbx/options-xcme}
 OUT_DIR=${OUT_DIR:-$PWD/out}
-BIN=$PWD/dbento_pcap_to_bin
+BIN=${BIN:-$PWD/../dbento_pcap_to_bin/src/dbento_pcap_to_bin}
 CHANNELS=(311 319 327)
 NJOBS=${NJOBS:-16}
 

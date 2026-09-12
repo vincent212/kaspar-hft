@@ -86,13 +86,13 @@ cmake_install.cmake
 **/.nfs*
 
 # dbento_pcap_parse build artifacts
-dbento_pcap_parse/src/obj/
-dbento_pcap_parse/src/objg/
-dbento_pcap_parse/src/*.P
-dbento_pcap_parse/src/dbento_pcap_to_bin
-dbento_pcap_parse/src/build_universe
-dbento_pcap_parse/src/merge_bins
-dbento_pcap_parse/src/verify_merged
-dbento_pcap_parse/src/pcap_list_ips
-dbento_pcap_parse/src/binstats
-dbento_pcap_parse/src/out/
+dbento_pcap_parse/*/src/obj/
+dbento_pcap_parse/*/src/objg/
+dbento_pcap_parse/*/src/*.P
+dbento_pcap_parse/dbento_pcap_to_bin/src/dbento_pcap_to_bin
+dbento_pcap_parse/build_universe/src/build_universe
+dbento_pcap_parse/merge_bins/src/merge_bins
+dbento_pcap_parse/verify_merged/src/verify_merged
+dbento_pcap_parse/pcap_list_ips/src/pcap_list_ips
+dbento_pcap_parse/binstats/src/binstats
+dbento_pcap_parse/scripts/out/

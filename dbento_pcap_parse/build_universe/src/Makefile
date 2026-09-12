@@ -8,6 +8,6 @@ include $(KSPRPROJ)/mk_kaspr/glob_begin.mk
 SRC = build_universe.cpp
 APPNAM = build_universe
 
-# nlohmann/json is header-only and resolved via JSON_PATH in glob_begin.mk
+# nlohmann/json is header-only, resolved via JSON_PATH in glob_begin.mk
 
 include $(KSPRPROJ)/mk_kaspr/app_template.mk

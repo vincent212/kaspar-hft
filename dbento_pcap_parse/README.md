@@ -36,13 +36,40 @@ would have produced.
 | `binstats` | Inventories a `.bin`: instrument-definition counts by updateAction, per-securityID MBO activity, full instrument list, and counts of other record types. |
 | `extract_futures.sh` / `extract_options.sh` | Parallel, resume-safe batch wrappers over `dbento_pcap_to_bin`. |
 
+## Layout
+
+One directory per executable, each with a `src/Makefile` built from the
+`mk_kaspr` templates — the same shape as `kaspr/src/` and every library in the
+tree. There is no aggregate driver Makefile; the build system has no mechanism
+for one executable per `APPNAM`, so a custom one would be off-standard.
+
+```
+dbento_pcap_parse/
+├── dbento_pcap_to_bin/src/   the converter (+ PcapFileManager, Mdp3InfoParser)
+├── build_universe/src/
+├── merge_bins/src/
+├── verify_merged/src/
+├── pcap_list_ips/src/
+├── binstats/src/
+└── scripts/                  extract_futures.sh, extract_options.sh
+```
+
 ## Build
 
+Each tool builds like any other component in the tree:
+
 ```bash
-cd dbento_pcap_parse/src
-KSPRPROJ=~/kaspar-hft make          # all tools, optimized
-KSPRPROJ=~/kaspar-hft make debug
-KSPRPROJ=~/kaspar-hft make dbento_pcap_to_bin   # just one
+export KSPRPROJ=~/kaspar-hft
+cd dbento_pcap_parse/dbento_pcap_to_bin/src && make        # or: make debug / make clean
+```
+
+Build them all:
+
+```bash
+export KSPRPROJ=~/kaspar-hft
+for t in dbento_pcap_to_bin build_universe merge_bins verify_merged pcap_list_ips binstats; do
+    make -C dbento_pcap_parse/$t/src || break
+done
 ```
 
 Requires the core libraries to be built first (`KSPRPROJ=~/kaspar-hft make` at
@@ -64,8 +91,11 @@ batch scripts `chdir` into per-channel output directories before exec.
 
 ## Usage
 
+Run each tool from its own `src/` directory (or put them on your `PATH`):
+
 ```bash
 export KSPRPROJ=~/kaspar-hft
+cd dbento_pcap_parse/dbento_pcap_to_bin/src
 
 # per-channel layout (futures-xcme/, options-xcme/)
 ./dbento_pcap_to_bin --pcap-dir /path/to/pcaps/glbx/futures-xcme/20260119 --chan 310
@@ -94,7 +124,9 @@ a per-channel output directory before exec for this reason.
 ### Batch
 
 ```bash
-# defaults; override either
+cd dbento_pcap_parse/scripts
+
+# defaults; override any of SRC / NJOBS / BIN
 SRC=/path/to/pcaps/glbx/futures-xcme NJOBS=8 ./extract_futures.sh 20260227
 ./extract_futures.sh          # every date found under $SRC
 ```
