@@ -1235,6 +1235,10 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
   // Change types to uint64_t
   uint64_t extim = 0, sendtim = 0;
 
+  // Set when a CHANGE/DELETE carries a price we cannot put on the ladder: the
+  // record is unusable but the order it refers to must still leave the book.
+  bool badpx_force_delete = false;
+
   //data_handler_enter = chutil::Time::epoch();
 
   // auto a = frame::ref::RefData::inst().get_asset(sym);
@@ -1279,13 +1283,36 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
       const int ticks = ref::Price((long double)mbo.pxd, sym).to_int();
       if (!(ticks > 0 && ticks < maxprice))
       {
-        log_err("BAD PRICE %s: dropping MBO oid=%llu action=%d side=%c pxd=%.1f "
-                "(%d ticks, maxpx %d) tx=%llu",
-                get_name(), (unsigned long long)mbo.orderID, int(mbo.orderUpdateAction),
-                mbo.side, mbo.pxd, ticks, maxprice,
-                (unsigned long long)mbo.transactTime);
         ++num_bad_px;
-        return;
+        // An ADD we cannot place is simply not in our book, and nothing later
+        // will find it -- safe to drop.
+        //
+        // A CHANGE or DELETE is NOT safe to drop. The order is already resting
+        // here, and discarding the message that moves or removes it leaves it
+        // parked at a price the exchange has vacated: phantom liquidity that
+        // never goes away and eventually crosses the book. That is exactly how
+        // 2025-02-10 failed -- order 6414438546046 was repriced from 24347t to
+        // 48622t, past the end of the ladder, the CHANGE was dropped, and the
+        // stale ask sat under the bid until the invariant caught it 4 minutes
+        // later.
+        //
+        // We cannot represent where the order went, so treat it as gone: fall
+        // through to the delete path, which prices the cancel from the order's
+        // last known good price in ordermap rather than from this record.
+        if (mbo.orderUpdateAction == 0)
+        {
+          log_err("BAD PRICE %s: dropping ADD oid=%llu side=%c pxd=%.1f "
+                  "(%d ticks, maxpx %d) tx=%llu",
+                  get_name(), (unsigned long long)mbo.orderID,
+                  mbo.side, mbo.pxd, ticks, maxprice,
+                  (unsigned long long)mbo.transactTime);
+          return;
+        }
+        log_err("BAD PRICE %s: oid=%llu action=%d moved off the ladder "
+                "(pxd=%.1f, %d ticks, maxpx %d) tx=%llu -- removing it from the book",
+                get_name(), (unsigned long long)mbo.orderID, int(mbo.orderUpdateAction),
+                mbo.pxd, ticks, maxprice, (unsigned long long)mbo.transactTime);
+        badpx_force_delete = true;
       }
     }
 
@@ -1688,7 +1715,7 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
     }
   };
 
-  if (is_add(m->l3))
+  if (is_add(m->l3) && !badpx_force_delete)
   {
 
     num_add++;
@@ -1826,7 +1853,7 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
     //
     exec_slate[ordref].push(pl);
   }
-  else if (is_canc(m->l3))
+  else if (is_canc(m->l3) && !badpx_force_delete)
   {
 
     if (!std::holds_alternative<bfile::l3_mbo_v2_t>(m->l3))
@@ -1969,7 +1996,7 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
       process_slated_exec(ordref, pl);
     }
   }
-  else if (is_cand(m->l3))
+  else if (is_cand(m->l3) || badpx_force_delete)
   {
 
     if (!std::holds_alternative<bfile::l3_mbo_v2_t>(m->l3))
@@ -2236,6 +2263,40 @@ void act::OB::process_market_data(
   if (matching && xcheck_tx && !got_payload->is_sim() &&
       got_payload->tim > xcheck_tx)
   {
+    // Say WHICH orders are crossed, not merely that the book is. Reproducing
+    // this by replaying with tracing on is not practical: --ob-debug logs from
+    // the first record, so reaching an afternoon cross means gigabytes of log
+    // and a run an order of magnitude slower than the session itself. The
+    // abort is the one moment the state is guaranteed interesting, so dump it
+    // here -- every order resting between the two sides, which is exactly the
+    // set that cannot legitimately coexist.
+    if (best_bid > best_ask)
+    {
+      const auto maxprice = ref::RefData::inst().get_asset(sym)->maxpx;
+      OBFILE << "OBX CROSS DUMP " << get_name()
+             << " tx=" << xcheck_tx << " bid=" << best_bid << " ask=" << best_ask << "\n";
+      for (int px = best_ask; px <= best_bid && px < maxprice; px++)
+      {
+        for (int side = 0; side < 2; side++)
+        {
+          const OrderQ *q = side ? bidqs[px] : askqs[px];
+          if (!q || q->isempty()) continue;
+          OBFILE << (side ? "  BID " : "  ASK ") << px
+                 << " sz=" << q->get_orders_in_book()
+                 << " sim=" << q->get_sim_in_book() << " :";
+          for (const frame::ob::OrderQNode *n = q->get_head(); n; n = n->next)
+          {
+            auto *o = static_cast<const frame::ob::Order *>(n);
+            OBFILE << " " << mda::OrderID::id(o->get_id())
+                   << ":ex" << o->get_exordid()
+                   << ":sz" << o->get_sz()
+                   << (o->issim() ? ":SIM" : "");
+          }
+          OBFILE << "\n";
+        }
+      }
+      OBFILE.flush();
+    }
     ASSERTF(best_bid <= best_ask,
             boost::format("CROSSED book %s after transaction %llu: best_bid %d > best_ask %d "
                           "(next record: %s px=%d sz=%d exordid=%llu tim=%llu)")
