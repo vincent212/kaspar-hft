@@ -117,7 +117,7 @@ Notes:
 
 ## Tests
 
-253 Google Test cases over the pieces that decide what the simulator does: the
+265 Google Test cases over the pieces that decide what the simulator does: the
 shadow light, the order book's delay queue, the coordination objects, reference
 data, the timer, the simulated order manager, position tracking, and the
 slippage probe.
@@ -156,6 +156,10 @@ per-file inventory and how to add a case.
 Two suites are worth knowing about because they cover things that were silently
 broken and are easy to break again:
 
+- **`test_ob_book.cpp`** — book reconstruction and the no-cross invariant. Two
+  death tests encode the whole crossed-book investigation: a genuine inversion
+  surviving to end-of-transaction must kill the run, and a sweep's
+  intra-transaction cross must not.
 - **`test_ob_delay_queue.cpp`** — the latency model. Our orders are held on
   `del_q` until `ts0 + wire latency` has passed in *market* time; these pin the
   withholding, the 40 us floor, and that cancels pay it too.

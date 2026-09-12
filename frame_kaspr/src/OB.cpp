@@ -7,6 +7,7 @@
  */
 
 #include <set>
+#include <cstdlib>
 #include <cstdio>
 #include "chutil/FileSystem.hpp"
 #include "chutil/ut.hpp"
@@ -160,9 +161,10 @@ void act::OB::get_handler(const frame::cons::msg::Get *msg) noexcept
     auto rep = (boost::format("BBBO: %d %d") % best_bid % best_ask).str();
     reply(new frame::cons::msg::Page(rep));
   }
-  else if (msg->what == "simsz")
+  else if (msg->what == "qat")
   {
-    // Our own resting size at one price level. Deliberately NOT visible
+    // What rests at one price level: real size, real order count, and our own
+    // size. Our own is deliberately NOT visible
     // through "bbbo": sim orders are excluded from the BBO (process_add_or_mod
     // bails early, and the BBO walk uses isempty_or_allsim) so that a strategy
     // cannot react to its own quote. That makes this the only way to ask
@@ -171,17 +173,30 @@ void act::OB::get_handler(const frame::cons::msg::Get *msg) noexcept
     // unanswerable, and so untested, until now.
     //
     //   kv["side"] = "B" | "S", kv["px"] = price in ticks
-    int simsz = -1;
+    // reply: "QAT: <real size> <real order count> <our size>", or -1s when the
+    // level is out of range or the arguments do not parse.
+    long sz = -1, cnt = -1, simsz = -1;
     auto sideit = msg->kv.find("side");
     auto pxit   = msg->kv.find("px");
-    if (sideit != msg->kv.end() && pxit != msg->kv.end())
+    if (sideit != msg->kv.end() && pxit != msg->kv.end() &&
+        (sideit->second == "B" || sideit->second == "S"))
     {
-      const auto px = std::stoi(pxit->second);
+      // strtol, not stoi: kv comes straight from console tokens and this
+      // handler is noexcept, so a throw here would terminate the process
+      // rather than reach the console's own catch.
+      char *end = nullptr;
+      const long px = std::strtol(pxit->second.c_str(), &end, 10);
+      const bool parsed = end && *end == '\0' && end != pxit->second.c_str();
       const auto &qv = (sideit->second == "B") ? bidqs : askqs;
-      if (px > 0 && px < int(qv.size()) && qv[px])
+      if (parsed && px > 0 && px < long(qv.size()) && qv[px])
+      {
+        sz    = qv[px]->get_orders_in_book();
+        cnt   = qv[px]->get_size_of_book_cnt();
         simsz = qv[px]->get_sim_in_book();
+      }
     }
-    reply(new frame::cons::msg::Page((boost::format("SIMSZ: %d") % simsz).str()));
+    reply(new frame::cons::msg::Page(
+        (boost::format("QAT: %d %d %d") % sz % cnt % simsz).str()));
   }
 }
 

@@ -185,14 +185,14 @@ protected:
   // strategy cannot react to its own quote.
   int our_size_at(int px, en::bs side = en::bs::BUY) {
     probe.clear();
-    cons::msg::Get g("simsz", {{"side", side == en::bs::BUY ? "B" : "S"},
-                               {"px", std::to_string(px)}});
+    cons::msg::Get g("qat", {{"side", side == en::bs::BUY ? "B" : "S"},
+                             {"px", std::to_string(px)}});
     dispatch(&g);
     auto page = probe.get_message<cons::msg::Page>(0);
     if (!page) return -1;
-    int sz = -1;
-    std::sscanf(page->val.c_str(), "SIMSZ: %d", &sz);
-    return sz;
+    int sz = -1, cnt = -1, simsz = -1;
+    std::sscanf(page->val.c_str(), "QAT: %d %d %d", &sz, &cnt, &simsz);
+    return simsz;
   }
 
   // Build a two-sided book with a 20-tick spread, wide enough that our order

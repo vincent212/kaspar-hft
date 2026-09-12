@@ -19,6 +19,7 @@ SRC = test_cache_array.cpp \
       test_som.cpp \
       test_som_cancel_latency.cpp \
       test_ob_delay_queue.cpp \
+      test_ob_book.cpp \
       test_slippage_probe.cpp \
       SlippageProbe.cpp \
       test_position.cpp \
