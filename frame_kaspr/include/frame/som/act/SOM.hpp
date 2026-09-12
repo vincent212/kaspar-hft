@@ -60,11 +60,8 @@ namespace frame::som::act
     std::list<actors::Actor *> subs;
     uint curr_id;
     actor_ptr db = 0;
-    // Market clock, epoch ns. MUST be initialised: until this branch it was
-    // write-only, but cancel_order() now reads it as the fallback timestamp
-    // for cancels that carry none, and an indeterminate value there either
-    // parks the cancel on OB's del_q forever or trips OB's ts0 validity
-    // assert and kills the replay.
+    // Market clock, epoch ns. Write-only: nothing reads it. Kept initialised
+    // regardless, since a reader would otherwise get indeterminate memory.
     uint64_t currtim = 0;
     uint64_t currts = 0; //ack_delay = 0;
     std::map<int,uint64_t> add_ts;
@@ -187,18 +184,6 @@ namespace frame::som::act
     // order's own ts.
     void cancel_order(uint id, const msg::Order &ord, uint64_t canc_ts = 0) noexcept;
 
-    // Keep the market clock as fresh as anything we have seen. BBBOChg alone
-    // is not enough: OB throttles it to one per 100 ms and suppresses it
-    // entirely on a locked book, so it can be 100x staler than the wire
-    // latency it is standing in for. Orders and timed cancels carry the same
-    // clock and arrive far more often.
-    // 0 means the sender did not carry a time (an untimed cancel, a console
-    // order); that is not news about the clock, so ignore it rather than wind
-    // it back to zero.
-    void note_market_time(uint64_t ts) noexcept
-    {
-      if (ts) currtim = ts;
-    }
     void order_handler(const msg::Order *) noexcept;
     void canc_ack_handler(const msg::CancAck *) noexcept;
     void bbbochg_handler(const ob::msg::BBBOChg *) noexcept;

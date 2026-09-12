@@ -368,4 +368,32 @@ TEST_F(OBDelayQueueTest, NegativeCancelLatencyMeansSameAsTheOrder) {
   EXPECT_EQ(our_size_at(kOurPx), 0) << "the order latency applies to the cancel";
 }
 
+
+// A message with no ts0 is applied immediately instead of being delayed. The
+// senders are the SOM's own unwind cancels and console cancels -- not part of
+// the measured experiment, and with no clock there is no latency to model. The
+// alternative, inventing a timestamp, either releases the message instantly
+// anyway or strands it on the queue forever.
+TEST_F(OBDelayQueueTest, AMessageWithNoTimestampIsNotDelayed) {
+  seed_book(kT0);
+  const uint64_t sent = kT0 + 10;
+
+  place_ours(kOurPx, sent);
+  market_add(en::bs::SEL, kAskPx + 5, 1, sent + kDelayNs + 1);
+  ASSERT_EQ(our_size_at(kOurPx), 1) << "precondition: our order is resting";
+
+  // Cancel with ts0 == 0: takes effect on this message, no further market
+  // data required.
+  cancel_ours(kOurPx, 0);
+  EXPECT_EQ(our_size_at(kOurPx), 0)
+      << "an untimed cancel must be applied at once, not queued";
+}
+
+TEST_F(OBDelayQueueTest, AnUntimedOrderIsNotDelayedEither) {
+  seed_book(kT0);
+  place_ours(kOurPx, 0);
+  EXPECT_EQ(our_size_at(kOurPx), 1)
+      << "no timestamp means no modelled latency, in either direction";
+}
+
 }  // namespace

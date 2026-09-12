@@ -765,7 +765,7 @@ void act::SOM::cancel_all_orders() noexcept
       continue;
 
     log_opr("cancelling on stop order: %d", k);
-    cancel_order(k, order);   // no cancel time: SOM's own clock, see cancel_order
+    cancel_order(k, order);   // no cancel time: applied without delay
   }
 
 }
@@ -883,7 +883,7 @@ void act::SOM::ack_handler(const som::msg::Ack *m) noexcept
     {
 
       ASSERT(uint(order->oid) == m->id, "must be same id");
-      cancel_order(m->id, *order);   // ditto -- an ack carries no market time
+      cancel_order(m->id, *order);   // ditto
     }
   }
 }
@@ -1089,13 +1089,12 @@ void act::SOM::bbbochg_handler(const ob::msg::BBBOChg *m) noexcept
 {
   best_bid[m->sym] = m->best_bid;
   best_ask[m->sym] = m->best_ask;
-  note_market_time(m->tx_time);
+  currtim = m->tx_time;
 }
 
 void act::SOM::order_handler(const msg::Order *m) noexcept
 {
   ASSERT(m->sender, "no sender");
-  note_market_time(m->ts);
   ASSERT(m->sz > 0, "order for 0 size");
   ASSERT(m->sz < CHOPIN_MAX_ORD_SZ, "bad size");
 
@@ -1485,7 +1484,6 @@ void act::SOM::canc_handler(const msg::Cancel *m) noexcept
     return;
   }
 
-  note_market_time(m->ts);
   cancel_order(m->id, *ord, m->ts);
 }
 
@@ -1835,12 +1833,14 @@ void frame::som::act::SOM::cancel_order(uint id, const msg::Order &ord, uint64_t
     // latency at all, so our cancels always beat the flow and we never wore
     // the adverse fill a real one would have cost.
     //
-    // Prefer the canceller's own market time; fall back to the SOM's clock
-    // (see note_market_time) for the internal cancels that have no message of
-    // their own; fall back last to o.ts, which at least keeps the ts0 > 0
-    // invariant that OB asserts on.
-    payload->ts0 = canc_ts ? canc_ts : (currtim ? currtim : o.ts);
-    ASSERT(payload->ts0 > 0, "bad ts0");
+    // The canceller's own market time, or 0 when it had none -- the SOM's own
+    // internal cancels (the unwind on stop, the ack path) and console cancels.
+    // 0 is passed through as 0 on purpose: OB applies an untimed message
+    // without delay rather than model a latency it has no clock for. NOT
+    // o.ts, which is when the ORIGINAL ORDER was sent: its deadline is already
+    // past, so that silently gave every cancel zero latency while looking like
+    // it modelled one.
+    payload->ts0 = canc_ts;
     d->israw = false; // it actually defaults to false
     d->payload = payload;
     log_dbg("placed sim order canc for id: %d, for venue: %s, orderref: %lu", id, en::to_string(o.venue), payload->order_ref);

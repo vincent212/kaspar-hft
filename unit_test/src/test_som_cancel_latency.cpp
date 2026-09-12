@@ -175,10 +175,32 @@ TEST_F(SOMCancelLatencyTest, CancelCarriesItsOwnDecisionTime) {
   EXPECT_NE(pl->ts0, kOrderTs) << "this is the original-order timestamp";
 }
 
-// A cancel with no time of its own (SOM-internal cancels: the bulk cancel on
-// stop, the canc-ack path) falls back to SOM's own market clock, which
-// BBBOChg feeds. Still a real market time, still later than the order.
-TEST_F(SOMCancelLatencyTest, UntimedCancelFallsBackToTheSomMarketClock) {
+// A cancel with no time of its own -- the SOM's own unwind cancels, a console
+// cancel -- keeps ts0 == 0. That is not a defect to paper over with a
+// substitute timestamp: OB reads 0 as "no clock, apply without delay", which is
+// honest about the fact that there is no latency to model for a message that
+// did not come from the market.
+TEST_F(SOMCancelLatencyTest, AnUntimedCancelStaysUntimed) {
+  MockLight client("client");
+  const uint oid = place(&client, kOrderTs);
+  mock_book.clear();
+
+  som::msg::Cancel canc(oid);   // no ts
+  EXPECT_EQ(canc.ts, 0u);
+  process(&canc, &client);
+
+  auto pl = forwarded(0);
+  ASSERT_NE(pl, nullptr);
+  EXPECT_EQ(pl->action, en::mt::CANCD);
+  EXPECT_EQ(pl->ts0, 0u)
+      << "an untimed cancel must not be given a substitute timestamp";
+  EXPECT_NE(pl->ts0, kOrderTs)
+      << "least of all the original order's, whose deadline is already past";
+}
+
+// A BBBOChg in between must not change that: the SOM's own clock is not a
+// stand-in for a timestamp the canceller never supplied.
+TEST_F(SOMCancelLatencyTest, AMarketUpdateDoesNotSupplyAMissingCancelTime) {
   MockLight client("client");
   const uint oid = place(&client, kOrderTs);
 
@@ -186,30 +208,12 @@ TEST_F(SOMCancelLatencyTest, UntimedCancelFallsBackToTheSomMarketClock) {
   process(&bbo, &mock_book);
   mock_book.clear();
 
-  som::msg::Cancel canc(oid);   // no ts
-  EXPECT_EQ(canc.ts, 0u) << "default-constructed cancel has no time";
+  som::msg::Cancel canc(oid);
   process(&canc, &client);
 
   auto pl = forwarded(0);
   ASSERT_NE(pl, nullptr);
-  EXPECT_EQ(pl->ts0, kBboTs)
-      << "with no cancel time, SOM's own market clock is the next best thing";
-}
-
-// Last-resort fallback: no cancel time and no market clock yet. ts0 must still
-// be non-zero, because OB asserts on it and a zero would abort the run.
-TEST_F(SOMCancelLatencyTest, UntimedCancelWithNoClockStillProducesAValidTs0) {
-  MockLight client("client");
-  const uint oid = place(&client, kOrderTs);
-  mock_book.clear();
-
-  som::msg::Cancel canc(oid);   // no ts, and no BBBOChg has been seen
-  process(&canc, &client);
-
-  auto pl = forwarded(0);
-  ASSERT_NE(pl, nullptr);
-  EXPECT_GT(pl->ts0, 0u) << "OB asserts ts0 > 0; a zero here aborts the replay";
-  EXPECT_EQ(pl->ts0, kOrderTs) << "falls all the way back to the order's ts";
+  EXPECT_EQ(pl->ts0, 0u);
 }
 
 }  // namespace

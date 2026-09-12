@@ -1540,6 +1540,21 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
 #ifdef TRACEORDERS
     cerr << "Del Q push order " << mda::OrderID::id(pl->order_ref) << " " << currtim.to_string() << endl;
 #endif
+    // ts0 == 0 means the sender had no market time to give: a console cancel,
+    // or one of the SOM's own unwind cancels on shutdown. Apply it now rather
+    // than invent a timestamp to delay it by. Those messages are not part of
+    // the measured experiment, and a made-up ts0 would either release the
+    // message instantly anyway (if it were in the past) or strand it on the
+    // queue forever (if it were in the future) -- both worse than being
+    // honest that there is nothing to model here.
+    if (m->payload->ts0 == 0)
+    {
+      log_inf("sim order with no ts0, applying without delay id: %d",
+              mda::OrderID::id(pl->order_ref));
+      process_market_data(m->payload, m->sender);
+      return;
+    }
+
     auto ts0_tim = chutil::Time::from_epoch(m->payload->ts0);
     ASSERT(ts0_tim.is_valid(), "bad ts0");
     del_q.push_back(make_tuple(m->payload, m->sender));
