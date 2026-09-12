@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -393,9 +393,16 @@ namespace frame::mda::act
               }
             }
             r.update_sec_id(fdf.securityID, &a_);
-            a_.cfi_code = std::string(fdf.cfiCode, sizeof(fdf.cfiCode));
+            // strnlen, not sizeof: CME's SBE char fields are fixed width and
+            // NUL-padded, so sizeof() pulls the padding into the std::string.
+            // Those embedded NULs then reach every log line that prints the
+            // asset, which makes the whole log file `binary` to grep -- it
+            // silently prints nothing rather than matching, so a failure
+            // triage over these logs comes back empty and looks clean.
+            // Lines ~436 below already do it this way.
+            a_.cfi_code = std::string(fdf.cfiCode, strnlen(fdf.cfiCode, sizeof(fdf.cfiCode)));
             a_.cme_activation = fdf.activation;
-            a_.security_group = std::string(fdf.securityGroup, sizeof(fdf.securityGroup));
+            a_.security_group = std::string(fdf.securityGroup, strnlen(fdf.securityGroup, sizeof(fdf.securityGroup)));
             double unit = fdf.minPriceIncrement;
             a_.set_units(unit);
             if constexpr (TreasOnly) {

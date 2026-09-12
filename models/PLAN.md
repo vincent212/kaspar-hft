@@ -2307,3 +2307,69 @@ the repo or its history; README pointing paper→code→data-schema; a tagged re
   state must be O(1) incremental (decay-multiply + add), not a history re-sum.
 
 The online signal is **C++**, implemented directly in the light. No Rust anywhere in the project.
+
+## Come back to this
+
+### 20250509 — a crossed book in the DATA, not in our reconstruction (CLOSED)
+
+`rc=134`, `ASSERT best_bid <= best_ask`, ESM5 at 04:20:00.490292531Z
+(00:20 ET, mid-session): `best_bid 22763 > best_ask 22758`, crossed by 5 ticks.
+
+Investigated and it is **not our bug**. Evidence, in the order it rules things
+out:
+
+- The stale bids (`6415034758522` and the rest of the 22763 level) are `NEW` at
+  04:09 with at most one `CHANGE`, and **no DELETE anywhere in the capture**.
+  `ordtrace --orderid` searches every securityID, so they are not hidden under a
+  mislabelled instrument.
+- The ask is not an aggressor that should have traded: `6415034761869` arrives
+  on the ask at 22758 and **rests 29 seconds**, walking 22758 -> 22757 -> 22756
+  -> 22753 before being deleted.
+- `ordtrace`'s stale audit replays 289,191 MBO events with its own independent
+  book implementation and reports `TRUE best_bid=22763t best_ask=22758t
+  spread=-5t`. Two implementations, same answer: OB is faithful to the input.
+- **Zero** gap records and **zero** channel resets in the whole file.
+- No security-status record within +/-2 hours, so `matching` was correctly true.
+  This is not a halt, a pre-open, or a velocity-logic reserve.
+- The converter is not losing deletes: ESM5 has `NEW 4,405,278` against
+  `DELETE 4,408,834` -- balanced, deletes marginally ahead as expected for
+  orders resting at capture start.
+- Many of the crossed bids carry a cancel hours later (one at +6.2h), so they
+  genuinely rest through the cross.
+
+Conclusion: the Databento capture for ESM5 on 2025-05-09 contains a genuinely
+crossed book. The assert is correctly reporting bad input.
+
+**Decision: live with the crash.** It costs one session per config -- the run
+aborts before 09:30, so that session yields no fires at all -- and it is
+recorded in `failures.csv` with its exit code. Not worth weakening an invariant
+that exists to catch our own reconstruction faults in order to tolerate one
+vendor artifact. If more sessions turn up with the same signature, revisit:
+the fix would be log-and-continue on a crossed INPUT, keeping the abort for a
+cross we created ourselves -- but telling those apart needs the independent
+replay above, which is not something the sim can do inline.
+
+Tools: `ordtrace --orderid N` (all events for an order), `--secid S --at T
+--side bid --px-min N` (rebuild the true book and audit what rests),
+`--status --window-s N` (was the instrument matching?).
+
+### Sundays are queued and cannot produce data (OPEN, cosmetic)
+
+A Sunday `.bin` spans Sat 19:00 ET -> Sun 18:59 ET, and the 16:30 ET cutoff
+lands BEFORE Sunday's 18:00 open, so the sim reads the Saturday tail and stops.
+The probe fires 09:30-15:00 ET, so it never fires: header-only CSV, exit 0,
+recorded as a failure. Seven dates in 2025, one run per config.
+
+Cheap in CPU -- a Sunday bin is 10-26 MB against 200-320 MB for a weekday, so
+each run is ~7s, not the ~131s a real session takes; the whole set is about 30
+CPU-minutes. The reason to fix it is that it pads `failures.csv` seven-to-one
+and buries the one real crash.
+
+Fix is a day-of-week skip in `run_grid.sh`'s date loop. NOT a size threshold:
+the ranges overlap -- Sunday 2025-04-06 is 26 MB while Presidents Day (20250217,
+a real session) is 20 MB and the July 4 half day is 24 MB. Filtering by size
+would drop real holiday sessions and keep a Sunday.
+
+Do not edit `run_grid.sh` while a sweep is running: bash reads a script
+incrementally off disk, so an in-place edit can make a running instance execute
+garbage.

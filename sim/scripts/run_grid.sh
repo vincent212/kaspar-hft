@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
-# Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+# Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
 #
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
@@ -97,9 +97,23 @@ done_already() {
 dates_all=()
 for f in "$SRC"/bin/310/310.2025*.databento.bin; do
   [ -e "$f" ] || continue
+  d=$(basename "$f" | cut -d. -f2)
+
+  # Skip Sundays. A .bin spans 19:00 ET the previous evening -> 18:59 ET, so a
+  # Sunday file covers Saturday evening through Sunday evening -- and the week
+  # does not open until Sunday 18:00 ET, after the 16:30 ET cutoff below. There
+  # is no 09:30-15:00 window in it, so the probe never fires: the run exits 0
+  # with a header-only CSV and is recorded as a failure. Seven dates in 2025,
+  # once per config, and they buried the one genuine crash in failures.csv.
+  #
+  # Day of week, NOT size: the ranges overlap. Sunday 2025-04-06 is 26 MB while
+  # Presidents Day (a real session) is 20 MB and the July 4 half day is 24 MB,
+  # so any threshold that drops the Sundays also drops real holiday sessions.
+  [ "$(date -d "${d:0:4}-${d:4:2}-${d:6:2}" +%u)" = "7" ] && continue
+
   sz=$(stat -c %s "$f")
   [ "$sz" -ge "$MIN_BIN_BYTES" ] || continue     # weekend / holiday
-  dates_all+=("$(basename "$f" | cut -d. -f2)")
+  dates_all+=("$d")
 done
 
 if [ "$SMOKE" = 1 ]; then
@@ -147,27 +161,34 @@ run_one() {
   # 16:30 ET, computed per date so the DST change on 2025-03-09 is handled.
   local cut; cut=$(TZ=America/New_York date -d "${date:0:4}-${date:4:2}-${date:6:2} 16:30:00" +%s)
 
-  local ordsz_arg=()
-  [ "$osz" != "-1" ] && ordsz_arg=(--ord-sz "$osz")
-  local mdist_arg=()
-  [ "$mdist" != "-1" ] && mdist_arg=(--max-dist "$mdist")
+  # No --ord-sz. Order size belongs to the arm's lights.ini; forcing it here
+  # silently overrode whatever the config said, so a run labelled "arm A" was
+  # not actually running arm A's sizing. Grid B's Q is the PARENT size
+  # (--probe-size) and the clip comes from the config like everywhere else.
 
   local wd; wd=$(mktemp -d "${TMPDIR:-/tmp}/grid.$name.$date.XXXXXX")
   ( cd "$wd" && nice -n 19 ionice -c 3 "$BIN" \
       --datafile "$SRC/bin/310/310.$date.databento.bin" \
       --universe "$uni" \
       --contract "$contract" \
-      --config   "$CONFIG_DIR" \
+      --config   "$OUT/cfg/$name" \
       --end-ts   "$((cut * 1000000000))" \
       --probe-size "$psz" \
-      --place-rate-bp "$bp" \
-      --rng-seed "$SEED" \
       --ob-delay-us "$dly" \
       --ob-cancel-delay-us "$cdly" \
-      "${ordsz_arg[@]}" "${mdist_arg[@]}" \
       --probe-out "$csv" \
       --quiet ) > "$log" 2>&1
   local rc=$?
+
+  # Keep the Logger's own file. The sim writes two different logs: stdout/stderr
+  # (captured above as $log) and the Logger's sim_log.<date>.<pid>.log, written
+  # into the working directory -- and the Logger's is the one carrying every
+  # log_opr, log_err, _REJECT_ and _LIMIT_ line, i.e. everything --quiet was
+  # kept for. Deleting $wd threw it away, so a failed session left only the
+  # stderr tail, and grepping the surviving file for a diagnostic silently
+  # found nothing whether or not the event had occurred.
+  local slog; slog=$(ls -1 "$wd"/sim_log.*.log 2>/dev/null | head -1)
+  [ -n "$slog" ] && mv "$slog" "$OUT/log/$name/$date.logger.log"
   rm -rf "$wd"
 
   if [ $rc -ne 0 ] || ! done_already "$csv"; then
@@ -189,7 +210,24 @@ echo "name,date,rc,contract,last_line" > "$OUT/failures.csv"
 started=$(date +%s)
 while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist; do
   [ -n "$ONLY_GRID" ] && [ "$gridid" != "$ONLY_GRID" ] && continue
-  mkdir -p "$OUT/csv/$name" "$OUT/log/$name"
+  mkdir -p "$OUT/csv/$name" "$OUT/log/$name" "$OUT/cfg/$name"
+
+  # Materialise this cell's config instead of passing flags that override it.
+  # Every value the sim reads is then in one file, on disk, next to the results
+  # -- so "what was this run configured with" is answered by looking, not by
+  # reconstructing a command line. It also means editing an arm's lights.ini
+  # actually takes effect: --place-rate-bp and --ord-sz used to override the
+  # config silently, so a run labelled with an arm was not necessarily running
+  # that arm's settings.
+  cp "$CONFIG_DIR"/*.ini "$OUT/cfg/$name/"
+  set_key() {   # set_key <file> <key> <value> -- replace or append
+    local f=$1 k=$2 v=$3
+    if grep -qE "^$k " "$f"; then sed -i "s/^$k .*/$k $v/" "$f"
+    else printf '%s %s\n' "$k" "$v" >> "$f"; fi
+  }
+  set_key "$OUT/cfg/$name/lights.ini" place_rate_bp "$bp"
+  [ "$mdist" != "-1" ] && set_key "$OUT/cfg/$name/lights.ini" max_dist "$mdist"
+  set_key "$OUT/cfg/$name/lights.ini" rng_seed "$SEED"
   printf '%s\n' "${dates[@]}" \
     | xargs -P "$NJOBS" -I{} bash -c 'run_one "$@"' _ \
         "$name" "$gridid" "$bp" "$psz" "$osz" "$dly" "$cdly" "$mdist" {}

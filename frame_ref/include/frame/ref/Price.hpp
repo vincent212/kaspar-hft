@@ -2,10 +2,12 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
+
+#include <climits>
 
 #include <boost/format.hpp>
 #include "frame/ref/RefData.hpp"
@@ -90,7 +92,18 @@ namespace frame
         :pxf(_pxf),a(RefData::get_asset(_asset_id))
       {
         ASSERT(a,"No such asset");
-        px=int(std::round(pxf/a->get_units()+.0000001));
+        // Bound before converting. A long double outside [INT_MIN, INT_MAX] --
+        // or inf, if units were ever 0 -- makes the conversion to int UNDEFINED,
+        // not a defined wrap. It happens to yield 0x80000000 on x86 (negative,
+        // so the ticks > 0 guard in OB catches it), but the feed does ship
+        // structurally corrupt prices (an ESH5 print arriving as 610608800,
+        // two prices run together), so the guard that catches them must not
+        // itself depend on what the codegen does with UB. Out-of-range clamps
+        // to a value the ladder check rejects.
+        const long double t = std::round(pxf / a->get_units() + .0000001);
+        px = (t >= (long double)INT_MAX || t <= (long double)INT_MIN || !(t == t))
+                 ? -1
+                 : int(t);
       }
 
       static

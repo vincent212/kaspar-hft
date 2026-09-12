@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -156,6 +156,9 @@ int main(int argc, char* argv[])
                     "from the datafile name. ET wall-clock, DST handled.")
       ("probe-every-min", po::value<int>()->default_value(30),
                     "minutes between probe fires")
+      ("nlights-per-side", po::value<int>()->default_value(-1),
+
+                    "Lights per side per instrument (-1 = lights.ini, which\ndefaults to 4, matching production). A light holds ONE order at one\nprice, so this is what decides how many prices the shadow can rest at\nsimultaneously -- nlevels and max_dist cannot substitute for it.")
       ("max-dist",  po::value<int>()->default_value(-1),
                     "how deep the light rests, in ticks from the touch. Bounds "
                     "working size at (max_dist+1) x lev_orders_max, so at a "
@@ -225,6 +228,7 @@ int main(int argc, char* argv[])
                             vm["ob-delay-us"].as<int>(),
                             vm["ob-cancel-delay-us"].as<int>(),
                             vm["max-dist"].as<int>(),
+                            vm["nlights-per-side"].as<int>(),
                             probe_size,
                             vm["probe-out"].as<string>(),
                             probe_fires);

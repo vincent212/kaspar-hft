@@ -1,7 +1,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -1596,8 +1596,27 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
     // honest that there is nothing to model here.
     if (m->payload->ts0 == 0)
     {
-      log_inf("sim order with no ts0, applying without delay id: %d",
-              mda::OrderID::id(pl->order_ref));
+      // Who actually sends one of these? The reasoning above says "console or
+      // shutdown unwind, therefore outside the experiment" -- but that has
+      // never been measured, and if a cancel on the NORMAL path ever arrives
+      // here it is a silent correctness bug, not a harmless shortcut: the
+      // cancel jumps the queue and can be applied BEFORE the order it cancels
+      // has been released from del_q. mod() then finds nothing in qordermap,
+      // replies CancReject(NOTFOUND), and the order pops out afterwards and
+      // rests in the book forever -- invisible to SOM, and filled for real
+      // when the market trades through it.
+      //
+      // So assert, and let a run tell us. If this fires, read the order ref in
+      // the message: an id SOM knows is the bug; a console/shutdown cancel is
+      // the documented case and the assert should become a whitelist of those
+      // two senders rather than being removed.
+      ASSERTF(del_q.empty(),
+              boost::format("%s untimed cancel (ts0 == 0) while %zu sim orders are "
+                            "still queued: it would jump the queue and could be "
+                            "applied before the order it cancels. order id %d")
+                % get_name() % del_q.size() % mda::OrderID::id(pl->order_ref));
+      log_opr("%s sim order with no ts0, applying without delay id: %d",
+              get_name(), mda::OrderID::id(pl->order_ref));
       process_market_data(m->payload, m->sender);
       return;
     }
@@ -2161,7 +2180,14 @@ if (debug)
     // not the original order's -- see SOM::cancel_order.
     const int eff_delay = (p_->action == en::mt::CANCD && cancel_delay >= 0)
                             ? cancel_delay : delay;
-    auto order_engine_arrive_time = order_leave_time + std::max(40, eff_delay) * 1000; // 40 us floor
+    // uint64_t before the multiply: std::max(40, eff_delay) is an int, and an
+    // int * 1000 overflows above ~2.1e6 us (~2.1 s). --ob-delay-us is an
+    // unbounded po::value<int>, so a latency arm of 3 s used to wrap negative
+    // and either release instantly or push the head of the queue so far into
+    // the future that it never became ready -- wedging del_q for the rest of
+    // the run, since the loop breaks on the first entry that is not ready.
+    auto order_engine_arrive_time =
+        order_leave_time + uint64_t(std::max(40, eff_delay)) * 1000; // 40 us floor
     if (order_engine_arrive_time < to_proc->tim)
     {
 
@@ -2670,14 +2696,24 @@ void act::OB::check_bbbo()
   // deeper is caught on the next update as the BBO walks.
   constexpr uint kCheckWindow = 64;
 
+  // <= bid_hi, not <: with `<` the last level in the window was never checked,
+  // and when the window was clamped that level was maxprice-2 -- a real level
+  // the ladder addresses.
   const uint bid_hi = std::min<uint>(best_bid + 1 + kCheckWindow, uint(maxprice - 1));
-  for (uint i = best_bid + 1; i < bid_hi; i++)
+  for (uint i = best_bid + 1; i <= bid_hi; i++)
   {
     ASSERTF(bidqs[i]->isempty_or_allsim(),
             boost::format("bid above the inside: %s level %d (best_bid %d)")
               % get_name() % i % best_bid);
   }
 
+  // best_ask == 0 would make uint(best_ask) - 1 wrap to UINT_MAX and index off
+  // the end of askqs. The ASSERT in the caller fires first today, so this has
+  // never been reached -- but the underflow is one refactor away from being
+  // live, and an out-of-bounds read is a worse failure than the assert it is
+  // standing in for.
+  if (best_ask <= 1)
+    return;
   const uint ask_lo = (uint(best_ask) > kCheckWindow + 1) ? uint(best_ask) - kCheckWindow : 2;
   for (uint i = uint(best_ask) - 1; i >= ask_lo && i > 1; i--)
   {

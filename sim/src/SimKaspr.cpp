@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -41,6 +41,7 @@ SimKaspr::SimKaspr(std::string data_file,
                    int ob_delay_us,
                    int ob_cancel_delay_us,
                    int max_dist,
+                   int nlights_per_side,
                    int probe_size,
                    std::string probe_out,
                    std::vector<uint64_t> probe_fires)
@@ -57,7 +58,7 @@ SimKaspr::SimKaspr(std::string data_file,
     , ord_sz_(ord_sz)
     , ob_delay_us_(ob_delay_us)
     , ob_cancel_delay_us_(ob_cancel_delay_us)
-    , max_dist_(max_dist)
+    , max_dist_(max_dist), nlights_per_side_(nlights_per_side)
     , probe_size_(probe_size)
     , probe_out_(std::move(probe_out))
     , probe_fires_(std::move(probe_fires))
@@ -326,6 +327,17 @@ void SimKaspr::create_lights()
   if (rng_seed_)           pt_light.put("rng_seed", rng_seed_);
   if (ord_sz_ > 0)         pt_light.put("ord_sz", ord_sz_);
   if (max_dist_ > 0)       pt_light.put("max_dist", max_dist_);
+  if (nlights_per_side_ > 0) pt_light.put("nlights_per_side", nlights_per_side_);
+
+  // Default 4, to match production (kaspr.cpp NUM_LIGHTS_PER_SIDE). The sim
+  // used to hardcode 1 per side, which makes it a different algorithm from the
+  // one that runs: a light holds exactly one order at one price, so a single
+  // light cannot rest at several levels no matter what nlevels or max_dist are
+  // set to, and the "market comes to us" effect that multiple resting prices
+  // buy you is simply absent.
+  const int nlights = pt_light.get<int>("nlights_per_side", 4);
+  ASSERTF(nlights > 0 && nlights <= 64,
+          boost::format("nlights_per_side must be 1..64, got %d") % nlights);
   std::cerr << "SimKaspr: lights place_rate_bp=" << pt_light.get<int>("place_rate_bp", 300)
             << " ord_sz=" << pt_light.get<int>("ord_sz", 1)
             << " rng_seed=" << pt_light.get<uint32_t>("rng_seed", 1)
@@ -345,21 +357,32 @@ void SimKaspr::create_lights()
     // mmid 0, one light's full-erase remove_order clears the tracking bit for
     // every sibling holding an order at the same mmid, and the next add_order
     // trips "already have this mm id".
-    auto light_buy = create_light22_Shadow_BUY(
-        "sim", nullptr, nullptr, a->name + "_BUY", en::trader::SIMULATOR,
-        a->name, venue_, venue_, create_QCoord(), pcoord, ob, nullptr, 0,
-        timer_, som_, 0, pt_light, 0, false);
-    group_->add(light_buy);
-    lights_.push_back(light_buy);
+    // Named with the index, exactly as kaspr.cpp does. The name is not
+    // cosmetic: light22 mixes it into the per-light RNG seed, so two lights
+    // with the same name would draw the SAME placement stream and act on the
+    // same ADDs -- giving N copies of one light rather than N independent ones.
+    for (int i = 0; i < nlights; i++) {
+      auto light_buy = create_light22_Shadow_BUY(
+          "sim", nullptr, nullptr, "L_" + a->name + "_BUY_" + std::to_string(i),
+          en::trader::SIMULATOR,
+          a->name, venue_, venue_, create_QCoord(), pcoord, ob, nullptr, 0,
+          timer_, som_, 0, pt_light, 0, false);
+      group_->add(light_buy);
+      lights_.push_back(light_buy);
+    }
 
-    auto light_sel = create_light22_Shadow_SEL(
-        "sim", nullptr, nullptr, a->name + "_SEL", en::trader::SIMULATOR,
-        a->name, venue_, venue_, create_QCoord(), pcoord, ob, nullptr, 0,
-        timer_, som_, 0, pt_light, 0, false);
-    group_->add(light_sel);
-    lights_.push_back(light_sel);
+    for (int i = 0; i < nlights; i++) {
+      auto light_sel = create_light22_Shadow_SEL(
+          "sim", nullptr, nullptr, "L_" + a->name + "_SEL_" + std::to_string(i),
+          en::trader::SIMULATOR,
+          a->name, venue_, venue_, create_QCoord(), pcoord, ob, nullptr, 0,
+          timer_, som_, 0, pt_light, 0, false);
+      group_->add(light_sel);
+      lights_.push_back(light_sel);
+    }
 
-    std::cerr << "SimKaspr: lights for " << a->name << std::endl;
+    std::cerr << "SimKaspr: " << (2 * nlights) << " lights (" << nlights
+              << " per side) for " << a->name << std::endl;
   }
 }
 

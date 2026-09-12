@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -51,6 +51,7 @@ namespace sim
              int ob_delay_us = -1,
              int ob_cancel_delay_us = -1,
              int max_dist = -1,
+             int nlights_per_side = -1,
              int probe_size = 0,
              std::string probe_out = "",
              std::vector<uint64_t> probe_fires = {});
@@ -82,6 +83,14 @@ namespace sim
     // limit on working size: (max_dist + 1) levels x lev_orders_max.
     // -1 = leave lights.ini alone.
     int      max_dist_;
+    // How many lights per side. Production (kaspr.cpp NUM_LIGHTS_PER_SIDE) runs
+    // 4 buy + 4 sell per instrument; the sim ran 1 + 1, which is not the same
+    // algorithm. A light holds exactly ONE order at one price (ord_info_t is a
+    // single slot), so N lights is what lets the shadow rest at N different
+    // prices at once and have the market come to it. With one light there is
+    // no such thing as resting at several levels, whatever nlevels or max_dist
+    // say. -1 = take lights.ini's value.
+    int      nlights_per_side_;
     // SlippageProbe: parent size per leg (0 = no probe), CSV path, and the
     // fire times as epoch ns. The times are computed by the caller against a
     // real tz database -- see main.cpp -- because chutil::Time is UTC and a

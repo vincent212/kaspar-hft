@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -179,9 +179,16 @@ namespace frame::som::act
     bool internal_reject(int id, const msg::Order *&) noexcept;
     // canc_ts: market time (epoch ns) at which the cancel was decided. In sim
     // mode it becomes the book payload's ts0, so OB's delay queue makes the
-    // cancel pay wire latency the same way a new order does. 0 = caller did
-    // not know, fall back to the SOM's own market clock and then to the
-    // order's own ts.
+    // cancel pay wire latency the same way a new order does.
+    //
+    // 0 means the caller had no clock, and it is passed through AS 0 -- there
+    // is deliberately no fallback. Do not add one. Falling back to the order's
+    // own ts is exactly the bug this parameter exists to fix: the deadline
+    // ts + delay had already passed, so every cancel released on the very next
+    // record and paid zero latency while new orders paid full. Falling back to
+    // the SOM's market clock is no better -- it is only updated on BBBOChg, so
+    // it silently substitutes a stale time. See test_som_cancel_latency.cpp,
+    // which pins ts0 == 0 for both cases.
     void cancel_order(uint id, const msg::Order &ord, uint64_t canc_ts = 0) noexcept;
 
     void order_handler(const msg::Order *) noexcept;

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -1162,7 +1162,11 @@ void act::SOM::order_handler(const msg::Order *m) noexcept
               sym,
               working_sz,
               current_pos,
-              pos_limit[m->sz],
+              // [m->sym], not [m->sz]. Indexed by SIZE this read another
+              // asset's limit (an order of 5 printed pos_limit[5]) and was an
+              // out-of-bounds read for any size past the asset count -- in the
+              // one message whose whole job is to say which limit was hit.
+              pos_limit[m->sym],
               size_limit[m->sym],
               mda::OrderID::id(m->oid),
               en::to_string(m->venue),

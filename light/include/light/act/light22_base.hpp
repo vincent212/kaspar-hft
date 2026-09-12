@@ -2,7 +2,7 @@
 
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
- * Contact: v@m2te.ch | https://www.linkedin.com/in/vmayeski/
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
@@ -124,6 +124,11 @@ namespace light::act
     place<int, rng_constraint<int, 0, 17>> stream_incr;
 
     place<int, rng_constraint<int, 0, 256>> all_orders_max;
+    // The max_dist the all_orders_max ceiling was sized against. Held here
+    // because the ceiling has to be recomputed by the console LEV_ORDERS_MAX
+    // handler, which lives in this base while max_dist itself lives in the
+    // derived light22. A plain int, not a place<>: it is read back below.
+    int max_dist_for_cap = 4;
     place<int, rng_constraint<int, 0, 256>> lev_orders_max;
 
     using payload_ptr_t = boost::intrusive_ptr<const frame::mda::msg::data_pay_load>;
@@ -294,9 +299,14 @@ namespace light::act
       // orders, not the depth control. max_dist is what limits how deep we
       // rest, and if this cap bound first it would silently become the real
       // constraint and confound any sweep of max_dist.
-      // Assigned ONCE: place<> is write-once and asserts on a second write.
+      // place<> is write-once and asserts on a second write -- but only in a
+      // debug build: DEFINES_OPT carries -DPLACES_NO_CHECK_CONSTRAINT, which
+      // compiles the guard out. Do not rely on it to catch a double write in
+      // opt. The console LEV_ORDERS_MAX handler reassigns this via reset(),
+      // which bypasses the check by design; keep the two formulas in step.
+      max_dist_for_cap = pt.template get<int>("max_dist", 4);
       all_orders_max = std::max(lev_orders_max * (nlevels + 3),
-                                (pt.template get<int>("max_dist", 4) + 1) * lev_orders_max);
+                                (max_dist_for_cap + 1) * lev_orders_max);
 
       std::cerr << get_name() << " nlevels: " << nlevels << std::endl;
       std::cerr << get_name() << " lev_orders_max: " << lev_orders_max << std::endl;
@@ -456,7 +466,13 @@ namespace light::act
       else if (m->key == msg::Set::LEV_ORDERS_MAX)
       {
         lev_orders_max.reset(std::round(m->dval));
-        all_orders_max.reset(lev_orders_max * (nlevels + 1));
+        // Same formula as the constructor. It used to be (nlevels + 1) with no
+        // max_dist term, so a console LEV_ORDERS_MAX silently recomputed the
+        // ceiling lower than the one the run started with and could bind ahead
+        // of max_dist -- turning the safety ceiling into the real depth
+        // constraint mid-run, which is precisely what it must never be.
+        all_orders_max.reset(std::max(lev_orders_max * (nlevels + 3),
+                                      (max_dist_for_cap + 1) * lev_orders_max));
         ord_sz.reset(std::round(m->dval));
         log_trd("Set LEV_ORDERS_MAX, lev_orders_max: %d, all_orders_max: %d, ord_sz: %d",
                 lev_orders_max.get(), all_orders_max.get(), ord_sz.get());
