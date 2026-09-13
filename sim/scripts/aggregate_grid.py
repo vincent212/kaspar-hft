@@ -220,15 +220,38 @@ def main():
                                   if k.endswith('_short'))
                 print(f"   {c:<16} {w:5.1f} windows/session   {short}")
 
-    # the same configuration reached from two grids: if these disagree the
-    # sweep is not deterministic and nothing else in it can be trusted
-    x = {r['config']: r for r in rows}
-    if 'lat500' in x and 'rate300_sz100' in x:
-        d = x['lat500']['slip_paired'] - x['rate300_sz100']['slip_paired']
-        print(f"\nconsistency check (same config via grids A and C): "
-              f"lat500 {x['lat500']['slip_paired']:+.4f} vs "
-              f"rate300_sz100 {x['rate300_sz100']['slip_paired']:+.4f}  "
-              f"delta {d:+.4f}" + ("  OK" if abs(d) < 1e-6 else "  <-- MISMATCH"))
+    # The same configuration reached from two grids: if these disagree the sweep
+    # is not deterministic and nothing else in it can be trusted.
+    #
+    # The pairs are DISCOVERED, not named. This check used to hardcode 'lat500'
+    # and 'rate300_sz100'; when the axes moved to rate {50,100,200,400} and the
+    # latency sweep dropped 500, neither cell existed any more and the check
+    # silently stopped running -- and a check that never runs is indistinguish-
+    # able from one that passes. Match on the parameters instead, so it follows
+    # the axes wherever they go.
+    def params_of(r):
+        return (r.get('rate_bp'), r.get('size'), r.get('delay_us'),
+                r.get('ord_sz'), r.get('max_dist'))
+
+    seen, pairs = {}, []
+    for r in rows:
+        k = params_of(r)
+        if None in k:                     # no grid.tsv metadata, nothing to match on
+            continue
+        if k in seen:
+            pairs.append((seen[k], r))
+        else:
+            seen[k] = r
+
+    if not pairs:
+        print("\nconsistency check: no cell appears in two grids -- nothing to "
+              "cross-check. This is NOT a pass.")
+    for a_, b_ in pairs:
+        d = a_['slip_paired'] - b_['slip_paired']
+        print(f"\nconsistency check (identical parameters, two grids): "
+              f"{a_['config']} {a_['slip_paired']:+.4f} vs "
+              f"{b_['config']} {b_['slip_paired']:+.4f}  delta {d:+.4f}"
+              + ("  OK" if abs(d) < 1e-6 else "  <-- MISMATCH"))
 
     if a.csv:
         keys = [k for k in rows[0] if k != 'outcomes']

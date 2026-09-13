@@ -603,9 +603,48 @@ void act::OB::add(
           else if (!do_cross_check && !stray_o->issim() &&
                    stray_o->get_side() == en::bs::SEL)
           {
-            do_canc(q_i, stray_o, tmp_px, stray_o->get_sz(), 0, en::mt::CANCD, venue);
+            // Read the exchange id BEFORE the cancel: do_canc -> canc_notify ->
+            // remove_order deletes the Order, so stray_o is dangling after it.
+            const uint64_t xoid = stray_o->get_exordid();
+            const int      xsz  = stray_o->get_sz();
+            do_canc(q_i, stray_o, tmp_px, xsz, 0, en::mt::CANCD, venue);
+
+            // OB::ordermap keeps its entry for this order, deliberately.
+            //
+            // The entry is keyed by the exchange orderID and outlives the order
+            // we just destroyed, but nothing ever acts on it again:
+            //
+            //  - the exchange's own DELETE finds it, builds a CANCD for a chopid
+            //    that is no longer in the level's qordermap, and mod() takes
+            //    mod_order_that_is_not_found -> non-sim branch -> return. The
+            //    "skips the BBO re-walk" hazard in that path needs the order to
+            //    still be RESTING; this one is gone from the book and the inside
+            //    was re-walked here, at cancel time.
+            //  - a re-ADD of the same orderID cannot reach the "order added
+            //    twice" guard, because the only thing that re-sends an ADD is a
+            //    recovery, and a recovery calls clear(), which begins with
+            //    ordermap.clear().
+            //
+            // So an erase here would buy nothing -- and doing it at this point
+            // would be actively wrong: this runs inside add(), which
+            // data_handler reaches through process_q() while holding a raw
+            // order_info_t* into ordermap (:2103, written through at :2191).
+            // ordermap is a std::flat_map, so erase() shifts later elements and
+            // invalidates that pointer.
+
             ++num_cross_recover;
             ++uncrossed_here;
+
+            // Name what was deleted. This is the one place the book destroys a
+            // REAL exchange order, so the shutdown banner's "prices around those
+            // events are not trustworthy" needs a time, a price and an id to
+            // point at -- TRACEORDERS is defined nowhere in the tree, so without
+            // this the event left no trace at all.
+            log_err("%s UNCROSS: cancelled real %s exordid=%llu sz=%d at px=%d "
+                    "(bid %d ask %d, incoming %s px=%d) -- prices here are suspect",
+                    get_name(), (side == en::bs::BUY ? "ASK" : "BID"),
+                    (unsigned long long)xoid, xsz, tmp_px, best_bid, best_ask,
+                    en::to_string(side), px);
 #ifdef TRACEORDERS
             std::cerr << ">>> CANCSTRAY: " << mda::OrderID::id(stray_o->get_id()) << " " << ctim.date << " " << ctim.ns << std::endl;
 #endif
@@ -652,9 +691,48 @@ void act::OB::add(
           else if (!do_cross_check && !stray_o->issim() &&
                    stray_o->get_side() == en::bs::BUY)
           {
-            do_canc(q_i, stray_o, tmp_px, stray_o->get_sz(), 0, en::mt::CANCD, venue);
+            // Read the exchange id BEFORE the cancel: do_canc -> canc_notify ->
+            // remove_order deletes the Order, so stray_o is dangling after it.
+            const uint64_t xoid = stray_o->get_exordid();
+            const int      xsz  = stray_o->get_sz();
+            do_canc(q_i, stray_o, tmp_px, xsz, 0, en::mt::CANCD, venue);
+
+            // OB::ordermap keeps its entry for this order, deliberately.
+            //
+            // The entry is keyed by the exchange orderID and outlives the order
+            // we just destroyed, but nothing ever acts on it again:
+            //
+            //  - the exchange's own DELETE finds it, builds a CANCD for a chopid
+            //    that is no longer in the level's qordermap, and mod() takes
+            //    mod_order_that_is_not_found -> non-sim branch -> return. The
+            //    "skips the BBO re-walk" hazard in that path needs the order to
+            //    still be RESTING; this one is gone from the book and the inside
+            //    was re-walked here, at cancel time.
+            //  - a re-ADD of the same orderID cannot reach the "order added
+            //    twice" guard, because the only thing that re-sends an ADD is a
+            //    recovery, and a recovery calls clear(), which begins with
+            //    ordermap.clear().
+            //
+            // So an erase here would buy nothing -- and doing it at this point
+            // would be actively wrong: this runs inside add(), which
+            // data_handler reaches through process_q() while holding a raw
+            // order_info_t* into ordermap (:2103, written through at :2191).
+            // ordermap is a std::flat_map, so erase() shifts later elements and
+            // invalidates that pointer.
+
             ++num_cross_recover;
             ++uncrossed_here;
+
+            // Name what was deleted. This is the one place the book destroys a
+            // REAL exchange order, so the shutdown banner's "prices around those
+            // events are not trustworthy" needs a time, a price and an id to
+            // point at -- TRACEORDERS is defined nowhere in the tree, so without
+            // this the event left no trace at all.
+            log_err("%s UNCROSS: cancelled real %s exordid=%llu sz=%d at px=%d "
+                    "(bid %d ask %d, incoming %s px=%d) -- prices here are suspect",
+                    get_name(), (side == en::bs::BUY ? "ASK" : "BID"),
+                    (unsigned long long)xoid, xsz, tmp_px, best_bid, best_ask,
+                    en::to_string(side), px);
 #ifdef TRACEORDERS
             std::cerr << ">>> CANCSTRAY: " << mda::OrderID::id(stray_o->get_id()) << " " << ctim.date << " " << ctim.ns << std::endl;
 #endif
@@ -2275,6 +2353,7 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
   {
     SNGH;
   }
+
 }
 
 // #define DBGDELQ

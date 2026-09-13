@@ -14,38 +14,47 @@
  * does: it runs the shadow lights as a MARKET MAKER, quoting both sides at once
  * through the RTH session, and emits one CSV row per window.
  *
- * It is also why the simulator places orders at all. `targetpos` defaults to 0
- * and only Set(TARGET_POS) moves it, so with nothing driving the lights they
- * cancel on the "position is at target" branch forever. ORD: 0.
+ * It is also why the simulator places orders at all. A light with `targetpos`
+ * 0 and a flat book has nothing to do -- it cancels on the "position is at
+ * target" branch forever -- so with nothing driving it the simulator places no
+ * orders at all. ORD: 0.
  *
  * ## The arrangement
  *
- *   first boundary in the session   Set(TARGET_POS, +sz) to every BUY light
- *                                   Set(TARGET_POS, -sz) to every SEL light
- *                                   -- the only target send there will ever be
+ * NO TARGET IS EVER SENT. This is the PositionManager arrangement
+ * (PositionManager.hpp:56): `targetpos` stays 0 on every light and the POSITION
+ * is what gives a light work. From light22.hpp:239,243, with targetpos 0:
  *
- *   each boundary after that        close the open window, emit its row,
- *                                   open the next
+ *     BUY works only while pos < 0       (short -> buy it back)
+ *     SEL works only while pos > 0       (long  -> sell it down)
+ *     pos == 0                            both idle
  *
- *   first boundary past 15:30       close the last window and stop measuring
+ * So a leg is started by telling its book it holds the OPPOSITE position, and
+ * it finishes when the lights have worked that book back to flat. The position
+ * returns to 0 ON ITS OWN; nothing flattens it and nothing resets it.
  *
- * Nothing is sent at the end. TARGET_POS 0 is not an off switch: with a long
- * position, pos > targetpos, so the SELL side would become active and liquidate
- * the book. It is the flattening this design exists to remove, arriving through
- * the back door. Nothing needs standing down anyway -- the position
- * self-corrects inside the band and the replay stops at --end-ts.
+ * Because no single position value leaves both sides live, each side gets its
+ * OWN PCoord (SimKaspr::create_lights). That is what lets the two legs run over
+ * the same window instead of one after the other:
  *
- * Both sides are live at the same time because their targets DIFFER: a BUY
- * light stands down at pos >= targetpos and a SEL light at pos <= targetpos, so
- * every position strictly inside (-sz, +sz) leaves both working. Nothing
- * flattens it and nothing resets it -- a window's closing position is carried
- * into the next one and reported as pos_at_close.
+ *   every window opens              buy book += SEL sz   (pos -sz, BUY works)
+ *                                   sel book += BUY sz   (pos +sz, SEL works)
  *
- * The inventory does NOT random-walk around zero: measured over a session it
- * sits above zero on 69% of fills, hits exactly zero on 0.5%, and is at 90% of
- * the band or beyond on 26%. It PINS to whichever edge the day pushes it to.
- * Both sides keep quoting anyway, because the pinned one is throttled to the
- * remaining distance rather than switched off.
+ *   the window closes when          the minimum has elapsed AND both legs have
+ *                                   filled their size
+ *
+ *   first boundary past 15:30       stop opening windows; the lights keep
+ *                                   whatever work they still hold
+ *
+ * The work handed out grows by one parent per side per window and is never
+ * taken back. Each book returns to 0 by itself inside its window, so the two
+ * stay in step and neither side ever runs out of room to quote -- the failure
+ * of a fixed band, where one side buys its size once and then stands down for
+ * the rest of the session.
+ *
+ * Nothing is sent at the end of the session either. There is no stand-down to
+ * send: a book that is already flat is idle, and a book that is not is still
+ * being worked, which is the honest state to leave it in.
  *
  * ## When a window ends -- the requirement, stated plainly
  *
@@ -147,6 +156,7 @@
 #include "actors/msg/Start.hpp"
 #include "enum/e_names.hpp"
 #include "frame/mda/msg/Subscribe.hpp"
+#include "light/qcoord.hpp"
 #include "frame/mtim/msg/Alarm.hpp"
 #include "frame/mtim/msg/AlarmClockSub.hpp"
 #include "frame/ob/msg/EndOfBurst.hpp"
@@ -182,7 +192,12 @@ namespace sim
       // has not filled its size when the minimum elapses, the window stays open
       // until it does. A thin session therefore produces fewer, longer windows
       // rather than short rows -- there is no partial row and no abort.
-      uint64_t    min_window_ns = 15ull * 60ull * 1000000000ull;
+      // 10 minutes. The legs themselves finish in seconds -- 6.5s mean on a
+      // measured session -- so this is not sized to give them time to fill. It
+      // is sized to give each side room to come back to flat AND to sit square
+      // for a while before the next parent lands on it, which is what keeps an
+      // overfill from running into the following window's measurement.
+      uint64_t    min_window_ns = 10ull * 60ull * 1000000000ull;
       std::string out_path;             // CSV; empty = stderr summary only
     };
 
@@ -209,6 +224,18 @@ namespace sim
       sel_lights = std::move(sels);
     }
 
+    // The two position books, one per side. THIS is the control surface: no
+    // target is ever sent. A light with targetpos 0 works only while the
+    // position is on the other side of flat (light22.hpp:239,243), so a leg is
+    // started by telling its book it holds the OPPOSITE position and is finished
+    // when the lights have worked that book back to 0 -- exactly what
+    // PositionManager does (PositionManager.hpp:56).
+    void set_coords(light::PCoord *buys, light::PCoord *sels)
+    {
+      pcoord_buy = buys;
+      pcoord_sel = sels;
+    }
+
     bool enabled() const { return cfg.parent_sz > 0 && cfg.session_end > cfg.session_start; }
 
   private:
@@ -220,6 +247,11 @@ namespace sim
       int      n_fills  = 0;
       uint64_t started  = 0;
       uint64_t ended    = 0;
+      // What this side actually has to execute THIS window: one parent, plus
+      // or minus whatever the last window over- or under-shot. Set at window
+      // open from the probe's own running totals, so completion never depends
+      // on reading a position book that another actor updates.
+      int      to_do    = 0;
       // 2x the mid at the fill that COMPLETED this leg, for its own drift.
       // Zero while the leg is unfinished, which is how emit_row knows not to
       // report a drift to a mid the leg never reached.
@@ -286,8 +318,9 @@ namespace sim
     void fill_handler(const frame::som::msg::Fill *m) noexcept;
     void on_clock(uint64_t now) noexcept;
 
-    // The only place a target is ever sent. Called once, from start_handler.
-    void send_targets() noexcept;
+    // Hand both sides one parent of work, at the open of every window. THE
+    // ONLY PLACE the probe touches a position.
+    void give_work() noexcept;
     void open_window(uint64_t now) noexcept;
     void close_window(uint64_t now) noexcept;
     void emit_header();
@@ -312,6 +345,25 @@ namespace sim
     int      position  = 0;      // our own, from fills
 
     uint64_t fire_ts   = 0;      // start of the open window
+    light::PCoord *pcoord_buy = nullptr;
+    light::PCoord *pcoord_sel = nullptr;
+
+    // Total handed to each side so far. Normally one parent per window each,
+    // but the two diverge when a side runs ahead of its work and has to be
+    // given more than one to put it back to work -- so they are counted
+    // separately rather than sharing a total.
+    int      work_given_buy = 0;
+    int      work_given_sel = 0;
+
+    // Everything each side has filled since the session began. work_given minus
+    // one of these is that side's outstanding work, which is what a leg has to
+    // execute to be finished -- computed from the probe's OWN counters rather
+    // than from the PCoord, because the book is updated by the light's fill
+    // handler and this actor's fill handler is a separate dispatch: reading it
+    // here would be a race on who was served first.
+    double   buy_filled_total = 0;
+    double   sel_filled_total = 0;
+
     // How far past the minimum the open window has run, at which the next
     // stall warning is due. Reset on every open; grows by one minimum per
     // warning so a permanently stalled leg complains periodically, not per tick.

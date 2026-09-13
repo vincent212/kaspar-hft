@@ -18,6 +18,7 @@
  * in microseconds rather than the twenty minutes a replay takes.
  */
 
+#include <filesystem>
 #include <gtest/gtest.h>
 
 #include <cstdio>
@@ -38,6 +39,7 @@
 #include "light/msg/Set.hpp"
 #include "sim/act/SlippageProbe.hpp"
 #include "unit_test/MockActor.hpp"
+#include "unit_test/MockPCoord.hpp"
 #include "unit_test/TestHelper.hpp"
 
 using namespace frame;
@@ -77,6 +79,13 @@ protected:
   MockLight mock_buy{"MockBuy"};
   MockLight mock_sel{"MockSel"};
 
+  // The two position books. These ARE the control surface: the probe sends no
+  // targets, it hands each side work by moving its book away from flat, and the
+  // lights (here, the test) work it back. One book per side, because with
+  // targetpos 0 no single position leaves both sides live.
+  unit_test::MockPCoord book_buy;
+  unit_test::MockPCoord book_sel;
+
   std::unique_ptr<sim::SlippageProbe> probe;
   int sym = 0;
   uint64_t next_ex_order_id = 5000;
@@ -87,6 +96,29 @@ protected:
     if (!csv_path.empty()) std::remove(csv_path.c_str());
   }
 
+  // Scratch directory for the CSVs these tests write.
+  //
+  // NOT ::testing::TempDir(). On generic Linux gtest returns the bare literal
+  // "/tmp/" -- it special-cases only Windows, Windows Mobile and Android, and
+  // consults no environment variable -- and / is the small local RAID1 that a
+  // sweep's logs once filled to 100%, surfacing as a link error that looked
+  // nothing like a full disk. TearDown() unlinks the file, so a clean run
+  // leaves nothing behind; an ABORTED one does not, and several tests here
+  // deliberately drive ASSERT paths. $HOME is on the big filer.
+  static std::string scratch_dir() {
+    if (const char *t = std::getenv("TEST_TMPDIR"); t && *t) {
+      std::string d(t);
+      if (d.back() != '/') d += '/';
+      return d;
+    }
+    if (const char *h = std::getenv("HOME"); h && *h) {
+      std::string d = std::string(h) + "/tmp/";
+      std::filesystem::create_directories(d);
+      return d;
+    }
+    return ::testing::TempDir();
+  }
+
   // A CSV path unique to the running test, so a parameterised suite does not
   // have its three instances writing over one another. Parameterised test names
   // contain '/', so the name part is flattened into a legal filename.
@@ -94,7 +126,7 @@ protected:
     const auto *ti = ::testing::UnitTest::GetInstance()->current_test_info();
     std::string leaf = std::string(ti->test_suite_name()) + "_" + ti->name();
     for (char &c : leaf) if (c == '/') c = '_';
-    csv_path = ::testing::TempDir() + "slip_probe_" + leaf + ".csv";
+    csv_path = scratch_dir() + "slip_probe_" + leaf + ".csv";
     std::remove(csv_path.c_str());
   }
 
@@ -140,6 +172,7 @@ protected:
     // pointers was the bug that left SEL lights untargeted once there was more
     // than one a side.
     probe->set_lights({&mock_buy}, {&mock_sel});
+    probe->set_coords(&book_buy, &book_sel);
     TestHelper::invoke_handler(probe.get(), new actors::msg::Start(), nullptr);
     // Deliberately NOT cleared here: the startup targets are the probe's whole
     // control surface and two tests assert on them directly. Tests that care
@@ -183,6 +216,19 @@ protected:
   // the FILL, not from the tick that later notices, so a test about leg
   // durations has to be able to say when the fill happened.
   void fill_at(uint64_t tim, en::bs side, int px, int sz) {
+    // The LIGHT moves its own book on a fill (light22_base.hpp:771), and the
+    // probe is a separate subscriber to the same publish. Mirror that here, or
+    // the books never come back to flat and the test bears no resemblance to
+    // what runs. The buy book is worked UP toward 0 by buying; the sell book
+    // DOWN toward 0 by selling.
+    // Through the BASE method deliberately, so the mock does not record it.
+    // MockPCoord::calls is then purely the work the PROBE handed out, which is
+    // what the work() helper reports and what the tests assert on; the lights
+    // working that book off is a different thing and would otherwise interleave
+    // with it.
+    if (side == en::bs::BUY) book_buy.light::PCoord::add_position(en::bs::BUY, sz);
+    else                     book_sel.light::PCoord::add_position(en::bs::SEL, sz);
+
     som::msg::Fill f(1u, en::x::SIM, uint(sym), px, side, double(sz), 0.0,
                      en::trader::SIMULATOR, tim);
     TestHelper::invoke_handler(probe.get(), &f, nullptr);
@@ -193,12 +239,21 @@ protected:
   // Every TARGET_POS the probe pushed at a light, in order. There should be
   // exactly one per light for a whole session: +sz for a BUY light, -sz for a
   // SEL light, sent once and never revised.
+  // Every TARGET_POS a light was sent. Must always be empty: targetpos stays 0
+  // and the probe drives the POSITION instead, exactly as PositionManager does.
   std::vector<int> targets(const MockLight &l) {
     std::vector<int> v;
     for (size_t i = 0; i < l.message_count(); i++)
       if (auto s = l.get_message<light::msg::Set>(i))
         if (s->key == light::msg::Set::TARGET_POS)
           v.push_back(int(s->dval));
+    return v;
+  }
+
+  // The sizes handed to a book, one entry per window opened.
+  std::vector<int> work(const unit_test::MockPCoord &b) {
+    std::vector<int> v;
+    for (const auto &c : b.calls) v.push_back(c.side == en::bs::BUY ? c.sz : -c.sz);
     return v;
   }
 
@@ -261,45 +316,97 @@ TEST_F(SlippageProbeTest, ArmsAPeriodicTimerRatherThanAWallClockAlarm) {
       << "a one-shot would fire once and the probe would stop";
 }
 
-TEST_F(SlippageProbeTest, SendsBothSidesTargetsOnceAtTheFirstBoundary) {
+TEST_F(SlippageProbeTest, GivesBothSidesWorkAtTheFirstBoundary) {
   build();
   // Nothing at Start: the probe waits for a boundary inside the session with a
-  // usable book, because a target sent before there is anything to measure
+  // usable book, because work handed out before there is anything to measure
   // would have the lights trading outside the window.
-  EXPECT_TRUE(targets(mock_buy).empty()) << "sent a target at Start";
-  EXPECT_TRUE(targets(mock_sel).empty()) << "sent a target at Start";
+  EXPECT_TRUE(work(book_buy).empty()) << "gave work at Start";
+  EXPECT_TRUE(work(book_sel).empty()) << "gave work at Start";
 
   quote(kBid, kAsk);
   tick(kT0);
 
-  // The entire control surface: +sz to the buy side, -sz to the sell side. A
-  // BUY light stands down at pos >= targetpos and a SEL light at
-  // pos <= targetpos, so every position strictly inside (-sz, +sz) leaves both
-  // sides live and they quote against each other.
-  EXPECT_EQ(targets(mock_buy), std::vector<int>{ kParent });
-  EXPECT_EQ(targets(mock_sel), std::vector<int>{ -kParent });
+  // The entire control surface. targetpos stays 0 on every light, so a BUY
+  // light works only while its book is SHORT and a SEL light only while its
+  // book is LONG (light22.hpp:239,243). Handing a side a parent therefore means
+  // moving its book to the opposite position and letting the lights work it
+  // back to flat -- what PositionManager does (PositionManager.hpp:56).
+  EXPECT_EQ(work(book_buy), std::vector<int>{ -kParent }) << "buy book must go short";
+  EXPECT_EQ(work(book_sel), std::vector<int>{  kParent }) << "sel book must go long";
+  EXPECT_EQ(book_buy.get_position(), -kParent);
+  EXPECT_EQ(book_sel.get_position(),  kParent);
 }
 
-TEST_F(SlippageProbeTest, NeverSendsATargetAgain) {
-  // Mutation guard for the design this replaced: the old probe re-targeted on
-  // every phase change and then TRADED its way back to flat after each fire --
-  // about as much volume as the measurement itself, at real prices, executed
-  // after the row was written and so invisible in it.
-  //
-  // In particular there is no stand-down at the end of the session. TARGET_POS 0
-  // is not an off switch: with a long position pos > targetpos, so the SELL side
-  // would go active and liquidate the book.
+TEST_F(SlippageProbeTest, NeverSendsATargetAtAll) {
+  // Mutation guard for the arrangement this replaced. TARGET_POS is never sent,
+  // not once, not at the end of the session. It is not an off switch either:
+  // with targetpos 0 and a long position a SEL light is ACTIVE, so "standing
+  // the lights down" by targeting flat is just the liquidation this design
+  // removed, arriving through the back door.
   build();
   quote(kBid, kAsk);
   tick(kT0);
-  mock_buy.clear();
-  mock_sel.clear();
+  run_window(kT0 + kSec);
+  tick(session_end() + kWindow);
 
-  run_window(kT0 + kSec);                       // a full window
-  tick(session_end() + kWindow);                // and past the close
+  EXPECT_TRUE(targets(mock_buy).empty()) << "a target was sent";
+  EXPECT_TRUE(targets(mock_sel).empty()) << "a target was sent";
+}
 
-  EXPECT_TRUE(targets(mock_buy).empty()) << "a target was re-sent";
-  EXPECT_TRUE(targets(mock_sel).empty()) << "a target was re-sent";
+TEST_F(SlippageProbeTest, GivesExactlyOneParentPerWindowPerSide) {
+  // The work handed out grows by one parent per window and is never taken back
+  // or topped up. A side that overshot simply has less to do next window --
+  // that self-corrects and must not be "fixed" by adjusting the book.
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  uint64_t t = kT0;
+  for (int i = 0; i < 3; i++) {
+    fill(en::bs::BUY, kAsk, kParent);
+    fill(en::bs::SEL, kBid, kParent);
+    t += kWindow + kSec;
+    tick(t);
+  }
+
+  const std::vector<int> expect_buy(4, -kParent);
+  const std::vector<int> expect_sel(4,  kParent);
+  EXPECT_EQ(work(book_buy), expect_buy) << "one parent per window, no more";
+  EXPECT_EQ(work(book_sel), expect_sel) << "one parent per window, no more";
+}
+
+TEST_F(SlippageProbeTest, AnOvershootLeavesLessToDoNextWindow) {
+  // The failure this cost a session to find. A side overshoots its work on the
+  // last clip -- the lights net against a SHARED position while each throttles
+  // against its OWN working size -- so the book ends past flat and the next
+  // window holds less than a full parent. Completion is measured against THAT,
+  // not against parent_sz: testing against the parent stalled the window
+  // forever and lost 22 of 24 windows.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, kParent + 2);   // overshoot the buy side by 2
+  fill(en::bs::SEL, kBid, kParent);
+  tick(kT0 + kWindow + kSec);             // window 1 closes, window 2 opens
+
+  // Window 2 must complete on kParent-2 buy lots, because that is all the work
+  // the book holds. If it demanded a full parent it would never close.
+  fill(en::bs::BUY, kAsk, kParent - 2);
+  fill(en::bs::SEL, kBid, kParent);
+  tick(kT0 + 2 * (kWindow + kSec));
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 3u) << "both windows must close";
+  EXPECT_EQ(rows[2][kOutcome], "ok");
+
+  // That last tick also OPENED window 3, so each book now holds exactly one
+  // fresh parent and nothing carried over: the overshoot was absorbed by
+  // window 2 doing less, not by anyone adjusting a book.
+  EXPECT_EQ(book_buy.get_position(), -kParent) << "overshoot must not carry past window 2";
+  EXPECT_EQ(book_sel.get_position(),  kParent);
 }
 
 TEST_F(SlippageProbeTest, DoesNotEmitBeforeTheFirstScheduledTime) {

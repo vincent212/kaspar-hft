@@ -125,6 +125,10 @@ namespace sim
     std::vector<actor_ptr> buy_lights_, sel_lights_;
 
     std::map<std::string, light::PCoord*> pcoord_map_;
+    // The two position books the probe works: one per side, because targetpos
+    // stays 0 and a light is given work by its POSITION, not by a target.
+    light::PCoord *probe_pcoord_buy_ = nullptr;
+    light::PCoord *probe_pcoord_sel_ = nullptr;
     std::vector<std::string> registered_;   // symbols registered from the universe JSON
 
     // Load the universe JSON and register every future with RefData, so the

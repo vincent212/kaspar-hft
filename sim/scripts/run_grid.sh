@@ -4,12 +4,14 @@
 #
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# The shadow baseline grid: 29 configs x every runnable 2025 session.
+# The shadow baseline grid: 28 configs x every runnable 2025 session.
 # See models/PLAN.md, "The shadow baseline grid".
 #
 #   ./run_grid.sh                 # the whole grid
 #   ./run_grid.sh --smoke         # 6 dates across the year, every config
 #   ./run_grid.sh --configs A     # one grid only (A, B or C)
+#   ./run_grid.sh --month 202501  # one month of sessions, every config
+#   ./run_grid.sh --only rate200_sz10   # a single named config (see the tsv)
 #   NJOBS=56 ./run_grid.sh
 #
 # A session that crashes costs one data point and is recorded in failures.csv
@@ -27,11 +29,13 @@ SEED=${SEED:-1}
 GRID_SET=${GRID_SET:-1}   # 1 = full sweep (config_a); 2 = follow-up (config_b)
 MIN_BIN_BYTES=${MIN_BIN_BYTES:-10000000}   # below this: weekend/holiday, no RTH
 
-SMOKE=0; ONLY_GRID=""
+SMOKE=0; ONLY_GRID=""; ONLY_MONTH=""; ONLY_NAME=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --smoke)   SMOKE=1 ;;
     --configs) ONLY_GRID="$2"; shift ;;
+    --month)   ONLY_MONTH="$2"; shift ;;
+    --only)    ONLY_NAME="$2"; shift ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
   shift
@@ -43,8 +47,21 @@ mkdir -p "$OUT"/{csv,log}
 cp "$BIN_SRC" "$OUT/sim.pinned"
 BIN="$OUT/sim.pinned"
 
-# ---- the 29 configs ---------------------------------------------------
+# ---- the axes ---------------------------------------------------------
 # name  grid  place_rate_bp  probe_size  ord_sz  delay_us  cancel_delay_us  max_dist
+#
+# RATE_BP is grid A's rate axis. BASE_BP is the rate grids B and C hold fixed
+# while they sweep something else, and it must be one of the swept values or the
+# size and latency curves are anchored at a rate the rate curve never measured.
+#
+# LAT_US has no 500 in it on purpose: every grid A and grid B cell runs at
+# 500 us, so a lat500 cell is the same experiment as rate<BASE_BP>_sz100 and
+# duplicating it buys nothing. The latency curve reads against that cell as its
+# own baseline.
+RATE_BP=${RATE_BP:-"50 100 200 400"}
+BASE_BP=${BASE_BP:-200}
+LAT_US=${LAT_US:-"0 100 200 400 800 1600 3200 6400"}
+
 grid_tsv="$OUT/grid.tsv"
 
 # Two grid sets. GRID_SET=1 is the full sweep and runs under config_a; GRID_SET=2
@@ -60,22 +77,22 @@ grid_tsv="$OUT/grid.tsv"
 {
   if [ "$GRID_SET" = "2" ]; then
     for q in 20 50 100 200; do
-      printf 'Q%s\tB2\t300\t%s\t1\t500\t500\t-1\n' "$q" "$q"
+      printf 'Q%s\tB2\t%s\t%s\t1\t500\t500\t-1\n' "$q" "$BASE_BP" "$q"
     done
-    for us in 0 100 200 400 500 800 1600 3200 6400; do
-      printf 'lat%s\tC2\t300\t100\t-1\t%s\t%s\t-1\n' "$us" "$us" "$us"
+    for us in $LAT_US; do
+      printf 'lat%s\tC2\t%s\t100\t-1\t%s\t%s\t-1\n' "$us" "$BASE_BP" "$us" "$us"
     done
   else
-    for bp in 50 100 300 500; do
+    for bp in $RATE_BP; do
       for sz in 1 10 100; do
         printf 'rate%s_sz%s\tA\t%s\t%s\t-1\t500\t500\t-1\n' "$bp" "$sz" "$bp" "$sz"
       done
     done
     for q in 1 2 5 10 20 50 100 200; do
-      printf 'Q%s\tB\t300\t%s\t1\t500\t500\t-1\n' "$q" "$q"
+      printf 'Q%s\tB\t%s\t%s\t1\t500\t500\t-1\n' "$q" "$BASE_BP" "$q"
     done
-    for us in 0 100 200 400 500 800 1600 3200 6400; do
-      printf 'lat%s\tC\t300\t100\t-1\t%s\t%s\t-1\n' "$us" "$us" "$us"
+    for us in $LAT_US; do
+      printf 'lat%s\tC\t%s\t100\t-1\t%s\t%s\t-1\n' "$us" "$BASE_BP" "$us" "$us"
     done
   fi
   # Grid D (max_dist sweep) removed -- see the commit; a light holds one order at
@@ -131,11 +148,25 @@ if [ "$SMOKE" = 1 ]; then
   for pick in 20250115 20250310 20250612 20250815 20251031 20251222; do
     for d in "${dates_all[@]}"; do [ "$d" = "$pick" ] && dates+=("$d"); done
   done
+elif [ -n "$ONLY_MONTH" ]; then
+  # One month, every runnable session in it. The Sunday and size filters above
+  # still apply, so this is "the sessions that exist in that month", not a
+  # calendar.
+  dates=()
+  for d in "${dates_all[@]}"; do
+    [ "${d:0:6}" = "$ONLY_MONTH" ] && dates+=("$d")
+  done
+  if [ "${#dates[@]}" -eq 0 ]; then
+    echo "no runnable sessions in $ONLY_MONTH" >&2; exit 2
+  fi
 else
   dates=("${dates_all[@]}")
 fi
 
-echo "grid   : $(wc -l < "$grid_tsv") configs${ONLY_GRID:+ (grid $ONLY_GRID only)}"
+echo "grid   : $(wc -l < "$grid_tsv") configs${ONLY_GRID:+ (grid $ONLY_GRID only)}${ONLY_NAME:+ (config $ONLY_NAME only)}"
+if [ -n "$ONLY_NAME" ] && ! cut -f1 "$grid_tsv" | grep -qx "$ONLY_NAME"; then
+  echo "no such config: $ONLY_NAME -- known: $(cut -f1 "$grid_tsv" | tr '\n' ' ')" >&2; exit 2
+fi
 echo "dates  : ${#dates[@]} runnable 2025 sessions (of $(ls "$SRC"/bin/310/310.2025*.bin 2>/dev/null | wc -l))"
 echo "out    : $OUT"
 echo "jobs   : $NJOBS"
@@ -224,6 +255,7 @@ echo "name,date,rc,contract,last_line" > "$OUT/failures.csv"
 started=$(date +%s)
 while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist; do
   [ -n "$ONLY_GRID" ] && [ "$gridid" != "$ONLY_GRID" ] && continue
+  [ -n "$ONLY_NAME" ] && [ "$name" != "$ONLY_NAME" ] && continue
   mkdir -p "$OUT/csv/$name" "$OUT/log/$name" "$OUT/cfg/$name"
 
   # Materialise this cell's config instead of passing flags that override it.

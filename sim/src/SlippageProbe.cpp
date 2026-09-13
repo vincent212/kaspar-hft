@@ -117,41 +117,71 @@ void SlippageProbe::start_handler(const actors::msg::Start *) noexcept
           (unsigned long long)(cfg.min_window_ns / 1000000000ull), cfg.tick_s);
 }
 
-void SlippageProbe::send_targets() noexcept
+void SlippageProbe::give_work() noexcept
 {
-  // THE ONLY PLACE A TARGET IS EVER SENT, and it is reached from exactly one
-  // line in on_clock() -- the first boundary inside the session.
+  // THE ONLY PLACE THE PROBE TOUCHES A POSITION, and it sends no target at all.
   //
-  // BUY lights get +sz, SEL lights get -sz. That is the entire control surface.
-  // A BUY light stands down at pos >= targetpos and a SEL light at
-  // pos <= targetpos (light22.hpp:239,243), so every position strictly inside
-  // (-sz, +sz) leaves BOTH sides live. They quote against each other and the
-  // pair keeps buying and selling for as long as the session runs.
+  // targetpos stays 0 on every light. A light with targetpos 0 works only while
+  // its book is on the far side of flat (light22.hpp:239,243) -- a BUY light
+  // while pos < 0, a SEL light while pos > 0 -- so the way to give a side a
+  // parent to execute is to tell its book it holds the OPPOSITE position. The
+  // lights then work it back to flat and stop by themselves. That is what
+  // PositionManager does (PositionManager.hpp:56) and it is why there is no
+  // flattening step anywhere in this actor: nothing has to unwind a position
+  // that was only ever a piece of work.
   //
-  // The inventory does NOT random-walk around zero: measured over a session it
-  // sits at a band edge most of the time (pos > 0 on 69% of fills, pos == 0 on
-  // 0.5%, |pos| >= 0.9*sz on 26%). diff_from_target throttles the pinned side
-  // rather than switching it off, so both sides stay live and churn across the
-  // boundary -- which is what the measurement needs. It is not a flat book.
-  //
-  // Sent once and never revised. In particular NOT reset to 0 at the end of the
-  // session: targetpos 0 does not stand a light down, it points the sell side at
-  // flat and makes it liquidate whatever is on the book.
-  // Both sides must actually be wired up. This is the check that was missing
-  // when set_lights() took two pointers instead of two vectors: with N lights a
-  // side it was handed lights_[0] and lights_[1] -- both BUY lights -- so no SEL
-  // light ever received a target, and an untargeted SEL light is not idle, it is
-  // permanently armed to flatten any long. Nothing failed; the numbers were just
-  // wrong, for an entire corpus.
-  ASSERT(!buy_lights.empty(), "no BUY lights: nothing would ever bid");
-  ASSERT(!sel_lights.empty(), "no SEL lights: nothing would ever offer");
+  // Each side has its own book because no single position leaves both sides
+  // live: at -sz only the buy side works, at +sz only the sell side, at 0
+  // neither. One shared book runs one leg at a time, which is the sequential
+  // design this replaces.
+  ASSERT(pcoord_buy, "no buy position book: the buy side would never bid");
+  ASSERT(pcoord_sel, "no sel position book: the sell side would never offer");
+  ASSERTF(cfg.parent_sz > 0, boost::format("parent_sz %d") % cfg.parent_sz);
 
   const int sz = cfg.parent_sz;
-  for (auto &l : buy_lights) if (l) l->send(new light::msg::Set(light::msg::Set::TARGET_POS,  sz), this);
-  for (auto &l : sel_lights) if (l) l->send(new light::msg::Set(light::msg::Set::TARGET_POS, -sz), this);
 
-  log_opr("targets %+d / %+d across %zu+%zu lights",
-          sz, -sz, buy_lights.size(), sel_lights.size());
+  // One parent per window per side, added -- never topped up to a level. A side
+  // that overshoots on its last clip (the lights net into a SHARED position
+  // while each throttles against its OWN working size) simply has that much
+  // less to do next window. That self-corrects and must not be adjusted away.
+  //
+  // The exception is a side that has RUN AHEAD by more than a whole parent,
+  // which happens whenever ord_sz exceeds parent_sz -- 5 against 1 or 2 is
+  // exactly what the grid runs. One parent then does not put it back to work at
+  // all: it would have nothing to do, its leg could never fill, and the window
+  // could never close. So keep handing whole parents until the side actually
+  // has work. The unit is still one parent and the totals stay exact; the extra
+  // rounds are the windows that side already executed in advance.
+  auto give = [&](light::PCoord *pc, en::bs opposite, int &given, const char *what) {
+    const bool buy_side = (opposite == en::bs::SEL);
+    int rounds = 0;
+    for (;;)
+    {
+      pc->add_position(opposite, sz);
+      given += sz;
+      ++rounds;
+      const int p = pc->get_position();
+      const bool working = buy_side ? (p < 0) : (p > 0);
+      if (working) break;
+      ASSERTF(rounds < 1000,
+              boost::format("%s side never takes work: book %d after %d parents")
+                % what % p % rounds);
+    }
+    if (rounds > 1)
+      log_opr("%s side had run %d parent(s) ahead; gave it %d this window",
+              what, rounds - 1, rounds);
+  };
+
+  give(pcoord_buy, en::bs::SEL, work_given_buy, "buy");   // short -> BUY lights work
+  give(pcoord_sel, en::bs::BUY, work_given_sel, "sel");   // long  -> SEL lights work
+
+  const int pb = pcoord_buy->get_position();
+  const int ps = pcoord_sel->get_position();
+  ASSERTF(pb < 0, boost::format("buy book at %d: its lights are idle") % pb);
+  ASSERTF(ps > 0, boost::format("sel book at %d: its lights are idle") % ps);
+
+  log_opr("window %zu: buy book %d (%d given), sel book %d (%d given)",
+          n_windows, pb, work_given_buy, ps, work_given_sel);
 }
 
 void SlippageProbe::open_window(uint64_t now) noexcept
@@ -193,6 +223,17 @@ void SlippageProbe::open_window(uint64_t now) noexcept
   window_open   = true;
   stall_warn_at = 0;
   ++n_windows;
+
+  // Hand both sides another parent to execute. THE ONLY CALL SITE.
+  give_work();
+
+  // What each side has to execute this window: everything handed out so far,
+  // less everything it has already filled. That is one parent plus or minus the
+  // last window's overshoot, and it is the number a leg is measured against.
+  buy_leg.to_do = int(double(work_given_buy) - buy_filled_total);
+  sel_leg.to_do = int(double(work_given_sel) - sel_filled_total);
+  ASSERTF(buy_leg.to_do > 0, boost::format("buy leg has %d to do") % buy_leg.to_do);
+  ASSERTF(sel_leg.to_do > 0, boost::format("sel leg has %d to do") % sel_leg.to_do);
 
   log_inf("WINDOW %zu at tx=%llu mid=%.1f pos=%d",
           n_windows, (unsigned long long)now, mid_fire / 2.0, position);
@@ -301,13 +342,9 @@ void SlippageProbe::on_clock(uint64_t now) noexcept
     // last window is already closed.
     if (!in_session) return;
 
-    // THE ONE CALL SITE for a target, on the first boundary of the session.
-    // There is deliberately no matching send at the end: TARGET_POS 0 does not
-    // stand a light down, it points the SELL side at flat and makes it liquidate
-    // the book -- the flattening this design removed, arriving through the back
-    // door. Nothing needs standing down: the position self-corrects inside the
-    // band and the replay stops at --end-ts.
-    send_targets();
+    // open_window hands both sides their work -- one call site, once per
+    // window. Nothing is sent at the end of the session: there is no target to
+    // clear, and a book still being worked is the honest state to leave it in.
     open_window(now);
     return;
   }
@@ -405,10 +442,52 @@ void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
   // inverts.
   Leg &leg = (m->side == en::bs::BUY) ? buy_leg : sel_leg;
 
-  // A finished leg is closed for measurement. Both sides keep quoting for the
-  // rest of the window -- the position oscillates inside the band and fills keep
-  // arriving -- but this window's measurement for THIS side is the first `sz`
-  // lots it got, timed from its first fill to the one that completed it.
+  // THE SESSION TOTAL COUNTS EVERY FILL, INCLUDING THE OVERSHOOT.
+  //
+  // This must come BEFORE the leg.done guard below. A side overshoots its work
+  // on the last clip, and those extra lots are real: they moved the position
+  // book, so the next window starts with that much less to do. If they are not
+  // counted here, to_do for the next window is computed too large and the leg
+  // asks for more than the lights are holding -- which stalls the window
+  // permanently, the same failure that cost 22 of 24 windows once already:
+  //
+  //   sz=10, W1: to_do 10, book -10, lights fill 13, book ends +3
+  //          W2: book -10+3 = -7, so only 7 lots of work exist
+  //              miscounted:  to_do = 20 - 10 = 10  -> never reachable, STALL
+  //              counted:     to_do = 20 - 13 =  7  -> exactly right
+  if (m->side == en::bs::BUY) buy_filled_total += sz;
+  else                        sel_filled_total += sz;
+
+  // OVERFILLS ARE DELIBERATELY EXCLUDED FROM THE VWAP. This is the decision,
+  // not an accident of where the guard sits.
+  //
+  // A window asks a side to execute exactly to_do lots. The lights can deliver
+  // more -- they net into a SHARED position while each throttles against its
+  // OWN working size, so two of them can fill the last of the work at once --
+  // and those extra lots are NOT part of the job this window was measuring.
+  // Letting them into buy_vwap/sel_vwap would pollute the number with
+  // executions the experiment never asked for, at whatever price happened to be
+  // there after the leg was already complete. The row must describe the parent
+  // it was given, and nothing else.
+  //
+  // Nothing is lost or double-counted. The lots are in the session totals above,
+  // so they come straight off the next window's to_do and the position books
+  // stay exact -- they are excluded from the MEASUREMENT, not from the
+  // accounting. Measured over a session they are rare: 5 lots in 210, on 3
+  // windows in 24.
+  //
+  // TODO: the price paid on those lots is real and currently unrecorded. Worth
+  // a column one day -- an overfill executed into a moving market has a cost,
+  // and knowing it would bound how much the exclusion flatters the result. Left
+  // out for now because it is rare enough not to change any conclusion, and
+  // including it half-way (in the size but not the price, or the reverse) would
+  // be worse than leaving it out cleanly.
+  //
+  // This guard is also what stops completion re-triggering: once leg.done is
+  // set, every later fill on that side returns here, so the "is it finished"
+  // test below runs at most once per leg per window. An overshoot that carries
+  // the book to 0, then +1, then +5 cannot fire it again, and close_window sees
+  // one end stamp rather than the last fill to arrive.
   if (leg.done) return;
   leg.notional += px * sz;
   leg.filled   += sz;
@@ -418,18 +497,41 @@ void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
   // actually trading.
   leg.mark(mkt_vol_cum, mkt_not_cum);
 
-  // NO overshoot bound is asserted here, deliberately. A leg overshoots by at
-  // most one clip, but the clip is `ord_sz` from lights.ini (5 by default) and
-  // the probe has no visibility of it -- so at parent_sz 1 or 2, which the grid
-  // runs, a single legitimate clip exceeds the parent by itself. The bound that
-  // used to sit here was parent_sz + n_fills*parent_sz, which on a FIRST fill is
-  // 2*parent_sz: a routine 3-lot clip against a 1-lot parent aborted the run.
-  // The fill's own sanity is checked above; that is all this side can honestly
-  // assert.
-
-  // Finished the moment the remaining size hits 0. Its end stamp is this fill,
-  // not the clock tick that later notices, and not the window boundary.
-  if (leg.filled >= cfg.parent_sz)
+  // A LEG IS FINISHED WHEN IT HAS EXECUTED THE WORK THIS WINDOW GAVE IT --
+  // leg.to_do, not cfg.parent_sz.
+  //
+  // The two differ whenever the previous window did not land exactly on flat.
+  // A side overshoots on its last clip (the lights net against a SHARED
+  // position while each throttles against its OWN working size), so a book can
+  // finish a window slightly past zero and the next window starts from there.
+  // Testing against parent_sz then stalls the session outright: window 1 ended
+  // at +3 on a 10-lot parent, window 2 therefore had only 7 lots of work, and a
+  // 10-lot completion test could never be satisfied -- the window stayed open
+  // for the rest of the day and 22 of 24 windows never happened.
+  //
+  // to_do is computed from this actor's OWN running totals at window open
+  // (work_given minus what the side has filled all session), never from the
+  // PCoord. The book is updated by the light's fill handler, and this handler is
+  // a separate dispatch off the same SOM publish -- reading the book here would
+  // make completion depend on which subscriber SOM happened to serve first.
+  // `>=`, NOT `==`.
+  //
+  // leg.filled jumps by the size of the fill that just landed, so it can step
+  // straight PAST to_do without ever being equal to it: a leg with 2 lots left
+  // takes a 5-lot clip and goes from 8 to 13 against a to_do of 10. The lights
+  // throttle each clip to the work remaining (light22_base.hpp:857 mins against
+  // diff_from_target), but that throttle is computed per light against its own
+  // working size while the position they net into is shared, so N lights can
+  // each be resting up to the full remainder and two of them can fill at once.
+  //
+  // With `==` the equality is simply never observed on those windows, the leg
+  // is never marked done, and since a finished side stops quoting there is no
+  // later fill to re-test -- the window stays open for the rest of the session
+  // and every window after it never happens. That is not hypothetical; it is
+  // the failure this code path already produced once, with 22 of 24 windows
+  // lost. The same reasoning is why the completion test is "at or past", not
+  // "exactly at", anywhere it appears.
+  if (leg.filled >= leg.to_do)
   {
     leg.done = true;
     // TWO CLOCKS MEET HERE. `started` is the Timer's alarm time; the fill's
@@ -443,8 +545,8 @@ void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
     leg.ended   = stamp > leg.started ? stamp : leg.started;
     // The mid this leg finished on, for its own drift.
     leg.end_mid = last_bid + last_ask;
-    log_inf("%s leg done: %.0f @ %.2f over %llu ns",
-            en::to_string(m->side), leg.filled, leg.vwap(),
+    log_inf("%s leg done: filled %.0f of %d @ %.2f over %llu ns",
+            en::to_string(m->side), leg.filled, leg.to_do, leg.vwap(),
             (unsigned long long)(leg.ended - leg.started));
   }
   // Stamp the leg from the FILL, not from the tick that later notices the leg

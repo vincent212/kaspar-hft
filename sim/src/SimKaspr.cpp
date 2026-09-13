@@ -90,7 +90,9 @@ SimKaspr::SimKaspr(std::string data_file,
   create_som();
   create_lights();
   if (probe_ && !lights_.empty())
+    // The probe drives the two position books directly; it sends no targets.
     probe_->set_lights(buy_lights_, sel_lights_);
+    probe_->set_coords(probe_pcoord_buy_, probe_pcoord_sel_);
   create_position_manager();
   create_bfa();
 
@@ -358,22 +360,35 @@ void SimKaspr::create_lights()
     auto a   = frame::ref::RefData::inst().get_asset(sym);
     if (!a) continue;
 
-    // ONE PCoord per instrument, shared by every light.
+    // ONE PCoord PER SIDE, because targetpos stays 0 and the POSITION is what
+    // gives a light work.
     //
-    // Both sides quote at once because they hold DIFFERENT targets, not because
-    // they hold different position books: a BUY light stands down at
-    // pos >= targetpos and a SEL light at pos <= targetpos (light22.hpp:239,243),
-    // so with BUY at +sz and SEL at -sz every position strictly inside that band
-    // leaves both sides live. The inventory random-walks in the band and crosses
-    // zero on its own -- nothing has to flatten it, and no target is ever set a
-    // second time.
+    // This is the PositionManager arrangement (PositionManager.hpp:56): nothing
+    // ever sends Set(TARGET_POS), and a parent order is executed by telling the
+    // PCoord you hold the OPPOSITE position and letting the lights work it back
+    // to flat. With targetpos 0, light22.hpp:239,243 read:
     //
-    // (An earlier attempt gave each side its own PCoord to force simultaneity.
-    // That is unnecessary once the targets differ, and it cost an extra trader
-    // id to tell the two books apart. With one book, Fill::side identifies the
-    // light exactly: a light22<BUY> only ever bids.)
-    auto pcoord = create_PCoord();
-    pcoord_map_[a->name] = pcoord;
+    //     BUY works only while pos < 0        (short -> buy it back)
+    //     SEL works only while pos > 0        (long  -> sell it down)
+    //     pos == 0                             both idle
+    //
+    // So no SINGLE position value leaves both sides live -- at -sz only the buy
+    // side works, at +sz only the sell side, at 0 neither. One shared PCoord can
+    // therefore only ever run one leg at a time, which is the sequential design
+    // this probe exists to replace. Two books, one per side, is what lets both
+    // legs work the same window:
+    //
+    //     buy-side PCoord   seeded -sz   ->  its BUY lights work it to 0
+    //     sel-side PCoord   seeded +sz   ->  its SEL lights work it to 0
+    //
+    // Attribution stays exact with a single trader id: every light on the buy
+    // book is a light22<BUY> and only ever bids, so Fill::side names the book.
+    auto pcoord_buy = create_PCoord();
+    auto pcoord_sel = create_PCoord();
+    pcoord_map_[a->name + "_BUY"] = pcoord_buy;
+    pcoord_map_[a->name + "_SEL"] = pcoord_sel;
+    probe_pcoord_buy_ = pcoord_buy;
+    probe_pcoord_sel_ = pcoord_sel;
 
     // A QCoord per light, not one shared. QCoord::mmid_orders is a single
     // bitmask keyed by mmid; with lights sharing a QCoord and all using
@@ -389,7 +404,7 @@ void SimKaspr::create_lights()
       auto light_buy = create_light22_Shadow_BUY(
           "sim", nullptr, nullptr, "L_" + a->name + "_BUY_" + std::to_string(i),
           en::trader::SIMULATOR,
-          a->name, venue_, venue_, create_QCoord(), pcoord, ob, nullptr, 0,
+          a->name, venue_, venue_, create_QCoord(), pcoord_buy, ob, nullptr, 0,
           timer_, som_, 0, pt_light, 0, false);
       group_->add(light_buy);
       lights_.push_back(light_buy);
@@ -400,7 +415,7 @@ void SimKaspr::create_lights()
       auto light_sel = create_light22_Shadow_SEL(
           "sim", nullptr, nullptr, "L_" + a->name + "_SEL_" + std::to_string(i),
           en::trader::SIMULATOR,
-          a->name, venue_, venue_, create_QCoord(), pcoord, ob, nullptr, 0,
+          a->name, venue_, venue_, create_QCoord(), pcoord_sel, ob, nullptr, 0,
           timer_, som_, 0, pt_light, 0, false);
       group_->add(light_sel);
       lights_.push_back(light_sel);
