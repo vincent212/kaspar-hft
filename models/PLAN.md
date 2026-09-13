@@ -2367,3 +2367,118 @@ being interpretable at 100 lots.
 This also says the 100-lot cells should not be read as market-making results at
 all. They are execution-cost results for a directional parent, and the VWAP
 benchmark is the only one of the three that treats them fairly.
+
+## Cost tracks drift, not size — and what that means for the paper
+
+Measured on 8,313 completed round trips (config_a, 6 lights, place_rate 0.5%,
+sizes 1/10/100). All numbers are the BUY leg against the arrival mid, in ticks.
+`drift` is `mid_sell - mid_fire`, i.e. how far the mid moved over the leg.
+
+### 1. Against arrival price, cost rises steeply with size
+
+| size | n | buy leg vs arrival mid | sell leg | participation (ours/(ours+mkt)) | leg duration |
+|---|---|---|---|---|---|
+| 1 | 3014 | +0.4897 | +0.4507 | 1.96% | 0.9s |
+| 10 | 3009 | +0.5132 | +0.5376 | 2.36% | 8.1s |
+| 100 | 2290 | +1.4400 | +1.2431 | 2.37% | 84.1s |
+
+`slip_paired` hides this completely -- it is flat at +0.47 to +0.50 across all
+three -- because it nets the legs against each other and cancels the drift that
+IS the cost. Any paper quoting only the paired number reports a size-independent
+execution cost, which is an artefact of the metric.
+
+Note ES trades a 1-tick spread in ~93% of fires, so half a tick is the floor for
+a spread-crossing round trip. 1 and 10 lots sit essentially ON that floor
+(+0.49, +0.51). 100 lots pays +1.44, i.e. the floor plus ~0.94.
+
+### 2. That excess is drift, and drift is not a trend
+
+| size | mean drift over the buy leg | corr(slip, drift) | slip - drift |
+|---|---|---|---|
+| 1 | -0.058 | +0.994 | +0.547 |
+| 10 | +0.103 | +0.895 | +0.410 |
+| 100 | +1.776 | +0.906 | -0.336 |
+
+Slippage tracks drift at r ~ 0.9 at every size. And the drift is wildly
+superlinear in duration -- +1.78 ticks over 88s would be ~73 ticks/hour, which
+no trend produces -- so it is selection, not direction: legs that take a long
+time are exactly the ones where the price ran away.
+
+The last column is the result that matters for the algorithm's defence:
+**measured against the mid at the moment the leg COMPLETED, the 100-lot
+execution is the best of the three (-0.336)**, buying a third of a tick below
+the terminal mid while 1 lot pays +0.547 above it. Per-fill execution quality
+IMPROVES with size. What degrades is time spent exposed.
+
+### 3. At matched duration, size stops mattering
+
+Buy-leg cost bucketed by duration, across parent sizes:
+
+| duration | 1 lot | 10 lots | 100 lots |
+|---|---|---|---|
+| 0-1s | +0.43 (drift -0.12) | -0.64 (drift -1.71) | -- |
+| 1-5s | +0.68 (drift +0.15) | +0.46 (drift +0.05) | -- |
+| 5-20s | +0.65 (drift +0.12) | +0.77 (drift +0.47) | **+1.88 (drift +3.37)** |
+| **20-60s** | -- | **+0.91 (drift +0.84)** | **+0.97 (drift +0.77)** |
+| 60s+ | -- | +0.64 (drift +0.46, n=26) | +1.65 (drift +2.14) |
+
+A 100-lot leg and a 10-lot leg that both take 20-60s cost the same (+0.97 vs
++0.91) and saw the same drift (+0.77 vs +0.84). **Ten times the size, no extra
+cost.**
+
+And duration alone is not the driver either: the most expensive cell in the
+table is the FASTEST 100-lot bucket (5-20s, +1.88) because its drift is +3.37 --
+legs that finish quickly *because* the market is running, filling our resting
+orders on the way past.
+
+So the predictor is drift, everywhere. Size matters only through its correlation
+with exposure: more time in the market, and more fills landing in the moments
+the market moves.
+
+### 4. The legs are structurally asymmetric
+
+| size | buy leg median | sell leg median | ratio | round-trip P&L | fires profitable |
+|---|---|---|---|---|---|
+| 10 | 4.83s | 0.39s | 12.9x | -0.948 ticks | 2.1% |
+| 100 | 71.10s | 0.58s | 127.4x | -0.907 ticks | 0.1% |
+
+The buy leg is worked; the sell leg is dumped in under a second even at 100
+lots. Splitting fires by how lopsided they are shows this does NOT drive the
+cost (balanced quartile +0.4599 vs lopsided +0.4597 at 100 lots), but it does
+mean the paired number compares a worked execution against something close to a
+market order.
+
+**Open question, and it needs answering before the sell-leg numbers are quoted:**
+why does a 100-lot sell leg complete in 0.58s? If those orders are marketable on
+arrival and filling through `fill_stray_sim_orders` rather than resting, the
+sell leg has never measured passive execution.
+
+### 5. Why aggression on the lagging leg is the interesting experiment
+
+Drift cost is unbounded in exposure; crossing the spread is a fixed ~0.5 ticks.
+Trading an unbounded cost for a bounded one is the right trade at size, and
+capping the slow leg's duration is what does it. The 20-60s row says a
+well-behaved 100-lot leg is ALREADY as cheap as a 10-lot one, so the prize is
+moving the 60s+ and the drift-heavy 5-20s populations into that regime.
+
+The three benchmarks are what make this measurable rather than arguable: an
+aggressive-completion arm should show `slip_vs_touch` going LESS negative (we
+gave up spread) against `slip_vs_vwap` improving (we stopped bleeding drift).
+Neither can be called from the arrival-mid numbers alone.
+
+### 6. The caveat that limits all of it
+
+Our fills are ADDITIVE, not substitutive. `fill_prev_sim_order` fills our
+resting order with the same size as the real execution in front of it, in
+addition to that trade rather than instead of it -- so a 5-lot print takes 5
+lots from the real order AND gives us 5. We are a ghost in the queue: filled
+without anyone losing a fill.
+
+Consequence, measured: fires where our fill exceeds ALL market volume in the
+window are 0.1% at 1 lot, 17.9% at 10, and **77.1% at 100**. At 100 lots the
+cost number is not an execution measurement -- it is what execution would cost
+if we could take liquidity that was never available, with nobody reacting.
+
+This is the hard ceiling on the size axis, and the paper has to state it. The
+defensible range on this corpus is 1-10 lots; above that the simulator is
+answering a counterfactual that has left the market behind.
