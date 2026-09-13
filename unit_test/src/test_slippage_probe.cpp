@@ -61,11 +61,12 @@ constexpr int kAsk = 23994;
 // downstream number without failing anything.
 enum Col {
   kFireTs = 0, kSym, kParentSz, kMidFire, kBuyVwap, kBuyFilled, kBuyFills,
-  kBuyNs, kMidSell, kSelVwap, kSelFilled, kSelFills, kSelNs,
-  kSlipBuy, kSlipSel, kSlipPaired, kSlipLegsum,
+  kBuyNs, kSelVwap, kSelFilled, kSelFills, kSelNs,
+  kSlipBuy, kSlipSel, kSlipPaired,
+  kBuyDrift, kSelDrift, kDrift,
   kBuyMktVol, kSelMktVol, kBuyPart, kSelPart,
   kBuyMktVwap, kSelMktVwap, kSlipBuyVsVwap, kSlipSelVsVwap, kSlipVsVwap,
-  kAskFire, kBidSell, kSlipBuyVsTouch, kSlipSelVsTouch, kSlipVsTouch,
+  kAskFire, kBidFire, kSlipBuyVsTouch, kSlipSelVsTouch, kSlipVsTouch,
   kPosAtClose, kOutcome, kNumCols
 };
 
@@ -482,6 +483,152 @@ TEST_F(SlippageProbeTest, CarriesInventoryAcrossAWindowBoundary) {
       << "the position the window ended on must be reported, not unwound";
   EXPECT_TRUE(targets(mock_sel).empty())
       << "nothing may be re-targeted to flatten it";
+}
+
+TEST_F(SlippageProbeTest, AClipLargerThanTheParentDoesNotAbort) {
+  // light22 sizes a clip from ord_sz in lights.ini (5 by default), which the
+  // probe never sees and which the grid never overrides. At --probe-size 1 or 2
+  // a single legitimate clip therefore exceeds the parent by itself. An
+  // overshoot assert here used to bound the FIRST fill at 2*parent_sz and
+  // abort() the whole session on a routine 3-lot clip.
+  want_csv();
+  build(1);
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, 3);            // one ord_sz clip against a 1-lot parent
+  fill(en::bs::SEL, kBid, 3);
+  tick(kT0 + kWindow + kSec);            // must close, not abort
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_EQ(rows[1][kOutcome], "ok");
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kBuyFilled]), 3.0)
+      << "the overshoot is real and must be reported, not clamped away";
+}
+
+TEST_F(SlippageProbeTest, ALegStampedBeforeItsWindowIsClampedNotAborted) {
+  // The leg's end stamp is the Fill's transactTime, set when the order was
+  // RECEIVED -- before the modelled --ob-delay-us. An order submitted just
+  // before the boundary and released after it carries a stamp earlier than the
+  // window that owns it. That is the delay model working, not a bug, so it
+  // clamps; asserting ended >= started across the two clocks aborted the close.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill_at(kT0 - kSec, en::bs::BUY, kAsk, kParent);   // stamped BEFORE the open
+  fill_at(kT0 + kSec, en::bs::SEL, kBid, kParent);
+  tick(kT0 + kWindow + kSec);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_EQ(std::stoull(rows[1][kBuyNs]), 0ull)
+      << "a leg cannot have ended before it began";
+}
+
+TEST_F(SlippageProbeTest, DriftIsMeasuredForwardFromTheCommonArrival) {
+  // Both legs arrive together, so drift cannot be the gap between two arrivals
+  // -- that difference is identically zero. It is measured forward: from the
+  // arrival mid to the mid each leg finished on, and to the mid at the close.
+  want_csv();
+  build();
+  quote(kBid, kAsk);                                  // arrival mid 23992
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, kParent);                   // buy done at the arrival mid
+  quote(kBid + 8, kAsk + 8);                          // market moves up 8 ticks
+  fill(en::bs::SEL, kBid + 8, kParent);               // sell finishes up there
+  tick(kT0 + kWindow + kSec);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kBuyDrift]), 0.0)
+      << "the buy leg finished before the market moved";
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSelDrift]), 8.0)
+      << "the sell leg finished 8 ticks higher than the arrival";
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kDrift]), 8.0)
+      << "the window closed 8 ticks above where it opened";
+}
+
+TEST_F(SlippageProbeTest, DriftIsZeroWhenTheMarketDoesNotMove) {
+  want_csv();
+  build();
+  run_window(kT0);
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kDrift]), 0.0);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kBuyDrift]), 0.0);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSelDrift]), 0.0);
+}
+
+TEST_F(SlippageProbeTest, AShortLegAtShutdownIsNamedNotCalledSessionEnd) {
+  // A leg that never fills holds its window open for the rest of the session,
+  // so every later window simply never happens and the run ends with one row --
+  // which run_grid.sh's `wc -l > 1` resume guard accepts as a completed cell.
+  // The outcome has to say which side was short, or that case is
+  // indistinguishable from the replay simply running out of data.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, kParent);        // buy completes, sell never does
+  tick(kT0 + 4 * kWindow);                 // long past the minimum, still open
+  EXPECT_EQ(csv_rows().size(), 1u) << "it must keep waiting, as specified";
+
+  actors::msg::Shutdown sd;
+  TestHelper::invoke_handler(probe.get(), &sd, nullptr);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_EQ(rows[1][kOutcome], "sel_short");
+}
+
+TEST_F(SlippageProbeTest, AnUnfilledLegScoresNoSlippageRatherThanTheRawPrice) {
+  // vwap() is 0 for an unfilled leg. Guarding the touch and VWAP benchmarks on
+  // the reference price alone wrote bid_fire - 0 ~ +23990 ticks into columns
+  // whose real values are fractions of a tick.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+  fill(en::bs::BUY, kAsk, kParent);
+
+  actors::msg::Shutdown sd;
+  TestHelper::invoke_handler(probe.get(), &sd, nullptr);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSlipSelVsTouch]), 0.0);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSlipSelVsVwap]), 0.0);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSlipVsTouch]), 0.0)
+      << "a pair benchmark needs both legs";
+}
+
+TEST_F(SlippageProbeTest, DoesNotOpenAWindowThatCannotFinishInTheSession) {
+  // Reopening with less than a full minimum left produced a window that closed
+  // after the session and was emitted "ok", with its VWAPs and participation
+  // denominators drawn from post-close liquidity.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+
+  // Walk windows up to the last boundary that still leaves a full minimum.
+  uint64_t t = session_end() - 2 * kWindow;
+  tick(t);                                       // opens the final legal window
+  fill(en::bs::BUY, kAsk, kParent);
+  fill(en::bs::SEL, kBid, kParent);
+  tick(t + kWindow + kSec);                      // closes it; no room for another
+
+  const size_t rows_after_close = csv_rows().size();
+  fill(en::bs::BUY, kAsk, kParent);               // flow keeps arriving
+  fill(en::bs::SEL, kBid, kParent);
+  tick(session_end() + kWindow);
+
+  EXPECT_EQ(csv_rows().size(), rows_after_close)
+      << "no window may open without a full minimum left before the close";
 }
 
 TEST_F(SlippageProbeTest, SkipsAWindowWithNoTouch) {

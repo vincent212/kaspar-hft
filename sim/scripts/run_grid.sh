@@ -176,7 +176,11 @@ run_one() {
   # not actually running arm A's sizing. Grid B's Q is the PARENT size
   # (--probe-size) and the clip comes from the config like everywhere else.
 
-  local wd; wd=$(mktemp -d "${TMPDIR:-/tmp}/grid.$name.$date.XXXXXX")
+  # NOT /tmp. The Logger writes sim_log.<date>.<pid>.log into this working
+  # directory, and / is a 393G local RAID1 -- a grid's worth of those filled it
+  # to 100%, which surfaced as `ld: could not close arguments file` rather than
+  # as a disk error. $HOME is on the 91T filer.
+  local wd; wd=$(mktemp -d "${TMPDIR:-$HOME/tmp}/grid.$name.$date.XXXXXX")
   ( cd "$wd" && nice -n 19 ionice -c 3 "$BIN" \
       --datafile "$SRC/bin/310/310.$date.databento.bin" \
       --universe "$uni" \

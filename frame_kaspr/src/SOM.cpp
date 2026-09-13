@@ -173,6 +173,13 @@ void act::SOM::read_limits()
 {
   const std::size_t n = ref::RefData::inst().num_assets();
   // get position limits from config
+  //
+  // The default stays 0, which REJECTS EVERYTHING, and that is deliberate: an
+  // instrument no prefix in som.ini matches has no risk limit set for it, and
+  // refusing to trade it is the safe answer. It is also a frequent surprise --
+  // "my orders are all rejected" is usually a universe entry with no matching
+  // prefix -- so every asset's effective limits are printed below, including
+  // the ones nothing matched.
   pos_limit.resize(n, 0);
   auto pt_lim = pt.get_child("som.pos_limit");
   for (auto &p : pt_lim)
@@ -202,6 +209,35 @@ void act::SOM::read_limits()
         std::cout << "SOM size_limit[" << a->name << "] = " << size_limit[i] << std::endl;
         //log_inf("SOM size_limit[%s] = %d", a->name.c_str(), size_limit[i]);
       }
+    }
+  }
+
+  // Say out loud what the limits ended up as, and shout about a DISABLED one.
+  //
+  // A negative limit switches the check off entirely. That is wanted in the
+  // simulator, where a two-sided quote at large size otherwise trips the
+  // position cap the moment one side fills -- but it means a stray '-' on a
+  // line in a live som.ini silently removes a risk control rather than, as
+  // before, rejecting every order and being noticed within seconds. A check
+  // that fails open must announce itself.
+  for (std::size_t i = 0; i < n; i++)
+  {
+    auto a = ref::RefData::inst().asset(i);
+    if (pos_limit[i] < 0 || size_limit[i] < 0)
+    {
+      std::cout << "SOM *** LIMIT CHECK DISABLED for " << a->name
+                << ": pos_limit=" << pos_limit[i]
+                << " size_limit=" << size_limit[i]
+                << " (a negative limit means NO CHECK)" << std::endl;
+      log_err("SOM LIMIT CHECK DISABLED for %s: pos_limit=%d size_limit=%d "
+              "-- a negative limit means no check at all",
+              a->name.c_str(), pos_limit[i], size_limit[i]);
+    }
+    else if (pos_limit[i] == 0 || size_limit[i] == 0)
+    {
+      std::cout << "SOM note: " << a->name << " has pos_limit=" << pos_limit[i]
+                << " size_limit=" << size_limit[i]
+                << " -- a limit of 0 REJECTS every order for it" << std::endl;
     }
   }
 }

@@ -61,6 +61,13 @@ static std::vector<uint64_t> probe_schedule(const std::string &date_yyyymmdd, in
 {
   std::vector<uint64_t> out;
   if (date_yyyymmdd.size() != 8) return out;
+  // `mins += every_min` never advances at 0 and runs backwards below it, so the
+  // loop pushes until the process is killed by the OOM killer.
+  if (every_min <= 0)
+  {
+    std::cerr << "--probe-every-min must be positive, got " << every_min << "\n";
+    return out;
+  }
   const int y  = std::stoi(date_yyyymmdd.substr(0, 4));
   const int mo = std::stoi(date_yyyymmdd.substr(4, 2));
   const int d  = std::stoi(date_yyyymmdd.substr(6, 2));

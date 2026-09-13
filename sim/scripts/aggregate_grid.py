@@ -11,15 +11,19 @@ Three rules are enforced here rather than left to whoever writes the next awk,
 because breaking any of them silently produced a wrong headline number during
 development:
 
-  * Filter on outcome == ok. A leg that never filled carries vwap = 0 and
-    mid_sell = 0; 38 such rows in 3,056 moved a mean by four orders of
-    magnitude and once made the result read as risk-free profit.
+  * Filter on outcome == ok. A leg that never filled carries vwap = 0; 38 such
+    rows in 3,056 moved a mean by four orders of magnitude and once made the
+    result read as risk-free profit.
   * Participation is reported as a MEDIAN with percentiles, plus the aggregate
     (total filled / total volume). The mean of per-fire ratios is dominated by
     fires with tiny denominators and reverses the sign of the size effect.
-  * Completion rate is always shown. Deep or slow configs finish fewer fires,
-    and the ones that finish are the easy ones -- a cost that looks good next
-    to a 25% completion rate is survivorship, not skill.
+  * Survivorship is always shown, but the probe no longer emits a short row per
+    missed fire, so a RATIO of ok rows is not the control it used to be. A
+    window now stays open until both legs fill, which means a slow config
+    produces FEWER windows rather than more failed ones -- so windows-per-
+    session is the number that exposes it, and it is reported alongside the
+    ok-rate. A config yielding 3 windows where its neighbours yield 24 is the
+    same warning that a 25% completion rate used to be.
 """
 import argparse, csv, glob, math, os, statistics as st, sys
 
@@ -47,18 +51,31 @@ def load(cfg_dir):
                 if oc != 'ok':
                     continue
                 try:
-                    fires.append({k: float(row[k]) for k in (
+                    # Built COMPLETE in a local and appended only once every key
+                    # is set. Writing the optional keys into fires[-1] after the
+                    # append meant a bad value in the 2nd, 3rd or 4th of them --
+                    # a truncated final line from a killed run, a stray comma --
+                    # left a half-keyed row in the list, and summarise() then
+                    # died with KeyError over an entire multi-hour grid instead
+                    # of skipping the one bad row.
+                    f = {k: float(row[k]) for k in (
                         'slip_buy_ticks', 'slip_sel_ticks', 'slip_paired_ticks',
-                        'slip_legsum_ticks', 'buy_filled', 'sel_filled',
+                        'buy_filled', 'sel_filled',
                         'buy_leg_mkt_vol', 'sel_leg_mkt_vol',
                         'buy_part', 'sel_part', 'buy_ns', 'sel_ns',
-                        'buy_fills', 'parent_sz')})
-                    # Benchmarks added later; older runs do not have them, so
-                    # they default to 0 and are filtered out below rather than
-                    # dragging a mean toward zero.
+                        'buy_fills', 'parent_sz')}
+                    # Optional: added after the first runs, and drift replaced
+                    # slip_legsum (which had become algebraically identical to
+                    # slip_paired once both legs began quoting together). Absent
+                    # in an older CSV, where None means "not measured" and is
+                    # kept distinct from a measured 0.0.
                     for k in ('slip_vs_vwap', 'slip_buy_vs_vwap',
-                              'slip_vs_touch', 'slip_buy_vs_touch'):
-                        fires[-1][k] = float(row.get(k) or 0)
+                              'slip_vs_touch', 'slip_buy_vs_touch',
+                              'buy_drift_ticks', 'sel_drift_ticks',
+                              'drift_ticks'):
+                        v = row.get(k)
+                        f[k] = float(v) if v not in (None, '') else None
+                    fires.append(f)
                 except (KeyError, ValueError):
                     continue
     return fires, total, by_outcome
@@ -67,7 +84,13 @@ def summarise(name, params, fires, total, by_outcome):
     if not fires:
         return None
     g = lambda k: [f[k] for f in fires]
-    paired, legsum = g('slip_paired_ticks'), g('slip_legsum_ticks')
+    # None means the column was absent from that CSV. 0.0 means it was measured
+    # and came out zero -- a perfectly ordinary result for drift over a quiet
+    # window, and one that truthiness silently discarded from both headline
+    # benchmark columns.
+    have = lambda k: [f[k] for f in fires if f.get(k) is not None]
+    paired = g('slip_paired_ticks')
+    drift  = have('drift_ticks')
     # Participation is recomputed here, NOT taken from the CSV's buy_part.
     #
     # SlippageProbe computes buy_part as filled / mkt_vol, and mkt_vol counts
@@ -100,7 +123,11 @@ def summarise(name, params, fires, total, by_outcome):
         'fires_ok': len(fires), 'fires_total': total,
         'completion': len(fires) / total if total else 0.0,
         'slip_paired': st.mean(paired), 'slip_paired_ci': ci95(paired),
-        'slip_legsum': st.mean(legsum), 'slip_legsum_ci': ci95(legsum),
+        # Drift over the window, measured forward from the common arrival. This
+        # is what slip_legsum used to expose indirectly, back when the two legs
+        # had separate arrivals to difference.
+        'drift': st.mean(drift) if drift else float('nan'),
+        'drift_ci': ci95(drift) if drift else float('nan'),
         'slip_buy': st.mean(g('slip_buy_ticks')),
         'slip_sel': st.mean(g('slip_sel_ticks')),
         'part_median': pct(bpart, 0.5), 'part_p10': pct(bpart, 0.1),
@@ -109,10 +136,8 @@ def summarise(name, params, fires, total, by_outcome):
         # Only fires where the benchmark exists: 0 means the leg had no market
         # volume alongside it (vwap) or no touch recorded (touch), not a
         # zero-cost execution.
-        'slip_vwap': (lambda v: st.mean(v) if v else float('nan'))(
-            [f['slip_vs_vwap'] for f in fires if f['slip_vs_vwap']]),
-        'slip_touch': (lambda v: st.mean(v) if v else float('nan'))(
-            [f['slip_vs_touch'] for f in fires if f['slip_vs_touch']]),
+        'slip_vwap': (lambda v: st.mean(v) if v else float('nan'))(have('slip_vs_vwap')),
+        'slip_touch': (lambda v: st.mean(v) if v else float('nan'))(have('slip_vs_touch')),
         'buy_leg_s': st.mean(g('buy_ns')) / 1e9,
         'child_fills': st.mean(g('buy_fills')),
         'outcomes': by_outcome,
@@ -154,19 +179,25 @@ def main():
         if not sel: continue
         print(f"\n=== grid {gid} " + "=" * 96)
         print(f"{'config':<16}{'sess':>5}{'fires':>7}{'compl':>7}"
-              f"{'slip_paired':>14}{'slip_legsum':>14}{'vs_vwap':>10}{'vs_touch':>10}{'part_med':>10}"
+              f"{'slip_paired':>14}{'drift':>14}{'vs_vwap':>10}{'vs_touch':>10}{'part_med':>10}"
               f"{'p10-p90':>16}{'part_agg':>10}{'leg_s':>8}{'fills':>7}")
         for r in sorted(sel, key=lambda x: x['config']):
             print(f"{r['config']:<16}{r['sessions']:>5}{r['fires_ok']:>7}"
                   f"{r['completion']*100:>6.1f}%"
                   f"{r['slip_paired']:>+9.4f}±{r['slip_paired_ci']:<4.3f}"
-                  f"{r['slip_legsum']:>+9.4f}±{r['slip_legsum_ci']:<4.3f}"
+                  f"{r['drift']:>+9.4f}±{r['drift_ci']:<4.3f}"
                   f"{r['slip_vwap']:>+10.4f}{r['slip_touch']:>+10.4f}"
                   f"{r['part_median']:>10.5f}"
                   f"{r['part_p10']:>8.5f}-{r['part_p90']:<7.5f}"
                   f"{r['part_aggregate']:>10.5f}{r['buy_leg_s']:>8.1f}"
                   f"{r['child_fills']:>7.1f}")
 
+    # Two different survivorship signals, and BOTH are needed now.
+    #
+    # A low ok-rate still means rows were thrown away. But a config whose legs
+    # fill slowly no longer produces failed rows at all -- its windows just stay
+    # open longer, so it produces FEWER of them, at a completion rate near 100%.
+    # Flag any config yielding far fewer windows per session than its peers.
     low = [r for r in rows if r['completion'] < 0.9]
     if low:
         print("\n!! configs completing under 90% of fires -- their cost numbers "
@@ -174,6 +205,20 @@ def main():
         for r in sorted(low, key=lambda x: x['completion']):
             oc = ', '.join(f"{k}={v}" for k, v in sorted(r['outcomes'].items()) if k != 'ok')
             print(f"   {r['config']:<16} {r['completion']*100:5.1f}%   {oc}")
+
+    wps = [(r['config'], r['fires_ok'] / r['sessions'], r['outcomes'])
+           for r in rows if r.get('sessions')]
+    if len(wps) > 2:
+        med = st.median([w for _, w, _ in wps])
+        thin = [(c, w, oc) for c, w, oc in wps if med > 0 and w < 0.5 * med]
+        if thin:
+            print("\n!! configs producing far fewer windows per session than the "
+                  f"grid median ({med:.1f}) -- a leg that fills slowly holds its "
+                  "window open, so this is the shape survivorship takes now:")
+            for c, w, oc in sorted(thin, key=lambda x: x[1]):
+                short = ', '.join(f"{k}={v}" for k, v in sorted(oc.items())
+                                  if k.endswith('_short'))
+                print(f"   {c:<16} {w:5.1f} windows/session   {short}")
 
     # the same configuration reached from two grids: if these disagree the
     # sweep is not deterministic and nothing else in it can be trusted

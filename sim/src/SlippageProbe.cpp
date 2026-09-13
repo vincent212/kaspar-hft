@@ -8,77 +8,39 @@
 /**
  * SlippageProbe -- the actor that makes the simulator produce a number.
  *
- * ## What it does
+ * THE CONTRACT LIVES IN THE HEADER. sim/act/SlippageProbe.hpp states what a
+ * window is, when one ends, what each column means and why the design is shaped
+ * this way. It is not repeated here, because the two copies had already drifted
+ * apart on where Leg::mark anchors. This note covers only what a reader of the
+ * implementation needs before the first function.
  *
- * It runs the shadow lights as a MARKET MAKER and measures what the two sides
- * cost. Both sides quote at the same time, continuously, for the RTH session;
- * the probe slices that session into fixed windows and emits one CSV row per
- * window.
+ * In one paragraph: the probe runs the shadow lights as a MARKET MAKER. BUY
+ * lights are told `target_pos = +sz` and SEL lights `-sz`, once, from one line
+ * in on_clock(), and never again. Both sides then quote continuously for the
+ * whole session. A periodic alarm polls market time and slices the session into
+ * windows; a window closes only when its minimum has elapsed AND both legs have
+ * filled their size, and one CSV row is emitted per closed window. Inventory is
+ * carried across boundaries, never unwound.
  *
- * ## How, in four facts
+ * The three things most likely to trip up an edit here:
  *
- * 1. **It sets a target once and never again.** BUY lights are told
- *    `target_pos = +sz`, SEL lights `-sz`. That is the entire control surface.
- *    A BUY light stands down at `pos >= targetpos` and a SEL light at
- *    `pos <= targetpos` (light22.hpp), so every position strictly inside
- *    `(-sz, +sz)` leaves BOTH sides live. They quote against each other, the
- *    inventory random-walks inside the band and crosses zero on its own.
- *    Nothing flattens it, nothing resets it, and no second target is ever sent
- *    -- not even at the end of the session. TARGET_POS 0 does not stand a light
- *    down: it points the SELL side at flat and makes it liquidate the book.
+ * 1. **The inventory PINS to a band edge, it does not random-walk around zero.**
+ *    Measured over a session: pos > 0 on 69% of fills, exactly zero on 0.5%,
+ *    and |pos| at 90% of the band or beyond on 26%. Both sides stay live
+ *    because the pinned one is throttled to the remaining distance rather than
+ *    switched off, so they churn across the boundary a clip at a time. Any
+ *    reasoning here that starts "the position is usually flat" is wrong.
  *
- *    Measured, the inventory does NOT random-walk around zero: on a real
- *    session it sat above zero on 71% of fills, hit exactly zero on 0.6%, and
- *    spent 28% of them within 10 lots of a band edge. It PINS to whichever edge
- *    the day's direction pushes it to. Legs still fill because the pinned side
- *    is throttled to the remaining distance rather than switched off, so the two
- *    sides churn across the boundary a clip at a time.
+ * 2. **Two clocks meet in fill_handler.** A leg's start is the Timer's alarm
+ *    time; a fill's `tim` is the OB's transactTime, stamped when the order was
+ *    received -- before the modelled --ob-delay-us, and not strictly monotone
+ *    across exchange records either. End stamps are therefore CLAMPED to the
+ *    window start, not asserted against it.
  *
- * 2. **A window ends on a minimum AND on completion, never on the clock alone.**
- *    One periodic AlarmClockSub polls market time; a window closes only when its
- *    minimum has elapsed AND both legs have filled their size. The minimum is a
- *    floor, not a deadline -- a leg still short when it elapses keeps the window
- *    open until it fills, so a thin session gives fewer, longer windows instead
- *    of partial rows or a dead run. There is no schedule to walk and no phase
- *    machine.
- *
- * 3. **Each leg has its OWN window.** The two share a start -- the timer
- *    boundary, and with it the anchor mid and touch -- but not an end: a leg's
- *    window closes at the fill that completes its own size. One side can be done
- *    in seconds while the other is still working, so the durations and the
- *    market-volume denominators in a row differ even though the anchors match.
- *    A leg that never fills its size runs to the next boundary, and the row's
- *    outcome names the side that fell short.
- *
- * 4. **Inventory is carried, never unwound.** Whatever position a window ends on
- *    stays on the book; the lights carry it into the next window and their own
- *    targets pull it back toward the band. `pos_at_close` reports it.
- *
- * ## Why it is shaped this way
- *
- * The earlier design fired a SEQUENTIAL round trip: buy the parent, then sell it
- * back. Three things were wrong with it, and each is why a piece of the above
- * exists:
- *
- * - The legs ran at different times, so whatever the market did in between
- *   landed in `slip_paired` as if it were execution cost. At 100 lots the gap
- *   was ~170s and the two slippage columns disagreed by 3x.
- * - After each fire it set both targets to 0 and let the lights TRADE back to
- *   flat. That unwind was about as much volume as the measurement itself, at
- *   real prices, executed after the row was written -- invisible in it.
- * - `set_target` was called from six places, so the target was set ad hoc from
- *   scattered branches rather than being a property of the session.
- *
- * ## The numbers
- *
- *   slip_buy    = buy_vwap - mid_fire        buy side vs the anchor mid
- *   slip_sel    = mid_sell - sel_vwap        sell side vs the same anchor
- *   slip_paired = (buy_vwap - sel_vwap) / 2  the captured spread
- *   slip_legsum = (slip_buy + slip_sel) / 2
- *
- * plus each side against the interval VWAP of its own window (which separates
- * drift from selection) and against the touch it could have crossed at (which
- * says what patience bought). See emit_row().
+ * 3. **A leg can overshoot its parent size by a whole clip.** The clip is
+ *    ord_sz from lights.ini, which this actor never sees and which the grid
+ *    does not override, so at --probe-size 1 or 2 one legitimate clip exceeds
+ *    the parent by itself. Do not assert an overshoot bound here.
  */
 
 #include "sim/act/SlippageProbe.hpp"
@@ -142,26 +104,35 @@ void SlippageProbe::start_handler(const actors::msg::Start *) noexcept
       emit_header();
   }
 
-  fprintf(stderr, "probe: armed on %s, window=%ds, session=%llu..%llu\n",
-          cfg.sym_name.c_str(), cfg.tick_s,
+  // tick_s is the POLL, min_window_ns is the window. Printing the former under
+  // the latter's name read "window=1s" against a 900s minimum.
+  fprintf(stderr, "probe: armed on %s, min window=%llus, poll=%ds, session=%llu..%llu\n",
+          cfg.sym_name.c_str(),
+          (unsigned long long)(cfg.min_window_ns / 1000000000ull), cfg.tick_s,
           (unsigned long long)cfg.session_start,
           (unsigned long long)cfg.session_end);
-  log_inf("probe armed: sym=%s parent_sz=%d window=%ds -- targets are NOT sent "
-          "here, the first alarm inside the session sends them",
-          cfg.sym_name.c_str(), cfg.parent_sz, cfg.tick_s);
+  log_inf("probe armed: sym=%s parent_sz=%d min_window=%llus poll=%ds -- targets "
+          "are NOT sent here, the first alarm inside the session sends them",
+          cfg.sym_name.c_str(), cfg.parent_sz,
+          (unsigned long long)(cfg.min_window_ns / 1000000000ull), cfg.tick_s);
 }
 
 void SlippageProbe::send_targets() noexcept
 {
   // THE ONLY PLACE A TARGET IS EVER SENT, and it is reached from exactly one
-  // line in roll_window().
+  // line in on_clock() -- the first boundary inside the session.
   //
   // BUY lights get +sz, SEL lights get -sz. That is the entire control surface.
   // A BUY light stands down at pos >= targetpos and a SEL light at
   // pos <= targetpos (light22.hpp:239,243), so every position strictly inside
-  // (-sz, +sz) leaves BOTH sides live. They quote against each other, the
-  // inventory random-walks inside the band and crosses zero on its own, and the
+  // (-sz, +sz) leaves BOTH sides live. They quote against each other and the
   // pair keeps buying and selling for as long as the session runs.
+  //
+  // The inventory does NOT random-walk around zero: measured over a session it
+  // sits at a band edge most of the time (pos > 0 on 69% of fills, pos == 0 on
+  // 0.5%, |pos| >= 0.9*sz on 26%). diff_from_target throttles the pinned side
+  // rather than switching it off, so both sides stay live and churn across the
+  // boundary -- which is what the measurement needs. It is not a flat book.
   //
   // Sent once and never revised. In particular NOT reset to 0 at the end of the
   // session: targetpos 0 does not stand a light down, it points the sell side at
@@ -196,13 +167,18 @@ void SlippageProbe::open_window(uint64_t now) noexcept
           boost::format("window %zu opening on a bad touch: bid %d ask %d")
             % (n_windows + 1) % last_bid % last_ask);
 
-  fire_ts  = now;
-  mid_fire = last_bid + last_ask;     // 2x the mid, kept integral
-  ask_fire = last_ask;                // what crossing would have cost the buy
-  bid_fire = last_bid;
-  mid_sell = mid_fire;                // same arrival for the sell side
-  bid_sell = last_bid;                // what crossing would have got the sell
-  ask_sell = last_ask;
+  fire_ts   = now;
+  mid_fire  = last_bid + last_ask;    // 2x the mid, kept integral
+  ask_fire  = last_ask;               // what crossing would have cost the buy
+  bid_fire  = last_bid;               // what crossing would have got the sell
+  // Both legs arrive HERE, together. There is deliberately no second anchor:
+  // the old sequential design bought the parent and only then began selling, so
+  // the sell side had an arrival of its own, minutes later. Quoting both sides
+  // at once removes that -- and with it the drift BETWEEN the arrivals, which
+  // is why drift is now measured forward from this one instant to where each
+  // leg actually finished (buy_end_mid / sel_end_mid / mid_close) rather than
+  // as the gap between two arrivals.
+  mid_close = 0;
 
   buy_leg.reset();
   sel_leg.reset();
@@ -214,7 +190,8 @@ void SlippageProbe::open_window(uint64_t now) noexcept
   buy_leg.mark(mkt_vol_cum, mkt_not_cum);
   sel_leg.mark(mkt_vol_cum, mkt_not_cum);
 
-  window_open = true;
+  window_open   = true;
+  stall_warn_at = 0;
   ++n_windows;
 
   log_inf("WINDOW %zu at tx=%llu mid=%.1f pos=%d",
@@ -270,6 +247,11 @@ void SlippageProbe::close_window(uint64_t now) noexcept
   // own targets pull it back toward the band. pos_at_close records it, because a
   // window that ended at the edge of the band was run over on one side, and that
   // is a result rather than an error.
+  // The mid the window ENDED on. mid_close - mid_fire is the drift the pair
+  // lived through, and it is a real measurement now rather than the identically
+  // zero difference of two anchors taken at the same instant.
+  mid_close = last_bid + last_ask;
+
   emit_row("ok");
   ++fires_done;
   log_inf("window %zu closed: bought %.0f sold %.0f pos=%d",
@@ -346,10 +328,45 @@ void SlippageProbe::on_clock(uint64_t now) noexcept
   // leaves a truncated CSV that the resume guard and the aggregator both accept
   // as complete, biasing the corpus toward the benign sessions.
   const bool min_elapsed = now >= fire_ts + cfg.min_window_ns;
-  if (!min_elapsed || !buy_leg.done || !sel_leg.done) return;
+  if (!min_elapsed || !buy_leg.done || !sel_leg.done)
+  {
+    // Waiting is correct, but it must not be SILENT. A leg that never fills
+    // holds this window open for the rest of the session, and every later
+    // window simply never happens: the run then ends with one row, which
+    // run_grid.sh's `wc -l > 1` resume guard accepts as a completed cell and
+    // never retries. Say so, once per minimum elapsed, so a stalled cell is
+    // visible in the log and in the session_end row's outcome.
+    if (min_elapsed)
+    {
+      const uint64_t over = now - (fire_ts + cfg.min_window_ns);
+      if (over >= stall_warn_at)
+      {
+        stall_warn_at = over + cfg.min_window_ns;
+        log_err("window %zu STALLED: %llus past the minimum, buy %.0f/%d sel %.0f/%d "
+                "-- still waiting, no later window can open until both fill",
+                n_windows, (unsigned long long)(over / 1000000000ull),
+                buy_leg.filled, cfg.parent_sz, sel_leg.filled, cfg.parent_sz);
+      }
+    }
+    return;
+  }
 
   close_window(now);
-  if (in_session) open_window(now);
+
+  // Only open a window that can COMPLETE inside the session. Reopening at
+  // 15:29 against a 15-minute minimum produced a window that could not close
+  // before 15:44, was emitted "ok", and drew its VWAPs and participation
+  // denominators from post-close liquidity -- a different regime from the RTH
+  // session the corpus is meant to characterise. The lights keep quoting after
+  // this point; nothing more is MEASURED.
+  if (now + cfg.min_window_ns <= cfg.session_end)
+    open_window(now);
+  else
+    log_opr("session %llu: no room for another window, %llus left against a %llus "
+            "minimum -- measurement stops here, the lights keep quoting",
+            (unsigned long long)now,
+            (unsigned long long)((cfg.session_end > now ? cfg.session_end - now : 0) / 1000000000ull),
+            (unsigned long long)(cfg.min_window_ns / 1000000000ull));
 }
 
 void SlippageProbe::trade_handler(const frame::ob::msg::TradeNotify *m) noexcept
@@ -382,13 +399,6 @@ void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
   if (m->side == en::bs::BUY) position += int(sz);
   else                        position -= int(sz);
 
-  // Attribute by the SET that produced the fill, not by side.
-  //
-  // Side identifies the set only while each is still moving toward its target
-  // from flat. When a set unwinds, its side inverts -- set A is long and sells,
-  // set B is short and buys -- so routing by side sends every liquidation fill
-  // to the wrong leg. Set A trades as SIMULATOR, set B as SIMULATOR2.
-  //
   // Side identifies the light exactly: a light22<BUY> only ever bids and a
   // light22<SEL> only ever offers. Nothing unwinds a position here, so there is
   // no case where a light trades against its own side and the attribution
@@ -408,19 +418,31 @@ void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
   // actually trading.
   leg.mark(mkt_vol_cum, mkt_not_cum);
 
+  // NO overshoot bound is asserted here, deliberately. A leg overshoots by at
+  // most one clip, but the clip is `ord_sz` from lights.ini (5 by default) and
+  // the probe has no visibility of it -- so at parent_sz 1 or 2, which the grid
+  // runs, a single legitimate clip exceeds the parent by itself. The bound that
+  // used to sit here was parent_sz + n_fills*parent_sz, which on a FIRST fill is
+  // 2*parent_sz: a routine 3-lot clip against a 1-lot parent aborted the run.
+  // The fill's own sanity is checked above; that is all this side can honestly
+  // assert.
+
   // Finished the moment the remaining size hits 0. Its end stamp is this fill,
   // not the clock tick that later notices, and not the window boundary.
-  // A leg overshoots by at most one clip: the lights stand down the moment the
-  // position reaches the target, so anything beyond that is an attribution error
-  // -- fills from the wrong side landing in this leg.
-  ASSERTF(leg.filled <= cfg.parent_sz + leg.n_fills * cfg.parent_sz,
-          boost::format("leg filled %.0f against a size of %d")
-            % leg.filled % cfg.parent_sz);
-
   if (leg.filled >= cfg.parent_sz)
   {
-    leg.done  = true;
-    leg.ended = m->tim ? m->tim : last_tim;
+    leg.done = true;
+    // TWO CLOCKS MEET HERE. `started` is the Timer's alarm time; the fill's
+    // `tim` is the OB's transactTime, stamped when the order was RECEIVED --
+    // before the modelled --ob-delay-us. An order submitted just before the
+    // boundary and released after it therefore carries a stamp EARLIER than the
+    // window that owns it, and exchange transactTimes are not strictly monotone
+    // either (OB.cpp:2360). Clamp rather than assert: a leg cannot have ended
+    // before it began, and the error is bounded by the delay model.
+    const uint64_t stamp = m->tim ? m->tim : last_tim;
+    leg.ended   = stamp > leg.started ? stamp : leg.started;
+    // The mid this leg finished on, for its own drift.
+    leg.end_mid = last_bid + last_ask;
     log_inf("%s leg done: %.0f @ %.2f over %llu ns",
             en::to_string(m->side), leg.filled, leg.vwap(),
             (unsigned long long)(leg.ended - leg.started));
@@ -428,8 +450,11 @@ void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
   // Stamp the leg from the FILL, not from the tick that later notices the leg
   // is done. The clock ticks once a second, so taking the end time there
   // quantises every leg to a second -- invisible in a slippage number, fatal
-  // to anything per unit time.
-  if (m->tim) leg.ended = m->tim;
+  // to anything per unit time. Clamped to the window's start for the same
+  // two-clock reason as the completion stamp above, and monotone so it always
+  // names the latest fill this leg has seen.
+  if (m->tim && m->tim > leg.ended)
+    leg.ended = m->tim > leg.started ? m->tim : leg.started;
 
   log_inf("fill %s %.0f @ %d pos=%d (leg filled=%.0f vwap=%.2f)",
           en::to_string(m->side), sz, m->pxi, position, leg.filled, leg.vwap());
@@ -450,8 +475,9 @@ void SlippageProbe::emit_header()
 {
   fprintf(out,
           "fire_ts,sym,parent_sz,mid_fire,buy_vwap,buy_filled,buy_fills,buy_ns,"
-          "mid_sell,sel_vwap,sel_filled,sel_fills,sel_ns,"
-          "slip_buy_ticks,slip_sel_ticks,slip_paired_ticks,slip_legsum_ticks,"
+          "sel_vwap,sel_filled,sel_fills,sel_ns,"
+          "slip_buy_ticks,slip_sel_ticks,slip_paired_ticks,"
+          "buy_drift_ticks,sel_drift_ticks,drift_ticks,"
           "buy_leg_mkt_vol,sel_leg_mkt_vol,buy_part,sel_part,"
           "buy_mkt_vwap,sel_mkt_vwap,slip_buy_vs_vwap,slip_sel_vs_vwap,"
           "slip_vs_vwap,"
@@ -464,7 +490,16 @@ void SlippageProbe::emit_row(const char *outcome)
 {
   // Ticks. mid_* are 2x, so halve them here and nowhere else.
   const double midf = mid_fire / 2.0;
-  const double mids = mid_sell / 2.0;
+  // Where the mid actually went. Both legs arrived at midf together, so there
+  // is no "sell arrival" to difference against it -- the drift that matters is
+  // forward, from the common arrival to where each leg finished and to where
+  // the window closed. A leg that never finished reports no drift rather than
+  // a drift measured to a mid it never saw.
+  const double buy_drift = (buy_leg.done && buy_leg.end_mid > 0)
+                             ? (buy_leg.end_mid - mid_fire) / 2.0 : 0.0;
+  const double sel_drift = (sel_leg.done && sel_leg.end_mid > 0)
+                             ? (sel_leg.end_mid - mid_fire) / 2.0 : 0.0;
+  const double drift     = mid_close > 0 ? (mid_close - mid_fire) / 2.0 : 0.0;
   const double bv   = buy_leg.vwap();
   const double sv   = sel_leg.vwap();
 
@@ -481,9 +516,10 @@ void SlippageProbe::emit_row(const char *outcome)
   // 0 when nothing traded alongside the leg, which the aggregator filters.
   const double bmv = buy_leg.mkt_vwap();
   const double smv = sel_leg.mkt_vwap();
-  const double slip_buy_vwap = bmv > 0 ? (bv - bmv) : 0.0;
-  const double slip_sel_vwap = smv > 0 ? (smv - sv) : 0.0;
-  const double slip_vs_vwap  = (bmv > 0 && smv > 0)
+  const double slip_buy_vwap = (bmv > 0 && buy_leg.filled > 0) ? (bv - bmv) : 0.0;
+  const double slip_sel_vwap = (smv > 0 && sel_leg.filled > 0) ? (smv - sv) : 0.0;
+  const double slip_vs_vwap  = (bmv > 0 && smv > 0 && buy_leg.filled > 0
+                                  && sel_leg.filled > 0)
                                  ? (slip_buy_vwap + slip_sel_vwap) / 2.0 : 0.0;
 
   // Scored against the TOUCH we could have crossed at, at each leg's arrival.
@@ -492,15 +528,21 @@ void SlippageProbe::emit_row(const char *outcome)
   // A passive algorithm should be NEGATIVE here -- that number is the value of
   // not crossing the spread, and it is the one a trader compares against doing
   // nothing clever at all.
+  //
+  // Guarded on OUR leg having filled as well as on the reference existing.
+  // vwap() returns 0 for an unfilled leg, so a session_end row with a short
+  // sell leg scored bid_fire - 0 ~ +23990 ticks into a column whose real values
+  // are fractions of a tick.
   const double afire = double(ask_fire);
-  const double bsell = double(bid_sell);
-  const double slip_buy_touch = afire > 0 ? (bv - afire) : 0.0;
-  const double slip_sel_touch = bsell > 0 ? (bsell - sv) : 0.0;
-  const double slip_vs_touch  = (afire > 0 && bsell > 0)
+  const double bsell = double(bid_fire);
+  const double slip_buy_touch = (afire > 0 && buy_leg.filled > 0) ? (bv - afire) : 0.0;
+  const double slip_sel_touch = (bsell > 0 && sel_leg.filled > 0) ? (bsell - sv) : 0.0;
+  const double slip_vs_touch  = (afire > 0 && bsell > 0 && buy_leg.filled > 0
+                                   && sel_leg.filled > 0)
                                  ? (slip_buy_touch + slip_sel_touch) / 2.0 : 0.0;
 
   const double slip_buy    = buy_leg.filled > 0 ? bv - midf : 0.0;
-  const double slip_sel    = sel_leg.filled > 0 ? mids - sv : 0.0;
+  const double slip_sel    = sel_leg.filled > 0 ? midf - sv : 0.0;
   // Half the gap between what we paid and what we received -- the captured
   // spread. Direction-agnostic, and it needs no mid at all, so it cannot be
   // corrupted by mis-capturing one.
@@ -515,32 +557,40 @@ void SlippageProbe::emit_row(const char *outcome)
   const double slip_paired = (buy_leg.filled > 0 && sel_leg.filled > 0)
                                ? (bv - sv) / 2.0 : 0.0;
 
-  // Each leg against its own contemporaneous mid. Immune to drift between the
-  // legs, but it depends on having captured both mids correctly.
-  const double slip_legsum = (buy_leg.filled > 0 && sel_leg.filled > 0)
-                               ? (slip_buy + slip_sel) / 2.0 : 0.0;
+  // slip_legsum USED TO LIVE HERE and has been removed, not renamed.
+  //
+  // It was (slip_buy + slip_sel)/2 = ((bv - mid_fire) + (mid_sell - sv))/2, and
+  // it earned its place only while mid_sell was a SECOND arrival taken when the
+  // sell leg began, minutes after the buy. Quoting both sides together makes
+  // mid_sell == mid_fire by construction, at which point the expression reduces
+  // to (bv - sv)/2 -- exactly slip_paired, to the last bit. Two columns, one
+  // number, printed with independent confidence intervals as though they were
+  // evidence of each other. The drift it was there to expose is now measured
+  // directly, forward, as buy_drift / sel_drift / drift.
 
   log_inf("WINDOW %s: buy %.0f@%.2f sel %.0f@%.2f "
-          "slip_buy=%.3f slip_sel=%.3f slip_paired=%.3f legsum=%.3f "
+          "slip_buy=%.3f slip_sel=%.3f slip_paired=%.3f drift=%.3f "
           "part_buy=%.4f part_sel=%.4f",
           outcome, buy_leg.filled, bv, sel_leg.filled, sv,
-          slip_buy, slip_sel, slip_paired, slip_legsum,
+          slip_buy, slip_sel, slip_paired, drift,
           buy_leg.participation(), sel_leg.participation());
 
   if (!out) return;
   fprintf(out,
           "%llu,%s,%d,%.2f,%.4f,%.0f,%d,%llu,"
-          "%.2f,%.4f,%.0f,%d,%llu,"
-          "%.4f,%.4f,%.4f,%.4f,"
+          "%.4f,%.0f,%d,%llu,"
+          "%.4f,%.4f,%.4f,"
+          "%.4f,%.4f,%.4f,"
           "%.0f,%.0f,%.6f,%.6f,"
           "%.4f,%.4f,%.4f,%.4f,%.4f,"
           "%.2f,%.2f,%.4f,%.4f,%.4f,%d,%s\n",
           (unsigned long long)fire_ts, cfg.sym_name.c_str(), cfg.parent_sz, midf,
           bv, buy_leg.filled, buy_leg.n_fills,
           (unsigned long long)(buy_leg.ended - buy_leg.started),
-          mids, sv, sel_leg.filled, sel_leg.n_fills,
+          sv, sel_leg.filled, sel_leg.n_fills,
           (unsigned long long)(sel_leg.ended - sel_leg.started),
-          slip_buy, slip_sel, slip_paired, slip_legsum,
+          slip_buy, slip_sel, slip_paired,
+          buy_drift, sel_drift, drift,
           buy_leg.mkt_vol(), sel_leg.mkt_vol(),
           buy_leg.participation(), sel_leg.participation(),
           bmv, smv, slip_buy_vwap, slip_sel_vwap, slip_vs_vwap,
@@ -554,12 +604,27 @@ void SlippageProbe::shutdown_handler(const actors::msg::Shutdown *) noexcept
   if (!enabled()) return;
 
   // A window still open when the replay stops is reported, not dropped, and is
-  // NOT held to the both-legs-done rule that roll_window asserts: it was cut off
+  // NOT held to the both-legs-done rule that close_window asserts: it was cut off
   // by the data running out, not by the book being too thin to fill it.
   if (window_open)
   {
-    buy_leg.ended = sel_leg.ended = last_tim;
-    emit_row("session_end");
+    // Only a leg that never finished gets the cut-off stamp. Restamping a leg
+    // that completed 12 minutes earlier reported it as having worked the whole
+    // window while its volume denominator stayed frozen at its real last fill,
+    // so buy_ns and buy_leg_mkt_vol described different intervals in one row.
+    if (!buy_leg.done) buy_leg.ended = last_tim;
+    if (!sel_leg.done) sel_leg.ended = last_tim;
+    mid_close = last_bid + last_ask;
+
+    // Name the failure. "session_end" alone could not distinguish "the replay
+    // ran out of data" from "the book was too thin to fill this leg all
+    // afternoon", which are the two cases the sweep most needs to tell apart --
+    // and it is the second one that silently truncates a cell's whole corpus.
+    const char *outcome = (!buy_leg.done && !sel_leg.done) ? "both_short"
+                        : !buy_leg.done                    ? "buy_short"
+                        : !sel_leg.done                    ? "sel_short"
+                                                           : "session_end";
+    emit_row(outcome);
     ++fires_partial;
     window_open = false;
   }

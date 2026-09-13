@@ -163,10 +163,12 @@ broken and are easy to break again:
 - **`test_ob_delay_queue.cpp`** — the latency model. Our orders are held on
   `del_q` until `ts0 + wire latency` has passed in *market* time; these pin the
   withholding, the 40 us floor, and that cancels pay it too.
-- **`test_slippage_probe.cpp`** — the probe's cadence: twelve fires, one per
-  half hour from 09:30 to 15:00 ET, none in between and none after. A full
-  session's schedule is exercised in microseconds instead of the twenty minutes
-  a replay takes.
+- **`test_slippage_probe.cpp`** — the probe's window rule: both sides are
+  targeted once at the first boundary and never again, and a window closes only
+  once its minimum has elapsed **and** both legs have filled their size — not on
+  the clock alone, so a leg that is still short keeps the window open. A full
+  session is exercised in microseconds instead of the twenty minutes a replay
+  takes.
 
 ## Operating Modes
 

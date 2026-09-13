@@ -37,10 +37,15 @@
  *
  * Both sides are live at the same time because their targets DIFFER: a BUY
  * light stands down at pos >= targetpos and a SEL light at pos <= targetpos, so
- * every position strictly inside (-sz, +sz) leaves both working. The inventory
- * random-walks inside that band and crosses zero on its own. Nothing flattens
- * it and nothing resets it -- a window's closing position is carried into the
- * next one and reported as pos_at_close.
+ * every position strictly inside (-sz, +sz) leaves both working. Nothing
+ * flattens it and nothing resets it -- a window's closing position is carried
+ * into the next one and reported as pos_at_close.
+ *
+ * The inventory does NOT random-walk around zero: measured over a session it
+ * sits above zero on 69% of fills, hits exactly zero on 0.5%, and is at 90% of
+ * the band or beyond on 26%. It PINS to whichever edge the day pushes it to.
+ * Both sides keep quoting anyway, because the pinned one is throttled to the
+ * remaining distance rather than switched off.
  *
  * ## When a window ends -- the requirement, stated plainly
  *
@@ -91,9 +96,18 @@
  * ## The numbers
  *
  *   slip_buy    = buy_vwap - mid_fire        buy side vs the anchor mid
- *   slip_sel    = mid_sell - sel_vwap        sell side vs the same anchor
+ *   slip_sel    = mid_fire - sel_vwap        sell side vs the same anchor
  *   slip_paired = (buy_vwap - sel_vwap) / 2  the captured spread
- *   slip_legsum = (slip_buy + slip_sel) / 2
+ *   buy_drift   = buy_end_mid - mid_fire     where the mid went while the buy
+ *                                            leg worked (0 if it never finished)
+ *   sel_drift   = sel_end_mid - mid_fire     likewise for the sell leg
+ *   drift       = mid_close  - mid_fire      over the whole window
+ *
+ * There is no slip_legsum. It was (slip_buy + slip_sel)/2, which is worth
+ * having only while the two legs have SEPARATE arrivals to difference. They
+ * arrive together here, so it reduces exactly to slip_paired -- two columns
+ * carrying one number. Drift is measured forward instead: from the common
+ * arrival to where each leg finished, and to where the window closed.
  *
  * slip_paired equals 1/2(cost_buy + cost_sel) only when both legs saw the same
  * mid -- which here they do, because they arrive together. That was the defect
@@ -206,6 +220,10 @@ namespace sim
       int      n_fills  = 0;
       uint64_t started  = 0;
       uint64_t ended    = 0;
+      // 2x the mid at the fill that COMPLETED this leg, for its own drift.
+      // Zero while the leg is unfinished, which is how emit_row knows not to
+      // report a drift to a mid the leg never reached.
+      int      end_mid  = 0;
       // Market volume over THIS LEG'S OWN interval -- first fill to last fill,
       // not the clock window. The two legs quote simultaneously but they do not
       // trade simultaneously: one side can be done in seconds while the other is
@@ -282,7 +300,7 @@ namespace sim
     // whichever one happened to be first in the vector. See set_lights().
     std::vector<actor_ptr> buy_lights, sel_lights;
     Config     cfg;
-    // Is a window open right now? on_clock opens the first one and roll_window
+    // Is a window open right now? on_clock opens the first one and closes
     // asserts on it, so it is the one bit separating "first boundary of the
     // session" and "session over, last window already closed" from "a window is
     // open and this boundary closes it".
@@ -294,8 +312,16 @@ namespace sim
     int      position  = 0;      // our own, from fills
 
     uint64_t fire_ts   = 0;      // start of the open window
+    // How far past the minimum the open window has run, at which the next
+    // stall warning is due. Reset on every open; grows by one minimum per
+    // warning so a permanently stalled leg complains periodically, not per tick.
+    uint64_t stall_warn_at = 0;
+
     int      mid_fire  = 0;      // ticks * 2, so a half-tick mid stays integral
-    int      mid_sell  = 0;
+    // 2x the mid the window CLOSED on. Both legs arrive together, so drift
+    // cannot be the gap between two arrivals any more -- it is measured forward
+    // from mid_fire to here, and per leg to Leg::end_mid.
+    int      mid_close = 0;
     // The TOUCH at each leg's arrival, not just the mid. Three benchmarks
     // answer three different questions and only together say what happened:
     //
@@ -310,10 +336,11 @@ namespace sim
     //                        should beat it, and by how much is the whole case
     //                        for a passive algorithm. Expected NEGATIVE (a
     //                        saving) where the mid-based numbers are positive.
-    int      ask_fire  = 0;      // the ask we could have lifted at t0
-    int      bid_fire  = 0;
-    int      bid_sell  = 0;      // the bid we could have hit at t1
-    int      ask_sell  = 0;
+    int      ask_fire  = 0;      // the ask we could have lifted at the arrival
+    int      bid_fire  = 0;      // the bid we could have hit at the same instant
+    // There is no ask_sell / bid_sell pair any more: with both legs arriving at
+    // the same instant they were copies of these two, assigned every window and
+    // read nowhere.
     Leg      buy_leg;
     Leg      sel_leg;
 
