@@ -390,22 +390,36 @@ void SimKaspr::create_lights()
     probe_pcoord_buy_ = pcoord_buy;
     probe_pcoord_sel_ = pcoord_sel;
 
-    // A QCoord per light, not one shared. QCoord::mmid_orders is a single
-    // bitmask keyed by mmid; with lights sharing a QCoord and all using
-    // mmid 0, one light's full-erase remove_order clears the tracking bit for
-    // every sibling holding an order at the same mmid, and the next add_order
-    // trips "already have this mm id".
+    // ONE QCoord PER SIDE, shared by that side's lights -- what
+    // SHADOW_ALGORITHM.md has always described and what makes lev_orders_max
+    // mean what it says.
+    //
+    // With a QCoord per light, sz_at_px only ever saw that light's own order,
+    // so `lev_orders_max - sz_at_px` capped each light separately: four lights
+    // could rest 4 x lev_orders_max at one price, and none of them knew the
+    // others were there. The cap read like a per-price limit and was not one.
+    //
+    // What blocked sharing was the mmid. QCoord::mmid_orders is a uint64_t
+    // bitmask with one bit per mmid, and every call site passed mmid 0 -- so
+    // all four lights contended for bit 0 and one light's remove_order cleared
+    // the flag for its siblings. Giving each light its own mmid fixes that:
+    // px_mmid_ord is already keyed px -> mmid -> ord, so distinct mmids give
+    // each light its own slot at a price while sz_at_px sums across all of
+    // them. 64 bits is ample for the light counts here.
     //
     // Named with the index, exactly as kaspr.cpp does. The name is not
     // cosmetic: light22 mixes it into the per-light RNG seed, so two lights
     // sharing a name would draw the SAME placement stream and act on the same
     // ADDs -- N copies of one light rather than N independent ones.
+    auto qcoord_buy = create_QCoord();
+    auto qcoord_sel = create_QCoord();
+
     for (int i = 0; i < nlights; i++) {
       auto light_buy = create_light22_Shadow_BUY(
           "sim", nullptr, nullptr, "L_" + a->name + "_BUY_" + std::to_string(i),
           en::trader::SIMULATOR,
-          a->name, venue_, venue_, create_QCoord(), pcoord_buy, ob, nullptr, 0,
-          timer_, som_, 0, pt_light, 0, false);
+          a->name, venue_, venue_, qcoord_buy, pcoord_buy, ob, nullptr, 0,
+          timer_, som_, i, pt_light, 0, false);   // mmid = i: its own slot
       group_->add(light_buy);
       lights_.push_back(light_buy);
       buy_lights_.push_back(light_buy);
@@ -415,8 +429,8 @@ void SimKaspr::create_lights()
       auto light_sel = create_light22_Shadow_SEL(
           "sim", nullptr, nullptr, "L_" + a->name + "_SEL_" + std::to_string(i),
           en::trader::SIMULATOR,
-          a->name, venue_, venue_, create_QCoord(), pcoord_sel, ob, nullptr, 0,
-          timer_, som_, 0, pt_light, 0, false);
+          a->name, venue_, venue_, qcoord_sel, pcoord_sel, ob, nullptr, 0,
+          timer_, som_, i, pt_light, 0, false);   // mmid = i: its own slot
       group_->add(light_sel);
       lights_.push_back(light_sel);
       sel_lights_.push_back(light_sel);

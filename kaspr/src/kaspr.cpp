@@ -273,16 +273,31 @@ void Kaspr::create_lights()
         auto pcoord = create_PCoord();
         pcoord_map[a->name] = pcoord;
 
+        // ONE QCoord PER BANK -- the buy lights share one, the sell lights
+        // share another. That is what SHADOW_ALGORITHM.md has always described,
+        // and it is what makes lev_orders_max a per-PRICE cap instead of a
+        // per-light one: with a QCoord each, sz_at_px saw only that light's own
+        // order, so four lights could rest 4 x lev_orders_max at a level and
+        // none of them knew the others were there.
+        //
+        // The mmid is what blocked sharing. QCoord::mmid_orders is a uint64_t
+        // bitmask with one bit per mmid and every call site passed 0, so all
+        // four lights contended for bit 0 and one light's remove_order cleared
+        // the flag for its siblings. Each light now gets its own mmid;
+        // px_mmid_ord is already keyed px -> mmid -> ord, so they get separate
+        // slots at a price while sz_at_px sums across the bank.
+        auto qcoord_buy = create_QCoord();
+        auto qcoord_sel = create_QCoord();
+
         // Create 4 buy lights
         for (int i = 0; i < NUM_LIGHTS_PER_SIDE; i++) {
-            auto qcoord = create_QCoord();
             auto name = "L_" + a->name + "_BUY_" + std::to_string(i);
             auto light = create_light22_Shadow_BUY(
                 "kaspr", db, nullptr, name,
                 en::trader::SIMULATOR, a->name,
                 venue, venue,
-                qcoord, pcoord, ob, nullptr, 0,
-                timer, som[venue], 0, pt_light, 0, false
+                qcoord_buy, pcoord, ob, nullptr, 0,
+                timer, som[venue], i, pt_light, 0, false
             );
             add_to_manage_q(light);
             lights.push_back(light);
@@ -290,14 +305,13 @@ void Kaspr::create_lights()
 
         // Create 4 sell lights
         for (int i = 0; i < NUM_LIGHTS_PER_SIDE; i++) {
-            auto qcoord = create_QCoord();
             auto name = "L_" + a->name + "_SEL_" + std::to_string(i);
             auto light = create_light22_Shadow_SEL(
                 "kaspr", db, nullptr, name,
                 en::trader::SIMULATOR, a->name,
                 venue, venue,
-                qcoord, pcoord, ob, nullptr, 0,
-                timer, som[venue], 0, pt_light, 0, false
+                qcoord_sel, pcoord, ob, nullptr, 0,
+                timer, som[venue], i, pt_light, 0, false
             );
             add_to_manage_q(light);
             lights.push_back(light);
