@@ -1122,7 +1122,12 @@ void act::SOM::order_handler(const msg::Order *m) noexcept
 
     if (m->side == en::bs::BUY)
     {
-      if (current_pos + working_sz + m->sz > pos_limit[m->sym])
+      // A NEGATIVE limit means "do not check". Zero is still a real limit of
+      // zero -- and note that used to be the DEFAULT for anything som.ini did
+      // not name (both vectors are resize(n, 0)), so an unlisted instrument
+      // rejected every order it was ever sent.
+      if (pos_limit[m->sym] >= 0 &&
+          current_pos + working_sz + m->sz > pos_limit[m->sym])
       {
         log_err("BUY POS WOULD GO OVER LIMIT current_pos: %d, working_sz: %d, sz: %d, pos_limit: %d",
                 current_pos,
@@ -1134,7 +1139,8 @@ void act::SOM::order_handler(const msg::Order *m) noexcept
     }
     else
     {
-      if (current_pos - working_sz - m->sz < -pos_limit[m->sym])
+      if (pos_limit[m->sym] >= 0 &&
+          current_pos - working_sz - m->sz < -pos_limit[m->sym])
       {
         log_err("SELL POS WOULD GO OVER LIMIT current_pos: %d, working_sz: %d, sz: %d, pos_limit: %d",
                 current_pos,
@@ -1145,7 +1151,7 @@ void act::SOM::order_handler(const msg::Order *m) noexcept
       }
     }
 
-    if (m->sz > size_limit[m->sym])
+    if (size_limit[m->sym] >= 0 && m->sz > size_limit[m->sym])
     {
       log_err("ORDER SIZE WOULD GO OVER LIMIT sz: %d, size_limit: %d",
               m->sz,

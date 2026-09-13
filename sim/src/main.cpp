@@ -64,7 +64,11 @@ static std::vector<uint64_t> probe_schedule(const std::string &date_yyyymmdd, in
   const int y  = std::stoi(date_yyyymmdd.substr(0, 4));
   const int mo = std::stoi(date_yyyymmdd.substr(4, 2));
   const int d  = std::stoi(date_yyyymmdd.substr(6, 2));
-  for (int mins = 9 * 60 + 30; mins <= 15 * 60; mins += every_min)
+  // 09:30 to 15:30 ET. These are the window BOUNDARIES, not fire times: the
+  // probe quotes continuously between them and each boundary closes one window
+  // and opens the next, so N boundaries give N-1 measured windows. The last one
+  // closes the final window and stands the lights down.
+  for (int mins = 9 * 60 + 30; mins <= 15 * 60 + 30; mins += every_min)
     out.push_back(et_to_epoch_ns(y, mo, d, mins / 60, mins % 60));
   return out;
 }
@@ -154,8 +158,8 @@ int main(int argc, char* argv[])
       ("probe-date", po::value<string>()->default_value(""),
                     "session date YYYYMMDD for the probe schedule; empty = take it "
                     "from the datafile name. ET wall-clock, DST handled.")
-      ("probe-every-min", po::value<int>()->default_value(30),
-                    "minutes between probe fires")
+      ("probe-every-min", po::value<int>()->default_value(15),
+                    "minutes between window boundaries (09:30-15:30 ET)")
       ("nlights-per-side", po::value<int>()->default_value(-1),
 
                     "Lights per side per instrument (-1 = lights.ini, which\ndefaults to 4, matching production). A light holds ONE order at one\nprice, so this is what decides how many prices the shadow can rest at\nsimultaneously -- nlevels and max_dist cannot substitute for it.")

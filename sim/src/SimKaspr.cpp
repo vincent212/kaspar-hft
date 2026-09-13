@@ -62,6 +62,9 @@ SimKaspr::SimKaspr(std::string data_file,
     , probe_size_(probe_size)
     , probe_out_(std::move(probe_out))
     , probe_fires_(std::move(probe_fires))
+    , probe_window_s_(probe_fires_.size() > 1
+                          ? int((probe_fires_[1] - probe_fires_[0]) / 1000000000ull)
+                          : 15 * 60)
 {
   std::cerr << "SimKaspr: data=" << data_file_ << "\n"
             << "          universe=" << universe_json_ << "\n"
@@ -87,7 +90,7 @@ SimKaspr::SimKaspr(std::string data_file,
   create_som();
   create_lights();
   if (probe_ && !lights_.empty())
-    probe_->set_lights(lights_[0], lights_[1]);
+    probe_->set_lights(buy_lights_, sel_lights_);
   create_position_manager();
   create_bfa();
 
@@ -295,14 +298,19 @@ void SimKaspr::create_probe()
   cfg.sym_name  = a->name;
   cfg.sym       = book_syms_[0];
   cfg.parent_sz = probe_size_;
-  cfg.fire_ts   = probe_fires_;
+  // The schedule collapses to its bounds: the repeating timer supplies every
+  // boundary in between, so the probe needs only where the session starts and
+  // where it ends.
+  cfg.session_start = probe_fires_.front();
+  cfg.session_end   = probe_fires_.back();
+  cfg.tick_s        = probe_window_s_;
   cfg.out_path  = probe_out_;
 
   probe_ = new SlippageProbe(books_[0], timer_, cfg);
   group_->add(probe_);
 
   std::cerr << "SimKaspr: probe on " << cfg.sym_name << " parent_sz=" << probe_size_
-            << " fires=" << probe_fires_.size()
+            << " window=" << probe_window_s_ << "s"
             << (probe_out_.empty() ? "" : (" out=" + probe_out_)) << std::endl;
 }
 
@@ -349,6 +357,20 @@ void SimKaspr::create_lights()
     auto a   = frame::ref::RefData::inst().get_asset(sym);
     if (!a) continue;
 
+    // ONE PCoord per instrument, shared by every light.
+    //
+    // Both sides quote at once because they hold DIFFERENT targets, not because
+    // they hold different position books: a BUY light stands down at
+    // pos >= targetpos and a SEL light at pos <= targetpos (light22.hpp:239,243),
+    // so with BUY at +sz and SEL at -sz every position strictly inside that band
+    // leaves both sides live. The inventory random-walks in the band and crosses
+    // zero on its own -- nothing has to flatten it, and no target is ever set a
+    // second time.
+    //
+    // (An earlier attempt gave each side its own PCoord to force simultaneity.
+    // That is unnecessary once the targets differ, and it cost an extra trader
+    // id to tell the two books apart. With one book, Fill::side identifies the
+    // light exactly: a light22<BUY> only ever bids.)
     auto pcoord = create_PCoord();
     pcoord_map_[a->name] = pcoord;
 
@@ -357,10 +379,11 @@ void SimKaspr::create_lights()
     // mmid 0, one light's full-erase remove_order clears the tracking bit for
     // every sibling holding an order at the same mmid, and the next add_order
     // trips "already have this mm id".
+    //
     // Named with the index, exactly as kaspr.cpp does. The name is not
     // cosmetic: light22 mixes it into the per-light RNG seed, so two lights
-    // with the same name would draw the SAME placement stream and act on the
-    // same ADDs -- giving N copies of one light rather than N independent ones.
+    // sharing a name would draw the SAME placement stream and act on the same
+    // ADDs -- N copies of one light rather than N independent ones.
     for (int i = 0; i < nlights; i++) {
       auto light_buy = create_light22_Shadow_BUY(
           "sim", nullptr, nullptr, "L_" + a->name + "_BUY_" + std::to_string(i),
@@ -369,6 +392,7 @@ void SimKaspr::create_lights()
           timer_, som_, 0, pt_light, 0, false);
       group_->add(light_buy);
       lights_.push_back(light_buy);
+      buy_lights_.push_back(light_buy);
     }
 
     for (int i = 0; i < nlights; i++) {
@@ -379,10 +403,11 @@ void SimKaspr::create_lights()
           timer_, som_, 0, pt_light, 0, false);
       group_->add(light_sel);
       lights_.push_back(light_sel);
+      sel_lights_.push_back(light_sel);
     }
 
-    std::cerr << "SimKaspr: " << (2 * nlights) << " lights (" << nlights
-              << " per side) for " << a->name << std::endl;
+    std::cerr << "SimKaspr: " << (2 * nlights) << " lights for " << a->name
+              << " -- " << nlights << " per side" << std::endl;
   }
 }
 

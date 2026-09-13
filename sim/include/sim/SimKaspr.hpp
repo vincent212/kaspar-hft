@@ -98,6 +98,10 @@ namespace sim
     int                   probe_size_;
     std::string           probe_out_;
     std::vector<uint64_t> probe_fires_;
+    // The repeating timer's period, seconds of market time. It IS the window:
+    // every alarm closes one and opens the next. Derived from the schedule's
+    // spacing so there is one source of truth.
+    int probe_window_s_ = 15 * 60;
 
     actors::Group* group_ = nullptr;
     SlippageProbe* probe_ = nullptr;
@@ -115,6 +119,10 @@ namespace sim
     actor_ptr bfa_ = nullptr;
     actor_ptr position_manager_ = nullptr;
     std::vector<actor_ptr> lights_;
+    // Split by side, because that is what the probe targets: BUY lights get
+    // +sz and SEL lights get -sz. They share one PCoord; the differing targets
+    // are what keep both sides live. See create_lights().
+    std::vector<actor_ptr> buy_lights_, sel_lights_;
 
     std::map<std::string, light::PCoord*> pcoord_map_;
     std::vector<std::string> registered_;   // symbols registered from the universe JSON

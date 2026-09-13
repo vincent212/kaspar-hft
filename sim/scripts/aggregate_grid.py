@@ -53,6 +53,12 @@ def load(cfg_dir):
                         'buy_leg_mkt_vol', 'sel_leg_mkt_vol',
                         'buy_part', 'sel_part', 'buy_ns', 'sel_ns',
                         'buy_fills', 'parent_sz')})
+                    # Benchmarks added later; older runs do not have them, so
+                    # they default to 0 and are filtered out below rather than
+                    # dragging a mean toward zero.
+                    for k in ('slip_vs_vwap', 'slip_buy_vs_vwap',
+                              'slip_vs_touch', 'slip_buy_vs_touch'):
+                        fires[-1][k] = float(row.get(k) or 0)
                 except (KeyError, ValueError):
                     continue
     return fires, total, by_outcome
@@ -100,6 +106,13 @@ def summarise(name, params, fires, total, by_outcome):
         'part_median': pct(bpart, 0.5), 'part_p10': pct(bpart, 0.1),
         'part_p90': pct(bpart, 0.9),
         'part_aggregate': agg_num / agg_den if agg_den else float('nan'),
+        # Only fires where the benchmark exists: 0 means the leg had no market
+        # volume alongside it (vwap) or no touch recorded (touch), not a
+        # zero-cost execution.
+        'slip_vwap': (lambda v: st.mean(v) if v else float('nan'))(
+            [f['slip_vs_vwap'] for f in fires if f['slip_vs_vwap']]),
+        'slip_touch': (lambda v: st.mean(v) if v else float('nan'))(
+            [f['slip_vs_touch'] for f in fires if f['slip_vs_touch']]),
         'buy_leg_s': st.mean(g('buy_ns')) / 1e9,
         'child_fills': st.mean(g('buy_fills')),
         'outcomes': by_outcome,
@@ -141,13 +154,14 @@ def main():
         if not sel: continue
         print(f"\n=== grid {gid} " + "=" * 96)
         print(f"{'config':<16}{'sess':>5}{'fires':>7}{'compl':>7}"
-              f"{'slip_paired':>14}{'slip_legsum':>14}{'part_med':>10}"
+              f"{'slip_paired':>14}{'slip_legsum':>14}{'vs_vwap':>10}{'vs_touch':>10}{'part_med':>10}"
               f"{'p10-p90':>16}{'part_agg':>10}{'leg_s':>8}{'fills':>7}")
         for r in sorted(sel, key=lambda x: x['config']):
             print(f"{r['config']:<16}{r['sessions']:>5}{r['fires_ok']:>7}"
                   f"{r['completion']*100:>6.1f}%"
                   f"{r['slip_paired']:>+9.4f}±{r['slip_paired_ci']:<4.3f}"
                   f"{r['slip_legsum']:>+9.4f}±{r['slip_legsum_ci']:<4.3f}"
+                  f"{r['slip_vwap']:>+10.4f}{r['slip_touch']:>+10.4f}"
                   f"{r['part_median']:>10.5f}"
                   f"{r['part_p10']:>8.5f}-{r['part_p90']:<7.5f}"
                   f"{r['part_aggregate']:>10.5f}{r['buy_leg_s']:>8.1f}"
