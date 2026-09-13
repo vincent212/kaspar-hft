@@ -30,6 +30,7 @@ Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) —
 - **iLink 3 reference implementation** — Full CME iLink v3 session handler with SBE encoding, HMAC authentication, sequence management, and primary/secondary failover.
 - **PCAP reader** — Replay recorded CME multicast captures for deterministic backtesting. Bit-exact reproduction of market conditions.
 - **External strategy support** — Write strategies in C++ as in-process actors (lowest latency), or in Rust via the in-process C++/Rust FFI interop.
+- **Execution-cost measurement** — `sim/` runs the shadow lights as a two-sided market maker over recorded sessions and emits one row per window: each leg's VWAP against the arrival mid, the touch it could have crossed, and the market's own VWAP over the same interval, plus participation and realised drift. A parameter sweep (`sim/scripts/run_grid.sh`) runs that across placement rates, parent sizes and simulated latencies, selecting sessions from the exchange calendar so holidays and early closes never enter the corpus.
 - **Rust port of the actor framework** — [`actors/rust`](actors/rust) (crate `actors`): a from-scratch Rust port of the actor core — on-stack `fast_send`, integer-ID O(1) dispatch, the `BQueue` mailbox, and the per-type object pool — shipping a **price-time-FIFO order-book matching engine** as an example. In-process (no remoting/registry/groups yet).
 
 ### Requirements
@@ -44,6 +45,9 @@ Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) —
 - zlib
 - Google Test (to build and run the unit tests)
 - Rust toolchain — optional, only for the `actors/rust` port
+- `pandas_market_calendars` — optional, only to regenerate
+  `sim/scripts/market_sessions.tsv` (the exchange calendar the sweep selects
+  sessions from). The sweep itself reads the generated file and needs no Python.
 
 ## Build
 
@@ -117,7 +121,7 @@ Notes:
 
 ## Tests
 
-295 Google Test cases over the pieces that decide what the simulator does: the
+297 Google Test cases over the pieces that decide what the simulator does: the
 shadow light, the order book's delay queue, the coordination objects, reference
 data, the timer, the simulated order manager, position tracking, and the
 slippage probe.
@@ -149,12 +153,12 @@ cmake --build build -j8 && cmake --install build
 ```
 
 The tests run synchronously through `TestHelper::invoke_handler` — no Manager,
-no threads — so they are deterministic and the whole suite takes about 80 ms.
+no threads — so they are deterministic and the whole suite takes about a second.
 Mocks live in `unit_test/include/unit_test/`. See `unit_test/README.md` for the
 per-file inventory and how to add a case.
 
-Two suites are worth knowing about because they cover things that were silently
-broken and are easy to break again:
+Three suites are worth knowing about because they cover things that were
+silently broken and are easy to break again:
 
 - **`test_ob_book.cpp`** — book reconstruction and the no-cross invariant. Two
   death tests encode the whole crossed-book investigation: a genuine inversion
@@ -163,12 +167,14 @@ broken and are easy to break again:
 - **`test_ob_delay_queue.cpp`** — the latency model. Our orders are held on
   `del_q` until `ts0 + wire latency` has passed in *market* time; these pin the
   withholding, the 40 us floor, and that cancels pay it too.
-- **`test_slippage_probe.cpp`** — the probe's window rule: both sides are
-  targeted once at the first boundary and never again, and a window closes only
-  once its minimum has elapsed **and** both legs have filled their size — not on
-  the clock alone, so a leg that is still short keeps the window open. A full
-  session is exercised in microseconds instead of the twenty minutes a replay
-  takes.
+- **`test_slippage_probe.cpp`** — the probe's control surface and its window
+  rule. No `TARGET_POS` is ever sent: `targetpos` stays 0 and each side is given
+  work by moving its own position book away from flat, so the lights work it
+  back and stop by themselves — the arrangement `PositionManager` uses. A window
+  closes only once its minimum has elapsed **and** both legs have executed the
+  work that window gave them, not on the clock alone, so a leg that is still
+  short keeps the window open. A full session is exercised in microseconds
+  instead of the twenty minutes a replay takes.
 
 ## Operating Modes
 
@@ -203,6 +209,14 @@ kaspar/
 ├── oogsl/          GSL math wrappers — stats, matrix, RNG
 ├── genconfig/      CME config generators (MDP3 + iLink)
 ├── setclassid/     Message-ID collision checker
+├── genschema/      Generates the CME SBE codecs from CME's templates (`make schema`)
+├── sim/            The simulator and the experiment around it — SimKaspr wiring, the
+│                   SlippageProbe actor that produces the cost numbers, per-arm configs,
+│                   and `scripts/` (the sweep, the aggregator, the session calendar)
+├── dbento_pcap_parse/  Databento capture -> the binary session files the sim replays
+├── models/         Research log and analysis — PLAN.md carries the findings and their reasoning
+├── unit_test/      Google Test suite and the mocks it runs against
+├── tech_reports/   Technical reports (LaTeX source + PDFs)
 └── mk_kaspr/       Build-system templates — glob_begin.mk, lib/app templates, path detection
 ```
 
@@ -521,7 +535,9 @@ kaspr {
 | [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) | Writing actors in the Rust port |
 | [actors/rust/MATCHING_ENGINE.md](actors/rust/MATCHING_ENGINE.md) | The matching-engine example |
 | [tech_reports/fast_send.pdf](tech_reports/fast_send.pdf) | Technical report: `fast_send` synchronous message delivery |
-| [tech_reports/shadow_pov.pdf](tech_reports/shadow_pov.pdf) | Technical report: Shadow-PPOV passive execution |
+| [tech_reports/shadow_pov.pdf](tech_reports/shadow_pov.pdf) | Technical report: Shadow-POV passive execution |
+| [models/PLAN.md](models/PLAN.md) | Research log — what was measured, what it means, and what is still wrong with it |
+| [sim/scripts/run_grid.sh](sim/scripts/run_grid.sh) | The parameter sweep: cells, sessions, and how a run is reproduced |
 
 ## Performance Characteristics
 
@@ -642,7 +658,7 @@ Releases are tagged; `main` tracks ongoing development. Always use the main bran
 | Tag | Actor `Message` ABI | Pin with |
 |---|---|---|
 | **v0.1.0** (current) | id is a non-virtual data-member read; `Message_N<N>` requires `N` in `[0,512)`; `MessageT<Derived>` auto-assigns collision-free ids ≥ 512 | `git checkout v0.1.0` |
-| **v0.0.1** | id via **virtual** `get_message_id()`; original `Message` layout; `Message_N<N>` unconstrained | `git checkout v0.0.1` or the `release-0.0.1` branch |
+| **v0.0.1** | id via **virtual** `get_message_id()`; original `Message` layout; `Message_N<N>` unconstrained | `git checkout v0.0.1` |
 
 **v0.0.1 → v0.1.0 is a breaking change** to the actor message layer. Code built
 against v0.0.1 must be recompiled, and you must update any message type that:
@@ -652,9 +668,9 @@ against v0.0.1 must be recompiled, and you must update any message type that:
   virtual — prefer `MessageT<Derived>` for new messages, or `Message_N<N>` for a
   fixed compile-time id).
 
-If you built against the old ABI and don't want to migrate yet, **stay on
-`v0.0.1`** (or the `release-0.0.1` maintenance branch, which takes backported
-fixes without the breaking change). See
+If you built against the old ABI and don't want to migrate yet, **stay on the
+`v0.0.1` tag**. There is no maintenance branch: `release-0.0.1` was deleted once
+every commit on it was in `main`, and the tag preserves that history. See
 [`actors/cpp/include/actors/msg/README.md`](actors/cpp/include/actors/msg/README.md)
 for the current message API.
 
