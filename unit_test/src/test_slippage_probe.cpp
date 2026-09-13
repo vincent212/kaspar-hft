@@ -40,6 +40,7 @@
 #include "sim/act/SlippageProbe.hpp"
 #include "unit_test/MockActor.hpp"
 #include "unit_test/MockPCoord.hpp"
+#include "unit_test/FakeMarketData.hpp"
 #include "unit_test/TestHelper.hpp"
 
 using namespace frame;
@@ -68,8 +69,10 @@ enum Col {
   kBuyDrift, kSelDrift, kDrift,
   kBuyMktVol, kSelMktVol, kBuyPart, kSelPart,
   kBuyMktVwap, kSelMktVwap, kSlipBuyVsVwap, kSlipSelVsVwap, kSlipVsVwap,
+  kBuyHitVol, kSelTakVol, kBuyHitVwap, kSelTakVwap,
+  kSlipBuyVsHit, kSlipSelVsTak, kSlipVsAgg,
   kAskFire, kBidFire, kSlipBuyVsTouch, kSlipSelVsTouch, kSlipVsTouch,
-  kPosAtClose, kOutcome, kNumCols
+  kPosAtClose, kPosMax, kPosMin, kPosMean, kPosAbsMean, kOutcome, kNumCols
 };
 
 class SlippageProbeTest : public ::testing::Test {
@@ -211,6 +214,23 @@ protected:
   }
 
   void fill(en::bs side, int px, int sz) { fill_at(0, side, px, sz); }
+
+  // A market trade. resting_side is the side of the order ALREADY IN THE BOOK,
+  // which is what the feed reports and what is_hit()/is_tak() key on:
+  //   resting BUY  -> a bid was hit    -> the aggressor SOLD
+  //   resting SEL  -> an offer was taken -> the aggressor BOUGHT
+  void trade(en::bs resting_side, int px, int sz) {
+    auto payload = unit_test::make_trade_payload(en::x::CMEMD, sym, px, sz,
+                                                 resting_side, kBid, kAsk);
+    // make_payload deliberately leaves px unset -- it would need RefData, which
+    // a bare fixture may not have registered. This one does (quote() sets a
+    // Price the same way), and without it every trade contributes sz * 0
+    // notional and any VWAP built from it is 0.
+    payload->px = ref::Price(px, sym);
+    auto tn = new ob::msg::TradeNotify(payload);
+    TestHelper::invoke_handler(probe.get(), tn, &mock_ob);
+    delete tn;
+  }
 
   // A fill carrying its own market timestamp. The leg takes its end stamp from
   // the FILL, not from the tick that later notices, so a test about leg
@@ -736,6 +756,76 @@ TEST_F(SlippageProbeTest, DoesNotOpenAWindowThatCannotFinishInTheSession) {
 
   EXPECT_EQ(csv_rows().size(), rows_after_close)
       << "no window may open without a full minimum left before the close";
+}
+
+TEST_F(SlippageProbeTest, ScoresEachLegAgainstItsOwnAggressorStream) {
+  // The hit/take benchmark. Our buy leg rests on the bid and is filled when
+  // someone HITS that bid, so the trades it competed with are the other bids
+  // that were hit over the same interval -- not every trade, which would
+  // include everyone who crossed the spread and so embed the spread itself.
+  //
+  //   is_hit()  resting BUY  -- a bid was hit    -- peer group for our BUY leg
+  //   is_tak()  resting SEL  -- an offer taken   -- peer group for our SEL leg
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  // Hits print at 23980, takes at 23999 -- deliberately far apart and far from
+  // our own fills, so a leg scored against the wrong stream cannot pass.
+  trade(en::bs::BUY, 23980, 100);    // a bid was hit
+  trade(en::bs::SEL, 23999, 100);    // an offer was taken
+
+  fill(en::bs::BUY, kAsk, kParent);
+  fill(en::bs::SEL, kBid, kParent);
+  tick(kT0 + kWindow + kSec);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kBuyHitVwap]), 23980.0)
+      << "the buy leg must be scored against HITS, not takes";
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSelTakVwap]), 23999.0)
+      << "the sell leg must be scored against TAKES, not hits";
+
+  // Sign convention: positive is cost. We bought at kAsk (23994) against hits
+  // at 23980, so we paid 14 more than the other filled bids -- a cost. We sold
+  // at kBid (23990) against takes at 23999, so we received 9 less -- also a
+  // cost.
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSlipBuyVsHit]), double(kAsk) - 23980.0);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSlipSelVsTak]), 23999.0 - double(kBid));
+
+  // The peer group's SIZE, not just its price. Without it the VWAP cannot say
+  // how thin the comparison was, and there is no denominator for a
+  // participation rate against passive flow specifically.
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kBuyHitVol]), 100.0) << "hits beside the buy leg";
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSelTakVol]), 100.0) << "takes beside the sell leg";
+
+  // And they must not be the all-trades figure: 200 lots traded in total, 100
+  // of each aggressor. A leg reading 200 here is summing both streams.
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kBuyMktVol]), 200.0)
+      << "the all-trades column still counts both";
+}
+
+TEST_F(SlippageProbeTest, ReportsNoAggressorBenchmarkWhenThatStreamIsEmpty) {
+  // A leg with no trade of its own aggressor beside it has no peer group, and
+  // must report 0 rather than a comparison against a VWAP of nothing. The
+  // all-trades benchmark is unaffected -- it still has the other stream.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  trade(en::bs::BUY, 23980, 100);    // hits only; nothing took an offer
+  fill(en::bs::BUY, kAsk, kParent);
+  fill(en::bs::SEL, kBid, kParent);
+  tick(kT0 + kWindow + kSec);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kBuyHitVwap]), 23980.0);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSelTakVwap]), 0.0) << "no takes, no benchmark";
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSlipSelVsTak]), 0.0);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSlipVsAgg]), 0.0) << "a pair benchmark needs both";
 }
 
 TEST_F(SlippageProbeTest, SkipsAWindowWithNoTouch) {

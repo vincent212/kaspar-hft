@@ -56,7 +56,7 @@ static uint64_t et_to_epoch_ns(int y, int mo, int d, int h, int mi)
   return uint64_t(t) * 1000000000ull;
 }
 
-// 09:30 to 15:00 ET inclusive, every `every_min` minutes.
+// 09:29 to 16:00 ET inclusive, every `every_min` minutes.
 static std::vector<uint64_t> probe_schedule(const std::string &date_yyyymmdd, int every_min)
 {
   std::vector<uint64_t> out;
@@ -71,11 +71,22 @@ static std::vector<uint64_t> probe_schedule(const std::string &date_yyyymmdd, in
   const int y  = std::stoi(date_yyyymmdd.substr(0, 4));
   const int mo = std::stoi(date_yyyymmdd.substr(4, 2));
   const int d  = std::stoi(date_yyyymmdd.substr(6, 2));
-  // 09:30 to 15:30 ET. These are the window BOUNDARIES, not fire times: the
+  // 09:29 to 16:00 ET. These are the window BOUNDARIES, not fire times: the
   // probe quotes continuously between them and each boundary closes one window
-  // and opens the next, so N boundaries give N-1 measured windows. The last one
-  // closes the final window and stands the lights down.
-  for (int mins = 9 * 60 + 30; mins <= 15 * 60 + 30; mins += every_min)
+  // and opens the next, so N boundaries give N-1 measured windows.
+  //
+  // 16:00, not 15:30: the cash session runs to 16:00 and stopping half an hour
+  // early threw away the close, which is a sixth of the day and not a typical
+  // sixth -- volume and spread both move into it. It also cost the largest
+  // parents the windows they most need: a 200-lot leg takes tens of seconds, so
+  // Q100 and Q200 get few enough windows per session that half an hour matters.
+  //
+  // 09:29, not 09:30: a boundary exactly at the open puts the opening auction
+  // and the first prints on the EDGE of a window, splitting them across two.
+  // One minute earlier puts the open INSIDE the first window, which is where it
+  // belongs -- the first window then spans 09:29-09:39 and contains the whole
+  // of it.
+  for (int mins = 9 * 60 + 29; mins <= 16 * 60; mins += every_min)
     out.push_back(et_to_epoch_ns(y, mo, d, mins / 60, mins % 60));
   return out;
 }
@@ -157,7 +168,7 @@ int main(int argc, char* argv[])
                     "the resting order before it can pull it.")
       ("probe-size", po::value<int>()->default_value(0),
                     "SlippageProbe size in contracts per leg; 0 = no probe. The "
-                    "probe quotes BOTH sides continuously from 09:30 to 15:30 ET "
+                    "probe quotes BOTH sides continuously from 09:29 to 16:00 ET "
                     "(BUY lights target +size, SEL lights -size) and measures each "
                     "leg's VWAP against the mid, the touch and the interval VWAP. "
                     "Nothing sells back to flat: inventory is carried and reported "
@@ -168,7 +179,7 @@ int main(int argc, char* argv[])
                     "session date YYYYMMDD for the probe schedule; empty = take it "
                     "from the datafile name. ET wall-clock, DST handled.")
       ("probe-every-min", po::value<int>()->default_value(10),
-                    "minutes between window boundaries (09:30-15:30 ET). This is "
+                    "minutes between window boundaries (09:29-16:00 ET). This is "
                     "the MINIMUM window length: a window closes once it has "
                     "elapsed AND both legs have filled, so a slow leg gives a "
                     "longer window rather than a partial row.")

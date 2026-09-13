@@ -21,6 +21,11 @@ set -u -o pipefail
 
 KSPRPROJ=${KSPRPROJ:-$(cd "$(dirname "$0")/../.." && pwd)}
 SRC=${SRC:-$KSPRPROJ/dbento_pcap_parse/scripts/out}
+# MDP3 channel: 310 = ES futures, 318 = NQ futures. Everything derived from the
+# capture is per channel -- the bins, the universe, the front-month table -- so
+# one variable moves the whole sweep to another instrument. The session calendar
+# is NOT per channel: both trade the CME Equity schedule.
+CHAN=${CHAN:-310}
 BIN_SRC=${BIN_SRC:-$KSPRPROJ/sim/src/sim}
 OUT=${OUT:-/vast/home/vmayeski/gridruns/$(date +%Y%m%d_%H%M%S)}
 NJOBS=${NJOBS:-56}
@@ -79,7 +84,7 @@ BIN="$OUT/sim.pinned"
 # 500 us, so a lat500 cell is the same experiment as rate<BASE_BP>_sz100 and
 # duplicating it buys nothing. The latency curve reads against that cell as its
 # own baseline.
-RATE_BP=${RATE_BP:-"50 100 200 400"}
+RATE_BP=${RATE_BP:-"25 50 100 200 400"}
 BASE_BP=${BASE_BP:-200}
 LAT_US=${LAT_US:-"0 100 200 400 800 1600 3200 6400"}
 
@@ -126,7 +131,7 @@ grid_tsv="$OUT/grid.tsv"
 # 2025-03-13 ESH5 still traded 2,057,715 against ESM5's 318,192. The table is
 # produced by volstats, which counts lastQty over the trade records and picks
 # the most-traded outright. See models/PLAN.md, "Session inputs".
-FRONT_TSV=${FRONT_TSV:-$KSPRPROJ/dbento_pcap_parse/scripts/front_month.310.tsv}
+FRONT_TSV=${FRONT_TSV:-$KSPRPROJ/dbento_pcap_parse/scripts/front_month.$CHAN.tsv}
 [ -f "$FRONT_TSV" ] || { echo "missing $FRONT_TSV -- regenerate with volstats" >&2; exit 2; }
 
 # Looked up per call rather than held in an associative array: those do not
@@ -143,7 +148,7 @@ done_already() {
 
 # ---- the runnable sessions -------------------------------------------
 dates_all=()
-for f in "$SRC"/bin/310/310.2025*.databento.bin; do
+for f in "$SRC"/bin/$CHAN/$CHAN.2025*.databento.bin; do
   [ -e "$f" ] || continue
   d=$(basename "$f" | cut -d. -f2)
 
@@ -204,11 +209,12 @@ else
   dates=("${dates_all[@]}")
 fi
 
+echo "chan   : $CHAN"
 echo "grid   : $(wc -l < "$grid_tsv") configs${ONLY_GRID:+ (grid $ONLY_GRID only)}${ONLY_NAME:+ (config $ONLY_NAME only)}"
 if [ -n "$ONLY_NAME" ] && ! cut -f1 "$grid_tsv" | grep -qx "$ONLY_NAME"; then
   echo "no such config: $ONLY_NAME -- known: $(cut -f1 "$grid_tsv" | tr '\n' ' ')" >&2; exit 2
 fi
-echo "dates  : ${#dates[@]} runnable 2025 sessions (of $(ls "$SRC"/bin/310/310.2025*.bin 2>/dev/null | wc -l))"
+echo "dates  : ${#dates[@]} runnable 2025 sessions (of $(ls "$SRC"/bin/$CHAN/$CHAN.2025*.bin 2>/dev/null | wc -l))"
 echo "out    : $OUT"
 echo "jobs   : $NJOBS"
 
@@ -239,7 +245,7 @@ run_one() {
   # definitions a date captured is arbitrary. Definitions are static anyway;
   # the only daily quantity is the price limit, and grid_universe widens each
   # contract's to the maximum seen in 2025 so the ladder cannot clip.
-  local uni="$SRC/universe/310/grid_universe.310.json"
+  local uni="$SRC/universe/$CHAN/grid_universe.$CHAN.json"
   # 16:30 ET, computed per date so the DST change on 2025-03-09 is handled.
   local cut; cut=$(TZ=America/New_York date -d "${date:0:4}-${date:4:2}-${date:6:2} 16:30:00" +%s)
 
@@ -254,7 +260,7 @@ run_one() {
   # as a disk error. $HOME is on the 91T filer.
   local wd; wd=$(mktemp -d "${TMPDIR:-$HOME/tmp}/grid.$name.$date.XXXXXX")
   ( cd "$wd" && nice -n 19 ionice -c 3 "$BIN" \
-      --datafile "$SRC/bin/310/310.$date.databento.bin" \
+      --datafile "$SRC/bin/$CHAN/$CHAN.$date.databento.bin" \
       --universe "$uni" \
       --contract "$contract" \
       --config   "$OUT/cfg/$name" \
@@ -288,7 +294,7 @@ run_one() {
   return 0
 }
 export -f run_one front_month done_already
-export OUT SRC BIN CONFIG_DIR SEED FRONT_TSV
+export OUT SRC BIN CONFIG_DIR SEED FRONT_TSV CHAN
 
 echo "name,date,rc,contract,last_line" > "$OUT/failures.csv"
 
