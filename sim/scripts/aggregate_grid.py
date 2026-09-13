@@ -62,9 +62,32 @@ def summarise(name, params, fires, total, by_outcome):
         return None
     g = lambda k: [f[k] for f in fires]
     paired, legsum = g('slip_paired_ticks'), g('slip_legsum_ticks')
-    bpart = [f['buy_part'] for f in fires if f['buy_part'] > 0]
+    # Participation is recomputed here, NOT taken from the CSV's buy_part.
+    #
+    # SlippageProbe computes buy_part as filled / mkt_vol, and mkt_vol counts
+    # only MARKET trades -- our own fills never enter it, because we fill
+    # against resting exchange orders and the replayed feed knows nothing about
+    # our orders. That makes the column our volume as a multiple of everyone
+    # else's, not a share of the total, and it is unbounded: Q20 produced a
+    # maximum of 166%, which is 20 lots filled in a window where 12 lots traded.
+    #
+    # A participation rate means ours / (ours + market), bounded by 100%, which
+    # is what a POV algorithm and the paper both mean by the word. Both
+    # ingredients are in every row, so this is recoverable from data already
+    # written -- no rerun, and rows from before and after the fix aggregate
+    # identically.
+    #
+    # Still optimistic, and the formula cannot fix it: in reality our fills
+    # would have DISPLACED someone else's rather than adding to the day's
+    # volume, so the true denominator is smaller again. That is the zero-impact
+    # assumption, fine at 2% and strained at 15%.
+    def part(f, side='buy'):
+        ours, mkt = f[f'{side}_filled'], f[f'{side}_leg_mkt_vol']
+        return ours / (ours + mkt) if (ours + mkt) > 0 else 0.0
+
+    bpart = [part(f) for f in fires if part(f) > 0]
     agg_num = sum(f['buy_filled'] for f in fires)
-    agg_den = sum(f['buy_leg_mkt_vol'] for f in fires)
+    agg_den = sum(f['buy_filled'] + f['buy_leg_mkt_vol'] for f in fires)
     return {
         'config': name, **params,
         'sessions': len({0}),  # filled in by caller
@@ -109,7 +132,11 @@ def main():
     if not rows:
         print('no completed configs yet', file=sys.stderr); return 1
 
-    for gid in ('A', 'B', 'C', 'D'):
+    # Grid ids come from the data, not a hardcoded list. GRID_SET=2 emits B2 and
+    # C2, which ('A','B','C','D') silently skipped -- the aggregator printed
+    # nothing at all for that run and looked like it had no data, when in fact
+    # it had thousands of fires. Sorted so the ordering is stable across runs.
+    for gid in sorted({r.get('grid') for r in rows if r.get('grid')}):
         sel = [r for r in rows if r.get('grid') == gid]
         if not sel: continue
         print(f"\n=== grid {gid} " + "=" * 96)
