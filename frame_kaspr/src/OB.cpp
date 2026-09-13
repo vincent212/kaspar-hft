@@ -47,7 +47,27 @@ using namespace std;
 using namespace frame;
 using namespace frame::ob;
 
-// #define NOXMKT
+// NOXMKT is gone: the uncross it used to guard is now a RUNTIME decision on
+// do_cross_check, at the four sites in add(). A commented-out #define meant the
+// code could not be reached in any build anyone produced, which is why a
+// separate -- and much worse -- implementation was nearly written instead.
+//
+// SIMULATION (do_cross_check true) does NOT uncross. A crossed book there means
+// the reconstruction is wrong, so every fill after it is fiction and the
+// slippage number the run exists to produce is worthless; the invariant in
+// process_market_data aborts and the state is left intact to debug. That is how
+// 20250210's stranded-order bug and 20250509's bad capture were both found.
+//
+// LIVE (do_cross_check false, kaspr.cpp) cannot abort -- that would leave real
+// orders resting at CME with nothing managing them -- so it cancels the real
+// contra orders the arriving order crossed through, and walks the inside past
+// the levels it just emptied.
+//
+// Doing it HERE, in add(), is the whole point. The arriving order IS the
+// aggressor, so the side needs no guessing, the crossed range is known
+// (best_ask..px), the record continues to be processed normally, and the book
+// is never left crossed for a later record to trip over. TachBook's
+// UNCROSS_BOOK (frame/ob/act/TachBook.hpp:416) is the same design.
 
 // #define DBG_MSG  // Disabled - enable only for local debugging to avoid production overhead
 
@@ -504,7 +524,10 @@ void act::OB::add(
   //
   // this is called on an add on a real order
   //
-  auto fill_stray_sim_orders = [this, px, side, maxprice, txtim]() noexcept
+  // venue is captured for the uncross branch below (do_canc needs it). The
+  // NOXMKT code used it without capturing it, which never showed up because
+  // the block could not be compiled in any build.
+  auto fill_stray_sim_orders = [this, px, side, maxprice, txtim, venue]() noexcept
   {
     //
     // fill stray sim orders when a real add bid arrives but there are sim
@@ -532,15 +555,16 @@ void act::OB::add(
             std::cerr << ">>> FILLSTRAY: " << mda::OrderID::id(stray_o->get_id()) << " " << ctim.date << " " << ctim.ns << std::endl;
 #endif
           }
-#ifdef NOXMKT
-          else if (!stray_o->issim() && stray_o->get_side() == en::bs::SEL)
+          // Uncross, live only. See the note at the head of add().
+          else if (!do_cross_check && !stray_o->issim() &&
+                   stray_o->get_side() == en::bs::SEL)
           {
             do_canc(q_i, stray_o, tmp_px, stray_o->get_sz(), 0, en::mt::CANCD, venue);
+            ++num_cross_recover;
 #ifdef TRACEORDERS
             std::cerr << ">>> CANCSTRAY: " << mda::OrderID::id(stray_o->get_id()) << " " << ctim.date << " " << ctim.ns << std::endl;
 #endif
           }
-#endif
           stray_o = next;
         }
         tmp_px += 1;
@@ -579,15 +603,16 @@ void act::OB::add(
             std::cerr << ">>> FILLSTRAY: " << mda::OrderID::id(stray_o->get_id()) << " " << ctim.date << " " << ctim.ns << std::endl;
 #endif
           }
-#ifdef NOXMKT
-          else if (!stray_o->issim() && stray_o->get_side() == en::bs::BUY)
+          // Uncross, live only. See the note at the head of add().
+          else if (!do_cross_check && !stray_o->issim() &&
+                   stray_o->get_side() == en::bs::BUY)
           {
             do_canc(q_i, stray_o, tmp_px, stray_o->get_sz(), 0, en::mt::CANCD, venue);
+            ++num_cross_recover;
 #ifdef TRACEORDERS
             std::cerr << ">>> CANCSTRAY: " << mda::OrderID::id(stray_o->get_id()) << " " << ctim.date << " " << ctim.ns << std::endl;
 #endif
           }
-#endif
           stray_o = next;
         }
         tmp_px -= 1;
@@ -619,14 +644,17 @@ void act::OB::add(
         best_bid = px;
         bochg = true;
       }
-#ifdef NOXMKT
-      auto q = askqs[best_ask];
-      while (q->isempty_or_allsim() && best_ask < maxprice - 1)
+      // The uncross above emptied the ask levels this bid crossed, so the
+      // inside has to move past them. Same loop mod() runs after a delete.
+      if (!do_cross_check)
       {
-        best_ask++;
-        q = askqs[best_ask];
+        auto q = askqs[best_ask];
+        while (q->isempty_or_allsim() && best_ask < this->maxprice - 1)
+        {
+          best_ask++;
+          q = askqs[best_ask];
+        }
       }
-#endif
     }
     else if (side == en::bs::SEL)
     {
@@ -642,14 +670,15 @@ void act::OB::add(
         best_ask = px;
         bochg = true;
       }
-#ifdef NOXMKT
-      auto q = bidqs[best_bid];
-      while (q->isempty_or_allsim() && best_bid > 0)
+      if (!do_cross_check)
       {
-        best_bid--;
-        q = bidqs[best_bid];
+        auto q = bidqs[best_bid];
+        while (q->isempty_or_allsim() && best_bid > 0)
+        {
+          best_bid--;
+          q = bidqs[best_bid];
+        }
       }
-#endif
     }
     else
       SNGH;
@@ -3097,7 +3126,15 @@ void act::OB::shutdown_handler(const actors::msg::Shutdown *) noexcept
 {
   std::cerr << get_name() << " shutting down numadd: " << num_add
             << " numexec: " << num_exec
-            << " badpx: " << num_bad_px << std::endl;
+            << " badpx: " << num_bad_px
+            << " crossuncross: " << num_cross_recover << std::endl;
+  // Say it twice when it is non-zero: the line above is one of many at
+  // shutdown, and this one means real exchange orders were deleted to uncross
+  // the book, so any fill priced in those windows is suspect.
+  if (num_cross_recover)
+    log_err("%s UNCROSSED the book %llu time(s) this session by cancelling real "
+            "orders -- prices around those events are not trustworthy",
+            get_name(), (unsigned long long)num_cross_recover);
 }
 
 void act::OB::cross_check(boost::intrusive_ptr<const mda::msg::data_pay_load> got_payload)
