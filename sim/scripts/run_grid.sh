@@ -63,6 +63,14 @@ BIN="$OUT/sim.pinned"
 # ---- the axes ---------------------------------------------------------
 # name  grid  place_rate_bp  probe_size  ord_sz  delay_us  cancel_delay_us  max_dist
 #
+# ord_sz is -1 (= "the arm's value") on every cell, and nothing writes it into a
+# cell's lights.ini. Grid B used to declare 1 here, which never reached the sim:
+# set_key writes place_rate_bp, max_dist and rng_seed and nothing else, so the Q
+# cells ran at whatever clip the arm's config said. The column is left in the
+# schema because the loader and aggregator read by position, but it is not a
+# knob -- the clip belongs to the arm. Q is a PARENT-SIZE sweep; making it a
+# clip sweep as well would confound the two.
+#
 # RATE_BP is grid A's rate axis. BASE_BP is the rate grids B and C hold fixed
 # while they sweep something else, and it must be one of the swept values or the
 # size and latency curves are anchored at a rate the rate curve never measured.
@@ -90,7 +98,7 @@ grid_tsv="$OUT/grid.tsv"
 {
   if [ "$GRID_SET" = "2" ]; then
     for q in 20 50 100 200; do
-      printf 'Q%s\tB2\t%s\t%s\t1\t500\t500\t-1\n' "$q" "$BASE_BP" "$q"
+      printf 'Q%s\tB2\t%s\t%s\t-1\t500\t500\t-1\n' "$q" "$BASE_BP" "$q"
     done
     for us in $LAT_US; do
       printf 'lat%s\tC2\t%s\t100\t-1\t%s\t%s\t-1\n' "$us" "$BASE_BP" "$us" "$us"
@@ -102,7 +110,7 @@ grid_tsv="$OUT/grid.tsv"
       done
     done
     for q in 1 2 5 10 20 50 100 200; do
-      printf 'Q%s\tB\t%s\t%s\t1\t500\t500\t-1\n' "$q" "$BASE_BP" "$q"
+      printf 'Q%s\tB\t%s\t%s\t-1\t500\t500\t-1\n' "$q" "$BASE_BP" "$q"
     done
     for us in $LAT_US; do
       printf 'lat%s\tC\t%s\t100\t-1\t%s\t%s\t-1\n' "$us" "$BASE_BP" "$us" "$us"
