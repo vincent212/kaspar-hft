@@ -217,8 +217,8 @@ void SlippageProbe::open_window(uint64_t now) noexcept
   // market-volume interval matches the duration it reports. Anchoring on the
   // first fill instead made participation divide by a shorter span than
   // buy_ns/sel_ns described.
-  buy_leg.mark(mkt_vol_cum, mkt_not_cum);
-  sel_leg.mark(mkt_vol_cum, mkt_not_cum);
+  buy_leg.mark(mkt_vol_cum, mkt_not_cum, mkt_vol_hit, mkt_not_hit);
+  sel_leg.mark(mkt_vol_cum, mkt_not_cum, mkt_vol_tak, mkt_not_tak);
 
   window_open   = true;
   stall_warn_at = 0;
@@ -419,8 +419,19 @@ void SlippageProbe::trade_handler(const frame::ob::msg::TradeNotify *m) noexcept
   // The price is on the payload and used to be thrown away here, which left the
   // interval VWAP -- the benchmark that separates drift from selection --
   // unobtainable from the CSV.
-  mkt_vol_cum += double(m->payload->sz);
-  mkt_not_cum += double(m->payload->sz) * double(m->payload->px.to_int());
+  const double tsz = double(m->payload->sz);
+  const double tnot = tsz * double(m->payload->px.to_int());
+  mkt_vol_cum += tsz;
+  mkt_not_cum += tnot;
+
+  // Split by AGGRESSOR for the hit/take benchmark. `side` on a trade is the
+  // RESTING order's side, so is_hit() means a bid was hit (the aggressor sold)
+  // and is_tak() means an offer was taken (the aggressor bought) -- Data.hpp.
+  // Those are the trades our own resting orders were competing with: our buy
+  // leg sits on the bid and is filled by a hitter, so the hits are the other
+  // bids that got filled while we waited.
+  if (m->payload->is_hit())      { mkt_vol_hit += tsz; mkt_not_hit += tnot; }
+  else if (m->payload->is_tak()) { mkt_vol_tak += tsz; mkt_not_tak += tnot; }
 }
 
 void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
@@ -495,7 +506,8 @@ void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
   // Opens this leg's interval on its first fill and extends it on every one
   // after, so its market-volume denominator spans exactly the time it was
   // actually trading.
-  leg.mark(mkt_vol_cum, mkt_not_cum);
+  if (m->side == en::bs::BUY) leg.mark(mkt_vol_cum, mkt_not_cum, mkt_vol_hit, mkt_not_hit);
+  else                        leg.mark(mkt_vol_cum, mkt_not_cum, mkt_vol_tak, mkt_not_tak);
 
   // A LEG IS FINISHED WHEN IT HAS EXECUTED THE WORK THIS WINDOW GAVE IT --
   // leg.to_do, not cfg.parent_sz.
@@ -583,6 +595,8 @@ void SlippageProbe::emit_header()
           "buy_leg_mkt_vol,sel_leg_mkt_vol,buy_part,sel_part,"
           "buy_mkt_vwap,sel_mkt_vwap,slip_buy_vs_vwap,slip_sel_vs_vwap,"
           "slip_vs_vwap,"
+          "buy_hit_vwap,sel_tak_vwap,slip_buy_vs_hit,slip_sel_vs_tak,"
+          "slip_vs_agg,"
           "ask_fire,bid_sell,slip_buy_vs_touch,slip_sel_vs_touch,"
           "slip_vs_touch,pos_at_close,outcome\n");
   fflush(out);
@@ -616,6 +630,27 @@ void SlippageProbe::emit_row(const char *outcome)
   // -- so a leg that merely rode a trend scores ~0 here, while a leg that was
   // systematically picked off scores positive no matter what the price did.
   // 0 when nothing traded alongside the leg, which the aggregator filters.
+  // Scored against the trades this leg was COMPETING WITH, split by aggressor.
+  //
+  // Our buy leg rests on the bid; it fills when someone hits that bid. The other
+  // trades that printed against resting bids over the same interval are the
+  // other passive buyers who got filled while we waited -- that is the peer
+  // group, and it answers a sharper question than the all-trades VWAP does.
+  // vs_vwap asks "did we beat the average trade", which includes everyone who
+  // crossed the spread and therefore embeds the spread itself. vs_hit asks "did
+  // we beat the other resting bids", which does not.
+  //
+  // Sign convention as everywhere: positive is cost. Buying above what other
+  // hit bids paid is a cost; selling below what other taken offers received is
+  // a cost. 0 when no trade of that aggressor landed beside the leg.
+  const double bhv = buy_leg.agg_vwap();      // VWAP of bids that were HIT
+  const double stv = sel_leg.agg_vwap();      // VWAP of offers that were TAKEN
+  const double slip_buy_hit = (bhv > 0 && buy_leg.filled > 0) ? (bv - bhv) : 0.0;
+  const double slip_sel_tak = (stv > 0 && sel_leg.filled > 0) ? (stv - sv) : 0.0;
+  const double slip_vs_agg  = (bhv > 0 && stv > 0 && buy_leg.filled > 0
+                                 && sel_leg.filled > 0)
+                                ? (slip_buy_hit + slip_sel_tak) / 2.0 : 0.0;
+
   const double bmv = buy_leg.mkt_vwap();
   const double smv = sel_leg.mkt_vwap();
   const double slip_buy_vwap = (bmv > 0 && buy_leg.filled > 0) ? (bv - bmv) : 0.0;
@@ -685,6 +720,7 @@ void SlippageProbe::emit_row(const char *outcome)
           "%.4f,%.4f,%.4f,"
           "%.0f,%.0f,%.6f,%.6f,"
           "%.4f,%.4f,%.4f,%.4f,%.4f,"
+          "%.4f,%.4f,%.4f,%.4f,%.4f,"
           "%.2f,%.2f,%.4f,%.4f,%.4f,%d,%s\n",
           (unsigned long long)fire_ts, cfg.sym_name.c_str(), cfg.parent_sz, midf,
           bv, buy_leg.filled, buy_leg.n_fills,
@@ -696,6 +732,7 @@ void SlippageProbe::emit_row(const char *outcome)
           buy_leg.mkt_vol(), sel_leg.mkt_vol(),
           buy_leg.participation(), sel_leg.participation(),
           bmv, smv, slip_buy_vwap, slip_sel_vwap, slip_vs_vwap,
+          bhv, stv, slip_buy_hit, slip_sel_tak, slip_vs_agg,
           afire, bsell, slip_buy_touch, slip_sel_touch, slip_vs_touch,
           position, outcome);
   fflush(out);

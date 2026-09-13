@@ -43,7 +43,7 @@
  *   the window closes when          the minimum has elapsed AND both legs have
  *                                   filled their size
  *
- *   first boundary past 15:30       stop opening windows; the lights keep
+ *   first boundary past 16:00       stop opening windows; the lights keep
  *                                   whatever work they still hold
  *
  * The work handed out grows by one parent per side per window and is never
@@ -139,7 +139,7 @@
  * chutil::Time formats with gmtime_r, so that form fires on a UTC hour and
  * would slip an hour against ET when DST starts on 2025-03-09, inside the test
  * window. The relative/periodic form has no timezone in it. The session bounds
- * (09:30 and 15:30 ET) are epoch ns computed by the caller against a real tz
+ * (09:29 and 16:00 ET) are epoch ns computed by the caller against a real tz
  * database.
  *
  * EndOfBurst is subscribed only for the touch prices: the Timer gives the probe
@@ -181,8 +181,8 @@ namespace sim
       int         parent_sz = 0;        // contracts per leg; 0 disables the probe
       // The measured session, epoch ns. Outside it the lights are stood down
       // and nothing is recorded.
-      uint64_t    session_start = 0;    // 09:30 ET
-      uint64_t    session_end   = 0;    // 15:30 ET
+      uint64_t    session_start = 0;    // 09:29 ET
+      uint64_t    session_end   = 0;    // 16:00 ET
       // How often the probe looks at the clock. This is a POLL, not the window:
       // a window ends when its minimum has elapsed AND both legs have filled
       // their size, so the probe has to check more often than the minimum.
@@ -267,6 +267,11 @@ namespace sim
       // A leg with no fills leaves these equal and reports zero.
       double   cum_vol_first = 0, cum_not_first = 0;
       double   cum_vol_last  = 0, cum_not_last  = 0;
+      // The same difference taken over this leg's OWN AGGRESSOR STREAM: hits
+      // for the buy leg, takes for the sell leg. See Config's note on the
+      // hit/take benchmark for why that pairing and not the other.
+      double   cum_agg_vol_first = 0, cum_agg_not_first = 0;
+      double   cum_agg_vol_last  = 0, cum_agg_not_last  = 0;
       bool     anchored      = false;
       // A leg is FINISHED when it has filled its size -- its remaining size
       // went to 0. It stops accumulating there, so its interval is its own
@@ -278,6 +283,8 @@ namespace sim
 
       double mkt_vol()      const { return cum_vol_last - cum_vol_first; }
       double mkt_notional() const { return cum_not_last - cum_not_first; }
+      double agg_vol()      const { return cum_agg_vol_last - cum_agg_vol_first; }
+      double agg_notional() const { return cum_agg_not_last - cum_agg_not_first; }
 
       // Snapshot the session cumulative as this leg's interval opens, then
       // extend it on every fill. Anchored at WINDOW OPEN, not at the first
@@ -286,21 +293,31 @@ namespace sim
       // quoting, whether or not anything has hit it yet. Anchoring at the first
       // fill instead made participation divide by a shorter window than the
       // duration implied, inflating it.
-      void mark(double cum_vol, double cum_not)
+      void mark(double cum_vol, double cum_not,
+                double cum_agg_vol, double cum_agg_not)
       {
         // Session cumulatives only ever grow, so a leg's interval can never
         // come out negative. If this trips, the leg was marked with a stale
         // snapshot and its participation and market VWAP are nonsense.
         ASSERT(cum_vol >= cum_vol_last, "market volume went backwards");
-        if (!anchored) { anchored = true; cum_vol_first = cum_vol; cum_not_first = cum_not; }
-        cum_vol_last = cum_vol;
-        cum_not_last = cum_not;
+        if (!anchored)
+        {
+          anchored = true;
+          cum_vol_first     = cum_vol;     cum_not_first     = cum_not;
+          cum_agg_vol_first = cum_agg_vol; cum_agg_not_first = cum_agg_not;
+        }
+        cum_vol_last     = cum_vol;     cum_not_last     = cum_not;
+        cum_agg_vol_last = cum_agg_vol; cum_agg_not_last = cum_agg_not;
       }
 
       double vwap() const { return filled > 0 ? notional / filled : 0.0; }
       // VWAP of the market over this leg's interval, in the same price units as
       // vwap(). 0 when nothing traded alongside us.
       double mkt_vwap() const { return mkt_vol() > 0 ? mkt_notional() / mkt_vol() : 0.0; }
+      // VWAP of the trades this leg was COMPETING WITH for fills: the hits, if
+      // this is the buy leg; the takes, if it is the sell leg. 0 when no such
+      // trade landed beside the leg, which the aggregator filters.
+      double agg_vwap() const { return agg_vol() > 0 ? agg_notional() / agg_vol() : 0.0; }
       // Realised participation: our share of everything that traded while we
       // were working. This is the delivered quantity, NOT the order-placement
       // rate that produced it -- mapping one to the other is the point.
@@ -363,6 +380,20 @@ namespace sim
     // here would be a race on who was served first.
     double   buy_filled_total = 0;
     double   sel_filled_total = 0;
+
+    // Session cumulatives split by AGGRESSOR, from data_pay_load::is_hit() and
+    // is_tak() (Data.hpp). `side` on a trade is the RESTING order's side, so:
+    //
+    //   is_hit()  resting BUY  -- a bid was hit   -- the aggressor SOLD
+    //   is_tak()  resting SEL  -- an offer taken  -- the aggressor BOUGHT
+    //
+    // Our buy leg rests on the bid and is filled by someone hitting it, so the
+    // hits are the trades it was competing with: other passive bids that got
+    // filled over the same interval. That is the peer group, and comparing
+    // against it answers a different question from mkt_vwap -- not "did we beat
+    // the average trade" but "did we beat the other resting bids".
+    double   mkt_vol_hit = 0, mkt_not_hit = 0;
+    double   mkt_vol_tak = 0, mkt_not_tak = 0;
 
     // How far past the minimum the open window has run, at which the next
     // stall warning is due. Reset on every open; grows by one minimum per
