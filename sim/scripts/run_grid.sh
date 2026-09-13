@@ -294,6 +294,9 @@ echo "name,date,rc,contract,last_line" > "$OUT/failures.csv"
 
 # ---- fan out ----------------------------------------------------------
 started=$(date +%s)
+# Every (cell, session) pair, built first and dispatched in one go below.
+joblist="$OUT/jobs.tsv"
+: > "$joblist"
 while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist; do
   [ -n "$ONLY_GRID" ] && [ "$gridid" != "$ONLY_GRID" ] && continue
   [ -n "$ONLY_NAME" ] && [ "$name" != "$ONLY_NAME" ] && continue
@@ -315,13 +318,42 @@ while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist; do
   set_key "$OUT/cfg/$name/lights.ini" place_rate_bp "$bp"
   [ "$mdist" != "-1" ] && set_key "$OUT/cfg/$name/lights.ini" max_dist "$mdist"
   set_key "$OUT/cfg/$name/lights.ini" rng_seed "$SEED"
-  printf '%s\n' "${dates[@]}" \
-    | xargs -P "$NJOBS" -I{} bash -c 'run_one "$@"' _ \
-        "$name" "$gridid" "$bp" "$psz" "$osz" "$dly" "$cdly" "$mdist" {}
-  # Same definition as the resume guard: header-only files are not results.
+
+  # Queue this cell's sessions rather than running them. See the fan-out below.
+  for d in "${dates[@]}"; do
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$name" "$gridid" "$bp" "$psz" "$osz" "$dly" "$cdly" "$mdist" "$d" >> "$joblist"
+  done
+done < "$grid_tsv"
+
+# ---- one fan-out over EVERY (cell, session) pair -----------------------
+#
+# Not cell-by-cell. The old loop ran `xargs -P $NJOBS` over the DATES inside
+# each cell and then waited for that cell before starting the next, so with 20
+# runnable sessions it could never hand out more than 20 jobs no matter what
+# NJOBS said -- a 59-core box sat at a load of 18 for the whole sweep, and the
+# 28 cells took about three times longer than they needed to.
+#
+# Every (cell, session) pair is independent: separate output CSV, separate log,
+# separate working directory, and the cell configs above are all materialised
+# before any of them start. So there is nothing to serialise on and the whole
+# job list can go out at once.
+njobs_total=$(wc -l < "$joblist")
+echo "queue  : $njobs_total runs (cells x sessions), $NJOBS at a time"
+echo
+xargs -P "$NJOBS" -L1 bash -c 'run_one "$@"' _ < "$joblist"
+
+# Per-cell tally, once everything is in. The old per-cell progress line is gone
+# with the per-cell loop -- cells no longer finish in order, so a line per cell
+# as it completed would arrive in an order that told you nothing.
+echo
+echo "per config:"
+while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist; do
+  [ -n "$ONLY_GRID" ] && [ "$gridid" != "$ONLY_GRID" ] && continue
+  [ -n "$ONLY_NAME" ] && [ "$name" != "$ONLY_NAME" ] && continue
   ok=0
   for c in "$OUT/csv/$name"/*.csv; do done_already "$c" && ok=$((ok + 1)); done
-  echo "[$(date +%H:%M:%S)] $name: $ok/${#dates[@]} sessions  ($(( $(date +%s) - started ))s elapsed)"
+  printf '  %-16s %d/%d sessions\n' "$name" "$ok" "${#dates[@]}"
 done < "$grid_tsv"
 
 nfail=$(( $(wc -l < "$OUT/failures.csv") - 1 ))

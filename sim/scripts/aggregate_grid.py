@@ -114,9 +114,21 @@ def summarise(name, params, fires, total, by_outcome):
         ours, mkt = f[f'{side}_filled'], f[f'{side}_leg_mkt_vol']
         return ours / (ours + mkt) if (ours + mkt) > 0 else 0.0
 
-    bpart = [part(f) for f in fires if part(f) > 0]
-    agg_num = sum(f['buy_filled'] for f in fires)
-    agg_den = sum(f['buy_filled'] + f['buy_leg_mkt_vol'] for f in fires)
+    # A window where NOTHING ELSE TRADED is not 100% participation, it is an
+    # undefined ratio, and it belongs in neither the distribution nor the
+    # aggregate. It happens when the leg is short enough that no market trade
+    # lands beside it -- 4 of 741 windows at 10 lots, but the dominant case at
+    # 1 lot, where the leg completes in 0.76s off a single child order. Left in,
+    # it puts a 1.0 in the tail: the p90 for a 1-lot parent reads 100% while the
+    # same config at 10 lots reads 10.5%, and the median hides the difference
+    # entirely (5.6% vs 4.7%). The p90 is the honest statistic here, so it must
+    # not be an artefact.
+    measurable = [f for f in fires if f['buy_leg_mkt_vol'] > 0]
+    dropped = len(fires) - len(measurable)
+
+    bpart = [part(f) for f in measurable if part(f) > 0]
+    agg_num = sum(f['buy_filled'] for f in measurable)
+    agg_den = sum(f['buy_filled'] + f['buy_leg_mkt_vol'] for f in measurable)
     return {
         'config': name, **params,
         'sessions': len({0}),  # filled in by caller
@@ -133,6 +145,9 @@ def summarise(name, params, fires, total, by_outcome):
         'part_median': pct(bpart, 0.5), 'part_p10': pct(bpart, 0.1),
         'part_p90': pct(bpart, 0.9),
         'part_aggregate': agg_num / agg_den if agg_den else float('nan'),
+        # Windows with no market volume beside the leg -- participation is
+        # undefined for these, so they are excluded above and counted here.
+        'part_undefined': dropped,
         # Only fires where the benchmark exists: 0 means the leg had no market
         # volume alongside it (vwap) or no touch recorded (touch), not a
         # zero-cost execution.
