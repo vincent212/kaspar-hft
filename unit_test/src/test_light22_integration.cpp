@@ -231,10 +231,16 @@ protected:
   // A TradeNotify carrying a real print. The aggressive path shadows THIS,
   // the way the passive path shadows an ADD: place_if_can_impl prices from
   // payload->px, so the resulting limit order sits at the price that traded.
-  frame::ob::msg::TradeNotify* make_trade(int sym_id, int price, int size)
+  // resting_side is the side of the order ALREADY IN THE BOOK, which is what
+  // the feed reports and what is_hit()/is_tak() key on:
+  //   resting BUY  -> a bid was HIT   -> printed at the bid -> aggressive for a SELLER
+  //   resting SEL  -> an offer TAKEN  -> printed at the ask -> aggressive for a BUYER
+  frame::ob::msg::TradeNotify* make_trade(int sym_id, int price, int size,
+                                          en::bs resting_side = en::bs::SEL)
   {
     auto payload = make_payload(sym_id, price, size, en::md::MOD);
     payload->action = en::mt::EXEC;      // what makes it a trade (Data.hpp)
+    payload->side = resting_side;
     return new frame::ob::msg::TradeNotify(payload);
   }
 
@@ -1081,6 +1087,11 @@ TEST_F(Light22IntegrationTest, AggressiveIsOffUnlessConfigured) {
 
 TEST_F(Light22IntegrationTest, AggressiveShadowsATradeAtThatTradesPrice) {
   // 10000bp = every trade, so the coin flip cannot hide the behaviour.
+  // The config value is a BANK TOTAL, divided by nlights_per_side. The fixture
+  // never sets that, so it defaults to 4 and a naive 10000 becomes 2500 per
+  // light -- a 25% coin flip on the light's name hash, not an assertion. Set
+  // the bank to one light so 10000bp really does mean every trade.
+  pt.put("nlights_per_side", 1);
   pt.put("aggr_participation_bp", 10000);
   auto light = create_buy_light("TestBuyAggr", 10);
   int sym_id = get_sym_id();
@@ -1088,7 +1099,10 @@ TEST_F(Light22IntegrationTest, AggressiveShadowsATradeAtThatTradesPrice) {
   process_msg(light.get(), new actors::msg::Start(), &mock_ob);
   mock_som.clear();
 
-  auto t = make_trade(sym_id, 107, 5);       // a print at 107
+  // A TAKE: resting offer lifted, printed at 107. That is the far side for a
+  // BUY light, so shadowing it crosses. A hit would print at the bid and our
+  // limit there would rest -- which is why the light now refuses one.
+  auto t = make_trade(sym_id, 107, 5, en::bs::SEL);
   process_msg(light.get(), t, &mock_ob);
   delete t;
 
@@ -1124,6 +1138,7 @@ TEST_F(Light22IntegrationTest, AggressiveStillRespectsThePositionTarget) {
   // diff_from_target throttle: a light already at its target must not take,
   // however much volume trades. Without this an aggressive light would run the
   // position past where it was trying to get to.
+  pt.put("nlights_per_side", 1);            // bank of one: 10000bp = every trade
   pt.put("aggr_participation_bp", 10000);
   auto light = create_buy_light("TestBuyAtTarget", 10);
   int sym_id = get_sym_id();
@@ -1138,4 +1153,33 @@ TEST_F(Light22IntegrationTest, AggressiveStillRespectsThePositionTarget) {
   }
   EXPECT_EQ(mock_som.count_messages_of_type<frame::som::msg::Order>(), 0u)
       << "at target, an aggressive light must stand down like a passive one";
+}
+
+
+TEST_F(Light22IntegrationTest, AggressiveIgnoresTradesOnItsOwnSide) {
+  // A BUY light must shadow TAKES only. A hit prints at the bid, so placing a
+  // buy limit there would rest -- a passive re-quote dressed up as aggression.
+  // Without this test half of every "aggressive" placement was exactly that,
+  // and a bank configured for 2% crossed on about 1%.
+  pt.put("nlights_per_side", 1);
+  pt.put("aggr_participation_bp", 10000);     // every trade, so only the side filters
+  auto light = create_buy_light("TestBuyHitOnly", 10);
+  int sym_id = get_sym_id();
+  mock_pcoord.set_position(0);
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+  mock_som.clear();
+
+  for (int i = 0; i < 20; i++) {
+    auto t = make_trade(sym_id, 100, 5, en::bs::BUY);   // hits: the bid was hit
+    process_msg(light.get(), t, &mock_ob);
+    delete t;
+  }
+  EXPECT_EQ(mock_som.count_messages_of_type<frame::som::msg::Order>(), 0u)
+      << "a BUY light must not shadow hits -- that would rest, not cross";
+
+  auto t = make_trade(sym_id, 100, 5, en::bs::SEL);     // a take
+  process_msg(light.get(), t, &mock_ob);
+  delete t;
+  EXPECT_EQ(mock_som.count_messages_of_type<frame::som::msg::Order>(), 1u)
+      << "a BUY light must shadow takes";
 }

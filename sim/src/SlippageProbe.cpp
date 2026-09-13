@@ -459,8 +459,12 @@ void SlippageProbe::accrue_inventory(uint64_t now) noexcept
     const double dt = double(now - pos_last_tim);
     pos_integral += double(position) * dt;
     abs_integral += std::abs(double(position)) * dt;
+    // Only advance on a segment we actually accrued. Rewinding on an
+    // out-of-order fill -- which the two clocks make routine -- would make the
+    // NEXT segment span the gap again and double-count it, compounding with
+    // every such fill.
+    pos_last_tim = now;
   }
-  pos_last_tim = now;
 }
 
 void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
@@ -807,6 +811,11 @@ void SlippageProbe::shutdown_handler(const actors::msg::Shutdown *) noexcept
     // so buy_ns and buy_leg_mkt_vol described different intervals in one row.
     if (!buy_leg.done) buy_leg.ended = last_tim;
     if (!sel_leg.done) sel_leg.ended = last_tim;
+    // Close the final inventory segment before the row is written. Without it
+    // the integral stops at the last fill while span covers the whole window,
+    // so a window that stalled for hours holding a position reports almost no
+    // inventory -- the exact rows where it is highest.
+    accrue_inventory(last_tim);
     mid_close = last_bid + last_ask;
 
     // Name the failure. "session_end" alone could not distinguish "the replay

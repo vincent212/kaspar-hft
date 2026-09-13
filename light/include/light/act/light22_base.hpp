@@ -532,6 +532,21 @@ namespace light::act
       if (m->payload->mkt != this->md_venue) return;
       if (this->ord_info.has_value()) return;    // one working order per light
 
+      // ONLY THE TRADES THAT ARE AGGRESSIVE FOR THIS SIDE.
+      //
+      // A trade payload carries the RESTING order's price and side, so a hit
+      // (resting BUY) prints at the bid and a take (resting SEL) at the ask. A
+      // BUY light shadowing a hit would place a limit AT THE BID -- a passive
+      // re-quote, not a cross. Only a take is on the far side for a buyer, and
+      // only a hit is for a seller.
+      //
+      // Without this test half of every "aggressive" placement rested instead
+      // of crossing, so a bank configured for 2% crossed on about 1% and spent
+      // the rest adding passive orders the grid would have credited to
+      // aggression -- measuring a mixture rather than the thing named.
+      if (Side == en::bs::BUY  && !m->payload->is_tak()) return;
+      if (Side == en::bs::SEL  && !m->payload->is_hit()) return;
+
       // Same coin flip as place_rate_bp, same units, same per-light stream.
       // rng lives in the derived light22 (seeded from the light's name so each
       // light draws independently); this is CRTP, so reach it through Derived.

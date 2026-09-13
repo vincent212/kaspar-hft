@@ -215,7 +215,14 @@ namespace light
 
     std::map<int,std::map<int,ord>> px_mmid_ord;
 
-    uint64_t mmid_orders;
+    // MUST be initialised. QCoord() is user-provided and empty, so members
+    // without an initializer are indeterminate -- and every other scalar here
+    // has one. It did not matter while every call site passed mmid 0 and only
+    // bit 0 was ever touched; now each light in a bank has its own bit, and a
+    // garbage bit either bypasses remove_order's guard into an ASSERT that
+    // aborts in -O3, or silently no-ops a real remove and leaves a stale entry
+    // inflating sz_at_px for the whole bank at that price.
+    uint64_t mmid_orders = 0;
 
     int tot_sz_cache=0;
 
