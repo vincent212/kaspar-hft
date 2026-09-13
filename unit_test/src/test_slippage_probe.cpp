@@ -120,7 +120,11 @@ protected:
     cfg.parent_sz     = parent;
     cfg.session_start = kT0;
     cfg.session_end   = session_end();
-    cfg.tick_s        = int(kWindow / kSec);   // the timer period IS the window
+    // The timer POLLS; it is not the window. A window closes only when its
+    // minimum has elapsed AND both legs have filled, so the probe must look at
+    // the clock far more often than the minimum.
+    cfg.tick_s        = 1;
+    cfg.min_window_ns = kWindow;
     cfg.out_path      = csv_path;        // empty unless the test asked for a CSV
     probe = std::make_unique<sim::SlippageProbe>(&mock_ob, &mock_timer, cfg);
 
@@ -172,17 +176,22 @@ protected:
     delete eob;
   }
 
-  void fill(en::bs side, int px, int sz) {
+  void fill(en::bs side, int px, int sz) { fill_at(0, side, px, sz); }
+
+  // A fill carrying its own market timestamp. The leg takes its end stamp from
+  // the FILL, not from the tick that later notices, so a test about leg
+  // durations has to be able to say when the fill happened.
+  void fill_at(uint64_t tim, en::bs side, int px, int sz) {
     som::msg::Fill f(1u, en::x::SIM, uint(sym), px, side, double(sz), 0.0,
-                     en::trader::SIMULATOR, uint64_t(0));
+                     en::trader::SIMULATOR, tim);
     TestHelper::invoke_handler(probe.get(), &f, nullptr);
   }
 
   // --- observation ------------------------------------------------------
 
-  // Every TARGET_POS the probe pushed at the BUY light, in order. The whole
-  // protocol is visible here: a non-zero value opens a fire, a zero closes a
-  // leg, so this sequence IS the probe's behaviour.
+  // Every TARGET_POS the probe pushed at a light, in order. There should be
+  // exactly one per light for a whole session: +sz for a BUY light, -sz for a
+  // SEL light, sent once and never revised.
   std::vector<int> targets(const MockLight &l) {
     std::vector<int> v;
     for (size_t i = 0; i < l.message_count(); i++)
@@ -226,19 +235,18 @@ protected:
     return v;
   }
 
-  // Quote both sides for one window and let the clock close it. Both sides are
-  // live throughout -- that is the whole arrangement -- so fills interleave
-  // rather than arriving in two phases.
+  // One complete window: both sides fill their size, then the clock passes the
+  // minimum so it can close.
   void run_window(uint64_t now, int lots = kParent) {
     quote(kBid, kAsk);
-    tick(now);                          // opens the window
+    tick(now);
     uint64_t t = now;
     for (int c : clips_for(lots)) {
       fill(en::bs::BUY, kAsk, c);
       fill(en::bs::SEL, kBid, c);
       tick(t += kSec);
     }
-    tick(now + kWindow + kSec);          // past the boundary: closes it
+    tick(now + kWindow + kSec);
   }
 };
 
@@ -252,32 +260,45 @@ TEST_F(SlippageProbeTest, ArmsAPeriodicTimerRatherThanAWallClockAlarm) {
       << "a one-shot would fire once and the probe would stop";
 }
 
-TEST_F(SlippageProbeTest, SetsBothSidesTargetsOnceAtStartup) {
+TEST_F(SlippageProbeTest, SendsBothSidesTargetsOnceAtTheFirstBoundary) {
   build();
-  // The entire control surface. BUY lights are told +sz, SEL lights -sz, once,
-  // and nothing ever sends a target again. That is what keeps both sides quoting
-  // continuously: a BUY light stands down at pos >= targetpos and a SEL light at
+  // Nothing at Start: the probe waits for a boundary inside the session with a
+  // usable book, because a target sent before there is anything to measure
+  // would have the lights trading outside the window.
+  EXPECT_TRUE(targets(mock_buy).empty()) << "sent a target at Start";
+  EXPECT_TRUE(targets(mock_sel).empty()) << "sent a target at Start";
+
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  // The entire control surface: +sz to the buy side, -sz to the sell side. A
+  // BUY light stands down at pos >= targetpos and a SEL light at
   // pos <= targetpos, so every position strictly inside (-sz, +sz) leaves both
-  // live, and the inventory crosses zero on its own without anything resetting
-  // it.
+  // sides live and they quote against each other.
   EXPECT_EQ(targets(mock_buy), std::vector<int>{ kParent });
   EXPECT_EQ(targets(mock_sel), std::vector<int>{ -kParent });
 }
 
 TEST_F(SlippageProbeTest, NeverSendsATargetAgain) {
+  // Mutation guard for the design this replaced: the old probe re-targeted on
+  // every phase change and then TRADED its way back to flat after each fire --
+  // about as much volume as the measurement itself, at real prices, executed
+  // after the row was written and so invisible in it.
+  //
+  // In particular there is no stand-down at the end of the session. TARGET_POS 0
+  // is not an off switch: with a long position pos > targetpos, so the SELL side
+  // would go active and liquidate the book.
   build();
-  // Mutation guard for the bug this design replaced: the old probe re-targeted
-  // on every phase change and then TRADED its way back to flat after each fire,
-  // which is roughly as much volume as the measurement itself and landed after
-  // the row was written.
+  quote(kBid, kAsk);
+  tick(kT0);
   mock_buy.clear();
   mock_sel.clear();
 
-  run_window(kT0);
-  run_window(kT0 + kStep);
+  run_window(kT0 + kSec);                       // a full window
+  tick(session_end() + kWindow);                // and past the close
 
-  EXPECT_TRUE(targets(mock_buy).empty()) << "a target was re-sent after startup";
-  EXPECT_TRUE(targets(mock_sel).empty()) << "a target was re-sent after startup";
+  EXPECT_TRUE(targets(mock_buy).empty()) << "a target was re-sent";
+  EXPECT_TRUE(targets(mock_sel).empty()) << "a target was re-sent";
 }
 
 TEST_F(SlippageProbeTest, DoesNotEmitBeforeTheFirstScheduledTime) {
@@ -288,20 +309,121 @@ TEST_F(SlippageProbeTest, DoesNotEmitBeforeTheFirstScheduledTime) {
   EXPECT_EQ(csv_rows().size(), 1u) << "header only";
 }
 
-TEST_F(SlippageProbeTest, AWindowEmitsOneRowWhenTheClockPassesItsEnd) {
+// --- when a window ends: minimum elapsed AND both legs done ---------------
+//
+// Four branches, and each gets a test. The rule is a conjunction, so both
+// halves have to be shown to bind on their own, or a regression that drops
+// either one still passes.
+
+TEST_F(SlippageProbeTest, DoesNotCloseBeforeTheMinimumEvenWithBothLegsDone) {
   want_csv();
   build();
   quote(kBid, kAsk);
-  tick(kT0);                       // opens
-  EXPECT_EQ(csv_rows().size(), 1u) << "nothing emitted while it is still open";
+  tick(kT0);                                   // opens
+
+  fill(en::bs::BUY, kAsk, kParent);            // both legs finish almost at once
+  fill(en::bs::SEL, kBid, kParent);
+  tick(kT0 + kSec);
+  tick(kT0 + kWindow - kSec);                  // one second short of the minimum
+
+  EXPECT_EQ(csv_rows().size(), 1u)
+      << "closed early: the minimum is a floor, not just a deadline";
+}
+
+TEST_F(SlippageProbeTest, DoesNotCloseAtTheMinimumWhileALegIsShort) {
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, kParent);            // buy done
+  fill(en::bs::SEL, kBid, kParent - 1);        // sell one short
+  tick(kT0 + kWindow + kSec);                  // well past the minimum
+
+  EXPECT_EQ(csv_rows().size(), 1u)
+      << "closed on the clock with a short leg: the row would report a partial "
+         "execution as a complete one";
+}
+
+TEST_F(SlippageProbeTest, ClosesOnceTheMinimumHasPassedAndBothLegsAreDone) {
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
 
   fill(en::bs::BUY, kAsk, kParent);
   fill(en::bs::SEL, kBid, kParent);
-  tick(kT0 + kWindow + kSec);      // past the end: closes and emits
+  tick(kT0 + kWindow + kSec);
 
   auto rows = csv_rows();
   ASSERT_EQ(rows.size(), 2u);
   EXPECT_EQ(rows[1][kOutcome], "ok");
+}
+
+TEST_F(SlippageProbeTest, WaitsPastTheMinimumForASlowLegThenCloses) {
+  // The case the fixed-period design got wrong and the assertion turned into a
+  // dead run: a thin window simply runs longer.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, kParent);
+  fill(en::bs::SEL, kBid, kParent - 1);
+  tick(kT0 + kWindow + kSec);
+  ASSERT_EQ(csv_rows().size(), 1u) << "must still be waiting";
+
+  const uint64_t late = kT0 + kWindow + 180 * kSec;   // three minutes late
+  fill(en::bs::SEL, kBid, 1);                         // the leg finally fills
+  tick(late);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u) << "should close as soon as the slow leg fills";
+  EXPECT_EQ(rows[1][kOutcome], "ok") << "a late window is complete, not partial";
+  EXPECT_EQ(std::stod(rows[1][kSelFilled]), kParent);
+}
+
+TEST_F(SlippageProbeTest, EachLegIsMeasuredOverItsOwnInterval) {
+  // Both legs arrive together, neither ends with the window: each ends at the
+  // fill that completed it.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill_at(kT0 + 10 * kSec, en::bs::BUY, kAsk, kParent);   // buy done at 10s
+  fill_at(kT0 + 60 * kSec, en::bs::SEL, kBid, kParent);   // sell done at 60s
+  tick(kT0 + kWindow + kSec);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  const double buy_ns = std::stod(rows[1][kBuyNs]);
+  const double sel_ns = std::stod(rows[1][kSelNs]);
+  EXPECT_NEAR(buy_ns, 10.0 * double(kSec), double(kSec) / 2);
+  EXPECT_NEAR(sel_ns, 60.0 * double(kSec), double(kSec) / 2);
+  EXPECT_LT(buy_ns, sel_ns) << "the legs must not share an end";
+  EXPECT_LT(sel_ns, double(kWindow)) << "nor end with the window";
+}
+
+TEST_F(SlippageProbeTest, AFinishedLegStopsAccumulating) {
+  // Once a leg has its size the window keeps running and the lights keep
+  // quoting, but those later fills are not this leg's measurement.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, kParent);
+  fill(en::bs::SEL, kBid, kParent);
+  fill(en::bs::BUY, kAsk, kParent);     // extra flow after both legs are done
+  fill(en::bs::SEL, kBid, kParent);
+  tick(kT0 + kWindow + kSec);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_EQ(std::stod(rows[1][kBuyFilled]), kParent)
+      << "a finished leg must not keep accumulating";
+  EXPECT_EQ(std::stod(rows[1][kSelFilled]), kParent);
 }
 
 TEST_F(SlippageProbeTest, BothSidesFillIntoTheirOwnLegOverTheSameWindow) {
@@ -326,24 +448,32 @@ TEST_F(SlippageProbeTest, WindowsRunBackToBack) {
   want_csv();
   build();
   quote(kBid, kAsk);
-  tick(kT0);
+  tick(kT0);                                   // opens the first
+
+  uint64_t t = kT0;
   for (int i = 1; i <= 3; i++) {
-    fill(en::bs::BUY, kAsk, 1);
-    fill(en::bs::SEL, kBid, 1);
-    tick(kT0 + i * (kWindow + kSec));
+    fill(en::bs::BUY, kAsk, kParent);
+    fill(en::bs::SEL, kBid, kParent);
+    t += kWindow + kSec;
+    tick(t);                                   // closes one and opens the next
   }
-  EXPECT_EQ(csv_rows().size(), 4u) << "one row per closed window";
+  EXPECT_EQ(csv_rows().size(), 4u) << "one row per closed window, no gaps";
 }
 
 TEST_F(SlippageProbeTest, CarriesInventoryAcrossAWindowBoundary) {
-  want_csv();
-  build();
   // Inventory is NOT flattened at a boundary. It stays on the book, the lights
   // carry it into the next window, and their own targets pull it back toward the
-  // band. The old probe traded out here; that trade was invisible in the row.
+  // band. The old probe traded out here, and that trade never appeared in a row.
+  want_csv();
+  build();
   quote(kBid, kAsk);
   tick(kT0);
-  fill(en::bs::BUY, kAsk, kParent);      // long, no offsetting sell
+  mock_buy.clear();                        // drop the startup +sz / -sz
+  mock_sel.clear();
+
+  fill(en::bs::BUY, kAsk, kParent);        // both legs complete, position flat
+  fill(en::bs::SEL, kBid, kParent);
+  fill(en::bs::BUY, kAsk, kParent);        // extra flow after the legs are done
   tick(kT0 + kWindow + kSec);
 
   auto rows = csv_rows();

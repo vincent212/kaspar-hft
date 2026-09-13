@@ -27,10 +27,20 @@
  *    -- not even at the end of the session. TARGET_POS 0 does not stand a light
  *    down: it points the SELL side at flat and makes it liquidate the book.
  *
- * 2. **The repeating timer is the whole clock.** One periodic AlarmClockSub,
- *    period = the window. Every alarm is a boundary: it closes the open window,
- *    emits its row, and opens the next. There is no schedule to walk, no window
- *    length held separately from the timer, and no phase machine.
+ *    Measured, the inventory does NOT random-walk around zero: on a real
+ *    session it sat above zero on 71% of fills, hit exactly zero on 0.6%, and
+ *    spent 28% of them within 10 lots of a band edge. It PINS to whichever edge
+ *    the day's direction pushes it to. Legs still fill because the pinned side
+ *    is throttled to the remaining distance rather than switched off, so the two
+ *    sides churn across the boundary a clip at a time.
+ *
+ * 2. **A window ends on a minimum AND on completion, never on the clock alone.**
+ *    One periodic AlarmClockSub polls market time; a window closes only when its
+ *    minimum has elapsed AND both legs have filled their size. The minimum is a
+ *    floor, not a deadline -- a leg still short when it elapses keeps the window
+ *    open until it fills, so a thin session gives fewer, longer windows instead
+ *    of partial rows or a dead run. There is no schedule to walk and no phase
+ *    machine.
  *
  * 3. **Each leg has its OWN window.** The two share a start -- the timer
  *    boundary, and with it the anchor mid and touch -- but not an end: a leg's
@@ -216,21 +226,14 @@ void SlippageProbe::close_window(uint64_t now) noexcept
   // Only ever called with a window open -- on_clock decides that.
   ASSERT(window_open, "close_window with no window open");
 
-  // BOTH legs must have filled their size by the time the window closes. Each
-  // one keeps the stamp of the fill that completed it -- its window is its own,
-  // ending before this boundary, not at it.
-  //
-  // A leg that did not get there means the window is too short, or the size too
-  // large, for the liquidity in it: the row would then be reporting a partial
-  // execution as if it were a completed one, and the VWAPs and participations
-  // in it would not mean what the column names say. Stop instead, with the
-  // state intact, because the alternative is a plausible wrong number.
-  ASSERTF(buy_leg.done && sel_leg.done,
-          boost::format("window %zu closed with an unfinished leg: buy %.0f/%d%s, "
-                        "sel %.0f/%d%s -- the window is too short or the size too "
-                        "large for this book")
-            % n_windows % buy_leg.filled % cfg.parent_sz % (buy_leg.done ? "" : " SHORT")
-            % sel_leg.filled % cfg.parent_sz % (sel_leg.done ? "" : " SHORT"));
+  // Both legs filled their size -- on_clock will not call this otherwise, it
+  // waits. Each keeps the stamp of the fill that completed it, so a leg done in
+  // 10s is measured over 10s even though the window ran for minutes.
+  ASSERT(buy_leg.done && sel_leg.done, "close_window with an unfinished leg");
+  ASSERTF(now >= fire_ts + cfg.min_window_ns,
+          boost::format("window %zu closed after %llu ns, under the %llu ns minimum")
+            % n_windows % (unsigned long long)(now - fire_ts)
+            % (unsigned long long)cfg.min_window_ns);
 
   // Time must run forward and the window must not be empty. A boundary at or
   // before the window's own start means the Timer handed us a stale or repeated
@@ -305,19 +308,17 @@ void SlippageProbe::alarm_handler(const frame::mtim::msg::Alarm *m) noexcept
 
 void SlippageProbe::on_clock(uint64_t now) noexcept
 {
-  // Every alarm of the repeating timer is a window boundary, and a boundary does
-  // two things at most: close what is open, and open the next one if we are
-  // still inside the session.
   if (now < cfg.session_start) return;          // before the session we measure
   if (last_bid <= 0 || last_ask <= 0) return;   // need a touch to anchor the row
 
   const bool in_session = now < cfg.session_end;
 
-  if (window_open)
-    close_window(now);
-  else if (!in_session)
-    return;                 // session over and the last window already closed
-  else
+  if (!window_open)
+  {
+    // Either the first boundary of the session, or the session is over and the
+    // last window is already closed.
+    if (!in_session) return;
+
     // THE ONE CALL SITE for a target, on the first boundary of the session.
     // There is deliberately no matching send at the end: TARGET_POS 0 does not
     // stand a light down, it points the SELL side at flat and makes it liquidate
@@ -325,9 +326,30 @@ void SlippageProbe::on_clock(uint64_t now) noexcept
     // door. Nothing needs standing down: the position self-corrects inside the
     // band and the replay stops at --end-ts.
     send_targets();
-
-  if (in_session)
     open_window(now);
+    return;
+  }
+
+  // A window ends when BOTH conditions hold: its minimum has elapsed, and both
+  // legs have filled their size.
+  //
+  // The minimum is a floor, not a deadline. Each leg is already measured over
+  // its OWN interval -- it stops accumulating at the fill that completed it, so
+  // a leg done in 10s is measured over 10s -- and once both are done the window
+  // simply idles out the remainder while the lights keep quoting unmeasured.
+  //
+  // If a leg has NOT filled when the minimum elapses, the window stays open
+  // until it does. That is the whole reason the previous fixed-period design
+  // was wrong: it closed on the clock regardless, so a slow leg produced a row
+  // reporting a partial execution as a complete one. Asserting instead was no
+  // better -- it turned a thin session into a dead run, and an aborted run
+  // leaves a truncated CSV that the resume guard and the aggregator both accept
+  // as complete, biasing the corpus toward the benign sessions.
+  const bool min_elapsed = now >= fire_ts + cfg.min_window_ns;
+  if (!min_elapsed || !buy_leg.done || !sel_leg.done) return;
+
+  close_window(now);
+  if (in_session) open_window(now);
 }
 
 void SlippageProbe::trade_handler(const frame::ob::msg::TradeNotify *m) noexcept

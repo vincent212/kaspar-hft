@@ -98,9 +98,9 @@ namespace sim
     int                   probe_size_;
     std::string           probe_out_;
     std::vector<uint64_t> probe_fires_;
-    // The repeating timer's period, seconds of market time. It IS the window:
-    // every alarm closes one and opens the next. Derived from the schedule's
-    // spacing so there is one source of truth.
+    // The MINIMUM a measurement window runs for, seconds of market time. Not
+    // the timer period -- the timer polls every second, because a window also
+    // has to wait for both legs to fill their size before it can close.
     int probe_window_s_ = 15 * 60;
 
     actors::Group* group_ = nullptr;

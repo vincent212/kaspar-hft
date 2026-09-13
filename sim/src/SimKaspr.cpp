@@ -303,7 +303,8 @@ void SimKaspr::create_probe()
   // where it ends.
   cfg.session_start = probe_fires_.front();
   cfg.session_end   = probe_fires_.back();
-  cfg.tick_s        = probe_window_s_;
+  cfg.tick_s        = 1;               // poll the clock every second of market time
+  cfg.min_window_ns = uint64_t(probe_window_s_) * 1000000000ull;
   cfg.out_path  = probe_out_;
 
   probe_ = new SlippageProbe(books_[0], timer_, cfg);

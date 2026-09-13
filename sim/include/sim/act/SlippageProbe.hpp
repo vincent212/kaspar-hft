@@ -42,6 +42,41 @@
  * it and nothing resets it -- a window's closing position is carried into the
  * next one and reported as pos_at_close.
  *
+ * ## When a window ends -- the requirement, stated plainly
+ *
+ * A window ends when BOTH of these hold:
+ *
+ *   1. its MINIMUM duration has elapsed (Config::min_window_ns), and
+ *   2. BOTH legs have filled their size.
+ *
+ * Not either alone. The minimum is a FLOOR, not a deadline.
+ *
+ *   period 5 min, buy fills in 10s, sell in 1 min:
+ *
+ *     t=0      window opens, both sides quote
+ *     t=10s    buy leg done   -> buy measured over 0..10s
+ *     t=1m     sell leg done  -> sell measured over 0..1m
+ *     t=1m..5m nothing measured; the lights keep quoting
+ *     t=5m     minimum elapsed and both done -> emit, open the next window
+ *
+ *   same period, sell leg still at 60/100 at 5 min:
+ *
+ *     t=5m     minimum elapsed but a leg is short -> KEEP WAITING
+ *     t=8m     sell leg fills -> emit, open the next window
+ *
+ * So a thin session yields fewer, longer windows rather than short rows. There
+ * is no partial row in the corpus and no abort.
+ *
+ * Why not close on the clock alone, as a fixed period? Because a leg that had
+ * not filled would be written out as if it had, and the VWAPs and
+ * participations in that row would not mean what their column names say.
+ *
+ * Why not assert instead? Because that turns a thin session into a dead run,
+ * and an aborted run is worse than a missing one: it leaves a truncated CSV
+ * that `run_grid.sh`'s resume guard (more than one line) and `aggregate_grid.py`
+ * both accept as complete. The sessions that would abort are the hostile ones,
+ * so asserting biases the corpus toward benign windows.
+ *
  * ## Each leg has its own window
  *
  * The timer supplies BOUNDARIES. At each one both legs open a window, so they
@@ -124,10 +159,16 @@ namespace sim
       // and nothing is recorded.
       uint64_t    session_start = 0;    // 09:30 ET
       uint64_t    session_end   = 0;    // 15:30 ET
-      // The repeating timer's period IS the window. Every alarm closes one
-      // window and opens the next -- there is no separate window length to keep
-      // in step with it, and no schedule of fire times to walk.
-      int         tick_s = 15 * 60;     // seconds of market time
+      // How often the probe looks at the clock. This is a POLL, not the window:
+      // a window ends when its minimum has elapsed AND both legs have filled
+      // their size, so the probe has to check more often than the minimum.
+      int         tick_s = 1;           // seconds of market time
+
+      // The minimum a window runs for. It is a floor, not a deadline: if a leg
+      // has not filled its size when the minimum elapses, the window stays open
+      // until it does. A thin session therefore produces fewer, longer windows
+      // rather than short rows -- there is no partial row and no abort.
+      uint64_t    min_window_ns = 15ull * 60ull * 1000000000ull;
       std::string out_path;             // CSV; empty = stderr summary only
     };
 
