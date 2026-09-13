@@ -338,6 +338,9 @@ namespace sim
     // Hand both sides one parent of work, at the open of every window. THE
     // ONLY PLACE the probe touches a position.
     void give_work() noexcept;
+
+    // Integrate the carried position over the time it was held. See the members.
+    void accrue_inventory(uint64_t now) noexcept;
     void open_window(uint64_t now) noexcept;
     void close_window(uint64_t now) noexcept;
     void emit_header();
@@ -394,6 +397,26 @@ namespace sim
     // the average trade" but "did we beat the other resting bids".
     double   mkt_vol_hit = 0, mkt_not_hit = 0;
     double   mkt_vol_tak = 0, mkt_not_tak = 0;
+
+    // INVENTORY THROUGH THE WINDOW, not just at its edge.
+    //
+    // pos_at_close is one sample at the boundary and it hides the thing that
+    // matters: a window that carried +-80 lots the whole way and happened to
+    // land flat reads exactly like one that never left zero. Inventory is the
+    // risk a market maker actually runs, so it has to be measured over time.
+    //
+    //   pos_max / pos_min   the extremes reached -- what the position got to
+    //   pos_integral        sum(pos * dt) in lot-nanoseconds, signed, so
+    //                       pos_integral / window_ns is the time-weighted mean
+    //                       position: were we long on average, or flat?
+    //   abs_integral        the same with |pos|, which does NOT cancel. A book
+    //                       that swung +50 then -50 has a mean near zero and an
+    //                       abs mean near 50, and only the second is risk.
+    //
+    // Integrated at every fill, since that is the only time the position moves.
+    int      pos_max = 0, pos_min = 0;
+    double   pos_integral = 0, abs_integral = 0;
+    uint64_t pos_last_tim = 0;
 
     // How far past the minimum the open window has run, at which the next
     // stall warning is due. Reset on every open; grows by one minimum per

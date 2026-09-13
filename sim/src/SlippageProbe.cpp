@@ -210,6 +210,10 @@ void SlippageProbe::open_window(uint64_t now) noexcept
   // as the gap between two arrivals.
   mid_close = 0;
 
+  pos_max = pos_min = position;   // the extremes are per window, not per session
+  pos_integral = abs_integral = 0;
+  pos_last_tim = now;
+
   buy_leg.reset();
   sel_leg.reset();
   buy_leg.started = sel_leg.started = now;
@@ -288,6 +292,10 @@ void SlippageProbe::close_window(uint64_t now) noexcept
   // own targets pull it back toward the band. pos_at_close records it, because a
   // window that ended at the edge of the band was run over on one side, and that
   // is a result rather than an error.
+  // Close the last inventory segment at the boundary, so the integral covers
+  // the whole window rather than stopping at the final fill.
+  accrue_inventory(now);
+
   // The mid the window ENDED on. mid_close - mid_fire is the drift the pair
   // lived through, and it is a real measurement now rather than the identically
   // zero difference of two anchors taken at the same instant.
@@ -434,6 +442,27 @@ void SlippageProbe::trade_handler(const frame::ob::msg::TradeNotify *m) noexcept
   else if (m->payload->is_tak()) { mkt_vol_tak += tsz; mkt_not_tak += tnot; }
 }
 
+// Add the position we have been carrying since the last move to the integrals.
+//
+// Called at every fill and again at the close, so the window is covered
+// end to end with no gap: each segment contributes pos * (now - last), and the
+// final segment runs from the last fill to the boundary.
+void SlippageProbe::accrue_inventory(uint64_t now) noexcept
+{
+  if (!window_open) return;
+  if (pos_last_tim == 0) pos_last_tim = fire_ts;
+  // Time can arrive out of order across the two clocks (a fill is stamped
+  // before the modelled delay); a negative segment would subtract risk that was
+  // really carried, so clamp rather than trust the difference.
+  if (now > pos_last_tim)
+  {
+    const double dt = double(now - pos_last_tim);
+    pos_integral += double(position) * dt;
+    abs_integral += std::abs(double(position)) * dt;
+  }
+  pos_last_tim = now;
+}
+
 void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
 {
   if (!enabled()) return;
@@ -444,8 +473,15 @@ void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
   ASSERTF(sz > 0, boost::format("fill with size %.0f") % sz);
   ASSERTF(px > 0, boost::format("fill at price %.0f") % px);
 
+  // Integrate the OLD position over the time it was held, then move it. Order
+  // matters: the position we carried since the last fill is the one that was at
+  // risk over that interval, not the one we are about to have.
+  accrue_inventory(m->tim ? m->tim : last_tim);
+
   if (m->side == en::bs::BUY) position += int(sz);
   else                        position -= int(sz);
+  if (position > pos_max) pos_max = position;
+  if (position < pos_min) pos_min = position;
 
   // Side identifies the light exactly: a light22<BUY> only ever bids and a
   // light22<SEL> only ever offers. Nothing unwinds a position here, so there is
@@ -595,10 +631,11 @@ void SlippageProbe::emit_header()
           "buy_leg_mkt_vol,sel_leg_mkt_vol,buy_part,sel_part,"
           "buy_mkt_vwap,sel_mkt_vwap,slip_buy_vs_vwap,slip_sel_vs_vwap,"
           "slip_vs_vwap,"
-          "buy_hit_vwap,sel_tak_vwap,slip_buy_vs_hit,slip_sel_vs_tak,"
-          "slip_vs_agg,"
+          "buy_hit_vol,sel_tak_vol,buy_hit_vwap,sel_tak_vwap,"
+          "slip_buy_vs_hit,slip_sel_vs_tak,slip_vs_agg,"
           "ask_fire,bid_sell,slip_buy_vs_touch,slip_sel_vs_touch,"
-          "slip_vs_touch,pos_at_close,outcome\n");
+          "slip_vs_touch,"
+          "pos_at_close,pos_max,pos_min,pos_mean,pos_abs_mean,outcome\n");
   fflush(out);
 }
 
@@ -643,6 +680,21 @@ void SlippageProbe::emit_row(const char *outcome)
   // Sign convention as everywhere: positive is cost. Buying above what other
   // hit bids paid is a cost; selling below what other taken offers received is
   // a cost. 0 when no trade of that aggressor landed beside the leg.
+  // The VOLUME of each leg's peer group is emitted alongside its VWAP, because
+  // the VWAP alone cannot say how thin the comparison was. It is also the right
+  // denominator for a participation rate against that peer group: our buy leg
+  // competed with buy_hit_vol lots of other filled bids, not with every lot
+  // that traded, so ours/(ours + hits) is the share of PASSIVE BUYING we took
+  // -- a different and more honest number than ours/(ours + all trades), which
+  // dilutes us with every aggressor on both sides.
+  // Time-weighted inventory over the window. The signed mean says which way we
+  // leaned; the absolute mean says how much risk was actually carried, and they
+  // differ sharply when the book swings through zero -- which is the normal
+  // case here, since the two sides are worked against each other.
+  const double span = (last_tim > fire_ts) ? double(last_tim - fire_ts) : 0.0;
+  const double pos_mean     = span > 0 ? pos_integral / span : 0.0;
+  const double pos_abs_mean = span > 0 ? abs_integral / span : 0.0;
+
   const double bhv = buy_leg.agg_vwap();      // VWAP of bids that were HIT
   const double stv = sel_leg.agg_vwap();      // VWAP of offers that were TAKEN
   const double slip_buy_hit = (bhv > 0 && buy_leg.filled > 0) ? (bv - bhv) : 0.0;
@@ -720,8 +772,9 @@ void SlippageProbe::emit_row(const char *outcome)
           "%.4f,%.4f,%.4f,"
           "%.0f,%.0f,%.6f,%.6f,"
           "%.4f,%.4f,%.4f,%.4f,%.4f,"
-          "%.4f,%.4f,%.4f,%.4f,%.4f,"
-          "%.2f,%.2f,%.4f,%.4f,%.4f,%d,%s\n",
+          "%.0f,%.0f,%.4f,%.4f,%.4f,%.4f,%.4f,"
+          "%.2f,%.2f,%.4f,%.4f,%.4f,"
+          "%d,%d,%d,%.3f,%.3f,%s\n",
           (unsigned long long)fire_ts, cfg.sym_name.c_str(), cfg.parent_sz, midf,
           bv, buy_leg.filled, buy_leg.n_fills,
           (unsigned long long)(buy_leg.ended - buy_leg.started),
@@ -732,9 +785,10 @@ void SlippageProbe::emit_row(const char *outcome)
           buy_leg.mkt_vol(), sel_leg.mkt_vol(),
           buy_leg.participation(), sel_leg.participation(),
           bmv, smv, slip_buy_vwap, slip_sel_vwap, slip_vs_vwap,
+          buy_leg.agg_vol(), sel_leg.agg_vol(),
           bhv, stv, slip_buy_hit, slip_sel_tak, slip_vs_agg,
           afire, bsell, slip_buy_touch, slip_sel_touch, slip_vs_touch,
-          position, outcome);
+          position, pos_max, pos_min, pos_mean, pos_abs_mean, outcome);
   fflush(out);
 }
 

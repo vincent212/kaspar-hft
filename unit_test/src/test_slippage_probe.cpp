@@ -69,9 +69,10 @@ enum Col {
   kBuyDrift, kSelDrift, kDrift,
   kBuyMktVol, kSelMktVol, kBuyPart, kSelPart,
   kBuyMktVwap, kSelMktVwap, kSlipBuyVsVwap, kSlipSelVsVwap, kSlipVsVwap,
-  kBuyHitVwap, kSelTakVwap, kSlipBuyVsHit, kSlipSelVsTak, kSlipVsAgg,
+  kBuyHitVol, kSelTakVol, kBuyHitVwap, kSelTakVwap,
+  kSlipBuyVsHit, kSlipSelVsTak, kSlipVsAgg,
   kAskFire, kBidFire, kSlipBuyVsTouch, kSlipSelVsTouch, kSlipVsTouch,
-  kPosAtClose, kOutcome, kNumCols
+  kPosAtClose, kPosMax, kPosMin, kPosMean, kPosAbsMean, kOutcome, kNumCols
 };
 
 class SlippageProbeTest : public ::testing::Test {
@@ -792,6 +793,17 @@ TEST_F(SlippageProbeTest, ScoresEachLegAgainstItsOwnAggressorStream) {
   // cost.
   EXPECT_DOUBLE_EQ(std::stod(rows[1][kSlipBuyVsHit]), double(kAsk) - 23980.0);
   EXPECT_DOUBLE_EQ(std::stod(rows[1][kSlipSelVsTak]), 23999.0 - double(kBid));
+
+  // The peer group's SIZE, not just its price. Without it the VWAP cannot say
+  // how thin the comparison was, and there is no denominator for a
+  // participation rate against passive flow specifically.
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kBuyHitVol]), 100.0) << "hits beside the buy leg";
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSelTakVol]), 100.0) << "takes beside the sell leg";
+
+  // And they must not be the all-trades figure: 200 lots traded in total, 100
+  // of each aggressor. A leg reading 200 here is summing both streams.
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kBuyMktVol]), 200.0)
+      << "the all-trades column still counts both";
 }
 
 TEST_F(SlippageProbeTest, ReportsNoAggressorBenchmarkWhenThatStreamIsEmpty) {
