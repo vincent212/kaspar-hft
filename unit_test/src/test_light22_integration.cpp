@@ -101,6 +101,7 @@
 #include "light/qcoord.hpp"
 #include "frame/ref/RefData.hpp"
 #include "frame/ob/msg/EndOfBurst.hpp"
+#include "frame/ob/msg/TradeNotify.hpp"
 #include "frame/mda/msg/Data.hpp"
 #include "frame/som/msg/Order.hpp"
 #include "frame/som/msg/Cancel.hpp"
@@ -225,6 +226,16 @@ protected:
     payload->point_.ask_sz[0] = 100;
 
     return payload;
+  }
+
+  // A TradeNotify carrying a real print. The aggressive path shadows THIS,
+  // the way the passive path shadows an ADD: place_if_can_impl prices from
+  // payload->px, so the resulting limit order sits at the price that traded.
+  frame::ob::msg::TradeNotify* make_trade(int sym_id, int price, int size)
+  {
+    auto payload = make_payload(sym_id, price, size, en::md::MOD);
+    payload->action = en::mt::EXEC;      // what makes it a trade (Data.hpp)
+    return new frame::ob::msg::TradeNotify(payload);
   }
 
   // Helper to create EndOfBurst message
@@ -1033,3 +1044,98 @@ TEST_F(Light22IntegrationTest, SellSidePlacesOrderWhenAboveTarget) {
 }
 
 
+
+
+// ---------------------------------------------------------------------------
+// AGGRESSIVE PARTICIPATION
+//
+// The aggressive path is the passive one with a different trigger. A passive
+// light shadows a resting ADD and quotes on its own side, so it waits to be
+// hit. An aggressive light shadows a TRADE and quotes at the price that trade
+// printed at -- the far side for us -- so it executes instead of waiting.
+//
+// It reuses place_if_can_impl() rather than reimplementing placement, which is
+// why these tests assert on the ORDER that comes out rather than on internals.
+// ---------------------------------------------------------------------------
+
+TEST_F(Light22IntegrationTest, AggressiveIsOffUnlessConfigured) {
+  // Default is 0, and 0 must mean the light never reacts to a trade at all.
+  // Every result measured before this feature existed depends on that: if a
+  // trade could place an order without the config asking for it, no previous
+  // run would be reproducible.
+  auto light = create_buy_light("TestBuyNoAggr", 10);
+  int sym_id = get_sym_id();
+  mock_pcoord.set_position(0);
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+  mock_som.clear();
+
+  for (int i = 0; i < 20; i++) {
+    auto t = make_trade(sym_id, 100, 5);
+    process_msg(light.get(), t, &mock_ob);
+    delete t;
+  }
+
+  EXPECT_EQ(mock_som.count_messages_of_type<frame::som::msg::Order>(), 0u)
+      << "a trade must not place anything while aggr_participation_bp is 0";
+}
+
+TEST_F(Light22IntegrationTest, AggressiveShadowsATradeAtThatTradesPrice) {
+  // 10000bp = every trade, so the coin flip cannot hide the behaviour.
+  pt.put("aggr_participation_bp", 10000);
+  auto light = create_buy_light("TestBuyAggr", 10);
+  int sym_id = get_sym_id();
+  mock_pcoord.set_position(0);
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+  mock_som.clear();
+
+  auto t = make_trade(sym_id, 107, 5);       // a print at 107
+  process_msg(light.get(), t, &mock_ob);
+  delete t;
+
+  ASSERT_EQ(mock_som.count_messages_of_type<frame::som::msg::Order>(), 1u)
+      << "a trade must place an order when aggressive is on";
+  auto order = mock_som.get_message<frame::som::msg::Order>(0);
+  ASSERT_NE(order, nullptr);
+  EXPECT_EQ(order->side, en::bs::BUY);
+  EXPECT_EQ(order->px, 107)
+      << "the order must be priced at the trade it shadowed, not at our own touch";
+}
+
+TEST_F(Light22IntegrationTest, AggressiveRespectsTheZeroRate) {
+  // 0bp with the feature otherwise reachable: the coin flip must reject every
+  // trade. This separates "off" from "on but unlucky".
+  pt.put("aggr_participation_bp", 0);
+  auto light = create_buy_light("TestBuyZeroRate", 10);
+  int sym_id = get_sym_id();
+  mock_pcoord.set_position(0);
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+  mock_som.clear();
+
+  for (int i = 0; i < 50; i++) {
+    auto t = make_trade(sym_id, 100, 5);
+    process_msg(light.get(), t, &mock_ob);
+    delete t;
+  }
+  EXPECT_EQ(mock_som.count_messages_of_type<frame::som::msg::Order>(), 0u);
+}
+
+TEST_F(Light22IntegrationTest, AggressiveStillRespectsThePositionTarget) {
+  // The aggressive path goes through place_if_can_impl, so it inherits the
+  // diff_from_target throttle: a light already at its target must not take,
+  // however much volume trades. Without this an aggressive light would run the
+  // position past where it was trying to get to.
+  pt.put("aggr_participation_bp", 10000);
+  auto light = create_buy_light("TestBuyAtTarget", 10);
+  int sym_id = get_sym_id();
+  mock_pcoord.set_position(10);              // already at target
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+  mock_som.clear();
+
+  for (int i = 0; i < 10; i++) {
+    auto t = make_trade(sym_id, 100, 5);
+    process_msg(light.get(), t, &mock_ob);
+    delete t;
+  }
+  EXPECT_EQ(mock_som.count_messages_of_type<frame::som::msg::Order>(), 0u)
+      << "at target, an aggressive light must stand down like a passive one";
+}

@@ -99,6 +99,28 @@ namespace light::act
       // experiment sweeps 0.5% / 1% / 3% / 5%, and the previous
       // `std::rand() % 100` could not represent 0.5 at all.
       place_rate_bp = this->pt.template get<int>("place_rate_bp", 300);   // 3%
+      // Aggressive participation, in basis points of TRADES shadowed. 0 = off,
+      // which is the default and the pure shadow algorithm.
+      //
+      // The config value is the BANK TOTAL and is divided here by the number of
+      // lights in the bank, because every light sees every trade and flips its
+      // own coin -- four lights each acting on 2% of trades would shadow 8%
+      // between them. Dividing here means the number in lights.ini is the
+      // number you get, whichever arm it runs on: 200 is 2% on a 4-light bank
+      // and 2% on a 12-light bank.
+      //
+      // This is DELIBERATELY unlike place_rate_bp, which is per light. That one
+      // is a placement rate whose realised participation is an outcome anyway,
+      // so the per-light reading costs nothing; this one is a target, and a
+      // target that changes meaning with the light count is a trap.
+      {
+        const int bank_bp = this->pt.template get<int>("aggr_participation_bp", 0);
+        const int nlights = this->pt.template get<int>("nlights_per_side", 4);
+        this->aggr_participation_bp = (bank_bp > 0 && nlights > 0) ? (bank_bp / nlights) : 0;
+        if (bank_bp > 0 && this->aggr_participation_bp <= 0)
+          log_err("aggr_participation_bp %d over %d lights rounds to 0 per light: "
+                  "the bank would take nothing", bank_bp, nlights);
+      }
       max_dist = this->pt.template get<int>("max_dist", 4);
       max_dist_cancel = this->pt.template get<int>("max_dist_cancel", max_dist + 2);
       ASSERTF(max_dist_cancel >= max_dist,
@@ -204,7 +226,13 @@ namespace light::act
       }
     }
 
-    void place_if_can_impl(payload_ptr_t payload) noexcept
+    // already_gated: the caller has already decided this event is one to act
+    // on, so skip the placement-rate gate below. The aggressive path
+    // (tradenotify_handler) flips its own coin against aggr_participation_bp;
+    // running it through place_rate_bp as well would gate it twice and make
+    // the realised aggressive share the PRODUCT of the two rates rather than
+    // the one that was configured.
+    void place_if_can_impl(payload_ptr_t payload, bool already_gated = false) noexcept
     {
       auto pos = this->pcoord->get_position();
 
@@ -369,7 +397,11 @@ namespace light::act
       //
       //   place_rate_bp > 0  -> stochastic, act on that many basis points of ADDs
       //   place_rate_bp <= 0 -> deterministic, act on every place_after_n_eob'th ADD
-      if (place_rate_bp > 0)
+      if (already_gated)
+      {
+        // nothing: the caller's own rate decided this one
+      }
+      else if (place_rate_bp > 0)
       {
         if (int(rng() % 10000u) >= place_rate_bp)
         {

@@ -66,7 +66,7 @@ cp "$BIN_SRC" "$OUT/sim.pinned"
 BIN="$OUT/sim.pinned"
 
 # ---- the axes ---------------------------------------------------------
-# name  grid  place_rate_bp  probe_size  ord_sz  delay_us  cancel_delay_us  max_dist
+# name  grid  place_rate_bp  probe_size  ord_sz  delay_us  cancel_delay_us  max_dist  aggr_bp
 #
 # ord_sz is -1 (= "the arm's value") on every cell, and nothing writes it into a
 # cell's lights.ini. Grid B used to declare 1 here, which never reached the sim:
@@ -103,24 +103,43 @@ grid_tsv="$OUT/grid.tsv"
 {
   if [ "$GRID_SET" = "2" ]; then
     for q in 20 50 100 200; do
-      printf 'Q%s\tB2\t%s\t%s\t-1\t500\t500\t-1\n' "$q" "$BASE_BP" "$q"
+      printf 'Q%s\tB2\t%s\t%s\t-1\t500\t500\t-1\t0\n' "$q" "$BASE_BP" "$q"
     done
     for us in $LAT_US; do
-      printf 'lat%s\tC2\t%s\t100\t-1\t%s\t%s\t-1\n' "$us" "$BASE_BP" "$us" "$us"
+      printf 'lat%s\tC2\t%s\t100\t-1\t%s\t%s\t-1\t0\n' "$us" "$BASE_BP" "$us" "$us"
     done
   else
     for bp in $RATE_BP; do
       for sz in 1 10 100; do
-        printf 'rate%s_sz%s\tA\t%s\t%s\t-1\t500\t500\t-1\n' "$bp" "$sz" "$bp" "$sz"
+        printf 'rate%s_sz%s\tA\t%s\t%s\t-1\t500\t500\t-1\t0\n' "$bp" "$sz" "$bp" "$sz"
       done
     done
     for q in 1 2 5 10 20 50 100 200; do
-      printf 'Q%s\tB\t%s\t%s\t-1\t500\t500\t-1\n' "$q" "$BASE_BP" "$q"
+      printf 'Q%s\tB\t%s\t%s\t-1\t500\t500\t-1\t0\n' "$q" "$BASE_BP" "$q"
     done
     for us in $LAT_US; do
-      printf 'lat%s\tC\t%s\t100\t-1\t%s\t%s\t-1\n' "$us" "$BASE_BP" "$us" "$us"
+      printf 'lat%s\tC\t%s\t100\t-1\t%s\t%s\t-1\t0\n' "$us" "$BASE_BP" "$us" "$us"
     done
   fi
+    # Grid D: does crossing the spread for part of the flow help?
+    #
+    # 100 lots at every rate, with the bank shadowing 2% of TRADES aggressively
+    # -- a limit order at the price the trade printed at, which for us is the
+    # far side, so it executes instead of resting.
+    #
+    # NO CONTROL CELL HERE. Grid A's sz100 row is already exactly this cell with
+    # aggression off: same parent, same rates, same delay. Running it a second
+    # time under another name would double the cost and produce two answers to
+    # one question. The comparison is aggr2_rate<N> against rate<N>_sz100, and
+    # it is only valid within ONE sweep -- both halves must come from the same
+    # binary and the same session set.
+    #
+    # aggr_bp is the BANK TOTAL; the light divides by nlights_per_side, so 200
+    # is 2% whether the arm runs 4 lights a side or 12.
+    for bp in $RATE_BP; do
+      printf 'aggr2_rate%s\tD\t%s\t100\t-1\t500\t500\t-1\t200\n' "$bp" "$bp"
+    done
+
   # Grid D (max_dist sweep) removed -- see the commit; a light holds one order at
   # one price, so there was no working-size cap for max_dist to relieve.
 } > "$grid_tsv"
@@ -303,7 +322,7 @@ started=$(date +%s)
 # Every (cell, session) pair, built first and dispatched in one go below.
 joblist="$OUT/jobs.tsv"
 : > "$joblist"
-while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist; do
+while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist aggr; do
   [ -n "$ONLY_GRID" ] && [ "$gridid" != "$ONLY_GRID" ] && continue
   [ -n "$ONLY_NAME" ] && [ "$name" != "$ONLY_NAME" ] && continue
   mkdir -p "$OUT/csv/$name" "$OUT/log/$name" "$OUT/cfg/$name"
@@ -324,6 +343,9 @@ while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist; do
   set_key "$OUT/cfg/$name/lights.ini" place_rate_bp "$bp"
   [ "$mdist" != "-1" ] && set_key "$OUT/cfg/$name/lights.ini" max_dist "$mdist"
   set_key "$OUT/cfg/$name/lights.ini" rng_seed "$SEED"
+  # Aggressive participation, bank total. Written even when 0 so the cell's
+  # config states it outright rather than relying on the arm's default.
+  set_key "$OUT/cfg/$name/lights.ini" aggr_participation_bp "${aggr:-0}"
 
   # Queue this cell's sessions rather than running them. See the fan-out below.
   for d in "${dates[@]}"; do
@@ -354,7 +376,7 @@ xargs -P "$NJOBS" -L1 bash -c 'run_one "$@"' _ < "$joblist"
 # as it completed would arrive in an order that told you nothing.
 echo
 echo "per config:"
-while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist; do
+while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist aggr; do
   [ -n "$ONLY_GRID" ] && [ "$gridid" != "$ONLY_GRID" ] && continue
   [ -n "$ONLY_NAME" ] && [ "$name" != "$ONLY_NAME" ] && continue
   ok=0

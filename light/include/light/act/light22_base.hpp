@@ -507,10 +507,45 @@ namespace light::act
       timer->send(new frame::mtim::msg::AlarmClockSub(s, ms, UNSUSPEND, false), this);
     }
 
-    void tradenotify_handler(const frame::ob::msg::TradeNotify *) noexcept
+    // AGGRESSIVE PARTICIPATION -- shadow the TRADE instead of the ADD.
+    //
+    // This reuses the placement path WHOLE rather than reimplementing it:
+    // place_if_can_impl() already prices from `payload->px`, not from the book
+    // (light22.hpp: `auto bestpx = payload->px.to_int()`), so handing it a
+    // trade payload places a limit order at the price that trade printed at.
+    // For us that price is on the far side, so the order executes instead of
+    // resting -- which is the whole difference between aggressive and passive
+    // here. Everything else comes along unchanged: the max_dist test, the
+    // level sizing, the diff_from_target throttle, gunning protection.
+    //
+    // The is_add() gate and the "cannot be exec" assert both live in
+    // eob_handler, at its call site -- not inside place_if_can_impl -- so a
+    // trade payload is acceptable to it.
+    //
+    // Off unless aggr_participation_bp is set, so a config that omits it is the
+    // pure shadow algorithm and every existing result stands. Per light, like
+    // place_rate_bp: four lights at 200bp shadow 8% of trades between them.
+    void tradenotify_handler(const frame::ob::msg::TradeNotify *m) noexcept
     {
-      // ES futures: trade notifications not used for trading decisions
+      if (this->aggr_participation_bp <= 0) return;
+      if (!m || !m->payload) return;
+      if (m->payload->mkt != this->md_venue) return;
+      if (this->ord_info.has_value()) return;    // one working order per light
+
+      // Same coin flip as place_rate_bp, same units, same per-light stream.
+      // rng lives in the derived light22 (seeded from the light's name so each
+      // light draws independently); this is CRTP, so reach it through Derived.
+      auto &rng_ = static_cast<Derived *>(this)->rng;
+      if (int(rng_() % 10000u) >= this->aggr_participation_bp) return;
+
+      // already_gated: the coin above was ours. Without it the passive
+      // place_rate_bp gate would apply on top and the realised share would be
+      // the product of the two rates.
+      static_cast<Derived *>(this)->place_if_can_impl(m->payload, true);
     }
+
+    // Basis points of TRADES this light shadows aggressively. 0 = off.
+    int aggr_participation_bp = 0;
 
     void gap_detected_handler(const frame::ob::msg::GapDetected *) noexcept
     {
