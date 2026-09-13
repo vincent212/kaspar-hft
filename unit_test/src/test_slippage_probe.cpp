@@ -18,6 +18,7 @@
  * in microseconds rather than the twenty minutes a replay takes.
  */
 
+#include <filesystem>
 #include <gtest/gtest.h>
 
 #include <cstdio>
@@ -38,6 +39,7 @@
 #include "light/msg/Set.hpp"
 #include "sim/act/SlippageProbe.hpp"
 #include "unit_test/MockActor.hpp"
+#include "unit_test/MockPCoord.hpp"
 #include "unit_test/TestHelper.hpp"
 
 using namespace frame;
@@ -48,6 +50,7 @@ namespace {
 constexpr uint64_t kSec  = 1000000000ull;
 constexpr uint64_t kT0   = 1736951400ull * kSec;   // 2025-01-15 09:30 ET
 constexpr uint64_t kStep = 1800ull * kSec;         // 30 min
+constexpr uint64_t kWindow = 15ull * 60ull * kSec; // Config::quote_window_ns
 constexpr int kParent = 3;
 constexpr int kBid = 23990;
 constexpr int kAsk = 23994;
@@ -60,9 +63,13 @@ constexpr int kAsk = 23994;
 // downstream number without failing anything.
 enum Col {
   kFireTs = 0, kSym, kParentSz, kMidFire, kBuyVwap, kBuyFilled, kBuyFills,
-  kBuyNs, kMidSell, kSelVwap, kSelFilled, kSelFills, kSelNs,
-  kSlipBuy, kSlipSel, kSlipPaired, kSlipLegsum,
-  kBuyMktVol, kSelMktVol, kBuyPart, kSelPart, kOutcome, kNumCols
+  kBuyNs, kSelVwap, kSelFilled, kSelFills, kSelNs,
+  kSlipBuy, kSlipSel, kSlipPaired,
+  kBuyDrift, kSelDrift, kDrift,
+  kBuyMktVol, kSelMktVol, kBuyPart, kSelPart,
+  kBuyMktVwap, kSelMktVwap, kSlipBuyVsVwap, kSlipSelVsVwap, kSlipVsVwap,
+  kAskFire, kBidFire, kSlipBuyVsTouch, kSlipSelVsTouch, kSlipVsTouch,
+  kPosAtClose, kOutcome, kNumCols
 };
 
 class SlippageProbeTest : public ::testing::Test {
@@ -71,6 +78,13 @@ protected:
   MockTimer mock_timer;
   MockLight mock_buy{"MockBuy"};
   MockLight mock_sel{"MockSel"};
+
+  // The two position books. These ARE the control surface: the probe sends no
+  // targets, it hands each side work by moving its book away from flat, and the
+  // lights (here, the test) work it back. One book per side, because with
+  // targetpos 0 no single position leaves both sides live.
+  unit_test::MockPCoord book_buy;
+  unit_test::MockPCoord book_sel;
 
   std::unique_ptr<sim::SlippageProbe> probe;
   int sym = 0;
@@ -82,6 +96,29 @@ protected:
     if (!csv_path.empty()) std::remove(csv_path.c_str());
   }
 
+  // Scratch directory for the CSVs these tests write.
+  //
+  // NOT ::testing::TempDir(). On generic Linux gtest returns the bare literal
+  // "/tmp/" -- it special-cases only Windows, Windows Mobile and Android, and
+  // consults no environment variable -- and / is the small local RAID1 that a
+  // sweep's logs once filled to 100%, surfacing as a link error that looked
+  // nothing like a full disk. TearDown() unlinks the file, so a clean run
+  // leaves nothing behind; an ABORTED one does not, and several tests here
+  // deliberately drive ASSERT paths. $HOME is on the big filer.
+  static std::string scratch_dir() {
+    if (const char *t = std::getenv("TEST_TMPDIR"); t && *t) {
+      std::string d(t);
+      if (d.back() != '/') d += '/';
+      return d;
+    }
+    if (const char *h = std::getenv("HOME"); h && *h) {
+      std::string d = std::string(h) + "/tmp/";
+      std::filesystem::create_directories(d);
+      return d;
+    }
+    return ::testing::TempDir();
+  }
+
   // A CSV path unique to the running test, so a parameterised suite does not
   // have its three instances writing over one another. Parameterised test names
   // contain '/', so the name part is flattened into a legal filename.
@@ -89,7 +126,7 @@ protected:
     const auto *ti = ::testing::UnitTest::GetInstance()->current_test_info();
     std::string leaf = std::string(ti->test_suite_name()) + "_" + ti->name();
     for (char &c : leaf) if (c == '/') c = '_';
-    csv_path = ::testing::TempDir() + "slip_probe_" + leaf + ".csv";
+    csv_path = scratch_dir() + "slip_probe_" + leaf + ".csv";
     std::remove(csv_path.c_str());
   }
 
@@ -101,14 +138,11 @@ protected:
     ref::RefData::set_universe(universe_path, "");
   }
 
-  // 12 fires, 09:30 -> 15:00 ET, the real schedule.
-  static std::vector<uint64_t> full_schedule() {
-    std::vector<uint64_t> v;
-    for (int i = 0; i < 12; i++) v.push_back(kT0 + uint64_t(i) * kStep);
-    return v;
-  }
+  // The session the probe measures: 09:30 to 15:30 ET. Only the two bounds
+  // matter -- the repeating timer supplies every boundary in between.
+  static uint64_t session_end() { return kT0 + 24 * kWindow; }   // 09:30 + 6h
 
-  void build(std::vector<uint64_t> fires, int parent = kParent) {
+  void build(int parent = kParent) {
     auto asset = ref::RefData::get_asset("ESH6");
     ASSERT_NE(asset, nullptr);
     sym = asset->id;
@@ -116,15 +150,33 @@ protected:
     sim::SlippageProbe::Config cfg;
     cfg.sym_name  = "ESH6";
     cfg.sym       = sym;
-    cfg.parent_sz = parent;
-    cfg.fire_ts   = std::move(fires);
-    cfg.out_path  = csv_path;        // empty unless the test asked for a CSV
+    cfg.parent_sz     = parent;
+    cfg.session_start = kT0;
+    cfg.session_end   = session_end();
+    // The timer POLLS; it is not the window. A window closes only when its
+    // minimum has elapsed AND both legs have filled, so the probe must look at
+    // the clock far more often than the minimum.
+    cfg.tick_s        = 1;
+    cfg.min_window_ns = kWindow;
+    cfg.out_path      = csv_path;        // empty unless the test asked for a CSV
     probe = std::make_unique<sim::SlippageProbe>(&mock_ob, &mock_timer, cfg);
 
+    // Lights go in as vectors, split by side: the probe targets every BUY light
+    // with +sz and every SEL light with -sz. Handing it single pointers was the
+    // bug that left SEL lights untargeted once there was more than one a side.
+    //
+    // set_lights BEFORE Start: the probe sends its targets from start_handler,
+    // exactly once, and there is nothing to send them to before this.
+    // Lights BEFORE Start, and as vectors split by side. The probe targets every
+    // BUY light with +sz and every SEL light with -sz; handing it single
+    // pointers was the bug that left SEL lights untargeted once there was more
+    // than one a side.
+    probe->set_lights({&mock_buy}, {&mock_sel});
+    probe->set_coords(&book_buy, &book_sel);
     TestHelper::invoke_handler(probe.get(), new actors::msg::Start(), nullptr);
-    probe->set_lights(&mock_buy, &mock_sel);
-    mock_buy.clear();
-    mock_sel.clear();
+    // Deliberately NOT cleared here: the startup targets are the probe's whole
+    // control surface and two tests assert on them directly. Tests that care
+    // about later traffic clear the mocks themselves.
   }
 
   // --- stimulus, shaped the way the real senders shape it ---------------
@@ -158,23 +210,50 @@ protected:
     delete eob;
   }
 
-  void fill(en::bs side, int px, int sz) {
+  void fill(en::bs side, int px, int sz) { fill_at(0, side, px, sz); }
+
+  // A fill carrying its own market timestamp. The leg takes its end stamp from
+  // the FILL, not from the tick that later notices, so a test about leg
+  // durations has to be able to say when the fill happened.
+  void fill_at(uint64_t tim, en::bs side, int px, int sz) {
+    // The LIGHT moves its own book on a fill (light22_base.hpp:771), and the
+    // probe is a separate subscriber to the same publish. Mirror that here, or
+    // the books never come back to flat and the test bears no resemblance to
+    // what runs. The buy book is worked UP toward 0 by buying; the sell book
+    // DOWN toward 0 by selling.
+    // Through the BASE method deliberately, so the mock does not record it.
+    // MockPCoord::calls is then purely the work the PROBE handed out, which is
+    // what the work() helper reports and what the tests assert on; the lights
+    // working that book off is a different thing and would otherwise interleave
+    // with it.
+    if (side == en::bs::BUY) book_buy.light::PCoord::add_position(en::bs::BUY, sz);
+    else                     book_sel.light::PCoord::add_position(en::bs::SEL, sz);
+
     som::msg::Fill f(1u, en::x::SIM, uint(sym), px, side, double(sz), 0.0,
-                     en::trader::SIMULATOR, uint64_t(0));
+                     en::trader::SIMULATOR, tim);
     TestHelper::invoke_handler(probe.get(), &f, nullptr);
   }
 
   // --- observation ------------------------------------------------------
 
-  // Every TARGET_POS the probe pushed at the BUY light, in order. The whole
-  // protocol is visible here: a non-zero value opens a fire, a zero closes a
-  // leg, so this sequence IS the probe's behaviour.
+  // Every TARGET_POS the probe pushed at a light, in order. There should be
+  // exactly one per light for a whole session: +sz for a BUY light, -sz for a
+  // SEL light, sent once and never revised.
+  // Every TARGET_POS a light was sent. Must always be empty: targetpos stays 0
+  // and the probe drives the POSITION instead, exactly as PositionManager does.
   std::vector<int> targets(const MockLight &l) {
     std::vector<int> v;
     for (size_t i = 0; i < l.message_count(); i++)
       if (auto s = l.get_message<light::msg::Set>(i))
         if (s->key == light::msg::Set::TARGET_POS)
           v.push_back(int(s->dval));
+    return v;
+  }
+
+  // The sizes handed to a book, one entry per window opened.
+  std::vector<int> work(const unit_test::MockPCoord &b) {
+    std::vector<int> v;
+    for (const auto &c : b.calls) v.push_back(c.side == en::bs::BUY ? c.sz : -c.sz);
     return v;
   }
 
@@ -212,29 +291,23 @@ protected:
     return v;
   }
 
-  // One complete round trip at `now`: fire, fill the buy, fill the sell.
-  void run_round_trip(uint64_t now) {
-    quote(kBid, kAsk);
-    tick(now);                       // opens the fire
-    fill(en::bs::BUY, kAsk, kParent);
-    tick(now + kSec);                // notices the buy leg is done
-    fill(en::bs::SEL, kBid, kParent);
-    tick(now + 2 * kSec);            // notices we are flat, closes the fire
-  }
-
-  // The same, but with both legs arriving as several clips -- the shape any
-  // parent bigger than one child order actually has.
-  void run_clipped_round_trip(uint64_t now, int parent) {
+  // One complete window: both sides fill their size, then the clock passes the
+  // minimum so it can close.
+  void run_window(uint64_t now, int lots = kParent) {
     quote(kBid, kAsk);
     tick(now);
     uint64_t t = now;
-    for (int c : clips_for(parent)) { fill(en::bs::BUY, kAsk, c); tick(t += kSec); }
-    for (int c : clips_for(parent)) { fill(en::bs::SEL, kBid, c); tick(t += kSec); }
+    for (int c : clips_for(lots)) {
+      fill(en::bs::BUY, kAsk, c);
+      fill(en::bs::SEL, kBid, c);
+      tick(t += kSec);
+    }
+    tick(now + kWindow + kSec);
   }
 };
 
 TEST_F(SlippageProbeTest, ArmsAPeriodicTimerRatherThanAWallClockAlarm) {
-  build(full_schedule());
+  build();
 
   auto sub = mock_timer.get_message<frame::mtim::msg::AlarmClockSub>(0);
   ASSERT_NE(sub, nullptr) << "the probe must take its clock from the Timer";
@@ -243,368 +316,453 @@ TEST_F(SlippageProbeTest, ArmsAPeriodicTimerRatherThanAWallClockAlarm) {
       << "a one-shot would fire once and the probe would stop";
 }
 
-TEST_F(SlippageProbeTest, DoesNotFireBeforeTheFirstScheduledTime) {
-  build(full_schedule());
-  quote(kBid, kAsk);
+TEST_F(SlippageProbeTest, GivesBothSidesWorkAtTheFirstBoundary) {
+  build();
+  // Nothing at Start: the probe waits for a boundary inside the session with a
+  // usable book, because work handed out before there is anything to measure
+  // would have the lights trading outside the window.
+  EXPECT_TRUE(work(book_buy).empty()) << "gave work at Start";
+  EXPECT_TRUE(work(book_sel).empty()) << "gave work at Start";
 
-  tick(kT0 - 3600 * kSec);
-  tick(kT0 - 60 * kSec);
-  tick(kT0 - 1);
-
-  EXPECT_EQ(count_fires(mock_buy), 0);
-}
-
-TEST_F(SlippageProbeTest, FiresAtTheFirstScheduledTime) {
-  build(full_schedule());
   quote(kBid, kAsk);
   tick(kT0);
 
-  EXPECT_EQ(targets(mock_buy), std::vector<int>{kParent});
-  EXPECT_EQ(targets(mock_sel), std::vector<int>{kParent})
-      << "both lights get the target; it is what selects between them";
+  // The entire control surface. targetpos stays 0 on every light, so a BUY
+  // light works only while its book is SHORT and a SEL light only while its
+  // book is LONG (light22.hpp:239,243). Handing a side a parent therefore means
+  // moving its book to the opposite position and letting the lights work it
+  // back to flat -- what PositionManager does (PositionManager.hpp:56).
+  EXPECT_EQ(work(book_buy), std::vector<int>{ -kParent }) << "buy book must go short";
+  EXPECT_EQ(work(book_sel), std::vector<int>{  kParent }) << "sel book must go long";
+  EXPECT_EQ(book_buy.get_position(), -kParent);
+  EXPECT_EQ(book_sel.get_position(),  kParent);
 }
 
-// The cadence. This is the property the whole experiment rests on: twelve
-// fires, one per half hour, 09:30 to 15:00 inclusive -- and none in between.
-TEST_F(SlippageProbeTest, FiresTwelveTimesEveryThirtyMinutes) {
-  build(full_schedule());
+TEST_F(SlippageProbeTest, NeverSendsATargetAtAll) {
+  // Mutation guard for the arrangement this replaced. TARGET_POS is never sent,
+  // not once, not at the end of the session. It is not an off switch either:
+  // with targetpos 0 and a long position a SEL light is ACTIVE, so "standing
+  // the lights down" by targeting flat is just the liquidation this design
+  // removed, arriving through the back door.
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+  run_window(kT0 + kSec);
+  tick(session_end() + kWindow);
 
-  for (int slot = 0; slot < 12; slot++) {
-    const uint64_t at = kT0 + uint64_t(slot) * kStep;
-
-    // Midway through the previous gap: nothing should fire here.
-    if (slot > 0) {
-      const int before = count_fires(mock_buy);
-      quote(kBid, kAsk);
-      tick(at - kStep / 2);
-      EXPECT_EQ(count_fires(mock_buy), before)
-          << "fired between slots, at slot " << slot;
-    }
-
-    run_round_trip(at);
-    EXPECT_EQ(count_fires(mock_buy), slot + 1)
-        << "slot " << slot << " did not produce exactly one fire";
-  }
-
-  // Past the end of the schedule: no thirteenth.
-  for (int i = 1; i <= 4; i++) {
-    quote(kBid, kAsk);
-    tick(kT0 + 12 * kStep + uint64_t(i) * kStep);
-  }
-  EXPECT_EQ(count_fires(mock_buy), 12)
-      << "kept firing after the schedule was exhausted";
+  EXPECT_TRUE(targets(mock_buy).empty()) << "a target was sent";
+  EXPECT_TRUE(targets(mock_sel).empty()) << "a target was sent";
 }
 
-TEST_F(SlippageProbeTest, FiresExactlyOncePerScheduledSlot) {
-  build(full_schedule());
+TEST_F(SlippageProbeTest, GivesExactlyOneParentPerWindowPerSide) {
+  // The work handed out grows by one parent per window and is never taken back
+  // or topped up. A side that overshot simply has less to do next window --
+  // that self-corrects and must not be "fixed" by adjusting the book.
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
 
-  // Ticks far more often than the schedule: a slot must still open one fire.
-  for (int slot = 0; slot < 3; slot++) {
-    const uint64_t at = kT0 + uint64_t(slot) * kStep;
-    for (int i = 0; i < 5; i++) { quote(kBid, kAsk); tick(at + uint64_t(i)); }
+  uint64_t t = kT0;
+  for (int i = 0; i < 3; i++) {
     fill(en::bs::BUY, kAsk, kParent);
-    tick(at + 10);
     fill(en::bs::SEL, kBid, kParent);
-    tick(at + 20);
-  }
-
-  EXPECT_EQ(count_fires(mock_buy), 3)
-      << "repeated ticks inside one slot must not re-fire it";
-}
-
-TEST_F(SlippageProbeTest, BuyLegCompletionStartsTheSellLeg) {
-  build(full_schedule());
-  quote(kBid, kAsk);
-  tick(kT0);
-  ASSERT_EQ(targets(mock_buy), std::vector<int>{kParent});
-
-  fill(en::bs::BUY, kAsk, kParent);
-  tick(kT0 + kSec);
-
-  EXPECT_EQ(targets(mock_buy), (std::vector<int>{kParent, 0}))
-      << "reaching the target must flip the pair to selling back to flat";
-}
-
-TEST_F(SlippageProbeTest, ARoundTripLeavesTheLightsFlat) {
-  build(full_schedule());
-  run_round_trip(kT0);
-
-  auto tg = targets(mock_buy);
-  ASSERT_FALSE(tg.empty());
-  EXPECT_EQ(tg.back(), 0)
-      << "a fire that ends holding inventory would corrupt the next one";
-}
-
-// A slot that arrives while we are still unwinding the previous fire must be
-// skipped, not started: measuring from a non-zero position is meaningless.
-TEST_F(SlippageProbeTest, SkipsASlotWhenNotFlat) {
-  build(full_schedule());
-
-  quote(kBid, kAsk);
-  tick(kT0);
-  fill(en::bs::BUY, kAsk, kParent);       // long, and never sold back
-
-  // Walk past the next slot without ever returning to flat.
-  for (uint64_t t = kT0 + kSec; t <= kT0 + kStep + 10 * kSec; t += 60 * kSec) {
-    quote(kBid, kAsk);
+    t += kWindow + kSec;
     tick(t);
   }
 
-  EXPECT_EQ(count_fires(mock_buy), 1)
-      << "the second slot must be skipped while still holding position";
+  const std::vector<int> expect_buy(4, -kParent);
+  const std::vector<int> expect_sel(4,  kParent);
+  EXPECT_EQ(work(book_buy), expect_buy) << "one parent per window, no more";
+  EXPECT_EQ(work(book_sel), expect_sel) << "one parent per window, no more";
 }
 
-// No two-sided book means no mid, and a fire with no reference price produces
-// a number that cannot be interpreted.
-TEST_F(SlippageProbeTest, SkipsASlotWithNoTouch) {
-  build(full_schedule());
-  tick(kT0);                               // no quote() first
-  EXPECT_EQ(count_fires(mock_buy), 0);
+TEST_F(SlippageProbeTest, AnOvershootLeavesLessToDoNextWindow) {
+  // The failure this cost a session to find. A side overshoots its work on the
+  // last clip -- the lights net against a SHARED position while each throttles
+  // against its OWN working size -- so the book ends past flat and the next
+  // window holds less than a full parent. Completion is measured against THAT,
+  // not against parent_sz: testing against the parent stalled the window
+  // forever and lost 22 of 24 windows.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, kParent + 2);   // overshoot the buy side by 2
+  fill(en::bs::SEL, kBid, kParent);
+  tick(kT0 + kWindow + kSec);             // window 1 closes, window 2 opens
+
+  // Window 2 must complete on kParent-2 buy lots, because that is all the work
+  // the book holds. If it demanded a full parent it would never close.
+  fill(en::bs::BUY, kAsk, kParent - 2);
+  fill(en::bs::SEL, kBid, kParent);
+  tick(kT0 + 2 * (kWindow + kSec));
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 3u) << "both windows must close";
+  EXPECT_EQ(rows[2][kOutcome], "ok");
+
+  // That last tick also OPENED window 3, so each book now holds exactly one
+  // fresh parent and nothing carried over: the overshoot was absorbed by
+  // window 2 doing less, not by anyone adjusting a book.
+  EXPECT_EQ(book_buy.get_position(), -kParent) << "overshoot must not carry past window 2";
+  EXPECT_EQ(book_sel.get_position(),  kParent);
+}
+
+TEST_F(SlippageProbeTest, DoesNotEmitBeforeTheFirstScheduledTime) {
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0 - kSec);
+  EXPECT_EQ(csv_rows().size(), 1u) << "header only";
+}
+
+// --- when a window ends: minimum elapsed AND both legs done ---------------
+//
+// Four branches, and each gets a test. The rule is a conjunction, so both
+// halves have to be shown to bind on their own, or a regression that drops
+// either one still passes.
+
+TEST_F(SlippageProbeTest, DoesNotCloseBeforeTheMinimumEvenWithBothLegsDone) {
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);                                   // opens
+
+  fill(en::bs::BUY, kAsk, kParent);            // both legs finish almost at once
+  fill(en::bs::SEL, kBid, kParent);
+  tick(kT0 + kSec);
+  tick(kT0 + kWindow - kSec);                  // one second short of the minimum
+
+  EXPECT_EQ(csv_rows().size(), 1u)
+      << "closed early: the minimum is a floor, not just a deadline";
+}
+
+TEST_F(SlippageProbeTest, DoesNotCloseAtTheMinimumWhileALegIsShort) {
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, kParent);            // buy done
+  fill(en::bs::SEL, kBid, kParent - 1);        // sell one short
+  tick(kT0 + kWindow + kSec);                  // well past the minimum
+
+  EXPECT_EQ(csv_rows().size(), 1u)
+      << "closed on the clock with a short leg: the row would report a partial "
+         "execution as a complete one";
+}
+
+TEST_F(SlippageProbeTest, ClosesOnceTheMinimumHasPassedAndBothLegsAreDone) {
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, kParent);
+  fill(en::bs::SEL, kBid, kParent);
+  tick(kT0 + kWindow + kSec);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_EQ(rows[1][kOutcome], "ok");
+}
+
+TEST_F(SlippageProbeTest, WaitsPastTheMinimumForASlowLegThenCloses) {
+  // The case the fixed-period design got wrong and the assertion turned into a
+  // dead run: a thin window simply runs longer.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, kParent);
+  fill(en::bs::SEL, kBid, kParent - 1);
+  tick(kT0 + kWindow + kSec);
+  ASSERT_EQ(csv_rows().size(), 1u) << "must still be waiting";
+
+  const uint64_t late = kT0 + kWindow + 180 * kSec;   // three minutes late
+  fill(en::bs::SEL, kBid, 1);                         // the leg finally fills
+  tick(late);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u) << "should close as soon as the slow leg fills";
+  EXPECT_EQ(rows[1][kOutcome], "ok") << "a late window is complete, not partial";
+  EXPECT_EQ(std::stod(rows[1][kSelFilled]), kParent);
+}
+
+TEST_F(SlippageProbeTest, EachLegIsMeasuredOverItsOwnInterval) {
+  // Both legs arrive together, neither ends with the window: each ends at the
+  // fill that completed it.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill_at(kT0 + 10 * kSec, en::bs::BUY, kAsk, kParent);   // buy done at 10s
+  fill_at(kT0 + 60 * kSec, en::bs::SEL, kBid, kParent);   // sell done at 60s
+  tick(kT0 + kWindow + kSec);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  const double buy_ns = std::stod(rows[1][kBuyNs]);
+  const double sel_ns = std::stod(rows[1][kSelNs]);
+  EXPECT_NEAR(buy_ns, 10.0 * double(kSec), double(kSec) / 2);
+  EXPECT_NEAR(sel_ns, 60.0 * double(kSec), double(kSec) / 2);
+  EXPECT_LT(buy_ns, sel_ns) << "the legs must not share an end";
+  EXPECT_LT(sel_ns, double(kWindow)) << "nor end with the window";
+}
+
+TEST_F(SlippageProbeTest, AFinishedLegStopsAccumulating) {
+  // Once a leg has its size the window keeps running and the lights keep
+  // quoting, but those later fills are not this leg's measurement.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, kParent);
+  fill(en::bs::SEL, kBid, kParent);
+  fill(en::bs::BUY, kAsk, kParent);     // extra flow after both legs are done
+  fill(en::bs::SEL, kBid, kParent);
+  tick(kT0 + kWindow + kSec);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_EQ(std::stod(rows[1][kBuyFilled]), kParent)
+      << "a finished leg must not keep accumulating";
+  EXPECT_EQ(std::stod(rows[1][kSelFilled]), kParent);
+}
+
+TEST_F(SlippageProbeTest, BothSidesFillIntoTheirOwnLegOverTheSameWindow) {
+  want_csv();
+  build();
+  // The point of quoting both sides at once: the legs share an interval, so
+  // their VWAPs and participation denominators are comparable by construction.
+  run_window(kT0);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_EQ(std::stod(rows[1][kBuyFilled]), kParent);
+  EXPECT_EQ(std::stod(rows[1][kSelFilled]), kParent);
+  // Each leg's denominator is its OWN fill interval, not the clock window --
+  // the sides quote together but do not trade together, so a shared denominator
+  // would flatter whichever finished first.
+  EXPECT_GE(std::stod(rows[1][kBuyMktVol]), 0.0);
+  EXPECT_GE(std::stod(rows[1][kSelMktVol]), 0.0);
+}
+
+TEST_F(SlippageProbeTest, WindowsRunBackToBack) {
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);                                   // opens the first
+
+  uint64_t t = kT0;
+  for (int i = 1; i <= 3; i++) {
+    fill(en::bs::BUY, kAsk, kParent);
+    fill(en::bs::SEL, kBid, kParent);
+    t += kWindow + kSec;
+    tick(t);                                   // closes one and opens the next
+  }
+  EXPECT_EQ(csv_rows().size(), 4u) << "one row per closed window, no gaps";
+}
+
+TEST_F(SlippageProbeTest, CarriesInventoryAcrossAWindowBoundary) {
+  // Inventory is NOT flattened at a boundary. It stays on the book, the lights
+  // carry it into the next window, and their own targets pull it back toward the
+  // band. The old probe traded out here, and that trade never appeared in a row.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+  mock_buy.clear();                        // drop the startup +sz / -sz
+  mock_sel.clear();
+
+  fill(en::bs::BUY, kAsk, kParent);        // both legs complete, position flat
+  fill(en::bs::SEL, kBid, kParent);
+  fill(en::bs::BUY, kAsk, kParent);        // extra flow after the legs are done
+  tick(kT0 + kWindow + kSec);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_EQ(std::stoi(rows[1][kPosAtClose]), kParent)
+      << "the position the window ended on must be reported, not unwound";
+  EXPECT_TRUE(targets(mock_sel).empty())
+      << "nothing may be re-targeted to flatten it";
+}
+
+TEST_F(SlippageProbeTest, AClipLargerThanTheParentDoesNotAbort) {
+  // light22 sizes a clip from ord_sz in lights.ini (5 by default), which the
+  // probe never sees and which the grid never overrides. At --probe-size 1 or 2
+  // a single legitimate clip therefore exceeds the parent by itself. An
+  // overshoot assert here used to bound the FIRST fill at 2*parent_sz and
+  // abort() the whole session on a routine 3-lot clip.
+  want_csv();
+  build(1);
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, 3);            // one ord_sz clip against a 1-lot parent
+  fill(en::bs::SEL, kBid, 3);
+  tick(kT0 + kWindow + kSec);            // must close, not abort
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_EQ(rows[1][kOutcome], "ok");
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kBuyFilled]), 3.0)
+      << "the overshoot is real and must be reported, not clamped away";
+}
+
+TEST_F(SlippageProbeTest, ALegStampedBeforeItsWindowIsClampedNotAborted) {
+  // The leg's end stamp is the Fill's transactTime, set when the order was
+  // RECEIVED -- before the modelled --ob-delay-us. An order submitted just
+  // before the boundary and released after it carries a stamp earlier than the
+  // window that owns it. That is the delay model working, not a bug, so it
+  // clamps; asserting ended >= started across the two clocks aborted the close.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill_at(kT0 - kSec, en::bs::BUY, kAsk, kParent);   // stamped BEFORE the open
+  fill_at(kT0 + kSec, en::bs::SEL, kBid, kParent);
+  tick(kT0 + kWindow + kSec);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_EQ(std::stoull(rows[1][kBuyNs]), 0ull)
+      << "a leg cannot have ended before it began";
+}
+
+TEST_F(SlippageProbeTest, DriftIsMeasuredForwardFromTheCommonArrival) {
+  // Both legs arrive together, so drift cannot be the gap between two arrivals
+  // -- that difference is identically zero. It is measured forward: from the
+  // arrival mid to the mid each leg finished on, and to the mid at the close.
+  want_csv();
+  build();
+  quote(kBid, kAsk);                                  // arrival mid 23992
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, kParent);                   // buy done at the arrival mid
+  quote(kBid + 8, kAsk + 8);                          // market moves up 8 ticks
+  fill(en::bs::SEL, kBid + 8, kParent);               // sell finishes up there
+  tick(kT0 + kWindow + kSec);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kBuyDrift]), 0.0)
+      << "the buy leg finished before the market moved";
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSelDrift]), 8.0)
+      << "the sell leg finished 8 ticks higher than the arrival";
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kDrift]), 8.0)
+      << "the window closed 8 ticks above where it opened";
+}
+
+TEST_F(SlippageProbeTest, DriftIsZeroWhenTheMarketDoesNotMove) {
+  want_csv();
+  build();
+  run_window(kT0);
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kDrift]), 0.0);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kBuyDrift]), 0.0);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSelDrift]), 0.0);
+}
+
+TEST_F(SlippageProbeTest, AShortLegAtShutdownIsNamedNotCalledSessionEnd) {
+  // A leg that never fills holds its window open for the rest of the session,
+  // so every later window simply never happens and the run ends with one row --
+  // which run_grid.sh's `wc -l > 1` resume guard accepts as a completed cell.
+  // The outcome has to say which side was short, or that case is
+  // indistinguishable from the replay simply running out of data.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+
+  fill(en::bs::BUY, kAsk, kParent);        // buy completes, sell never does
+  tick(kT0 + 4 * kWindow);                 // long past the minimum, still open
+  EXPECT_EQ(csv_rows().size(), 1u) << "it must keep waiting, as specified";
+
+  actors::msg::Shutdown sd;
+  TestHelper::invoke_handler(probe.get(), &sd, nullptr);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_EQ(rows[1][kOutcome], "sel_short");
+}
+
+TEST_F(SlippageProbeTest, AnUnfilledLegScoresNoSlippageRatherThanTheRawPrice) {
+  // vwap() is 0 for an unfilled leg. Guarding the touch and VWAP benchmarks on
+  // the reference price alone wrote bid_fire - 0 ~ +23990 ticks into columns
+  // whose real values are fractions of a tick.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+  fill(en::bs::BUY, kAsk, kParent);
+
+  actors::msg::Shutdown sd;
+  TestHelper::invoke_handler(probe.get(), &sd, nullptr);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSlipSelVsTouch]), 0.0);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSlipSelVsVwap]), 0.0);
+  EXPECT_DOUBLE_EQ(std::stod(rows[1][kSlipVsTouch]), 0.0)
+      << "a pair benchmark needs both legs";
+}
+
+TEST_F(SlippageProbeTest, DoesNotOpenAWindowThatCannotFinishInTheSession) {
+  // Reopening with less than a full minimum left produced a window that closed
+  // after the session and was emitted "ok", with its VWAPs and participation
+  // denominators drawn from post-close liquidity.
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+
+  // Walk windows up to the last boundary that still leaves a full minimum.
+  uint64_t t = session_end() - 2 * kWindow;
+  tick(t);                                       // opens the final legal window
+  fill(en::bs::BUY, kAsk, kParent);
+  fill(en::bs::SEL, kBid, kParent);
+  tick(t + kWindow + kSec);                      // closes it; no room for another
+
+  const size_t rows_after_close = csv_rows().size();
+  fill(en::bs::BUY, kAsk, kParent);               // flow keeps arriving
+  fill(en::bs::SEL, kBid, kParent);
+  tick(session_end() + kWindow);
+
+  EXPECT_EQ(csv_rows().size(), rows_after_close)
+      << "no window may open without a full minimum left before the close";
+}
+
+TEST_F(SlippageProbeTest, SkipsAWindowWithNoTouch) {
+  want_csv();
+  build();
+  tick(kT0);                       // never quoted: no bid/ask to anchor a row
+  EXPECT_EQ(csv_rows().size(), 1u) << "header only";
+}
+
+TEST_F(SlippageProbeTest, LegVwapIsSizeWeightedAcrossPartialFills) {
+  want_csv();
+  build();
+  quote(kBid, kAsk);
+  tick(kT0);
+  fill(en::bs::BUY, 100, 1);
+  fill(en::bs::BUY, 200, 3);       // 1@100 + 3@200 -> 175
+  fill(en::bs::SEL, kBid, 4);
+  tick(kT0 + kWindow + kSec);
+
+  auto rows = csv_rows();
+  ASSERT_EQ(rows.size(), 2u);
+  EXPECT_NEAR(std::stod(rows[1][kBuyVwap]), 175.0, 1e-6);
 }
 
 TEST_F(SlippageProbeTest, DisabledWithoutAParentSize) {
-  build(full_schedule(), 0 /*parent*/);
-  EXPECT_EQ(mock_timer.message_count(), 0u)
-      << "a disabled probe must not even arm the timer";
-  quote(kBid, kAsk);
-  tick(kT0);
-  EXPECT_EQ(count_fires(mock_buy), 0);
-}
-
-// ---------------------------------------------------------------------------
-// Parent sizes other than one.
-//
-// Every test above fills a leg with a single Fill, which makes "a fill arrived"
-// and "the leg is complete" indistinguishable. That is only true for a parent
-// small enough to be one child order. At 10 or 100 the parent comes back as a
-// stream of partials, and the probe has to add them up: declare the buy leg
-// done on the first clip and the fire measures a fraction of the order it
-// claims to have measured, while the sell leg unwinds a position that is not
-// there. These run the whole state machine at 1, 10 and 100.
-// ---------------------------------------------------------------------------
-
-class SlippageProbeSizeTest : public SlippageProbeTest,
-                              public ::testing::WithParamInterface<int> {};
-
-INSTANTIATE_TEST_SUITE_P(ParentSizes, SlippageProbeSizeTest,
-                         ::testing::Values(1, 10, 100),
-                         [](const ::testing::TestParamInfo<int> &i) {
-                           return "sz" + std::to_string(i.param);
-                         });
-
-// The core partial-fill property: the buy leg is complete when the clips SUM to
-// the parent, not when the first one lands. A probe that flipped on the first
-// fill would sell back one clip and report the slippage of a 3-lot as the
-// slippage of a 100-lot.
-TEST_P(SlippageProbeSizeTest, BuyLegCompletesOnlyWhenTheClipsSumToTheParent) {
-  const int parent = GetParam();
-  build(full_schedule(), parent);
-  quote(kBid, kAsk);
-  tick(kT0);
-  ASSERT_EQ(targets(mock_buy), std::vector<int>{parent});
-
-  const auto clips = clips_for(parent);
-  int so_far = 0;
-  for (size_t i = 0; i + 1 < clips.size(); i++) {
-    fill(en::bs::BUY, kAsk, clips[i]);
-    so_far += clips[i];
-    tick(kT0 + uint64_t(i + 1) * kSec);
-    EXPECT_EQ(targets(mock_buy), std::vector<int>{parent})
-        << "buy leg ended at " << so_far << "/" << parent
-        << ": a partial fill must not flip the pair to selling";
-  }
-
-  fill(en::bs::BUY, kAsk, clips.back());
-  tick(kT0 + uint64_t(clips.size()) * kSec);
-  EXPECT_EQ(targets(mock_buy), (std::vector<int>{parent, 0}))
-      << "the last clip completes the parent and must start the sell leg";
-}
-
-// The mirror property, and the one the outcome column depends on: the fire is
-// only over when the whole parent is back off the books. Ending early would
-// leave inventory that makes the next fire unmeasurable -- and it would still
-// be reported "ok".
-TEST_P(SlippageProbeSizeTest, SellLegFinishesOnlyWhenTheWholeParentIsSoldBack) {
-  const int parent = GetParam();
-  want_csv();
-  build(full_schedule(), parent);
-
-  quote(kBid, kAsk);
-  tick(kT0);
-  uint64_t t = kT0;
-  for (int c : clips_for(parent)) { fill(en::bs::BUY, kAsk, c); tick(t += kSec); }
-  ASSERT_EQ(targets(mock_buy), (std::vector<int>{parent, 0}));
-
-  const auto clips = clips_for(parent);
-  int sold = 0;
-  for (size_t i = 0; i + 1 < clips.size(); i++) {
-    fill(en::bs::SEL, kBid, clips[i]);
-    sold += clips[i];
-    tick(t += kSec);
-    EXPECT_EQ(csv_rows().size(), 1u)
-        << "fire closed with " << (parent - sold) << " still held";
-  }
-
-  fill(en::bs::SEL, kBid, clips.back());
-  tick(t += kSec);
-
-  auto rows = csv_rows();
-  ASSERT_EQ(rows.size(), 2u) << "a completed round trip must emit exactly one row";
-  ASSERT_EQ(rows[1].size(), size_t(kNumCols));
-  EXPECT_EQ(rows[1][kOutcome], "ok");
-  EXPECT_EQ(rows[1][kParentSz], std::to_string(parent));
-  EXPECT_EQ(rows[1][kBuyFilled], std::to_string(parent));
-  EXPECT_EQ(rows[1][kSelFilled], std::to_string(parent));
-  EXPECT_EQ(rows[1][kBuyFills], std::to_string(clips.size()))
-      << "every clip must be counted, not just the one that completed the leg";
-}
-
-// The cadence test again, but with the legs clipped. Twelve fires is the
-// property the whole experiment rests on, and it must not quietly depend on
-// each leg being one fill: a leg that never completes stalls the schedule and
-// every later slot is skipped for "not flat".
-TEST_P(SlippageProbeSizeTest, FiresTwelveTimesWhateverTheParentSize) {
-  const int parent = GetParam();
-  build(full_schedule(), parent);
-
-  for (int slot = 0; slot < 12; slot++) {
-    run_clipped_round_trip(kT0 + uint64_t(slot) * kStep, parent);
-    EXPECT_EQ(count_fires(mock_buy), slot + 1)
-        << "slot " << slot << " at parent_sz=" << parent;
-  }
-
-  for (int i = 1; i <= 4; i++) {
-    quote(kBid, kAsk);
-    tick(kT0 + 12 * kStep + uint64_t(i) * kStep);
-  }
-  EXPECT_EQ(count_fires(mock_buy), 12);
-}
-
-// With partials at different prices the leg price is a weighted mean, not the
-// mean of the fill prices. 6 @ 100 and 4 @ 105 is 102.0; averaging the two
-// prices gives 102.5, half a tick of slippage invented out of nothing. The two
-// only coincide when every clip is the same size, which is exactly what a
-// single-fill test cannot distinguish.
-TEST_F(SlippageProbeTest, LegVwapIsSizeWeightedAcrossPartialFills) {
-  want_csv();
-  build(full_schedule(), 10 /*parent*/);
-
-  quote(100, 104);                       // mid 102
-  tick(kT0);
-  fill(en::bs::BUY, 100, 6);
-  tick(kT0 + kSec);
-  fill(en::bs::BUY, 105, 4);             // -> 1020/10 = 102.0
-  tick(kT0 + 2 * kSec);
-  fill(en::bs::SEL, 110, 5);
-  fill(en::bs::SEL, 100, 5);             // -> 1050/10 = 105.0
-  tick(kT0 + 3 * kSec);
-
-  auto rows = csv_rows();
-  ASSERT_EQ(rows.size(), 2u);
-  EXPECT_NEAR(std::stod(rows[1][kMidFire]), 102.0, 1e-6);
-  EXPECT_NEAR(std::stod(rows[1][kBuyVwap]), 102.0, 1e-6)
-      << "un-weighted, the two buy prices average to 102.5";
-  EXPECT_NEAR(std::stod(rows[1][kSelVwap]), 105.0, 1e-6);
-
-  // And the slippage columns derived from them.
-  EXPECT_NEAR(std::stod(rows[1][kSlipBuy]), 0.0, 1e-6);      // 102.0 - 102
-  EXPECT_NEAR(std::stod(rows[1][kSlipSel]), -3.0, 1e-6);     // 102 - 105.0
-  EXPECT_NEAR(std::stod(rows[1][kSlipPaired]), -1.5, 1e-6);  // (102.0-105.0)/2
-}
-
-// A clip can come back larger than the residual -- several child orders crossing
-// in the same match event are reported as they fill, not capped at what the
-// parent still wanted. The leg must end (it is past the target, not short of
-// it) and the unwind must clear the position that actually exists rather than
-// parent_sz, or the probe is left permanently long and skips every later slot.
-TEST_F(SlippageProbeTest, AnOverFillCompletesAndLeavesTheProbeUsable) {
-  want_csv();
-  build(full_schedule(), 10 /*parent*/);
-
-  quote(kBid, kAsk);
-  tick(kT0);
-  fill(en::bs::BUY, kAsk, 6);
-  tick(kT0 + kSec);
-  fill(en::bs::BUY, kAsk, 6);            // 12 against a parent of 10
-  tick(kT0 + 2 * kSec);
-  ASSERT_EQ(targets(mock_buy), (std::vector<int>{10, 0}))
-      << "overshooting the target still completes the buy leg";
-
-  fill(en::bs::SEL, kBid, 10);           // parent_sz back, but 2 still held
-  tick(kT0 + 3 * kSec);
-  EXPECT_EQ(csv_rows().size(), 1u)
-      << "selling parent_sz is not flat when the buy leg over-filled";
-
-  fill(en::bs::SEL, kBid, 2);
-  tick(kT0 + 4 * kSec);
-  auto rows = csv_rows();
-  ASSERT_EQ(rows.size(), 2u);
-  EXPECT_EQ(rows[1][kBuyFilled], "12");
-  EXPECT_EQ(rows[1][kSelFilled], "12");
-  EXPECT_EQ(rows[1][kOutcome], "ok");
-
-  // The next slot must still fire: an over-fill that left a phantom position
-  // behind would silently cost every remaining fire in the session.
-  run_clipped_round_trip(kT0 + kStep, 10);
-  EXPECT_EQ(count_fires(mock_buy), 2);
-}
-
-// A parent of one either fills or does not. A parent of ten can time out
-// half-done, and then the unwind has to sell the four contracts that exist --
-// not the ten that were asked for, which would go short. The row must say
-// buy_short so the number is not read as a clean measurement, and the session
-// must carry on.
-TEST_F(SlippageProbeTest, ABuyLegThatTimesOutPartiallyFilledUnwindsOnlyWhatItGot) {
-  want_csv();
-  build(full_schedule(), 10 /*parent*/);
-
-  quote(kBid, kAsk);
-  tick(kT0);
-  fill(en::bs::BUY, kAsk, 4);            // and then the book goes quiet
-  tick(kT0 + 601 * kSec);                // past the 10-minute leg timeout
-  ASSERT_EQ(targets(mock_buy), (std::vector<int>{10, 0}))
-      << "a timed-out buy leg must still be unwound";
-
-  fill(en::bs::SEL, kBid, 4);
-  tick(kT0 + 602 * kSec);
-
-  auto rows = csv_rows();
-  ASSERT_EQ(rows.size(), 2u);
-  EXPECT_EQ(rows[1][kBuyFilled], "4");
-  EXPECT_EQ(rows[1][kSelFilled], "4")
-      << "unwinding parent_sz instead of the position held would go short";
-  EXPECT_EQ(rows[1][kOutcome], "buy_short");
-
-  run_clipped_round_trip(kT0 + kStep, 10);
-  EXPECT_EQ(count_fires(mock_buy), 2) << "a short fire must not stall the schedule";
-}
-
-// Only a multi-clip parent can do this: when the target flips to zero the buy
-// light may still have children resting at the exchange, and one of them can
-// print after the sell leg has started. The unwind is sized off the position,
-// not off parent_sz, precisely so that late contract gets sold too -- ending
-// the fire at ten sold would leave five long and poison the next fire.
-TEST_F(SlippageProbeTest, ABuyFillArrivingDuringTheSellLegIsStillUnwound) {
-  want_csv();
-  build(full_schedule(), 10 /*parent*/);
-
-  quote(kBid, kAsk);
-  tick(kT0);
-  fill(en::bs::BUY, kAsk, 10);
-  tick(kT0 + kSec);                      // buy leg done, sell leg starts
-  fill(en::bs::BUY, kAsk, 5);            // a stale child prints late
-
-  fill(en::bs::SEL, kBid, 10);
-  tick(kT0 + 2 * kSec);
-  EXPECT_EQ(csv_rows().size(), 1u)
-      << "ten sold against fifteen bought is not flat";
-
-  fill(en::bs::SEL, kBid, 5);
-  tick(kT0 + 3 * kSec);
-  auto rows = csv_rows();
-  ASSERT_EQ(rows.size(), 2u);
-  EXPECT_EQ(rows[1][kBuyFilled], "15");
-  EXPECT_EQ(rows[1][kSelFilled], "15");
+  build(0);
+  EXPECT_FALSE(probe->enabled());
 }
 
 }  // namespace

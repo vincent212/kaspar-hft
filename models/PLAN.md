@@ -2317,3 +2317,325 @@ ESM5 contains a genuinely crossed book at 00:20 ET, proven by an independent
 replay that reaches the same `best_bid 22763 > best_ask 22758`. Not our
 reconstruction. The crash is accepted; it costs one session per config.
 
+
+## What the paired number actually measures, and why VWAP replaces it
+
+The probe fires a round trip: buy n, then sell n. `slip_paired` is
+`(buy_vwap - sel_vwap)/2`, which is only a like-for-like comparison if the two
+legs are comparable. **They are not, and the gap grows with size.**
+
+The two legs run at different times, for different durations, in different
+liquidity. At 100 lots a leg takes ~84s, so a round trip spans ~170s -- and
+whichever side the book favours fills faster. The slow leg leaves the system
+holding inventory for the difference, which is a directional position nobody
+asked for. Its P&L lands in the measurement as if it were execution cost.
+
+That is exactly the divergence in the data: at 1 and 10 lots `slip_paired` and
+`slip_legsum` agree to within 0.05 ticks, and at 100 lots they are 3.3x apart
+(+0.4745 against +1.5631). The mid-based numbers are absorbing drift over a leg
+long enough for the price to move.
+
+**So the interval VWAP is the benchmark that means something**, and each leg
+gets its own -- the VWAP of everything that traded during THAT leg's interval,
+not a shared one. Drift cancels by construction, because our fills and the
+benchmark are drawn from the same window. What survives is selection: whether
+we were systematically on the wrong side of the trades happening around us.
+
+Three benchmarks now emitted per leg, because they answer three questions:
+
+| benchmark | question | expected sign |
+|---|---|---|
+| vs mid at arrival | what did the decision cost against the fair price when we committed? | positive |
+| vs interval VWAP | how did we do against everyone trading alongside us? | ~0 if only drift; positive if picked off |
+| vs touch at arrival | what did patience buy, against just crossing the spread? | **negative** -- that saving is the case for a passive algo |
+
+### The market-making corollary
+
+For a market-making scenario the buy-vs-sell comparison IS the thing that
+matters -- the spread you capture is exactly `sell_vwap - buy_vwap`. But that
+only holds if the two sides are simultaneous and matched. The moment one side
+fills faster you are carrying inventory, and inventory P&L swamps the spread you
+were trying to measure.
+
+The consequence is a design constraint, not a measurement detail: **market
+making wants small orders and near-zero inventory.** Small clips fill on both
+sides at comparable speed, so the paired number stays a spread measurement
+rather than a directional bet. Large parents are the opposite -- they guarantee
+an inventory imbalance for the duration, which is why the paired number stops
+being interpretable at 100 lots.
+
+This also says the 100-lot cells should not be read as market-making results at
+all. They are execution-cost results for a directional parent, and the VWAP
+benchmark is the only one of the three that treats them fairly.
+
+## Cost tracks drift, not size — and what that means for the paper
+
+Measured on 8,313 completed round trips (config_a, 6 lights, place_rate 0.5%,
+sizes 1/10/100). All numbers are the BUY leg against the arrival mid, in ticks.
+
+### Definition: drift
+
+    drift = mid_sell - mid_fire          (ticks, signed)
+
+    mid_fire   the mid at t0, when the parent was released to the lights
+    mid_sell   the mid at t1, when the buy leg finished and the sell leg began
+
+Both are recorded by the probe as `(best_bid + best_ask)` and halved on emit, so
+the CSV columns are in ticks and the difference is in ticks. ES trades a 1-tick
+spread in ~93% of fires, so one unit of drift is roughly one full spread.
+
+Sign: POSITIVE means the mid ROSE while we were buying, which is against us.
+For the sell leg the sign convention flips, and unless stated otherwise every
+drift figure in this section is over the BUY leg only.
+
+Three things it is NOT, all of which matter for how it is read:
+
+- **Not a trend estimate.** It is the realised move over one specific window,
+  not a fitted drift parameter. +1.78 ticks over 88s is ~73 ticks/hour; nothing
+  is claiming ES trends at that rate.
+- **Not exogenous.** The window's LENGTH is determined by how our own fills
+  went, so drift is measured over an interval we selected by finishing when we
+  finished. This is the whole reason it reads as selection rather than
+  direction, and why conditioning on duration changes the picture.
+- **Not our impact.** The sim cannot produce impact -- our fills are additive
+  (section 6) -- so drift is the recorded market moving on its own, never the
+  market reacting to us. In a live setting part of this quantity WOULD be our
+  own footprint, and nothing here can separate the two.
+
+### 1. Against arrival price, cost rises steeply with size
+
+| size | n | buy leg vs arrival mid | sell leg | participation (ours/(ours+mkt)) | leg duration |
+|---|---|---|---|---|---|
+| 1 | 3014 | +0.4897 | +0.4507 | 1.96% | 0.9s |
+| 10 | 3009 | +0.5132 | +0.5376 | 2.36% | 8.1s |
+| 100 | 2290 | +1.4400 | +1.2431 | 2.37% | 84.1s |
+
+`slip_paired` hides this completely -- it is flat at +0.47 to +0.50 across all
+three -- because it nets the legs against each other and cancels the drift that
+IS the cost. Any paper quoting only the paired number reports a size-independent
+execution cost, which is an artefact of the metric.
+
+Note ES trades a 1-tick spread in ~93% of fires, so half a tick is the floor for
+a spread-crossing round trip. 1 and 10 lots sit essentially ON that floor
+(+0.49, +0.51). 100 lots pays +1.44, i.e. the floor plus ~0.94.
+
+### 2. That excess is drift, and drift is not a trend
+
+| size | mean drift over the buy leg | corr(slip, drift) | slip - drift |
+|---|---|---|---|
+| 1 | -0.058 | +0.994 | +0.547 |
+| 10 | +0.103 | +0.895 | +0.410 |
+| 100 | +1.776 | +0.906 | -0.336 |
+
+Slippage tracks drift at r ~ 0.9 at every size. And the drift is wildly
+superlinear in duration -- +1.78 ticks over 88s would be ~73 ticks/hour, which
+no trend produces -- so it is selection, not direction: legs that take a long
+time are exactly the ones where the price ran away.
+
+The last column is the result that matters for the algorithm's defence:
+**measured against the mid at the moment the leg COMPLETED, the 100-lot
+execution is the best of the three (-0.336)**, buying a third of a tick below
+the terminal mid while 1 lot pays +0.547 above it. Per-fill execution quality
+IMPROVES with size. What degrades is time spent exposed.
+
+### 3. At matched duration, size stops mattering
+
+Buy-leg cost bucketed by duration, across parent sizes:
+
+| duration | 1 lot | 10 lots | 100 lots |
+|---|---|---|---|
+| 0-1s | +0.43 (drift -0.12) | -0.64 (drift -1.71) | -- |
+| 1-5s | +0.68 (drift +0.15) | +0.46 (drift +0.05) | -- |
+| 5-20s | +0.65 (drift +0.12) | +0.77 (drift +0.47) | **+1.88 (drift +3.37)** |
+| **20-60s** | -- | **+0.91 (drift +0.84)** | **+0.97 (drift +0.77)** |
+| 60s+ | -- | +0.64 (drift +0.46, n=26) | +1.65 (drift +2.14) |
+
+A 100-lot leg and a 10-lot leg that both take 20-60s cost the same (+0.97 vs
++0.91) and saw the same drift (+0.77 vs +0.84). **Ten times the size, no extra
+cost.**
+
+And duration alone is not the driver either: the most expensive cell in the
+table is the FASTEST 100-lot bucket (5-20s, +1.88) because its drift is +3.37 --
+legs that finish quickly *because* the market is running, filling our resting
+orders on the way past.
+
+So the predictor is drift, everywhere. Size matters only through its correlation
+with exposure: more time in the market, and more fills landing in the moments
+the market moves.
+
+### 4. The legs are structurally asymmetric
+
+| size | buy leg median | sell leg median | ratio | round-trip P&L | fires profitable |
+|---|---|---|---|---|---|
+| 10 | 4.83s | 0.39s | 12.9x | -0.948 ticks | 2.1% |
+| 100 | 71.10s | 0.58s | 127.4x | -0.907 ticks | 0.1% |
+
+The buy leg is worked; the sell leg is dumped in under a second even at 100
+lots. Splitting fires by how lopsided they are shows this does NOT drive the
+cost (balanced quartile +0.4599 vs lopsided +0.4597 at 100 lots), but it does
+mean the paired number compares a worked execution against something close to a
+market order.
+
+**Open question, and it needs answering before the sell-leg numbers are quoted:**
+why does a 100-lot sell leg complete in 0.58s? If those orders are marketable on
+arrival and filling through `fill_stray_sim_orders` rather than resting, the
+sell leg has never measured passive execution.
+
+### 5. Why aggression on the lagging leg is the interesting experiment
+
+Drift cost is unbounded in exposure; crossing the spread is a fixed ~0.5 ticks.
+Trading an unbounded cost for a bounded one is the right trade at size, and
+capping the slow leg's duration is what does it. The 20-60s row says a
+well-behaved 100-lot leg is ALREADY as cheap as a 10-lot one, so the prize is
+moving the 60s+ and the drift-heavy 5-20s populations into that regime.
+
+The three benchmarks are what make this measurable rather than arguable: an
+aggressive-completion arm should show `slip_vs_touch` going LESS negative (we
+gave up spread) against `slip_vs_vwap` improving (we stopped bleeding drift).
+Neither can be called from the arrival-mid numbers alone.
+
+### 6. The caveat that limits all of it
+
+Our fills are ADDITIVE, not substitutive. `fill_prev_sim_order` fills our
+resting order with the same size as the real execution in front of it, in
+addition to that trade rather than instead of it -- so a 5-lot print takes 5
+lots from the real order AND gives us 5. We are a ghost in the queue: filled
+without anyone losing a fill.
+
+Consequence, measured: fires where our fill exceeds ALL market volume in the
+window are 0.1% at 1 lot, 17.9% at 10, and **77.1% at 100**. At 100 lots the
+cost number is not an execution measurement -- it is what execution would cost
+if we could take liquidity that was never available, with nobody reacting.
+
+This is the hard ceiling on the size axis, and the paper has to state it. The
+defensible range on this corpus is 1-10 lots; above that the simulator is
+answering a counterfactual that has left the market behind.
+
+### 7. Prior art for the drift result -- it is NOT novel, and the paper must say so
+
+The core relationship is well covered. Searched and found:
+
+- **Rzayev, Sakkas et al. (?), "The Market Maker's Dilemma: Navigating the Fill
+  Probability vs. Post-Fill Returns Trade-Off"**, arXiv:2502.18625 --
+  https://arxiv.org/html/2502.18625v2
+  Documents a negative correlation between a maker order's fill probability and
+  its subsequent return CONDITIONED ON FILLING, which they name the **negative
+  drift of maker orders**, most pronounced at short timescales. This is our
+  selection effect under another name: conditional on being filled, drift is
+  adverse. Cite this as the direct antecedent.
+
+- **"Model Predictive Control For Trade Execution"**, arXiv:2603.28898 --
+  https://arxiv.org/html/2603.28898v1
+  Orders filled at the FRONT of a long, stable queue collect half the spread
+  relative to the mid; orders filled at the END of a COLLAPSING queue pay the
+  spread. We measure +0.49 on the buy leg, i.e. we PAY it -- so our fills are
+  landing in the collapsing-queue regime. That is a diagnosis of our own fill
+  path, not just a citation, and it points at the stale-marketable fill
+  mechanism (section 4's open question).
+
+- **"Optimal Execution with Passive Market Impact"**, arXiv:2607.28323 --
+  https://arxiv.org/abs/2607.28323v1
+  Frames passive execution as balancing fill probability, adverse selection and
+  opportunity cost; fills arise from quote adjustments. The framework our
+  results sit inside.
+
+- **"Target Close and Implementation Shortfall"**, arXiv:1205.3482 --
+  https://arxiv.org/pdf/1205.3482
+  The IS decomposition. The market-movement component is what we are calling
+  drift.
+
+- **"Optimal solution of the liquidation problem under execution risk"**,
+  arXiv:2011.02979 -- https://arxiv.org/pdf/2011.02979
+
+- **Almgren & Chriss (2000), "Optimal execution of portfolio transactions"** --
+  the canonical impact-vs-timing-risk trade-off. Our "drift cost is unbounded in
+  exposure, spread is fixed" argument is their result restated.
+
+- **Perold (1988), "The implementation shortfall: paper versus reality"** --
+  origin of the decomposition.
+
+### What is actually ours to claim
+
+Two things, both narrower than "cost is driven by drift":
+
+1. **The matched-duration equivalence.** A 100-lot leg and a 10-lot leg that
+   both take 20-60s cost +0.97 and +0.91 with the same drift -- ten times the
+   size, no extra cost. Sharper than "cost rises with size", and not something
+   we found stated this cleanly elsewhere.
+
+2. **The negative result about the metric.** `slip_paired`, the
+   direction-agnostic number a practitioner would naturally reach for, is FLAT
+   across a 100x size range and conceals the entire effect. That is a warning
+   about measurement, and it is probably the more useful contribution.
+
+### The caveat that has to accompany both
+
+**Cost is not driven by size here because this simulator has NO MARKET IMPACT.**
+Fills are additive (section 6): `fill_prev_sim_order` gives our resting order
+the same size as the real execution in front of it, in addition to that trade
+rather than instead of it. Nobody loses a fill to us and no price moves because
+of us.
+
+So "cost tracks drift, not size" is a statement about a world without impact.
+In reality the size term returns through exactly the channel we removed, and a
+referee will say so first. The honest framing is: *within a no-impact
+counterfactual, and over the 1-10 lot range where our fills stay a small
+fraction of market volume, execution cost is explained by realised drift over
+the execution window rather than by parent size.* Everything above 10 lots is
+reporting on a market that could not have absorbed us.
+
+The correlation is also near-definitional -- slip and drift share `mid_fire`,
+and our fills track the mid -- so the load-bearing quantity is the RESIDUAL,
+`slip - drift = buy_vwap - mid_sell`, which is -0.336 at 100 lots against +0.547
+at 1 lot. That residual is the real per-fill execution quality, and it improves
+with size.
+
+
+## 2026-09-13 — the probe was rewritten, and it takes the drift definition with it
+
+**Everything above that describes a 30-minute round trip is history, not the
+current design.** Specifically §"ONE run per session" (~L1631), §"`SlippageProbe`
+fires every 30 minutes" (~L1749) and the sections on fill timeouts and the
+sampling cadence describe an actor that no longer exists. They are kept because
+the results they explain were produced by it; they are not a description of what
+runs now.
+
+What runs now: both sides quote **simultaneously and continuously** for the
+whole session. BUY lights carry `target_pos = +sz`, SEL lights `-sz`, set once
+and never revised. A window closes when its minimum has elapsed **and** both
+legs have filled their size. Inventory is carried across boundaries, never
+unwound.
+
+### Drift had to be redefined, and every drift table above was computed the old way
+
+The old definition was `drift = mid_sell - mid_fire`: the mid at the sell leg's
+arrival minus the mid at the buy leg's arrival. It was a real quantity **because
+the two legs arrived at different times** — at 100 lots, ~170s apart.
+
+Quoting both sides together removes that gap by construction. `mid_sell` and
+`mid_fire` become the same number, so the old expression is identically zero and
+`slip_legsum` collapses algebraically onto `slip_paired`. The metric did not get
+worse; it stopped existing. Two columns were printing one number with
+independent confidence intervals, which is how it was caught.
+
+Drift is now measured **forward from the common arrival**, which is a direction
+the new design does have:
+
+```
+buy_drift = buy_end_mid - mid_fire     mid when the buy leg finished
+sel_drift = sel_end_mid - mid_fire     mid when the sell leg finished
+drift     = mid_close   - mid_fire     mid when the window closed
+```
+
+`buy_drift` and `sel_drift` differ precisely because the legs finish at
+different times — the asymmetry the sequential design confounded with cost is
+now the measurement rather than an artefact of it.
+
+**Consequences for the write-up.** The "cost tracks drift, not size" result, the
+residual `slip - drift`, and the numbers quoted for them (+0.4745 vs +1.5631 at
+100 lots; residual -0.336 at 100 lots against +0.547 at 1 lot) all come from the
+sequential probe and the old drift definition. They are not reproducible from a
+corpus generated by the current one, and no corpus generated by the current one
+exists yet. Either the claim is restated against forward drift and re-measured,
+or it is presented explicitly as a result about sequential execution. It cannot
+be carried over as-is.

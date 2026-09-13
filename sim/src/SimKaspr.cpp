@@ -62,6 +62,9 @@ SimKaspr::SimKaspr(std::string data_file,
     , probe_size_(probe_size)
     , probe_out_(std::move(probe_out))
     , probe_fires_(std::move(probe_fires))
+    , probe_window_s_(probe_fires_.size() > 1
+                          ? int((probe_fires_[1] - probe_fires_[0]) / 1000000000ull)
+                          : 15 * 60)
 {
   std::cerr << "SimKaspr: data=" << data_file_ << "\n"
             << "          universe=" << universe_json_ << "\n"
@@ -87,7 +90,9 @@ SimKaspr::SimKaspr(std::string data_file,
   create_som();
   create_lights();
   if (probe_ && !lights_.empty())
-    probe_->set_lights(lights_[0], lights_[1]);
+    // The probe drives the two position books directly; it sends no targets.
+    probe_->set_lights(buy_lights_, sel_lights_);
+    probe_->set_coords(probe_pcoord_buy_, probe_pcoord_sel_);
   create_position_manager();
   create_bfa();
 
@@ -295,14 +300,20 @@ void SimKaspr::create_probe()
   cfg.sym_name  = a->name;
   cfg.sym       = book_syms_[0];
   cfg.parent_sz = probe_size_;
-  cfg.fire_ts   = probe_fires_;
+  // The schedule collapses to its bounds: the repeating timer supplies every
+  // boundary in between, so the probe needs only where the session starts and
+  // where it ends.
+  cfg.session_start = probe_fires_.front();
+  cfg.session_end   = probe_fires_.back();
+  cfg.tick_s        = 1;               // poll the clock every second of market time
+  cfg.min_window_ns = uint64_t(probe_window_s_) * 1000000000ull;
   cfg.out_path  = probe_out_;
 
   probe_ = new SlippageProbe(books_[0], timer_, cfg);
   group_->add(probe_);
 
   std::cerr << "SimKaspr: probe on " << cfg.sym_name << " parent_sz=" << probe_size_
-            << " fires=" << probe_fires_.size()
+            << " window=" << probe_window_s_ << "s"
             << (probe_out_.empty() ? "" : (" out=" + probe_out_)) << std::endl;
 }
 
@@ -349,40 +360,70 @@ void SimKaspr::create_lights()
     auto a   = frame::ref::RefData::inst().get_asset(sym);
     if (!a) continue;
 
-    auto pcoord = create_PCoord();
-    pcoord_map_[a->name] = pcoord;
+    // ONE PCoord PER SIDE, because targetpos stays 0 and the POSITION is what
+    // gives a light work.
+    //
+    // This is the PositionManager arrangement (PositionManager.hpp:56): nothing
+    // ever sends Set(TARGET_POS), and a parent order is executed by telling the
+    // PCoord you hold the OPPOSITE position and letting the lights work it back
+    // to flat. With targetpos 0, light22.hpp:239,243 read:
+    //
+    //     BUY works only while pos < 0        (short -> buy it back)
+    //     SEL works only while pos > 0        (long  -> sell it down)
+    //     pos == 0                             both idle
+    //
+    // So no SINGLE position value leaves both sides live -- at -sz only the buy
+    // side works, at +sz only the sell side, at 0 neither. One shared PCoord can
+    // therefore only ever run one leg at a time, which is the sequential design
+    // this probe exists to replace. Two books, one per side, is what lets both
+    // legs work the same window:
+    //
+    //     buy-side PCoord   seeded -sz   ->  its BUY lights work it to 0
+    //     sel-side PCoord   seeded +sz   ->  its SEL lights work it to 0
+    //
+    // Attribution stays exact with a single trader id: every light on the buy
+    // book is a light22<BUY> and only ever bids, so Fill::side names the book.
+    auto pcoord_buy = create_PCoord();
+    auto pcoord_sel = create_PCoord();
+    pcoord_map_[a->name + "_BUY"] = pcoord_buy;
+    pcoord_map_[a->name + "_SEL"] = pcoord_sel;
+    probe_pcoord_buy_ = pcoord_buy;
+    probe_pcoord_sel_ = pcoord_sel;
 
     // A QCoord per light, not one shared. QCoord::mmid_orders is a single
     // bitmask keyed by mmid; with lights sharing a QCoord and all using
     // mmid 0, one light's full-erase remove_order clears the tracking bit for
     // every sibling holding an order at the same mmid, and the next add_order
     // trips "already have this mm id".
+    //
     // Named with the index, exactly as kaspr.cpp does. The name is not
     // cosmetic: light22 mixes it into the per-light RNG seed, so two lights
-    // with the same name would draw the SAME placement stream and act on the
-    // same ADDs -- giving N copies of one light rather than N independent ones.
+    // sharing a name would draw the SAME placement stream and act on the same
+    // ADDs -- N copies of one light rather than N independent ones.
     for (int i = 0; i < nlights; i++) {
       auto light_buy = create_light22_Shadow_BUY(
           "sim", nullptr, nullptr, "L_" + a->name + "_BUY_" + std::to_string(i),
           en::trader::SIMULATOR,
-          a->name, venue_, venue_, create_QCoord(), pcoord, ob, nullptr, 0,
+          a->name, venue_, venue_, create_QCoord(), pcoord_buy, ob, nullptr, 0,
           timer_, som_, 0, pt_light, 0, false);
       group_->add(light_buy);
       lights_.push_back(light_buy);
+      buy_lights_.push_back(light_buy);
     }
 
     for (int i = 0; i < nlights; i++) {
       auto light_sel = create_light22_Shadow_SEL(
           "sim", nullptr, nullptr, "L_" + a->name + "_SEL_" + std::to_string(i),
           en::trader::SIMULATOR,
-          a->name, venue_, venue_, create_QCoord(), pcoord, ob, nullptr, 0,
+          a->name, venue_, venue_, create_QCoord(), pcoord_sel, ob, nullptr, 0,
           timer_, som_, 0, pt_light, 0, false);
       group_->add(light_sel);
       lights_.push_back(light_sel);
+      sel_lights_.push_back(light_sel);
     }
 
-    std::cerr << "SimKaspr: " << (2 * nlights) << " lights (" << nlights
-              << " per side) for " << a->name << std::endl;
+    std::cerr << "SimKaspr: " << (2 * nlights) << " lights for " << a->name
+              << " -- " << nlights << " per side" << std::endl;
   }
 }
 

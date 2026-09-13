@@ -61,10 +61,21 @@ static std::vector<uint64_t> probe_schedule(const std::string &date_yyyymmdd, in
 {
   std::vector<uint64_t> out;
   if (date_yyyymmdd.size() != 8) return out;
+  // `mins += every_min` never advances at 0 and runs backwards below it, so the
+  // loop pushes until the process is killed by the OOM killer.
+  if (every_min <= 0)
+  {
+    std::cerr << "--probe-every-min must be positive, got " << every_min << "\n";
+    return out;
+  }
   const int y  = std::stoi(date_yyyymmdd.substr(0, 4));
   const int mo = std::stoi(date_yyyymmdd.substr(4, 2));
   const int d  = std::stoi(date_yyyymmdd.substr(6, 2));
-  for (int mins = 9 * 60 + 30; mins <= 15 * 60; mins += every_min)
+  // 09:30 to 15:30 ET. These are the window BOUNDARIES, not fire times: the
+  // probe quotes continuously between them and each boundary closes one window
+  // and opens the next, so N boundaries give N-1 measured windows. The last one
+  // closes the final window and stands the lights down.
+  for (int mins = 9 * 60 + 30; mins <= 15 * 60 + 30; mins += every_min)
     out.push_back(et_to_epoch_ns(y, mo, d, mins / 60, mins % 60));
   return out;
 }
@@ -145,17 +156,22 @@ int main(int argc, char* argv[])
                     "than a new order, since the matching engine has to locate "
                     "the resting order before it can pull it.")
       ("probe-size", po::value<int>()->default_value(0),
-                    "SlippageProbe parent size in contracts per leg; 0 = no probe. "
-                    "Every 30 min from 09:30 to 15:00 ET the probe buys this many "
-                    "through the shadow lights, sells back to flat, and records "
-                    "each leg's VWAP against the mid it started from.")
+                    "SlippageProbe size in contracts per leg; 0 = no probe. The "
+                    "probe quotes BOTH sides continuously from 09:30 to 15:30 ET "
+                    "(BUY lights target +size, SEL lights -size) and measures each "
+                    "leg's VWAP against the mid, the touch and the interval VWAP. "
+                    "Nothing sells back to flat: inventory is carried and reported "
+                    "as pos_at_close.")
       ("probe-out", po::value<string>()->default_value(""),
                     "CSV for the probe's per-fire rows; empty = log only")
       ("probe-date", po::value<string>()->default_value(""),
                     "session date YYYYMMDD for the probe schedule; empty = take it "
                     "from the datafile name. ET wall-clock, DST handled.")
-      ("probe-every-min", po::value<int>()->default_value(30),
-                    "minutes between probe fires")
+      ("probe-every-min", po::value<int>()->default_value(10),
+                    "minutes between window boundaries (09:30-15:30 ET). This is "
+                    "the MINIMUM window length: a window closes once it has "
+                    "elapsed AND both legs have filled, so a slow leg gives a "
+                    "longer window rather than a partial row.")
       ("nlights-per-side", po::value<int>()->default_value(-1),
 
                     "Lights per side per instrument (-1 = lights.ini, which\ndefaults to 4, matching production). A light holds ONE order at one\nprice, so this is what decides how many prices the shadow can rest at\nsimultaneously -- nlevels and max_dist cannot substitute for it.")
@@ -209,7 +225,10 @@ int main(int argc, char* argv[])
       cerr << "Error: could not build a probe schedule for date " << pdate << "\n";
       return 1;
     }
-    cerr << "probe schedule: " << probe_fires.size() << " fires on " << pdate
+    // BOUNDARIES, not fires. N boundaries close N-1 windows: the first opens
+    // the first window and each later one closes a window and opens the next.
+    cerr << "probe schedule: " << probe_fires.size() << " boundaries ("
+         << (probe_fires.size() - 1) << " windows) on " << pdate
          << " ET, first=" << probe_fires.front() << " last=" << probe_fires.back() << "\n";
   }
 

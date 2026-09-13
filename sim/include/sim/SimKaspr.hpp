@@ -98,6 +98,10 @@ namespace sim
     int                   probe_size_;
     std::string           probe_out_;
     std::vector<uint64_t> probe_fires_;
+    // The MINIMUM a measurement window runs for, seconds of market time. Not
+    // the timer period -- the timer polls every second, because a window also
+    // has to wait for both legs to fill their size before it can close.
+    int probe_window_s_ = 15 * 60;
 
     actors::Group* group_ = nullptr;
     SlippageProbe* probe_ = nullptr;
@@ -115,8 +119,16 @@ namespace sim
     actor_ptr bfa_ = nullptr;
     actor_ptr position_manager_ = nullptr;
     std::vector<actor_ptr> lights_;
+    // Split by side, because that is what the probe targets: BUY lights get
+    // +sz and SEL lights get -sz. They share one PCoord; the differing targets
+    // are what keep both sides live. See create_lights().
+    std::vector<actor_ptr> buy_lights_, sel_lights_;
 
     std::map<std::string, light::PCoord*> pcoord_map_;
+    // The two position books the probe works: one per side, because targetpos
+    // stays 0 and a light is given work by its POSITION, not by a target.
+    light::PCoord *probe_pcoord_buy_ = nullptr;
+    light::PCoord *probe_pcoord_sel_ = nullptr;
     std::vector<std::string> registered_;   // symbols registered from the universe JSON
 
     // Load the universe JSON and register every future with RefData, so the

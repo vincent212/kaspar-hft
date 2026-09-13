@@ -130,6 +130,12 @@ namespace frame
         uint64_t xcheck_tx = 0;
         // MBO records dropped for an impossible price (see data_handler).
         uint64_t num_bad_px = 0;
+        // Real orders cancelled to uncross the book on the LIVE path (see the
+        // note at the head of OB::add). Should be 0. Non-zero means the book
+        // was crossed and we deleted exchange orders to carry on, so anything
+        // priced in that window is suspect. Reported at shutdown beside
+        // num_bad_px.
+        uint64_t num_cross_recover = 0;
 
         std::ofstream obfile;
 

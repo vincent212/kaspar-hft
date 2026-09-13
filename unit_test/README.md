@@ -50,7 +50,7 @@ cmake --build build -j8 && cmake --install build
 | `test_som_cancel_latency.cpp` | the ts0 SOM stamps on orders and cancels |
 | `test_ob_book.cpp` | OB: book reconstruction and the no-cross invariant |
 | `test_ob_delay_queue.cpp` | OB's delay queue: the wire-latency model |
-| `test_slippage_probe.cpp` | the probe's 30-minute fire cadence |
+| `test_slippage_probe.cpp` | the probe's window rule: minimum elapsed AND both legs filled |
 
 `test_light22_integration.cpp` is the one that matters most: it instantiates the
 actual `light22<BUY>` / `light22<SEL>` and drives it with `EndOfBurst` messages,
