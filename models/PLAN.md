@@ -2372,7 +2372,35 @@ benchmark is the only one of the three that treats them fairly.
 
 Measured on 8,313 completed round trips (config_a, 6 lights, place_rate 0.5%,
 sizes 1/10/100). All numbers are the BUY leg against the arrival mid, in ticks.
-`drift` is `mid_sell - mid_fire`, i.e. how far the mid moved over the leg.
+
+### Definition: drift
+
+    drift = mid_sell - mid_fire          (ticks, signed)
+
+    mid_fire   the mid at t0, when the parent was released to the lights
+    mid_sell   the mid at t1, when the buy leg finished and the sell leg began
+
+Both are recorded by the probe as `(best_bid + best_ask)` and halved on emit, so
+the CSV columns are in ticks and the difference is in ticks. ES trades a 1-tick
+spread in ~93% of fires, so one unit of drift is roughly one full spread.
+
+Sign: POSITIVE means the mid ROSE while we were buying, which is against us.
+For the sell leg the sign convention flips, and unless stated otherwise every
+drift figure in this section is over the BUY leg only.
+
+Three things it is NOT, all of which matter for how it is read:
+
+- **Not a trend estimate.** It is the realised move over one specific window,
+  not a fitted drift parameter. +1.78 ticks over 88s is ~73 ticks/hour; nothing
+  is claiming ES trends at that rate.
+- **Not exogenous.** The window's LENGTH is determined by how our own fills
+  went, so drift is measured over an interval we selected by finishing when we
+  finished. This is the whole reason it reads as selection rather than
+  direction, and why conditioning on duration changes the picture.
+- **Not our impact.** The sim cannot produce impact -- our fills are additive
+  (section 6) -- so drift is the recorded market moving on its own, never the
+  market reacting to us. In a live setting part of this quantity WOULD be our
+  own footprint, and nothing here can separate the two.
 
 ### 1. Against arrival price, cost rises steeply with size
 
