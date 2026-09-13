@@ -79,7 +79,7 @@ BIN="$OUT/sim.pinned"
 # 500 us, so a lat500 cell is the same experiment as rate<BASE_BP>_sz100 and
 # duplicating it buys nothing. The latency curve reads against that cell as its
 # own baseline.
-RATE_BP=${RATE_BP:-"50 100 200 400"}
+RATE_BP=${RATE_BP:-"25 50 100 200 400"}
 BASE_BP=${BASE_BP:-200}
 LAT_US=${LAT_US:-"0 100 200 400 800 1600 3200 6400"}
 
