@@ -24,7 +24,12 @@ export SRC KSPRPROJ
 if [ $# -gt 0 ]; then DATES=("$@"); else mapfile -t DATES < <(ls -1 "$SRC" | grep -E '^20[0-9]{6}$' | sort); fi
 
 echo "universe: chan=$CHAN dates=${#DATES[@]} NJOBS=$NJOBS"
-printf '%s\n' "${DATES[@]}" | xargs -P "$NJOBS" -I{} nice -n 19 ./build_universe_day.sh "$CHAN" {}
+# Scheduling priority. Default 19 (lowest) because a universe build normally
+# runs behind whatever else is on the box. NICE_LEVEL=0 makes it compete on
+# equal terms, which is what you want when a long sweep is already running at
+# nice 19 and this is the thing being waited on.
+NICE_LEVEL=${NICE_LEVEL:-19}
+printf '%s\n' "${DATES[@]}" | xargs -P "$NJOBS" -I{} nice -n "$NICE_LEVEL" ./build_universe_day.sh "$CHAN" {}
 
 # Merge: union across dates, unique by securityID. Definitions are stable
 # across adjacent dates, so a session with a thin IR capture still resolves.

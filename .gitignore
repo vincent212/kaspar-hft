@@ -110,3 +110,9 @@ unit_test/src/run_testsg
 # core dumps
 core
 core.*
+
+# Generated data products, not source: bins, universes and the per-date volume
+# stats are rebuilt by dbento_pcap_parse/scripts from the captures.
+dbento_pcap_parse/scripts/out/
+dbento_pcap_parse/*/src/*.P
+dbento_pcap_parse/filter_bin/src/filter_bin
