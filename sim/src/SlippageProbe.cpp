@@ -79,6 +79,9 @@ void SlippageProbe::begin_fire(uint64_t now) noexcept
   fire_ts  = cfg.fire_ts[next_fire];
   mid_fire = last_bid + last_ask;     // 2x the mid, kept integral
   mid_sell = 0;
+  ask_fire = last_ask;                // what crossing would have cost us
+  bid_fire = last_bid;
+  bid_sell = ask_sell = 0;
   buy_leg.reset();
   sel_leg.reset();
   buy_leg.started = now;
@@ -97,6 +100,8 @@ void SlippageProbe::begin_sell_leg(uint64_t now) noexcept
 {
   if (!buy_leg.ended) buy_leg.ended = now;   // no fills: fall back to the tick
   mid_sell        = last_bid + last_ask;
+  bid_sell        = last_bid;         // what crossing would have got us
+  ask_sell        = last_ask;
   sel_leg.started = now;
   phase = Phase::SELLING;
 
@@ -206,8 +211,21 @@ void SlippageProbe::trade_handler(const frame::ob::msg::TradeNotify *m) noexcept
   if (!enabled() || !m->payload) return;
   if (uint32_t(m->payload->sym) != cfg.sym) return;
 
-  if (phase == Phase::BUYING)       buy_leg.mkt_vol += m->payload->sz;
-  else if (phase == Phase::SELLING) sel_leg.mkt_vol += m->payload->sz;
+  // Size AND notional: the price is on the payload and was previously thrown
+  // away, which left the interval VWAP -- the benchmark that separates drift
+  // from adverse selection -- unobtainable from the CSV.
+  const double tpx = double(m->payload->px.to_int());
+  const double tsz = double(m->payload->sz);
+  if (phase == Phase::BUYING)
+  {
+    buy_leg.mkt_vol      += tsz;
+    buy_leg.mkt_notional += tsz * tpx;
+  }
+  else if (phase == Phase::SELLING)
+  {
+    sel_leg.mkt_vol      += tsz;
+    sel_leg.mkt_notional += tsz * tpx;
+  }
 }
 
 void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
@@ -254,7 +272,11 @@ void SlippageProbe::emit_header()
           "fire_ts,sym,parent_sz,mid_fire,buy_vwap,buy_filled,buy_fills,buy_ns,"
           "mid_sell,sel_vwap,sel_filled,sel_fills,sel_ns,"
           "slip_buy_ticks,slip_sel_ticks,slip_paired_ticks,slip_legsum_ticks,"
-          "buy_leg_mkt_vol,sel_leg_mkt_vol,buy_part,sel_part,outcome\n");
+          "buy_leg_mkt_vol,sel_leg_mkt_vol,buy_part,sel_part,"
+          "buy_mkt_vwap,sel_mkt_vwap,slip_buy_vs_vwap,slip_sel_vs_vwap,"
+          "slip_vs_vwap,"
+          "ask_fire,bid_sell,slip_buy_vs_touch,slip_sel_vs_touch,"
+          "slip_vs_touch,outcome\n");
   fflush(out);
 }
 
@@ -265,6 +287,37 @@ void SlippageProbe::emit_row(const char *outcome)
   const double mids = mid_sell / 2.0;
   const double bv   = buy_leg.vwap();
   const double sv   = sel_leg.vwap();
+
+  // Scored against the INTERVAL VWAP instead of the mid.
+  //
+  // Sign convention matches the mid-based columns: positive is cost. Buying
+  // above what everyone else paid over the same window is a cost; selling below
+  // it is a cost.
+  //
+  // This is what separates drift from adverse selection. Drift moves the mid
+  // and so moves the mid-based numbers, but it moves the interval VWAP with it
+  // -- so a leg that merely rode a trend scores ~0 here, while a leg that was
+  // systematically picked off scores positive no matter what the price did.
+  // 0 when nothing traded alongside the leg, which the aggregator filters.
+  const double bmv = buy_leg.mkt_vwap();
+  const double smv = sel_leg.mkt_vwap();
+  const double slip_buy_vwap = bmv > 0 ? (bv - bmv) : 0.0;
+  const double slip_sel_vwap = smv > 0 ? (smv - sv) : 0.0;
+  const double slip_vs_vwap  = (bmv > 0 && smv > 0)
+                                 ? (slip_buy_vwap + slip_sel_vwap) / 2.0 : 0.0;
+
+  // Scored against the TOUCH we could have crossed at, at each leg's arrival.
+  // Same sign convention: positive is cost. Paying more than the ask we could
+  // have lifted is a cost; selling below the bid we could have hit is a cost.
+  // A passive algorithm should be NEGATIVE here -- that number is the value of
+  // not crossing the spread, and it is the one a trader compares against doing
+  // nothing clever at all.
+  const double afire = double(ask_fire);
+  const double bsell = double(bid_sell);
+  const double slip_buy_touch = afire > 0 ? (bv - afire) : 0.0;
+  const double slip_sel_touch = bsell > 0 ? (bsell - sv) : 0.0;
+  const double slip_vs_touch  = (afire > 0 && bsell > 0)
+                                 ? (slip_buy_touch + slip_sel_touch) / 2.0 : 0.0;
 
   const double slip_buy    = buy_leg.filled > 0 ? bv - midf : 0.0;
   const double slip_sel    = sel_leg.filled > 0 ? mids - sv : 0.0;
@@ -298,7 +351,9 @@ void SlippageProbe::emit_row(const char *outcome)
           "%llu,%s,%d,%.2f,%.4f,%.0f,%d,%llu,"
           "%.2f,%.4f,%.0f,%d,%llu,"
           "%.4f,%.4f,%.4f,%.4f,"
-          "%.0f,%.0f,%.6f,%.6f,%s\n",
+          "%.0f,%.0f,%.6f,%.6f,"
+          "%.4f,%.4f,%.4f,%.4f,%.4f,"
+          "%.2f,%.2f,%.4f,%.4f,%.4f,%s\n",
           (unsigned long long)fire_ts, cfg.sym_name.c_str(), cfg.parent_sz, midf,
           bv, buy_leg.filled, buy_leg.n_fills,
           (unsigned long long)(buy_leg.ended - buy_leg.started),
@@ -306,7 +361,9 @@ void SlippageProbe::emit_row(const char *outcome)
           (unsigned long long)(sel_leg.ended - sel_leg.started),
           slip_buy, slip_sel, slip_paired, slip_legsum,
           buy_leg.mkt_vol, sel_leg.mkt_vol,
-          buy_leg.participation(), sel_leg.participation(), outcome);
+          buy_leg.participation(), sel_leg.participation(),
+          bmv, smv, slip_buy_vwap, slip_sel_vwap, slip_vs_vwap,
+          afire, bsell, slip_buy_touch, slip_sel_touch, slip_vs_touch, outcome);
   fflush(out);
 }
 

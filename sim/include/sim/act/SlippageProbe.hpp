@@ -134,8 +134,19 @@ namespace sim
       // different times and for different durations. The denominator of
       // realised participation.
       double   mkt_vol  = 0;
+      // Notional of everything that traded while this leg was working, so the
+      // leg can be scored against the INTERVAL VWAP as well as against the mid.
+      // The mid tells you what the price did; the interval VWAP tells you how
+      // you did against everyone who traded alongside you, which is the
+      // standard execution benchmark and the only one that separates "the
+      // market moved" from "we were picked off". Drift cancels out of it by
+      // construction, because both sides are measured over the same window.
+      double   mkt_notional = 0;
 
       double vwap() const { return filled > 0 ? notional / filled : 0.0; }
+      // VWAP of the market over this leg's interval, in the same price units as
+      // vwap(). 0 when nothing traded alongside us.
+      double mkt_vwap() const { return mkt_vol > 0 ? mkt_notional / mkt_vol : 0.0; }
       // Realised participation: our share of everything that traded while we
       // were working. This is the delivered quantity, NOT the order-placement
       // rate that produced it -- mapping one to the other is the point.
@@ -174,6 +185,24 @@ namespace sim
     uint64_t fire_ts   = 0;      // the fire in flight
     int      mid_fire  = 0;      // ticks * 2, so a half-tick mid stays integral
     int      mid_sell  = 0;
+    // The TOUCH at each leg's arrival, not just the mid. Three benchmarks
+    // answer three different questions and only together say what happened:
+    //
+    //   vs mid at arrival    what the decision cost against the fair price
+    //                        at the moment we committed. Contaminated by drift
+    //                        over a long leg, which is why paired and legsum
+    //                        diverge at 100 lots.
+    //   vs interval VWAP     how we did against everyone trading alongside us.
+    //                        Drift cancels, so what survives is selection.
+    //   vs touch at arrival  what PATIENCE bought. We could have crossed the
+    //                        spread at ask_fire and been done; resting instead
+    //                        should beat it, and by how much is the whole case
+    //                        for a passive algorithm. Expected NEGATIVE (a
+    //                        saving) where the mid-based numbers are positive.
+    int      ask_fire  = 0;      // the ask we could have lifted at t0
+    int      bid_fire  = 0;
+    int      bid_sell  = 0;      // the bid we could have hit at t1
+    int      ask_sell  = 0;
     Leg      buy_leg;
     Leg      sel_leg;
 

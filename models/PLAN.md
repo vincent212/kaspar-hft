@@ -2317,3 +2317,53 @@ ESM5 contains a genuinely crossed book at 00:20 ET, proven by an independent
 replay that reaches the same `best_bid 22763 > best_ask 22758`. Not our
 reconstruction. The crash is accepted; it costs one session per config.
 
+
+## What the paired number actually measures, and why VWAP replaces it
+
+The probe fires a round trip: buy n, then sell n. `slip_paired` is
+`(buy_vwap - sel_vwap)/2`, which is only a like-for-like comparison if the two
+legs are comparable. **They are not, and the gap grows with size.**
+
+The two legs run at different times, for different durations, in different
+liquidity. At 100 lots a leg takes ~84s, so a round trip spans ~170s -- and
+whichever side the book favours fills faster. The slow leg leaves the system
+holding inventory for the difference, which is a directional position nobody
+asked for. Its P&L lands in the measurement as if it were execution cost.
+
+That is exactly the divergence in the data: at 1 and 10 lots `slip_paired` and
+`slip_legsum` agree to within 0.05 ticks, and at 100 lots they are 3.3x apart
+(+0.4745 against +1.5631). The mid-based numbers are absorbing drift over a leg
+long enough for the price to move.
+
+**So the interval VWAP is the benchmark that means something**, and each leg
+gets its own -- the VWAP of everything that traded during THAT leg's interval,
+not a shared one. Drift cancels by construction, because our fills and the
+benchmark are drawn from the same window. What survives is selection: whether
+we were systematically on the wrong side of the trades happening around us.
+
+Three benchmarks now emitted per leg, because they answer three questions:
+
+| benchmark | question | expected sign |
+|---|---|---|
+| vs mid at arrival | what did the decision cost against the fair price when we committed? | positive |
+| vs interval VWAP | how did we do against everyone trading alongside us? | ~0 if only drift; positive if picked off |
+| vs touch at arrival | what did patience buy, against just crossing the spread? | **negative** -- that saving is the case for a passive algo |
+
+### The market-making corollary
+
+For a market-making scenario the buy-vs-sell comparison IS the thing that
+matters -- the spread you capture is exactly `sell_vwap - buy_vwap`. But that
+only holds if the two sides are simultaneous and matched. The moment one side
+fills faster you are carrying inventory, and inventory P&L swamps the spread you
+were trying to measure.
+
+The consequence is a design constraint, not a measurement detail: **market
+making wants small orders and near-zero inventory.** Small clips fill on both
+sides at comparable speed, so the paired number stays a spread measurement
+rather than a directional bet. Large parents are the opposite -- they guarantee
+an inventory imbalance for the duration, which is why the paired number stops
+being interpretable at 100 lots.
+
+This also says the 100-lot cells should not be read as market-making results at
+all. They are execution-cost results for a directional parent, and the VWAP
+benchmark is the only one of the three that treats them fairly.
