@@ -2510,3 +2510,82 @@ if we could take liquidity that was never available, with nobody reacting.
 This is the hard ceiling on the size axis, and the paper has to state it. The
 defensible range on this corpus is 1-10 lots; above that the simulator is
 answering a counterfactual that has left the market behind.
+
+### 7. Prior art for the drift result -- it is NOT novel, and the paper must say so
+
+The core relationship is well covered. Searched and found:
+
+- **Rzayev, Sakkas et al. (?), "The Market Maker's Dilemma: Navigating the Fill
+  Probability vs. Post-Fill Returns Trade-Off"**, arXiv:2502.18625 --
+  https://arxiv.org/html/2502.18625v2
+  Documents a negative correlation between a maker order's fill probability and
+  its subsequent return CONDITIONED ON FILLING, which they name the **negative
+  drift of maker orders**, most pronounced at short timescales. This is our
+  selection effect under another name: conditional on being filled, drift is
+  adverse. Cite this as the direct antecedent.
+
+- **"Model Predictive Control For Trade Execution"**, arXiv:2603.28898 --
+  https://arxiv.org/html/2603.28898v1
+  Orders filled at the FRONT of a long, stable queue collect half the spread
+  relative to the mid; orders filled at the END of a COLLAPSING queue pay the
+  spread. We measure +0.49 on the buy leg, i.e. we PAY it -- so our fills are
+  landing in the collapsing-queue regime. That is a diagnosis of our own fill
+  path, not just a citation, and it points at the stale-marketable fill
+  mechanism (section 4's open question).
+
+- **"Optimal Execution with Passive Market Impact"**, arXiv:2607.28323 --
+  https://arxiv.org/abs/2607.28323v1
+  Frames passive execution as balancing fill probability, adverse selection and
+  opportunity cost; fills arise from quote adjustments. The framework our
+  results sit inside.
+
+- **"Target Close and Implementation Shortfall"**, arXiv:1205.3482 --
+  https://arxiv.org/pdf/1205.3482
+  The IS decomposition. The market-movement component is what we are calling
+  drift.
+
+- **"Optimal solution of the liquidation problem under execution risk"**,
+  arXiv:2011.02979 -- https://arxiv.org/pdf/2011.02979
+
+- **Almgren & Chriss (2000), "Optimal execution of portfolio transactions"** --
+  the canonical impact-vs-timing-risk trade-off. Our "drift cost is unbounded in
+  exposure, spread is fixed" argument is their result restated.
+
+- **Perold (1988), "The implementation shortfall: paper versus reality"** --
+  origin of the decomposition.
+
+### What is actually ours to claim
+
+Two things, both narrower than "cost is driven by drift":
+
+1. **The matched-duration equivalence.** A 100-lot leg and a 10-lot leg that
+   both take 20-60s cost +0.97 and +0.91 with the same drift -- ten times the
+   size, no extra cost. Sharper than "cost rises with size", and not something
+   we found stated this cleanly elsewhere.
+
+2. **The negative result about the metric.** `slip_paired`, the
+   direction-agnostic number a practitioner would naturally reach for, is FLAT
+   across a 100x size range and conceals the entire effect. That is a warning
+   about measurement, and it is probably the more useful contribution.
+
+### The caveat that has to accompany both
+
+**Cost is not driven by size here because this simulator has NO MARKET IMPACT.**
+Fills are additive (section 6): `fill_prev_sim_order` gives our resting order
+the same size as the real execution in front of it, in addition to that trade
+rather than instead of it. Nobody loses a fill to us and no price moves because
+of us.
+
+So "cost tracks drift, not size" is a statement about a world without impact.
+In reality the size term returns through exactly the channel we removed, and a
+referee will say so first. The honest framing is: *within a no-impact
+counterfactual, and over the 1-10 lot range where our fills stay a small
+fraction of market volume, execution cost is explained by realised drift over
+the execution window rather than by parent size.* Everything above 10 lots is
+reporting on a market that could not have absorbed us.
+
+The correlation is also near-definitional -- slip and drift share `mid_fire`,
+and our fills track the mid -- so the load-bearing quantity is the RESIDUAL,
+`slip - drift = buy_vwap - mid_sell`, which is -0.336 at 100 lots against +0.547
+at 1 lot. That residual is the real per-fill execution quality, and it improves
+with size.
