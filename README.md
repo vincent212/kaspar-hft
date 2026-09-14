@@ -214,7 +214,6 @@ kaspar/
 │                   SlippageProbe actor that produces the cost numbers, per-arm configs,
 │                   and `scripts/` (the sweep, the aggregator, the session calendar)
 ├── dbento_pcap_parse/  Databento capture -> the binary session files the sim replays
-├── models/         Research log and analysis — PLAN.md carries the findings and their reasoning
 ├── unit_test/      Google Test suite and the mocks it runs against
 ├── tech_reports/   Technical reports (LaTeX source + PDFs)
 └── mk_kaspr/       Build-system templates — glob_begin.mk, lib/app templates, path detection
@@ -536,7 +535,6 @@ kaspr {
 | [actors/rust/MATCHING_ENGINE.md](actors/rust/MATCHING_ENGINE.md) | The matching-engine example |
 | [tech_reports/fast_send.pdf](tech_reports/fast_send.pdf) | Technical report: `fast_send` synchronous message delivery |
 | [tech_reports/shadow_pov.pdf](tech_reports/shadow_pov.pdf) | Technical report: Shadow-POV passive execution |
-| [models/PLAN.md](models/PLAN.md) | Research log — what was measured, what it means, and what is still wrong with it |
 | [sim/scripts/run_grid.sh](sim/scripts/run_grid.sh) | The parameter sweep: cells, sessions, and how a run is reproduced |
 
 ## Performance Characteristics

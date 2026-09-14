@@ -5,7 +5,8 @@
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
 # The shadow baseline grid: 28 configs x every runnable 2025 session.
-# See models/PLAN.md, "The shadow baseline grid".
+# The grid sweeps one axis at a time against a fixed baseline cell, so a
+# difference between cells is attributable to the one parameter that moved.
 #
 #   ./run_grid.sh                 # the whole grid
 #   ./run_grid.sh --smoke         # 6 dates across the year, every config
@@ -185,7 +186,7 @@ grid_tsv="$OUT/grid.tsv"
 # which would have run part of the corpus in the illiquid contract: on
 # 2025-03-13 ESH5 still traded 2,057,715 against ESM5's 318,192. The table is
 # produced by volstats, which counts lastQty over the trade records and picks
-# the most-traded outright. See models/PLAN.md, "Session inputs".
+# the most-traded outright.
 FRONT_TSV=${FRONT_TSV:-$KSPRPROJ/dbento_pcap_parse/scripts/front_month.$CHAN.tsv}
 [ -f "$FRONT_TSV" ] || { echo "missing $FRONT_TSV -- regenerate with volstats" >&2; exit 2; }
 

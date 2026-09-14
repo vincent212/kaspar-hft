@@ -32,7 +32,7 @@ namespace sim
    *
    * Deliberately excluded: Aggregator (removed from this repo), MarketMaker
    * (it simulates a counterparty; we fill against recorded flow), and the
-   * ZMQ/registry/coordinator plumbing. See models/PLAN.md D0b.
+   * ZMQ/registry/coordinator plumbing.
    */
   struct SlippageProbe;
 
