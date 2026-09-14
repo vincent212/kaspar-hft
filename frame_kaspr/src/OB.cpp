@@ -1406,7 +1406,16 @@ void act::OB::notifybbbosubs(
         sym,
         int(best_bid),  // the cast is here because prices are ints outside of the ob but uints in ob
         int(best_ask)); // the assumption here is that prices are positive (this is not correct)
-    c->send(m, this);
+    // The inbound hop, like everything else this book tells a subscriber.
+    // bbbosubs is the SAME list that receives TradeNotify through
+    // publish_delayed, so sending this inline handed one subscriber the new BBO
+    // instantly and the trade that caused it feed_delay later. SOM subscribes
+    // here -- bbbochg_handler writes best_bid/best_ask/currtim straight from it
+    // and those marks feed the unrealised PnL readouts -- so it was marking
+    // positions against a book state nothing else had been allowed to see,
+    // while the fills it was marking arrived delayed. txtim is this record's
+    // own market time, which is what the rest of the publish path uses.
+    publish_delayed(c, m, txtim);
   }
 }
 

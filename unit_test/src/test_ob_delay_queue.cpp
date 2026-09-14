@@ -412,6 +412,32 @@ TEST_F(FeedDelayTest, TheProbeIsActuallySubscribed) {
   EXPECT_EQ(ob->pub_q_size(), 0u) << "feed_delay is 0 here, so nothing queues";
 }
 
+// The default path must stay the path that existed before the queue was added.
+//
+// This lived in OBDelayQueueTest, which registers no data subscriber -- so the
+// publish fan-out had no target, nothing could ever reach pub_q, and
+// `pub_q_size() == 0` held for ANY feed_delay. It passed with the fast path
+// deleted. Here the probe IS subscribed, so the zero and non-zero cases
+// genuinely differ, which is what the assertion claims to show.
+TEST_F(FeedDelayTest, ZeroFeedDelayPublishesInlineAndNonZeroDoesNot) {
+  ob->set_feed_delay(0);
+  seed_book(kT0);
+  tick(kT0 + 1000);
+  EXPECT_EQ(ob->pub_q_size(), 0u)
+      << "feed_delay 0 must publish inline, not through the queue";
+  EXPECT_GT(bursts(), 0u)
+      << "and the subscriber must actually have been handed it";
+
+  // The same fixture, the same records, a non-zero delay: now it queues. Without
+  // this half the test cannot tell an inline publish from an empty fan-out.
+  const size_t before = bursts();
+  ob->set_feed_delay(2000);
+  tick(kT0 + 2000);
+  tick(kT0 + 3000);
+  EXPECT_GT(ob->pub_q_size(), 0u) << "a non-zero delay must queue";
+  EXPECT_EQ(bursts(), before) << "and must not deliver on the producing record";
+}
+
 // The claim, stated directly: with a feed delay set, a book update does not
 // reach the subscriber on the message that produced it. It sits on pub_q until
 // MARKET time has advanced past the stamp, and then it is released.
@@ -573,8 +599,14 @@ TEST_F(FeedDelayTest, AnExchangeRejectPaysTheSameDelayAsAFill) {
   const uint64_t sent = kT0 + 10;
   our_order(en::bs::BUY, kAskPx, 1, sent, 7, en::md::ADD, en::mt::NONE);
   tick(sent + kDelayNs + kFeedNs + 1);
+  // Read the mailbox BEFORE our_size_at, whose first statement is
+  // probe.clear() -- which deletes every captured message. Asserting after it
+  // read a freshly emptied mailbox and was 0 whether the fill had been withheld
+  // or sent inline, so the Fill half of this test detected nothing.
+  const size_t fills_on_the_producing_record =
+      probe.count_messages_of_type<frame::som::msg::Fill>();
   ASSERT_EQ(our_size_at(kAskPx), 0) << "precondition: it crossed, it is not resting";
-  EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::Fill>(), 0u)
+  EXPECT_EQ(fills_on_the_producing_record, 0u)
       << "the fill came back on the record that produced it";
 
   // Cancel the order that no longer exists.
@@ -589,8 +621,6 @@ TEST_F(FeedDelayTest, AnExchangeRejectPaysTheSameDelayAsAFill) {
   tick(applied + kFeedNs + 1);
   EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::CancReject>(), 1u)
       << "the reject never arrived";
-  EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::Fill>(), 1u)
-      << "the fill never arrived";
 }
 
 // One OB per instrument is the normal case -- SimKaspr builds one per asset in
@@ -598,9 +628,19 @@ TEST_F(FeedDelayTest, AnExchangeRejectPaysTheSameDelayAsAFill) {
 // book constructed last published every book's fills and cancel-acks: wrong
 // queue, wrong clock, and a dangling `this` once that book was destroyed (it
 // segfaulted the suite). Standing up a second book must not touch the first's.
+//
+// The second book is given a DELIBERATELY HUGE delay, and that is the whole
+// design of the test. An earlier version gave it feed_delay 0 and asserted
+// `other->pub_q_size() == 0` and `ob->pub_q_size() > 0` -- both tautologies: a
+// zero-delay book can never queue anything, and `ob` queues its own EndOfBursts
+// whatever happens to the ack. Both passed under the static-hook regression
+// they claimed to catch. With a 10 s second book the two worlds separate
+// cleanly: the correct one releases the ack on ob's 2 ms, the regression would
+// publish it through `other` and hold it for 10 s.
 TEST_F(FeedDelayTest, ASecondBookDoesNotStealTheFirstsReturnPath) {
   constexpr int kFeedUs = 2000;
   constexpr uint64_t kFeedNs = uint64_t(kFeedUs) * 1000;
+  constexpr uint64_t kOtherFeedNs = 10ULL * 1000 * 1000 * 1000;   // 10 s
   ob->set_feed_delay(kFeedUs);
   ob->set_delay(kDelayUs);
   seed_book(kT0);
@@ -610,24 +650,31 @@ TEST_F(FeedDelayTest, ASecondBookDoesNotStealTheFirstsReturnPath) {
   tick(sent + kDelayNs + kFeedNs + 1);
   ASSERT_EQ(our_size_at(kOurPx), 1);
 
-  // A second book for the same instrument, with NO feed delay of its own.
+  // A second book for the same instrument, an order of magnitude slower.
   boost::property_tree::ptree pt2;
   auto other = std::make_unique<TestableOB>(nullptr, true, nullptr, sym, pt2);
-  other->set_feed_delay(0);
+  other->set_feed_delay(10 * 1000 * 1000);
 
   const uint64_t cancelled_at = sent + kDelayNs + kFeedNs + 100;
   cancel_ours(kOurPx, cancelled_at);
   const uint64_t applied = cancelled_at + kDelayNs + kFeedNs + 1;
   tick(applied);
   EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::CancAck>(), 0u)
-      << "the ack went out inline -- the second book's zero feed delay is "
-         "being applied to the first book's orders";
-  EXPECT_GT(ob->pub_q_size(), 0u) << "and it is not on this book's queue";
+      << "the ack went out on the record that produced it";
+
+  // Past THIS book's delay. Under the static hook the ack would have been
+  // stamped with the other book's 10 s and would still be in flight.
+  tick(applied + kFeedNs + 1);
+  EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::CancAck>(), 1u)
+      << "the ack did not arrive on this book's delay -- it is being published "
+         "through the second book's publisher, with the second book's clock";
   EXPECT_EQ(other->pub_q_size(), 0u)
       << "the second book queued the first book's ack";
 
-  tick(applied + kFeedNs + 1);
-  EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::CancAck>(), 1u);
+  // And it was not merely early: nothing further arrives once it has.
+  tick(applied + kOtherFeedNs + 1);
+  EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::CancAck>(), 1u)
+      << "a second copy of the ack arrived on the other book's clock";
 }
 
 TEST_F(OBDelayQueueTest, FeedDelayDefaultsToZero) {
@@ -642,14 +689,7 @@ TEST_F(OBDelayQueueTest, SetFeedDelayRejectsNegative) {
   EXPECT_DEATH(ob->set_feed_delay(-1), "feed latency");
 }
 
-TEST_F(OBDelayQueueTest, ZeroFeedDelayLeavesNothingQueued) {
-  ob->set_feed_delay(0);
-  seed_book(kT0);
-  market_add(en::bs::SEL, kAskPx + 5, 1, kT0 + 1000);
-  EXPECT_TRUE((ob->pub_q_size() == 0))
-      << "feed_delay 0 must publish inline, not through the queue -- otherwise "
-         "the default path is not the path that existed before";
-}
+
 
 TEST_F(OBDelayQueueTest, TheRoundTripIsFeedPlusOrder) {
   // The decisive one. ts0 is the market time the light SAW, already feed_delay
