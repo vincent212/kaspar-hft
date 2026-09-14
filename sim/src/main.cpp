@@ -136,8 +136,15 @@ int main(int argc, char* argv[])
                                          "see dbento_pcap_parse/scripts/build_universe_day.sh")
       ("contract",  po::value<string>()->default_value(""),
                     "single contract to trade, e.g. ESH5; empty = every contract in the universe")
-      ("config",    po::value<string>()->default_value("config"),
-                    "directory holding som.ini and lights.ini")
+      // config_a, not config: sim/config/ was deleted when the arms were split
+      // into config_a / config_b / config_close, but the default still named it.
+      // SimKaspr reads the directory with read_info(config_dir_ + "/som.ini"),
+      // which THROWS on a missing file -- so the sim did not fall back or warn,
+      // it failed outright for anyone who did not pass --config.
+      ("config",    po::value<string>()->default_value("config_a"),
+                    "directory holding som.ini and lights.ini; relative paths "
+                    "resolve against the working directory, so run from sim/ or "
+                    "pass an absolute path")
       ("venue",     po::value<string>()->default_value("CMEMD"), "CMEMD or CMEMDFUT")
       ("ob-debug",  po::value<uint64_t>()->default_value(0),
                     "arm OB book tracing from this epoch-ns (0 = off). Verbose: "
@@ -219,7 +226,7 @@ int main(int argc, char* argv[])
     cout << desc << "\n\nExample:\n"
          << "  ./sim --datafile 310.20250115.databento.bin \\\n"
          << "        --universe universe.310.20250115.json \\\n"
-         << "        --contract ESH5 --config ../config\n";
+         << "        --contract ESH5 --config config_a\n";
     return 1;
   }
   if (!vm.count("datafile")) { cerr << "Error: --datafile required\n"; return 1; }
