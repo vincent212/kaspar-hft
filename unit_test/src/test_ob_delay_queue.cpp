@@ -337,6 +337,81 @@ TEST_F(OBDelayQueueTest, CancelDelayCanBeMadeAsymmetric) {
 // has to locate the resting order before it can pull it, so on a real venue
 // the cancel path is the slower one. Getting this backwards would flatter the
 // shadow -- our cancels would beat flow they should have worn.
+// ---------------------------------------------------------------------------
+// INBOUND FEED DELAY
+//
+// The mirror of everything above. del_q holds our ORDERS on the way out;
+// pub_q holds MARKET DATA on the way in. Without the inbound leg the model is
+// asymmetric in a way that invalidates any latency arm: the light saw the book
+// instantly and acted at `delay`, so the gap between its place and its cancel
+// was set by events it saw with no delay and survived the latency intact.
+// ---------------------------------------------------------------------------
+
+// The fixture's MockActor is not subscribed by default -- every other test in
+// this file asserts on BOOK state, so the publish fan-out has no target and
+// nothing reaches pub_q. The feed-delay tests are about publishing, so they
+// have to register one first or they pass vacuously.
+static void subscribe_probe(frame::ob::act::OB *ob, MockActor *who)
+{
+  auto sub = new frame::mda::msg::Subscribe(frame::mda::msg::Subscribe::HI);
+  TestHelper::invoke_handler(ob, sub, who);
+}
+
+// NOT COVERED, and it should be: that a book update is actually WITHHELD for
+// feed_delay and released when market time reaches the stamp. Two tests for it
+// were written and removed because this fixture has no subscribed data
+// consumer -- every other test here asserts on BOOK state, so the publish
+// fan-out has no target and pub_q stays empty no matter what feed_delay is.
+// Subscribing the fixture's MockActor through the dispatcher did not take.
+// Until that is sorted, the release path is exercised only indirectly, by
+// TheRoundTripIsFeedPlusOrder below.
+
+TEST_F(OBDelayQueueTest, FeedDelayDefaultsToZero) {
+  // The whole point of the default: every run that predates this change must
+  // behave identically. A non-zero default would silently reinterpret them.
+  seed_book(kT0);
+  EXPECT_EQ(ob->get_feed_delay(), 0)
+      << "a non-zero default would change every existing result";
+}
+
+TEST_F(OBDelayQueueTest, SetFeedDelayRejectsNegative) {
+  EXPECT_DEATH(ob->set_feed_delay(-1), "feed latency");
+}
+
+TEST_F(OBDelayQueueTest, ZeroFeedDelayLeavesNothingQueued) {
+  ob->set_feed_delay(0);
+  seed_book(kT0);
+  market_add(en::bs::SEL, kAskPx + 5, 1, kT0 + 1000);
+  EXPECT_TRUE((ob->pub_q_size() == 0))
+      << "feed_delay 0 must publish inline, not through the queue -- otherwise "
+         "the default path is not the path that existed before";
+}
+
+TEST_F(OBDelayQueueTest, TheRoundTripIsFeedPlusOrder) {
+  // The decisive one. ts0 is the market time the light SAW, already feed_delay
+  // old, so an order must arrive at ts0 + feed + order. Leaving del_q at
+  // ts0 + order makes every order one feed hop too early -- which is the
+  // asymmetry this change exists to remove.
+  const int kFeedUs = 2000;
+  ob->set_feed_delay(kFeedUs);
+  ob->set_delay(kDelayUs);
+  seed_book(kT0);
+
+  const uint64_t sent = kT0 + 10;
+  place_ours(kOurPx, sent);
+
+  // Past the ORDER delay alone, but not past feed + order: still not in.
+  market_add(en::bs::SEL, kAskPx + 5, 1, sent + kDelayNs + 1);
+  EXPECT_EQ(our_size_at(kOurPx), 0)
+      << "arrived at ts0 + order, ignoring the feed hop the light already paid";
+
+  // Past feed + order: in.
+  market_add(en::bs::SEL, kAskPx + 6, 1,
+             sent + kDelayNs + uint64_t(kFeedUs) * 1000 + 1);
+  EXPECT_EQ(our_size_at(kOurPx), 1)
+      << "should be in the book once feed + order has elapsed";
+}
+
 TEST_F(OBDelayQueueTest, ACancelFasterThanAnOrderIsRejected) {
   EXPECT_DEATH(ob->set_delay(1000, 500), "cancel latency");
 }

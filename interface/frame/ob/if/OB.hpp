@@ -26,3 +26,8 @@ void ob_set_debug(cfsmp ob, uint64_t start_debug = 0);
 // "same as order_us"; it may not be smaller, since a cancel is never faster
 // than a new order.
 void ob_set_delay(cfsmp ob, int order_us, int cancel_us = -1);
+// Inbound feed latency, exchange -> us, in microseconds. Separate from
+// ob_set_delay because the two legs are independent: a colocated trader has a
+// short outbound hop and still pays the feed's own propagation and handling.
+// 0 (the default) publishes market data immediately, exactly as before.
+void ob_set_feed_delay(cfsmp ob, int feed_us);

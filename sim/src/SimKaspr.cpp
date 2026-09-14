@@ -40,6 +40,7 @@ SimKaspr::SimKaspr(std::string data_file,
                    int ord_sz,
                    int ob_delay_us,
                    int ob_cancel_delay_us,
+                   int ob_feed_delay_us,
                    int max_dist,
                    int nlights_per_side,
                    int probe_size,
@@ -58,6 +59,7 @@ SimKaspr::SimKaspr(std::string data_file,
     , ord_sz_(ord_sz)
     , ob_delay_us_(ob_delay_us)
     , ob_cancel_delay_us_(ob_cancel_delay_us)
+    , ob_feed_delay_us_(ob_feed_delay_us)
     , max_dist_(max_dist), nlights_per_side_(nlights_per_side)
     , probe_size_(probe_size)
     , probe_out_(std::move(probe_out))
@@ -256,6 +258,9 @@ void SimKaspr::create_order_books()
     // and OB checks them together.
     if (ob_delay_us_ >= 0 || ob_cancel_delay_us_ >= 0)
       ob_set_delay(ob, ob_delay_us_ >= 0 ? ob_delay_us_ : 1000, ob_cancel_delay_us_);
+    // Inbound leg. Set unconditionally -- 0 is a meaningful value (publish
+    // immediately) and is the default, so there is no "leave OB alone" case.
+    ob_set_feed_delay(ob, ob_feed_delay_us_);
 
     std::cerr << "SimKaspr: OB " << a->name << " assetID=" << j
               << " secID=" << a->sec_id

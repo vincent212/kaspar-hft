@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
  * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
@@ -39,6 +41,8 @@ namespace frame
       bool cancelled;
       bool filled;
       int owner;
+
+
       uint64_t tim;
 
       // Order(const Order &o)  {
@@ -56,6 +60,31 @@ namespace frame
       // }
 
     public:
+
+      // RETURN-PATH PUBLISHER. A fill and a cancel-ack are EXCHANGE events --
+      // they tell us what happened at the matching engine -- so they must pay
+      // the inbound feed latency exactly like a book update does. Without this
+      // a light learns of its own fill before it could possibly have seen it,
+      // which is the other half of the asymmetry the feed delay removes.
+      //
+      // A static hook rather than a per-order back-pointer: Order is created
+      // deep inside OrderQ and carries no reference to its book, and the sim is
+      // one ordered queue with one feed latency, so a single installed publisher
+      // is sufficient and costs nothing per order. OB installs it at startup;
+      // when it is unset (live trading, unit tests that construct an Order
+      // directly) the send goes out inline exactly as before.
+      //
+      // NOT the SOM Ack: that is SOM telling us it accepted the order, a local
+      // acknowledgement that never crossed a wire.
+      static inline std::function<void(actors::Actor *, actors::Message *)>
+          delayed_publish = nullptr;
+
+      static void send_back(actors::Actor *to, actors::Message *m) noexcept
+      {
+        if (delayed_publish) delayed_publish(to, m);
+        else                 to->send(m, nullptr);
+      }
+
       uint64_t get_tim() const { return tim; }
       unsigned long long get_id() const { return id; }
       uint get_sym() const { return sym; }
@@ -136,7 +165,7 @@ namespace frame
                                       sz,
                                       owner,
                                       tim);
-          originator->send(f, nullptr);
+          send_back(originator, f);
         }
         else
         {
@@ -204,7 +233,7 @@ namespace frame
           log_dbg("sending cancack id: %d, cancsz: %d, sz: %d, filled: %d, cancelled: %d",
                   mda::OrderID::id(id), cancsz, sz, filled, cancelled);
           auto f = new som::msg::CancAck(mda::OrderID::id(id), cancsz, sz);
-          originator->send(f, nullptr);
+          send_back(originator, f);
         }
         else
         {

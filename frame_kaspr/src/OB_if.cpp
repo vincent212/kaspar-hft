@@ -41,3 +41,11 @@ void ob_set_delay(actor_ptr ob, int order_us, int cancel_us)
         ob_ptr->set_delay(order_us, cancel_us);
     }
 }
+
+void ob_set_feed_delay(actor_ptr ob, int feed_us)
+{
+    auto ob_ptr = dynamic_cast<frame::ob::act::OB*>(ob);
+    if (ob_ptr) {
+        ob_ptr->set_feed_delay(feed_us);
+    }
+}
