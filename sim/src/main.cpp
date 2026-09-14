@@ -156,8 +156,10 @@ int main(int argc, char* argv[])
       ("ob-delay-us", po::value<int>()->default_value(-1),
                     "modelled one-way wire latency to the matching engine, in "
                     "microseconds. OB holds each of our orders on its delay "
-                    "queue until ts0 + this has passed in MARKET time, so it "
-                    "decides how much real flow gets in front of us. Floor is "
+                    "queue until ts0 + --ob-feed-delay-us + this has passed in "
+                    "MARKET time, so it decides how much real flow gets in "
+                    "front of us. The feed term is there because ts0 is the "
+                    "market time the light SAW, already that old. Floor is "
                     "40us. -1 = OB's own default (1000us).")
       ("ob-cancel-delay-us", po::value<int>()->default_value(-1),
                     "modelled wire latency for CANCELS, microseconds. A cancel "

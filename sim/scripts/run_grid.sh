@@ -9,7 +9,8 @@
 #
 #   ./run_grid.sh                 # the whole grid
 #   ./run_grid.sh --smoke         # 6 dates across the year, every config
-#   ./run_grid.sh --configs A     # one grid only (A, B or C)
+#   ./run_grid.sh --configs A     # one grid only (A, B, C, D or E)
+#   FEED_US="0 500 2000" ./run_grid.sh --configs E   # inbound feed latency arm
 #   ./run_grid.sh --month 202501  # one month of sessions, every config
 #   ./run_grid.sh --only rate200_sz10   # a single named config (see the tsv)
 #   NJOBS=56 ./run_grid.sh
@@ -66,7 +67,7 @@ cp "$BIN_SRC" "$OUT/sim.pinned"
 BIN="$OUT/sim.pinned"
 
 # ---- the axes ---------------------------------------------------------
-# name  grid  place_rate_bp  probe_size  ord_sz  delay_us  cancel_delay_us  max_dist  aggr_bp
+# name  grid  place_rate_bp  probe_size  ord_sz  delay_us  cancel_delay_us  max_dist  aggr_bp  feed_us
 #
 # ord_sz is -1 (= "the arm's value") on every cell, and nothing writes it into a
 # cell's lights.ini. Grid B used to declare 1 here, which never reached the sim:
@@ -93,6 +94,7 @@ AGGR_BASE_BP=${AGGR_BASE_BP:-50}         # grid D baseline place_rate_bp
 AGGR_BASE_SZ=${AGGR_BASE_SZ:-100}        # grid D baseline parent size
 A_SZ=${A_SZ:-"1 10 100"}                 # grid A parent sizes
 DLY_US=${DLY_US:-500}                    # grid A wire latency, us (order and cancel)
+FEED_US=${FEED_US:-"0 200 500 1000 2000 5000"}  # grid E inbound feed latency, us
 NICE_LEVEL=${NICE_LEVEL:-19}              # sim nice level; 0 = normal priority
 
 grid_tsv="$OUT/grid.tsv"
@@ -110,20 +112,20 @@ grid_tsv="$OUT/grid.tsv"
 {
   if [ "$GRID_SET" = "2" ]; then
     for q in 20 50 100 200; do
-      printf 'Q%s\tB2\t%s\t%s\t-1\t500\t500\t-1\t0\n' "$q" "$BASE_BP" "$q"
+      printf 'Q%s\tB2\t%s\t%s\t-1\t500\t500\t-1\t0\t0\n' "$q" "$BASE_BP" "$q"
     done
     for us in $LAT_US; do
-      printf 'lat%s\tC2\t%s\t100\t-1\t%s\t%s\t-1\t0\n' "$us" "$BASE_BP" "$us" "$us"
+      printf 'lat%s\tC2\t%s\t100\t-1\t%s\t%s\t-1\t0\t0\n' "$us" "$BASE_BP" "$us" "$us"
     done
   else
     for bp in $RATE_BP; do
       for sz in $A_SZ; do
-        printf 'rate%s_sz%s\tA\t%s\t%s\t-1\t%s\t%s\t-1\t0\n' \
+        printf 'rate%s_sz%s\tA\t%s\t%s\t-1\t%s\t%s\t-1\t0\t0\n' \
           "$bp" "$sz" "$bp" "$sz" "$DLY_US" "$DLY_US"
       done
     done
     for q in $Q_SZ; do
-      printf 'Q%s\tB\t%s\t%s\t-1\t500\t500\t-1\t0\n' "$q" "$BASE_BP" "$q"
+      printf 'Q%s\tB\t%s\t%s\t-1\t500\t500\t-1\t0\t0\n' "$q" "$BASE_BP" "$q"
     done
     for us in $LAT_US; do
       # CANC_US empty (the default) = cancels take the same wire as orders.
@@ -131,7 +133,7 @@ grid_tsv="$OUT/grid.tsv"
       # cancel path is actually delayed: delay=N cancel=0 must differ from
       # delay=N cancel=N, or cancel_delay is not being applied.
       cu=${CANC_US:-$us}
-      printf 'lat%s\tC\t%s\t100\t-1\t%s\t%s\t-1\t0\n' \
+      printf 'lat%s\tC\t%s\t100\t-1\t%s\t%s\t-1\t0\t0\n' \
         "${us}${CANC_US:+c$cu}" "$BASE_BP" "$us" "$cu"
     done
   fi
@@ -153,10 +155,25 @@ grid_tsv="$OUT/grid.tsv"
     # the aggressive bank changes nothing when switched off.
     for abp in $AGGR_BP; do
       # AGGR_BASE_BP -1 turns the PASSIVE bank off entirely: the cell is then
-      # aggression and nothing else. DLY_US 0 -- the simulator has no inbound
-      # feed delay yet (issue #67), so latency is not studiable until it does.
-      printf 'aggr%s\tD\t%s\t%s\t-1\t%s\t%s\t-1\t%s\n' \
+      # aggression and nothing else. DLY_US 0 by default; the inbound feed delay
+      # is the last column and grid E is the arm that sweeps it.
+      printf 'aggr%s\tD\t%s\t%s\t-1\t%s\t%s\t-1\t%s\t0\n' \
         "$abp" "$AGGR_BASE_BP" "$AGGR_BASE_SZ" "$DLY_US" "$DLY_US" "$abp"
+    done
+    # Grid E: the INBOUND leg. Grid C moves the outbound hop, which makes the
+    # light act later on FRESH data; this moves the inbound one, which makes it
+    # act on STALE data. They are different experiments and the second is the
+    # one that was not measurable before -- a light that saw the book instantly
+    # and acted `delay` later had its place-to-cancel gap set by events it saw
+    # with no delay at all. The order delay is held at DLY_US across the arm so
+    # the only thing moving is how old the book was when the light looked.
+    #
+    # feed0 IS the control: it must reproduce the matching grid A cell to within
+    # noise, because feed_delay 0 publishes inline on exactly the path that
+    # existed before the queue was added.
+    for fus in $FEED_US; do
+      printf 'feed%s\tE\t%s\t100\t-1\t%s\t%s\t-1\t0\t%s\n' \
+        "$fus" "$BASE_BP" "$DLY_US" "$DLY_US" "$fus"
     done
 
   # Grid D (max_dist sweep) removed -- see the commit; a light holds one order at
@@ -265,7 +282,7 @@ echo "jobs   : $NJOBS"
 
 # ---- one run ----------------------------------------------------------
 run_one() {
-  local name=$1 gridid=$2 bp=$3 psz=$4 osz=$5 dly=$6 cdly=$7 mdist=$8 date=$9
+  local name=$1 gridid=$2 bp=$3 psz=$4 osz=$5 dly=$6 cdly=$7 mdist=$8 fus=$9 date=${10}
 
   local csv="$OUT/csv/$name/$date.csv"
   local log="$OUT/log/$name/$date.log"
@@ -313,6 +330,7 @@ run_one() {
       --probe-size "$psz" \
       --ob-delay-us "$dly" \
       --ob-cancel-delay-us "$cdly" \
+      --ob-feed-delay-us "$fus" \
       --probe-out "$csv" \
       --quiet ) > "$log" 2>&1
   local rc=$?
@@ -348,7 +366,7 @@ started=$(date +%s)
 # Every (cell, session) pair, built first and dispatched in one go below.
 joblist="$OUT/jobs.tsv"
 : > "$joblist"
-while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist aggr; do
+while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist aggr fus; do
   [ -n "$ONLY_GRID" ] && [ "$gridid" != "$ONLY_GRID" ] && continue
   [ -n "$ONLY_NAME" ] && [ "$name" != "$ONLY_NAME" ] && continue
   mkdir -p "$OUT/csv/$name" "$OUT/log/$name" "$OUT/cfg/$name"
@@ -375,8 +393,8 @@ while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist aggr; do
 
   # Queue this cell's sessions rather than running them. See the fan-out below.
   for d in "${dates[@]}"; do
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$name" "$gridid" "$bp" "$psz" "$osz" "$dly" "$cdly" "$mdist" "$d" >> "$joblist"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$name" "$gridid" "$bp" "$psz" "$osz" "$dly" "$cdly" "$mdist" "${fus:-0}" "$d" >> "$joblist"
   done
 done < "$grid_tsv"
 
@@ -402,7 +420,7 @@ xargs -P "$NJOBS" -L1 bash -c 'run_one "$@"' _ < "$joblist"
 # as it completed would arrive in an order that told you nothing.
 echo
 echo "per config:"
-while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist aggr; do
+while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist aggr fus; do
   [ -n "$ONLY_GRID" ] && [ "$gridid" != "$ONLY_GRID" ] && continue
   [ -n "$ONLY_NAME" ] && [ "$name" != "$ONLY_NAME" ] && continue
   ok=0

@@ -365,6 +365,25 @@ TEST_F(OBDelayQueueTest, CancelDelayCanBeMadeAsymmetric) {
 // pub_q -- a withholding test written without this passes vacuously.
 class FeedDelayTest : public OBDelayQueueTest {
 protected:
+  // A LANDMINE, deliberately left armed and labelled rather than defused.
+  //
+  // `feed` is a member of this DERIVED fixture while `ob` is a member of the
+  // base, so derived members are destroyed first: `feed` dies while `ob` is
+  // still alive and still holds `&feed` in both hiprio_datasubs and pub_q. Most
+  // cases below deliberately end with a non-empty pub_q.
+  //
+  // Harmless today only because ~OB never touches pub_q -- nothing is flushed
+  // at destruction, which is issue-worthy in its own right and was reviewed as
+  // such (deliberately not fixed: every sweep runs feed_delay 0, where pub_q is
+  // never used). The moment anyone adds that flush to ~OB or OB::end(),
+  // MarketDataIsWithheldThenReleased, EverythingQueuedIsEventuallyReleased,
+  // ReleaseIsKeyedToMarketTimeNotWallClock and ACancelAckPaysTheFeedDelay all
+  // send into a MockActor whose destructor has already run clear() and freed
+  // its captured vector -- a heap-use-after-free in teardown that ASAN will
+  // blame on the flush rather than on this line.
+  //
+  // If you are here because of that: move `feed` into the base fixture, or
+  // reset `ob` in TearDown before `feed` dies.
   MockActor feed{"feed"};
   int tick_n = 0;
 

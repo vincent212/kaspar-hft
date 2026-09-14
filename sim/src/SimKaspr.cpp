@@ -270,6 +270,10 @@ void SimKaspr::create_order_books()
               << " canc_delay=" << (ob_cancel_delay_us_ >= 0
                                       ? std::to_string(ob_cancel_delay_us_) + "us"
                                       : std::string("same"))
+              // The inbound leg belongs in the provenance line too. Without it a
+              // cell's log cannot say which feed-delay arm produced it, and the
+              // two legs of the round trip are set independently.
+              << " feed_delay=" << ob_feed_delay_us_ << "us"
               << std::endl;
   }
   ASSERT(!books_.empty(), "no order books created - check --contract and the universe");

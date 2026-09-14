@@ -999,15 +999,22 @@ void act::SOM::fill_handler(const msg::Fill *m) noexcept
     found = true;
   }
 
-  if (ord->canced)
-  {
-    log_err("got fill for a cancelled order");
-    SNGH;
-  }
-
   //auto found = orders.get(m->id, ord);
   auto a = ref::RefData::get_asset(m->sym);
   ASSERT(a, "no such asset");
+
+  // The not-found check comes FIRST, before anything dereferences `ord`.
+  //
+  // It used to sit below `if (ord->canced)`, so the branch written to handle a
+  // missing order could only be reached by first dereferencing the null pointer
+  // that says it is missing. It survived because a fill had always been
+  // delivered on the same record that produced it, with SOM's own map in step.
+  // Once OB holds the return path for the inbound feed latency that stops being
+  // true: the Fill waits on pub_q and is delivered by a later record's drain,
+  // while SOM keeps processing its own locally generated Ack, Reject and
+  // CancReject in between -- and rej_handler and canc_ack_handler both ERASE
+  // from `orders`. Any interleaving that erases first turns an intended log line
+  // into a segfault mid-run.
   if (!found)
   {
     log_err("got fill but did not find the order: %d, sym: %s, px: %f, sz: %d, side: %s",
@@ -1017,6 +1024,12 @@ void act::SOM::fill_handler(const msg::Fill *m) noexcept
             m->sz,
             en::to_string(m->side));
     return;
+  }
+
+  if (ord->canced)
+  {
+    log_err("got fill for a cancelled order");
+    SNGH;
   }
 
   log_fil("Fill id: %d venue: %s, sym: %s, sym: %d, px: %f, px: %d, sz: %d, side: %s, stbf: %d, trader: %s",
