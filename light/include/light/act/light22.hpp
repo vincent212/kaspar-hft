@@ -65,6 +65,12 @@ namespace light::act
     std::mt19937 rng{1};            // per-light, deterministically seeded
     uint64_t place_rate_thresh = 0;  // place_rate_bp * 2^32 / 10000
     int aggr_ttl_ms = 1;             // aggressive order time-to-live, ms; 0 = off
+    // The order the TTL alarm was armed for. An alarm can outlive its order --
+    // a cross fills in ~40 us and the light places again long before 1 ms is
+    // up -- so firing on whatever happens to be in the slot would cancel a
+    // healthy NEW order early. Same guard pending_cancel_eob already has for
+    // delayed_cancel_events; it was not carried across when AGGR_TTL was added.
+    int aggr_ttl_oid = -1;
     int eob_counter = 0;
 
     // How deep into the book we are willing to rest, in ticks from the touch.
@@ -209,12 +215,18 @@ namespace light::act
         // Fill or be gone. If the cross is still live this many ms after it was
         // sent, it missed -- the touch moved between the decision and arrival --
         // and it is now an unintended passive order. Pull it.
-        if (this->ord_info.has_value() && !this->ord_info.get_canc())
+        if (this->ord_info.has_value() && !this->ord_info.get_canc() &&
+            this->ord_info.get_oid() == aggr_ttl_oid)
         {
           this->curr_tx_time = m->currtim._epoch_;   // same reason as below
           log_trd("CANCORD id: %d, aggressive order did not fill within %d ms",
                   this->ord_info.get_oid(), aggr_ttl_ms);
           this->cancel_order();
+        }
+        else if (this->ord_info.has_value())
+        {
+          log_inf("stale AGGR_TTL for oid %d, slot now holds %d -- not cancelling",
+                  aggr_ttl_oid, this->ord_info.get_oid());
         }
         return true;
       }
@@ -546,6 +558,7 @@ namespace light::act
         // becoming a passive order the arm never asked for.
         if (already_gated && aggr_ttl_ms > 0)
         {
+          aggr_ttl_oid = id;
           this->timer->send(new frame::mtim::msg::AlarmClockSub(
                                 aggr_ttl_ms / 1000, aggr_ttl_ms % 1000,
                                 this->AGGR_TTL, false),

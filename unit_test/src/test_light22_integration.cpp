@@ -814,6 +814,74 @@ TEST_F(Light22IntegrationTest, TheLightStampsItsCancelWithMarketTime) {
 }
 
 /**
+ * FAILS WITHOUT THE GUARD -- an AGGR_TTL alarm must not cancel a DIFFERENT order.
+ *
+ * The alarm is armed when a cross is sent and fires aggr_ttl_ms later. But a
+ * cross fills in ~40 us, and the light places again long before 1 ms is up, so
+ * an alarm routinely outlives the order it was armed for. Without an identity
+ * check it cancels whatever happens to be in the slot -- killing a healthy new
+ * order early, and inflating the TTL-cancel count that the aggressive arm reads
+ * as "the cross missed".
+ *
+ * pending_cancel_eob already has this guard (it is zeroed by cancel_order and by
+ * a fresh placement, tested by EventDelayCountdownIsClearedByANewPlacement). It
+ * was not carried across when AGGR_TTL was added.
+ */
+TEST_F(Light22IntegrationTest, AggrTtlDoesNotCancelASubsequentOrder) {
+  pt.put("aggr_ttl_ms", 1);
+  auto light = create_buy_light("TestBuy", 10);
+  int sym_id = get_sym_id();
+
+  mock_pcoord.set_position(0);
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+
+  // An order is working, and the TTL was armed for a DIFFERENT (earlier) one.
+  place_order_via_eob(*light, sym_id, 100);
+  ASSERT_TRUE(light->ord_info.has_value());
+  const int live_oid = light->ord_info.get_oid();
+  light->aggr_ttl_oid = live_oid - 1;      // armed for an order that is gone
+
+  mock_som.clear();
+
+  auto alarm = new frame::mtim::msg::Alarm();
+  alarm->timer_id = light->AGGR_TTL;
+  process_msg(light.get(), alarm, &mock_timer);
+  delete alarm;
+
+  EXPECT_FALSE(mock_som.has_message_of_type<frame::som::msg::Cancel>())
+      << "a stale AGGR_TTL alarm cancelled the order that replaced the one it "
+         "was armed for";
+  EXPECT_TRUE(light->ord_info.has_value())
+      << "the live order must survive a stale TTL";
+}
+
+/**
+ * The other half: when the alarm IS for the live order, it must still fire.
+ */
+TEST_F(Light22IntegrationTest, AggrTtlCancelsTheOrderItWasArmedFor) {
+  pt.put("aggr_ttl_ms", 1);
+  auto light = create_buy_light("TestBuy", 10);
+  int sym_id = get_sym_id();
+
+  mock_pcoord.set_position(0);
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+
+  place_order_via_eob(*light, sym_id, 100);
+  ASSERT_TRUE(light->ord_info.has_value());
+  light->aggr_ttl_oid = light->ord_info.get_oid();   // armed for THIS one
+
+  mock_som.clear();
+
+  auto alarm = new frame::mtim::msg::Alarm();
+  alarm->timer_id = light->AGGR_TTL;
+  process_msg(light.get(), alarm, &mock_timer);
+  delete alarm;
+
+  EXPECT_TRUE(mock_som.has_message_of_type<frame::som::msg::Cancel>())
+      << "the TTL must still pull the cross it was armed for";
+}
+
+/**
  * Test 7: CancelWhenTooFarFromInside
  *
  * VERIFY: Cancel is triggered when order price is too far from best bid/ask
