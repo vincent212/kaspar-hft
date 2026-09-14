@@ -67,22 +67,26 @@ namespace frame
       // a light learns of its own fill before it could possibly have seen it,
       // which is the other half of the asymmetry the feed delay removes.
       //
-      // A static hook rather than a per-order back-pointer: Order is created
-      // deep inside OrderQ and carries no reference to its book, and the sim is
-      // one ordered queue with one feed latency, so a single installed publisher
-      // is sufficient and costs nothing per order. OB installs it at startup;
-      // when it is unset (live trading, unit tests that construct an Order
-      // directly) the send goes out inline exactly as before.
+      // Passed in by the caller, not held: Order is created deep inside OrderQ
+      // and carries no reference to its book, so the book that is doing the
+      // filling hands its own publisher down. It was a static hook first, on
+      // the theory that the sim is one queue with one feed latency -- it is
+      // not. SimKaspr builds one OB per instrument, so a static binds every
+      // book's fills to whichever book installed it last: wrong queue, wrong
+      // clock, and a dangling `this` the moment that book is destroyed.
+      //
+      // A null publisher (live trading, unit tests that construct an Order
+      // directly) sends inline exactly as before.
       //
       // NOT the SOM Ack: that is SOM telling us it accepted the order, a local
       // acknowledgement that never crossed a wire.
-      static inline std::function<void(actors::Actor *, actors::Message *)>
-          delayed_publish = nullptr;
+      using ret_path_t = std::function<void(actors::Actor *, actors::Message *)>;
 
-      static void send_back(actors::Actor *to, actors::Message *m) noexcept
+      static void send_back(const ret_path_t *rp, actors::Actor *to,
+                            actors::Message *m) noexcept
       {
-        if (delayed_publish) delayed_publish(to, m);
-        else                 to->send(m, nullptr);
+        if (rp && *rp) (*rp)(to, m);
+        else           to->send(m, nullptr);
       }
 
       uint64_t get_tim() const { return tim; }
@@ -125,7 +129,7 @@ namespace frame
     private:
       // notify orig
       int fill_notify(int _sz, int _disp_sz, uint px, en::mt modtyp,
-                      uint64_t tim)
+                      uint64_t tim, const ret_path_t *rp)
       {
         ASSERT(modtyp == en::mt::EXEC || modtyp == en::mt::EXECD, "invalid mod typ");
         log_dbg("sim fill_notify sz: %d, ordsz: %d, px: %d, filled: %d, cancelled: %d", _sz, sz, px, filled, cancelled);
@@ -165,7 +169,7 @@ namespace frame
                                       sz,
                                       owner,
                                       tim);
-          send_back(originator, f);
+          send_back(rp, originator, f);
         }
         else
         {
@@ -187,7 +191,8 @@ namespace frame
       int canc_notify(
           en::mt modtyp,
           int dispsz,
-          int _sz)
+          int _sz,
+          const ret_path_t *rp)
       {
         ASSERT(modtyp == en::mt::CANC || modtyp == en::mt::CANCD,
                "invalid mod type for canc");
@@ -233,7 +238,7 @@ namespace frame
           log_dbg("sending cancack id: %d, cancsz: %d, sz: %d, filled: %d, cancelled: %d",
                   mda::OrderID::id(id), cancsz, sz, filled, cancelled);
           auto f = new som::msg::CancAck(mda::OrderID::id(id), cancsz, sz);
-          send_back(originator, f);
+          send_back(rp, originator, f);
         }
         else
         {

@@ -44,6 +44,10 @@
 #include "frame/cons/msg/Page.hpp"
 #include "frame/mda/msg/Data.hpp"
 #include "frame/ob/act/OB.hpp"
+#include "frame/ob/msg/EndOfBurst.hpp"
+#include "frame/som/msg/CancReject.hpp"
+#include "frame/som/msg/Fill.hpp"
+#include "frame/mda/msg/Subscribe.hpp"
 #include "frame/ref/RefData.hpp"
 #include "unit_test/MockActor.hpp"
 #include "unit_test/TestHelper.hpp"
@@ -59,6 +63,15 @@ namespace {
 struct TestableOB : public ob::act::OB {
   using ob::act::OB::OB;
   using ob::act::OB::reply_to;
+
+  // Not every message OB understands arrives through the MESSAGE_HANDLER map.
+  // Subscribe is dispatched by typeid inside OB::process_message (OB.cpp:1405),
+  // which TestHelper::invoke_handler never reaches -- it only walks the public
+  // handlers map, so a Subscribe sent that way is silently dropped and the
+  // publish fan-out stays empty. OB's override is private; the base's
+  // declaration is protected, and the call is virtual, so naming Actor's
+  // reaches OB's.
+  using actors::Actor::process_message;
 };
 
 constexpr uint64_t kT0       = 1736960000000000000ULL;  // epoch ns
@@ -347,24 +360,275 @@ TEST_F(OBDelayQueueTest, CancelDelayCanBeMadeAsymmetric) {
 // was set by events it saw with no delay and survived the latency intact.
 // ---------------------------------------------------------------------------
 
-// The fixture's MockActor is not subscribed by default -- every other test in
-// this file asserts on BOOK state, so the publish fan-out has no target and
-// nothing reaches pub_q. The feed-delay tests are about publishing, so they
-// have to register one first or they pass vacuously.
-static void subscribe_probe(frame::ob::act::OB *ob, MockActor *who)
-{
-  auto sub = new frame::mda::msg::Subscribe(frame::mda::msg::Subscribe::HI);
-  TestHelper::invoke_handler(ob, sub, who);
+// A subscribed consumer of the feed. Every other test in this file asserts on
+// BOOK state, so the publish fan-out has no target and nothing ever reaches
+// pub_q -- a withholding test written without this passes vacuously.
+class FeedDelayTest : public OBDelayQueueTest {
+protected:
+  MockActor feed{"feed"};
+  int tick_n = 0;
+
+  void SetUp() override {
+    OBDelayQueueTest::SetUp();
+    // Subscribe has no MESSAGE_HANDLER; it is typeid-dispatched inside
+    // OB::process_message (OB.cpp:1405), so it has to be delivered there
+    // directly. Heap-allocated because OB's dispatch takes ownership.
+    auto sub = new mda::msg::Subscribe(mda::msg::Subscribe::HI);
+    sub->sender = &feed;
+    ob->reply_to = &feed;
+    ob->process_message(sub);
+    ob->reply_to = nullptr;
+    feed.clear();
+  }
+
+  void TearDown() override {
+    feed.clear();
+    OBDelayQueueTest::TearDown();
+  }
+
+  size_t bursts() const {
+    return feed.count_messages_of_type<frame::ob::msg::EndOfBurst>();
+  }
+
+  // One harmless record, deep enough not to disturb the BBO. OB emits the
+  // EndOfBurst for record N only when record N+1 arrives -- handle_eoburst
+  // fires on `have_new_payload`, which the PREVIOUS record set -- so a burst
+  // has to be ticked out before there is anything to withhold. Each tick also
+  // drains whatever on pub_q its own timestamp has made due.
+  void tick(uint64_t txtim) {
+    market_add(en::bs::SEL, kAskPx + 100 + tick_n++, 1, txtim);
+  }
+};
+
+// The subscription itself, asserted before anything depends on it. If this
+// fails, every withholding test below is measuring an empty fan-out rather
+// than a delay.
+TEST_F(FeedDelayTest, TheProbeIsActuallySubscribed) {
+  seed_book(kT0);
+  tick(kT0 + 100);
+  EXPECT_GT(bursts(), 0u)
+      << "no EndOfBurst reached the subscriber, so the Subscribe never "
+         "registered -- the withholding tests would pass vacuously";
+  EXPECT_EQ(ob->pub_q_size(), 0u) << "feed_delay is 0 here, so nothing queues";
 }
 
-// NOT COVERED, and it should be: that a book update is actually WITHHELD for
-// feed_delay and released when market time reaches the stamp. Two tests for it
-// were written and removed because this fixture has no subscribed data
-// consumer -- every other test here asserts on BOOK state, so the publish
-// fan-out has no target and pub_q stays empty no matter what feed_delay is.
-// Subscribing the fixture's MockActor through the dispatcher did not take.
-// Until that is sorted, the release path is exercised only indirectly, by
-// TheRoundTripIsFeedPlusOrder below.
+// The claim, stated directly: with a feed delay set, a book update does not
+// reach the subscriber on the message that produced it. It sits on pub_q until
+// MARKET time has advanced past the stamp, and then it is released.
+TEST_F(FeedDelayTest, MarketDataIsWithheldThenReleased) {
+  constexpr int kFeedUs = 2000;
+  constexpr uint64_t kFeedNs = uint64_t(kFeedUs) * 1000;
+  ob->set_feed_delay(kFeedUs);
+
+  seed_book(kT0);
+  tick(kT0 + 100);          // emits the burst for the seeded book
+  EXPECT_EQ(bursts(), 0u)
+      << "the subscriber saw the book on the very record that changed it";
+  const size_t queued = ob->pub_q_size();
+  EXPECT_GT(queued, 0u) << "withheld means queued, not dropped";
+
+  // Market time advances, but not far enough.
+  tick(kT0 + kFeedNs / 2);
+  EXPECT_EQ(bursts(), 0u) << "released after only half the feed latency";
+  EXPECT_GT(ob->pub_q_size(), queued) << "and the new update queued behind it";
+
+  // Past the stamp on the first update: it comes out.
+  tick(kT0 + kFeedNs + 1);
+  EXPECT_GT(bursts(), 0u)
+      << "still withheld after the feed latency has elapsed";
+}
+
+// Everything queued must eventually come out. A release rule that strands
+// messages would starve the light rather than delay it -- and would look
+// identical to "withheld" in the test above.
+TEST_F(FeedDelayTest, EverythingQueuedIsEventuallyReleased) {
+  ob->set_feed_delay(2000);
+
+  seed_book(kT0);
+  tick(kT0 + 1000);
+  tick(kT0 + 2000);
+  ASSERT_GT(ob->pub_q_size(), 0u);
+
+  // Two records far past every stamp on the queue. Two, because each record
+  // drains BEFORE it publishes, so the burst a record emits is always still in
+  // flight when it returns.
+  tick(kT0 + 10ULL * 1000 * 1000 * 1000);
+  tick(kT0 + 30ULL * 1000 * 1000 * 1000);
+
+  const size_t released = bursts();
+  EXPECT_GE(released, 3u) << "nothing came out at all";
+  ASSERT_EQ(ob->pub_q_size(), 1u)
+      << "only the burst this last record just emitted may still be queued; "
+         "anything more was stranded";
+
+  // And that last one is not stranded either -- it comes out on the next
+  // record whose timestamp is past its stamp.
+  tick(kT0 + 60ULL * 1000 * 1000 * 1000);
+  EXPECT_EQ(bursts(), released + 1)
+      << "the burst left in flight never came out";
+}
+
+// The release must be keyed to the record's transactTime, not to the wall
+// clock. This is the mistake the gunning-protection path made -- it compared
+// against chutil::Time::epoch(), which is system_clock::now() -- and in a
+// replay that runs a year of market data in an hour, a wall-clock rule
+// releases everything instantly and the delay is decorative.
+TEST_F(FeedDelayTest, ReleaseIsKeyedToMarketTimeNotWallClock) {
+  constexpr int kHugeFeedUs = 10 * 1000 * 1000;            // 10 s
+  constexpr uint64_t kHugeFeedNs = uint64_t(kHugeFeedUs) * 1000;
+  ob->set_feed_delay(kHugeFeedUs);
+
+  seed_book(kT0);
+  tick(kT0 + 100);
+  ASSERT_GT(ob->pub_q_size(), 0u);
+
+  // Ten seconds of WALL clock would have passed by now in a real feed; here it
+  // is microseconds. A rule that read the system clock would still be short,
+  // so nudge market time forward only trivially and check nothing escapes.
+  for (int i = 0; i < 20; i++)
+    tick(kT0 + 200 + uint64_t(i) * 1000);
+  EXPECT_EQ(bursts(), 0u)
+      << "released without market time advancing -- the deadline is being "
+         "compared against something other than transactTime";
+
+  // Now advance MARKET time past the stamp.
+  tick(kT0 + kHugeFeedNs + 1);
+  EXPECT_GT(bursts(), 0u) << "market time passed the stamp and nothing came out";
+}
+
+// Feed delay holds data, it does not reorder it. A consumer that saw updates
+// out of order would reconstruct a book the market never had.
+TEST_F(FeedDelayTest, ReleaseOrderMatchesArrivalOrder) {
+  ob->set_feed_delay(2000);
+  seed_book(kT0);
+  for (int i = 0; i < 5; i++)
+    tick(kT0 + uint64_t(i + 1) * 100);
+
+  tick(kT0 + 10ULL * 1000 * 1000 * 1000);
+
+  uint64_t prev = 0;
+  size_t seen = 0;
+  for (size_t i = 0; i < feed.message_count(); i++) {
+    auto eob = feed.get_message<frame::ob::msg::EndOfBurst>(i);
+    if (!eob || !eob->payload) continue;
+    EXPECT_GE(eob->payload->txtim_epoch, prev)
+        << "EndOfBurst " << i << " went backwards in market time";
+    prev = eob->payload->txtim_epoch;
+    seen++;
+  }
+  EXPECT_GT(seen, 1u) << "need more than one release to check the ordering";
+}
+
+// A cancel-ack is an EXCHANGE event -- it says the matching engine pulled the
+// order -- so it pays the inbound hop like a book update does. Without this a
+// light learns its order is gone before it could possibly have seen it, which
+// is the other half of the asymmetry the feed delay exists to remove.
+TEST_F(FeedDelayTest, ACancelAckPaysTheFeedDelay) {
+  constexpr int kFeedUs = 2000;
+  constexpr uint64_t kFeedNs = uint64_t(kFeedUs) * 1000;
+  ob->set_feed_delay(kFeedUs);
+  ob->set_delay(kDelayUs);
+  seed_book(kT0);
+
+  const uint64_t sent = kT0 + 10;
+  place_ours(kOurPx, sent);
+  tick(sent + kDelayNs + kFeedNs + 1);
+  ASSERT_EQ(our_size_at(kOurPx), 1) << "precondition: our order is resting";
+
+  const uint64_t cancelled_at = sent + kDelayNs + kFeedNs + 100;
+  cancel_ours(kOurPx, cancelled_at);
+
+  // The record that carries the cancel past its deadline: the book pulls the
+  // order here, so the ack is GENERATED here.
+  const uint64_t applied = cancelled_at + kDelayNs + kFeedNs + 1;
+  tick(applied);
+  EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::CancAck>(), 0u)
+      << "the ack came back on the very record that produced it";
+
+  tick(applied + kFeedNs + 1);
+  EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::CancAck>(), 1u)
+      << "the ack never arrived";
+}
+
+// THE ORDERING RULE, and the reason the whole feature aborted on real data.
+//
+// An order that crosses on arrival is filled and deleted -- it never rests --
+// so a cancel for it finds nothing and OB answers CancReject(NOTFOUND). The
+// fill and the reject are about the SAME order, and OB used to hold the fill
+// on pub_q while sending the reject inline. The reject overtook the fill: the
+// light cleared its slot on the reject, placed the next order, and then the
+// fill for the previous one landed ("fill for wrong order id"), stranding the
+// new order in QCoord until an add at that price tripped "already have this mm
+// id" and killed the run. Every exchange event pays the same hop, or they
+// reorder.
+TEST_F(FeedDelayTest, AnExchangeRejectPaysTheSameDelayAsAFill) {
+  constexpr int kFeedUs = 2000;
+  constexpr uint64_t kFeedNs = uint64_t(kFeedUs) * 1000;
+  ob->set_feed_delay(kFeedUs);
+  ob->set_delay(kDelayUs);
+  seed_book(kT0);
+
+  // Priced AT the offer, so it crosses and is filled on arrival rather than
+  // resting -- which is what leaves a cancel with nothing to find.
+  const uint64_t sent = kT0 + 10;
+  our_order(en::bs::BUY, kAskPx, 1, sent, 7, en::md::ADD, en::mt::NONE);
+  tick(sent + kDelayNs + kFeedNs + 1);
+  ASSERT_EQ(our_size_at(kAskPx), 0) << "precondition: it crossed, it is not resting";
+  EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::Fill>(), 0u)
+      << "the fill came back on the record that produced it";
+
+  // Cancel the order that no longer exists.
+  const uint64_t cancelled_at = sent + kDelayNs + kFeedNs + 100;
+  our_order(en::bs::BUY, kAskPx, 1, cancelled_at, 7, en::md::MOD, en::mt::CANCD);
+  const uint64_t applied = cancelled_at + kDelayNs + kFeedNs + 1;
+  tick(applied);
+  EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::CancReject>(), 0u)
+      << "the reject went out inline while the fill waited -- it can now "
+         "overtake the fill for the same order";
+
+  tick(applied + kFeedNs + 1);
+  EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::CancReject>(), 1u)
+      << "the reject never arrived";
+  EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::Fill>(), 1u)
+      << "the fill never arrived";
+}
+
+// One OB per instrument is the normal case -- SimKaspr builds one per asset in
+// the universe. The return path was a static hook at first, which meant the
+// book constructed last published every book's fills and cancel-acks: wrong
+// queue, wrong clock, and a dangling `this` once that book was destroyed (it
+// segfaulted the suite). Standing up a second book must not touch the first's.
+TEST_F(FeedDelayTest, ASecondBookDoesNotStealTheFirstsReturnPath) {
+  constexpr int kFeedUs = 2000;
+  constexpr uint64_t kFeedNs = uint64_t(kFeedUs) * 1000;
+  ob->set_feed_delay(kFeedUs);
+  ob->set_delay(kDelayUs);
+  seed_book(kT0);
+
+  const uint64_t sent = kT0 + 10;
+  place_ours(kOurPx, sent);
+  tick(sent + kDelayNs + kFeedNs + 1);
+  ASSERT_EQ(our_size_at(kOurPx), 1);
+
+  // A second book for the same instrument, with NO feed delay of its own.
+  boost::property_tree::ptree pt2;
+  auto other = std::make_unique<TestableOB>(nullptr, true, nullptr, sym, pt2);
+  other->set_feed_delay(0);
+
+  const uint64_t cancelled_at = sent + kDelayNs + kFeedNs + 100;
+  cancel_ours(kOurPx, cancelled_at);
+  const uint64_t applied = cancelled_at + kDelayNs + kFeedNs + 1;
+  tick(applied);
+  EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::CancAck>(), 0u)
+      << "the ack went out inline -- the second book's zero feed delay is "
+         "being applied to the first book's orders";
+  EXPECT_GT(ob->pub_q_size(), 0u) << "and it is not on this book's queue";
+  EXPECT_EQ(other->pub_q_size(), 0u)
+      << "the second book queued the first book's ack";
+
+  tick(applied + kFeedNs + 1);
+  EXPECT_EQ(probe.count_messages_of_type<frame::som::msg::CancAck>(), 1u);
+}
 
 TEST_F(OBDelayQueueTest, FeedDelayDefaultsToZero) {
   // The whole point of the default: every run that predates this change must
