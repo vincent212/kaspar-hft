@@ -407,6 +407,36 @@ namespace light::act
       // Check if order price is too far from best bid/ask
       // For BUY: reject if bestpx < best_bid - max_dist (too low)
       // For SEL: reject if bestpx > best_ask + max_dist (too high)
+      // The max_dist test below is ONE-SIDED BY CONSTRUCTION: for a BUY it
+      // rejects prices too far BELOW the bid, i.e. too passive. Nothing in it
+      // bounds the aggressive direction, so a buy priced through the offer --
+      // by one tick or by 1193, both observed -- sails through. The test that
+      // keeps a passive order passive is this one, and it must come first.
+      //
+      // already_gated is the aggressive bank, which crosses on purpose; it is
+      // exempt.
+      if (!already_gated)
+      {
+        if constexpr (Side == en::bs::BUY)
+        {
+          int best_ask_now = payload->point_.ask_px[0];
+          if (best_ask_now > 0 && bestpx >= best_ask_now)
+          {
+            log_inf("would cross: bestpx=%d >= best_ask=%d", bestpx, best_ask_now);
+            return;
+          }
+        }
+        else
+        {
+          int best_bid_now = payload->point_.bid_px[0];
+          if (best_bid_now > 0 && bestpx <= best_bid_now)
+          {
+            log_inf("would cross: bestpx=%d <= best_bid=%d", bestpx, best_bid_now);
+            return;
+          }
+        }
+      }
+
       if constexpr (Side == en::bs::BUY)
       {
         int best_bid = payload->point_.bid_px[0];
@@ -825,7 +855,21 @@ namespace light::act
       }
 
       // No order exists and signal is ADD -> place new order
-      if (!this->ord_info.has_value() && pld->is_add())
+      //
+      // ONLY ADDS ON OUR OWN SIDE. place_if_can_impl prices from payload->px,
+      // so shadowing an add that landed on the CONTRA side prices a BUY at the
+      // offer (or a SEL at the bid) -- a marketable order that fills on arrival
+      // and never rests. The aggressive path (light22_base::tradenotify_handler)
+      // has always had the mirror of this test; the passive path never did, and
+      // without it the pure shadow algorithm crossed the spread on ~88% of its
+      // fills while every result was reported as passive.
+      //
+      // It is not merely a rate change: a cross clears ord_info on arrival and
+      // frees the light's single slot immediately, whereas a resting order holds
+      // it until cancelled. The crossing lights therefore recycled far faster
+      // than the resting ones and dominated the fill count out of all proportion
+      // to the ~50% of adds that land on the contra side.
+      if (!this->ord_info.has_value() && pld->is_add() && pld->side == Side)
       {
         log_trc("no order info");
         this->unskipped++;

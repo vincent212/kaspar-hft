@@ -192,7 +192,8 @@ protected:
       int price,
       int size,
       en::md mev = en::md::ADD,
-      uint64_t ex_order_id = 0)
+      uint64_t ex_order_id = 0,
+      en::bs side = en::bs::BUY)
   {
     // Use unique ex_order_id to avoid triggering attached_order_id cancel logic
     // (attached_order_id=0 would match ex_order_id=0)
@@ -205,7 +206,7 @@ protected:
     payload->sym = sym_id;
     payload->px = frame::ref::Price(price, frame::ref::RefData::get_asset(sym_id));
     payload->sz = size;
-    payload->side = en::bs::BUY;
+    payload->side = side;
     payload->mev = mev;
     payload->action = en::mt::NONE;
     payload->ot = en::ot::LIMIT;
@@ -220,8 +221,18 @@ protected:
     // Set BBBO (best bid/best offer)
     payload->point_.sym = sym_id;
     payload->point_.baddata = false;
-    payload->point_.bid_px[0] = price;
-    payload->point_.ask_px[0] = price + 1;
+    // The synthetic touch must be CONSISTENT WITH THE SIDE of the add, or the
+    // fixture builds a book that cannot exist. A bid-side add at `price` means
+    // price IS the bid; an ask-side add at `price` means price is the ASK. Get
+    // this wrong and a SEL-side add lands at the bid, which is a crossed quote,
+    // and the light will (correctly) refuse to place it.
+    if (side == en::bs::BUY) {
+      payload->point_.bid_px[0] = price;
+      payload->point_.ask_px[0] = price + 1;
+    } else {
+      payload->point_.bid_px[0] = price - 1;
+      payload->point_.ask_px[0] = price;
+    }
     payload->point_.bid_sz[0] = 100;
     payload->point_.ask_sz[0] = 100;
 
@@ -239,24 +250,30 @@ protected:
                                           en::bs resting_side = en::bs::SEL,
                                           uint64_t txtim = 0)
   {
-    auto payload = make_payload(sym_id, price, size, en::md::MOD);
+    auto payload = make_payload(sym_id, price, size, en::md::MOD, 0, resting_side);
     payload->action = en::mt::EXEC;      // what makes it a trade (Data.hpp)
-    payload->side = resting_side;
     // The light stamps an order with stamp_of(payload) == txtim_epoch, so a
     // test that cares when an order was sent has to be able to choose it.
     if (txtim) { payload->txtim_epoch = txtim; payload->tim = txtim; }
     return new frame::ob::msg::TradeNotify(payload);
   }
 
-  // Helper to create EndOfBurst message
+  // Helper to create EndOfBurst message.
+  //
+  // `side` is the side of the book the ADD landed on, and it MATTERS: a passive
+  // light shadows adds on its OWN side only. Feeding a BUY-side add to a SEL
+  // light used to produce a sell quoted at the bid -- a marketable order that
+  // filled on arrival and never rested. make_payload defaults to BUY, so a SEL
+  // light under test must be given a SEL-side add or it will correctly ignore it.
   frame::ob::msg::EndOfBurst* make_eob(
       int sym_id,
       int price,
       int size,
       en::md mev = en::md::ADD,
-      uint64_t ex_order_id = 0)
+      uint64_t ex_order_id = 0,
+      en::bs side = en::bs::BUY)
   {
-    auto payload = make_payload(sym_id, price, size, mev, ex_order_id);
+    auto payload = make_payload(sym_id, price, size, mev, ex_order_id, side);
     auto eob = new frame::ob::msg::EndOfBurst(payload);
     eob->last = true;
     return eob;
@@ -1284,7 +1301,9 @@ TEST_F(Light22IntegrationTest, SellSidePlacesOrderWhenAboveTarget) {
   mock_som.clear();
 
   for (int i = 0; i < 5; i++) {
-    auto eob = make_eob(sym_id, 101, 5, en::md::ADD);  // Ask price
+    // A SEL-side add at the ask. It must be SEL-side: a passive SEL light
+    // ignores bid-side adds, because quoting at the bid is a cross, not a quote.
+    auto eob = make_eob(sym_id, 101, 5, en::md::ADD, 0, en::bs::SEL);
     process_msg(light.get(), eob, &mock_ob);
     delete eob;
   }
@@ -1498,4 +1517,79 @@ TEST_F(Light22IntegrationTest, AggressiveIgnoresTradesOnItsOwnSide) {
   delete t;
   EXPECT_EQ(mock_som.count_messages_of_type<frame::som::msg::Order>(), 1u)
       << "a BUY light must shadow takes";
+}
+
+// ---------------------------------------------------------------------------
+// THE PASSIVE BANK MUST NOT CROSS
+//
+// place_if_can_impl prices from payload->px. Before the side guard, a light
+// shadowed an ADD on EITHER side of the book, so a BUY light shadowing an
+// ask-side add quoted a buy AT THE OFFER -- marketable, filled on arrival,
+// never rested. Measured on ES January 2025 that was 88% of all fills, and
+// every one of them was reported as a passive queue fill with all-zero queue
+// columns.
+//
+// max_dist cannot catch this: it is one-sided by construction (for a BUY it
+// rejects prices too far BELOW the bid, i.e. too passive) and bounds the
+// aggressive direction not at all.
+// ---------------------------------------------------------------------------
+
+TEST_F(Light22IntegrationTest, BuyLightIgnoresAskSideAdds) {
+  auto light = create_buy_light("TestBuy", 10);
+  int sym_id = get_sym_id();
+  mock_pcoord.set_position(0);
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+  mock_som.clear();
+
+  for (int i = 0; i < 10; i++) {
+    auto eob = make_eob(sym_id, 100, 5, en::md::ADD, 0, en::bs::SEL);
+    process_msg(light.get(), eob, &mock_ob);
+    delete eob;
+  }
+
+  EXPECT_EQ(mock_som.count_messages_of_type<frame::som::msg::Order>(), 0u)
+      << "a BUY light shadowing an ask-side add quotes a buy at the offer, "
+         "which crosses -- it must decline the event entirely";
+}
+
+TEST_F(Light22IntegrationTest, SellLightIgnoresBidSideAdds) {
+  auto light = create_sell_light("TestSell", -10);
+  int sym_id = get_sym_id();
+  mock_pcoord.set_position(0);
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+  mock_som.clear();
+
+  for (int i = 0; i < 10; i++) {
+    auto eob = make_eob(sym_id, 100, 5, en::md::ADD, 0, en::bs::BUY);
+    process_msg(light.get(), eob, &mock_ob);
+    delete eob;
+  }
+
+  EXPECT_EQ(mock_som.count_messages_of_type<frame::som::msg::Order>(), 0u)
+      << "a SEL light shadowing a bid-side add quotes a sell at the bid, "
+         "which crosses -- it must decline the event entirely";
+}
+
+TEST_F(Light22IntegrationTest, BuyLightStillActsOnBidSideAdds) {
+  // The positive control for the two tests above: the guard must reject the
+  // contra side WITHOUT also killing the path it is supposed to leave alone.
+  auto light = create_buy_light("TestBuy", 10);
+  int sym_id = get_sym_id();
+  mock_pcoord.set_position(0);
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+  mock_som.clear();
+
+  for (int i = 0; i < 5; i++) {
+    auto eob = make_eob(sym_id, 100, 5, en::md::ADD, 0, en::bs::BUY);
+    process_msg(light.get(), eob, &mock_ob);
+    delete eob;
+  }
+
+  EXPECT_EQ(mock_som.count_messages_of_type<frame::som::msg::Order>(), 1u)
+      << "a bid-side add is exactly what a passive BUY light shadows";
+  auto order = mock_som.get_message<frame::som::msg::Order>(0);
+  ASSERT_NE(order, nullptr);
+  EXPECT_EQ(order->side, en::bs::BUY);
+  // And it must rest, not cross: make_payload puts the ask at price+1.
+  EXPECT_LT(order->px, 101) << "a passive buy must be priced below the offer";
 }
