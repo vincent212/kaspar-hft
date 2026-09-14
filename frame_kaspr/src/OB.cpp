@@ -256,14 +256,14 @@ void act::OB::clear()
     auto q = bidqs[i];
     if (q->isempty())
       continue;
-    q->canc_notify_all();
+    q->canc_notify_all(&ret_path_);
   }
   for (std::size_t i = 0; i < askqs.size(); i++)
   {
     auto q = askqs[i];
     if (q->isempty())
       continue;
-    q->canc_notify_all();
+    q->canc_notify_all(&ret_path_);
   }
   best_bid = 0;
   best_ask = ref::RefData::inst().get_asset(sym)->maxpx - 1;
@@ -456,7 +456,7 @@ void act::OB::add(
           if (!rc)
           {
             auto rej_msg = new frame::som::msg::Reject(short_id, som::msg::Reject::TOOMANYAGGR);
-            sender->send(rej_msg, this);
+            publish_delayed(sender, rej_msg, last_processed_ts);
 #ifdef TRACEORDERS
             cerr << ">>> REJONARR: " << short_id << " " << sim_tim.date << " " << sim_tim.ns << endl;
 #endif
@@ -464,7 +464,7 @@ void act::OB::add(
           }
 #endif
           auto o = new Order(txtim, id, exordid, sym, side, sz, sender, owner);
-          OrderQ::fill_notify_s(o, sz, -1, best_ask, en::mt::EXECD, txtim);
+          OrderQ::fill_notify_s(o, sz, -1, best_ask, en::mt::EXECD, txtim, &ret_path_);
 #ifdef TRACEORDERS
           cerr << ">>> FILLONARR: " << short_id << " " << sim_tim.date << " " << sim_tim.ns << endl;
 #endif
@@ -491,12 +491,12 @@ void act::OB::add(
 #ifdef TRACEORDERS
             cerr << ">>> REJONARR: " << short_id << " " << sim_tim.date << " " << sim_tim.ns << endl;
 #endif
-            sender->send(rej_msg, this);
+            publish_delayed(sender, rej_msg, last_processed_ts);
             return true;
           }
 #endif
           auto o = new Order(txtim, id, exordid, sym, side, sz, sender, owner);
-          OrderQ::fill_notify_s(o, sz, -1, best_bid, en::mt::EXECD, txtim);
+          OrderQ::fill_notify_s(o, sz, -1, best_bid, en::mt::EXECD, txtim, &ret_path_);
 #ifdef TRACEORDERS
           cerr << ">>> FILLONARR: " << short_id << " " << sim_tim.date << " " << sim_tim.ns << endl;
 #endif
@@ -1030,7 +1030,15 @@ void act::OB::mod(
                 mda::OrderID::id(id),
                 som::msg::CancReject::NOTFOUND);
         ASSERT(sender, "sim cancs must have sender");
-        sender->send(f, this);
+        // An exchange event like any other, so it pays the SAME inbound hop as
+        // the Fill it races. An order that filled on arrival is gone from the
+        // book, so a cancel for it lands here -- and the fill and this reject
+        // are about the same order. Sending this inline while the fill waited
+        // on pub_q let the reject overtake it: the light took the reject,
+        // cleared its slot, placed again, and then the fill for the previous
+        // order arrived ("fill for wrong order id"), stranding the new order in
+        // QCoord until an add at that price tripped "already have this mm id".
+        publish_delayed(sender, f, last_processed_ts);
       }
       else
       {
@@ -1328,7 +1336,7 @@ void act::OB::fill(OrderQ *q, Order *s, int sz, int px, uint64_t tim) noexcept
     }
     ASSERT(order_found, "order not found");
     ASSERT(tim > 0, "no tim");
-    q->fill_notify(s, s->get_sz(), -1, px, en::mt::EXECD, tim);
+    q->fill_notify(s, s->get_sz(), -1, px, en::mt::EXECD, tim, &ret_path_);
     // if prev order is sim fill it for remainder
     if ((sz - fillsz > 0) && prev && static_cast<Order *>(prev)->issim())
       fill(q, static_cast<Order *>(prev), sz - fillsz, px, tim);
@@ -1345,7 +1353,7 @@ void act::OB::fill(OrderQ *q, Order *s, int sz, int px, uint64_t tim) noexcept
 
     ASSERT(order_found, "order not found");
     ASSERT(tim>0,"no tim");
-    q->fill_notify(s, fillsz, -1, px, en::mt::EXEC, tim);
+    q->fill_notify(s, fillsz, -1, px, en::mt::EXEC, tim, &ret_path_);
     ASSERT(s->get_sz() > 0, "partial fill but size is < 0");
   }
 }
@@ -1398,7 +1406,16 @@ void act::OB::notifybbbosubs(
         sym,
         int(best_bid),  // the cast is here because prices are ints outside of the ob but uints in ob
         int(best_ask)); // the assumption here is that prices are positive (this is not correct)
-    c->send(m, this);
+    // The inbound hop, like everything else this book tells a subscriber.
+    // bbbosubs is the SAME list that receives TradeNotify through
+    // publish_delayed, so sending this inline handed one subscriber the new BBO
+    // instantly and the trade that caused it feed_delay later. SOM subscribes
+    // here -- bbbochg_handler writes best_bid/best_ask/currtim straight from it
+    // and those marks feed the unrealised PnL readouts -- so it was marking
+    // positions against a book state nothing else had been allowed to see,
+    // while the fills it was marking arrived delayed. txtim is this record's
+    // own market time, which is what the rest of the publish path uses.
+    publish_delayed(c, m, txtim);
   }
 }
 
@@ -2378,6 +2395,15 @@ if (debug)
 
   ASSERT(!to_proc->is_sim(), "this must be a real order");
 
+  // Our own orders on del_q are released BELOW, before this record is applied,
+  // and the fills and cancel-acks they generate are exchange events stamped
+  // with `last_processed_ts`. Advance it first. Without this the ack carries
+  // the PREVIOUS record's time -- one inter-record gap too early, and on a
+  // quiet book that gap is far larger than the feed delay it is supposed to
+  // pay, so the ack comes back before it was even generated.
+  if (to_proc->txtim_epoch)
+    last_processed_ts = to_proc->txtim_epoch;
+
   while (true)
   {
     auto p = del_q.begin();
@@ -2410,8 +2436,15 @@ if (debug)
     // and either release instantly or push the head of the queue so far into
     // the future that it never became ready -- wedging del_q for the rest of
     // the run, since the loop breaks on the first entry that is not ready.
+    // ts0 is the market time the light SAW, which is already feed_delay old --
+    // so the round trip is feed + order, not order alone. Leaving this at
+    // ts0 + delay makes every order arrive one feed hop too early, which is the
+    // asymmetry this whole change exists to remove. feed_delay 0 leaves the
+    // arithmetic exactly as it was.
     auto order_engine_arrive_time =
-        order_leave_time + uint64_t(std::max(40, eff_delay)) * 1000; // 40 us floor
+        order_leave_time
+          + uint64_t(feed_delay) * 1000
+          + uint64_t(std::max(40, eff_delay)) * 1000; // 40 us floor
     if (order_engine_arrive_time < to_proc->tim)
     {
 
@@ -2467,6 +2500,22 @@ void act::OB::process_market_data(
 {
 
   ASSERT(got_payload->mev != en::md::UNI, "uninitialied md type");
+
+  // Release any market data whose feed delay has elapsed, BEFORE this event
+  // touches the book -- a subscriber must never be handed an update newer than
+  // the one it is still waiting for. No-op when feed_delay is 0.
+  //
+  // Market data only. One of OUR orders coming off del_q also lands here, and
+  // it carries the txtim of the record that was current when SOM sent it --
+  // older than the record that has just released it. Letting that through
+  // walked `last_processed_ts` BACKWARDS, so the fill or cancel-ack the order
+  // generates was stamped in the past and came back before the feed hop it was
+  // supposed to pay.
+  if (got_payload->txtim_epoch && !got_payload->is_sim())
+  {
+    drain_pub_q(got_payload->txtim_epoch);
+    last_processed_ts = got_payload->txtim_epoch;
+  }
 
   // No-cross invariant, checked once a whole TRANSACTION has been applied —
   // i.e. on the first record of the next one.
@@ -2790,8 +2839,8 @@ void act::OB::process_market_data(
     // Send to hiprio_datasubs first
     for (const auto &s : hiprio_datasubs)
     {
-      s->send(new msg::TradeNotify(
-          got_payload), this);
+      publish_delayed(s, new msg::TradeNotify(got_payload),
+                      got_payload->txtim_epoch);
       notified_subscribers.insert(s);
     }
 
@@ -2799,8 +2848,8 @@ void act::OB::process_market_data(
     for (const auto &s : bbbosubs)
     {
       if (notified_subscribers.find(s) == notified_subscribers.end()) {
-        s->send(new msg::TradeNotify(
-            got_payload), this);
+        publish_delayed(s, new msg::TradeNotify(got_payload),
+                        got_payload->txtim_epoch);
       }
     }
     
@@ -3028,8 +3077,8 @@ void act::OB::process_add_or_mod(
 #else
         for (const auto &s : hiprio_datasubs)
         {
-          s->send(new msg::EndOfBurst(
-              last_good_payload), this);
+          publish_delayed(s, new msg::EndOfBurst(last_good_payload),
+                          last_good_payload->txtim_epoch);
         }
 #endif
       }
@@ -3050,7 +3099,7 @@ void act::OB::process_add_or_mod(
 
         if (!has_pred)
         {
-          s->send(new msg::EndOfBurst2(
+          publish_delayed(s, new msg::EndOfBurst2(
               sym,
               last_good_payload->txtim_epoch,
               last_good_payload->point_.bid_px[0],
@@ -3062,11 +3111,11 @@ void act::OB::process_add_or_mod(
               last_good_payload->point_.action,
               last_good_payload->point_.side,
               volumefound,
-              num_trad), this);
+              num_trad), last_good_payload->txtim_epoch);
         }
         else
         {
-          s->send(new msg::EndOfBurst2(
+          publish_delayed(s, new msg::EndOfBurst2(
               sym,
               txtim_epoch,
               best_bid,
@@ -3077,7 +3126,7 @@ void act::OB::process_add_or_mod(
               en::md::UNI,
               en::mt::UNI,
               en::bs::UNI,
-              volumefound), this);
+              volumefound), txtim_epoch);
         }
       }
     }
@@ -3268,7 +3317,7 @@ void act::OB::do_canc(
     log_err("do_canc: order %d not in qordermap at this level -- cancelling it "
             "anyway; qordermap and the order list have diverged",
             o->get_id());
-  q->canc_notify(o, sz, dispsz, modtyp);
+  q->canc_notify(o, sz, dispsz, modtyp, &ret_path_);
 }
 
 void act::OB::check_handler(const frame::ob::msg::CheckBook *m) noexcept

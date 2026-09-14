@@ -45,6 +45,7 @@
 
 #include "sim/act/SlippageProbe.hpp"
 
+#include <algorithm>
 #include <cinttypes>
 #include <cstring>
 
@@ -252,6 +253,36 @@ void SlippageProbe::close_window(uint64_t now) noexcept
   // waits. Each keeps the stamp of the fill that completed it, so a leg done in
   // 10s is measured over 10s even though the window ran for minutes.
   ASSERT(buy_leg.done && sel_leg.done, "close_window with an unfinished leg");
+
+  // THE SAME TWO CLOCKS AS fill_handler, at the other end of the window.
+  //
+  // `now` is the Timer's alarm. The Timer advances on EndOfBurst2, which OB
+  // builds from `last_good_payload` -- and `last_good_payload = got_payload`
+  // runs AFTER the burst is emitted (OB.cpp), so the Timer's clock is the
+  // PREVIOUS record. A leg's `ended` is the transactTime of the record that
+  // produced the fill, i.e. the CURRENT one. When the fill that completes a leg
+  // lands on the very record that also closes the window, `ended` leads `now`
+  // by one inter-record gap and the bounds check below fires.
+  //
+  // That is not a rare race. The window closes only once BOTH legs are done, so
+  // the closing record is by construction the one carrying the last completing
+  // fill whenever a leg finishes late -- exactly the slow-leg case the
+  // wait-for-both rule exists to measure. Measured on ES 2025 the overshoot was
+  // 87 to 248 us, always inside the same millisecond. It aborted six sessions
+  // of the aggressive arm, whose mean leg is 366 s against a 600 s minimum,
+  // and none of the passive arm, whose legs are 61-88 s and rarely reach the
+  // boundary that way. An abort there is worse than a lost session: it leaves a
+  // truncated CSV that run_grid.sh's `wc -l > 1` resume guard accepts as a
+  // completed cell, so the corpus silently keeps a part-day cut off AT a slow
+  // window -- biasing the sample toward the fast ones, which is the opposite of
+  // what the arm is measuring.
+  //
+  // Close at the later of the two, rather than relaxing the invariant: the
+  // window really did run until its last completing fill, and the alarm is
+  // simply the stalest clock in the room. The boundary SCHEDULE is untouched --
+  // `now` is by value, so the caller still opens the next window on the tick.
+  now = std::max(now, std::max(buy_leg.ended, sel_leg.ended));
+
   ASSERTF(now >= fire_ts + cfg.min_window_ns,
           boost::format("window %zu closed after %llu ns, under the %llu ns minimum")
             % n_windows % (unsigned long long)(now - fire_ts)
@@ -459,8 +490,12 @@ void SlippageProbe::accrue_inventory(uint64_t now) noexcept
     const double dt = double(now - pos_last_tim);
     pos_integral += double(position) * dt;
     abs_integral += std::abs(double(position)) * dt;
+    // Only advance on a segment we actually accrued. Rewinding on an
+    // out-of-order fill -- which the two clocks make routine -- would make the
+    // NEXT segment span the gap again and double-count it, compounding with
+    // every such fill.
+    pos_last_tim = now;
   }
-  pos_last_tim = now;
 }
 
 void SlippageProbe::fill_handler(const frame::som::msg::Fill *m) noexcept
@@ -807,6 +842,11 @@ void SlippageProbe::shutdown_handler(const actors::msg::Shutdown *) noexcept
     // so buy_ns and buy_leg_mkt_vol described different intervals in one row.
     if (!buy_leg.done) buy_leg.ended = last_tim;
     if (!sel_leg.done) sel_leg.ended = last_tim;
+    // Close the final inventory segment before the row is written. Without it
+    // the integral stops at the last fill while span covers the whole window,
+    // so a window that stalled for hours holding a position reports almost no
+    // inventory -- the exact rows where it is highest.
+    accrue_inventory(last_tim);
     mid_close = last_bid + last_ask;
 
     // Name the failure. "session_end" alone could not distinguish "the replay

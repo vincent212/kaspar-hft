@@ -25,6 +25,14 @@ BIN=${BIN:-$PWD/../dbento_pcap_to_bin/src/dbento_pcap_to_bin}
 #   CHANNELS="310" ./extract_futures.sh          # ES only
 read -r -a CHANNELS <<< "${CHANNELS:-310 318 326}"
 NJOBS=${NJOBS:-$(nproc 2>/dev/null || echo 16)}
+# Scheduling priority. Default 19 (lowest) because an extraction normally runs
+# behind whatever else is using the box. Set NICE_LEVEL=0 to make it compete on
+# equal terms, which is what you want when a long sweep is already running at
+# nice 19 and the extraction is the thing you are waiting on -- at nice 0 it
+# gets roughly 20x the scheduler weight of the sweep without stopping it.
+# IONICE_CLASS=2 likewise moves the reads off the idle class.
+NICE_LEVEL=${NICE_LEVEL:-19}
+IONICE_CLASS=${IONICE_CLASS:-3}
 
 # Per-(chan,date) worker. Exported so xargs bash subshells can find it.
 run_one() {
@@ -51,7 +59,7 @@ run_one() {
     # Logger's rotating log files also land in CWD; that's OK, they live next
     # to the bin they document.
     ( cd "$bin_dir" && \
-      nice -n 19 ionice -c 3 "$BIN" \
+      nice -n "$NICE_LEVEL" ionice -c "$IONICE_CLASS" "$BIN" \
           --pcap-dir "$src_day" --chan "$chan" ) > "$log" 2>&1
     local rc=$?
     local dt=$((SECONDS-t0))
@@ -67,7 +75,7 @@ run_one() {
     fi
 }
 export -f run_one
-export SRC OUT_DIR BIN
+export SRC OUT_DIR BIN NICE_LEVEL IONICE_CLASS
 
 # Dates
 if [ $# -gt 0 ]; then
@@ -77,7 +85,7 @@ else
 fi
 
 total=$((${#DATES[@]} * ${#CHANNELS[@]}))
-echo "extract_futures: ${#DATES[@]} dates x ${#CHANNELS[@]} channels = $total runs, NJOBS=$NJOBS"
+echo "extract_futures: ${#DATES[@]} dates x ${#CHANNELS[@]} channels = $total runs, NJOBS=$NJOBS, nice=$NICE_LEVEL"
 echo "src: $SRC"
 echo "out: $OUT_DIR/bin/<chan>/"
 echo

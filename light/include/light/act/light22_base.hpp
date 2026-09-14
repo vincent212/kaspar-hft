@@ -378,9 +378,27 @@ namespace light::act
       ASSERT(price > 0, "bad price");
       ASSERT(sz > 0, "bad size");
 
-      // Gunning protection: prevent placing orders too frequently at the same price level.
-      // This avoids being "gunned" by other participants who detect repeated order placement.
-      // Rate limit: 15ms minimum between orders at the same price.
+      // GUNNING PROTECTION -- LIVE TRADING ONLY.
+      //
+      // Stops us re-quoting the same price in a tight loop, where other
+      // participants can detect the pattern. That is a real-money concern and
+      // it belongs in the live build; in a replay it is actively harmful, for
+      // two reasons:
+      //
+      //   1. It measures WALL CLOCK (chutil::Time::epoch() is
+      //      system_clock::now()), not market time. A replay covers an hour of
+      //      market in well under a minute, so 15 ms of wall clock swallows
+      //      hundreds of milliseconds of simulated time -- and how much depends
+      //      on machine speed and load, which makes results irreproducible.
+      //   2. Crosses all price at the touch, so they all collide on one price.
+      //      Measured 20250102 09:30-10:30 at 100% aggressive rate: 14,840
+      //      placements blocked here against 1,651 that went out.
+      //
+      // Gated on its OWN macro rather than piggybacking on a book-selection
+      // flag: whether we run gunning protection is a trading-policy question,
+      // not a consequence of which order book is compiled in. Define
+      // GUNNING_PROTECTION in the live build to enable it.
+#ifdef GUNNING_PROTECTION
       auto order_placed_ts = chutil::Time::epoch();
       ASSERT(order_placed_ts > 0, "bad order_placed_ts");
       auto p = last_order_ts_at_px.find(price);
@@ -396,6 +414,7 @@ namespace light::act
         }
       }
       last_order_ts_at_px[price] = order_placed_ts;
+#endif
 
       log_inf("placing order ord sz: %d", sz);
 
@@ -507,10 +526,67 @@ namespace light::act
       timer->send(new frame::mtim::msg::AlarmClockSub(s, ms, UNSUSPEND, false), this);
     }
 
-    void tradenotify_handler(const frame::ob::msg::TradeNotify *) noexcept
+    // AGGRESSIVE PARTICIPATION -- shadow the TRADE instead of the ADD.
+    //
+    // This reuses the placement path WHOLE rather than reimplementing it:
+    // place_if_can_impl() already prices from `payload->px`, not from the book
+    // (light22.hpp: `auto bestpx = payload->px.to_int()`), so handing it a
+    // trade payload places a limit order at the price that trade printed at.
+    // For us that price is on the far side, so the order executes instead of
+    // resting -- which is the whole difference between aggressive and passive
+    // here. Everything else comes along unchanged: the max_dist test, the
+    // level sizing, the diff_from_target throttle, gunning protection.
+    //
+    // The is_add() gate and the "cannot be exec" assert both live in
+    // eob_handler, at its call site -- not inside place_if_can_impl -- so a
+    // trade payload is acceptable to it.
+    //
+    // Off unless aggr_participation_bp is set, so a config that omits it is the
+    // pure shadow algorithm and every existing result stands. Per light, like
+    // place_rate_bp: four lights at 200bp shadow 8% of trades between them.
+    void tradenotify_handler(const frame::ob::msg::TradeNotify *m) noexcept
     {
-      // ES futures: trade notifications not used for trading decisions
+      if (this->aggr_participation_bp <= 0) return;
+      if (!m || !m->payload) return;
+      if (m->payload->mkt != this->md_venue) return;
+      if (this->ord_info.has_value()) return;    // one working order per light
+
+      // ONLY THE TRADES THAT ARE AGGRESSIVE FOR THIS SIDE.
+      //
+      // A trade payload carries the RESTING order's price and side, so a hit
+      // (resting BUY) prints at the bid and a take (resting SEL) at the ask. A
+      // BUY light shadowing a hit would place a limit AT THE BID -- a passive
+      // re-quote, not a cross. Only a take is on the far side for a buyer, and
+      // only a hit is for a seller.
+      //
+      // Without this test half of every "aggressive" placement rested instead
+      // of crossing, so a bank configured for 2% crossed on about 1% and spent
+      // the rest adding passive orders the grid would have credited to
+      // aggression -- measuring a mixture rather than the thing named.
+      if (Side == en::bs::BUY  && !m->payload->is_tak()) return;
+      if (Side == en::bs::SEL  && !m->payload->is_hit()) return;
+
+      // Same coin flip as place_rate_bp, same units, same per-light stream.
+      // rng lives in the derived light22 (seeded from the light's name so each
+      // light draws independently); this is CRTP, so reach it through Derived.
+      auto &rng_ = static_cast<Derived *>(this)->rng;
+      // Precomputed threshold, NOT `rng() % 10000`. 10000 is not a power of two,
+      // so the modulo is an integer division on a path that runs for EVERY
+      // trade. mt19937 is uniform over [0, 2^32), so comparing straight against
+      // bp*2^32/10000 gives the same rate in a single compare -- and with
+      // better uniformity, since the modulo version biases the low 7296
+      // residues by 1 part in 429497.
+      if (uint64_t(rng_()) >= this->aggr_participation_thresh) return;
+
+      // already_gated: the coin above was ours. Without it the passive
+      // place_rate_bp gate would apply on top and the realised share would be
+      // the product of the two rates.
+      static_cast<Derived *>(this)->place_if_can_impl(m->payload, true);
     }
+
+    // Basis points of TRADES this light shadows aggressively. 0 = off.
+    int aggr_participation_bp = 0;
+    uint64_t aggr_participation_thresh = 0;   // bp * 2^32 / 10000, see tradenotify_handler
 
     void gap_detected_handler(const frame::ob::msg::GapDetected *) noexcept
     {

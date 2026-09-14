@@ -9,7 +9,8 @@
 #
 #   ./run_grid.sh                 # the whole grid
 #   ./run_grid.sh --smoke         # 6 dates across the year, every config
-#   ./run_grid.sh --configs A     # one grid only (A, B or C)
+#   ./run_grid.sh --configs A     # one grid only (A, B, C, D or E)
+#   FEED_US="0 500 2000" ./run_grid.sh --configs E   # inbound feed latency arm
 #   ./run_grid.sh --month 202501  # one month of sessions, every config
 #   ./run_grid.sh --only rate200_sz10   # a single named config (see the tsv)
 #   NJOBS=56 ./run_grid.sh
@@ -29,7 +30,7 @@ CHAN=${CHAN:-310}
 BIN_SRC=${BIN_SRC:-$KSPRPROJ/sim/src/sim}
 OUT=${OUT:-/vast/home/vmayeski/gridruns/$(date +%Y%m%d_%H%M%S)}
 NJOBS=${NJOBS:-56}
-CONFIG_DIR=${CONFIG_DIR:-$KSPRPROJ/sim/config}
+CONFIG_DIR=${CONFIG_DIR:-$KSPRPROJ/sim/config_a}
 SEED=${SEED:-1}
 GRID_SET=${GRID_SET:-1}   # 1 = full sweep (config_a); 2 = follow-up (config_b)
 MIN_BIN_BYTES=${MIN_BIN_BYTES:-10000000}   # below this: no session in the file at all
@@ -66,7 +67,7 @@ cp "$BIN_SRC" "$OUT/sim.pinned"
 BIN="$OUT/sim.pinned"
 
 # ---- the axes ---------------------------------------------------------
-# name  grid  place_rate_bp  probe_size  ord_sz  delay_us  cancel_delay_us  max_dist
+# name  grid  place_rate_bp  probe_size  ord_sz  delay_us  cancel_delay_us  max_dist  aggr_bp  feed_us
 #
 # ord_sz is -1 (= "the arm's value") on every cell, and nothing writes it into a
 # cell's lights.ini. Grid B used to declare 1 here, which never reached the sim:
@@ -87,6 +88,14 @@ BIN="$OUT/sim.pinned"
 RATE_BP=${RATE_BP:-"25 50 100 200 400"}
 BASE_BP=${BASE_BP:-200}
 LAT_US=${LAT_US:-"0 100 200 400 800 1600 3200 6400"}
+Q_SZ=${Q_SZ:-"1 2 5 10 20 50 100 200"}   # grid B parent sizes
+AGGR_BP=${AGGR_BP:-"0 100 200 300 400"}  # grid D aggressive rate, bp of TRADES
+AGGR_BASE_BP=${AGGR_BASE_BP:-50}         # grid D baseline place_rate_bp
+AGGR_BASE_SZ=${AGGR_BASE_SZ:-100}        # grid D baseline parent size
+A_SZ=${A_SZ:-"1 10 100"}                 # grid A parent sizes
+DLY_US=${DLY_US:-500}                    # grid A wire latency, us (order and cancel)
+FEED_US=${FEED_US:-"0 200 500 1000 2000 5000"}  # grid E inbound feed latency, us
+NICE_LEVEL=${NICE_LEVEL:-19}              # sim nice level; 0 = normal priority
 
 grid_tsv="$OUT/grid.tsv"
 
@@ -103,24 +112,70 @@ grid_tsv="$OUT/grid.tsv"
 {
   if [ "$GRID_SET" = "2" ]; then
     for q in 20 50 100 200; do
-      printf 'Q%s\tB2\t%s\t%s\t-1\t500\t500\t-1\n' "$q" "$BASE_BP" "$q"
+      printf 'Q%s\tB2\t%s\t%s\t-1\t500\t500\t-1\t0\t0\n' "$q" "$BASE_BP" "$q"
     done
     for us in $LAT_US; do
-      printf 'lat%s\tC2\t%s\t100\t-1\t%s\t%s\t-1\n' "$us" "$BASE_BP" "$us" "$us"
+      printf 'lat%s\tC2\t%s\t100\t-1\t%s\t%s\t-1\t0\t0\n' "$us" "$BASE_BP" "$us" "$us"
     done
   else
     for bp in $RATE_BP; do
-      for sz in 1 10 100; do
-        printf 'rate%s_sz%s\tA\t%s\t%s\t-1\t500\t500\t-1\n' "$bp" "$sz" "$bp" "$sz"
+      for sz in $A_SZ; do
+        printf 'rate%s_sz%s\tA\t%s\t%s\t-1\t%s\t%s\t-1\t0\t0\n' \
+          "$bp" "$sz" "$bp" "$sz" "$DLY_US" "$DLY_US"
       done
     done
-    for q in 1 2 5 10 20 50 100 200; do
-      printf 'Q%s\tB\t%s\t%s\t-1\t500\t500\t-1\n' "$q" "$BASE_BP" "$q"
+    for q in $Q_SZ; do
+      printf 'Q%s\tB\t%s\t%s\t-1\t500\t500\t-1\t0\t0\n' "$q" "$BASE_BP" "$q"
     done
     for us in $LAT_US; do
-      printf 'lat%s\tC\t%s\t100\t-1\t%s\t%s\t-1\n' "$us" "$BASE_BP" "$us" "$us"
+      # CANC_US empty (the default) = cancels take the same wire as orders.
+      # Set it to pin cancel latency independently, which is how you prove the
+      # cancel path is actually delayed: delay=N cancel=0 must differ from
+      # delay=N cancel=N, or cancel_delay is not being applied.
+      cu=${CANC_US:-$us}
+      printf 'lat%s\tC\t%s\t100\t-1\t%s\t%s\t-1\t0\t0\n' \
+        "${us}${CANC_US:+c$cu}" "$BASE_BP" "$us" "$cu"
     done
   fi
+    # Grid D: does crossing the spread for part of the flow help?
+    #
+    # ONE baseline cell (rate 50, 100 lots -- the best cost/risk point in the
+    # 2026-09-14 arm A grid) with the AGGRESSIVE RATE swept instead. Aggression
+    # runs in its own bank: one light per side, place_rate_bp 0, its own QCoord,
+    # sharing the passive bank's PCoord (SimKaspr.cpp). aggr_participation_bp is
+    # now LITERAL -- 200 is 2% of trades, no division by the light count.
+    #
+    # This replaces the previous grid D, which swept place_rate_bp at a fixed
+    # 2% aggression and measured nothing: aggression rode on the passive lights,
+    # which decline a trade while holding a working order, so the configured 2%
+    # delivered 2.4%-to-0% and ranked inversely with placement rate.
+    #
+    # The 0bp cell IS the control and is included deliberately: it must
+    # reproduce grid A's rate50_sz100 to within noise, which is the check that
+    # the aggressive bank changes nothing when switched off.
+    for abp in $AGGR_BP; do
+      # AGGR_BASE_BP -1 turns the PASSIVE bank off entirely: the cell is then
+      # aggression and nothing else. DLY_US 0 by default; the inbound feed delay
+      # is the last column and grid E is the arm that sweeps it.
+      printf 'aggr%s\tD\t%s\t%s\t-1\t%s\t%s\t-1\t%s\t0\n' \
+        "$abp" "$AGGR_BASE_BP" "$AGGR_BASE_SZ" "$DLY_US" "$DLY_US" "$abp"
+    done
+    # Grid E: the INBOUND leg. Grid C moves the outbound hop, which makes the
+    # light act later on FRESH data; this moves the inbound one, which makes it
+    # act on STALE data. They are different experiments and the second is the
+    # one that was not measurable before -- a light that saw the book instantly
+    # and acted `delay` later had its place-to-cancel gap set by events it saw
+    # with no delay at all. The order delay is held at DLY_US across the arm so
+    # the only thing moving is how old the book was when the light looked.
+    #
+    # feed0 IS the control: it must reproduce the matching grid A cell to within
+    # noise, because feed_delay 0 publishes inline on exactly the path that
+    # existed before the queue was added.
+    for fus in $FEED_US; do
+      printf 'feed%s\tE\t%s\t100\t-1\t%s\t%s\t-1\t0\t%s\n' \
+        "$fus" "$BASE_BP" "$DLY_US" "$DLY_US" "$fus"
+    done
+
   # Grid D (max_dist sweep) removed -- see the commit; a light holds one order at
   # one price, so there was no working-size cap for max_dist to relieve.
 } > "$grid_tsv"
@@ -194,6 +249,13 @@ if [ "$SMOKE" = 1 ]; then
   for pick in 20250115 20250310 20250612 20250815 20251031 20251222; do
     for d in "${dates_all[@]}"; do [ "$d" = "$pick" ] && dates+=("$d"); done
   done
+elif [ -n "${ONLY_DATES:-}" ]; then
+  # Explicit date list, space separated. For smoke runs: a handful of sessions
+  # rather than a month, so a config change can be checked in minutes.
+  for d in $ONLY_DATES; do
+    f="$SRC/bin/$CHAN/$CHAN.$d.databento.bin"
+    [ -e "$f" ] && dates+=("$d")
+  done
 elif [ -n "$ONLY_MONTH" ]; then
   # One month, every runnable session in it. The Sunday and size filters above
   # still apply, so this is "the sessions that exist in that month", not a
@@ -220,7 +282,7 @@ echo "jobs   : $NJOBS"
 
 # ---- one run ----------------------------------------------------------
 run_one() {
-  local name=$1 gridid=$2 bp=$3 psz=$4 osz=$5 dly=$6 cdly=$7 mdist=$8 date=$9
+  local name=$1 gridid=$2 bp=$3 psz=$4 osz=$5 dly=$6 cdly=$7 mdist=$8 fus=$9 date=${10}
 
   local csv="$OUT/csv/$name/$date.csv"
   local log="$OUT/log/$name/$date.log"
@@ -259,7 +321,7 @@ run_one() {
   # to 100%, which surfaced as `ld: could not close arguments file` rather than
   # as a disk error. $HOME is on the 91T filer.
   local wd; wd=$(mktemp -d "${TMPDIR:-$HOME/tmp}/grid.$name.$date.XXXXXX")
-  ( cd "$wd" && nice -n 19 ionice -c 3 "$BIN" \
+  ( cd "$wd" && nice -n "$NICE_LEVEL" ionice -c 3 "$BIN" \
       --datafile "$SRC/bin/$CHAN/$CHAN.$date.databento.bin" \
       --universe "$uni" \
       --contract "$contract" \
@@ -268,6 +330,7 @@ run_one() {
       --probe-size "$psz" \
       --ob-delay-us "$dly" \
       --ob-cancel-delay-us "$cdly" \
+      --ob-feed-delay-us "$fus" \
       --probe-out "$csv" \
       --quiet ) > "$log" 2>&1
   local rc=$?
@@ -294,7 +357,7 @@ run_one() {
   return 0
 }
 export -f run_one front_month done_already
-export OUT SRC BIN CONFIG_DIR SEED FRONT_TSV CHAN
+export OUT SRC BIN CONFIG_DIR SEED FRONT_TSV CHAN NICE_LEVEL
 
 echo "name,date,rc,contract,last_line" > "$OUT/failures.csv"
 
@@ -303,7 +366,7 @@ started=$(date +%s)
 # Every (cell, session) pair, built first and dispatched in one go below.
 joblist="$OUT/jobs.tsv"
 : > "$joblist"
-while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist; do
+while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist aggr fus; do
   [ -n "$ONLY_GRID" ] && [ "$gridid" != "$ONLY_GRID" ] && continue
   [ -n "$ONLY_NAME" ] && [ "$name" != "$ONLY_NAME" ] && continue
   mkdir -p "$OUT/csv/$name" "$OUT/log/$name" "$OUT/cfg/$name"
@@ -324,11 +387,14 @@ while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist; do
   set_key "$OUT/cfg/$name/lights.ini" place_rate_bp "$bp"
   [ "$mdist" != "-1" ] && set_key "$OUT/cfg/$name/lights.ini" max_dist "$mdist"
   set_key "$OUT/cfg/$name/lights.ini" rng_seed "$SEED"
+  # Aggressive participation, bank total. Written even when 0 so the cell's
+  # config states it outright rather than relying on the arm's default.
+  set_key "$OUT/cfg/$name/lights.ini" aggr_participation_bp "${aggr:-0}"
 
   # Queue this cell's sessions rather than running them. See the fan-out below.
   for d in "${dates[@]}"; do
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$name" "$gridid" "$bp" "$psz" "$osz" "$dly" "$cdly" "$mdist" "$d" >> "$joblist"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$name" "$gridid" "$bp" "$psz" "$osz" "$dly" "$cdly" "$mdist" "${fus:-0}" "$d" >> "$joblist"
   done
 done < "$grid_tsv"
 
@@ -354,7 +420,7 @@ xargs -P "$NJOBS" -L1 bash -c 'run_one "$@"' _ < "$joblist"
 # as it completed would arrive in an order that told you nothing.
 echo
 echo "per config:"
-while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist; do
+while IFS=$'\t' read -r name gridid bp psz osz dly cdly mdist aggr fus; do
   [ -n "$ONLY_GRID" ] && [ "$gridid" != "$ONLY_GRID" ] && continue
   [ -n "$ONLY_NAME" ] && [ "$name" != "$ONLY_NAME" ] && continue
   ok=0

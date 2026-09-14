@@ -50,6 +50,7 @@ namespace sim
              int ord_sz = -1,
              int ob_delay_us = -1,
              int ob_cancel_delay_us = -1,
+             int ob_feed_delay_us = 0,
              int max_dist = -1,
              int nlights_per_side = -1,
              int probe_size = 0,
@@ -79,6 +80,12 @@ namespace sim
     // Cancel latency. Same wire as an order, so -1 (= ob_delay_us) is the
     // physically right default; set it only to test the asymmetric case.
     int      ob_cancel_delay_us_;
+    // INBOUND feed latency, exchange -> us. The other half of the round trip,
+    // and the one the simulator did not have: a light saw the book instantly
+    // and acted at ob_delay_us, so the gap between its place and its cancel was
+    // set by events it saw with no delay. 0 = publish immediately, which is
+    // exactly the behaviour that existed before.
+    int      ob_feed_delay_us_;
     // How deep the light will rest, in ticks from the touch. The binding
     // limit on working size: (max_dist + 1) levels x lev_orders_max.
     // -1 = leave lights.ini alone.

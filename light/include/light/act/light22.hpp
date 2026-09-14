@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <limits>
 #include <random>
 
 /*
@@ -24,11 +26,21 @@ namespace light::act
 
     enum TimerIds
     {
-      DELAYED_CANCEL = 100  // Use high number to avoid collision with base class
+      DELAYED_CANCEL = 100, // Use high number to avoid collision with base class
+      AGGR_TTL       = 101  // aggressive order time-to-live: fill or be gone
     };
 
     // Track the exchange order ID from the market data message that triggered order placement
     uint64_t attached_order_id = 0;
+    // True when attached_order_id came from a TRADE (the aggressive path) rather
+    // than from a resting ADD. The id is used for TWO unrelated things and only
+    // one of them is valid for a cross:
+    //   - bank-wide dedup, so two lights do not act on the same event  -> BOTH
+    //   - cancel when the anchor leaves the book                       -> PASSIVE ONLY
+    // A trade's referenced order is being consumed as we attach to it, so the
+    // cancel fires immediately: it killed 293 of 293 aggressive orders before
+    // this split.
+    bool attached_is_trade = false;
 
     // Deterministic order placement: place order after every N EOB ADD messages
     // Default is 5 (place after 5 EOB ADD messages)
@@ -51,6 +63,33 @@ namespace light::act
     int delayed_cancel_events = 0;
     int delayed_cancel_ms = 0;
     std::mt19937 rng{1};            // per-light, deterministically seeded
+    uint64_t place_rate_thresh = 0;  // place_rate_bp * 2^32 / 10000
+    int aggr_ttl_ms = 1;             // aggressive order time-to-live, ms; 0 = off
+    // The order the TTL alarm was armed for, and WHEN it was sent.
+    //
+    // An alarm can outlive its order -- a cross fills in ~40 us and the light
+    // places again long before 1 ms is up -- so firing on whatever happens to
+    // be in the slot would cancel a healthy NEW order early.
+    //
+    // The id alone cannot tell those apart, and that is not a subtlety: this
+    // member is OVERWRITTEN by the newer order's own arming. In a bank that is
+    // aggression only -- which is the whole point of the arm -- every placement
+    // is gated and so every placement arms a TTL, which means aggr_ttl_oid
+    // always equals the id in the slot and the check always passes. The guard
+    // was inert exactly where it was needed.
+    //
+    // Alarm carries only timer_id, and timer_id is already how AGGR_TTL is
+    // dispatched, so the order cannot be named in the message. Identify it by
+    // AGE instead: cancel only if the order in the slot has itself been alive
+    // for aggr_ttl_ms. A stale alarm then finds the new order too young and
+    // does nothing, and that order's own alarm -- armed when IT was sent --
+    // fires later and pulls it. Self-correcting, no token required.
+    //
+    // MARKET time, never chutil::Time::epoch(): a replay covers a year in an
+    // hour, and a wall-clock age would make every order look ancient. (The
+    // gunning timer made exactly that mistake.)
+    int aggr_ttl_oid = -1;
+    uint64_t aggr_ttl_armed_tx = 0;
     int eob_counter = 0;
 
     // How deep into the book we are willing to rest, in ticks from the touch.
@@ -94,11 +133,64 @@ namespace light::act
       // Read deterministic placement interval from config (default 5 = place after 5 EOB ADD messages)
       place_after_n_eob = this->pt.template get<int>("place_after_n_eob", 5);
 
+      // AGGRESSIVE TIME-TO-LIVE, milliseconds. An aggressive order is an IOC in
+      // intent: it should fill on arrival or not exist. With no anchor to pull
+      // it (see place_if_can_impl) a cross that misses would otherwise rest
+      // until it drifts max_dist_cancel ticks away or the leg completes --
+      // silently becoming a passive order the arm never asked for. 0 disables.
+      aggr_ttl_ms = this->pt.template get<int>("aggr_ttl_ms", 1);
+
       // Stochastic placement rate, in BASIS POINTS of EOB ADD messages acted on.
       // Basis points rather than percent so sub-1% rates are expressible: the
       // experiment sweeps 0.5% / 1% / 3% / 5%, and the previous
       // `std::rand() % 100` could not represent 0.5 at all.
       place_rate_bp = this->pt.template get<int>("place_rate_bp", 300);   // 3%
+      place_rate_thresh = (uint64_t(std::max(0, place_rate_bp)) << 32) / 10000u;
+      // Aggressive participation, in basis points of TRADES shadowed. 0 = off,
+      // which is the default and the pure shadow algorithm.
+      //
+      // The config value is the BANK TOTAL and is divided here by the number of
+      // lights in the bank, because every light sees every trade and flips its
+      // own coin -- four lights each acting on 2% of trades would shadow 8%
+      // LITERAL, not divided by the light count.
+      //
+      // It used to be a bank total divided by nlights_per_side. That was built
+      // for a design where aggression rode on the passive lights, and it never
+      // worked: a light declines a trade while it already holds a working order
+      // (light22_base: `if (ord_info.has_value()) return;`), and at any useful
+      // place_rate_bp the passive lights are occupied nearly all the time. The
+      // 2026-09-14 grid D run configured 2% of trades and delivered between
+      // 2.4% and 0% of that, ranked INVERSELY with placement rate -- the
+      // signature of crowding-out.
+      //
+      // Aggression now runs in its OWN bank: one light per side, place_rate_bp
+      // 0, its own QCoord, sharing the passive bank's PCoord. A marketable
+      // order clears the slot on arrival rather than resting, so one light
+      // sustains the rate. With a fixed bank of one, dividing by the light
+      // count is at best a no-op and at worst the trap it used to be, so the
+      // number here is the number you get: 200 = 2% of trades.
+      this->aggr_participation_bp =
+          this->pt.template get<int>("aggr_participation_bp", 0);
+      // bp -> 32-bit threshold, once. 10000bp maps to exactly 2^32, which no
+      // mt19937 draw can reach, so 100% fires on every trade as intended.
+      this->aggr_participation_thresh =
+          (uint64_t(std::max(0, this->aggr_participation_bp)) << 32) / 10000u;
+      // Logged at OPER so it survives --quiet: which bank a light belongs to is
+      // otherwise invisible in a grid run, and "is the passive bank also
+      // crossing?" is not a question that should need a source read.
+      // std::cerr, not log_opr: this runs in the CONSTRUCTOR and the Logger
+      // actor is not started yet, so a logged line here is silently dropped --
+      // which is why light22_base:313 dumps its config the same way.
+      std::cerr << get_name()
+                << " gating: place_rate_bp=" << place_rate_bp
+                << (place_rate_bp < 0 ? " (NEVER places passively)"
+                                      : (place_rate_bp > 0 ? " (stochastic)"
+                                                           : " (deterministic)"))
+                << " place_after_n_eob=" << place_after_n_eob
+                << " aggr_participation_bp=" << this->aggr_participation_bp
+                << (this->aggr_participation_bp > 0 ? " (CROSSES)" : " (never crosses)")
+                << std::endl;
+
       max_dist = this->pt.template get<int>("max_dist", 4);
       max_dist_cancel = this->pt.template get<int>("max_dist_cancel", max_dist + 2);
       ASSERTF(max_dist_cancel >= max_dist,
@@ -137,6 +229,34 @@ namespace light::act
     // Handle derived class timer IDs
     bool alarm_handler_impl(const frame::mtim::msg::Alarm *m) noexcept
     {
+      if (m->timer_id == AGGR_TTL)
+      {
+        // Fill or be gone. If the cross is still live this many ms after it was
+        // sent, it missed -- the touch moved between the decision and arrival --
+        // and it is now an unintended passive order. Pull it.
+        const uint64_t now_tx = m->currtim._epoch_;
+        const bool old_enough =
+            aggr_ttl_armed_tx > 0 && now_tx > aggr_ttl_armed_tx &&
+            (now_tx - aggr_ttl_armed_tx) >= uint64_t(aggr_ttl_ms) * 1000000ull;
+        if (this->ord_info.has_value() && !this->ord_info.get_canc() &&
+            this->ord_info.get_oid() == aggr_ttl_oid && old_enough)
+        {
+          this->curr_tx_time = m->currtim._epoch_;   // same reason as below
+          log_trd("CANCORD id: %d, aggressive order did not fill within %d ms",
+                  this->ord_info.get_oid(), aggr_ttl_ms);
+          this->cancel_order();
+        }
+        else if (this->ord_info.has_value())
+        {
+          log_inf("stale AGGR_TTL for oid %d, slot holds %d, age %llu ns of %d ms "
+                  "-- not cancelling",
+                  aggr_ttl_oid, this->ord_info.get_oid(),
+                  (unsigned long long)(now_tx > aggr_ttl_armed_tx
+                                         ? now_tx - aggr_ttl_armed_tx : 0),
+                  aggr_ttl_ms);
+        }
+        return true;
+      }
       if (m->timer_id == DELAYED_CANCEL)
       {
         if (this->ord_info.has_value() && !this->ord_info.get_canc())
@@ -204,7 +324,13 @@ namespace light::act
       }
     }
 
-    void place_if_can_impl(payload_ptr_t payload) noexcept
+    // already_gated: the caller has already decided this event is one to act
+    // on, so skip the placement-rate gate below. The aggressive path
+    // (tradenotify_handler) flips its own coin against aggr_participation_bp;
+    // running it through place_rate_bp as well would gate it twice and make
+    // the realised aggressive share the PRODUCT of the two rates rather than
+    // the one that was configured.
+    void place_if_can_impl(payload_ptr_t payload, bool already_gated = false) noexcept
     {
       auto pos = this->pcoord->get_position();
 
@@ -331,6 +457,21 @@ namespace light::act
       //   3. diff_from_target: remaining position to reach target (don't over-hedge)
       //   4. payload->sz: market depth size available at this level
       int possible_order_sz = std::min(std::min(this->lev_orders_max.get() - sz_at_px, this->ord_sz.get()), diff_from_target);
+      // payload->sz applies to CROSSES TOO, deliberately.
+      //
+      // It was removed for the aggressive path once, to see what the cap was
+      // worth: clip went 1.18 -> 7.2 lots and participation 0.77% -> 7.61%.
+      // That is not a finding. Taking larger size raises participation by
+      // definition, and without this term the light is no longer shadowing
+      // anything -- it takes whatever size the fill model will grant, which
+      // (fill_sim_on_arrival fills in full at the touch, never walking the
+      // book, with no impact) is unlimited and free. The measurement would be
+      // of the simulator, not of the market.
+      //
+      // Note lastQty on an MBO trade is the fill against ONE resting order,
+      // not the aggressor's total, so this caps a cross at one counterparty's
+      // slice. That is conservative, and conservative is the right direction
+      // while impact is unmodelled.
       possible_order_sz = std::min(payload->sz, possible_order_sz);
 
       if ((sz_at_px > std::max(1, std::abs(diff_from_target / 2))) || sz_at_px >= diff_from_target)
@@ -354,9 +495,23 @@ namespace light::act
         return;
       }
 
+      // An AGGRESSIVE placement must not attach. already_gated is set only by
+      // the trade path, and everything a trade payload references is being
+      // consumed at that instant -- so the anchor dies immediately and the
+      // light cancels its own cross before it can fill. Measured 20250102
+      // 09:30-10:30 at 800bp, delay 0: the two aggressive lights produced 293
+      // CANCORDs, ALL of them "attached_order_id gone", against 61 for the
+      // busiest of twelve passive lights.
       attached_order_id = payload->ex_order_id;
+      attached_is_trade = already_gated;
 
-      if(this->qcoord->get_attached_order_id() == attached_order_id)
+      // Bank-wide dedup, and it applies to CROSSES TOO: ten aggressive lights
+      // must not all cross on the same trade. This is why the id is now kept
+      // for the aggressive path -- only the cancel use of it was wrong.
+      // (Guarded on != 0 because 0 is QCoord's default: without that, an
+      // unattached placement would match the default and suppress everything.)
+      if (attached_order_id != 0 &&
+          this->qcoord->get_attached_order_id() == attached_order_id)
       {
         log_inf("attached_order_id already set to: %ld", attached_order_id);
         return;
@@ -369,9 +524,25 @@ namespace light::act
       //
       //   place_rate_bp > 0  -> stochastic, act on that many basis points of ADDs
       //   place_rate_bp <= 0 -> deterministic, act on every place_after_n_eob'th ADD
-      if (place_rate_bp > 0)
+      if (already_gated)
       {
-        if (int(rng() % 10000u) >= place_rate_bp)
+        // nothing: the caller's own rate decided this one
+      }
+      else if (place_rate_bp < 0)
+      {
+        // NEVER place passively. This is what the aggressive bank needs: a
+        // light that only ever crosses. 0 cannot mean this -- 0 selects the
+        // deterministic branch below, and with place_after_n_eob 0 that places
+        // on EVERY add, which is the opposite of the intent and is exactly the
+        // bug the 2026-09-14 aggressive smoke hit (the "aggression only" light
+        // turned out to be the busiest passive light in the run).
+        return;
+      }
+      else if (place_rate_bp > 0)
+      {
+        // Precomputed threshold, NOT `rng() % 10000` -- 10000 is not a power of
+        // two and this runs for every ADD. See light22_base::tradenotify_handler.
+        if (uint64_t(rng()) >= place_rate_thresh)
         {
           log_inf("skipping order placement randomly: eob_counter=%d", eob_counter);
           return;
@@ -407,6 +578,22 @@ namespace light::act
         // Record the exchange order ID from the market data message that triggered this order placement
         this->qcoord->set_attached_order_id(attached_order_id);
         this->pending_cancel_eob = 0;
+
+        // AGGRESSIVE: fill or be gone. An aggressive order has no anchor, so
+        // nothing else would pull it if it misses -- it would rest until it
+        // drifted max_dist_cancel ticks away or the leg completed, quietly
+        // becoming a passive order the arm never asked for.
+        if (already_gated && aggr_ttl_ms > 0)
+        {
+          aggr_ttl_oid = id;
+          // The same stamp the order itself carries, so the age below is
+          // measured from when the cross was sent, not when we noticed it.
+          aggr_ttl_armed_tx = this->stamp_of(payload);
+          this->timer->send(new frame::mtim::msg::AlarmClockSub(
+                                aggr_ttl_ms / 1000, aggr_ttl_ms % 1000,
+                                this->AGGR_TTL, false),
+                            this);
+        }
 
         log_trd("PLACEORD placing order id: %d, bestpx: %d, possisble_order_sz: %d, act_lev_orders_max: %d, diff_from_target: %d, sz_at_px: %d, act_ord_sz: %d",
                 id,
@@ -606,13 +793,20 @@ namespace light::act
       }
 
       // Check if attached order was hit/cancelled - schedule delayed cancel
+      // NOT for crosses. attached_is_trade says the id came from a trade, whose
+      // referenced order is consumed at the instant we attach to it -- so this
+      // branch would fire on the very next EOB and cancel the cross before it
+      // can fill. A cross is pulled by aggr_ttl_ms, by the position target, or
+      // by nothing at all; never by its anchor leaving, because it has none.
       if (this->ord_info.has_value() && !this->ord_info.get_canc() &&
+          !this->attached_is_trade &&
           pld->ex_order_id == this->attached_order_id && this->attached_order_id != 0)
       {
         log_trd("CANCORD id: %d, attached_order_id %lu gone",
                 this->ord_info.get_oid(), attached_order_id);
         this->pcoord->incr_attached_order_id_match();
         this->attached_order_id = 0;
+        this->attached_is_trade = false;
 
         if (delayed_cancel_events > 0)
         {
