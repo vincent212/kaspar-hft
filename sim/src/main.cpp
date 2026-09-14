@@ -156,8 +156,10 @@ int main(int argc, char* argv[])
       ("ob-delay-us", po::value<int>()->default_value(-1),
                     "modelled one-way wire latency to the matching engine, in "
                     "microseconds. OB holds each of our orders on its delay "
-                    "queue until ts0 + this has passed in MARKET time, so it "
-                    "decides how much real flow gets in front of us. Floor is "
+                    "queue until ts0 + --ob-feed-delay-us + this has passed in "
+                    "MARKET time, so it decides how much real flow gets in "
+                    "front of us. The feed term is there because ts0 is the "
+                    "market time the light SAW, already that old. Floor is "
                     "40us. -1 = OB's own default (1000us).")
       ("ob-cancel-delay-us", po::value<int>()->default_value(-1),
                     "modelled wire latency for CANCELS, microseconds. A cancel "
@@ -166,6 +168,19 @@ int main(int argc, char* argv[])
                     "case. Must be >= --ob-delay-us: a cancel is never faster "
                     "than a new order, since the matching engine has to locate "
                     "the resting order before it can pull it.")
+      ("ob-feed-delay-us", po::value<int>()->default_value(0),
+                    "modelled INBOUND feed latency, exchange -> us, in "
+                    "microseconds. OB holds each market-data publish until "
+                    "event_ts + this has passed in MARKET time, so the light "
+                    "acts on STALE data rather than merely acting late. Without "
+                    "it the model is asymmetric: the light saw the book "
+                    "instantly and acted at --ob-delay-us, so the gap between "
+                    "its place and its cancel was set by events it saw with no "
+                    "delay and survived the latency intact. Raising "
+                    "--ob-delay-us is NOT a substitute -- that makes the light "
+                    "act later on FRESH data. 0 (the default) publishes "
+                    "immediately and is identical to the path that existed "
+                    "before. The order round trip becomes feed + order.")
       ("probe-size", po::value<int>()->default_value(0),
                     "SlippageProbe size in contracts per leg; 0 = no probe. The "
                     "probe quotes BOTH sides continuously from 09:29 to 16:00 ET "
@@ -257,6 +272,7 @@ int main(int argc, char* argv[])
                             vm["ord-sz"].as<int>(),
                             vm["ob-delay-us"].as<int>(),
                             vm["ob-cancel-delay-us"].as<int>(),
+                            vm["ob-feed-delay-us"].as<int>(),
                             vm["max-dist"].as<int>(),
                             vm["nlights-per-side"].as<int>(),
                             probe_size,

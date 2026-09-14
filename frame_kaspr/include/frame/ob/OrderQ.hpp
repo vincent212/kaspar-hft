@@ -288,7 +288,7 @@ namespace frame
     public:
 
       // used to clear the book
-      void canc_notify_all() noexcept
+      void canc_notify_all(const Order::ret_path_t *rp = nullptr) noexcept
       {
 
         while (true)
@@ -297,12 +297,13 @@ namespace frame
           if (ptr == qordermap.end())
             return;
           auto o = ptr->second;
-          canc_notify(o, o->sz, 0, en::mt::CANCD);
+          canc_notify(o, o->sz, 0, en::mt::CANCD, rp);
         }
       }
 
       void
-      canc_notify(Order *o, int sz, int disp_sz, en::mt modtyp) noexcept
+      canc_notify(Order *o, int sz, int disp_sz, en::mt modtyp,
+                  const Order::ret_path_t *rp = nullptr) noexcept
       {
         ASSERT(o, "no order");
         ASSERT(!o->cancelled, "cancelling twice");
@@ -320,7 +321,7 @@ namespace frame
           sz_to_canc = sz;
         // ASSERT(sz_to_canc > 0, "nothing to canc");
 
-        auto sz_canced = o->canc_notify(modtyp, disp_sz, sz_to_canc);
+        auto sz_canced = o->canc_notify(modtyp, disp_sz, sz_to_canc, rp);
 
         if (!o->issim())
           orders_in_book -= sz_canced;
@@ -346,7 +347,8 @@ namespace frame
           int disp_sz,
           uint px,
           en::mt modtyp,
-          uint64_t tim) noexcept
+          uint64_t tim,
+          const Order::ret_path_t *rp = nullptr) noexcept
       {
         log_dbg("filling order id: %d", mda::OrderID::id(o->id));
 #ifdef DBG_ORDQ
@@ -363,7 +365,7 @@ namespace frame
         if (modtyp == en::mt::EXECD)
           ASSERT(disp_sz != 0, "bad disp sz");
         auto orig_sz = o->sz;
-        o->fill_notify(sz, disp_sz, px, modtyp, tim);
+        o->fill_notify(sz, disp_sz, px, modtyp, tim, rp);
         auto sz_filled = orig_sz - o->sz;
         ASSERT(sz_filled > 0, "bad fill notify");
 
@@ -392,9 +394,10 @@ namespace frame
       }
 
       static int // this is just to gen fills for sim orders or arrival
-      fill_notify_s(Order *o, int sz, int disp_sz, uint px, en::mt modtyp, uint64_t tim) noexcept {
+      fill_notify_s(Order *o, int sz, int disp_sz, uint px, en::mt modtyp,
+                    uint64_t tim, const Order::ret_path_t *rp = nullptr) noexcept {
         ASSERT(modtyp == en::mt::EXEC || modtyp == en::mt::EXECD, "invalid mod type");
-        return o->fill_notify(sz, disp_sz, px, modtyp, tim);
+        return o->fill_notify(sz, disp_sz, px, modtyp, tim, rp);
       }
     };
 
