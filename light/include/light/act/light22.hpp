@@ -65,12 +65,31 @@ namespace light::act
     std::mt19937 rng{1};            // per-light, deterministically seeded
     uint64_t place_rate_thresh = 0;  // place_rate_bp * 2^32 / 10000
     int aggr_ttl_ms = 1;             // aggressive order time-to-live, ms; 0 = off
-    // The order the TTL alarm was armed for. An alarm can outlive its order --
-    // a cross fills in ~40 us and the light places again long before 1 ms is
-    // up -- so firing on whatever happens to be in the slot would cancel a
-    // healthy NEW order early. Same guard pending_cancel_eob already has for
-    // delayed_cancel_events; it was not carried across when AGGR_TTL was added.
+    // The order the TTL alarm was armed for, and WHEN it was sent.
+    //
+    // An alarm can outlive its order -- a cross fills in ~40 us and the light
+    // places again long before 1 ms is up -- so firing on whatever happens to
+    // be in the slot would cancel a healthy NEW order early.
+    //
+    // The id alone cannot tell those apart, and that is not a subtlety: this
+    // member is OVERWRITTEN by the newer order's own arming. In a bank that is
+    // aggression only -- which is the whole point of the arm -- every placement
+    // is gated and so every placement arms a TTL, which means aggr_ttl_oid
+    // always equals the id in the slot and the check always passes. The guard
+    // was inert exactly where it was needed.
+    //
+    // Alarm carries only timer_id, and timer_id is already how AGGR_TTL is
+    // dispatched, so the order cannot be named in the message. Identify it by
+    // AGE instead: cancel only if the order in the slot has itself been alive
+    // for aggr_ttl_ms. A stale alarm then finds the new order too young and
+    // does nothing, and that order's own alarm -- armed when IT was sent --
+    // fires later and pulls it. Self-correcting, no token required.
+    //
+    // MARKET time, never chutil::Time::epoch(): a replay covers a year in an
+    // hour, and a wall-clock age would make every order look ancient. (The
+    // gunning timer made exactly that mistake.)
     int aggr_ttl_oid = -1;
+    uint64_t aggr_ttl_armed_tx = 0;
     int eob_counter = 0;
 
     // How deep into the book we are willing to rest, in ticks from the touch.
@@ -215,8 +234,12 @@ namespace light::act
         // Fill or be gone. If the cross is still live this many ms after it was
         // sent, it missed -- the touch moved between the decision and arrival --
         // and it is now an unintended passive order. Pull it.
+        const uint64_t now_tx = m->currtim._epoch_;
+        const bool old_enough =
+            aggr_ttl_armed_tx > 0 && now_tx > aggr_ttl_armed_tx &&
+            (now_tx - aggr_ttl_armed_tx) >= uint64_t(aggr_ttl_ms) * 1000000ull;
         if (this->ord_info.has_value() && !this->ord_info.get_canc() &&
-            this->ord_info.get_oid() == aggr_ttl_oid)
+            this->ord_info.get_oid() == aggr_ttl_oid && old_enough)
         {
           this->curr_tx_time = m->currtim._epoch_;   // same reason as below
           log_trd("CANCORD id: %d, aggressive order did not fill within %d ms",
@@ -225,8 +248,12 @@ namespace light::act
         }
         else if (this->ord_info.has_value())
         {
-          log_inf("stale AGGR_TTL for oid %d, slot now holds %d -- not cancelling",
-                  aggr_ttl_oid, this->ord_info.get_oid());
+          log_inf("stale AGGR_TTL for oid %d, slot holds %d, age %llu ns of %d ms "
+                  "-- not cancelling",
+                  aggr_ttl_oid, this->ord_info.get_oid(),
+                  (unsigned long long)(now_tx > aggr_ttl_armed_tx
+                                         ? now_tx - aggr_ttl_armed_tx : 0),
+                  aggr_ttl_ms);
         }
         return true;
       }
@@ -559,6 +586,9 @@ namespace light::act
         if (already_gated && aggr_ttl_ms > 0)
         {
           aggr_ttl_oid = id;
+          // The same stamp the order itself carries, so the age below is
+          // measured from when the cross was sent, not when we noticed it.
+          aggr_ttl_armed_tx = this->stamp_of(payload);
           this->timer->send(new frame::mtim::msg::AlarmClockSub(
                                 aggr_ttl_ms / 1000, aggr_ttl_ms % 1000,
                                 this->AGGR_TTL, false),

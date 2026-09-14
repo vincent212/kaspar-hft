@@ -236,11 +236,15 @@ protected:
   //   resting BUY  -> a bid was HIT   -> printed at the bid -> aggressive for a SELLER
   //   resting SEL  -> an offer TAKEN  -> printed at the ask -> aggressive for a BUYER
   frame::ob::msg::TradeNotify* make_trade(int sym_id, int price, int size,
-                                          en::bs resting_side = en::bs::SEL)
+                                          en::bs resting_side = en::bs::SEL,
+                                          uint64_t txtim = 0)
   {
     auto payload = make_payload(sym_id, price, size, en::md::MOD);
     payload->action = en::mt::EXEC;      // what makes it a trade (Data.hpp)
     payload->side = resting_side;
+    // The light stamps an order with stamp_of(payload) == txtim_epoch, so a
+    // test that cares when an order was sent has to be able to choose it.
+    if (txtim) { payload->txtim_epoch = txtim; payload->tim = txtim; }
     return new frame::ob::msg::TradeNotify(payload);
   }
 
@@ -814,71 +818,146 @@ TEST_F(Light22IntegrationTest, TheLightStampsItsCancelWithMarketTime) {
 }
 
 /**
- * FAILS WITHOUT THE GUARD -- an AGGR_TTL alarm must not cancel a DIFFERENT order.
+ * AGGR_TTL: "fill or be gone". An aggressive order that is still live
+ * aggr_ttl_ms after it was sent has missed, and must be pulled before it
+ * becomes an unintended passive order.
  *
- * The alarm is armed when a cross is sent and fires aggr_ttl_ms later. But a
- * cross fills in ~40 us, and the light places again long before 1 ms is up, so
- * an alarm routinely outlives the order it was armed for. Without an identity
- * check it cancels whatever happens to be in the slot -- killing a healthy new
- * order early, and inflating the TTL-cancel count that the aggressive arm reads
- * as "the cross missed".
+ * The hard part is that an alarm can OUTLIVE its order -- a cross fills in
+ * ~40us and the light places again long before 1ms is up -- and Alarm carries
+ * no way to say which order it was armed for: it has only timer_id, and
+ * timer_id is already how AGGR_TTL is dispatched.
  *
- * pending_cancel_eob already has this guard (it is zeroed by cancel_order and by
- * a fresh placement, tested by EventDelayCountdownIsClearedByANewPlacement). It
- * was not carried across when AGGR_TTL was added.
+ * Matching on aggr_ttl_oid cannot close that, because the newer order's own
+ * arming OVERWRITES it. In an aggression-only bank every placement is gated, so
+ * every placement arms a TTL, so aggr_ttl_oid always equals the id in the slot
+ * and the check always passes -- the guard was inert in the one configuration
+ * that needed it. These tests therefore drive REAL placements through the
+ * aggressive path rather than hand-setting aggr_ttl_oid, which is a state the
+ * arming path cannot produce and is why the previous pair passed while the bug
+ * was live.
+ *
+ * What actually discriminates is AGE: cancel only if the order in the slot has
+ * itself been alive for aggr_ttl_ms.
  */
 TEST_F(Light22IntegrationTest, AggrTtlDoesNotCancelASubsequentOrder) {
+  pt.put("place_rate_bp", -1);                // aggression only, never rests
+  pt.put("place_after_n_eob", 0);
+  pt.put("aggr_participation_bp", 10000);     // cross on every trade
   pt.put("aggr_ttl_ms", 1);
-  auto light = create_buy_light("TestBuy", 10);
+  auto light = create_buy_light("TestAggr", 10);
   int sym_id = get_sym_id();
-
   mock_pcoord.set_position(0);
   process_msg(light.get(), new actors::msg::Start(), &mock_ob);
 
-  // An order is working, and the TTL was armed for a DIFFERENT (earlier) one.
-  place_order_via_eob(*light, sym_id, 100);
-  ASSERT_TRUE(light->ord_info.has_value());
-  const int live_oid = light->ord_info.get_oid();
-  light->aggr_ttl_oid = live_oid - 1;      // armed for an order that is gone
+  constexpr uint64_t T1 = 1000000000ull;      // the first cross is sent here
 
+  // Cross #1, placed by the production path -- which is what arms the alarm.
+  auto t1 = make_trade(sym_id, 100, 5, en::bs::SEL, T1);
+  process_msg(light.get(), t1, &mock_ob);
+  delete t1;
+  ASSERT_TRUE(light->ord_info.has_value()) << "precondition: cross #1 is live";
+  const int oid1 = light->ord_info.get_oid();
+
+  // It fills 40us later, the way a marketable order does.
+  auto fill = new frame::som::msg::Fill();
+  fill->id = oid1;
+  fill->sym = sym_id;
+  fill->side = en::bs::BUY;
+  fill->sz = 5;
+  fill->still_to_be_filled = 0;
+  fill->owner = en::trader::OCCAMUST;
+  fill->venue = en::x::SIM;
+  fill->px = frame::ref::Price(100, frame::ref::RefData::get_asset(sym_id));
+  process_msg(light.get(), fill, &mock_som);
+  ASSERT_FALSE(light->ord_info.has_value()) << "precondition: #1 is gone";
+
+  // Cross #2, 300us after #1. It arms its OWN alarm and overwrites
+  // aggr_ttl_oid, which is exactly why matching on the id cannot work.
+  mock_pcoord.set_position(0);
+  auto t2 = make_trade(sym_id, 100, 5, en::bs::SEL, T1 + 300000ull);
+  process_msg(light.get(), t2, &mock_ob);
+  delete t2;
+  ASSERT_TRUE(light->ord_info.has_value()) << "precondition: cross #2 is live";
+  ASSERT_NE(light->ord_info.get_oid(), oid1);
   mock_som.clear();
 
+  // #1's alarm fires, 1ms after #1 was sent. #2 is only 700us old.
   auto alarm = new frame::mtim::msg::Alarm();
   alarm->timer_id = light->AGGR_TTL;
+  alarm->currtim = alarm->currtim.from_epoch(0, 0, T1 + 1000000ull);
   process_msg(light.get(), alarm, &mock_timer);
   delete alarm;
 
   EXPECT_FALSE(mock_som.has_message_of_type<frame::som::msg::Cancel>())
-      << "a stale AGGR_TTL alarm cancelled the order that replaced the one it "
-         "was armed for";
+      << "a stale AGGR_TTL cancelled a cross that is only 700us old -- the "
+         "order it was armed for had already filled";
   EXPECT_TRUE(light->ord_info.has_value())
-      << "the live order must survive a stale TTL";
+      << "the younger cross must survive the older order's alarm";
 }
 
 /**
- * The other half: when the alarm IS for the live order, it must still fire.
+ * The other half: once the order in the slot IS old enough, it goes.
  */
 TEST_F(Light22IntegrationTest, AggrTtlCancelsTheOrderItWasArmedFor) {
+  pt.put("place_rate_bp", -1);
+  pt.put("place_after_n_eob", 0);
+  pt.put("aggr_participation_bp", 10000);
   pt.put("aggr_ttl_ms", 1);
-  auto light = create_buy_light("TestBuy", 10);
+  auto light = create_buy_light("TestAggr", 10);
   int sym_id = get_sym_id();
-
   mock_pcoord.set_position(0);
   process_msg(light.get(), new actors::msg::Start(), &mock_ob);
 
-  place_order_via_eob(*light, sym_id, 100);
+  constexpr uint64_t T1 = 1000000000ull;
+  auto t1 = make_trade(sym_id, 100, 5, en::bs::SEL, T1);
+  process_msg(light.get(), t1, &mock_ob);
+  delete t1;
   ASSERT_TRUE(light->ord_info.has_value());
-  light->aggr_ttl_oid = light->ord_info.get_oid();   // armed for THIS one
-
   mock_som.clear();
 
+  // Exactly aggr_ttl_ms later, and it never filled.
   auto alarm = new frame::mtim::msg::Alarm();
   alarm->timer_id = light->AGGR_TTL;
+  alarm->currtim = alarm->currtim.from_epoch(0, 0, T1 + 1000000ull);
   process_msg(light.get(), alarm, &mock_timer);
   delete alarm;
 
   EXPECT_TRUE(mock_som.has_message_of_type<frame::som::msg::Cancel>())
-      << "the TTL must still pull the cross it was armed for";
+      << "a cross that missed for a full TTL must be pulled";
+}
+
+/**
+ * The age is MARKET time. A replay covers a year in an hour, so a wall-clock
+ * age would make every order look ancient and pull it on the first alarm --
+ * the mistake the gunning timer made with chutil::Time::epoch().
+ */
+TEST_F(Light22IntegrationTest, AggrTtlAgeIsMarketTimeNotWallClock) {
+  pt.put("place_rate_bp", -1);
+  pt.put("place_after_n_eob", 0);
+  pt.put("aggr_participation_bp", 10000);
+  pt.put("aggr_ttl_ms", 1);
+  auto light = create_buy_light("TestAggr", 10);
+  int sym_id = get_sym_id();
+  mock_pcoord.set_position(0);
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+
+  constexpr uint64_t T1 = 1000000000ull;
+  auto t1 = make_trade(sym_id, 100, 5, en::bs::SEL, T1);
+  process_msg(light.get(), t1, &mock_ob);
+  delete t1;
+  ASSERT_TRUE(light->ord_info.has_value());
+  mock_som.clear();
+
+  // Market time has barely moved -- 100us -- however long the test itself took.
+  auto alarm = new frame::mtim::msg::Alarm();
+  alarm->timer_id = light->AGGR_TTL;
+  alarm->currtim = alarm->currtim.from_epoch(0, 0, T1 + 100000ull);
+  process_msg(light.get(), alarm, &mock_timer);
+  delete alarm;
+
+  EXPECT_FALSE(mock_som.has_message_of_type<frame::som::msg::Cancel>())
+      << "the cross was pulled at 100us of MARKET age against a 1ms TTL -- the "
+         "age is being measured against something other than the market clock";
 }
 
 /**
