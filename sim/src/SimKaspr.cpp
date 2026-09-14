@@ -106,8 +106,8 @@ SimKaspr::SimKaspr(std::string data_file,
  *
  * This is what makes the securityID -> Asset mapping exist up front, rather
  * than depending on the instrument definition happening to fall inside the
- * captured window (for the ES front month it does not — see models/PLAN.md
- * D0a-2). RefData::add_future_asset is idempotent, so re-registering a symbol
+ * captured window (for the ES front month it does not).
+ * RefData::add_future_asset is idempotent, so re-registering a symbol
  * already present is harmless.
  *
  * Tick size: CME ships minPriceIncrement in native units (25) and a
