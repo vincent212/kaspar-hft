@@ -133,7 +133,28 @@ DEFINES_COMMON=-fPIC
 # seen pass is how a config field that is written twice -- or read before it is
 # written -- turns into a plausible wrong number instead of an abort. The whole
 # point of the guard is that it fires once, in debug, on your machine.
-DEFINES_OPT=-DCONSTR_NO_CHECK_NAN -DPLACES_NO_CHECK_CONSTRAINT -fno-plt
+#
+# FAST_SZ_BOOK drops the O(level) verification walks in OrderQ. Without it
+# get_orders_in_book() walks the whole price level on EVERY call and asserts the
+# running counters against what it finds; size_of_book() does the same. They are
+# debug checks that were being paid for in opt, on a path the book hits
+# constantly, and a busy ES level is not short.
+#
+# Measured on one ES session, byte-identical output either way:
+#
+#     without   110.43 s
+#     with       61.27 s      1.80x
+#
+# The counters themselves (orders_in_book, size_of_book_cnt) are maintained the
+# same way in both builds -- this only removes the walk that re-derives and
+# checks them. Debug builds keep it, which is where a counter that has drifted
+# will still abort.
+#
+# NOTE: no .P dependency file tracks glob_begin.mk, so editing this line
+# rebuilds NOTHING and make reports success. After changing it, force a
+# recompile (touch the sources, or ./build.sh -f on branches that have it) and
+# md5sum the binaries before trusting any A/B.
+DEFINES_OPT=-DCONSTR_NO_CHECK_NAN -DPLACES_NO_CHECK_CONSTRAINT -DFAST_SZ_BOOK -fno-plt
 DEFINES_DBG=-DNOINLINE
 
 # OS-specific build flags
