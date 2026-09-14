@@ -29,7 +29,7 @@ CHAN=${CHAN:-310}
 BIN_SRC=${BIN_SRC:-$KSPRPROJ/sim/src/sim}
 OUT=${OUT:-/vast/home/vmayeski/gridruns/$(date +%Y%m%d_%H%M%S)}
 NJOBS=${NJOBS:-56}
-CONFIG_DIR=${CONFIG_DIR:-$KSPRPROJ/sim/config}
+CONFIG_DIR=${CONFIG_DIR:-$KSPRPROJ/sim/config_a}
 SEED=${SEED:-1}
 GRID_SET=${GRID_SET:-1}   # 1 = full sweep (config_a); 2 = follow-up (config_b)
 MIN_BIN_BYTES=${MIN_BIN_BYTES:-10000000}   # below this: no session in the file at all
@@ -87,6 +87,13 @@ BIN="$OUT/sim.pinned"
 RATE_BP=${RATE_BP:-"25 50 100 200 400"}
 BASE_BP=${BASE_BP:-200}
 LAT_US=${LAT_US:-"0 100 200 400 800 1600 3200 6400"}
+Q_SZ=${Q_SZ:-"1 2 5 10 20 50 100 200"}   # grid B parent sizes
+AGGR_BP=${AGGR_BP:-"0 100 200 300 400"}  # grid D aggressive rate, bp of TRADES
+AGGR_BASE_BP=${AGGR_BASE_BP:-50}         # grid D baseline place_rate_bp
+AGGR_BASE_SZ=${AGGR_BASE_SZ:-100}        # grid D baseline parent size
+A_SZ=${A_SZ:-"1 10 100"}                 # grid A parent sizes
+DLY_US=${DLY_US:-500}                    # grid A wire latency, us (order and cancel)
+NICE_LEVEL=${NICE_LEVEL:-19}              # sim nice level; 0 = normal priority
 
 grid_tsv="$OUT/grid.tsv"
 
@@ -110,34 +117,46 @@ grid_tsv="$OUT/grid.tsv"
     done
   else
     for bp in $RATE_BP; do
-      for sz in 1 10 100; do
-        printf 'rate%s_sz%s\tA\t%s\t%s\t-1\t500\t500\t-1\t0\n' "$bp" "$sz" "$bp" "$sz"
+      for sz in $A_SZ; do
+        printf 'rate%s_sz%s\tA\t%s\t%s\t-1\t%s\t%s\t-1\t0\n' \
+          "$bp" "$sz" "$bp" "$sz" "$DLY_US" "$DLY_US"
       done
     done
-    for q in 1 2 5 10 20 50 100 200; do
+    for q in $Q_SZ; do
       printf 'Q%s\tB\t%s\t%s\t-1\t500\t500\t-1\t0\n' "$q" "$BASE_BP" "$q"
     done
     for us in $LAT_US; do
-      printf 'lat%s\tC\t%s\t100\t-1\t%s\t%s\t-1\t0\n' "$us" "$BASE_BP" "$us" "$us"
+      # CANC_US empty (the default) = cancels take the same wire as orders.
+      # Set it to pin cancel latency independently, which is how you prove the
+      # cancel path is actually delayed: delay=N cancel=0 must differ from
+      # delay=N cancel=N, or cancel_delay is not being applied.
+      cu=${CANC_US:-$us}
+      printf 'lat%s\tC\t%s\t100\t-1\t%s\t%s\t-1\t0\n' \
+        "${us}${CANC_US:+c$cu}" "$BASE_BP" "$us" "$cu"
     done
   fi
     # Grid D: does crossing the spread for part of the flow help?
     #
-    # 100 lots at every rate, with the bank shadowing 2% of TRADES aggressively
-    # -- a limit order at the price the trade printed at, which for us is the
-    # far side, so it executes instead of resting.
+    # ONE baseline cell (rate 50, 100 lots -- the best cost/risk point in the
+    # 2026-09-14 arm A grid) with the AGGRESSIVE RATE swept instead. Aggression
+    # runs in its own bank: one light per side, place_rate_bp 0, its own QCoord,
+    # sharing the passive bank's PCoord (SimKaspr.cpp). aggr_participation_bp is
+    # now LITERAL -- 200 is 2% of trades, no division by the light count.
     #
-    # NO CONTROL CELL HERE. Grid A's sz100 row is already exactly this cell with
-    # aggression off: same parent, same rates, same delay. Running it a second
-    # time under another name would double the cost and produce two answers to
-    # one question. The comparison is aggr2_rate<N> against rate<N>_sz100, and
-    # it is only valid within ONE sweep -- both halves must come from the same
-    # binary and the same session set.
+    # This replaces the previous grid D, which swept place_rate_bp at a fixed
+    # 2% aggression and measured nothing: aggression rode on the passive lights,
+    # which decline a trade while holding a working order, so the configured 2%
+    # delivered 2.4%-to-0% and ranked inversely with placement rate.
     #
-    # aggr_bp is the BANK TOTAL; the light divides by nlights_per_side, so 200
-    # is 2% whether the arm runs 4 lights a side or 12.
-    for bp in $RATE_BP; do
-      printf 'aggr2_rate%s\tD\t%s\t100\t-1\t500\t500\t-1\t200\n' "$bp" "$bp"
+    # The 0bp cell IS the control and is included deliberately: it must
+    # reproduce grid A's rate50_sz100 to within noise, which is the check that
+    # the aggressive bank changes nothing when switched off.
+    for abp in $AGGR_BP; do
+      # AGGR_BASE_BP -1 turns the PASSIVE bank off entirely: the cell is then
+      # aggression and nothing else. DLY_US 0 -- the simulator has no inbound
+      # feed delay yet (issue #67), so latency is not studiable until it does.
+      printf 'aggr%s\tD\t%s\t%s\t-1\t%s\t%s\t-1\t%s\n' \
+        "$abp" "$AGGR_BASE_BP" "$AGGR_BASE_SZ" "$DLY_US" "$DLY_US" "$abp"
     done
 
   # Grid D (max_dist sweep) removed -- see the commit; a light holds one order at
@@ -213,6 +232,13 @@ if [ "$SMOKE" = 1 ]; then
   for pick in 20250115 20250310 20250612 20250815 20251031 20251222; do
     for d in "${dates_all[@]}"; do [ "$d" = "$pick" ] && dates+=("$d"); done
   done
+elif [ -n "${ONLY_DATES:-}" ]; then
+  # Explicit date list, space separated. For smoke runs: a handful of sessions
+  # rather than a month, so a config change can be checked in minutes.
+  for d in $ONLY_DATES; do
+    f="$SRC/bin/$CHAN/$CHAN.$d.databento.bin"
+    [ -e "$f" ] && dates+=("$d")
+  done
 elif [ -n "$ONLY_MONTH" ]; then
   # One month, every runnable session in it. The Sunday and size filters above
   # still apply, so this is "the sessions that exist in that month", not a
@@ -278,7 +304,7 @@ run_one() {
   # to 100%, which surfaced as `ld: could not close arguments file` rather than
   # as a disk error. $HOME is on the 91T filer.
   local wd; wd=$(mktemp -d "${TMPDIR:-$HOME/tmp}/grid.$name.$date.XXXXXX")
-  ( cd "$wd" && nice -n 19 ionice -c 3 "$BIN" \
+  ( cd "$wd" && nice -n "$NICE_LEVEL" ionice -c 3 "$BIN" \
       --datafile "$SRC/bin/$CHAN/$CHAN.$date.databento.bin" \
       --universe "$uni" \
       --contract "$contract" \
@@ -313,7 +339,7 @@ run_one() {
   return 0
 }
 export -f run_one front_month done_already
-export OUT SRC BIN CONFIG_DIR SEED FRONT_TSV CHAN
+export OUT SRC BIN CONFIG_DIR SEED FRONT_TSV CHAN NICE_LEVEL
 
 echo "name,date,rc,contract,last_line" > "$OUT/failures.csv"
 

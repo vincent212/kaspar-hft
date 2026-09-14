@@ -378,9 +378,27 @@ namespace light::act
       ASSERT(price > 0, "bad price");
       ASSERT(sz > 0, "bad size");
 
-      // Gunning protection: prevent placing orders too frequently at the same price level.
-      // This avoids being "gunned" by other participants who detect repeated order placement.
-      // Rate limit: 15ms minimum between orders at the same price.
+      // GUNNING PROTECTION -- LIVE TRADING ONLY.
+      //
+      // Stops us re-quoting the same price in a tight loop, where other
+      // participants can detect the pattern. That is a real-money concern and
+      // it belongs in the live build; in a replay it is actively harmful, for
+      // two reasons:
+      //
+      //   1. It measures WALL CLOCK (chutil::Time::epoch() is
+      //      system_clock::now()), not market time. A replay covers an hour of
+      //      market in well under a minute, so 15 ms of wall clock swallows
+      //      hundreds of milliseconds of simulated time -- and how much depends
+      //      on machine speed and load, which makes results irreproducible.
+      //   2. Crosses all price at the touch, so they all collide on one price.
+      //      Measured 20250102 09:30-10:30 at 100% aggressive rate: 14,840
+      //      placements blocked here against 1,651 that went out.
+      //
+      // Gated on its OWN macro rather than piggybacking on a book-selection
+      // flag: whether we run gunning protection is a trading-policy question,
+      // not a consequence of which order book is compiled in. Define
+      // GUNNING_PROTECTION in the live build to enable it.
+#ifdef GUNNING_PROTECTION
       auto order_placed_ts = chutil::Time::epoch();
       ASSERT(order_placed_ts > 0, "bad order_placed_ts");
       auto p = last_order_ts_at_px.find(price);
@@ -396,6 +414,7 @@ namespace light::act
         }
       }
       last_order_ts_at_px[price] = order_placed_ts;
+#endif
 
       log_inf("placing order ord sz: %d", sz);
 
@@ -551,7 +570,13 @@ namespace light::act
       // rng lives in the derived light22 (seeded from the light's name so each
       // light draws independently); this is CRTP, so reach it through Derived.
       auto &rng_ = static_cast<Derived *>(this)->rng;
-      if (int(rng_() % 10000u) >= this->aggr_participation_bp) return;
+      // Precomputed threshold, NOT `rng() % 10000`. 10000 is not a power of two,
+      // so the modulo is an integer division on a path that runs for EVERY
+      // trade. mt19937 is uniform over [0, 2^32), so comparing straight against
+      // bp*2^32/10000 gives the same rate in a single compare -- and with
+      // better uniformity, since the modulo version biases the low 7296
+      // residues by 1 part in 429497.
+      if (uint64_t(rng_()) >= this->aggr_participation_thresh) return;
 
       // already_gated: the coin above was ours. Without it the passive
       // place_rate_bp gate would apply on top and the realised share would be
@@ -561,6 +586,7 @@ namespace light::act
 
     // Basis points of TRADES this light shadows aggressively. 0 = off.
     int aggr_participation_bp = 0;
+    uint64_t aggr_participation_thresh = 0;   // bp * 2^32 / 10000, see tradenotify_handler
 
     void gap_detected_handler(const frame::ob::msg::GapDetected *) noexcept
     {

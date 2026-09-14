@@ -414,12 +414,17 @@ void SimKaspr::create_lights()
     auto qcoord_buy = create_QCoord();
     auto qcoord_sel = create_QCoord();
 
+    // The passive bank never crosses -- aggression lives in its own bank below,
+    // so that an aggressive arm changes exactly one thing against its control.
+    boost::property_tree::ptree pt_passive = pt_light;
+    pt_passive.put("aggr_participation_bp", 0);
+
     for (int i = 0; i < nlights; i++) {
       auto light_buy = create_light22_Shadow_BUY(
           "sim", nullptr, nullptr, "L_" + a->name + "_BUY_" + std::to_string(i),
           en::trader::SIMULATOR,
           a->name, venue_, venue_, qcoord_buy, pcoord_buy, ob, nullptr, 0,
-          timer_, som_, i, pt_light, 0, false);   // mmid = i: its own slot
+          timer_, som_, i, pt_passive, 0, false);  // mmid = i: its own slot
       group_->add(light_buy);
       lights_.push_back(light_buy);
       buy_lights_.push_back(light_buy);
@@ -430,14 +435,87 @@ void SimKaspr::create_lights()
           "sim", nullptr, nullptr, "L_" + a->name + "_SEL_" + std::to_string(i),
           en::trader::SIMULATOR,
           a->name, venue_, venue_, qcoord_sel, pcoord_sel, ob, nullptr, 0,
-          timer_, som_, i, pt_light, 0, false);   // mmid = i: its own slot
+          timer_, som_, i, pt_passive, 0, false);  // mmid = i: its own slot
       group_->add(light_sel);
       lights_.push_back(light_sel);
       sel_lights_.push_back(light_sel);
     }
 
-    std::cerr << "SimKaspr: " << (2 * nlights) << " lights for " << a->name
-              << " -- " << nlights << " per side" << std::endl;
+    // ---- the AGGRESSIVE bank -------------------------------------------
+    //
+    // One light per side, separate from the passive bank, because aggression
+    // riding on the passive lights does not work: a light declines a trade
+    // while it already holds a working order, and at any useful place_rate_bp
+    // the passive lights are occupied nearly all the time. The 2026-09-14 grid
+    // D run asked for 2% of trades and got 2.4%-to-0% of that, ranked inversely
+    // with placement rate.
+    //
+    //   place_rate_bp 0   -- it never shadows an ADD, so every order it sends
+    //                        is a cross and attribution is unambiguous; the
+    //                        passive bank stays byte-identical to the control.
+    //   own QCoord        -- its working orders are coordinated separately, so
+    //                        it cannot be throttled by the passive bank's book.
+    //   SHARED PCoord     -- position is the one thing the two banks must agree
+    //                        on: a cross fills the same parent, and the
+    //                        aggressive light must stand down at the target
+    //                        like any other.
+    //
+    // One light is enough because a marketable order clears its slot on arrival
+    // rather than resting: at 2% of trades on a ~67 s leg that is a placement
+    // every few seconds against a ~500 us occupancy.
+    const int aggr_bp = pt_light.get<int>("aggr_participation_bp", 0);
+    int n_aggr = 0;
+    if (aggr_bp > 0) {
+      boost::property_tree::ptree pt_aggr = pt_light;
+      pt_aggr.put("place_rate_bp", -1);             // NEVER place passively (0 would mean "every add")
+      pt_aggr.put("place_after_n_eob", 0);          // and no deterministic path either
+      pt_aggr.put("aggr_participation_bp", aggr_bp);
+
+      // One light holds ONE order (ord_info is a single slot), so a bank of one
+      // caps how many crosses can be in flight at once. aggr_nlights_per_side
+      // makes that a parameter. One QCoord per bank per side, shared by the
+      // bank's lights, exactly as the passive bank does; mmid = i gives each
+      // light its own slot in that QCoord's bitmask, and the distinct name
+      // gives it its own RNG stream.
+      const int n_aggr_side = pt_light.get<int>("aggr_nlights_per_side", 1);
+      ASSERTF(n_aggr_side > 0 && n_aggr_side <= 64,
+              boost::format("aggr_nlights_per_side must be 1..64, got %d") % n_aggr_side);
+
+      auto qcoord_aggr_buy = create_QCoord();
+      auto qcoord_aggr_sel = create_QCoord();
+
+      for (int i = 0; i < n_aggr_side; i++) {
+        auto aggr_buy = create_light22_Shadow_BUY(
+            "sim", nullptr, nullptr,
+            "L_" + a->name + "_AGGR_BUY_" + std::to_string(i),
+            en::trader::SIMULATOR,
+            a->name, venue_, venue_, qcoord_aggr_buy, pcoord_buy, ob, nullptr, 0,
+            timer_, som_, i, pt_aggr, 0, false);
+        group_->add(aggr_buy);
+        lights_.push_back(aggr_buy);
+        buy_lights_.push_back(aggr_buy);
+      }
+
+      for (int i = 0; i < n_aggr_side; i++) {
+        auto aggr_sel = create_light22_Shadow_SEL(
+            "sim", nullptr, nullptr,
+            "L_" + a->name + "_AGGR_SEL_" + std::to_string(i),
+            en::trader::SIMULATOR,
+            a->name, venue_, venue_, qcoord_aggr_sel, pcoord_sel, ob, nullptr, 0,
+            timer_, som_, i, pt_aggr, 0, false);
+        group_->add(aggr_sel);
+        lights_.push_back(aggr_sel);
+        sel_lights_.push_back(aggr_sel);
+      }
+
+      n_aggr = 2 * n_aggr_side;
+    }
+
+    std::cerr << "SimKaspr: " << (2 * nlights + n_aggr) << " lights for " << a->name
+              << " -- " << nlights << " passive per side"
+              << (n_aggr ? (", + " + std::to_string(n_aggr/2) + " aggressive per side at "
+                            + std::to_string(aggr_bp) + "bp") : "")
+              << std::endl;
   }
 }
 

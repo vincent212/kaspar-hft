@@ -713,6 +713,107 @@ TEST_F(Light22IntegrationTest, EventDelayCountdownIsClearedByANewPlacement) {
 }
 
 /**
+ * FAILING BY DESIGN -- the delayed cancel survives only an idle book.
+ *
+ * AttachedOrderGone_EventDelayDefersCancelByNEobs proves the countdown works
+ * when nothing else happens: every EOB it sends repeats the same price, so no
+ * competing cancel path fires. Production is not like that. Between arming and
+ * expiry there are a dozen paths that call cancel_order() -- the RET macro, the
+ * too-far-from-inside check, the position checks -- and cancel_order() zeroes
+ * pending_cancel_eob (light22_base.hpp:348), voiding the deferral.
+ *
+ * On ES the touch is one tick wide in 96% of windows and moves constantly, so a
+ * reprice almost certainly lands inside any 5-event window. If so,
+ * `delayed_cancel_events 5` is configured but has no practical effect, and arm
+ * A's results are not measuring what the config says they are.
+ *
+ * This test pins the intended semantics: the deferral is armed because the
+ * ATTACHED order went away, and it should not be cut short by an unrelated book
+ * move that leaves our own order still valid.
+ */
+TEST_F(Light22IntegrationTest, EventDelaySurvivesAnUnrelatedBookMove) {
+  const int kDelayEvents = 5;
+  pt.put("delayed_cancel_events", kDelayEvents);
+  auto light = create_buy_light("TestBuy", 10);
+  int sym_id = get_sym_id();
+
+  mock_pcoord.set_position(0);
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+
+  place_then_drop_attached(light.get(), sym_id, 12345);
+  ASSERT_EQ(light->pending_cancel_eob, kDelayEvents)
+      << "fixture precondition: the deferral must be armed";
+  ASSERT_TRUE(light->ord_info.has_value());
+
+  mock_som.clear();
+
+  // One further EOB in which the inside has moved a tick -- the ordinary case
+  // on a one-tick book, and nothing to do with our attached order.
+  auto payload = make_payload(sym_id, 100, 5, en::md::ADD, 777);
+  payload->point_.bid_px[0] = 101;
+  payload->point_.ask_px[0] = 102;
+  auto eob = new frame::ob::msg::EndOfBurst(payload);
+  process_msg(light.get(), eob, &mock_ob);
+  delete eob;
+
+  EXPECT_FALSE(mock_som.has_message_of_type<frame::som::msg::Cancel>())
+      << "a book move must not cut the deferral short: the delay was armed for "
+         "the attached order going away, and cancelling here makes "
+         "delayed_cancel_events inoperative on any actively quoted instrument";
+  EXPECT_EQ(light->pending_cancel_eob, kDelayEvents - 1)
+      << "the countdown should have decremented by one, not been voided";
+}
+
+/**
+ * The missing link in the cancel-latency chain.
+ *
+ * The chain is: light stamps the cancel -> SOM forwards the stamp as canc_ts
+ * -> OB holds the CANCD in del_q until ts0 + cancel_delay.
+ *
+ * The two ends are covered -- OBDelayQueueTest.OurCancelIsWithheldForTheSameDelay
+ * gates on the OB side, SOMCancelLatencyTest.CancelCarriesItsOwnDecisionTime on
+ * the SOM side. Nothing checked that the LIGHT emits a stamp at all, and that
+ * is the dangerous gap: OBDelayQueueTest.AMessageWithNoTimestampIsNotDelayed
+ * and SOMCancelLatencyTest.AnUntimedCancelStaysUntimed both confirm a ts of 0
+ * is passed through and applied WITHOUT DELAY. So a light that forgot to stamp
+ * would give every cancel zero latency while every other test still passed, and
+ * the whole latency sweep would be measuring an algorithm whose cancels always
+ * beat the flow.
+ *
+ * That exact bug has already happened once on the SOM side -- cancels were
+ * stamped with the ORIGINAL ORDER's ts, whose deadline was already past, so
+ * they arrived with no latency (see the comment at SOM::cancel_order). This
+ * pins the light end so it cannot happen there.
+ */
+TEST_F(Light22IntegrationTest, TheLightStampsItsCancelWithMarketTime) {
+  auto light = create_buy_light("TestBuy", 10);
+  int sym_id = get_sym_id();
+
+  mock_pcoord.set_position(0);
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+
+  place_order_via_eob(*light, sym_id, 100);
+  ASSERT_TRUE(light->ord_info.has_value());
+
+  const uint64_t tx = light->curr_tx_time;
+  EXPECT_GT(tx, 0u) << "fixture precondition: the light must have market time";
+
+  mock_som.clear();
+  light->cancel_order();
+
+  auto canc = mock_som.get_message<frame::som::msg::Cancel>(0);
+  ASSERT_NE(canc, nullptr) << "a cancel must have gone out";
+  EXPECT_GT(canc->ts, 0u)
+      << "an untimed cancel is applied by OB WITHOUT DELAY "
+         "(OBDelayQueueTest.AMessageWithNoTimestampIsNotDelayed), so a zero "
+         "stamp here silently gives every cancel zero latency";
+  EXPECT_EQ(canc->ts, tx)
+      << "the stamp must be the light's own market time, not the original "
+         "order's -- that variant already shipped once and gave cancels no "
+         "latency while looking like it modelled one";
+}
+
+/**
  * Test 7: CancelWhenTooFarFromInside
  *
  * VERIFY: Cancel is triggered when order price is too far from best bid/ask
@@ -1155,6 +1256,74 @@ TEST_F(Light22IntegrationTest, AggressiveStillRespectsThePositionTarget) {
       << "at target, an aggressive light must stand down like a passive one";
 }
 
+
+/**
+ * The defect, and the shape of the fix.
+ *
+ * A light declines a trade while it already holds a working order
+ * (light22_base: `if (ord_info.has_value()) return;`). That guard is correct --
+ * ord_info is a single slot -- but it meant aggression riding on the PASSIVE
+ * lights almost never fired, because at any useful place_rate_bp those lights
+ * are occupied nearly all the time.
+ *
+ * MEASURED, 2026-09-14 grid D: configured aggr_participation_bp 200 (2% of
+ * trades) at 100 lots. Expected 10-26 aggressive placements per leg; observed
+ * extra fills over the matched control were 0.63 / 0.23 / 0.19 / 0.08 / -0.04
+ * at rate 25/50/100/200/400 -- 2.4% to 0% of target, ranked INVERSELY with
+ * placement rate, which is the signature of crowding-out. Paired-slippage
+ * differences were indistinguishable from noise (per-session t = -2.13, -0.76,
+ * -0.91, -2.32, -0.19 over 247 sessions).
+ *
+ * The fix is architectural, not a config change: aggression gets its OWN bank
+ * (SimKaspr.cpp) -- one light per side, place_rate_bp 0, its own QCoord,
+ * sharing the passive bank's PCoord. This test pins the property that makes
+ * one light sufficient: an aggression-only light is idle between crosses, so
+ * it takes every trade the rate selects.
+ */
+TEST_F(Light22IntegrationTest, AggressionOnlyLightTakesEveryTradeItIsOffered) {
+  pt.put("place_rate_bp", 0);                 // aggression only: never shadows an ADD
+  pt.put("place_after_n_eob", 0);
+  pt.put("aggr_participation_bp", 10000);     // 100% of trades
+  auto light = create_buy_light("TestAggr", 10);
+  int sym_id = get_sym_id();
+
+  mock_pcoord.set_position(0);
+  process_msg(light.get(), new actors::msg::Start(), &mock_ob);
+  mock_som.clear();
+
+  ASSERT_FALSE(light->ord_info.has_value())
+      << "an aggression-only light must not have rested anything";
+
+  // A take: the offer was lifted, so this is aggressive for the BUY side.
+  auto trade = make_trade(sym_id, 100, 5, en::bs::SEL);
+  process_msg(light.get(), trade, &mock_ob);
+  delete trade;
+
+  EXPECT_GE(mock_som.count_messages_of_type<frame::som::msg::Order>(), 1u)
+      << "a dedicated aggressive light is idle between crosses and must cross "
+         "on the trade it is offered";
+}
+
+/**
+ * aggr_participation_bp is LITERAL -- it is no longer divided by
+ * nlights_per_side.
+ *
+ * The division existed for the old design where aggression rode on the passive
+ * bank and the config value had to mean the same thing across arms with
+ * different light counts. With a dedicated bank of one light it is at best a
+ * no-op and at worst silently scales the rate by whatever the passive bank
+ * happens to be sized at. 200 must mean 2% of trades, full stop.
+ */
+TEST_F(Light22IntegrationTest, AggressiveRateIsNotDividedByLightCount) {
+  pt.put("nlights_per_side", 12);             // would have divided by 12 before
+  pt.put("place_rate_bp", 0);
+  pt.put("aggr_participation_bp", 200);
+  auto light = create_buy_light("TestAggr", 10);
+
+  EXPECT_EQ(light->aggr_participation_bp, 200)
+      << "the configured rate must reach the light unscaled: a bank of one "
+         "divided by a passive light count is the trap the division created";
+}
 
 TEST_F(Light22IntegrationTest, AggressiveIgnoresTradesOnItsOwnSide) {
   // A BUY light must shadow TAKES only. A hit prints at the bid, so placing a
