@@ -624,7 +624,13 @@ Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.su
 
 ## Shadow Execution Algo
 
-Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow. Shadow algorithms can outperform VWAP and TWAP benchmarks because they avoid adverse selection by only trading alongside genuine order flow.
+Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow by following the orders other participants place.
+
+**What is measured, and what is not.** On ES over 246 complete sessions of 2025 — 47,677 completed round trips — resting rather than crossing the spread is worth **0.088 to 0.107 ticks per contract**, roughly eight standard errors from zero, and that advantage does not change with the placement rate.
+
+It does **not** avoid adverse selection. The same corpus puts the cost of a round trip at **+0.42 ticks**, against −0.5 for perfect passive capture, and per-fill mark-outs show that cost is immediate and permanent — fully realised within one second of the fill and undiminished at thirty. Explaining where it comes from is open work, not a solved problem.
+
+Nothing here has been benchmarked against a VWAP or TWAP *algorithm*; no such comparison has been run. Executing better than the market's own volume-weighted average price over the interval you happened to trade in is a different and weaker claim, and even that one is confounded — the benchmark interval moves with how long the algorithm takes, so it is not comparable across configurations.
 
 ```
 Real market participant places order at 6050.00
