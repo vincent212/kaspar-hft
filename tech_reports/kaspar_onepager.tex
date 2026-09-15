@@ -1,0 +1,314 @@
+\documentclass[10pt]{article}
+
+% ---------------------------------------------------------------
+% Kaspar --- one-page capability sheet
+% Companion to shadow_pov.tex and fast_send.tex
+% ---------------------------------------------------------------
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[default,semibold]{sourcesanspro}
+\usepackage[varqu,varl,scaled=0.94]{inconsolata}
+\usepackage{microtype}
+\usepackage[a4paper,top=14mm,bottom=13mm,left=17mm,right=17mm]{geometry}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+
+\definecolor{ink}{HTML}{111823}
+\definecolor{ink2}{HTML}{46505F}
+\definecolor{ink3}{HTML}{6C7787}
+\definecolor{rulec}{HTML}{C3CBD6}
+\definecolor{accent}{HTML}{1F4E9C}
+\definecolor{warm}{HTML}{A82F2B}
+\definecolor{band}{HTML}{EEF1F5}
+
+\color{ink}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{3.2pt}
+\setlength{\columnsep}{8mm}
+
+% Section headings: small, letterspaced, with a rule under them.
+\titleformat{\section}
+  {\normalfont\sffamily\bfseries\footnotesize\color{ink}}
+  {}{0pt}{\MakeUppercase}[{\vspace{2pt}\color{rulec}\titlerule[1pt]}]
+\titlespacing*{\section}{0pt}{11pt}{5pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\fancyfoot[L]{\scriptsize\color{ink3}\sffamily Vincent Mayeski
+  \quad\textperiodcentered\quad M2 Tech, Montr\'eal
+  \quad\textperiodcentered\quad \href{mailto:mayeski@gmail.com}{mayeski@gmail.com}}
+\fancyfoot[R]{\scriptsize\color{ink3}\sffamily
+  \href{https://github.com/vincent212/kaspar-hft}{github.com/vincent212/kaspar-hft}
+  \quad\textperiodcentered\quad MIT \quad\textperiodcentered\quad \thepage}
+
+% Provenance chips: every performance number says where it came from.
+\newcommand{\measured}{{\color{accent}\sffamily\bfseries\scriptsize
+  \setlength{\fboxsep}{1.5pt}\fbox{\scshape measured}}}
+\newcommand{\expected}{{\color{ink3}\sffamily\bfseries\scriptsize
+  \setlength{\fboxsep}{1.5pt}\fbox{\scshape expected}}}
+\newcommand{\code}[1]{{\ttfamily\small #1}}
+\newcommand{\tnote}[1]{{\color{ink2}\footnotesize #1\par}}
+
+% One capability tile.
+\newcommand{\tile}[2]{%
+  {\color{ink3}\sffamily\bfseries\scriptsize\MakeUppercase{#1}}\\[1pt]
+  \footnotesize #2\par\vspace{5pt}}
+
+\begin{document}
+
+% ===============================================================
+% Masthead
+% ===============================================================
+{\color{accent}\sffamily\bfseries\scriptsize
+ LOW-LATENCY TRADING SYSTEM \quad\textperiodcentered\quad C++20 \quad\textperiodcentered\quad MIT}
+
+\vspace{2pt}
+{\sffamily\bfseries\fontsize{46}{46}\selectfont Kaspar}
+
+\vspace{4pt}
+{\color{ink2}\sffamily\large A turn-key CME futures trading system that is also the
+order book simulator you backtest it in.}
+
+\vspace{7pt}
+{\color{ink}\hrule height 1.6pt}
+\vspace{5pt}
+
+% --- spec rail ---
+\noindent\begin{tabularx}{\textwidth}{@{}XXXXX@{}}
+{\color{ink3}\sffamily\bfseries\scriptsize VENUE} &
+{\color{ink3}\sffamily\bfseries\scriptsize MARKET DATA} &
+{\color{ink3}\sffamily\bfseries\scriptsize ORDER ENTRY} &
+{\color{ink3}\sffamily\bfseries\scriptsize BOOK} &
+{\color{ink3}\sffamily\bfseries\scriptsize LICENCE} \\[-4pt]
+\sffamily\bfseries\small CME Globex &
+\sffamily\bfseries\small MDP3 v12 SBE &
+\sffamily\bfseries\small iLink 3 v8 &
+\sffamily\bfseries\small MBP \& MBO L3 &
+\sffamily\bfseries\small MIT, open source \\
+\end{tabularx}
+
+\vspace{2pt}
+{\color{rulec}\hrule height 0.6pt}
+
+\vspace{8pt}
+\textbf{Kaspar is two things sharing one codebase.} It is a production trading
+system --- multicast market data in, full order books reconstructed order by
+order, an execution algorithm on top, and authenticated iLink~3 sessions out to
+the exchange. It is also a market simulator: the same books rebuilt from recorded
+packet captures, with your orders sitting in the price--time queue and filling
+only when the market actually trades through them.
+
+These are not two programs. The same strategy code, the same execution algorithm
+and the same book run in PCAP replay, in live paper trading, and against the live
+exchange. You move between them by changing configuration, not by porting
+anything --- so a backtest exercises the code path that will trade.
+
+% ===============================================================
+\section{What is in the box}
+
+\vspace{-2pt}
+{\color{ink3}\footnotesize No vendor feed handler, no broker API, no assembly required.}
+\vspace{4pt}
+
+\noindent\begin{minipage}[t]{0.485\textwidth}
+\tile{Market data}{Full \textbf{MDP3 v12} SBE decoder: incremental book updates,
+trades, order-by-order MBO, instrument definitions, snapshot recovery. Sequence
+gaps are detected and repaired automatically.}
+\tile{Order book}{Order-by-order reconstruction holding \textbf{every resting
+order individually}, not aggregated depth --- which is what makes a queue
+position, and therefore a fill inference, definable at all.}
+\tile{Order entry}{\textbf{iLink 3} session handler: SBE encoding, HMAC
+authentication, sequence management, negotiation and establishment,
+primary/secondary failover.}
+\tile{Execution}{\textbf{Shadow-PPOV}, a passive percentage-of-volume algorithm
+that places by following individual resting orders. Measured over a full calendar
+year --- see below.}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.485\textwidth}
+\tile{Simulation}{Three modes off one binary: \textbf{PCAP replay}, live
+multicast paper trading, live iLink execution. Deterministic --- a fixed session
+replays to identical fills.}
+\tile{Concurrency}{A custom \textbf{C++20 actor framework}. Shared-nothing
+message passing, O(1) dispatch by integer message id, CPU affinity pinning, pool
+allocation on the hot path.}
+\tile{Strategy authoring}{C++ in-process actors for the lowest latency, or
+\textbf{Rust} across an in-process FFI interop. A from-scratch Rust port of the
+actor core ships with a price--time matching engine.}
+\tile{Measurement}{An execution-cost harness that runs the algorithm as a
+two-sided maker over recorded sessions, one row per window, plus a parameter
+sweep over rate, size and simulated latency.}
+\end{minipage}
+
+% ===============================================================
+\section{Performance}
+
+\vspace{-2pt}
+{\color{ink3}\footnotesize AMD EPYC 9374F \quad\textperiodcentered\quad RHEL 9
+\quad\textperiodcentered\quad g++ 15 \quad\textperiodcentered\quad
+\code{-O3 -march=native}}
+\vspace{4pt}
+
+The usual objection to actors is messaging overhead. The answer is
+\code{fast\_send}, which runs the receiver's handler inline on the caller's
+thread and returns the reply as a value.
+
+\vspace{3pt}
+\noindent\begin{tabularx}{\textwidth}{@{}Xr>{\raggedright\arraybackslash}p{62mm}@{}}
+\toprule
+{\color{ink3}\sffamily\bfseries\scriptsize PATH} &
+{\color{ink3}\sffamily\bfseries\scriptsize P50} &
+{\color{ink3}\sffamily\bfseries\scriptsize WHAT IT COSTS} \\
+\midrule
+Direct function call & \code{\textasciitilde1 ns} & baseline \\
+\code{fast\_send} --- inline, no thread hop & {\color{accent}\bfseries\code{\textasciitilde10 ns}} & $\approx$ one polymorphic virtual call \\
+Queued send, one \code{Group} thread & \code{\textasciitilde90 ns} & queue push/pop + dispatch \\
+Queued send, separate threads & \code{\textasciitilde3{,}370 ns} & cross-core mailbox wakeup, twice \\
+\midrule
+Pooled round trip (2 messages) & \code{\textasciitilde92 ns} & vs \code{\textasciitilde128 ns} with plain \code{new} \\
+Allocator tail (max observed) & \code{\textasciitilde33 \textmu s} & vs \code{\textasciitilde5.5 ms} unpooled --- the durable win \\
+\bottomrule
+\end{tabularx}
+
+\vspace{3pt}
+\tnote{\measured\ Ping $\to$ pong $\to$ reply, one message in flight, from the
+microbenchmarks in \code{actors/cpp/perf}. Grouped $\div$ ungrouped is 37$\times$
+here and 18$\times$ on an Apple M3 --- the absolutes travel less well than the ratio.}
+
+\vspace{5pt}
+\expected\ End-to-end \textbf{tick-to-trade} sits in the \textasciitilde100~\textmu s
+range at the median with p99 under a millisecond. That figure is a design target
+derived from the component measurements, not a colocated production measurement,
+and is labelled as such wherever it appears.
+
+% ===============================================================
+\section{Shadow-PPOV execution}
+
+\vspace{-2pt}
+{\color{ink3}\footnotesize ES futures \quad\textperiodcentered\quad 246 sessions
+of calendar 2025 \quad\textperiodcentered\quad 100 contracts bought and 100 sold
+per window}
+\vspace{4pt}
+
+Most execution algorithms either cross the spread or quote continuously.
+Shadow-PPOV takes a third path: on observing a third-party add, it places its own
+limit order \textbf{at that order's price, on that order's venue}, records nothing
+but the pair of exchange identifiers, and cancels when the order it follows ends.
+No order-book model. No fill-probability forecast. No routing computation --- the
+venue mix is inherited from the flow rather than solved for.
+
+\vspace{2pt}
+{\color{accent}\vrule width 2.5pt}\hspace{5pt}%
+\begin{minipage}{0.955\textwidth}
+Each window opens with 100 contracts to buy and 100 to sell, worked at once.
+\textbf{Relative slippage} prices each leg against the mid at the instant the
+window opened and averages the two, so the market's drift during the window
+cancels.
+\end{minipage}
+
+\vspace{6pt}
+\noindent\begin{tabularx}{\textwidth}{@{}Xrr@{}}
+\toprule
+{\color{ink3}\sffamily\bfseries\scriptsize ZERO SIMULATED LATENCY} &
+{\color{ink3}\sffamily\bfseries\scriptsize SHADOW-PPOV (PASSIVE)} &
+{\color{ink3}\sffamily\bfseries\scriptsize AGGRESSIVE POV (CROSSING)} \\
+\midrule
+Completed windows & \code{9{,}592} & \code{9{,}581} \\
+Relative slippage, ticks per contract
+  & {\color{accent}\bfseries\code{+0.0955 $\pm$ 0.0130}}
+  & {\color{warm}\bfseries\code{+0.0952 $\pm$ 0.0135}} \\
+Aggregate participation & \code{4.46\,\%} & \code{4.86\,\%} \\
+Time to fill 100 & \code{72.7 s} & \code{62.4 s} \\
+Filled on arrival rather than resting & \code{1.04\,\%} & \code{51.86\,\%} \\
+\bottomrule
+\end{tabularx}
+
+\vspace{3pt}
+\tnote{\measured\ Intervals are 95\,\% and clustered by session. One of these rests
+for 99\,\% of its executed quantity and the other crosses for half of it, at
+matched participation --- and the round trip costs the same either way, to the
+fourth decimal, over more than nine thousand windows each.}
+
+\vspace{6pt}
+{\sffamily\bfseries What latency costs.} The same delay applied to all three paths
+at once: the outbound order, the outbound cancel, and the inbound market-data feed.
+
+\vspace{4pt}
+\noindent\begin{minipage}[c]{0.60\textwidth}
+\includegraphics[width=\textwidth]{sim/latency_slippage.pdf}
+\end{minipage}\hfill
+\begin{minipage}[c]{0.365\textwidth}
+\footnotesize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+{\color{ink3}\sffamily\bfseries\scriptsize DELAY} &
+{\color{ink3}\sffamily\bfseries\scriptsize PASS.} &
+{\color{ink3}\sffamily\bfseries\scriptsize AGGR.} \\
+\midrule
+\code{0}      & \code{+0.097} & \code{+0.087} \\
+\code{500 \textmu s} & \code{+0.121} & \code{+0.176} \\
+\code{1 ms}   & \code{+0.132} & \code{+0.211} \\
+\code{2.5 ms} & \code{+0.141} & \code{+0.240} \\
+\code{5 ms}   & \code{+0.150} & \code{+0.296} \\
+\bottomrule
+\end{tabular}
+
+\vspace{5pt}
+Passive loses about \textbf{0.011} ticks per contract per millisecond of delay
+and aggressive about \textbf{0.042} --- roughly four times as fast. The ordering
+between them reverses inside the first half-millisecond.
+\end{minipage}
+
+\vspace{6pt}
+The asymmetry is not in what a fill costs. A marketable limit never executes worse
+than its limit --- if the book moves in its favour during the flight it simply
+fills better. What latency changes is how often it fills at all: when the level it
+was priced from has been consumed, the order rests at a price the market has
+already left, and the quantity comes back to be re-sent at whatever the price has
+become. A resting order has no equivalent failure: a quote that arrives late has
+still arrived, and pays at most the width it crossed.
+
+% ===============================================================
+\section{What it does not claim}
+
+\begin{itemize}[leftmargin=1.1em,itemsep=1.5pt,topsep=2pt,label={\color{warm}---}]
+  \item \textbf{Adverse selection is not avoided.} The half-spread a resting order
+  captures is returned, in expectation, through adverse selection --- which is why
+  passive and crossing cost the same here. Post-fill mark-outs show that cost is
+  complete within a second of the fill and undiminished at thirty.
+  \item \textbf{The replay models no market impact.} Orders fill against the
+  recorded feed as though they had not been there. At 4.5\,\% participation that
+  assumption is mild; at the 6.9\,\% the passive side reaches under 5\,ms of delay
+  it is strained, and the reported participation should be read as an upper bound.
+  \item \textbf{Tick-to-trade is a target, not a colocated measurement.}
+  \item \textbf{No comparison against a VWAP or TWAP \emph{algorithm} has been
+  run.} Beating the market's own volume-weighted price over the interval you
+  happened to trade in is a weaker and confounded claim, and the report says so.
+  \item \textbf{One instrument, one year.} ES is a one-tick book for most of the
+  session; do not carry the results to wider-spread products without re-measuring.
+\end{itemize}
+
+% ===============================================================
+\section{Written up}
+
+\footnotesize
+\textbf{\href{https://github.com/vincent212/kaspar-hft/blob/main/tech_reports/shadow_pov.pdf}{Shadow-PPOV:
+Model-Free Passive Execution via Order-Level Shadowing and Identifier-Driven Cancellation}}
+--- method, prior art, the full measurement corpus, latency sensitivity, and the
+case for a model-free passive method as the benchmark a predictive placement
+model should have to beat.
+\textbf{\href{https://github.com/vincent212/kaspar-hft/blob/main/tech_reports/fast_send.pdf}{fast\_send}}
+--- the inline-dispatch design and its measurements. Source, benchmarks and
+runbooks are in the repository.
+\normalsize
+
+\end{document}
