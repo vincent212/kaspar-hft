@@ -188,6 +188,7 @@ runs \textbf{\textasciitilde100~\textmu s} at the median with p99 under a
 millisecond --- market data in to order on the wire, not a component benchmark.
 
 % ===============================================================
+\clearpage
 \section{Shadow-PPOV execution}
 
 \vspace{-2pt}
@@ -196,8 +197,8 @@ of calendar 2025 \quad\textperiodcentered\quad 100 contracts bought and 100 sold
 per window}
 \vspace{4pt}
 
-Most execution algorithms either cross the spread or quote continuously.
-Shadow-PPOV takes a third path: on observing a third-party add, it places its own
+Most execution algorithms either cross the spread or quote continuously based on a model.
+Shadow-POV is model free: on observing a third-party add, it places its own
 limit order \textbf{at that order's price, on that order's venue}, records nothing
 but the pair of exchange identifiers, and cancels when the order it follows ends.
 No order-book model. No fill-probability forecast. No routing computation --- the
@@ -206,7 +207,6 @@ venue mix is inherited from the flow rather than solved for.
 \vspace{2pt}
 {\color{accent}\vrule width 2.5pt}\hspace{5pt}%
 \begin{minipage}{0.955\textwidth}
-Each window opens with 100 contracts to buy and 100 to sell, worked at once.
 \textbf{Relative slippage} prices each leg against the mid at the instant the
 window opened and averages the two, so the market's drift during the window
 cancels.
@@ -240,71 +240,26 @@ fourth decimal, over more than nine thousand windows each.}
 at once: the outbound order, the outbound cancel, and the inbound market-data feed.
 
 \vspace{4pt}
-\noindent\begin{minipage}[c]{0.60\textwidth}
-\includegraphics[width=\textwidth]{sim/latency_slippage.pdf}
-\end{minipage}\hfill
-\begin{minipage}[c]{0.365\textwidth}
-\footnotesize
-\begin{tabular}{@{}lrr@{}}
+\noindent\begin{tabularx}{\textwidth}{@{}Xrr@{}}
 \toprule
-{\color{ink3}\sffamily\bfseries\scriptsize DELAY} &
-{\color{ink3}\sffamily\bfseries\scriptsize PASS.} &
-{\color{ink3}\sffamily\bfseries\scriptsize AGGR.} \\
+{\color{ink3}\sffamily\bfseries\scriptsize DELAY ON ORDER, CANCEL AND FEED} &
+{\color{ink3}\sffamily\bfseries\scriptsize SHADOW-PPOV (PASSIVE)} &
+{\color{ink3}\sffamily\bfseries\scriptsize AGGRESSIVE POV} \\
 \midrule
-\code{0}      & \code{+0.097} & \code{+0.087} \\
-\code{500 \textmu s} & \code{+0.121} & \code{+0.176} \\
-\code{1 ms}   & \code{+0.132} & \code{+0.211} \\
-\code{2.5 ms} & \code{+0.141} & \code{+0.240} \\
-\code{5 ms}   & \code{+0.150} & \code{+0.296} \\
+None                 & \code{+0.097} & \code{+0.087} \\
+500\,\textmu s       & \code{+0.121} & \code{+0.176} \\
+1\,ms                & \code{+0.132} & \code{+0.211} \\
+2.5\,ms              & \code{+0.141} & \code{+0.240} \\
+5\,ms                & \code{+0.150} & \code{+0.296} \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 
-\vspace{5pt}
-Passive loses about \textbf{0.011} ticks per contract per millisecond of delay
-and aggressive about \textbf{0.042} --- roughly four times as fast. The ordering
-between them reverses inside the first half-millisecond.
-\end{minipage}
+\vspace{3pt}
+\tnote{\measured\ Relative slippage in ticks per contract, same corpus. Passive
+loses about \textbf{0.011} ticks per contract per millisecond of delay and
+aggressive about \textbf{0.042} --- roughly four times as fast --- and the
+ordering between them reverses inside the first half-millisecond.}
 
-\vspace{6pt}
-The asymmetry is not in what a fill costs. A marketable limit never executes worse
-than its limit --- if the book moves in its favour during the flight it simply
-fills better. What latency changes is how often it fills at all: when the level it
-was priced from has been consumed, the order rests at a price the market has
-already left, and the quantity comes back to be re-sent at whatever the price has
-become. A resting order has no equivalent failure: a quote that arrives late has
-still arrived, and pays at most the width it crossed.
 
-% ===============================================================
-\section{What it does not claim}
-
-\begin{itemize}[leftmargin=1.1em,itemsep=1.5pt,topsep=2pt,label={\color{warm}---}]
-  \item \textbf{Adverse selection is not avoided.} The half-spread a resting order
-  captures is returned, in expectation, through adverse selection --- which is why
-  passive and crossing cost the same here. Post-fill mark-outs show that cost is
-  complete within a second of the fill and undiminished at thirty.
-  \item \textbf{The replay models no market impact.} Orders fill against the
-  recorded feed as though they had not been there. At 4.5\,\% participation that
-  assumption is mild; at the 6.9\,\% the passive side reaches under 5\,ms of delay
-  it is strained, and the reported participation should be read as an upper bound.
-  \item \textbf{No comparison against a VWAP or TWAP \emph{algorithm} has been
-  run.} Beating the market's own volume-weighted price over the interval you
-  happened to trade in is a weaker and confounded claim, and the report says so.
-  \item \textbf{One instrument, one year.} ES is a one-tick book for most of the
-  session; do not carry the results to wider-spread products without re-measuring.
-\end{itemize}
-
-% ===============================================================
-\section{Written up}
-
-\footnotesize
-\textbf{\href{https://github.com/vincent212/kaspar-hft/blob/main/tech_reports/shadow_pov.pdf}{Shadow-PPOV:
-Model-Free Passive Execution via Order-Level Shadowing and Identifier-Driven Cancellation}}
---- method, prior art, the full measurement corpus, latency sensitivity, and the
-case for a model-free passive method as the benchmark a predictive placement
-model should have to beat.
-\textbf{\href{https://github.com/vincent212/kaspar-hft/blob/main/tech_reports/fast_send.pdf}{fast\_send}}
---- the inline-dispatch design and its measurements. Source, benchmarks and
-runbooks are in the repository.
-\normalsize
 
 \end{document}
