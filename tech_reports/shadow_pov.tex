@@ -339,6 +339,34 @@ has already decided to rest one. The two families are complementary --- a
 liquidity seeker decides \emph{when} enough liquidity is present
 to act, whereas \pov{} decides \emph{where} to rest a passive order.
 
+\paragraph{Quote matching.} The closest prior strategy in spirit is quote
+matching, described by Harris \cite{harris2003}: a trader observes a large
+standing limit order and places an order one tick \emph{better}, taking priority
+ahead of it. The standing order is thereby converted into a free option --- if
+the price moves against the quote matcher, it exits by trading \emph{against}
+that order, which is the very liquidity it stepped in front of. This shares one
+element with \pov{}: both act on an \emph{individual} identified resting order
+rather than on aggregate book state. Everything else is opposed.
+
+\pov{} places at the \emph{same} price, joining behind the observed order in the
+queue rather than ahead of it, so it takes no priority the other participant
+would otherwise have held. It shadows at a fixed rate irrespective of size,
+rather than selecting large orders for the size of the option they offer. It
+never trades against the order it follows: when that order ends, the shadow is
+withdrawn (Section~\ref{sec:cancel}). And its purpose is to complete a parent
+order at a predictable cost, not to extract an option from another participant's
+commitment.
+
+The comparison is also where the cancellation mechanism comes from. Harris's
+stated objection to quote matching is that the large standing order can simply
+vanish, leaving the quote matcher exposed precisely when the price then moves
+against it. \pov{}'s exposure to that event is the same in kind, and
+identifier-driven cancel mirroring is the direct answer to it: the shadow is
+pulled on the delete or trade message for the specific order it follows, without
+evaluating any market state (Sections~\ref{sec:map}--\ref{sec:cancel}). The
+failure mode that makes quote matching hazardous is the event this method is
+built to react to.
+
 % ---------------------------------------------------------------
 \section{Related literature}
 \label{sec:lit}
@@ -1611,6 +1639,9 @@ deterministic replay harness were built at M2 Technologies.
 \bibitem{agha1986} G.~Agha.
   \emph{Actors: A Model of Concurrent Computation in Distributed Systems.}
   MIT Press, 1986.
+\bibitem{harris2003} L.~Harris.
+  \emph{Trading and Exchanges: Market Microstructure for Practitioners.}
+  Oxford University Press, 2003.
 \bibitem{kissell} R.~Kissell.
   \emph{The Science of Algorithmic Trading and Portfolio Management.}
   Academic Press, 2013.
