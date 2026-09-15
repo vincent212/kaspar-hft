@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">Kaspar</h1>
   <p align="center">
-    <strong>High-Frequency Trading Simulator with Position-Aware Order Book Matching</strong>
+    <strong>Turn-Key Production Trading System and Position-Aware Order Book Simulator</strong>
   </p>
   <p align="center">
     CME Futures &bull; MDP3 Market Data &bull; iLink 3 &bull; PCAP Replay &bull; POV Execution &bull; C++20
@@ -10,7 +10,13 @@
 
 ---
 
-**Kaspar** is a low-latency trading system amd order book simulator. It reconstructs full order books from MDP3 market data, simulates fills that respect queue position, and supports live paper trading or historical PCAP replay — all built on a custom C++ actor framework designed for microsecond-level performance.
+**Kaspar** is two things sharing one codebase.
+
+It is a **turn-key production trading system**: MDP3 multicast in, full order books reconstructed order-by-order, an execution algorithm on top, and iLink 3 sessions out to CME — with SBE encoding, HMAC authentication, sequence management and primary/secondary failover already written. Nothing here is a sketch of a trading system that you would then build for real.
+
+It is also a **position-aware order book simulator**: the same books, rebuilt from recorded packet captures, with your orders placed in the price-time queue and filled only when the market actually trades through them. Fills are inferred from exact queue accounting, not assumed at the mid.
+
+The point is that those are not two programs. The same strategy code, the same execution algorithm and the same book run in PCAP replay, in live paper trading, and against the live exchange; you move between them by changing configuration, not by porting anything. A backtest exercises the code path that will trade. It is built on a custom C++ actor framework designed for microsecond-level performance.
 
 **Why actors?** Each actor owns its private state and communicates only by messages, so no mutable state is shared between actors — and therefore no memory-level data race, and no locks in your own code; you reason about one message at a time against consistent state. Empirical studies call data races and deadlocks *"two mistakes that are hard to make with actors."*  Actor code is also unusually easy for AI coding agents to write: they know the actor pattern well and generate actors, their message handlers, and self-contained unit tests — send a message in, assert on the reply — with little friction, precisely because there is no shared state or locking to reason about. The usual objection is the messaging overhead; Kaspar answers it with `fast_send`, which runs the receiver's handler inline on the caller's thread and returns the reply as a value (**~10 ns of overhead over a direct call**, loop-amortized on an Apple M3). The design and measurements are written up in [**tech_reports/fast_send.pdf**](tech_reports/fast_send.pdf) (benches in [`actors/cpp/perf`](actors/cpp/perf)).
 
@@ -624,11 +630,59 @@ Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.su
 
 Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow by following the orders other participants place.
 
-**What is measured, and what is not.** On ES over 246 complete sessions of 2025 — 47,677 completed round trips — resting rather than crossing the spread is worth **0.088 to 0.107 ticks per contract**, roughly eight standard errors from zero, and that advantage does not change with the placement rate.
+The method, the measurement corpus and every number below are written up in the technical report [**shadow_pov.pdf**](tech_reports/shadow_pov.pdf) — *Shadow-PPOV: Model-Free Passive Execution via Order-Level Shadowing and Identifier-Driven Cancellation*.
 
-It does **not** avoid adverse selection. The same corpus puts the cost of a round trip at **+0.42 ticks**, against −0.5 for perfect passive capture, and per-fill mark-outs show that cost is immediate and permanent — fully realised within one second of the fill and undiminished at thirty. Explaining where it comes from is open work, not a solved problem.
+### What it costs: relative slippage
 
-Nothing here has been benchmarked against a VWAP or TWAP *algorithm*; no such comparison has been run. Executing better than the market's own volume-weighted average price over the interval you happened to trade in is a different and weaker claim, and even that one is confounded — the benchmark interval moves with how long the algorithm takes, so it is not comparable across configurations.
+Each measurement window opens with 100 contracts to buy and 100 to sell, worked simultaneously. Let `m₀` be the mid at the instant the window opened — the arrival price for both legs, since both start together. Each leg is priced against it:
+
+```
+Slippage_buy = vwap_buy − m₀          Slippage_sel = m₀ − vwap_sel
+```
+
+signed so positive is a loss on either side. The reported figure is the average of the two:
+
+```
+RelativeSlippage = ½(Slippage_buy + Slippage_sel) = ½(vwap_buy − vwap_sel)
+```
+
+The second equality is why the two are averaged rather than reported separately: `m₀` cancels, so whatever the market did during the window lands in both legs with opposite signs and drops out. The individual legs carry 95% intervals about four times wider than their own average; the paired form is immune to that drift by construction, which is what makes a full-year average mean anything.
+
+**ES, 246 sessions of calendar 2025, zero simulated latency:**
+
+| | Shadow-PPOV (passive) | Aggressive POV |
+|---|---|---|
+| Completed windows | 9,592 | 9,581 |
+| **Relative slippage** (ticks/contract) | **+0.0955 ± 0.0130** | **+0.0952 ± 0.0135** |
+| Participation | 4.46% | 4.86% |
+| Time to fill 100 | 72.7 s | 62.4 s |
+| Filled on arrival rather than resting | 1.04% | 51.86% |
+
+Intervals are 95% and clustered by session. One of these rests for 99% of its executed quantity and the other crosses for half of it, at matched participation, and **the round trip costs the same either way** — agreement to the fourth decimal over more than nine thousand windows each. That is what the Glosten–Milgrom account of the spread predicts of a method carrying no forecast: the half-spread a resting order captures is returned, in expectation, through adverse selection. Post-fill mark-outs computed from different data at a different grain agree with the window-level figure, so this is a measurement rather than an artefact of one definition.
+
+So shadow execution does **not** avoid adverse selection. What it does is reach the same cost as crossing without an order-book model, a fill-probability forecast, or a routing computation — which is the argument for using it as the benchmark a predictive placement model has to beat.
+
+### What latency costs
+
+The same delay applied to all three paths at once — the outbound order, the outbound cancel, and the inbound market-data feed.
+
+![Relative slippage against round-trip delay](tech_reports/sim/latency_slippage.png)
+
+| Delay | Passive | Aggressive |
+|---:|---:|---:|
+| 0 | +0.097 ± 0.013 | +0.087 ± 0.017 |
+| 500 µs | +0.121 ± 0.014 | +0.176 ± 0.017 |
+| 1 ms | +0.132 ± 0.015 | +0.211 ± 0.018 |
+| 2.5 ms | +0.141 ± 0.015 | +0.240 ± 0.018 |
+| 5 ms | +0.150 ± 0.015 | +0.296 ± 0.022 |
+
+Both degrade monotonically, with non-overlapping intervals from end to end — but not at the same rate. Passive loses about 0.011 ticks per contract per millisecond of delay and aggressive about 0.042, roughly four times as fast, and **the ordering between them reverses inside the first half-millisecond**: aggressive is the cheaper of the two at zero delay and the more expensive by 500 µs.
+
+The asymmetry is not in what a fill costs. A marketable limit never executes worse than its limit — if the book moves in its favour during the flight it simply fills better. What latency changes is how often it fills at all: when the level it was priced from has been consumed, the order rests at a price the market has already left, and the quantity it was carrying has to be re-sent at whatever the price has become. A resting order has no equivalent failure — a quote that arrives late has still arrived, and pays at most the width it crossed.
+
+Everything above is zero-impact replay: the simulator fills against the recorded feed as though your orders had not been there. Nothing here has been benchmarked against a VWAP or TWAP *algorithm*; no such comparison has been run.
+
+### How it works
 
 ```
 Real market participant places order at 6050.00
@@ -644,16 +698,15 @@ Real market participant places order at 6050.00
 
 | Property | Traditional MM | Shadow Execution |
 |----------|---------------|-----------------|
-| Adverse selection | High (stale quotes get picked off) | Low (only at prices with real interest) |
-| Queue position | Poor (late to the level) | Better (enters alongside real flow) |
+| Adverse selection | High (stale quotes get picked off) | Present and measured, not avoided — see above |
+| Idle quoting | Continuous, whether or not anyone is there | None: places only where a participant just placed |
+| Queue position | Poor (late to the level) | Enters alongside real flow, behind the order it follows |
 | Complexity | Model-heavy (fair value, skew, Greeks) | Microstructure-only (ADD/CANC signals) |
-| Latency requirement | Ultra-low (race to cancel) | Moderate (no quotes to defend) |
+| Latency requirement | Ultra-low (race to cancel) | Moderate — 4× more delay-tolerant than crossing, measured above |
 
 The lights coordinate via **shared memory** — `QCoord` tracks aggregate working orders, `PCoord` tracks net position — guarded by fine-grained mutexes rather than passing coordination messages.
 
-See [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) for the full specification, the write-up
-[**"Shadow POV Execution: Trade Where the Market Is Going to Trade"**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where),
-and the technical report [**shadow_pov.pdf**](tech_reports/shadow_pov.pdf).
+**Further reading.** [**shadow_pov.pdf**](tech_reports/shadow_pov.pdf) is the technical report — method, prior art, the full measurement corpus, latency sensitivity, and the case for using a model-free passive method as the benchmark a predictive placement model should have to beat. [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) is the implementation specification. [**"Shadow POV Execution: Trade Where the Market Is Going to Trade"**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where) is the short version.
 
 ## Versioning & compatibility
 
