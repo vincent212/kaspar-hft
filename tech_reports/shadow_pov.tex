@@ -23,29 +23,6 @@
 % figures drift forward and land in the middle of the Latency discussion.
 \usepackage{placeins}
 
-% DRAFT MARKING. A diagonal watermark on every page plus a footer line, because
-% a watermark alone is easy to miss on a printed page and a footer alone is easy
-% to crop. Both say the same thing. Remove this block, not the text under it,
-% when the paper is ready to circulate.
-\usepackage{draftwatermark}
-\SetWatermarkText{DRAFT}
-\SetWatermarkScale{1.1}
-\SetWatermarkColor[gray]{0.93}
-\usepackage{fancyhdr}
-\pagestyle{fancy}
-\fancyhf{}
-\fancyfoot[C]{\thepage}
-\fancyfoot[L]{\footnotesize\textbf{DRAFT --- NOT FOR DISTRIBUTION}}
-\fancyfoot[R]{\footnotesize\today}
-\renewcommand{\headrulewidth}{0pt}
-\fancypagestyle{plain}{%
-  \fancyhf{}%
-  \fancyfoot[C]{\thepage}%
-  \fancyfoot[L]{\footnotesize\textbf{DRAFT --- NOT FOR DISTRIBUTION}}%
-  \fancyfoot[R]{\footnotesize\today}%
-  \renewcommand{\headrulewidth}{0pt}%
-}
-
 \geometry{margin=1in}
 \setlength{\emergencystretch}{2em}
 \hypersetup{colorlinks=true, linkcolor=blue!50!black, citecolor=blue!50!black,
@@ -54,8 +31,7 @@
 \newcommand{\pov}{\textsc{Shadow-PPOV}}
 \newcommand{\bo}{\ensuremath{\mathrm{b/o}}}
 
-\title{\textbf{Shadow-PPOV: Model-Free Passive Execution via Order-Level\\
-Shadowing and Identifier-Driven Cancellation}}
+\title{\textbf{Model-Free Passive Execution via Order-Level Shadowing}}
 
 \author{%
   Vincent Mayeski\\
@@ -71,9 +47,8 @@ Shadowing and Identifier-Driven Cancellation}}
 \begin{abstract}
 Automated execution algorithms fall into two broad families
 \cite{johnson2010,bayesiantca2019}: schedule-based algorithms and
-liquidity-seeking algorithms. This paper concerns the schedule-based family; the
-liquidity-seeking family is out of scope. The
-schedule-based family commonly includes four algorithms:
+liquidity-seeking algorithms. This paper concerns the schedule-based family. This
+family commonly includes four algorithms:
 Time-Weighted Average Price (TWAP), Volume-Weighted Average Price (VWAP),
 Percentage of Volume (POV), and Implementation Shortfall (IS). TWAP follows a
 clock, whereas VWAP follows a forecast of the intraday volume \emph{curve}, POV reacts
@@ -137,12 +112,13 @@ commits to a \emph{forecast of the intraday volume curve} and weights its
 slices to match it; the forecast error is the tracking error.
 Percentage-of-volume (POV) has a participation ratio \emph{reactive} to
 realized volume ---
-it does not forecast a volume curve the way VWAP does. 
+it does not forecast a volume curve the way VWAP does
+\cite{gueantpov2012,kissell}.
 But POV cannot participate \emph{passively} by reaction alone,
 because volume that has already printed can no longer be joined at a resting
 price; to stay passive it must lean slightly ahead of near-term volume (or
-cross the spread to catch up), and its completion time depends on volume it
-cannot yet see. So POV trades a volume-\emph{curve} forecast for a
+cross the spread to catch up \cite{cartea2015,contkukanov2015}), and its completion time depends on volume it
+cannot yet see \cite{vaeshauser2022}. So POV trades a volume-\emph{curve} forecast for a
 short-horizon anticipation plus completion uncertainty, and it tracks an
 \emph{aggregate} volume statistic rather than the individual resting orders
 that make up the book.
@@ -192,7 +168,8 @@ tracking of where liquidity actually rests. \pov{} governs the placement of
 passive orders only; how much of a parent order to work passively versus
 aggressively is a separate scheduling decision. Production implementations may
 mix passive and aggressive orders, and this paper makes no claim that aggressive
-orders are inferior. Its model-free character sets \pov{} apart from
+orders are inferior. We compare passive Shadow-PPOV to aggressive POV
+in Section~\ref{sec:eval:results}. Its model-free character sets \pov{} apart from
 standard execution algorithms, and lets it serve as a
 baseline against which predictive placement models can be measured
 (Section~\ref{sec:disc}).
@@ -1525,7 +1502,8 @@ deterministic replay harness were built at M2 Technologies.
 \bibitem{johnson2010} B.~Johnson.
   \emph{Algorithmic Trading \& DMA: An Introduction to Direct Access Trading
   Strategies.} 4Myeloma Press, London, 2010.
-\bibitem{bayesiantca2019} \emph{Bayesian Trading Cost Analysis and Ranking of
+\bibitem{bayesiantca2019} V.~Markov.
+  \emph{Bayesian Trading Cost Analysis and Ranking of
   Broker Algorithms.} arXiv:1904.01566, 2019.
 \bibitem{perold1988} A.~F.~Perold.
   \emph{The Implementation Shortfall: Paper versus Reality.}
@@ -1541,6 +1519,14 @@ deterministic replay harness were built at M2 Technologies.
   \emph{Optimal Portfolio Liquidation with Limit Orders.}
   SIAM Journal on Financial Mathematics, 3(1):740--764, 2012.
   \href{https://arxiv.org/abs/1106.3279}{arXiv:1106.3279}.
+\bibitem{gueantpov2012} O.~Gu\'eant.
+  \emph{Execution and Block Trade Pricing with Optimal Constant Rate of
+  Participation.} 2012.
+  \href{https://arxiv.org/abs/1210.7608}{arXiv:1210.7608}.
+\bibitem{vaeshauser2022} J.~Vaes and R.~Hauser.
+  \emph{Optimal Trade Execution with Uncertain Volume Target.}
+  Journal of Computational Finance, 2022.
+  \href{https://arxiv.org/abs/1810.11454}{arXiv:1810.11454}.
 \bibitem{contkukanov2015} R.~Cont and A.~Kukanov.
   \emph{Optimal Order Placement in Limit Order Markets.}
   Quantitative Finance, 17(1):21--39, 2017.
@@ -1548,11 +1534,15 @@ deterministic replay harness were built at M2 Technologies.
 \bibitem{negdrift2024} T.~DeLise.
   \emph{The Negative Drift of a Limit Order Fill.}
   arXiv:2407.16527, 2024.
-\bibitem{scheduletactics2014} \emph{Design and Implementation of Schedule-Based
-  Trading Strategies Based on Uncertainty Bands.} arXiv:1409.1441, 2014.
-\bibitem{limitmarkettactics2014} \emph{On the Design of Sell-Side Limit and
-  Market Order Tactics.} arXiv:1409.1442, 2014.
-\bibitem{cesari2012} R.~Cesari et al.
+\bibitem{scheduletactics2014} V.~Markov, S.~Mazur, and D.~Saltz.
+  \emph{Design and Implementation of Schedule-Based
+  Trading Strategies Based on Uncertainty Bands.}
+  The Journal of Trading, Fall 2011. arXiv:1409.1441.
+\bibitem{limitmarkettactics2014} V.~Markov.
+  \emph{On the Design of Sell-Side Limit and
+  Market Order Tactics.}
+  The Journal of Trading, 7(3):29--39, 2012. arXiv:1409.1442.
+\bibitem{cesari2012} R.~Cesari, M.~Marzo, and P.~Zagaglia.
   \emph{Effective Trade Execution.} arXiv:1206.5324, 2012.
 \bibitem{moallemi2016} C.~C.~Moallemi and K.~Yuan.
   \emph{A Model for Queue Position Valuation in a Limit Order Book.}
