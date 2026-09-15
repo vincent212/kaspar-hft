@@ -62,7 +62,7 @@ and the external-library paths for you, then runs the build — you don't have t
 export anything. Any argument passes through to `make`:
 
 ```bash
-./build.sh schema        # generate the CME SBE codecs (pinned MDP3 v12 / iLink v8)
+./build.sh schema        # generate the CME SBE codecs (pinned versions)
 ./build.sh               # full build (== make all)
 ./build.sh debug         # debug build
 ./build.sh -C actors/cpp # build just one component
@@ -87,7 +87,7 @@ Generate the CME SBE codecs. `mdp3_sbe/` (MDP3) and `ilink3_sbe/` (iLink 3) are
 **generated from CME's SBE templates, not committed** — generate them before the
 first build (needs Java and Python `paramiko`, plus network to Maven Central and
 CME SFTP; see `genschema/README.md`). By default this regenerates the pinned,
-tested versions (MDP3 v12 / iLink v8):
+tested schema versions:
 
 ```bash
 KSPRPROJ=$(pwd) make schema
@@ -203,8 +203,8 @@ kaspar/
 ├── frame_ref/      Reference data & shared value types — instrument `Asset` defs, `Price`, the `RefData` universe
 ├── light/          Shadow / POV execution algorithm — the per-side `light22` lights
 ├── ilink/          CME iLink 3 order-entry session — SBE, HMAC auth, seq management, primary/secondary failover
-├── ilink3_sbe/       Generated iLink v8 SBE protocol headers
-├── mdp3_sbe/    Generated MDP3 v12 SBE market-data headers
+├── ilink3_sbe/       Generated iLink 3 SBE protocol headers
+├── mdp3_sbe/    Generated MDP3 SBE market-data headers
 ├── chutil/         Core utilities — time, sockets, enums, binary/CSV formats, assert/macros
 ├── interface/      Factory-function headers that create actors (keeps wiring decoupled from impl)
 ├── db/             Database persistence actor (stubbed)

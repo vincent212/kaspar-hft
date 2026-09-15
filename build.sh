@@ -9,7 +9,7 @@
 # location, so you never have to export anything by hand.
 #
 #   ./build.sh                 # full build (== make all): check-schema then install
-#   ./build.sh schema          # generate the CME SBE codecs (pinned MDP3 v12 / iLink v8)
+#   ./build.sh schema          # generate the CME SBE codecs (pinned versions)
 #   ./build.sh check-schema    # just verify the codecs are present
 #   ./build.sh debug           # debug build
 #   ./build.sh clean           # clean
@@ -37,7 +37,7 @@ TARGETS
     debug           debug build (libs + binaries with -O0 -DDEBUG, the 'g' suffix)
     clean           remove objects, libraries, binaries and the .P dependency files
     test            build and run the Google Test suite (needs GTEST_PATH)
-    schema          generate the CME SBE codecs (pinned MDP3 v12 / iLink v8)
+    schema          generate the CME SBE codecs (pinned versions)
     check-schema    verify the generated codecs are present, generate nothing
     msgids          print the hand-assigned message-id allocation report
     check-msgids    audit hand-assigned message ids for collisions

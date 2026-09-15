@@ -14,8 +14,8 @@ m2_kaspar is the standalone build tree for the Kaspr CME futures trading system.
 
 | Directory | LOC | Description |
 |-----------|----:|-------------|
-| ilink3_sbe | 141,050 | CME iLink v8 SBE protocol headers (generated) |
-| mdp3_sbe | 92,690 | CME MDP3 v12 SBE market data headers (generated) |
+| ilink3_sbe | 141,050 | CME iLink 3 SBE protocol headers (generated) |
+| mdp3_sbe | 92,690 | CME MDP3 SBE market data headers (generated) |
 | actors | 15,794 | Actor framework (messaging, lifecycle) + Rust port + C++/Rust interop |
 | frame_kaspr | 11,642 | Trading framework (OB, SOM, BFA, Timer, Console) |
 | chutil | 11,584 | Core utilities (time, CSV, sockets, enums) |
@@ -354,7 +354,7 @@ Reads CME multicast UDP packets or PCAP files and buffers them for MDP3 processi
 
 ### `ilink/` — iLink Session Handler
 
-CME iLink v3 session management for live order execution.
+CME iLink 3 session management for live order execution.
 
 | File | Description |
 |------|-------------|
@@ -377,15 +377,15 @@ CME iLink v3 session management for live order execution.
 
 ---
 
-### `ilink3_sbe/` — iLink v8 SBE Headers (Generated)
+### `ilink3_sbe/` — iLink 3 SBE Headers (Generated)
 
-141,050 lines of auto-generated C++ headers from the CME iLink v8 SBE schema. Each file defines one SBE message or type (e.g., `NewOrderSingle514.h`, `ExecutionReportNew522.h`). Not hand-edited.
+141,050 lines of auto-generated C++ headers from the CME iLink 3 SBE schema. Each file defines one SBE message or type (e.g., `NewOrderSingle514.h`, `ExecutionReportNew522.h`). Not hand-edited.
 
 ---
 
-### `mdp3_sbe/` — MDP3 v12 SBE Headers (Generated)
+### `mdp3_sbe/` — MDP3 SBE Headers (Generated)
 
-92,690 lines of auto-generated C++ headers from the CME MDP3 v12 SBE schema. Defines market data messages (e.g., `MDIncrementalRefreshBook46.h`, `MDIncrementalRefreshOrderBook47.h`, `SnapshotFullRefresh52.h`). Not hand-edited.
+92,690 lines of auto-generated C++ headers from the CME MDP3 SBE schema. Defines market data messages (e.g., `MDIncrementalRefreshBook46.h`, `MDIncrementalRefreshOrderBook47.h`, `SnapshotFullRefresh52.h`). Not hand-edited.
 
 ---
 
