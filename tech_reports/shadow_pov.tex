@@ -770,11 +770,21 @@ shadow is cancelled immediately.
 
 In short, the core method is the minimal identifier-driven algorithm
 (Algorithm~\ref{alg:core}); the reference implementation runs that core plus the
-guards above. Guarded cancellations are a strict addition to the identifier-keyed cancel.
-These guards read market state --- the inside price and recent trade sizes --- so
-the production wrapper is not itself model-free; the model-free property is a
-claim about the core placement and cancellation logic of Algorithm~\ref{alg:core},
-not about the safety layer around it.
+guards above. Guarded cancellations are a strict addition to the
+identifier-keyed cancel.
+
+The guards read market state --- the inside price and recent trade sizes --- and
+it is worth being precise about what that does and does not mean for the
+model-free claim. \emph{Model-free} here means what it means throughout the
+paper: no order-book model and no fill prediction. A band on distance from the
+touch, a cap on size resting at a price, and a limit on position against target
+are risk limits. None of them forecasts a fill, values a queue position, or
+estimates where the price is going, and none of them chooses \emph{where} to
+place --- the price is still inherited from the shadowed order, and the
+cancellation is still driven by that order's identifier. Reading the inside
+price to enforce a band is not a model of the book any more than a position
+limit is a model of the market. The guards bound what the method may do; they
+do not supply it with a view.
 
 \subsection{Naive aggressive POV}
 \label{sec:aggressive}
