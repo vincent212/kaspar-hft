@@ -660,7 +660,7 @@ The second equality is why the two are averaged: `m₀` cancels, so whatever the
 | Time to fill 100 | 72.7 s | 62.4 s |
 | Quantity filling on arrival | 1.04% | 51.86% |
 
-Intervals are 95% and clustered by session. One of these rests for 99% of its executed quantity and the other crosses for half of it, at matched participation, and **the round trip costs the same either way** — agreement to the fourth decimal over more than nine thousand windows each. That is what the Glosten–Milgrom account of the spread predicts of a method carrying no forecast: the half-spread a resting order captures is returned, in expectation, through adverse selection. Post-fill mark-outs computed from different data at a different grain agree with the window-level figure, which makes it a measurement of the thing itself and not of one definition's quirks.
+Intervals are 95% and clustered by session. One of these rests for 99% of its executed quantity and the other crosses for half of it, at matched participation, and **the round trip costs the same either way** — agreement to the fourth decimal over more than nine thousand windows each. That is what the Glosten–Milgrom account of the spread predicts of a forecast-free method: the half-spread a resting order captures is returned, in expectation, through adverse selection. Post-fill mark-outs computed from different data at a different grain agree with the window-level figure, which makes it a measurement of the thing itself, free of any one definition's quirks.
 
 So shadow execution pays adverse selection in full. What it does is reach the same cost as crossing without an order-book model, a fill-probability forecast, or a routing computation — which is the argument for using it as the benchmark a predictive placement model has to beat.
 
@@ -680,9 +680,9 @@ The same delay applied to all three paths at once — the outbound order, the ou
 
 Both degrade monotonically, with non-overlapping intervals from end to end, at very different rates. Passive loses about 0.011 ticks per contract per millisecond of delay and aggressive about 0.042, roughly four times as fast, and **the ordering between them reverses inside the first half-millisecond**: aggressive is the cheaper of the two at zero delay and the more expensive by 500 µs.
 
-The asymmetry lives in the fills that never happen. A marketable limit always executes at its limit price or better — if the book moves in its favour during the flight it simply fills cheaper — so what latency changes is how often it fills at all. When the level it was priced from has been consumed, the order rests at a price the market has already left, and the quantity it was carrying comes back to be re-sent at whatever the price has become. A resting order has no equivalent failure mode: a quote that arrives late has still arrived, and pays at most the width it crossed.
+The asymmetry lives in the fills that fail to happen. A marketable limit always executes at its limit price or better — if the book moves in its favour during the flight it simply fills cheaper — so what latency changes is how often it fills at all. When the level it was priced from has been consumed, the order rests at a price the market has already left, and the quantity it was carrying comes back to be re-sent at whatever the price has become. A resting order fails differently: a quote that arrives late has still arrived, and pays at most the width it crossed.
 
-Everything above is zero-impact replay: the simulator fills against the recorded feed as though your orders had not been there. A comparison against a VWAP or TWAP *algorithm* remains to be run.
+Everything above is zero-impact replay: the simulator fills against the recorded feed as though your orders were absent from it. A comparison against a VWAP or TWAP *algorithm* remains to be run.
 
 ### How it works
 
@@ -701,7 +701,7 @@ Real market participant places order at 6050.00
 | Property | Traditional MM | Shadow Execution |
 |----------|---------------|-----------------|
 | Adverse selection | High (stale quotes get picked off) | Present, and measured — see above |
-| Idle quoting | Continuous, whether or not anyone is there | None: places only where a participant just placed |
+| Idle quoting | Continuous, whether or not anyone is there | Places only where a participant just placed |
 | Queue position | Poor (late to the level) | Enters alongside real flow, behind the order it follows |
 | Complexity | Model-heavy (fair value, skew, Greeks) | Microstructure-only (ADD/CANC signals) |
 | Latency requirement | Ultra-low (race to cancel) | Moderate — 4× more delay-tolerant than crossing, measured above |

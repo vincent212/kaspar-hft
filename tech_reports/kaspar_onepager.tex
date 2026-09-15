@@ -140,7 +140,7 @@ replays to identical fills.}
 \tile{Concurrency}{A custom \textbf{C++20 actor framework} --- a proven
 concurrency model, and the same code whether the hot path runs across threads or
 entirely on one. Scale out by giving actors their own threads; collapse to a
-single-threaded hot path by grouping them, with no rewrite either way.}
+single-threaded hot path by grouping them, from the same source either way.}
 \tile{Strategy authoring in C++ or Rust}{C++ in-process actors for the lowest
 latency, or Rust across an in-process FFI interop. Either way the strategy runs
 in the same process as the book.}
@@ -169,7 +169,7 @@ thread and returns the reply as a value.
 {\color{ink3}\sffamily\bfseries\scriptsize P50} &
 {\color{ink3}\sffamily\bfseries\scriptsize WHAT IT COSTS} \\
 \midrule
-\code{fast\_send} --- inline, no thread hop & {\color{accent}\bfseries\code{\textasciitilde10 ns}} & $\approx$ one polymorphic virtual call \\
+\code{fast\_send} --- inline, same thread & {\color{accent}\bfseries\code{\textasciitilde10 ns}} & $\approx$ one polymorphic virtual call \\
 Queued send, one \code{Group} thread & \code{\textasciitilde90 ns} & queue push/pop + dispatch \\
 Queued send, separate threads & \code{\textasciitilde3{,}370 ns} & cross-core mailbox wakeup, twice \\
 \midrule
@@ -180,7 +180,7 @@ Allocator tail (max observed) & \code{\textasciitilde33 \textmu s} & vs \code{\t
 
 \vspace{3pt}
 \tnote{\measured\ Round trip through the framework --- send, handle, reply ---
-with no pipelining, from the microbenchmarks in \code{actors/cpp/perf}.}
+one message in flight, from the microbenchmarks in \code{actors/cpp/perf}.}
 
 \vspace{5pt}
 \measured\ End-to-end \textbf{tick-to-trade}, measured on the colocated stack,
@@ -198,7 +198,7 @@ per window}
 \vspace{4pt}
 
 On observing a third-party add, Shadow-POV places its own limit order at that
-order's price, on that order's venue, records nothing but the pair of exchange
+order's price, on that order's venue, records only the pair of exchange
 identifiers, and cancels when the order it follows ends. It is a low-latency,
 model-free execution algorithm with excellent slippage characteristics, and it
 carries a built-in smart order router that trades multiple venues by following
@@ -246,7 +246,7 @@ at once: the outbound order, the outbound cancel, and the inbound market-data fe
 {\color{ink3}\sffamily\bfseries\scriptsize PASSIVE} &
 {\color{ink3}\sffamily\bfseries\scriptsize AGGRESSIVE} \\
 \midrule
-None                 & \code{+0.097} & \code{+0.087} \\
+Zero                 & \code{+0.097} & \code{+0.087} \\
 500\,\textmu s       & \code{+0.121} & \code{+0.176} \\
 1\,ms                & \code{+0.132} & \code{+0.211} \\
 2.5\,ms              & \code{+0.141} & \code{+0.240} \\
