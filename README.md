@@ -29,11 +29,11 @@ Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) —
 ## Key Features
 
 - **Position-aware order book simulator** — MBP (market-by-price) book with simulated queue position tracking. Orders fill based on price-time priority, not magical instant execution.
-- **CME MDP3 v12 market data** — Full SBE decoder for incremental book updates, trades, order-by-order (MBO), instrument definitions, and snapshot recovery. Handles sequence gaps automatically.
+- **CME MDP3 market data** — Full SBE decoder for incremental book updates, trades, order-by-order (MBO), instrument definitions, and snapshot recovery. Handles sequence gaps automatically.
 - **Three operating modes** — PCAP replay (backtest), live multicast (paper trading), and iLink 3 (live execution). Same codebase, same strategy code, switch with config.
 - **Shadow execution algorithm** — Production-grade execution logic that piggybacks on real market flow. Places orders only when genuine interest appears at a price level. Zero idle quoting.
 - **Actor framework** — Custom C++20 actor system with O(1) message dispatch, CPU affinity, and sub-microsecond send latency.
-- **iLink 3 reference implementation** — Full CME iLink v3 session handler with SBE encoding, HMAC authentication, sequence management, and primary/secondary failover.
+- **iLink 3 reference implementation** — Full CME iLink session handler with SBE encoding, HMAC authentication, sequence management, and primary/secondary failover.
 - **PCAP reader** — Replay recorded CME multicast captures for deterministic backtesting. Bit-exact reproduction of market conditions.
 - **Strategy authoring in C++ or Rust** — Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop. Either way there is no socket and no serialisation between the strategy and the book.
 - **Execution-cost measurement** — `sim/` runs the shadow lights as a two-sided market maker over recorded sessions and emits one row per window: each leg's VWAP against the arrival mid, the touch it could have crossed, and the market's own VWAP over the same interval, plus participation and realised drift. A parameter sweep (`sim/scripts/run_grid.sh`) runs that across placement rates, parent sizes and simulated latencies, selecting sessions from the exchange calendar so holidays and early closes never enter the corpus.
