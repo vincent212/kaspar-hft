@@ -178,9 +178,8 @@ Allocator tail (max observed) & \code{\textasciitilde33 \textmu s} & vs \code{\t
 \end{tabularx}
 
 \vspace{3pt}
-\tnote{\measured\ Round trip through the framework, one message in flight, from
-the microbenchmarks in \code{actors/cpp/perf}. Collapsing a hot path onto one
-thread is worth 37$\times$ against the same actors on separate threads.}
+\tnote{\measured\ Round trip through the framework --- send, handle, reply ---
+with no pipelining, from the microbenchmarks in \code{actors/cpp/perf}.}
 
 \vspace{5pt}
 \measured\ End-to-end \textbf{tick-to-trade}, measured on the colocated stack,
