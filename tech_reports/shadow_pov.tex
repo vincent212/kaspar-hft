@@ -181,8 +181,7 @@ stacks carry two further sources of overhead that this work targets directly:
   \item \textbf{Routing computation.} Smart order routing (SOR) across venues
   is normally a calculation: aggregate per-venue book depth, compute venue
   attractiveness scores, model per-venue latency, price maker/taker fees, and
-  optimize a routing objective. The routing decision itself becomes a
-  latency-bearing bottleneck.
+  optimize a routing objective.
   \item \textbf{State-dependent cancellation.} Order-management systems
   typically decide whether to pull a resting order by continuously evaluating
   market state --- spread, queue position, fill probability, price
@@ -312,8 +311,9 @@ Fill rate & depends on placement quality & requires a sweep that clears the foll
 
 \paragraph{Smart order routing (SOR).} When liquidity is fragmented across
 venues, SOR decides where to send each child order by computing and comparing
-per-venue liquidity, fees and rebates, fill rates, and latency, and optimizing
-a routing objective. \pov{} performs none of this: it sends each shadow to the
+per-venue liquidity, fees and rebates \cite{battalio2016}, fill rates, and
+latency, and optimizing a routing objective
+\cite{foucault2008,laruelle2011,contkukanov2015}. \pov{} performs none of this: it sends each shadow to the
 originating venue of the add it follows, so the venue mix is inherited from
 observed order flow (Section~\ref{sec:sor}) rather than solved for.
 
@@ -1551,6 +1551,11 @@ deterministic replay harness were built at M2 Technologies.
   \emph{Competition for Order Flow and Smart Order Routing Systems.}
   Journal of Finance, 63(1):119--158, 2008.
   \href{https://doi.org/10.1111/j.1540-6261.2008.01312.x}{doi:10.1111/j.1540-6261.2008.01312.x}.
+\bibitem{battalio2016} R.~Battalio, S.~A.~Corwin, and R.~Jennings.
+  \emph{Can Brokers Have It All? On the Relation between Make-Take Fees and
+  Limit Order Execution Quality.}
+  Journal of Finance, 71(5):2193--2238, 2016.
+  \href{https://doi.org/10.1111/jofi.12422}{doi:10.1111/jofi.12422}.
 \bibitem{laruelle2011} S.~Laruelle, C.-A.~Lehalle, and G.~Pag\`es.
   \emph{Optimal Split of Orders Across Liquidity Pools: A Stochastic
   Algorithm Approach.} SIAM Journal on Financial Mathematics,
