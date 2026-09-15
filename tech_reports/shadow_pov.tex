@@ -78,11 +78,11 @@ prediction --- it can serve as a
 benchmark for passive-order placement on central limit order book (CLOB) venues.
 Model-free is not information-free. \pov{} consumes a great deal of market
 information: it reads every order-book message and places only where a
-participant has just committed capital. What it never does is \emph{compute}
-anything from that information --- no forecast, no fill probability, no
-valuation of queue position. The information is inherited from the flow rather
-than derived from a model, and the distinction matters for what the benchmark
-measures.
+participant has just committed capital. The distinction is that it
+\emph{computes} nothing from that information: the price it rests at is copied
+from an observed order, and the decision to withdraw is a lookup on that order's
+identifier. Information is inherited from the flow rather than derived from a
+model, and the distinction matters for what the benchmark measures.
 We evaluate \pov{} on a full calendar year of replayed Chicago Mercantile
 Exchange (CME) ES futures in a deterministic market-replay simulator.
 We report its slippage characteristics and latency sensitivity. We compare
@@ -184,9 +184,11 @@ information: it consumes every add, cancel and trade message on its side of the
 book, and it acts only where another participant has just committed capital at a
 price. A resting limit order is somebody's conclusion, arrived at by whatever
 means, that this price is worth standing at. Shadowing it inherits that
-conclusion. What \pov{} never does is \emph{compute}: it builds no model of the
-book, estimates no fill probability, values no queue position, and forecasts no
-price. It free-rides on the modelling other participants have already done
+conclusion. The whole of \pov{}'s own contribution is to copy that price and
+watch that order's identifier. Everything a placement model would normally
+supply --- a picture of the book, a fill probability, a value for queue
+position, a view on where the price is going --- is simply absent from the
+decision. It free-rides on the modelling other participants have already done
 rather than performing any of its own, which is why it can be specified in a
 page (Algorithm~\ref{alg:core}) and why its cancellation decision needs no state
 beyond an identifier.
@@ -456,8 +458,8 @@ position, displayed depth, imbalance, and recent order flow --- the same
 state \pov{} does not compute. Work on the market maker's trade-off between
 fill probability and post-fill return \cite{mmdilemma2025} quantifies the
 top-of-book adverse selection that any resting order, including a shadow, inherits
-(Section~\ref{sec:disc}). \pov{} differs from all of these in computing no
-forecast and no optimization: it places in reaction to observed resting orders.
+(Section~\ref{sec:disc}). \pov{} differs from all of these in
+computing nothing at all: it places in reaction to observed resting orders.
 
 % ---------------------------------------------------------------
 \section{Prior patents}
@@ -812,8 +814,8 @@ The added guards are:
   resting at its price would overshoot the quantity that remains to be executed,
   or when per-level order caps are exceeded. The placed size is the minimum of
   the per-level cap, the per-order cap, the remaining quantity, and the followed
-  order's size, clamped at zero. These guards make the shadow never work more
-  than remains and never post more than the participant it follows.
+  order's size, clamped at zero. Between them the guards hold the shadow within
+  the quantity that remains and within the size of the participant it follows.
 \end{itemize}
 
 \paragraph{Grace window.} As described in Section~\ref{sec:cancel}, the shadow's
