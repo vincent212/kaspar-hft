@@ -188,7 +188,7 @@ millisecond --- market data in to order on the wire, not a component benchmark.
 
 % ===============================================================
 \clearpage
-\section{Shadow-PPOV execution}
+\section{Shadow-POV execution}
 
 \vspace{-2pt}
 {\color{ink3}\footnotesize ES futures \quad\textperiodcentered\quad 246 sessions
@@ -196,12 +196,12 @@ of calendar 2025 \quad\textperiodcentered\quad 100 contracts bought and 100 sold
 per window}
 \vspace{4pt}
 
-Most execution algorithms either cross the spread or quote continuously based on a model.
-Shadow-POV is model free: on observing a third-party add, it places its own
-limit order \textbf{at that order's price, on that order's venue}, records nothing
-but the pair of exchange identifiers, and cancels when the order it follows ends.
-No order-book model. No fill-probability forecast. No routing computation --- the
-venue mix is inherited from the flow rather than solved for.
+On observing a third-party add, Shadow-POV places its own limit order at that
+order's price, on that order's venue, records nothing but the pair of exchange
+identifiers, and cancels when the order it follows ends. It is a low-latency,
+model-free execution algorithm with excellent slippage characteristics, and it
+carries a built-in smart order router that trades multiple venues by following
+the volume on each.
 
 \vspace{2pt}
 {\color{accent}\vrule width 2.5pt}\hspace{5pt}%
@@ -215,8 +215,8 @@ cancels.
 \noindent\begin{tabularx}{\textwidth}{@{}Xrr@{}}
 \toprule
 {\color{ink3}\sffamily\bfseries\scriptsize ZERO SIMULATED LATENCY} &
-{\color{ink3}\sffamily\bfseries\scriptsize SHADOW-PPOV (PASSIVE)} &
-{\color{ink3}\sffamily\bfseries\scriptsize AGGRESSIVE POV (CROSSING)} \\
+{\color{ink3}\sffamily\bfseries\scriptsize PASSIVE} &
+{\color{ink3}\sffamily\bfseries\scriptsize AGGRESSIVE} \\
 \midrule
 Completed windows & \code{9{,}592} & \code{9{,}581} \\
 Relative slippage, ticks per contract
@@ -229,10 +229,10 @@ Filled on arrival rather than resting & \code{1.04\,\%} & \code{51.86\,\%} \\
 \end{tabularx}
 
 \vspace{3pt}
-\tnote{\measured\ Intervals are 95\,\% and clustered by session. One of these rests
-for 99\,\% of its executed quantity and the other crosses for half of it, at
-matched participation --- and the round trip costs the same either way, to the
-fourth decimal, over more than nine thousand windows each.}
+\tnote{\measured\ Intervals are 95\,\% and clustered by session. The passive
+mode rests for 99\,\% of its executed quantity and the aggressive mode crosses
+for half of it, at matched participation --- and the round trip costs the same
+either way, to the fourth decimal, over more than nine thousand windows each.}
 
 \vspace{6pt}
 {\sffamily\bfseries What latency costs.} The same delay applied to all three paths
@@ -242,8 +242,8 @@ at once: the outbound order, the outbound cancel, and the inbound market-data fe
 \noindent\begin{tabularx}{\textwidth}{@{}Xrr@{}}
 \toprule
 {\color{ink3}\sffamily\bfseries\scriptsize DELAY ON ORDER, CANCEL AND FEED} &
-{\color{ink3}\sffamily\bfseries\scriptsize SHADOW-PPOV (PASSIVE)} &
-{\color{ink3}\sffamily\bfseries\scriptsize AGGRESSIVE POV} \\
+{\color{ink3}\sffamily\bfseries\scriptsize PASSIVE} &
+{\color{ink3}\sffamily\bfseries\scriptsize AGGRESSIVE} \\
 \midrule
 None                 & \code{+0.097} & \code{+0.087} \\
 500\,\textmu s       & \code{+0.121} & \code{+0.176} \\
