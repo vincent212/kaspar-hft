@@ -238,6 +238,14 @@ method replaces the routing calculation with a pass-through of the observed
 order's originating venue, and replaces state-dependent cancellation with an
 identifier rule: the shadow is withdrawn when the order it follows ends.
 
+\paragraph{A note on the word ``shadow''.} Here it means \emph{attached to}. A
+shadow order is an ordinary displayed limit order, bound by identifier to a
+particular third-party order and following that order's price, venue and
+lifecycle --- it shadows the way a person shadows another, by going where they
+go. Some venues also use ``shadow'' as a label for hidden or reserve order
+types, which is a different word doing a different job; we flag it only so the
+reader reads ours in the right sense. Every order \pov{} sends is displayed.
+
 \paragraph{Contributions.}
 \begin{enumerate}[leftmargin=1.6em]
   \item We propose \pov{} as a simple, \emph{model-free} benchmark for
