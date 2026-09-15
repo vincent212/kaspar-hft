@@ -10,7 +10,7 @@
 
 ---
 
-**Kaspar** is a low-latency trading system simulator for CME futures (ES, NQ). It reconstructs full order books from MDP3 market data, simulates fills that respect queue position, and supports live paper trading or historical PCAP replay — all built on a custom C++ actor framework designed for microsecond-level performance.
+**Kaspar** is a low-latency trading system amd order book simulator. It reconstructs full order books from MDP3 market data, simulates fills that respect queue position, and supports live paper trading or historical PCAP replay — all built on a custom C++ actor framework designed for microsecond-level performance.
 
 **Why actors?** Each actor owns its private state and communicates only by messages, so no mutable state is shared between actors — and therefore no memory-level data race, and no locks in your own code; you reason about one message at a time against consistent state. Empirical studies call data races and deadlocks *"two mistakes that are hard to make with actors."*  Actor code is also unusually easy for AI coding agents to write: they know the actor pattern well and generate actors, their message handlers, and self-contained unit tests — send a message in, assert on the reply — with little friction, precisely because there is no shared state or locking to reason about. The usual objection is the messaging overhead; Kaspar answers it with `fast_send`, which runs the receiver's handler inline on the caller's thread and returns the reply as a value (**~10 ns of overhead over a direct call**, loop-amortized on an Apple M3). The design and measurements are written up in [**tech_reports/fast_send.pdf**](tech_reports/fast_send.pdf) (benches in [`actors/cpp/perf`](actors/cpp/perf)).
 
