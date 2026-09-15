@@ -82,7 +82,9 @@ We report its slippage characteristics and latency sensitivity. We compare
 \pov{} to the aggressive equivalent POV and discuss the differences and
 similarities between the two execution methods.
 We position \pov{} as a model-free benchmark for passive-order placement, against
-which a predictive placement model can be scored. The algorithm and the order-book
+which a predictive placement model can be scored; the reported costs come from a
+reference implementation that wraps the model-free core in state-reading safety
+guards, and separating the two is left to future work. The algorithm and the order-book
 simulator are implemented in the open-source
 \textsc{kaspar-hft} project.\footnote{\url{https://github.com/vincent212/kaspar-hft}}
 \end{abstract}
@@ -207,7 +209,10 @@ identifier rule: the shadow is withdrawn when the order it follows ends.
 \paragraph{Contributions.}
 \begin{enumerate}[leftmargin=1.6em]
   \item We propose \pov{} as a simple, \emph{model-free} benchmark for
-  passive-order placement, built on \emph{participant shadowing}: on observing a
+  passive-order placement --- with the qualification, carried through the paper,
+  that every number reported here comes from the reference implementation's
+  guarded superset rather than from the model-free core in isolation
+  (Section~\ref{sec:prod}) --- built on \emph{participant shadowing}: on observing a
   third-party add, \pov{} places a passive order at that add's price and venue,
   attaches it to the arriving order by exchange identifier, and ties its
   lifecycle to that order. Placement uses no order-book model and no fill
@@ -220,11 +225,14 @@ identifier rule: the shadow is withdrawn when the order it follows ends.
   identifier --- so the cancellation decision is an $O(1)$ expected-time
   identifier lookup, independent of the number of tracked shadows
   (Sections~\ref{sec:map}--\ref{sec:cancel}).
-  \item We show that venue selection is \emph{flow-inherited}: placing on the
-  originating venue of each shadowed add makes the execution venue
-  distribution match the observed add distribution without any venue
-  score or routing optimizer --- an inherited split rather than an optimized one
-  (Section~\ref{sec:sor}).
+  \item We \emph{propose} \,--- and argue analytically, without evaluating
+  \,--- \emph{flow-inherited venue selection}: placing on the originating venue
+  of each shadowed add makes the execution venue distribution match the observed
+  add distribution without any venue score or routing optimizer, an inherited
+  split rather than an optimized one (Section~\ref{sec:sor}). The evaluation
+  corpus is a single venue, so this mechanism is unexercised by the measurements
+  reported here; testing it requires a fragmented multi-venue market
+  (Section~\ref{sec:future}).
   \item We describe the \emph{reference implementation} in the
   \textsc{kaspar-hft} system, which layers state-based
   safety guards (a two-band place/cancel hysteresis plus completion and
@@ -881,6 +889,16 @@ makes a full-year average meaningful.
 
 Both legs start together but do not necessarily finish together.
 
+Quoting both sides at once raises the question of whether the algorithm's own
+bid- and offer-side shadows interact. They cannot trade against each other: the
+simulator matches each shadow against the recorded feed, never against another
+shadow. Nor can they queue behind one another, since each attaches to a
+third-party order on its own side of the book. On ES, which is one tick wide at
+$96.3\,\%$ of window openings, there is no intervening price level at which the
+two sides could meet. The interaction that does remain is through the position
+and completion guards of Section~\ref{sec:prod}, which see net position and can
+therefore pull a shadow on one side because of fills on the other.
+
 \paragraph{Cost relative to immediate execution.} The alternative to placing
 passively is to cross the spread at once, priced against the same $m_{0}$: a buy
 crosses to the ask and a sell to the bid, so immediate execution has a slippage
@@ -1032,8 +1050,14 @@ arrival mid and is a per-window quantity. \emph{Mark-out} is the mid-price move 
 horizon after each individual fill, one row per execution, signed so that
 positive is a move against the fill. Both are priced against the mid, so they are on the same
 scale and directly comparable: they are independent measurements of the same
-quantity, computed from different data at different grains, and they agree. Passive figures are 20 sessions and aggressive 246;
-intervals are 95\,\% and clustered by session.}
+quantity, computed from different data at different grains, and they agree.
+The two samples differ in size: per-fill mark-outs were written for 20 passive
+sessions and 246 aggressive ones, because the passive mark-out instrumentation
+was added after the full-year passive sweep had run and only a January subset was
+re-run with it. The passive interval here is correspondingly wider
+($\pm 0.044$ against $\pm 0.014$), and the window-level figure of
+$+0.0955 \pm 0.0130$ in Table~\ref{tab:styles}, which does cover all 246
+sessions, is the one to weigh. Intervals are 95\,\% and clustered by session.}
 \label{tab:markout}
 \footnotesize
 \setlength{\tabcolsep}{4pt}
@@ -1110,7 +1134,14 @@ styles across the range.
 \centering
 \caption{Latency sensitivity, the same delay on order, cancel and feed. ES
 futures, 246 sessions of 2025, 100 contracts bought and 100 sold per window,
-every other parameter fixed within each style.}
+every other parameter fixed within each style. The configurations here are
+\emph{not} the pair of Table~\ref{tab:styles}: that pair was selected for the
+closest realised participation match, whereas these two were each left at their
+own working settings so that the delay is the only thing varied within a style.
+The aggressive style in particular shadows $1\,\%$ of prints here against
+$2\,\%$ there, which is why its zero-delay row reads $3.18\,\%$ participation
+and $92$\,s rather than $4.86\,\%$ and $62.4$\,s. Rows are comparable down a
+column, not across tables.}
 \label{tab:latency}
 \small
 \begin{tabular}{rrrrrr}
@@ -1347,6 +1378,17 @@ executes at the relative slippage measured in Section~\ref{sec:eval}. We positio
 as a benchmark for
 passive-order placement on a CLOB rather than as an optimal method.
 
+One qualification bounds that claim. The costs of Section~\ref{sec:eval} were
+produced by the reference implementation, which wraps the model-free core in the
+state-reading guards of Section~\ref{sec:prod} --- a two-band placement
+hysteresis and the completion and over-hedge limits. Those guards consult the
+inside price and recent trade sizes, so the measured figures are not, strictly,
+the cost of a model-free method; they are the cost of a method whose
+\emph{placement and cancellation} decisions are model-free and whose safety
+layer is not. Ablating the guards and re-running the core alone is the
+experiment that would settle how much the safety layer contributes, and it is
+listed in Section~\ref{sec:future}.
+
 \paragraph{Why a model-free passive method should not beat the mid-price.}
 The sign of the measured cost is not an accident of this implementation, and it
 is worth stating as a prediction rather than reporting as an outcome. In the
@@ -1446,8 +1488,8 @@ aggressive equivalent at nearly matched participation, and swept the simulated l
 from zero to five milliseconds on the order, the cancel and the feed together.
 
 Three results stand out. \emph{The method executes close to the mid.} Over
-$9{,}592$ completed windows a round trip of 100 contracts bought and 100 sold
-costs $+0.0955 \pm 0.0130$ ticks per contract against the arrival mid --- under
+$9{,}592$ completed passive windows a round trip of 100 contracts bought and 100
+sold costs $+0.0955 \pm 0.0130$ ticks per contract against the arrival mid --- under
 a tenth of a tick, or $\$1.19$ per contract on ES --- and beats immediate
 execution (crossing the spread) by $0.4236$ ticks. 
 Post-fill mark-outs computed from different data at
@@ -1532,7 +1574,7 @@ deterministic replay harness were built at M2 Technologies.
   Strategies.} 4Myeloma Press, London, 2010.
 \bibitem{bayesiantca2019} V.~Markov.
   \emph{Bayesian Trading Cost Analysis and Ranking of
-  Broker Algorithms.} arXiv:1904.01566, 2019.
+  Broker Algorithms.} \href{https://arxiv.org/abs/1904.01566}{arXiv:1904.01566}, 2019.
 \bibitem{perold1988} A.~F.~Perold.
   \emph{The Implementation Shortfall: Paper versus Reality.}
   Journal of Portfolio Management, 14(3):4--9, 1988.
@@ -1561,17 +1603,17 @@ deterministic replay harness were built at M2 Technologies.
   \href{https://arxiv.org/abs/1210.1625}{arXiv:1210.1625}.
 \bibitem{negdrift2024} T.~DeLise.
   \emph{The Negative Drift of a Limit Order Fill.}
-  arXiv:2407.16527, 2024.
+  \href{https://arxiv.org/abs/2407.16527}{arXiv:2407.16527}, 2024.
 \bibitem{scheduletactics2014} V.~Markov, S.~Mazur, and D.~Saltz.
   \emph{Design and Implementation of Schedule-Based
   Trading Strategies Based on Uncertainty Bands.}
-  The Journal of Trading, Fall 2011. arXiv:1409.1441.
+  The Journal of Trading, Fall 2011. \href{https://arxiv.org/abs/1409.1441}{arXiv:1409.1441}.
 \bibitem{limitmarkettactics2014} V.~Markov.
   \emph{On the Design of Sell-Side Limit and
   Market Order Tactics.}
-  The Journal of Trading, 7(3):29--39, 2012. arXiv:1409.1442.
+  The Journal of Trading, 7(3):29--39, 2012. \href{https://arxiv.org/abs/1409.1442}{arXiv:1409.1442}.
 \bibitem{cesari2012} R.~Cesari, M.~Marzo, and P.~Zagaglia.
-  \emph{Effective Trade Execution.} arXiv:1206.5324, 2012.
+  \emph{Effective Trade Execution.} \href{https://arxiv.org/abs/1206.5324}{arXiv:1206.5324}, 2012.
 \bibitem{moallemi2016} C.~C.~Moallemi and K.~Yuan.
   \emph{A Model for Queue Position Valuation in a Limit Order Book.}
   Working paper, Columbia University, 2016. SSRN~2996221.
@@ -1591,16 +1633,16 @@ deterministic replay harness were built at M2 Technologies.
 % Recent execution literature
 \bibitem{passiveimpact2026} A.~Barzykin, R.~Boyce, E.~Neuman, and S.~Tuschmann.
   \emph{Optimal Execution with Passive Market Impact.}
-  arXiv:2607.28323, 2026.
+  \href{https://arxiv.org/abs/2607.28323}{arXiv:2607.28323}, 2026.
 \bibitem{queuereactive2025} T.~Espana, Y.~Hafsi, F.~Lillo, and E.~Vittori.
   \emph{Reinforcement Learning in Queue-Reactive
-  Models: Application to Optimal Execution.} arXiv:2511.15262, 2025.
+  Models: Application to Optimal Execution.} \href{https://arxiv.org/abs/2511.15262}{arXiv:2511.15262}, 2025.
 \bibitem{rlexec2025} P.~Cheridito and M.~Weiss.
   \emph{Reinforcement Learning for Trade Execution with Market
-  and Limit Orders.} arXiv:2507.06345, 2025.
+  and Limit Orders.} \href{https://arxiv.org/abs/2507.06345}{arXiv:2507.06345}, 2025.
 \bibitem{mmdilemma2025} J.~Albers, M.~Cucuringu, S.~Howison, and A.~Y.~Shestopaloff.
   \emph{The Market Maker's Dilemma: Navigating the Fill
-  Probability versus Post-Fill Returns Trade-Off.} arXiv:2502.18625, 2025.
+  Probability versus Post-Fill Returns Trade-Off.} \href{https://arxiv.org/abs/2502.18625}{arXiv:2502.18625}, 2025.
 % Patent literature
 \bibitem{us10614520} \emph{Tracking Liquidity Order.}
   U.S.\ Patent No.\ 10,614,520~B2, 2020.
