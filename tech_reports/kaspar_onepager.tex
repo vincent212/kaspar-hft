@@ -123,8 +123,8 @@ exercises the code path that will trade.
 \tile{Market data}{Full \textbf{MDP3} SBE decoder: incremental book updates,
 trades, order-by-order MBO, instrument definitions, snapshot recovery. Sequence
 gaps are detected and repaired automatically.}
-\tile{Order book}{Order-by-order reconstruction, holding \textbf{every resting
-order individually}. That is what makes a queue position, and therefore a fill
+\tile{Order book}{Order-by-order reconstruction, holding every resting order
+individually. That is what makes a queue position, and therefore a fill
 inference, definable at all.}
 \tile{Order entry}{\textbf{iLink 3} session handler: SBE encoding, HMAC
 authentication, sequence management, negotiation and establishment,
@@ -184,7 +184,7 @@ one message in flight, from the microbenchmarks in \code{actors/cpp/perf}.}
 
 \vspace{5pt}
 \measured\ End-to-end \textbf{tick-to-trade}, measured on the colocated stack,
-runs \textbf{\textasciitilde100~\textmu s} at the median with p99 under a
+runs \textasciitilde100~\textmu s at the median with p99 under a
 millisecond, measured end to end from market data in to order on the wire.
 
 % ===============================================================
@@ -256,8 +256,8 @@ Zero                 & \code{+0.097} & \code{+0.087} \\
 
 \vspace{3pt}
 \tnote{\measured\ Relative slippage in ticks per contract, same corpus. Passive
-loses about \textbf{0.011} ticks per contract per millisecond of delay and
-aggressive about \textbf{0.042} --- roughly four times as fast --- and the
+loses about 0.011 ticks per contract per millisecond of delay and aggressive
+about 0.042 --- roughly four times as fast --- and the
 ordering between them reverses inside the first half-millisecond.}
 
 \vfill
