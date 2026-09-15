@@ -781,34 +781,19 @@ shadowing mechanism driven by the \emph{opposite} signal. Where passive \pov{}
 shadows resting \textsc{add}s, the aggressive arm shadows \emph{aggressive}
 orders --- the trade prints. On each observed \textsc{trade}, it flips a
 coin with a fixed per-trade probability (a placement rate in basis points of
-prints; the experiments use $2\%$) and, when selected, places a marketable order
+print) and, when selected, places a marketable order
 at the print's price that follows the aggressor into the book. This is a
 \emph{naive} POV: it participates by taking a fixed fraction of trading activity
 directly, with no volume-curve forecast and no participation-feedback loop ---
 the same construction as passive \pov{}, applied to trades rather than adds.
-In the reference implementation both arms are in fact the \emph{same} C++ class
-(\texttt{light22}): the aggressive behaviour is selected by configuration --- a
-non-zero per-trade placement rate --- rather than written as a separate
-strategy, so the passive and aggressive versions share their placement,
-cancellation, and safety-guard code and are implemented side by side.
+In the reference implementation both arms are in fact the \emph{same} C++ class (Actor).
 
-Two mechanical details distinguish it from the passive arm. First, the
+Two mechanical details distinguish it from the passive arm. The
 aggressive order is an immediate-or-cancel in intent: it is given a short
 time-to-live (default $1$~ms) so that a cross which arrives after the level it
 was priced from has already been consumed is pulled rather than left to rest and
-silently become a passive order the arm never asked for. Because the resting
-order a trade references is being consumed at the moment the shadow attaches to
-it, the identifier-driven cancel of Section~\ref{sec:cancel} fires immediately
-rather than after a grace window. Second, the aggressive arm runs in its
-\emph{own} bank --- one light per side, with its own queue coordinator and a
-shared position coordinator --- because a marketable order clears its slot on
-arrival rather than resting, so a single light sustains the target rate without
-crowding itself out. It uses the wider placement/cancel bands noted above
-($10$ and $12$ ticks) appropriate to an order that expects to cross. Everything
-else --- the codebase, the corpus, the position mandate, and the completion and
-over-hedge guards --- is identical to the passive arm, so the two differ only in
-which market event they follow and in whether they rest or cross. This is the
-configuration reported as ``Aggressive POV'' throughout Section~\ref{sec:eval}.
+silently become a passive order the arm never asked for. This is
+what is referred to as ``Aggressive POV'' throughout Section~\ref{sec:eval}.
 
 We carry the aggressive arm because the comparison it enables is the practically
 important one. The question a desk faces is not whether shadow-following works in
@@ -960,7 +945,7 @@ the only basis on which their costs can be set side by side.
 
 \begin{table}[t]
 \centering
-\caption{Passive and aggressive execution at matched participation. ES futures,
+\caption{Passive and aggressive execution at nearly matched participation. ES futures,
 246 sessions of calendar 2025, 100 contracts bought and 100 sold in every
 window, zero simulated latency on all three paths. Cost is in ticks per
 contract: a positive slippage is a loss, a negative relative cost is a gain.
@@ -1452,7 +1437,7 @@ observable references for local execution flow, obtains
 venue selection as an emergent property rather than a routing computation, and
 makes cancellation an identifier-driven expected-$O(1)$ decision. Over a full
 calendar year of replayed CME ES sessions we compared passive \pov{} against an
-aggressive equivalent at matched participation, and swept the simulated latency
+aggressive equivalent at nearly matched participation, and swept the simulated latency
 from zero to five milliseconds on the order, the cancel and the feed together.
 
 Three results stand out. \emph{The method executes close to the mid.} Over
