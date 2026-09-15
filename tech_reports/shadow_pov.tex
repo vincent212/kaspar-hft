@@ -796,6 +796,29 @@ directly, with no volume-curve forecast and no participation-feedback loop ---
 the same construction as passive \pov{}, applied to trades rather than adds.
 In the reference implementation both arms are in fact the \emph{same} C++ class (Actor).
 
+\paragraph{This arm is standard practice, not a construction of ours.} Print
+following is what commercial POV implementations already do, and we claim no
+novelty for it. Deltix's PVOL states the rule explicitly: it divides the order
+duration into intervals, and ``at the end of each interval, PVOL calculates the
+total volume of trades that happened on the market'', then sizes the child order
+as $\text{Quantity} = \text{VOL}(T_i) \times \text{ParticipationVolume}$
+\cite{deltixpvol} --- observe the prints, then send a marketable child sized as a
+fraction of them. TradeStation describes its POV route the same way, as an order
+that ``trades based on real time market volumes'' and is worked with market or
+marketable limit orders at algorithm-determined intervals \cite{tspov}. A POV
+algorithm is therefore a liquidity \emph{taker} that waits for volume to print
+and participates afterwards \cite{kissell}.
+
+The aggressive arm here is that rule taken to its limiting grain: instead of
+aggregating prints over a 30-second interval and crossing once, it acts on each
+print individually. That is a difference of granularity, not of kind, which is
+precisely why it makes a fair baseline --- the passive method is being compared
+against what desks actually run, rather than against a strawman built for the
+purpose. The novelty claimed in this paper is on the \emph{passive} side
+(Sections~\ref{sec:map}--\ref{sec:cancel}), where we have found no published
+method that places at an identified individual order's price and ties
+cancellation to that order's exchange identifier.
+
 Two mechanical details distinguish it from the passive arm. The
 aggressive order is an immediate-or-cancel in intent: it is given a short
 time-to-live (default $1$~ms) so that a cross which arrives after the level it
@@ -1675,6 +1698,12 @@ deterministic replay harness were built at M2 Technologies.
   \emph{The Market Maker's Dilemma: Navigating the Fill
   Probability versus Post-Fill Returns Trade-Off.} \href{https://arxiv.org/abs/2502.18625}{arXiv:2502.18625}, 2025.
 % Patent literature
+\bibitem{deltixpvol} Deltix Ember. \emph{PVOL Algorithm --- product documentation.}
+  \href{https://ember.deltixlab.com/docs/algos/pvol/}{ember.deltixlab.com/docs/algos/pvol}.
+  Accessed September 2026.
+\bibitem{tspov} TradeStation. \emph{POV-ALGO --- routing documentation.}
+  \href{https://help.tradestation.com/10_00/eng/tradestationhelp/routes/pov-algo.htm}{help.tradestation.com}.
+  Accessed September 2026.
 \bibitem{us10614520} \emph{Tracking Liquidity Order.}
   U.S.\ Patent No.\ 10,614,520~B2, 2020.
   \href{https://patents.google.com/patent/US10614520B2/en}{patents.google.com/patent/US10614520B2}.
