@@ -1219,6 +1219,31 @@ the style conversion of item 2 and how much is worse execution within a style
 cannot be separated from these runs alone; what can be said is that both
 channels push the same way and neither reverses anywhere in the range.
 
+\paragraph{5. The latency sensitivity is itself evidence that the method
+extracts information from the flow.} A policy whose actions are independent of
+order flow has no timing relationship with that flow, and therefore nothing for
+delay to degrade: place at arbitrary times and prices and it should not much
+matter whether the order reaches the exchange now or five milliseconds from now.
+What Table~\ref{tab:latency} shows is the opposite. Cost rises monotonically in
+both styles, with non-overlapping intervals from end to end, so \emph{when} an
+order arrives relative to the flow it is following is worth $55\,\%$ of the
+passive cost and more than a tripling of the aggressive one. That is only
+possible if the placement and cancellation decisions stand in a real temporal
+relationship to the order flow --- which is to say that following an identified
+order carries information, rather than amounting to posting at a sensible depth
+by another route.
+
+The slope measures how tightly a method is coupled to the flow, and the two
+styles rank as the mechanism predicts. Aggressive POV must \emph{reach} a price
+the flow has just printed, the tightest coupling available, and loses
+$0.042$ ticks per contract per millisecond. Passive \pov{} inherits a price
+and a lifetime but waits to be reached, and loses $0.011$. A placement rule
+coupled to nothing should sit at roughly zero, and establishing that is the
+purpose of the null comparison in Section~\ref{sec:future}: the discriminating
+statistic is the \emph{slope}, not the level. This argument establishes that the
+coupling exists; it does not measure what the coupling is worth against not
+having it, which is what the null is for.
+
 \begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.64\textwidth]{sim/latency_slippage.pdf}
