@@ -12,7 +12,7 @@
 
 **Kaspar** is two things sharing one codebase.
 
-It is a **turn-key production trading system**: MDP3 multicast in, full order books reconstructed order-by-order, an execution algorithm on top, and iLink 3 sessions out to CME — with SBE encoding, HMAC authentication, sequence management and primary/secondary failover already written. Nothing here is a sketch of a trading system that you would then build for real.
+It is a **turn-key production trading system**: MDP3 multicast in, full order books reconstructed order-by-order, an execution algorithm on top, and iLink 3 sessions out to CME — with SBE encoding, HMAC authentication, sequence management and primary/secondary failover already written.
 
 It is also a **position-aware order book simulator**: the same books, rebuilt from recorded packet captures, with your orders placed in the price-time queue and filled only when the market actually trades through them. Fills are inferred from exact queue accounting.
 
@@ -682,7 +682,7 @@ Both degrade monotonically, with non-overlapping intervals from end to end, at v
 
 The asymmetry lives in the fills that never happen. A marketable limit always executes at its limit price or better — if the book moves in its favour during the flight it simply fills cheaper — so what latency changes is how often it fills at all. When the level it was priced from has been consumed, the order rests at a price the market has already left, and the quantity it was carrying comes back to be re-sent at whatever the price has become. A resting order has no equivalent failure mode: a quote that arrives late has still arrived, and pays at most the width it crossed.
 
-Everything above is zero-impact replay: the simulator fills against the recorded feed as though your orders had not been there. Nothing here has been benchmarked against a VWAP or TWAP *algorithm*; no such comparison has been run.
+Everything above is zero-impact replay: the simulator fills against the recorded feed as though your orders had not been there. A comparison against a VWAP or TWAP *algorithm* remains to be run.
 
 ### How it works
 

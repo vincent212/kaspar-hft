@@ -116,7 +116,7 @@ exercises the code path that will trade.
 \section{What is in the box}
 
 \vspace{-2pt}
-{\color{ink3}\footnotesize No vendor feed handler, no broker API, no assembly required.}
+{\color{ink3}\footnotesize Feed handler, book, execution logic and exchange session layer all included.}
 \vspace{4pt}
 
 \noindent\begin{minipage}[t]{0.485\textwidth}
@@ -142,8 +142,8 @@ concurrency model, and the same code whether the hot path runs across threads or
 entirely on one. Scale out by giving actors their own threads; collapse to a
 single-threaded hot path by grouping them, with no rewrite either way.}
 \tile{Strategy authoring in C++ or Rust}{C++ in-process actors for the lowest
-latency, or Rust across an in-process FFI interop --- no socket, no
-serialisation between the strategy and the book.}
+latency, or Rust across an in-process FFI interop. Either way the strategy runs
+in the same process as the book.}
 \tile{Measurement}{An execution-cost harness that runs the algorithm as a
 two-sided maker over recorded sessions, one row per window, plus a parameter
 sweep over rate, size and simulated latency.}
