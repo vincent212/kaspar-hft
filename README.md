@@ -545,7 +545,7 @@ kaspr {
 
 ## Performance Characteristics
 
-- **Tick-to-trade latency**: median in the ~100 µs range; p99 under 1 ms (expected)
+- **Tick-to-trade latency**: measured on the colocated stack — median in the ~100 µs range, p99 under 1 ms. Market data in to order on the wire, not a component benchmark.
 - **Message dispatch**: O(1) vector lookup by message ID — no virtual dispatch, no hash maps
 - **Actor send**: Sub-microsecond enqueue (mutex + condition variable, no allocation on hot path)
 - **Book update to strategy**: Single `EndOfBurst` message per MDP3 incremental cycle
