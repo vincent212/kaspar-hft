@@ -142,9 +142,9 @@ replays to identical fills.}
 concurrency model, and the same code whether the hot path runs across threads or
 entirely on one. Scale out by giving actors their own threads; collapse to a
 single-threaded hot path by grouping them, with no rewrite either way.}
-\tile{Strategy authoring}{Write strategies as \textbf{C++} in-process actors for
-the lowest latency, or in \textbf{Rust} across an in-process FFI interop --- no
-socket, no serialisation between the strategy and the book.}
+\tile{Strategy authoring in C++ or Rust}{C++ in-process actors for the lowest
+latency, or Rust across an in-process FFI interop --- no socket, no
+serialisation between the strategy and the book.}
 \tile{Measurement}{An execution-cost harness that runs the algorithm as a
 two-sided maker over recorded sessions, one row per window, plus a parameter
 sweep over rate, size and simulated latency.}
