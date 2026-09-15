@@ -14,9 +14,9 @@
 
 It is a **turn-key production trading system**: MDP3 multicast in, full order books reconstructed order-by-order, an execution algorithm on top, and iLink 3 sessions out to CME — with SBE encoding, HMAC authentication, sequence management and primary/secondary failover already written. Nothing here is a sketch of a trading system that you would then build for real.
 
-It is also a **position-aware order book simulator**: the same books, rebuilt from recorded packet captures, with your orders placed in the price-time queue and filled only when the market actually trades through them. Fills are inferred from exact queue accounting, not assumed at the mid.
+It is also a **position-aware order book simulator**: the same books, rebuilt from recorded packet captures, with your orders placed in the price-time queue and filled only when the market actually trades through them. Fills are inferred from exact queue accounting.
 
-The point is that those are not two programs. The same strategy code, the same execution algorithm and the same book run in PCAP replay, in live paper trading, and against the live exchange; you move between them by changing configuration, not by porting anything. A backtest exercises the code path that will trade. It is built on a custom C++ actor framework designed for microsecond-level performance.
+Those are one program. The same strategy code, the same execution algorithm and the same book run in PCAP replay, in live paper trading, and against the live exchange; moving between them is a configuration change. A backtest exercises the code path that will trade. It is built on a custom C++ actor framework designed for microsecond-level performance.
 
 You will find a one-page overview here: [**tech_reports/kaspar_onepager.pdf**](tech_reports/kaspar_onepager.pdf) — what the system does, what it measures at, and the Shadow-POV execution results on a page.
 
@@ -547,7 +547,7 @@ kaspr {
 
 ## Performance Characteristics
 
-- **Tick-to-trade latency**: measured on the colocated stack — median in the ~100 µs range, p99 under 1 ms. Market data in to order on the wire, not a component benchmark.
+- **Tick-to-trade latency**: measured on the colocated stack — median in the ~100 µs range, p99 under 1 ms, measured end to end from market data in to order on the wire.
 - **Message dispatch**: O(1) vector lookup by message ID — no virtual dispatch, no hash maps
 - **Actor send**: Sub-microsecond enqueue (mutex + condition variable, no allocation on hot path)
 - **Book update to strategy**: Single `EndOfBurst` message per MDP3 incremental cycle
@@ -648,7 +648,7 @@ signed so positive is a loss on either side. The reported figure is the average 
 RelativeSlippage = ½(Slippage_buy + Slippage_sel) = ½(vwap_buy − vwap_sel)
 ```
 
-The second equality is why the two are averaged rather than reported separately: `m₀` cancels, so whatever the market did during the window lands in both legs with opposite signs and drops out. The individual legs carry 95% intervals about four times wider than their own average; the paired form is immune to that drift by construction, which is what makes a full-year average mean anything.
+The second equality is why the two are averaged: `m₀` cancels, so whatever the market did during the window lands in both legs with opposite signs and drops out. The individual legs carry 95% intervals about four times wider than their own average; the paired form is immune to that drift by construction, which is what makes a full-year average mean anything.
 
 **ES, 246 sessions of calendar 2025, zero simulated latency:**
 
@@ -658,11 +658,11 @@ The second equality is why the two are averaged rather than reported separately:
 | **Relative slippage** (ticks/contract) | **+0.0955 ± 0.0130** | **+0.0952 ± 0.0135** |
 | Participation | 4.46% | 4.86% |
 | Time to fill 100 | 72.7 s | 62.4 s |
-| Filled on arrival rather than resting | 1.04% | 51.86% |
+| Quantity filling on arrival | 1.04% | 51.86% |
 
-Intervals are 95% and clustered by session. One of these rests for 99% of its executed quantity and the other crosses for half of it, at matched participation, and **the round trip costs the same either way** — agreement to the fourth decimal over more than nine thousand windows each. That is what the Glosten–Milgrom account of the spread predicts of a method carrying no forecast: the half-spread a resting order captures is returned, in expectation, through adverse selection. Post-fill mark-outs computed from different data at a different grain agree with the window-level figure, so this is a measurement rather than an artefact of one definition.
+Intervals are 95% and clustered by session. One of these rests for 99% of its executed quantity and the other crosses for half of it, at matched participation, and **the round trip costs the same either way** — agreement to the fourth decimal over more than nine thousand windows each. That is what the Glosten–Milgrom account of the spread predicts of a method carrying no forecast: the half-spread a resting order captures is returned, in expectation, through adverse selection. Post-fill mark-outs computed from different data at a different grain agree with the window-level figure, which makes it a measurement of the thing itself and not of one definition's quirks.
 
-So shadow execution does **not** avoid adverse selection. What it does is reach the same cost as crossing without an order-book model, a fill-probability forecast, or a routing computation — which is the argument for using it as the benchmark a predictive placement model has to beat.
+So shadow execution pays adverse selection in full. What it does is reach the same cost as crossing without an order-book model, a fill-probability forecast, or a routing computation — which is the argument for using it as the benchmark a predictive placement model has to beat.
 
 ### What latency costs
 
@@ -678,9 +678,9 @@ The same delay applied to all three paths at once — the outbound order, the ou
 | 2.5 ms | +0.141 ± 0.015 | +0.240 ± 0.018 |
 | 5 ms | +0.150 ± 0.015 | +0.296 ± 0.022 |
 
-Both degrade monotonically, with non-overlapping intervals from end to end — but not at the same rate. Passive loses about 0.011 ticks per contract per millisecond of delay and aggressive about 0.042, roughly four times as fast, and **the ordering between them reverses inside the first half-millisecond**: aggressive is the cheaper of the two at zero delay and the more expensive by 500 µs.
+Both degrade monotonically, with non-overlapping intervals from end to end, at very different rates. Passive loses about 0.011 ticks per contract per millisecond of delay and aggressive about 0.042, roughly four times as fast, and **the ordering between them reverses inside the first half-millisecond**: aggressive is the cheaper of the two at zero delay and the more expensive by 500 µs.
 
-The asymmetry is not in what a fill costs. A marketable limit never executes worse than its limit — if the book moves in its favour during the flight it simply fills better. What latency changes is how often it fills at all: when the level it was priced from has been consumed, the order rests at a price the market has already left, and the quantity it was carrying has to be re-sent at whatever the price has become. A resting order has no equivalent failure — a quote that arrives late has still arrived, and pays at most the width it crossed.
+The asymmetry lives in the fills that never happen. A marketable limit always executes at its limit price or better — if the book moves in its favour during the flight it simply fills cheaper — so what latency changes is how often it fills at all. When the level it was priced from has been consumed, the order rests at a price the market has already left, and the quantity it was carrying comes back to be re-sent at whatever the price has become. A resting order has no equivalent failure mode: a quote that arrives late has still arrived, and pays at most the width it crossed.
 
 Everything above is zero-impact replay: the simulator fills against the recorded feed as though your orders had not been there. Nothing here has been benchmarked against a VWAP or TWAP *algorithm*; no such comparison has been run.
 
@@ -700,7 +700,7 @@ Real market participant places order at 6050.00
 
 | Property | Traditional MM | Shadow Execution |
 |----------|---------------|-----------------|
-| Adverse selection | High (stale quotes get picked off) | Present and measured, not avoided — see above |
+| Adverse selection | High (stale quotes get picked off) | Present, and measured — see above |
 | Idle quoting | Continuous, whether or not anyone is there | None: places only where a participant just placed |
 | Queue position | Poor (late to the level) | Enters alongside real flow, behind the order it follows |
 | Complexity | Model-heavy (fair value, skew, Greeks) | Microstructure-only (ADD/CANC signals) |

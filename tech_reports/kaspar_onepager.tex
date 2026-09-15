@@ -109,8 +109,8 @@ only when the market actually trades through them.
 
 The same strategy code, the same execution algorithm
 and the same book run in PCAP replay, in live paper trading, and against the live
-exchange. You move between them by changing configuration, not by porting
-anything --- so a backtest exercises the code path that will trade.
+exchange. Moving between them is a configuration change, so a backtest
+exercises the code path that will trade.
 
 % ===============================================================
 \section{What is in the box}
@@ -123,9 +123,9 @@ anything --- so a backtest exercises the code path that will trade.
 \tile{Market data}{Full \textbf{MDP3} SBE decoder: incremental book updates,
 trades, order-by-order MBO, instrument definitions, snapshot recovery. Sequence
 gaps are detected and repaired automatically.}
-\tile{Order book}{Order-by-order reconstruction holding \textbf{every resting
-order individually}, not aggregated depth --- which is what makes a queue
-position, and therefore a fill inference, definable at all.}
+\tile{Order book}{Order-by-order reconstruction, holding \textbf{every resting
+order individually}. That is what makes a queue position, and therefore a fill
+inference, definable at all.}
 \tile{Order entry}{\textbf{iLink 3} session handler: SBE encoding, HMAC
 authentication, sequence management, negotiation and establishment,
 primary/secondary failover.}
@@ -185,7 +185,7 @@ with no pipelining, from the microbenchmarks in \code{actors/cpp/perf}.}
 \vspace{5pt}
 \measured\ End-to-end \textbf{tick-to-trade}, measured on the colocated stack,
 runs \textbf{\textasciitilde100~\textmu s} at the median with p99 under a
-millisecond --- market data in to order on the wire, not a component benchmark.
+millisecond, measured end to end from market data in to order on the wire.
 
 % ===============================================================
 \clearpage
@@ -225,7 +225,7 @@ Relative slippage, ticks per contract
   & {\color{warm}\bfseries\code{+0.0952 $\pm$ 0.0135}} \\
 Aggregate participation & \code{4.46\,\%} & \code{4.86\,\%} \\
 Time to fill 100 & \code{72.7 s} & \code{62.4 s} \\
-Filled on arrival rather than resting & \code{1.04\,\%} & \code{51.86\,\%} \\
+Quantity filling on arrival  & \code{1.04\,\%} & \code{51.86\,\%} \\
 \bottomrule
 \end{tabularx}
 
