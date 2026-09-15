@@ -217,9 +217,8 @@ identifier rule: the shadow is withdrawn when the order it follows ends.
   triggered by a delete/trade for the followed order's identifier rather than
   by market-state evaluation, retaining a single identifier association per
   followed order --- the exchange order identifier paired with the shadow's
-  identifier --- so the cancellation decision is an $O(1)$ expected-time
-  identifier lookup, independent of the number of tracked shadows
-  (Sections~\ref{sec:map}--\ref{sec:cancel}).
+  --- so that no book state is available to the cancellation decision even in
+  principle (Sections~\ref{sec:map}--\ref{sec:cancel}).
   \item We \emph{propose} \,--- and argue analytically, without evaluating
   \,--- \emph{flow-inherited venue selection}: placing on the originating venue
   of each shadowed add makes the execution venue distribution match the observed
@@ -463,10 +462,6 @@ observed orders instead:
   in expectation, the cross-venue mix of observed liquidity provision without
   explicit routing logic --- the inverse of the SOR approach
   \cite{foucault2008,laruelle2011}, where the split is solved for.
-  \item \textbf{Constant per-message decision cost.} With only a single identifier
-  association retained per followed order, each message is handled by one
-  identifier lookup, so the per-message decision cost is $O(1)$ expected time,
-  independent of the number of tracked shadows.
 \end{enumerate}
 
 Table~\ref{tab:novelty} summarizes the positioning.
@@ -1033,13 +1028,14 @@ column should not be read as a ranking of the two methods.
 \paragraph{Post-fill mark-outs cross-check.} Table~\ref{tab:markout} reports the
 mid-price move over the one, five and thirty seconds after each individual fill,
 signed so that a positive value is a move against the fill. The mark-outs are
-close to the relative-slippage measure, which is the result we expect: the two are
-computed from different data at different grains --- one from the
-volume-weighted prices of a whole window, the other from the mid-price after
-each individual fill --- so agreement is a check on the measurement rather than
-an identity. A discrepancy here would indicate that the simulator is not pricing
-executions correctly. The near match is what gives us confidence in the
-simulation results.
+close to the relative-slippage measure, which is the result we expect. The two
+are related rather than identical: one is the price a completed round trip
+achieved, the other is how the mid moved after each individual fill, and they are
+computed at different grains. They share the same fill inference, so agreement
+does not verify that inference; what it does show is that the price a window
+paid is consistent with what the market did immediately afterwards. A
+discrepancy would indicate that the simulator is not pricing executions
+correctly, and there is none.
 
 Figure~\ref{fig:markout} compares the mark-out of the two execution styles,
 Figure~\ref{fig:slippage} their relative slippage, and Figure~\ref{fig:crosscheck} puts
@@ -1053,9 +1049,13 @@ the two measures side by side for both.
 \emph{Relative slippage} prices the two legs of a window against the
 arrival mid and is a per-window quantity. \emph{Mark-out} is the mid-price move over the stated
 horizon after each individual fill, one row per execution, signed so that
-positive is a move against the fill. Both are priced against the mid, so they are on the same
-scale and directly comparable: they are independent measurements of the same
-quantity, computed from different data at different grains, and they agree.
+positive is a move against the fill. Both are priced against the mid, so they
+are on the same scale and directly comparable. They measure \emph{related}
+quantities rather than one quantity twice: relative slippage is the price a
+completed round trip achieved, mark-out is how the mid moved after each
+individual fill. Agreement between them is therefore a consistency check ---
+what a window paid lines up with what happened after its fills --- and not a
+replication.
 The two samples differ in size: per-fill mark-outs were written for 20 passive
 sessions and 246 aggressive ones, because the passive mark-out instrumentation
 was added after the full-year passive sweep had run and only a January subset was
@@ -1422,11 +1422,23 @@ well-specified alternative. A practitioner proposing a predictive placement
 model can show whether it beats shadow-following, as an execution scheduler is
 judged against TWAP.
 
+\paragraph{The bar a placement model has to clear.} Stated plainly, the proposal
+is a floor and it has two rungs. \pov{} places passively with no view at all,
+and aggressive POV crosses with no view at all; between them they bracket what
+is achievable by following flow and nothing else. A designer proposing a
+predictive placement model should have to beat \emph{both} on the same corpus,
+the same parent, and the same participation: beating \pov{} shows the forecast is
+worth something over resting blind, and beating aggressive POV shows it is worth
+something over simply taking liquidity. A model that beats neither has bought
+complexity and a fitting risk in exchange for nothing, and its author should be
+able to see that from two numbers. This is the role we propose --- not a claim
+that \pov{} is hard to beat, but a claim that it is the right thing to be
+measured against, in the way a scheduler is measured against TWAP.
+
 \pov{} is an execution method: its scope is completing a given position at a
-small, predictable cost, with a small number of decision and state operations per
-message. When
-direction is known, an informed aggressive strategy outperforms it, and \pov{}
-leaves such directional decisions to the strategy layer above it.
+small, predictable cost. When direction is known, an informed aggressive
+strategy outperforms it, and \pov{} leaves such directional decisions to the
+strategy layer above it.
 
 % ---------------------------------------------------------------
 \section{Future Work}
