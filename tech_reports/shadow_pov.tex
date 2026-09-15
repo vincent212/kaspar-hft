@@ -19,6 +19,32 @@
 \usepackage[ruled,vlined,linesnumbered]{algorithm2e}
 \usepackage{microtype}
 \usepackage{caption}
+% Keep a subsection's floats inside that subsection. Without this the Results
+% figures drift forward and land in the middle of the Latency discussion.
+\usepackage{placeins}
+
+% DRAFT MARKING. A diagonal watermark on every page plus a footer line, because
+% a watermark alone is easy to miss on a printed page and a footer alone is easy
+% to crop. Both say the same thing. Remove this block, not the text under it,
+% when the paper is ready to circulate.
+\usepackage{draftwatermark}
+\SetWatermarkText{DRAFT}
+\SetWatermarkScale{1.1}
+\SetWatermarkColor[gray]{0.93}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\thepage}
+\fancyfoot[L]{\footnotesize\textbf{DRAFT --- NOT FOR DISTRIBUTION}}
+\fancyfoot[R]{\footnotesize\today}
+\renewcommand{\headrulewidth}{0pt}
+\fancypagestyle{plain}{%
+  \fancyhf{}%
+  \fancyfoot[C]{\thepage}%
+  \fancyfoot[L]{\footnotesize\textbf{DRAFT --- NOT FOR DISTRIBUTION}}%
+  \fancyfoot[R]{\footnotesize\today}%
+  \renewcommand{\headrulewidth}{0pt}%
+}
 
 \geometry{margin=1in}
 \setlength{\emergencystretch}{2em}
@@ -32,7 +58,7 @@
 Shadowing and Identifier-Driven Cancellation}}
 
 \author{%
-  Vincent Maciejewski\\
+  Vincent Mayeski\\
   \small M2 Technologies\\
   \small \texttt{mayeski@gmail.com}
 }
@@ -53,17 +79,13 @@ Percentage of Volume (POV), and Implementation Shortfall (IS). TWAP follows a
 clock, whereas VWAP follows a forecast of the intraday volume \emph{curve}, POV reacts
 to \emph{realized} volume to hold a target participation rate, and IS
 front-loads execution to minimize slippage against the parent order arrival price.
-All operate on an \emph{aggregate} (time, or total volume) rather than on the
-individual resting orders that actually constitute the book, and all are
+All are
 \emph{model-based}: their execution decisions are derived from an explicit
 model, forecast, schedule, or control rule rather than from following individual
-resting orders. We introduce \pov{}, a method for placing the passive limit
+resting orders. We introduce \pov{}, a method for placing passive limit
 orders within the framework of percentage-of-volume execution (a passive POV, or
 PPOV --- here denoting passive execution whose \emph{order-placement rate} is set
-from observed order flow rather than from traded volume; unlike conventional POV,
-that fraction is applied to individual order arrivals rather than to traded
-volume, and the participation rate is not controlled directly but emerges from
-the resulting fills).
+from observed order flow rather than from traded volume).
 Placing a passive order to fill efficiently
 conventionally involves an order-book model and some prediction of where the order
 will fill. \pov{} needs neither: it replaces that prediction with
@@ -79,10 +101,12 @@ and after a brief grace window when it is hit by a trade.
 As this approach is model-free --- it uses no order-book model and no fill
 prediction --- it can serve as a
 benchmark for passive-order placement on central limit order book (CLOB) venues.
-We have evaluated \pov{} over 137 replayed Chicago Mercantile Exchange (CME)
-futures sessions in a deterministic market-replay simulator, where it executes
-with slippage slightly worse than the mid-price reference. We
-position \pov{} as a model-free benchmark for passive-order placement, against
+We evaluate \pov{} on a full calendar year of replayed Chicago Mercantile
+Exchange (CME) ES futures in a deterministic market-replay simulator.
+We report its slippage characteristics and latency sensitivity. We compare
+\pov{} to the aggressive equivalent POV and discuss the differences and
+similarities between the two execution methods.
+We position \pov{} as a model-free benchmark for passive-order placement, against
 which a predictive placement model can be scored. The algorithm and the order-book
 simulator are implemented in the open-source
 \textsc{kaspar-hft} project.\footnote{\url{https://github.com/vincent212/kaspar-hft}}
@@ -111,8 +135,8 @@ schedule-based algorithms rather than tied to any one of them \cite{scheduletact
 VWAP
 commits to a \emph{forecast of the intraday volume curve} and weights its
 slices to match it; the forecast error is the tracking error.
-Percentage-of-
-volume (POV) has a participation ratio \emph{reactive} to realized volume ---
+Percentage-of-volume (POV) has a participation ratio \emph{reactive} to
+realized volume ---
 it does not forecast a volume curve the way VWAP does. 
 But POV cannot participate \emph{passively} by reaction alone,
 because volume that has already printed can no longer be joined at a resting
@@ -151,7 +175,7 @@ the slice deadline \cite{cesari2012}.
 
 Wherever a slice is worked passively, the same placement problem arises: how far
 into the book to quote, trading fill probability against market impact and
-adverse selection \cite{gueant2012,passiveimpact2026,negdrift2024}. A passive order can
+adverse selection \cite{glostenmilgrom1985,gueant2012,passiveimpact2026,negdrift2024}. A passive order can
 simply be posted at the touch, which needs no model; but posting blindly at the
 touch surrenders control of that trade-off and is prone to adverse selection ---
 the order fills exactly when the level is thinning ahead of an adverse move.
@@ -230,10 +254,10 @@ identifier rule: the shadow is withdrawn when the order it follows ends.
   safety guards (a two-band place/cancel hysteresis plus completion and
   over-hedge guards) atop the core method, distinguishing the minimal core from
   the implemented superset (Section~\ref{sec:prod}).
-  \item We report a measured evaluation over 137 replayed NQ/ES sessions, run
-  through the \textsc{kaspar-hft} deterministic replay simulator, explicit about
-  the split between the close-auction and open-auction
-  measurements (Section~\ref{sec:eval}).
+  \item We report a measured evaluation on a full calendar year of ES futures,
+  run through the \textsc{kaspar-hft} deterministic replay simulator, in which
+  the execution style and the simulated latency are varied one at a time and
+  every other parameter is held fixed (Section~\ref{sec:eval}).
 \end{enumerate}
 
 % ---------------------------------------------------------------
@@ -419,10 +443,10 @@ is material to \pov{}'s design.
   liquidity itself --- and couples both entry \emph{and cancellation} to the
   followed order's identifier.
   \item \textbf{Exchange-side passive/hidden liquidity} (e.g.\
-  US~2006/0253379, ``Passive Liquidity Order''). This is a matching-engine
+  US~2006/0253379, ``Passive Liquidity Order''~\cite{us20060253379}). This is a matching-engine
   mechanism internal to a venue; \pov{} instead is a client-side strategy that
   observes a public feed and places and cancels its own orders.
-  \item \textbf{Hidden-liquidity detection} (e.g.\ US~8,140,416). Here order
+  \item \textbf{Hidden-liquidity detection} (e.g.\ US~8,140,416~\cite{us8140416}). Here order
   identifiers are tracked for \emph{analysis} (inferring hidden size), and
   trading decisions still evaluate market state; \pov{} uses identifier
   presence directly as the trigger for a cancellation.
@@ -529,7 +553,7 @@ then records a single association keyed by the observed order's
 $(\text{venue},\texttt{exchange\_order\_id})$ --- exchange order identifiers are
 unique only within a venue --- and mapping it to its shadow-order identifier,
 \[
-  (\text{venue},\;\texttt{exchange\_order\_id}) \;\longmapsto\; \texttt{shadow\_order\_id} .
+  (\text{venue},\;\texttt{exchange\_order\_id}) \;\longmapsto\; \texttt{shadow\_order\_id}.
 \]
 The shadow is thereafter \emph{bound} to the
 observed order by that key: it inherits that order's price and venue, and ---
@@ -544,14 +568,12 @@ projection of one identified resting order.
 implementation offers two independent selection modes:
 \begin{itemize}[leftmargin=1.4em]
   \item \emph{Probabilistic}: shadow a qualifying add with a fixed probability
-  $\rho$ (draw a pseudorandom value and compare to a threshold; the reference
-  implementation uses $\rho=2/128\approx1.5\%$, a power-of-two modulus so the test
-  compiles to a mask rather than a division).
-  \item \emph{Deterministic}: shadow every $N$-th qualifying add (reference-implementation
-  default $N=5$, i.e.\ a $20\%$ selection rate).
+  $\rho$, drawn independently per light. $\rho$ is a free parameter; the values
+  used here are stated with each experiment.
+  \item \emph{Deterministic}: shadow every $N$-th qualifying add.
 \end{itemize}
-The two modes give different selection rates; the experiments reported in
-Section~\ref{sec:eval} use the probabilistic mode at $\rho\approx1.5\%$.
+The two modes give different selection rates. The experiments reported in
+Section~\ref{sec:eval} use the probabilistic mode.
 The quantity \pov{} sets is thus the \emph{order-placement rate} $\rho$ --- the
 fraction of qualifying adds it shadows --- and \emph{not} a participation rate.
 This placement rate is fixed by construction and applied to observed order flow,
@@ -688,14 +710,48 @@ with the distribution of traded volume.
 \label{sec:prod}
 % ---------------------------------------------------------------
 
-\textsc{kaspar-hft} is an open-source, low-latency trading system written in
-C++. It is built using the actor-model architecture
+\textsc{kaspar-hft} is an open-source, low-latency trading system and order book simulator written in
+C++.
+
+\subsection{Simulation facilities}
+\label{sec:sim}
+
+The simulator is the instrument this paper is
+written with, so it is worth stating what it does and does not provide. It
+reconstructs a full order-by-order (MBO) book from recorded exchange packet
+captures, maintaining every resting order individually rather than aggregated
+depth, which is what makes a queue position --- and therefore a fill inference
+--- definable at all. Three latencies are configurable and independent: the
+outbound order, the outbound cancel, and the inbound market-data feed.
+
+\paragraph{The fill inference.}
+Every figure in this paper rests on one inference, which is worth stating on its
+own. A shadow enters the price-time-priority (FIFO) queue at its price, behind
+the depth already resting there. It is assigned a fill when subsequent recorded
+executions imply that aggression has reached a resting order \emph{behind} it:
+the shadow has earlier time priority than that order, so an aggressor that
+reached the one must have passed through the other.
+
+This is an inference from the recorded feed, not an observation. The synthetic
+order was never in the book and nothing in the capture reports its fate. It is
+sound under price-time priority and exact queue accounting, both of which the
+reconstruction provides; it is not sound if the shadow's own presence would have
+changed the flow.
+
+\paragraph{What the simulator does not provide.} Market reaction. Orders are
+filled against the recorded feed as though they had not been there; nothing withdraws
+from a stale quote and no counterparty reprices. The consequence of this is that
+the simulator does not model market impact.
+
+It is built using the actor-model architecture
 \cite{hewitt1973,agha1986}: independent components communicate
 only by passing messages, so concurrent order handling stays deterministic and
 keeps shared-memory locking off the critical path. The same code runs unchanged
 across backtesting, market replay, live simulation, and live trading; the
 evaluation of Section~\ref{sec:eval} therefore exercises the live code path
 directly.
+
+\subsection{Implementation}
 
 \pov{} is implemented as a set of execution components within
 \textsc{kaspar-hft}. A strategy issues a position order, and the execution
@@ -714,8 +770,9 @@ The added guards are:
   $\delta_{\text{place}}$ ticks of the inside (e.g.\ for a buy,
   $p \ge b_0-\delta_{\text{place}}$ against best bid $b_0$), but is only
   \emph{cancelled for distance} once it drifts beyond a looser cancel band
-  $\delta_{\text{cancel}}$, with $\delta_{\text{place}}<\delta_{\text{cancel}}$
-  (reference implementation: $4$ and $6$ ticks). The gap introduces hysteresis: it
+  $\delta_{\text{cancel}}$, with $\delta_{\text{place}}<\delta_{\text{cancel}}$.
+  The runs reported here use $3$ and $5$ ticks for passive placement and $10$
+  and $12$ for the aggressive configuration. The gap introduces hysteresis: it
   prevents a one-tick oscillation of the inside from triggering a
   place/cancel/replace loop that would burn message budget and queue priority.
   The placement band $\delta_{\text{place}}$ also bounds how far from the inside a
@@ -746,118 +803,421 @@ the production wrapper is not itself model-free; the model-free property is a
 claim about the core placement and cancellation logic of Algorithm~\ref{alg:core},
 not about the safety layer around it.
 
-\subsection{Deterministic replay simulator}
-\label{sec:sim}
-
-The \textsc{kaspar-hft} simulator replays recorded exchange
-packet captures through this same code.
-It reconstructs the book from the captured feed and places each shadow into the
-price-time-priority (FIFO) queue at its price, behind the depth already resting there.
-Under this reconstructed queue, the simulator assigns a shadow a fill when
-subsequent recorded executions imply that aggression has reached a resting order
-\emph{behind} it; because the shadow has earlier time priority than that order,
-the simulator treats the shadow as filled as well. This is a simulator inference
-from the recorded feed, not a direct observation of the synthetic order.
-
-The execution algorithm and the order-book simulator used in this evaluation are
-available as the open-source \textsc{kaspar-hft} project, which supports testing
-and live deployment against CME or other venues.
-
-% ---------------------------------------------------------------
 \section{Experimental Evaluation}
 \label{sec:eval}
+
 % ---------------------------------------------------------------
 
-\subsection{Setup}
+We evaluate the baseline algorithm performance here. Since our simulator does not
+model market impact, the algorithm's measured cost carries no component that
+scales with participation rate or order size. We therefore focus on the base
+case, where slippage is measured in idealised conditions. We then compare the
+passive \pov{} against its aggressive equivalent. Finally we check the latency
+degradation characteristics.
 
-We evaluate \pov{} on execution of a two-leg index-futures spread (NQ against
-ES) on CME. Each session \emph{fires} (activates) the parent in ten lock-step
-chunks, twice per date, at two times: 09:29~ET (open) and
-15:57~ET (close). Running both directions on the same date yields a
-\emph{direction-agnostic} slippage estimate in which the mid-price
-reference cancels algebraically (below).
+\subsection{What the experiment is}
+\label{sec:eval:setup}
 
-\paragraph{Corpus.} The corpus is 137 date-pairs (one long/short pair per
-session) over US trading dates from 2025-06-01 to 2026-02-01, two runs per date;
-we use ``session'' and ``date-pair'' interchangeably. Front-month contracts
-follow the CME quarterly-roll calendar, spanning the ESM5/NQM5 through ESH6/NQH6
-fronts.
+\paragraph{Instrument and corpus.} E-mini S\&P~500 futures (CME product ES),
+market-by-order data on CME channel~310, every regular trading session of
+calendar year 2025 for which PCAP files were available.
 
-\paragraph{Slippage definition.} For a leg, let $\text{mid}$ be its best bid and offer (BBO) 
-midpoint cached at the instant the chunk alarm fires, and $\text{vwap}$ the
-size-weighted average execution price for that leg on that direction/date.
-Define the size-weighted, direction-agnostic per-contract slippage
-\begin{align}
-  \text{cost}_{\textsc{buy}} &= \text{vwap}_{\textsc{buy}} - \text{mid}, \\
-  \text{cost}_{\textsc{sel}} &= \text{mid} - \text{vwap}_{\textsc{sel}}, \\
-  \text{Slippage} &= \tfrac12\big(\text{cost}_{\textsc{buy}} + \text{cost}_{\textsc{sel}}\big)
-   = \tfrac12\big(\text{vwap}_{\textsc{buy}} - \text{vwap}_{\textsc{sel}}\big).
-  \label{eq:slip}
-\end{align}
-In the second equality the fire-time mid cancels, so the reported
-figure is exactly \emph{half the gap between what the buyer of a leg paid and
-what the seller of that leg received}, independent of which mid was captured.
-Positive~$=$~a loss (buyer paid above mid / seller received below); a
-negative value flags that the two direction-runs saw
-different market states.
+\paragraph{What the algorithm is asked to do.} The algorithm is run as a
+\emph{two-sided market maker}, quoting the buy and the sell side simultaneously
+throughout the regular session, and is required to complete a fixed quantity on
+each side within each measurement window. Concretely:
 
-\paragraph{Units.} One bid-ask width ($\bo$) is one tick $=0.25$ points. For
-NQ, $0.25\text{pt}\times\$20/\text{pt}=\$5.00$ per $\bo$ per contract; for ES,
-$0.25\text{pt}\times\$50/\text{pt}=\$12.50$ per $\bo$ per contract.
+\begin{itemize}[nosep,leftmargin=1.4em]
+  \item \textbf{Window boundaries} are placed every 10 minutes from 09:29~ET to
+        16:00~ET. Each boundary closes one window and opens the next, so a
+        session yields at most 39 windows.
+  \item \textbf{At each boundary} the algorithm is given 100 contracts to buy
+        and, independently, 100 contracts to sell. The two are worked over the
+        same window by separate books, so both sides quote at once rather than
+        one after the other.
+  \item \textbf{A window closes} when \emph{both} conditions hold: the 10-minute
+        minimum has elapsed, \emph{and} both sides have completed their full 100
+        contracts. A session in which the
+        algorithm fills slowly therefore produces \emph{fewer and longer}
+        windows, never a partially filled one.
+\end{itemize}
+
+\subsection{What is measured}
+\label{sec:eval:measures}
+
+All prices are in ticks; one tick is $0.25$ index points, which is
+$\$12.50$ per contract on ES.
+
+\paragraph{Relative slippage.} Let $\text{vwap}_{\textsc{buy}}$ and
+$\text{vwap}_{\textsc{sel}}$ be the size-weighted average prices at which the
+window's 100 bought and 100 sold contracts were actually executed, and let
+$m_{0}$ be the mid-price at the instant the window opened --- the arrival price
+for both legs, since both start together. Each leg is priced against that mid,
+\begin{equation}
+  \text{Slippage}_{\textsc{buy}} = \text{vwap}_{\textsc{buy}} - m_{0},
+  \qquad
+  \text{Slippage}_{\textsc{sel}} = m_{0} - \text{vwap}_{\textsc{sel}},
+  \label{eq:slipleg}
+\end{equation}
+signed so that a positive value is a loss on either side, and the reported
+figure is the average of the two:
+\begin{equation}
+  \text{RelativeSlippage} \;=\; \tfrac12\big(\text{Slippage}_{\textsc{buy}}
+                                   + \text{Slippage}_{\textsc{sel}}\big)
+                 \;=\; \tfrac12\big(\text{vwap}_{\textsc{buy}}
+                                   - \text{vwap}_{\textsc{sel}}\big).
+  \label{eq:slippage}
+\end{equation}
+
+We call this \emph{relative slippage}: relative to the arrival mid, and
+relative between the legs. The second equality is the reason to average rather
+than report the legs separately: $m_{0}$ cancels, so whatever the market did
+during the window affects both legs and drops out. The per-leg figures are considerably noisier
+for exactly that reason --- over a leg of a minute or more the market drifts, and
+the drift lands in the two legs with opposite signs. Measured over the corpus the
+buy and sell legs carry 95\,\% intervals about four times wider than their own
+average. The paired form is immune to that drift by construction, which is what
+makes a full-year average meaningful.
+
+Both legs start together but do not necessarily finish together.
+
+\paragraph{Cost relative to immediate execution.} The alternative to placing
+passively is to cross the spread at once, priced against the same $m_{0}$: a buy
+crosses to the ask and a sell to the bid, so immediate execution has a slippage
+of half the quoted width. Over this corpus the ES book is one tick wide at
+$96.3\,\%$ of window openings, giving a mean spread of $1.038$ ticks and an
+immediate-execution slippage of $+0.519$ ticks per contract. The difference,
+\begin{equation}
+  \text{RelativeToImmediate} \;=\; \text{RelativeSlippage} - \tfrac12\big(
+        \text{ask}_{0} - \text{bid}_{0}\big),
+  \label{eq:vstouch}
+\end{equation}
+is negative when the passive execution finished at a better average price than
+crossing at the open would have. Both quantities in it are slippages against the
+same arrival mid, so the subtraction is between like things.
+
+\paragraph{Cost relative to VWAP.} The same executions compared against the
+volume-weighted average price of every trade that occurred in the market while
+the leg was working, rather than against the arrival mid. A negative value
+means the algorithm executed better than the average price paid by everyone else
+trading over the same interval. This measure is not comparable across
+configurations whose legs run for different lengths of time: each is scored
+against its own interval, and a longer leg averages over a broader and more
+forgiving slice of the day.
+
+\paragraph{Participation rate.} For one side of one window, let $F$ be the
+contracts the algorithm filled and $V$ the contracts traded by everyone else
+over that same side's duration. The participation rate is
+\begin{equation}
+  \text{Participation} \;=\; \frac{F}{F+V},
+  \label{eq:part}
+\end{equation}
+bounded in $[0,1]$, which is what a percentage-of-volume mandate means by the
+term. One number is reported per cell: the \emph{aggregate} rate
+$\sum F / \sum (F+V)$ over every side of every window, which is the share of the
+year's volume the algorithm took and the figure a mandate is written against.
+The mean of per-window ratios is not used --- it is dominated by windows with
+very small denominators and reverses the ordering entirely. Sides alongside
+which no other trade occurred leave the ratio undefined and are excluded rather
+than recorded as 100\,\%.
+
+Both sides of a window are pooled, because the window is a 100-contract buy and
+a 100-contract sell and the two are symmetric by construction. Measured
+separately they agree to within $0.08$ percentage points in every cell, so
+pooling costs nothing and reporting one side alone would be an arbitrary choice
+between two answers that do not differ.
+
+\paragraph{Time to fill.} The mean wall-clock time for a side to complete its
+100 contracts, pooling both sides. The 100 contracts arrive as roughly 85
+separate executions of $1.18$ contracts on average, in every cell. The clip
+size is not a parameter: a shadow's size is bounded by the size of
+the order it follows, so it is the market's own add-size distribution that sets
+it.
 
 \subsection{Results}
+\label{sec:eval:results}
 
-Table~\ref{tab:results} reports pooled figures by fire time and product.
+\paragraph{Passive against aggressive.}
+The informative comparison is between the two execution styles. Both execute the
+same parent over the same corpus; one rests and one crosses; and they are
+configured so that the realised participation is approximately equal, which is
+the only basis on which their costs can be set side by side.
 
-\begin{table}[h]
+\begin{table}[t]
 \centering
-\caption{Direction-agnostic per-contract slippage over 137 date-pairs.
-Positive $=$ a loss (worse than mid). The close rows are used in the
-reported results; the open rows are affected by intraday drift (see text).}
-\label{tab:results}
-\begin{tabular}{llrrr}
+\caption{Passive and aggressive execution at matched participation. ES futures,
+246 sessions of calendar 2025, 100 contracts bought and 100 sold in every
+window, zero simulated latency on all three paths. Cost is in ticks per
+contract: a positive slippage is a loss, a negative relative cost is a gain.
+Intervals are 95\,\% and clustered by session, since windows within a day are
+not independent. \emph{Crossed} is the share of executed quantity that filled on
+arrival rather than resting, and it is the only line on which the two styles
+are doing recognisably different things.}
+\label{tab:styles}
+\small
+\begin{tabular}{lrr}
 \toprule
-Phase & Product & Contracts & Slippage (\bo) & Slippage (\$) \\
+ & \pov{} (passive) & Aggressive POV \\
 \midrule
-open  & NQ & 20{,}921 & $+1.76$ & $+\$8.79$ \\
-open  & ES & 36{,}550 & $+0.22$ & $+\$2.76$ \\
+Shadowed event              & resting add & trade print \\
+Rate                        & 5\,\% of adds & 2\,\% of prints \\
+Placement band (ticks)      & 3 & 10 \\
+Completed windows           & 9{,}592 & 9{,}581 \\
 \midrule
-close & NQ & 19{,}540 & $+0.56$ & $+\$2.80$ \\
-close & ES & 31{,}354 & $+0.45$ & $+\$5.59$ \\
+Relative slippage (ticks/contract) & $+0.0955 \pm 0.0130$ & $+0.0952 \pm 0.0135$ \\
+\quad of which, buy leg     & $+0.0704 \pm 0.0532$ & $+0.0292 \pm 0.0830$ \\
+\quad of which, sell leg    & $+0.1205 \pm 0.0517$ & $+0.1613 \pm 0.0836$ \\
+Relative to immediate execution & $-0.4236 \pm 0.0117$ & $-0.4239 \pm 0.0105$ \\
+vs.\ VWAP                   & $-0.6208 \pm 0.0204$ & $-0.4036 \pm 0.0275$ \\
+\midrule
+Participation (\%)          & 4.46 & 4.86 \\
+Time to fill 100 (s)        & 72.7 & 62.4 \\
+Child executions per leg    & 85.5 & 85.6 \\
+Crossed (\%)                & 1.04 & 51.86 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Close cohort.} At the close the two direction-runs fill against
-essentially the same market state, with less intraday drift than at the open, and
-the (fill~$-$~mid) framing of
-Eq.~\eqref{eq:slip} isolates a per-contract slippage. NQ closes at
-$0.56\,\bo = \$2.80$ per contract (19{,}540 contracts) and ES at
-$0.45\,\bo = \$5.59$ per contract (31{,}354 contracts). Both are positive:
-\pov{} executes slightly worse than mid, consistent with adverse
-selection and execution against a moving market.
+Table~\ref{tab:styles} gives the relative slippage: $+0.0955$
+ticks per contract for passive against $+0.0952$ for aggressive, and relative to
+immediate execution $-0.4236$ against $-0.4239$ --- agreement to the fourth
+decimal on both, over more than nine thousand completed windows each.
 
-\paragraph{Open cohort.} Near the open the price moves sharply: over 100
-NQ points within the 60-second window, and 171 points (684 ticks) on one date.
-Across that move the two direction-runs sample different price levels, so the
-open per-contract slippage reflects that price drift as well as execution ---
-in one case it is even negative, driven by the inter-run drift rather than by
-execution. The conclusions in this paper are based on the close cohort.
+This is the prediction of the Glosten--Milgrom account of the
+spread~\cite{glostenmilgrom1985} and is discussed in Section~\ref{sec:disc}: the
+half-spread a resting order captures is returned, in expectation, through
+adverse selection, and the half-spread a crossing order pays buys the avoidance
+of it. A method with no forecast cannot separate the two, so the choice between
+resting and crossing is a choice about speed and participation, not about price.
+
+\paragraph{The VWAP column is the one that differs.}
+At $-0.621$ against $-0.404$ passive \pov{} appears to beat the market by half
+again as much. The difficulty is that each leg is scored against the
+volume-weighted price over its own working interval, and those intervals are not
+the same length --- in either style the buy leg and the sell leg finish at
+different times, and passive \pov{}'s legs run longer than aggressive POV's. A
+longer interval averages over a broader slice of the session. So even
+where a leg beats VWAP, the margin does not translate into usable alpha, and the
+column should not be read as a ranking of the two methods.
+
+
+
+\paragraph{Post-fill mark-outs cross-check.} Table~\ref{tab:markout} reports the
+mid-price move over the one, five and thirty seconds after each individual fill,
+signed so that a positive value is a move against the fill. The mark-outs are
+close to the relative-slippage measure, which is the result we expect: the two are
+computed from different data at different grains --- one from the
+volume-weighted prices of a whole window, the other from the mid-price after
+each individual fill --- so agreement is a check on the measurement rather than
+an identity. A discrepancy here would indicate that the simulator is not pricing
+executions correctly. The near match is what gives us confidence in the
+simulation results.
+
+Figure~\ref{fig:markout} compares the mark-out of the two execution styles,
+Figure~\ref{fig:slippage} their relative slippage, and Figure~\ref{fig:crosscheck} puts
+the two measures side by side for both.
+
+
+
+\begin{table}[!htbp]
+\centering
+\caption{Three measures of the same executions, in ticks per contract.
+\emph{Relative slippage} prices the two legs of a window against the
+arrival mid and is a per-window quantity. \emph{Mark-out} is the mid-price move over the stated
+horizon after each individual fill, one row per execution, signed so that
+positive is a move against the fill. Both are priced against the mid, so they are on the same
+scale and directly comparable: they are independent measurements of the same
+quantity, computed from different data at different grains, and they agree. Passive figures are 20 sessions and aggressive 246;
+intervals are 95\,\% and clustered by session.}
+\label{tab:markout}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccc}
+\toprule
+ & Rel.\ slippage & \multicolumn{3}{c}{Mark-out after the fill} \\
+\cmidrule(lr){3-5}
+ & (vs.\ mid) & 1\,s & 5\,s & 30\,s \\
+\midrule
+\pov{} (passive) & $+0.072 \pm 0.044$ & $+0.089 \pm 0.022$ & $+0.066 \pm 0.030$ & $+0.072 \pm 0.060$ \\
+Aggressive POV   & $+0.095 \pm 0.014$ & $+0.083 \pm 0.007$ & $+0.087 \pm 0.012$ & $+0.091 \pm 0.019$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.66\textwidth]{sim/markout_arms.pdf}
+\caption{Post-fill mark-out for the two execution styles, at one, five and
+thirty seconds, with 95\,\% intervals clustered by session. The two are
+indistinguishable at every horizon, and each profile is flat rather than
+decaying: the price move is complete within a second of the fill and does not
+revert over the following twenty-nine. That is the signature of adverse
+selection rather than of temporary impact.}
+\label{fig:markout}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.48\textwidth]{sim/slippage_arms.pdf}
+\caption{Window-level relative slippage for the two execution styles at matched
+participation, with 95\,\% intervals clustered by session. One style rests for
+99\,\% of its executed quantity and the other crosses for half of it; the round
+trip costs the same either way.}
+\label{fig:slippage}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.72\textwidth]{sim/markout_vs_slippage.pdf}
+\caption{Relative slippage against mark-out, both execution styles. The two quantities
+are computed from different data at different grains --- one from the
+volume-weighted prices of a whole window, the other from the mid-price after
+each individual fill --- so their agreement is a check on the measurement rather
+than an identity. They agree to within a couple of hundredths of a tick
+throughout.}
+\label{fig:crosscheck}
+\end{figure}
+
+The mark-outs agree with the window-level costs and with each other. Both
+styles give up something under a tenth of a tick per contract to the subsequent
+mid-price, and the two are indistinguishable at every horizon. The profile is
+flat in time rather than decaying: the price move is complete within a second of
+the fill and does not revert over the following twenty-nine. That is the
+signature of adverse selection rather than of temporary impact --- the fill
+happened because someone with a reason to trade took the other side, and the
+reason does not go away.
+
+\FloatBarrier
+\subsection{Latency}
+\label{sec:latency}
+
+Of everything varied in this study, the round-trip delay is the parameter that
+moves the cost. It moves it monotonically, in both execution styles, with
+non-overlapping confidence intervals from end to end.
+
+The delay is applied to \emph{all three} paths at once --- the outbound order,
+the outbound cancel, and the inbound market-data feed --- because a study that
+delays only the outbound side measures an algorithm that still sees the book
+instantly, which no participant does. Table~\ref{tab:latency} reports both
+styles across the range.
+
+\begin{table}[t]
+\centering
+\caption{Latency sensitivity, the same delay on order, cancel and feed. ES
+futures, 246 sessions of 2025, 100 contracts bought and 100 sold per window,
+every other parameter fixed within each style.}
+\label{tab:latency}
+\small
+\begin{tabular}{rrrrrr}
+\toprule
+Delay & Windows & Rel.\ slippage & vs.\ immediate & Participation & Time \\
+($\mu$s) & & (ticks/contract) & (ticks/contract) & (\%) & (s) \\
+\midrule
+\multicolumn{6}{l}{\emph{Passive \pov{}}}\\
+0 & 9{,}591 & $+0.097 \pm 0.013$ & $-0.422$ & 4.51 & 72 \\
+500 & 9{,}593 & $+0.121 \pm 0.014$ & $-0.400$ & 6.00 & 55 \\
+1000 & 9{,}592 & $+0.132 \pm 0.015$ & $-0.388$ & 6.12 & 54 \\
+2500 & 9{,}593 & $+0.141 \pm 0.015$ & $-0.380$ & 6.40 & 52 \\
+5000 & 9{,}594 & $+0.150 \pm 0.015$ & $-0.371$ & 6.87 & 48 \\
+\midrule
+\multicolumn{6}{l}{\emph{Aggressive POV}}\\
+0 & 9{,}584 & $+0.087 \pm 0.017$ & $-0.432$ & 3.18 & 92 \\
+500 & 9{,}541 & $+0.176 \pm 0.017$ & $-0.345$ & 2.43 & 121 \\
+1000 & 9{,}525 & $+0.211 \pm 0.018$ & $-0.309$ & 2.24 & 131 \\
+2500 & 9{,}531 & $+0.240 \pm 0.018$ & $-0.280$ & 2.09 & 138 \\
+5000 & 9{,}564 & $+0.296 \pm 0.022$ & $-0.225$ & 2.02 & 141 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{1. Cost rises monotonically} Passive \pov{} costs
+$+0.097$ ticks per contract at zero delay and $+0.150$ at 5\,ms, a 55\,\%
+increase; aggressive POV goes from $+0.087$ to $+0.296$, more than a tripling.
+Every step in both columns lies outside the preceding cell's interval, and
+Figure~\ref{fig:latency} plots them. How fast the algorithm reaches the exchange
+governs what it pays.
+
+The two do not degrade at the same rate, and the difference is the more
+interesting half of the table. Averaged over the range, passive \pov{} loses
+$0.011$ ticks per contract per millisecond of delay and aggressive POV loses
+$0.042$ --- roughly four times as fast. The ordering reverses inside the first
+half-millisecond: at zero delay aggressive POV is the cheaper of the two by
+$0.010$ ticks, and by $500\,\mu$s it is the more expensive by $0.055$. Measured
+against immediate execution the asymmetry is starker still. Passive \pov{}
+gives up $0.051$ of its $0.422$ advantage across the whole range, about an
+eighth of it; aggressive POV gives up $0.207$ of $0.432$, very nearly half.
+Everything concluded in Section~\ref{sec:eval:results} from the zero-latency
+comparison --- that the two styles cost the same, and that the choice between
+them is one about speed rather than price --- holds at zero latency and nowhere
+else in this table.
+
+\paragraph{2. Neither style holds its character.} The mechanism is the share of
+executed quantity that fills on arrival rather than resting. A passive quote is
+priced against a book that has moved by the time the order lands, so it arrives
+marketable: passive \pov{} goes from $1.1\,\%$ of its quantity filling on
+arrival to $27.3\,\%$, a quarter of it converted into liquidity taking by
+latency alone, with no change to its logic. Aggressive POV
+drifts the other way at first --- at 500\,$\mu$s its marketable limits arrive
+after the level they were priced from has been consumed, and rest instead ---
+and then upward, to $74.6\,\%$, as the market moves far enough during the flight
+that the limit is through the touch on arrival. The two styles converge toward
+each other.
+
+\paragraph{3. Participation moves in opposite directions.}
+Figure~\ref{fig:latencypart} is the one place in this study where the two styles
+do not merely differ in degree. Passive participation \emph{rises} with delay,
+$4.51\,\% \to 6.87\,\%$, half again as much of the market's volume; aggressive
+participation \emph{falls}, $3.18\,\% \to 2.02\,\%$, to under two thirds of what
+it was.
+
+\paragraph{4. The degradation is in the price, not only in the mix.} Relative slippage
+rises monotonically in both styles while the quantity executed and the number of
+child fills are unchanged, so the algorithm is paying more for the same
+executions rather than doing a different amount of business. How much of that is
+the style conversion of item 2 and how much is worse execution within a style
+cannot be separated from these runs alone; what can be said is that both
+channels push the same way and neither reverses anywhere in the range.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.64\textwidth]{sim/latency_slippage.pdf}
+\caption{Relative slippage against round-trip delay --- the cost column of
+Table~\ref{tab:latency} --- with 95\,\% intervals clustered by session. The same
+delay is applied to the outbound order, the outbound cancel and the inbound
+feed. The two styles start together and separate at once: aggressive POV is the
+cheaper of the two at zero delay and the more expensive by $500\,\mu$s, and its
+slope over the range is about four times the passive one.}
+\label{fig:latency}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.64\textwidth]{sim/latency_participation.pdf}
+\caption{Aggregate participation against round-trip delay, the same runs as
+Figure~\ref{fig:latency}. Passive \pov{} takes a \emph{larger} share of the
+market's volume as it gets slower and aggressive POV a smaller one. Both follow
+from the conversion of execution style: the passive side turns quotes into
+crosses and finishes sooner, the aggressive side loses crosses and takes longer,
+and participation is scored over the leg's own duration.}
+\label{fig:latencypart}
+\end{figure}
 
 \subsection{Threats to validity}
 
-The evaluation is a \emph{replay} study, and its one material limitation is that
-the simulator does not model the market's reaction to \pov{}'s own orders: each
-shadow is filled against the recorded feed as though its presence did not perturb
-the flow it follows. For the small sizes and order-placement rate used
-($\rho\approx1.5\%$) the study does
-not independently validate the zero-impact assumption; it would break
-once a shadow becomes a material fraction of resting liquidity, so the reported
-figures should not be extrapolated to sizes that large. The evaluation is also
-narrow in scope --- a single two-leg index-futures spread, passive placement
-only, at a small order-placement rate ($\rho\approx1.5\%$) --- so the numbers
-should not be read as generalizing to other products, venues, or larger sizes;
-multi-venue equity evaluation is left to future work.
+The material limitation is that the replay does not model the market's reaction
+to \pov{}'s own orders. The simulator fills the algorithm's
+orders against the recorded feed as though those orders had not been there:
+a fill is \emph{added} to the day's volume rather than displacing someone else's.
+At the $4.5\,\%$ aggregate participation of the zero-latency comparison that
+assumption is mild. At the $6.9\,\%$ reached by passive \pov{} at 5\,ms it is strained --- and
+individual windows reach far higher --- so the true denominator would be smaller
+and the reported participation should be read as an upper bound.
+
+Two further caveats. The study is a single instrument: ES is a one-tick book for
+most of the session, and the relative-to-immediate figure in particular is close
+to an identity in such a book, so it should not be carried over to wider-spread
+products without re-measurement. And the parent size is fixed at 100 contracts
+throughout; the size dependence is the subject of the next section.
 
 % ---------------------------------------------------------------
 \section{Participation Rate and Parent-Order Size}
@@ -978,9 +1338,32 @@ it.
 
 \pov{} places passive orders
 without an order-book model and without predicting where they will fill, and it
-executes at the slippage measured in Section~\ref{sec:eval}. We position it
+executes at the relative slippage measured in Section~\ref{sec:eval}. We position it
 as a benchmark for
-passive-order placement on a CLOB rather than as an optimal method. Given the
+passive-order placement on a CLOB rather than as an optimal method.
+
+\paragraph{Why a model-free passive method should not beat the mid-price.}
+The sign of the measured cost is not an accident of this implementation, and it
+is worth stating as a prediction rather than reporting as an outcome. In the
+Glosten--Milgrom account of the spread \cite{glostenmilgrom1985}, the quoted
+width exists to compensate the party supplying liquidity for trading against
+possibly better-informed flow: a resting order is filled precisely when somebody
+wants to take the other side, so the half-spread it captures is paid back, in
+expectation, through adverse selection. A passive method carrying \emph{no}
+forecast of where the price is going has nothing with which to separate the
+fills it wants from the fills it does not, and should therefore execute slightly
+worse than the mid-price --- which is what Section~\ref{sec:eval} measures.
+
+Two consequences follow, and they are what make the method useful as a
+reference. First, a passive result at or better than mid from a model-free
+method would indicate an error in the measurement or an unmodelled edge, so the
+small positive cost is a sanity condition the benchmark must satisfy, not a
+weakness to be minimised. Second, the same argument predicts that the expected
+\emph{cost} of resting and of crossing should converge, leaving the choice
+between them a choice about speed and participation rather than about price. A
+predictive placement model is then scored on exactly the quantity \pov{} cannot
+address: how much of that adverse-selection cost it recovers by declining the
+fills a forecast identifies as toxic. Given the
 same passive mandate, a predictive placement model can be scored against
 \pov{} to test whether its additional modeling produces a measurable
 improvement; the present study reports no such competing baselines, so the
@@ -1010,8 +1393,8 @@ leaves such directional decisions to the strategy layer above it.
 % ---------------------------------------------------------------
 
 The measurements of Section~\ref{sec:eval} are preliminary. They establish the
-mechanism and give a first replay estimate of its slippage, not a completed
-benchmark study, and several directions remain before \pov{} can be treated as a
+mechanism and characterise its cost over one instrument and one year, not a
+completed benchmark study, and several directions remain before \pov{} can be treated as a
 validated reference.
 
 \paragraph{Comparison against established methods.} The central open task is to
@@ -1029,15 +1412,13 @@ rates, the fraction of followed orders whose lifecycle ends in a fill rather tha
 a cancellation, queue-position dynamics, and sensitivity to the order-placement
 rate $\rho$ and the grace window $B$.
 
-\paragraph{Statistical strength.} The reported figures should be accompanied by
-confidence intervals, trade and parent-order counts, and per-session dispersion,
-and the safety guards (the two-band hysteresis and the completion and over-hedge
+\paragraph{Statistical strength.} The safety guards (the two-band hysteresis and the completion and over-hedge
 limits) should be ablated to quantify their effect on the reported costs.
 
 \paragraph{Market impact and breadth.} The replay uses a zero-impact simulator;
 a controlled experiment that injects synthetic size and measures the perturbation
-of subsequent flow would test that assumption. The corpus is one two-leg
-index-futures spread; extending to other products, to fragmented multi-venue
+of subsequent flow would test that assumption. The corpus is a single
+index-futures contract; extending to other products, to fragmented multi-venue
 equity markets --- where the flow-inherited venue selection of
 Section~\ref{sec:sor} would actually be exercised --- and to larger sizes is
 required before the results can be generalized.
@@ -1054,16 +1435,50 @@ the shadowed order's lifecycle through a lookup on the followed order's identifi
 --- \pov{} needs no volume forecast of its own, uses followed orders as
 observable references for local execution flow, obtains
 venue selection as an emergent property rather than a routing computation, and
-makes cancellation an identifier-driven expected-$O(1)$ decision. Over 137
-replayed CME sessions, the close-cohort slippage is
-$\$2.80$/contract (NQ) and $\$5.59$/contract (ES) --- slightly worse than mid,
-consistent with a passive fill against a moving market. Because it places passive orders with
-no order-book model and no fill prediction yet its replayed close-cohort
-executions remain within roughly half a bid-ask width of mid, we propose
-\pov{} as a model-free benchmark for passive-order placement --- a reference a
-predictive placement model should be expected to beat. The method and its
-identifier-driven cancel-mirroring mechanism are the subject of a pending patent
-application.
+makes cancellation an identifier-driven expected-$O(1)$ decision. Over a full
+calendar year of replayed CME ES sessions we compared passive \pov{} against an
+aggressive equivalent at matched participation, and swept the simulated latency
+from zero to five milliseconds on the order, the cancel and the feed together.
+
+Three results stand out. \emph{The method executes close to the mid.} Over
+$9{,}592$ completed windows a round trip of 100 contracts bought and 100 sold
+costs $+0.0955 \pm 0.0130$ ticks per contract against the arrival mid --- under
+a tenth of a tick, or $\$1.19$ per contract on ES --- and beats immediate
+execution (crossing the spread) by $0.4236$ ticks. 
+Post-fill mark-outs computed from different data at
+a different grain agree with that figure, so it is a measurement rather than an
+artefact of one definition.
+
+\emph{Passive and aggressive cost the same, at zero latency.} At matched
+participation the aggressive equivalent returns $+0.0952 \pm 0.0135$ against
+passive's $+0.0955$, and $-0.4239$ against $-0.4236$ relative to immediate
+execution --- agreement to the fourth decimal on both, over more than nine
+thousand windows each. This is what the Glosten--Milgrom account of the spread
+predicts of a method carrying no forecast: the half-spread a resting order
+captures is returned through adverse selection, and the half-spread a crossing
+order pays buys the avoidance of it.
+
+\emph{Latency degrades both, and the method remains usable throughout the range
+tested.} Cost rises monotonically with round-trip delay in both styles, with
+non-overlapping intervals from end to end. Passive \pov{} goes from $+0.097$ to
+$+0.150$ ticks per contract between zero and five milliseconds, still beating
+immediate execution by $0.371$ ticks at the far end; aggressive POV more than
+triples over the same range, degrading about four times as fast, and the
+ordering between the two reverses inside the first half-millisecond.
+
+Taken together these say the two styles are complementary rather than
+competitive. They are indistinguishable on price when the algorithm is fast, so
+the choice between them is a choice about speed, participation and completion
+--- and under delay they fail in opposite directions, passive gaining
+participation as its quotes convert into crosses and aggressive losing it as its
+marketable orders miss. An implementation that can reach the exchange quickly
+has a genuine choice; one that cannot should rest.
+
+Because it places passive orders with no order-book model and no fill
+prediction, we propose \pov{} as a model-free benchmark for passive-order
+placement --- a reference a predictive placement model should be expected to
+beat, on the improvement it delivers over these numbers and at a latency it can
+actually achieve.
 
 % ---------------------------------------------------------------
 \section*{Reproducibility and disclosure}
@@ -1118,6 +1533,10 @@ deterministic replay harness were built at M2 Technologies.
 \bibitem{cartea2015} \'A.~Cartea and S.~Jaimungal.
   \emph{Optimal Execution with Limit and Market Orders.}
   Quantitative Finance, 15(8):1279--1291, 2015.
+\bibitem{glostenmilgrom1985} L.~R.~Glosten and P.~R.~Milgrom.
+  \emph{Bid, Ask and Transaction Prices in a Specialist Market with
+  Heterogeneously Informed Traders.}
+  Journal of Financial Economics, 14(1):71--100, 1985.
 \bibitem{gueant2012} O.~Gu\'eant, C.-A.~Lehalle, and J.~Fern\'andez-Tapia.
   \emph{Optimal Portfolio Liquidation with Limit Orders.}
   SIAM Journal on Financial Mathematics, 3(1):740--764, 2012.
