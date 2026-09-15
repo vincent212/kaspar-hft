@@ -170,7 +170,6 @@ thread and returns the reply as a value.
 {\color{ink3}\sffamily\bfseries\scriptsize P50} &
 {\color{ink3}\sffamily\bfseries\scriptsize WHAT IT COSTS} \\
 \midrule
-Direct function call & \code{\textasciitilde1 ns} & baseline \\
 \code{fast\_send} --- inline, no thread hop & {\color{accent}\bfseries\code{\textasciitilde10 ns}} & $\approx$ one polymorphic virtual call \\
 Queued send, one \code{Group} thread & \code{\textasciitilde90 ns} & queue push/pop + dispatch \\
 Queued send, separate threads & \code{\textasciitilde3{,}370 ns} & cross-core mailbox wakeup, twice \\
