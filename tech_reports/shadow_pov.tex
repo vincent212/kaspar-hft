@@ -702,20 +702,13 @@ depth, which is what makes a queue position --- and therefore a fill inference
 outbound order, the outbound cancel, and the inbound market-data feed.
 
 \paragraph{The fill inference.}
-Every figure in this paper rests on one inference, which is worth stating on its
-own. A shadow enters the price-time-priority (FIFO) queue at its price, behind
+A shadow enters the simulated price-time-priority (FIFO) queue at its price, behind
 the depth already resting there. It is assigned a fill when subsequent recorded
 executions imply that aggression has reached a resting order \emph{behind} it:
 the shadow has earlier time priority than that order, so an aggressor that
 reached the one must have passed through the other.
 
-This is an inference from the recorded feed, not an observation. The synthetic
-order was never in the book and nothing in the capture reports its fate. It is
-sound under price-time priority and exact queue accounting, both of which the
-reconstruction provides; it is not sound if the shadow's own presence would have
-changed the flow.
-
-\paragraph{What the simulator does not provide.} Market reaction. Orders are
+\paragraph{What the simulator does not provide.} Market impact. Orders are
 filled against the recorded feed as though they had not been there; nothing withdraws
 from a stale quote and no counterparty reprices. The consequence of this is that
 the simulator does not model market impact.
@@ -728,7 +721,7 @@ across backtesting, market replay, live simulation, and live trading; the
 evaluation of Section~\ref{sec:eval} therefore exercises the live code path
 directly.
 
-\subsection{Implementation}
+\subsection{Passive POV implementation}
 
 \pov{} is implemented as a set of execution components within
 \textsc{kaspar-hft}. A strategy issues a position order, and the execution
@@ -779,6 +772,38 @@ These guards read market state --- the inside price and recent trade sizes --- s
 the production wrapper is not itself model-free; the model-free property is a
 claim about the core placement and cancellation logic of Algorithm~\ref{alg:core},
 not about the safety layer around it.
+
+\subsection{Naive aggressive POV}
+\label{sec:aggressive}
+
+The aggressive baseline that Section~\ref{sec:eval} measures against is the same
+shadowing mechanism driven by the \emph{opposite} signal. Where passive \pov{}
+shadows resting \textsc{add}s, the aggressive arm shadows \emph{aggressive}
+orders --- the trade prints. On each observed \textsc{trade}, it flips a
+coin with a fixed per-trade probability (a placement rate in basis points of
+prints; the experiments use $2\%$) and, when selected, places a marketable order
+at the print's price that follows the aggressor into the book. This is a
+\emph{naive} POV: it participates by taking a fixed fraction of trading activity
+directly, with no volume-curve forecast and no participation-feedback loop ---
+the same construction as passive \pov{}, applied to trades rather than adds.
+
+Two mechanical details distinguish it from the passive arm. First, the
+aggressive order is an immediate-or-cancel in intent: it is given a short
+time-to-live (default $1$~ms) so that a cross which arrives after the level it
+was priced from has already been consumed is pulled rather than left to rest and
+silently become a passive order the arm never asked for. Because the resting
+order a trade references is being consumed at the moment the shadow attaches to
+it, the identifier-driven cancel of Section~\ref{sec:cancel} fires immediately
+rather than after a grace window. Second, the aggressive arm runs in its
+\emph{own} bank --- one light per side, with its own queue coordinator and a
+shared position coordinator --- because a marketable order clears its slot on
+arrival rather than resting, so a single light sustains the target rate without
+crowding itself out. It uses the wider placement/cancel bands noted above
+($10$ and $12$ ticks) appropriate to an order that expects to cross. Everything
+else --- the codebase, the corpus, the position mandate, and the completion and
+over-hedge guards --- is identical to the passive arm, so the two differ only in
+which market event they follow and in whether they rest or cross. This is the
+configuration reported as ``Aggressive POV'' throughout Section~\ref{sec:eval}.
 
 \section{Experimental Evaluation}
 \label{sec:eval}
