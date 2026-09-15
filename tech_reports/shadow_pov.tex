@@ -76,6 +76,13 @@ and after a brief grace window when it is hit by a trade.
 As this approach is model-free --- it uses no order-book model and no fill
 prediction --- it can serve as a
 benchmark for passive-order placement on central limit order book (CLOB) venues.
+Model-free is not information-free. \pov{} consumes a great deal of market
+information: it reads every order-book message and places only where a
+participant has just committed capital. What it never does is \emph{compute}
+anything from that information --- no forecast, no fill probability, no
+valuation of queue position. The information is inherited from the flow rather
+than derived from a model, and the distinction matters for what the benchmark
+measures.
 We evaluate \pov{} on a full calendar year of replayed Chicago Mercantile
 Exchange (CME) ES futures in a deterministic market-replay simulator.
 We report its slippage characteristics and latency sensitivity. We compare
@@ -169,7 +176,32 @@ passive orders only; how much of a parent order to work passively versus
 aggressively is a separate scheduling decision. Production implementations may
 mix passive and aggressive orders, and this paper makes no claim that aggressive
 orders are inferior. We compare passive Shadow-PPOV to aggressive POV
-in Section~\ref{sec:eval:results}. Its model-free character sets \pov{} apart from
+in Section~\ref{sec:eval:results}.
+
+\paragraph{Model-free is not information-free.} The two are easily conflated and
+the difference decides what this method is. \pov{} is saturated in market
+information: it consumes every add, cancel and trade message on its side of the
+book, and it acts only where another participant has just committed capital at a
+price. A resting limit order is somebody's conclusion, arrived at by whatever
+means, that this price is worth standing at. Shadowing it inherits that
+conclusion. What \pov{} never does is \emph{compute}: it builds no model of the
+book, estimates no fill probability, values no queue position, and forecasts no
+price. It free-rides on the modelling other participants have already done
+rather than performing any of its own, which is why it can be specified in a
+page (Algorithm~\ref{alg:core}) and why its cancellation decision needs no state
+beyond an identifier.
+
+This also bounds what the method can be expected to do. Inheriting a
+\emph{placement} judgement is not the same as holding a \emph{directional} view:
+knowing where a fill is likely says nothing about where the price is going next.
+Section~\ref{sec:disc} argues that a passive method without a directional
+forecast should execute slightly worse than the mid-price whatever else it
+knows, and Section~\ref{sec:eval} measures exactly that. The latency results of
+Section~\ref{sec:latency} then show the inherited information is real and
+perishable: its value decays as the delay between observing an order and acting
+on it grows.
+
+Its model-free character sets \pov{} apart from
 standard execution algorithms, and lets it serve as a
 baseline against which predictive placement models can be measured
 (Section~\ref{sec:disc}).
