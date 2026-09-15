@@ -108,7 +108,7 @@ the exchange. It is also a market simulator: the same books rebuilt from recorde
 packet captures, with your orders sitting in the price--time queue and filling
 only when the market actually trades through them.
 
-These are not two programs. The same strategy code, the same execution algorithm
+The same strategy code, the same execution algorithm
 and the same book run in PCAP replay, in live paper trading, and against the live
 exchange. You move between them by changing configuration, not by porting
 anything --- so a backtest exercises the code path that will trade.
@@ -130,17 +130,18 @@ position, and therefore a fill inference, definable at all.}
 \tile{Order entry}{\textbf{iLink 3} session handler: SBE encoding, HMAC
 authentication, sequence management, negotiation and establishment,
 primary/secondary failover.}
-\tile{Execution}{\textbf{Shadow-PPOV}, a passive percentage-of-volume algorithm
-that places by following individual resting orders. Measured over a full calendar
+\tile{Execution}{\textbf{Shadow-POV}, a passive/aggressive percentage-of-volume algorithm
+that places by following orders in the market. Measured over a full calendar
 year --- see below.}
 \end{minipage}\hfill
 \begin{minipage}[t]{0.485\textwidth}
 \tile{Simulation}{Three modes off one binary: \textbf{PCAP replay}, live
 multicast paper trading, live iLink execution. Deterministic --- a fixed session
 replays to identical fills.}
-\tile{Concurrency}{A custom \textbf{C++20 actor framework}. Shared-nothing
-message passing, O(1) dispatch by integer message id, CPU affinity pinning, pool
-allocation on the hot path.}
+\tile{Concurrency}{A custom \textbf{C++20 actor framework} --- a proven
+concurrency model, and the same code whether the hot path runs across threads or
+entirely on one. Scale out by giving actors their own threads; collapse to a
+single-threaded hot path by grouping them, with no rewrite either way.}
 \tile{Strategy authoring}{C++ in-process actors for the lowest latency, or
 \textbf{Rust} across an in-process FFI interop. A from-scratch Rust port of the
 actor core ships with a price--time matching engine.}
