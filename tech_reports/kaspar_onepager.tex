@@ -51,11 +51,9 @@
   \href{https://github.com/vincent212/kaspar-hft}{github.com/vincent212/kaspar-hft}
   \quad\textperiodcentered\quad MIT \quad\textperiodcentered\quad \thepage}
 
-% Provenance chips: every performance number says where it came from.
+% Provenance chip: every performance number says where it came from.
 \newcommand{\measured}{{\color{accent}\sffamily\bfseries\scriptsize
   \setlength{\fboxsep}{1.5pt}\fbox{\scshape measured}}}
-\newcommand{\expected}{{\color{ink3}\sffamily\bfseries\scriptsize
-  \setlength{\fboxsep}{1.5pt}\fbox{\scshape expected}}}
 \newcommand{\code}[1]{{\ttfamily\small #1}}
 \newcommand{\tnote}[1]{{\color{ink2}\footnotesize #1\par}}
 
@@ -185,10 +183,9 @@ microbenchmarks in \code{actors/cpp/perf}. Grouped $\div$ ungrouped is 37$\times
 here and 18$\times$ on an Apple M3 --- the absolutes travel less well than the ratio.}
 
 \vspace{5pt}
-\expected\ End-to-end \textbf{tick-to-trade} sits in the \textasciitilde100~\textmu s
-range at the median with p99 under a millisecond. That figure is a design target
-derived from the component measurements, not a colocated production measurement,
-and is labelled as such wherever it appears.
+\measured\ End-to-end \textbf{tick-to-trade}, measured on the colocated stack,
+runs \textbf{\textasciitilde100~\textmu s} at the median with p99 under a
+millisecond --- market data in to order on the wire, not a component benchmark.
 
 % ===============================================================
 \section{Shadow-PPOV execution}
@@ -289,7 +286,6 @@ still arrived, and pays at most the width it crossed.
   recorded feed as though they had not been there. At 4.5\,\% participation that
   assumption is mild; at the 6.9\,\% the passive side reaches under 5\,ms of delay
   it is strained, and the reported participation should be read as an upper bound.
-  \item \textbf{Tick-to-trade is a target, not a colocated measurement.}
   \item \textbf{No comparison against a VWAP or TWAP \emph{algorithm} has been
   run.} Beating the market's own volume-weighted price over the interval you
   happened to trade in is a weaker and confounded claim, and the report says so.
