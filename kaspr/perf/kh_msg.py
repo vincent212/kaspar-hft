@@ -15,11 +15,11 @@ import sys, os, glob, struct
 #
 #   - Grouping on qlen_max was not interpretable: the group was SELECTED on
 #     the deepest message in the bin but AVERAGED over all of them, and
-#     msgs/bin itself rises with depth, so the effect was divided by a
+#     msgs/bin itself rises with qlen, so the effect was divided by a
 #     denominator that grew with it.
 #   - Grouping on qlen_sum/n (kh_scat.py) is sound but ECOLOGICAL: it says
-#     "bins where messages saw deeper queues were slower", not "a message at
-#     depth d costs a + b*d".
+#     "bins where messages saw longer queues were slower", not "a message at
+#     qlen d costs a + b*d".
 #
 # Here the pair is intact. mean(l1 | qlen == d) is a conditional mean over
 # messages, with d an exact integer. No bin, no max, no sum, no dilution.
@@ -93,14 +93,14 @@ def report(sym, pop, recs):
           % (sum(lat) / n, pct(slat, .5), pct(slat, .9), pct(slat, .99),
              pct(slat, .999), slat[-1]))
 
-    # ---- EXACT conditional mean at each integer depth ------------------
+    # ---- EXACT conditional mean at each integer qlen ------------------
     # This row is the measurement. No selection, no averaging across
-    # depths, no bin. d is the depth THIS message saw.
+    # qlen values, no bin. d is the qlen THIS message saw.
     g = {}
     for t1, l1, q, ix in recs:
         g.setdefault(q, []).append(l1 / 1e3)
     print()
-    print('  PER-MESSAGE, exact integer depth')
+    print('  PER-MESSAGE, exact integer qlen')
     print('  %-6s %10s %8s %10s %10s %10s %10s'
           % ('qlen', 'msgs', 'share', 'mean', 'p50', 'p99', 'max'))
     base = None
@@ -116,12 +116,12 @@ def report(sym, pop, recs):
                  v[-1], '' if q == 0 else '  (%+.1f)' % (m - base)))
     small = sum(len(v) for q, v in g.items() if len(v) < 30)
     if small:
-        print('  %d msgs in depths with n<30, not shown' % small)
+        print('  %d msgs in qlen values with n<30, not shown' % small)
 
-    # ---- depth 0 split by batch position -------------------------------
-    # At depth 0 nothing is queued AHEAD of the packet, but messages after
+    # ---- qlen 0 split by batch position -------------------------------
+    # At qlen 0 nothing is queued AHEAD of the packet, but messages after
     # the first in a packet still wait on the ones ahead of them inside it.
-    # That wait is in leg 1 and invisible to qlen. Splitting depth 0 by idx
+    # That wait is in leg 1 and invisible to qlen. Splitting qlen 0 by idx
     # separates the two waits that were previously confounded.
     z = [r for r in recs if r[2] == 0]
     if len(z) > 500:
@@ -129,7 +129,7 @@ def report(sym, pop, recs):
         for t1, l1, q, ix in z:
             gi.setdefault(min(ix, 10), []).append(l1 / 1e3)
         print()
-        print('  DEPTH 0 ONLY, split by position inside the packet')
+        print('  qlen == 0 ONLY, split by position inside the packet')
         print('  %-6s %10s %10s %10s %10s'
               % ('idx', 'msgs', 'mean', 'p50', 'p99'))
         for ix in sorted(gi):
@@ -140,7 +140,7 @@ def report(sym, pop, recs):
                   % ('%d' % ix if ix < 10 else '10+', len(v),
                      sum(v) / len(v), pct(v, .5), pct(v, .99)))
 
-    # ---- the clean cell: depth 0 AND first in packet --------------------
+    # ---- the clean cell: qlen 0 AND first in packet --------------------
     # Nothing ahead in MsgBuf, nothing ahead inside the packet. This is the
     # hot path with both waits removed, measured directly instead of
     # extrapolated to a zero-queue intercept.
@@ -168,7 +168,7 @@ def report(sym, pop, recs):
         print()
         print('  per-message fit: lat = %.2f + %.2f * qlen   r=%.3f r2=%.3f'
               % (a, b, r, r * r))
-        print('  mean depth %.4f, so the queue term contributes %.2fus of the'
+        print('  mean qlen %.4f, so the queue term contributes %.2fus of the'
               ' %.2fus mean' % (sx, b * sx, sy))
 
 
@@ -191,6 +191,6 @@ print()
 print('%d messages total.' % tot)
 print("""
 Every row above is a conditional mean over MESSAGES at an exact integer
-depth. It is not a bin mean, not a group selected on a max, and nothing is
+qlen. It is not a bin mean, not a group selected on a max, and nothing is
 diluted by a denominator that moves with the effect. This is the first table
-here that says what a message at depth d actually cost.""")
+here that says what a message at qlen d actually cost.""")

@@ -39,10 +39,10 @@ That bound is stated again at the end.
 `qlen` is the number of packets sitting in front of yours in the ingress ring
 when your message is processed. This is the thing a queueing model is about.
 
-Conditional mean latency at each exact integer depth, over messages:
+Conditional mean latency at each exact integer qlen, over messages:
 
 ```
-              depth 0   depth 1   depth 2   depth 3      share at 0
+               qlen 0    qlen 1    qlen 2    qlen 3      share at 0
   ES book       7.6us     7.9us     8.6us     8.8us         93.2%
   NQ book       7.2us     6.2us     7.8us    25.6us         88.1%
   ZN book       8.2us     8.5us        -         -          ~95%
@@ -51,11 +51,11 @@ Conditional mean latency at each exact integer depth, over messages:
   ZN trade     29.7us   111.7us        -         -          95.3%
 ```
 
-On ES book, going three packets deep costs **1.2 µs**. On NQ book, depth 1 is
-*faster* than depth 0 — which on its own falsifies "depth causes latency" at
-the depths that actually occur.
+On ES book, going three packets deep costs **1.2 µs**. On NQ book, qlen 1 is
+*faster* than qlen 0 — which on its own falsifies "the queue causes latency" at
+the queue lengths that actually occur.
 
-Per-message regression, and the contribution at the observed mean depth:
+Per-message regression, and the contribution at the observed mean qlen:
 
 ```
   ES book    lat = 7.59 + 0.37*q     mean q 0.073   queue term 0.03us of 7.62us
@@ -68,7 +68,7 @@ because ρ is nowhere near 1: 88–99.8% of messages find an empty ring.
 
 ### A trap worth documenting
 
-Aggregating to 100 ms bins and regressing mean depth on mean latency gives
+Aggregating to 100 ms bins and regressing mean qlen on mean latency gives
 completely different slopes:
 
 ```
@@ -79,7 +79,7 @@ completely different slopes:
 ```
 
 The bin-level fit overstates the queue effect by **6–17×**. It is a textbook
-ecological fallacy: bursts raise ring depth *and* packet size together, and the
+ecological fallacy: bursts raise ring qlen *and* packet size together, and the
 bin-level regression hands the packet-size effect to the queue. Both variables
 were in the same CPU register at the same instant and were being thrown away
 into bin aggregates. Nothing downstream can recover a joint distribution from a
@@ -87,8 +87,8 @@ max and a sum.
 
 An earlier version of this work grouped bins by `qlen_max` and was worse still
 — the group was *selected* on the deepest message in the bin but *averaged*
-over all of them, and messages-per-bin itself rises with depth (ZN book: 6.7 at
-depth 0, 479.6 at depth 3–4). The effect was divided by a denominator that grew
+over all of them, and messages-per-bin itself rises with qlen (ZN book: 6.7 at
+qlen 0, 479.6 at qlen 3–4). The effect was divided by a denominator that grew
 with the effect. See `RESULT_qlen_vs_latency.md` for that history.
 
 ---
@@ -319,7 +319,7 @@ ESZ6 book, 2026-09-16, bin 14:01:59.7:
   14:01:59.8     92 msgs  batch 1.48  qmax 1    mean   9.3us   max    21.3us
 ```
 
-A 63 ms smear over 69 messages, at queue depth 1, in a *quiet* bin, with clean
+A 63 ms smear over 69 messages, at qlen 1, in a *quiet* bin, with clean
 neighbours on both sides and no recovery. Nothing in `qlen` or `batch` explains
 it. It is a stall, not a queue. One bin in ~5,000; 69 messages in 213,538. It
 moves no mean in this document and it is not covered by anything above.

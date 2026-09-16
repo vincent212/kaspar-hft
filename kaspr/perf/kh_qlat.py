@@ -8,19 +8,19 @@ import sys, os, glob, struct
 # nothing held fixed.
 #
 # The one row that is exact is qlen_max == 0: when the deepest queue in a bin
-# is zero, EVERY message in that bin had depth zero. Its mean is a clean
+# is zero, EVERY message in that bin had qlen zero. Its mean is a clean
 # baseline. Every other row is a group whose bins CONTAINED a message at that
-# depth and also contained shallower ones, so the group mean sits below what a
-# message at that depth actually cost. Those rows are lower bounds.
+# qlen and also contained shorter ones, so the group mean sits below what a
+# message at that qlen actually cost. Those rows are lower bounds.
 #
 # TRADE IS NOT A SECOND COPY OF BOOK. Two things differ and both matter:
 #   - trade packets are RARE (1-4/s vs 50-180/s) and BATCHED (mean 2.9-3.8
 #     messages per packet vs 1.05-1.13). A batch shares ONE arrival stamp, so
 #     every message after the first in a packet is already waiting on the ones
 #     ahead of it -- serialisation that is invisible to qlen.
-#   - qlen is MsgBuf depth, which counts PACKETS, not messages. A trade packet
-#     at depth 0 can still carry 10 messages behind the one being measured.
-# So on trade, depth 0 is NOT a no-waiting baseline, and the batch column has
+#   - qlen is MsgBuf occupancy, which counts PACKETS, not messages. A trade packet
+#     at qlen 0 can still carry 10 messages behind the one being measured.
+# So on trade, qlen 0 is NOT a no-waiting baseline, and the batch column has
 # to be read next to it.
 
 exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -114,13 +114,13 @@ for path in sorted(glob.glob(DIR + '/lat_*.csv')):
 print()
 print('=' * 80)
 print("""qlen_max == 0 is exact ON BOOK: no message in those bins queued, so that
-mean is a true zero-depth baseline.
+mean is a true zero-qlen baseline.
 
 On TRADE it is not. qlen counts PACKETS in MsgBuf, and a trade packet carries
 2.9-3.8 messages that share one arrival stamp. Messages behind the first in a
-batch wait on the ones ahead even at depth 0, and that wait is in leg 1 but
+batch wait on the ones ahead even at qlen 0, and that wait is in leg 1 but
 not in qlen. Read the batch column beside the mean: where batch is large the
-depth-0 row is already carrying serialisation.
+qlen-0 row is already carrying serialisation.
 
 Every non-zero row, both populations, is a LOWER BOUND. The group is selected
 on the DEEPEST message in the bin but averaged over all of them.""")
