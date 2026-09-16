@@ -61,6 +61,27 @@ struct handler_if : public mdp3::feed_handler_if
   uint32_t chan;
   bool print_latency = false;
 
+  // Ingress mailbox depth for the packet currently being decoded. Set by
+  // MessageProcessor via DataDecoder::set_ingress_qlen() immediately before
+  // mbo_data(), so it is valid for the whole decode of one packet and every
+  // callback fired out of it.
+  //
+  // Packet-scoped state on the handler rather than a callback parameter --
+  // see the note on feed_handler_if::set_ingress_qlen in mbo_if.hpp. Single
+  // threaded per channel: one MessageProcessor owns one handler_if.
+  uint32_t ingress_qlen_ = 0;
+
+  // Serial position within the packet currently being decoded. Stamped onto
+  // each record then incremented, so the first record of a packet carries 0.
+  // Reset in EndOfPacket() below -- see the note there for why not here.
+  //
+  // Counts the MBO and MBO-trade paths, which is the decode work that reaches
+  // a book. MBP returns at the top on filter_mbp_, and the session-statistics,
+  // daily-statistics and banding callbacks are empty bodies, so none of them
+  // cost anything worth numbering. Same single-threaded-per-channel argument
+  // as ingress_qlen_ above.
+  uint32_t pkt_entry_idx_ = 0;
+
   int32_t errcnt = 100;
   en::x xchg;
 
@@ -83,6 +104,11 @@ struct handler_if : public mdp3::feed_handler_if
   virtual void disable_mbo(bool disable) noexcept override
   {
       disable_mbo_ = disable;
+  }
+
+  virtual void set_ingress_qlen(uint32_t qlen) noexcept override
+  {
+      ingress_qlen_ = qlen;
   }
 
 
@@ -613,7 +639,7 @@ struct handler_if : public mdp3::feed_handler_if
   //
   virtual void MDIncrementalRefreshBook(
       uint64_t recv_time,
-      [[maybe_unused]] uint32_t msgSeqNum,
+      uint32_t msgSeqNum,
       uint64_t transactTime,
       uint64_t sendingTime,
       int32_t securityID,
@@ -689,6 +715,18 @@ struct handler_if : public mdp3::feed_handler_if
     l3.transactTime = transactTime;
     l3.sendingTime = sendingTime;
     l3.handlerendtim = recv_time;
+    // Live only, not persisted -- absent from the packed struct. The two
+    // SnapshotFullRefresh* paths below leave this at the memset 0, which is
+    // right: recovery records never crossed the MsgBuf mailbox.
+    l3.ingress_qlen = ingress_qlen_;
+    // Stamped before the not-in-universe return further down on purpose: the
+    // decode work for a record we drop was still paid, and the next record in
+    // the packet was still serialised behind it.
+    l3.pkt_entry_idx = pkt_entry_idx_++;
+    // Packet identity, straight off the MDP3 packet header. Unlike
+    // pkt_entry_idx_ there is no local counter to keep: the exchange assigned
+    // this and every record in the packet carries the same value.
+    l3.pkt_seq_num = msgSeqNum;
     l3.orderUpdateAction = orderUpdateAction;
 
     l3.displayQty = displayQty;
@@ -811,7 +849,7 @@ struct handler_if : public mdp3::feed_handler_if
   //
   virtual void MDIncrementalRefreshTradeSummary(
       uint64_t recv_time,
-      [[maybe_unused]] uint32_t msgSeqNum,
+      uint32_t msgSeqNum,
       uint64_t transactTime,
       uint64_t sendingTime,
       int32_t lastQty,
@@ -830,6 +868,9 @@ struct handler_if : public mdp3::feed_handler_if
     l3.transactTime = transactTime;
     l3.sendingTime = sendingTime;
     l3.handlerendtim = recv_time;
+    l3.ingress_qlen = ingress_qlen_; // live only, see the MBO path above
+    l3.pkt_entry_idx = pkt_entry_idx_++; // shares the MBO counter, decode order
+    l3.pkt_seq_num = msgSeqNum;          // packet identity, see the MBO path
     l3.lastQty = lastQty;
     l3.orderID = orderID;
     l3.endOfEvent = endOfEvent;
@@ -1187,9 +1228,22 @@ struct handler_if : public mdp3::feed_handler_if
       [[maybe_unused]] uint8_t updateAction,
       [[maybe_unused]] uint16_t tradingReferenceDate) noexcept override {}
 
+  // Called once per packet by DataDecoder at the bottom of mbo_data(), after
+  // the decode loop has run dry. Was an empty body.
+  //
+  // This is where pkt_entry_idx_ resets, NOT in set_ingress_qlen(). Both fire
+  // once per packet on the live path, but set_ingress_qlen is only reached
+  // from MessageProcessor's incremental path -- the recovery and snapshot
+  // paths decode without ever calling it. Resetting there would leave the
+  // counter climbing without bound across a gap fill, and every record after
+  // the first recovery would carry a junk index. EndOfPacket fires for every
+  // packet regardless of how it arrived, so the counter cannot run away.
   virtual void EndOfPacket(
       [[maybe_unused]] u_int32_t msgSeqNum,
-      [[maybe_unused]] uint64_t sendingTme) noexcept override {}
+      [[maybe_unused]] uint64_t sendingTme) noexcept override
+  {
+    pkt_entry_idx_ = 0;
+  }
 
   // the parameter here ?
   virtual void BurstEnd([[maybe_unused]]uint32_t cnt) noexcept override

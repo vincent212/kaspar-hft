@@ -103,7 +103,21 @@ INCL=\
 -I$(CRYPTOPP_PATH)/include \
 -I$(INSTALL_PATH)
 
-MFLAGS=$(INCL) $(EXTRA_INCL) $(STANDARD) $(CFLAGS_SPEC)
+# MFLAGS drives the `$(CC) -M` scan that generates the .P dependency files.
+# It MUST carry the same -D flags as the real compile: a header reached only
+# through an #ifdef is invisible to a scan run without that define, so it never
+# lands in the .P, and editing it then rebuilds NOTHING while make reports
+# success.
+#
+# That is not hypothetical. kaspr.hpp includes frame/ob/act/TachBook.hpp under
+# #ifdef USE_TACHBOOK, which kaspr/src/Makefile adds to DEFINES_COMMON. Without
+# the line below, kaspr.P listed no TachBook.hpp at all, so edits to the order
+# book silently relinked a stale object -- a green build running old code.
+#
+# DEFINES_COMMON is the right variable: it is the one per-directory Makefiles
+# append to (`DEFINES_COMMON += -DUSE_TACHBOOK`), and `=` here is recursive, so
+# those appends are picked up at use time even though this line comes first.
+MFLAGS=$(INCL) $(EXTRA_INCL) $(STANDARD) $(CFLAGS_SPEC) $(DEFINES_COMMON)
 CFLAGS=$(INCL) $(EXTRA_INCL) $(STANDARD) $(CFLAGS_SPEC)
 
 # OS-specific warnings

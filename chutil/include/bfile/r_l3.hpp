@@ -70,6 +70,52 @@ namespace bfile
     uint8_t order_flags;
     uint8_t visibility_group;
 
+    // Ingress mailbox depth for the packet this record was decoded from.
+    // LIVE ONLY -- deliberately absent from l3_mbo_v2_packed_t above, so the
+    // on-disk format is unchanged and old files still read. from_packed()
+    // starts with `= {}`, so replay yields 0 here rather than garbage.
+    //
+    // Same reasoning as data_pay_load::publish_ts: a number this process
+    // stamps after the record is not reproducible from the record, so
+    // persisting it would only invite replay-vs-live comparisons that can
+    // never match. See the note in frame/mda/msg/Data.hpp.
+    uint32_t ingress_qlen;
+
+    // 0-based serial position of this record within the packet it was decoded
+    // from. LIVE ONLY, same reasoning as ingress_qlen above.
+    //
+    // Counted in handler_if at the emit sites, which is UPSTREAM of TachBook's
+    // dedup. That placement is the whole point. publish_book drops records two
+    // ways -- pb_baddata and pb_same -- so a subscriber sees only the records
+    // that moved the top of book. A surviving record stamped idx=37 proves 37
+    // records were decoded ahead of it in that packet, even though the
+    // subscriber saw none of them. The packet's SendingTime cannot recover
+    // that, because the dropped records take their timestamps with them.
+    //
+    // ONE use: idx is the within-packet serial-decode cost regressor.
+    //
+    // It is NOT a packet-boundary marker. Counting idx==0 was tried and is
+    // wrong twice over -- trades share this counter with book records so a
+    // trade is 0 only when it leads its packet, and the dedup can delete the
+    // record holding the 0 so the packet disappears from the count entirely.
+    // Use pkt_seq_num below for boundaries.
+    uint32_t pkt_entry_idx;
+
+    // MDP3 MsgSeqNum of the packet this record was decoded from. LIVE ONLY,
+    // same reasoning as the two fields above.
+    //
+    // Constant across every record in a packet, and CME increments it by one
+    // per packet per channel. A change of value is therefore an exact packet
+    // boundary, which is what distinguishes it from sendingTime: SendingTime
+    // is also constant across a packet, but two packets CAN carry the same
+    // nanosecond, and when they do they are indistinguishable.
+    //
+    // It is also a gap detector that survives to the subscriber. A jump of
+    // more than one between consecutive surviving records means either a lost
+    // packet or a packet all of whose records the dedup dropped, and those two
+    // are separable by comparing against pkt_entry_idx spans.
+    uint32_t pkt_seq_num;
+
   } l3_mbo_v2_t;
 
   typedef struct [[gnu::packed]]
@@ -143,6 +189,21 @@ namespace bfile
     uint64_t orderID;
     bool lastTrade;
     bool endOfEvent;
+
+    // Live-only ingress mailbox depth. See l3_mbo_v2_t::ingress_qlen.
+    uint32_t ingress_qlen;
+
+    // Live-only within-packet position. See l3_mbo_v2_t::pkt_entry_idx.
+    // Shares one counter with the MBO path, so a packet holding both book
+    // updates and trades numbers them in a single decode-order sequence --
+    // which is what the decoder actually did, and what the cost follows.
+    //
+    // That sharing is exactly why this is not a packet-boundary marker on the
+    // trade path: trades follow book records, so a trade is rarely position 0.
+    uint32_t pkt_entry_idx;
+
+    // Live-only packet sequence number. See l3_mbo_v2_t::pkt_seq_num.
+    uint32_t pkt_seq_num;
 
   } l3_mbo_trd_v2_t;
 

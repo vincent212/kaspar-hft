@@ -339,6 +339,10 @@ void act::Logger::output(
 
   string time_str;
 
+  // rt selects wall clock over curr_tim. curr_tim is only advanced by
+  // mtim::msg::Alarm in process_message(), which requires a timer to have been
+  // passed to the ctor -- set Logger::rt if yours is constructed without one,
+  // or every line will print 00/00/0000 00:00:00.000000000.
   if (rt)
   {
     time_str = chutil::Time::now_utc().to_string(1);

@@ -72,6 +72,60 @@ namespace frame
         // NOT part of operator== or data_only_equals -- see the note there.
         uint64_t publish_ts = 0;
 
+        // Depth of the MsgBuf actor's mailbox at the instant the packet this
+        // payload came from was enqueued into it. Carried up from
+        // bfile::l3_mbo_v2_t::ingress_qlen, which handler_if stamps from the
+        // value MessageProcessor handed it for that packet.
+        //
+        // This is the ONE queue in the pipeline where the two feed threads
+        // (socket readers A and B) merge, so it is the only mailbox whose
+        // depth means "the decoder is behind". Zero for anything that never
+        // crossed it -- recovery snapshots, synthetic payloads, replay.
+        //
+        // Same rule as publish_ts above: stamped by this process, not present
+        // in the on-disk record, so NOT part of operator== or
+        // data_only_equals. See the note there.
+        uint32_t ingress_qlen = 0;
+
+        // 0-based position of this record inside the packet it was decoded
+        // from. Carried up from bfile::l3_mbo_v2_t::pkt_entry_idx.
+        //
+        // Two things fall out of it, and neither is obtainable any other way
+        // once the payload reaches a subscriber:
+        //
+        //   idx itself is the within-packet serial-decode cost. Messages in
+        //   one packet share a t0 and are decoded one after another, so leg 1
+        //   grows with position. ingress_qlen counts PACKETS queued, not
+        //   messages, so without this the two effects are not separable.
+        //
+        // Note it survives TachBook's dedup. publish_book drops records on
+        // pb_baddata and pb_same, so a subscriber sees only the ones that
+        // moved the book -- but a survivor stamped 37 still proves 37 records
+        // were decoded ahead of it. sendtim_epoch, which is also constant
+        // across a packet, cannot show that: the dropped records take their
+        // timestamps with them.
+        //
+        // It is NOT a packet-boundary marker -- use pkt_seq_num below. The
+        // same dedup that makes idx informative is what disqualifies it:
+        // a packet whose record 0 was dropped contributes no zero at all.
+        //
+        // Same rule as publish_ts and ingress_qlen: stamped by this process,
+        // not on disk, so NOT part of operator== or data_only_equals.
+        uint32_t pkt_entry_idx = 0;
+
+        // MDP3 MsgSeqNum of the packet this payload was decoded from. Carried
+        // up from bfile::l3_mbo_v2_t::pkt_seq_num.
+        //
+        // This is the packet's identity and the only exact packet boundary
+        // available to a subscriber. Two records share a packet iff they share
+        // this value. sendtim_epoch is very nearly as good and was used first,
+        // but two packets on one channel can carry the same nanosecond
+        // SendingTime, and when they do nothing downstream can tell.
+        //
+        // Same rule as publish_ts and ingress_qlen: stamped by this process,
+        // not on disk, so NOT part of operator== or data_only_equals.
+        uint32_t pkt_seq_num = 0;
+
         en::x mkt;
         //char mkt_str[PAYLOAD_STR_SZ];
         uint sym;
@@ -342,6 +396,9 @@ namespace frame
              << ",\"sendtim_epoch\":" << x.sendtim_epoch
              << ",\"hndl_tim_epoch\":" << x.hndl_tim_epoch
              << ",\"publish_ts\":" << x.publish_ts
+             << ",\"ingress_qlen\":" << x.ingress_qlen
+             << ",\"pkt_entry_idx\":" << x.pkt_entry_idx
+             << ",\"pkt_seq_num\":" << x.pkt_seq_num
              << ",\"mkt\":" << static_cast<int>(x.mkt)
              << ",\"sym\":" << x.sym
              << ",\"px\":" << x.px.to_int()

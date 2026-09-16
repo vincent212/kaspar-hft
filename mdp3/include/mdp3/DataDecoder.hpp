@@ -486,6 +486,14 @@ namespace mdp3
             return true;
         }
 
+        // Hand the handler the ingress mailbox depth for the packet that is
+        // about to be decoded. Call immediately before mbo_data(); it applies
+        // to every callback that decode fires.
+        void set_ingress_qlen(uint32_t qlen)
+        {
+            cb->set_ingress_qlen(qlen);
+        }
+
         void
         gap()
         {

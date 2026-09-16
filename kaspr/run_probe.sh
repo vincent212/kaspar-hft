@@ -10,10 +10,16 @@
 #       datagrams away from the recorder.
 #     - No CPU contention. EF_POLL_USEC=3000 with EF_INT_DRIVEN=0 means
 #       busy-spin; two spinning processes would measure each other.
-#     - The probe runs unpinned, exactly as the recorder runs, so the
-#       numbers describe the production path and not a pinned variant.
 #   COST: a hole in the recording for the length of the window. The restart
 #   is in a trap EXIT, so it happens on Ctrl+C, on crash, and on error.
+#
+#   NOTE: solo mode no longer implies unpinned. This script does not pin
+#   anything in solo mode -- the `taskset` PIN array is empty -- but the probe
+#   pins its own actor threads from the config, via kaspr.general.tachbook_cpus
+#   and the per-channel cme_cpus in cme.ini. `taskset -cp` on the PROCESS will
+#   therefore still report 0-63 while the individual THREADS are pinned. Check
+#   per-tid, not per-pid. If those keys are absent the probe runs unpinned,
+#   exactly as the recorder runs.
 #
 # ALONGSIDE (-a). Leave the recorder up and run the probe next to it, pinned
 #   off the recorder's cores. Only valid if the multicast fan-out question has
@@ -232,6 +238,16 @@ fi
 
 mkdir -p "$OUTDIR"
 
+# --- Config-driven thread pinning ------------------------------------------
+# Read back what the probe will actually do, so the banner and the env log
+# describe the run instead of describing the script's own taskset (which is
+# empty in solo mode). Purely informational; the probe reads these itself.
+CFG_TB_CPUS="$(awk '/^[[:space:]]*tachbook_cpus/ {print $2; exit}' "$PROBE_CFG_PATH" 2>/dev/null || true)"
+CFG_TB_CPUS="${CFG_TB_CPUS:-none}"
+CME_INI="$PROBE_DIR/config/cme.ini"
+CFG_CME_CPUS="$(awk '/^[[:space:]]*cme_cpus/ {print $2}' "$CME_INI" 2>/dev/null | paste -sd' ' - || true)"
+CFG_CME_CPUS="${CFG_CME_CPUS:-none}"
+
 # --- Runtime libs ----------------------------------------------------------
 GCCLIB="$(dirname "$(g++ -print-file-name=libstdc++.so)")"
 export LD_LIBRARY_PATH="$GCCLIB:/usr/local/lib:/usr/local/lib64:/usr/local/boost188/lib:${LD_LIBRARY_PATH:-}"
@@ -270,6 +286,15 @@ fi
 
 # Record the exact environment next to the samples. A latency number without
 # the EF_* set that produced it is not reproducible.
+#
+# Every command in this block is failure-tolerant ON PURPOSE. It runs AFTER the
+# recorder has been stopped, so under `set -e -o pipefail` any non-zero here
+# aborts the script during the recording gap -- the window is lost and the only
+# artifact is a truncated env file. Two ways that bit:
+#   - `onload --version | head -1`: head closes the pipe after one line, onload
+#     dies of SIGPIPE, pipefail surfaces 141.
+#   - `env | grep '^EF_'`: grep exits 1 when nothing matches, which is exactly
+#     the -n (onload off) case.
 STAMP="$(date +%Y%m%d_%H%M%S)"
 ENVLOG="$OUTDIR/env_$STAMP.txt"
 {
@@ -278,12 +303,17 @@ ENVLOG="$OUTDIR/env_$STAMP.txt"
     echo "mode        $MODE"
     echo "onload      $USE_ONLOAD"
     echo "run_secs    $RUN_SECS"
-    echo "cpus        ${CPU_LIST:-unpinned}"
+    echo "taskset     $( [[ "$MODE" == "solo" ]] && echo none || echo "$CPU_LIST" )"
+    echo "tb_cpus     $CFG_TB_CPUS"
+    echo "cme_cpus    $CFG_CME_CPUS"
     echo "kernel      $(uname -r)"
     echo "started     $(date -Is)"
-    [[ "$USE_ONLOAD" == "1" ]] && onload --version 2>&1 | head -1
-    env | grep '^EF_' | sort
-} > "$ENVLOG"
+    # sed -n '1p' consumes all input, so the writer never sees SIGPIPE.
+    if [[ "$USE_ONLOAD" == "1" ]]; then
+        onload --version 2>&1 | sed -n '1p' || true
+    fi
+    env | sed -n '/^EF_/p' | sort || true
+} > "$ENVLOG" || true
 
 echo "==================================================================="
 echo "  md_perf_meter — wire-to-book probe"
@@ -291,7 +321,9 @@ echo "  binary  : $PROBE_BIN"
 echo "  cfg     : $PROBE_CFG_PATH"
 echo "  mode    : $MODE"
 echo "  onload  : $( [[ "$USE_ONLOAD" == "1" ]] && echo ON || echo off )"
-echo "  cpus    : $( [[ "$MODE" == "solo" ]] && echo unpinned || echo "$CPU_LIST" )"
+echo "  taskset : $( [[ "$MODE" == "solo" ]] && echo none || echo "$CPU_LIST" )"
+echo "  tb_cpus : $CFG_TB_CPUS"
+echo "  cme_cpus: $CFG_CME_CPUS   (recovery,msgproc,msgbuf,sock_a,sock_b per chan)"
 echo "  window  : $( [[ "$RUN_SECS" == "0" ]] && echo "until Ctrl+C" || echo "${RUN_SECS}s" )"
 echo "  env log : $ENVLOG"
 echo "==================================================================="
