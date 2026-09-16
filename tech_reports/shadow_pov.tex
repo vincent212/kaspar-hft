@@ -1149,13 +1149,8 @@ completed round trip achieved, mark-out is how the mid moved after each
 individual fill. Agreement between them is therefore a consistency check ---
 what a window paid lines up with what happened after its fills --- and not a
 replication.
-The two samples differ in size: per-fill mark-outs were written for 20 passive
-sessions and 246 aggressive ones, because the passive mark-out instrumentation
-was added after the full-year passive sweep had run and only a January subset was
-re-run with it. The passive interval here is correspondingly wider
-($\pm 0.044$ against $\pm 0.014$), and the window-level figure of
-$+0.0955 \pm 0.0130$ in Table~\ref{tab:styles}, which does cover all 246
-sessions, is the one to weigh. Intervals are 95\,\% and clustered by session.}
+Both rows cover the full corpus: 246 sessions, and $1.6$ million individual
+passive fills. Intervals are 95\,\% and clustered by session.}
 \label{tab:markout}
 \footnotesize
 \setlength{\tabcolsep}{4pt}
@@ -1165,7 +1160,7 @@ sessions, is the one to weigh. Intervals are 95\,\% and clustered by session.}
 \cmidrule(lr){3-5}
  & (vs.\ mid) & 1\,s & 5\,s & 30\,s \\
 \midrule
-\pov{} (passive) & $+0.072 \pm 0.044$ & $+0.089 \pm 0.022$ & $+0.066 \pm 0.030$ & $+0.072 \pm 0.060$ \\
+\pov{} (passive) & $+0.0953 \pm 0.0130$ & $+0.0825 \pm 0.0076$ & $+0.0743 \pm 0.0110$ & $+0.0993 \pm 0.0200$ \\
 Aggressive POV   & $+0.095 \pm 0.014$ & $+0.083 \pm 0.007$ & $+0.087 \pm 0.012$ & $+0.091 \pm 0.019$ \\
 \bottomrule
 \end{tabular}
@@ -1332,46 +1327,6 @@ the flow has just printed, the tightest coupling available, and loses
 $0.042$ ticks per contract per millisecond. Passive \pov{} inherits a price
 and a lifetime but waits to be reached, and loses $0.011$.
 
-\paragraph{6. Taken to thirty seconds, the information is worth $0.27$ ticks per
-contract.} The millisecond range measures a slope. To measure the whole of what
-the coupling is worth, we ran the passive configuration of
-Table~\ref{tab:styles} --- shadowing $5\,\%$ of adds within a $3$-tick band ---
-twice over the same 246 sessions, once with zero delay and once with the order,
-the cancel and the feed each delayed by \emph{thirty seconds}. Everything else
-is identical: the same algorithm, the same price source, the same band, the same
-rate, the same corpus. The only difference is how long after observing an order
-the shadow reaches the exchange.
-
-\begin{center}
-\small
-\begin{tabular}{lrrrr}
-\toprule
-{\color{black}Delay} & Windows & Rel.\ slippage & Participation & Time \\
-\midrule
-None        & 9{,}554 & $+0.0953 \pm 0.0130$ & 4.47\,\% & 72\,s \\
-30 seconds  & 9{,}594 & $+0.3673 \pm 0.0989$ & 1.56\,\% & 44\,s \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Cost rises by a factor of $3.9$, on intervals that do not approach each other,
-and three further columns move with it: participation falls to a third,
-the parent is worked in $37$ child fills per leg rather than $85$, and the legs
-finish \emph{sooner} --- because a quote priced thirty seconds ago arrives
-marketable and crosses on contact rather than resting, which is item~2 at an
-extreme. The difference, $0.272$ ticks per contract, is what acting immediately
-on an observed order is worth over acting on the same observation half a minute
-later.
-
-The comparison is between the method and itself, which is what makes it hard to
-argue with: there is no alternative strategy to dispute the fairness of. What it
-establishes is that the inherited information is real and that it is
-\emph{perishable}. It does not establish what that information is worth against
-placing with none at all --- at thirty seconds the price is still inherited from
-a real participant's order, merely stale --- and a comparison against a
-placement rule coupled to nothing remains the experiment of
-Section~\ref{sec:future}.
-
 \begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.64\textwidth]{sim/latency_slippage.pdf}
@@ -1396,6 +1351,69 @@ and participation is scored over the leg's own duration.}
 \label{fig:latencypart}
 \end{figure}
 
+% ---------------------------------------------------------------
+\subsection{A control: the same method on stale information}
+\label{sec:stale}
+
+The latency sweep above measures a slope over delays a real participant might
+actually face. This subsection is a different kind of experiment and is kept
+separate for that reason: thirty seconds is not an operating point, it is a
+\emph{control}. The question it answers is how much of \pov{}'s cost advantage
+comes from the information it inherits, and it answers it by destroying that
+information's freshness while holding everything else fixed.
+
+We ran the passive configuration of Table~\ref{tab:styles} --- shadowing
+$5\,\%$ of adds within a $3$-tick band --- twice over the same 246 sessions,
+once with zero delay and once with the order, the cancel and the feed each
+delayed by thirty seconds. The algorithm, the price source, the band, the rate
+and the corpus are identical. The only difference is how long after observing an
+order the shadow reaches the exchange.
+
+\begin{table}[!htbp]
+\centering
+\caption{The same passive configuration run against itself, with and without a
+thirty-second delay on the order, the cancel and the feed. ES futures, 246
+sessions of calendar 2025, 100 contracts bought and 100 sold per window, $5\,\%$
+of adds shadowed within a $3$-tick band. Thirty seconds is chosen as a control
+rather than as a plausible latency: it is long enough that the observation the
+shadow was placed from has been overtaken by the market many times over.
+Intervals are 95\,\% and clustered by session.}
+\label{tab:stale}
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+Delay & Windows & Rel.\ slippage & Participation & Time & Child fills \\
+ & & (ticks/contract) & (\%) & (s) & (per leg) \\
+\midrule
+None       & 9{,}554 & $+0.0953 \pm 0.0130$ & 4.47 & 72 & 85.5 \\
+30 seconds & 9{,}594 & $+0.3673 \pm 0.0989$ & 1.56 & 44 & 37.2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Cost rises by a factor of $3.9$, on intervals that do not approach each other,
+and three further columns move with it: participation falls to a third, the
+parent is worked in $37$ child fills per leg rather than $85$, and the legs
+finish \emph{sooner} --- because a quote priced thirty seconds ago arrives
+marketable and crosses on contact rather than resting, which is item~2 of
+Section~\ref{sec:latency} at an extreme. The difference, $0.272$ ticks per
+contract, is what acting immediately on an observed order is worth over acting
+on the same observation half a minute later.
+
+The comparison is between the method and itself, which is what makes it hard to
+argue with: there is no alternative strategy whose fairness can be disputed, and
+no parameter differs between the two rows but one. What it establishes is that
+the inherited information is real and that it is \emph{perishable}. It does not
+establish what that information is worth against placing with none at all --- at
+thirty seconds the price is still inherited from a real participant's order,
+merely stale --- and a comparison against a placement rule coupled to nothing
+remains the experiment of Section~\ref{sec:future}.
+
+The zero-delay row also reproduces the passive column of Table~\ref{tab:styles}
+on an independent re-run: $+0.0953$ against $+0.0955$, $4.47\,\%$ participation
+against $4.46\,\%$, and 72\,s against 72.7\,s.
+
+% ---------------------------------------------------------------
 \subsection{Threats to validity}
 
 The material limitation is that the replay does not model the market's reaction
