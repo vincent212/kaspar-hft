@@ -122,3 +122,12 @@ tech_reports/*.aux
 tech_reports/*.log
 tech_reports/*.out
 tech_reports/*.toc
+
+# Latency-probe run artifacts. The probe runs as a RENAMED copy of kaspr
+# (md_perf_meter) so stop_kaspr.sh's `pgrep -x kaspr` cannot kill it mid-run;
+# that binary is a build output, not source. genconfig and the assertion
+# arg-dumps are written into the cwd by the running process.
+kaspr/src/md_perf_meter
+kaspr/genconfig
+kaspr/assertion__*.args
+kaspr/perf/__pycache__/
