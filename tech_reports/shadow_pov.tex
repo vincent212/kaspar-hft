@@ -1578,14 +1578,21 @@ Adaptive scheduling methods are already evaluated against fixed references: a
 reinforcement-learning or optimal-execution scheduler is judged against TWAP,
 VWAP, and the Almgren--Chriss trajectory \cite{almgren2000,queuereactive2025},
 so any claimed gain is stated relative to a schedule that carries no forecast of
-its own. Those references fix the \emph{schedule}; what the passive side lacks
-is the same kind of fixed reference for \emph{placement}, which is the gap a
-model-free placement rule fills. The naive alternatives --- posting
-at the touch, or post-and-wait then cross
-\cite{contkukanov2015,limitmarkettactics2014} --- are ad hoc; \pov{} offers a
-well-specified alternative. A practitioner proposing a predictive placement
-model can show whether it beats shadow-following, as an execution scheduler is
-judged against TWAP.
+its own. That works because a schedule crossing every slice is fully specified
+by its clock. A TWAP that works its slices passively is not: it still has to
+decide where in the book each slice rests, and that decision needs the very
+placement model the reference was supposed to be free of
+(Section~\ref{sec:priorart}). So the fixed reference the literature already has
+covers the schedule, and stops at the point the order goes passive.
+
+That is the gap. The naive alternatives at the placement layer --- posting at
+the touch, or post-and-wait then cross
+\cite{contkukanov2015,limitmarkettactics2014} --- are ad hoc, and each smuggles
+in a choice of depth or deadline that the next author will make differently.
+\pov{} is well specified in a page, has no free parameter that decides where to
+rest, and can be re-run by anyone with the same data. A practitioner proposing a
+predictive placement model can then show whether it beats shadow-following, as
+an execution scheduler shows whether it beats TWAP.
 
 \paragraph{The bar a placement model has to clear.} Stated plainly, the proposal
 is a floor and it has two rungs. \pov{} places passively with no view at all,
