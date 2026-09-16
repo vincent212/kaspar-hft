@@ -325,4 +325,7 @@ def main():
             print(analyse(f, pop, excl))
 
 
-main()
+# Guard this. Without it, `import kh_corr` to reuse load() runs the entire
+# report as a side effect of the import.
+if __name__ == "__main__":
+    main()
