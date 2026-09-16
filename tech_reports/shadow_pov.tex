@@ -1406,8 +1406,7 @@ no parameter differs between the two rows but one. What it establishes is that
 the inherited information is real and that it is \emph{perishable}. It does not
 establish what that information is worth against placing with none at all --- at
 thirty seconds the price is still inherited from a real participant's order,
-merely stale --- and a comparison against a placement rule coupled to nothing
-remains the experiment of Section~\ref{sec:future}.
+merely stale.
 
 The zero-delay row also reproduces the passive column of Table~\ref{tab:styles}
 on an independent re-run: $+0.0953$ against $+0.0955$, $4.47\,\%$ participation
@@ -1623,12 +1622,13 @@ validated reference.
 
 \paragraph{Comparison against established methods.} The central open task is to
 score \pov{} against competing passive-placement rules under the same
-direction-neutral slippage metric: posting at the touch; a random
-same-level ``null'' follower, which isolates whether following a \emph{specific}
-identified order carries information beyond posting behind recently added
-liquidity; the passive legs of TWAP, VWAP, and POV; and at least one
-\emph{predictive} placement model. Only such a comparison can establish whether
-\pov{} is a useful benchmark and by how much a predictive model improves on it.
+direction-neutral slippage metric: posting at the touch; the passive legs of
+TWAP, VWAP, and POV; and at least one \emph{predictive} placement model. Only
+such a comparison can establish whether \pov{} is a useful benchmark and by how
+much a predictive model improves on it. Section~\ref{sec:stale} establishes that
+the inherited information has value and measures how quickly it decays; what a
+comparison adds is where the method sits against the alternatives a desk would
+otherwise reach for.
 
 \paragraph{Understanding the algorithm's behavior.} Beyond a single cost figure,
 the method's behavior needs characterization: realized fill and completion
