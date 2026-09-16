@@ -4,20 +4,20 @@ import sys, os, glob, time
 #
 # This replaces the qlen_max grouping, which was not interpretable. The
 # problem there: bins were selected on the DEEPEST message in the bin but
-# averaged over ALL of them, and msgs/bin itself rose with depth, so the
+# averaged over ALL of them, and msgs/bin itself rose with qlen, so the
 # effect was divided by a denominator that grew with the effect.
 #
 # Here both axes are means over THE SAME MESSAGES:
 #
-#     x = qlen_sum / l1_n      mean queue depth seen by a message in the bin
+#     x = qlen_sum / l1_n      mean qlen seen by a message in the bin
 #     y = l1_sum_ns / l1_n     mean leg-1 latency of a message in the bin
 #
 # Same numerator set, same denominator. Nothing is selected on, nothing is
 # held fixed, and the dilution cancels because it is identical on both axes.
 #
 # WHAT THIS STILL IS NOT. It is a bin-level (ecological) relation, not a
-# per-message one. A slope here says "bins where messages saw deeper queues
-# had higher mean latency", NOT "a message at depth d costs a+b*d". Those
+# per-message one. A slope here says "bins where messages saw longer queues
+# had higher mean latency", NOT "a message at qlen d costs a+b*d". Those
 # differ whenever the within-bin distributions are skewed, which they are.
 # The per-message record is still the only thing that closes that gap.
 #
@@ -105,7 +105,7 @@ def scatter(sym, pop, pts):
         print('  weighted fit: lat = %.2f + %.2f * qlen   r=%.3f  r2=%.3f'
               % (a, b, r, r * r))
         print('  intercept %.2fus is the fitted zero-queue cost;'
-              ' slope is us per unit of mean depth' % a)
+              ' slope is us per unit of mean qlen' % a)
 
     # Dose-response on the SAME axis, so the table and the plot agree.
     print('  %-14s %7s %9s %10s %10s' %
@@ -148,4 +148,4 @@ for path in sorted(glob.glob(DIR + '/lat_*.csv')):
 print()
 print("""Both axes are averages over the same messages, so this does not have the
 qlen_max defect. It is still BIN-LEVEL: the slope is us per unit of mean
-depth across bins, not the cost to a single message at that depth.""")
+qlen across bins, not the cost to a single message at that qlen.""")
