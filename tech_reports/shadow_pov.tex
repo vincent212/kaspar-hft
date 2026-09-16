@@ -88,8 +88,9 @@ Exchange (CME) ES futures in a deterministic market-replay simulator.
 We report its slippage characteristics and latency sensitivity. We compare
 \pov{} to the aggressive equivalent POV and discuss the differences and
 similarities between the two execution methods.
-We position \pov{} as a model-free benchmark for passive-order placement, against
-which a predictive placement model can be scored. The algorithm and the order-book
+We propose \pov{} as a model-free benchmark for passive-order placement, against
+which a predictive placement model can be scored once the comparisons of
+Section~\ref{sec:future} have been run. The algorithm and the order-book
 simulator are implemented in the open-source
 \textsc{kaspar-hft} project.\footnote{\url{https://github.com/vincent212/kaspar-hft}}
 \end{abstract}
@@ -1529,12 +1530,11 @@ inside of the book (tightening the placement band of Section~\ref{sec:prod}),
 which have a higher and more predictable fill probability; without such a
 restriction a small order's participation is dominated by the queue-position
 randomness of the few orders it follows, as the small-$Q$ case shows.
-This also refines the benchmark claim
-of Section~\ref{sec:disc}: \pov{} is a benchmark for passive placement at sizes
-large enough that the participation band is narrow, and the width of the
-participation band is a second axis --- alongside slippage --- on which a
-predictive placement model that controls queue position can be scored against
-it.
+This also bounds the proposal of
+Section~\ref{sec:disc}: the benchmark role is proposed for parent sizes large
+enough that the participation band is narrow, and the width of that band is a
+second axis --- alongside slippage --- on which a predictive placement model
+that controls queue position could be scored against it.
 
 % ---------------------------------------------------------------
 \section{A benchmark for passive placement}
@@ -1543,9 +1543,9 @@ it.
 
 \pov{} places passive orders
 without an order-book model and without predicting where they will fill, and it
-executes at the relative slippage measured in Section~\ref{sec:eval}. We position it
-as a benchmark for
-passive-order placement on a CLOB rather than as an optimal method.
+executes at the relative slippage measured in Section~\ref{sec:eval}. We propose
+it as a benchmark for passive-order placement on a CLOB rather than as an
+optimal method.
 
 \paragraph{Why a model-free passive method should not beat the mid-price.}
 The sign of the measured cost is not an accident of this implementation, and it
