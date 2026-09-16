@@ -1,10 +1,10 @@
-# Queue depth vs leg-1 latency — Fed day, 2026-09-16
+# Queue length (qlen) vs leg-1 latency — Fed day, 2026-09-16
 
 > **CORRECTION, added after the per-message log went live.** The slopes in this
 > document are **bin-level** and overstate the queue effect by **6–17×**. Per
-> message, the same quantity is 0.37 / 1.47 / 3.79 µs per unit depth, not 10.19
+> message, the same quantity is 0.37 / 1.47 / 3.79 µs per unit qlen, not 10.19
 > / 4.59 / 13.66. The bin-level regression is an ecological fallacy: bursts
-> raise ring depth *and* packet size together, and it hands the packet-size
+> raise ring qlen *and* packet size together, and it hands the packet-size
 > effect to the queue. See `RESULT_per_message.md`.
 >
 > What **does** survive, and is confirmed by the per-message data:
@@ -36,7 +36,7 @@ window (FOMC, 14:00 local) is not reproducible.
 Both are means over **the same messages**, from the same bin:
 
 ```
-x = qlen_sum / l1_n      mean MsgBuf depth seen by a message in the bin
+x = qlen_sum / l1_n      mean MsgBuf qlen seen by a message in the bin
 y = l1_sum_ns / l1_n     mean leg-1 latency of a message in the bin
 ```
 
@@ -78,13 +78,13 @@ three channels, three independent fits, spread 0.66 µs. That is the hot path
 extrapolated to zero queue.
 
 **Trade slopes are 5–16× the book slopes** (67–78 vs 4.6–13.7 µs per unit
-depth) while the intercepts differ by only 1.4–3×. A queued packet costs far
+qlen) while the intercepts differ by only 1.4–3×. A queued packet costs far
 more on trade because it carries ~3 messages behind one arrival stamp instead
-of ~1.1. Depth and batch multiply.
+of ~1.1. Queue length and batch multiply.
 
-**Low r² on book is a finding, not a weakness.** Depth explains 0.2–8.7% of
-bin-to-bin variance on book, where mean depth barely leaves [0, 0.3] — short
-lever, steep slope. On trade, where depth reaches 1.0+, it explains 18–31%.
+**Low r² on book is a finding, not a weakness.** qlen explains 0.2–8.7% of
+bin-to-bin variance on book, where mean qlen barely leaves [0, 0.3] — short
+lever, steep slope. On trade, where qlen reaches 1.0+, it explains 18–31%.
 The conditional mean is monotone; the residual scatter is batch and cache.
 
 ## Corroborating measurements from the same window
@@ -154,7 +154,7 @@ ESZ6 book, bin 14:01:59.7:
 14:01:59.8     92 msgs  batch 1.48  qmax 1    mean   9.3us   max    21.3us
 ```
 
-A 63 ms smear over 69 messages in one 100 ms bin, at **queue depth 1**, in a
+A 63 ms smear over 69 messages in one 100 ms bin, at **qlen 1**, in a
 *quiet* bin. Neighbours normal both sides. Not a recovery (count flat at 39).
 Nothing in qlen or batch explains it — it is a stall, not a queue. 1 bin in
 ~5,000, 69 messages in 213,538. It moves no mean above. It belongs in the
@@ -164,8 +164,8 @@ writeup as the residual the queueing model does not cover.
 
 The earlier tables grouped bins by `qlen_max` and are **not interpretable**.
 The group was selected on the *deepest* message in the bin but averaged over
-*all* of them, and msgs/bin itself rises with depth (ZN book: 6.7 at depth 0,
-479.6 at depth 3-4 — a 72× swing). The effect was divided by a denominator that
+*all* of them, and msgs/bin itself rises with qlen (ZN book: 6.7 at qlen 0,
+479.6 at qlen 3-4 — a 72× swing). The effect was divided by a denominator that
 grew with the effect, which flattened the ladder to ~1.2 µs and hid the result.
 
 Affected: `kh_qlat.py`, `kh_batch.py` Test 2 qlen column, `/tmp/kh_exc.py`.
@@ -178,7 +178,7 @@ a bound between "+6.5 µs on all 310" and "2.0 ms on one".
 ## Still bin-level
 
 Everything above is an **ecological** relation. A slope here says "bins where
-messages saw deeper queues had higher mean latency", NOT "a message at depth d
+messages saw longer queues had higher mean latency", NOT "a message at qlen d
 costs a + b·d". Closing that gap is what the `MsgRec` per-message log
 (`LatencyProbe.hpp`) is for: one 16-byte record per admitted message carrying
 `(t1, l1_ns, qlen, idx)`, emitted at the same point as the bin accumulators so
