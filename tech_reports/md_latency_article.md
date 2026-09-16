@@ -35,7 +35,7 @@ Three instruments, both populations:
 - **NQ** — E-mini Nasdaq 100
 - **ZN** — 10-year Treasury Note
 
-**8.24 million messages** across six streams, 2026-09-16, 14:25 to 15:18 ET,
+**8.29 million messages** across six streams, 2026-09-16, 14:25 to 15:18 ET,
 53 minutes of a busy afternoon tape. Every latency table is cut from that one
 window, which starts after the startup snapshot replay has finished. The two
 arrival-process tables near the end are the exception and say so in place.
@@ -43,6 +43,59 @@ arrival-process tables near the end are the exception and say so in place.
 One caveat up front, because it bounds everything below: `t0` is a *software*
 timestamp taken at the socket read. Time spent in the NIC and the kernel before
 that is outside this measurement. This is not wire-to-book. It is socket-to-book.
+
+## The whole distribution, before conditioning on anything
+
+Everything after this section cuts the data by queue length and by packet
+position. So here is the unconditional answer first — every admitted message on
+each stream, no filter, no grouping.
+
+```
+                  messages     mean     p50     p90      p99     p999       max
+  ES book        2,861,519    7.6us   7.1us  10.6us   18.5us   41.2us   1148.4us
+  NQ book        3,792,033    7.5us   7.3us   9.9us   13.6us   24.7us   5567.0us
+  ZN book        1,119,746    9.3us   7.1us  12.1us   57.0us  180.9us   2458.2us
+  ES trade         296,736   10.6us   9.0us  15.3us   38.0us  127.7us    421.5us
+  NQ trade         110,003    9.4us   8.3us  12.5us   31.2us   83.7us    694.2us
+  ZN trade         114,154   30.5us  15.4us  69.3us  219.4us  409.5us    504.8us
+```
+
+Three things to take from it, and they set up the rest of the article.
+
+**The median is boring, and that is the point.** The three book streams sit at
+7.1, 7.3 and 7.1 µs. Three separate multicast channels, three different
+instruments, three different message mixes — and the typical message costs the
+same on all of them to within 0.2 µs. Whatever varies in this system, it does
+not vary at the median.
+
+**The p99 is where they come apart.** Same three streams: 18.5, 13.6 and
+57.0 µs. ZN book's p99 is **4.2× NQ book's** while their medians are within
+0.2 µs of each other. Expressed as the amplification from median to p99:
+
+```
+                  p99/p50    p999/p50
+  NQ book           1.9x        3.4x
+  ES book           2.6x        5.8x
+  ES trade          4.2x       14.2x
+  NQ trade          3.8x       10.1x
+  ZN book           8.0x       25.5x
+  ZN trade         14.2x       26.6x
+```
+
+A single median number for this system — "8 microseconds" — would be true and
+would tell you nothing about the thing you actually care about. The rest of the
+article is an attempt to say *which* messages are in that right-hand column and
+*why*, and the answer turns out to be two mechanisms rather than one.
+
+**The max is not the same phenomenon.** NQ book's maximum is 5.6 ms against a
+p999 of 24.7 µs — 225× further out. Nothing in queue length or packet size
+explains a jump like that, and I do not explain it here either; it has its own
+section near the end. Read the max column as a separate population that happens
+to share a file with the others.
+
+Note also that the mean exceeds the median on every single stream, by 1.4× on ZN
+book and 2.0× on ZN trade. That gap is the tail pulling the average, and it is
+why every table from here on is quantiles rather than means.
 
 ## Attempt one: ask the obvious question
 
