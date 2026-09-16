@@ -75,8 +75,14 @@ for p in sorted(glob.glob('/home/vincent/perf/mdperf/*.arr')):
     print('   ia us: p1=%.1f p10=%.1f p50=%.1f p90=%.1f p99=%.1f p999=%.1f max=%.1f'
           % tuple(qs))
     print('   ia mean=%.1fus  CV=%.2f   (CV=1 => Poisson)' % (m / 1e3, cv))
-    print('   batch mean=%.2f  span mean=%.2f  dedup drop=%.1f%%'
-          % (bm, sm, 100.0 * (sm - bm) / sm if sm else 0))
+    # span is (max pkt_entry_idx in the packet + 1). pkt_entry_idx is the
+    # decode counter for the WHOLE PACKET -- every instrument on the channel,
+    # MBO and MBOT sharing one counter. batch is what this ONE symbol+pop
+    # actually received. So batch/span is this symbol's SHARE of the packet,
+    # NOT dedup suppression. It reads low on trade precisely because a packet
+    # carrying one trade also carries book records and other instruments.
+    print('   batch mean=%.2f  span mean=%.2f  sym share of pkt=%.1f%%'
+          % (bm, sm, 100.0 * bm / sm if sm else 0))
     print('   seq monotone-violations=%d  nonmono-t0=%d' % (
         sum(1 for i in range(1, n) if seq[i] <= seq[i - 1]), nonmono))
 
