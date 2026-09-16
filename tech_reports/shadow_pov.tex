@@ -1063,18 +1063,13 @@ so it cannot be forced to match. Instead of forcing it, we swept the placement
 rates and selected the pair of settings whose realized participation came out
 empirically closest, $4.46\,\%$ passive against $4.86\,\%$ aggressive.
 
-The residual gap does not carry the result. The same sweep gives the cost at
-several other participation rates, and the cost does not move with the rate: the
-aggressive style runs $+0.0884 \pm 0.0257$ at $1.05\,\%$ participation,
-$+0.0726 \pm 0.0194$ at $1.90\,\%$, $+0.0869 \pm 0.0171$ at $3.18\,\%$,
-$+0.0952 \pm 0.0135$ at $4.86\,\%$ and $+0.0870 \pm 0.0101$ at $6.85\,\%$ ---
-a $6.5$-fold range of participation, every interval overlapping every other, and
-no trend in the rate. A gap of four tenths of a percentage point between the two
-styles therefore cannot be what produces their agreement. This is the behavior
-the simulator's zero-impact assumption predicts, and finding it is one check
-that the assumption is being applied consistently: with no impact model there is
-no channel through which taking a larger share of the volume can cost more, and
-none appears.
+The remaining four tenths of a point do not carry the result. A zero-impact
+simulator already rules out cost scaling with volume share, but not cost moving
+through selection --- a different placement rate shadows different adds, sitting
+in different queues. The sweep shows it does not: across $1.05\,\%$,
+$1.90\,\%$, $3.18\,\%$, $4.86\,\%$ and $6.85\,\%$ aggressive participation
+the cost runs $+0.0884$, $+0.0726$, $+0.0869$, $+0.0952$ and $+0.0870$ ticks per
+contract, every interval overlapping every other.
 
 \begin{table}[t]
 \centering
