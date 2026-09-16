@@ -65,6 +65,20 @@ def med(v):
     return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
 
 
+def pct(sv, p):
+    """sv already sorted. Nearest-rank, no interpolation."""
+    if not sv:
+        return 0.0
+    return sv[int(p * (len(sv) - 1))]
+
+
+# A p99 needs the tail sampled. With n below this, the 99th percentile is the
+# largest sample or the one below it -- a stall wearing a percentile's clothes.
+# Printed as a bare number it would look like a measurement, so it is suppressed.
+MIN_N_P99 = 200
+MIN_N_P90 = 60
+
+
 def main():
     t_lo = _ns(sys.argv[1]) if len(sys.argv) > 1 else 0
     t_hi = _ns(sys.argv[2]) if len(sys.argv) > 2 else (1 << 62)
@@ -109,33 +123,31 @@ def main():
                 by_i0.setdefault(q, []).append(l1)
 
         print('\n%-14s %d messages' % (fn[4:-4], len(recs)))
-        print('  %4s %9s %8s %8s %8s %8s   %8s %16s %16s'
-              % ('qlen', 'msgs', 'mean', 'median', 'm.span', 'm.idx',
-                 'n@idx0', 'mean@idx0', 'med@idx0'))
-        b_all = b_i0 = b_d0 = None
+        print('  %4s %10s %8s %7s %7s   %9s %15s %9s %9s'
+              % ('qlen', 'msgs', 'median', 'm.span', 'm.idx',
+                 'n@idx0', 'med@idx0', 'p90@idx0', 'p99@idx0'))
+        b_d0 = None
         for q in sorted(by_all):
             if len(by_all[q]) < MIN_N:
                 continue
-            m_all = mean(by_all[q]) / 1e3
             d_all = med(by_all[q]) / 1e3
-            i0 = by_i0.get(q, [])
-            enough = len(i0) >= MIN_N
-            m_i0 = mean(i0) / 1e3 if enough else None
-            d_i0 = med(i0) / 1e3 if enough else None
-            if b_all is None:
-                b_all, b_i0, b_d0 = m_all, m_i0, d_i0
+            i0 = sorted(by_i0.get(q, []))
+            n0 = len(i0)
+            d_i0 = med(i0) / 1e3 if n0 >= MIN_N else None
+            if b_d0 is None:
+                b_d0 = d_i0
 
-            def delta(v, base):
-                return '' if (q == 0 or v is None or base is None) \
-                       else ' (%+.1f)' % (v - base)
-
-            s_m0 = '     n/a' if m_i0 is None else \
-                   '%7.1fus%s' % (m_i0, delta(m_i0, b_i0))
-            s_d0 = '     n/a' if d_i0 is None else \
-                   '%7.1fus%s' % (d_i0, delta(d_i0, b_d0))
-            print('  %4d %9d %7.1fus %7.1fus %8.2f %8.2f   %8d %16s %16s'
-                  % (q, len(by_all[q]), m_all, d_all,
-                     mean(by_sp[q]), mean(by_ix[q]), len(i0), s_m0, s_d0))
+            s_d0 = '      n/a' if d_i0 is None else \
+                   ('%7.1fus%s' % (d_i0, '' if (q == 0 or b_d0 is None)
+                                   else ' (%+.1f)' % (d_i0 - b_d0)))
+            # Percentiles are suppressed rather than printed small: below these
+            # counts they are the max, and a max formatted as a percentile reads
+            # like a measurement.
+            s_90 = '%8.1fus' % (pct(i0, 0.90) / 1e3) if n0 >= MIN_N_P90 else '       -'
+            s_99 = '%8.1fus' % (pct(i0, 0.99) / 1e3) if n0 >= MIN_N_P99 else '       -'
+            print('  %4d %10d %7.1fus %7.2f %7.2f   %9d %15s %9s %9s'
+                  % (q, len(by_all[q]), d_all,
+                     mean(by_sp[q]), mean(by_ix[q]), n0, s_d0, s_90, s_99))
 
     print("""
 If mean idx climbs with qlen, the qlen table in RESULT_per_message.md is
