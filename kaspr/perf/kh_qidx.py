@@ -123,13 +123,22 @@ def main():
                 by_i0.setdefault(q, []).append(l1)
 
         print('\n%-14s %d messages' % (fn[4:-4], len(recs)))
-        print('  %4s %10s %8s %7s %7s   %9s %15s %9s %9s'
-              % ('qlen', 'msgs', 'median', 'm.span', 'm.idx',
+        print('  %4s %10s %8s %9s %9s %7s %7s   %9s %15s %9s %9s'
+              % ('qlen', 'msgs', 'median', 'p90', 'p99', 'm.span', 'm.idx',
                  'n@idx0', 'med@idx0', 'p90@idx0', 'p99@idx0'))
         b_d0 = None
         for q in sorted(by_all):
             if len(by_all[q]) < MIN_N:
                 continue
+            # Full cell: every message at this qlen, any idx. These percentiles
+            # are CONFOUNDED -- a message at qlen d may be slow because the ring
+            # was deep or because it sat late in a big packet, and this column
+            # cannot tell those apart. It is the upper bound. The @idx0 columns
+            # to the right are the deconfounded version of the same quantiles.
+            a_s = sorted(by_all[q])
+            na = len(a_s)
+            a_90 = '%8.1fus' % (pct(a_s, 0.90) / 1e3) if na >= MIN_N_P90 else '       -'
+            a_99 = '%8.1fus' % (pct(a_s, 0.99) / 1e3) if na >= MIN_N_P99 else '       -'
             d_all = med(by_all[q]) / 1e3
             i0 = sorted(by_i0.get(q, []))
             n0 = len(i0)
@@ -145,8 +154,8 @@ def main():
             # like a measurement.
             s_90 = '%8.1fus' % (pct(i0, 0.90) / 1e3) if n0 >= MIN_N_P90 else '       -'
             s_99 = '%8.1fus' % (pct(i0, 0.99) / 1e3) if n0 >= MIN_N_P99 else '       -'
-            print('  %4d %10d %7.1fus %7.2f %7.2f   %9d %15s %9s %9s'
-                  % (q, len(by_all[q]), d_all,
+            print('  %4d %10d %7.1fus %9s %9s %7.2f %7.2f   %9d %15s %9s %9s'
+                  % (q, len(by_all[q]), d_all, a_90, a_99,
                      mean(by_sp[q]), mean(by_ix[q]), n0, s_d0, s_90, s_99))
 
     print("""
