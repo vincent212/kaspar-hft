@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <iostream>
 #include <iomanip>
+#include <sstream>   // census/scale lines are assembled then written once;
+                     // per-book threads interleave a chained operator<<
 #include <array>
 #include "frame/mda/msg/Data.hpp"
 #include "bfile/r_l3.hpp"
@@ -34,6 +36,9 @@
 #include "frame/ob/msg/TradeNotify.hpp"
 #include <boost/format.hpp>
 #include "logger/act/Logger.hpp"
+#include "chutil/Time.hpp"   // publish_ts stamp; was only reached transitively
+                             // via the TRACKTIME blocks, which are #ifdef'd out
+#include "frame/ref/Price.hpp"  // the one price->tick conversion; see to_px()
 
 //#define DEBUGTACHBOOK
 #define UNCROSS_BOOK
@@ -46,7 +51,20 @@ namespace frame::ob::act
   struct TachBook : public actors::Actor, public OB_Abstract
   {
 
-    static constexpr size_t ARRAY_SIZE = 1024 * 100; // 2^10 * 100
+    // Ladder depth, in ticks. This is the real bound: update_sz() rejects on
+    // levels.size(), never on maxprice, so Asset::maxpx from universe.csv is
+    // advisory and this constant decides what fits.
+    //
+    // It was 1024*100 = 102400. NQ prices to 2937725/25 = 117509 ticks, so
+    // every NQ order was rejected and both NQ books published nothing for the
+    // whole session while ES published normally. 1024*256 covers the
+    // configured maxpx of both (100000 ES, 200000 NQ) with room left; the cost
+    // is 1MiB per side, 2MiB per book.
+    //
+    // The assert in the constructor is the part that matters: it turns a
+    // universe.csv that outgrows this array into a startup failure instead of
+    // a book that runs all day and silently drops every record.
+    static constexpr size_t ARRAY_SIZE = 1024 * 256;
     static constexpr int INVALID_BID = -1;
     static constexpr int INVALID_ASK = static_cast<int>(ARRAY_SIZE);
 
@@ -161,8 +179,60 @@ namespace frame::ob::act
     int prev_best_bid_px = 0, prev_best_ask_px = std::numeric_limits<int>::max();
     int sym;
     int maxprice;
-    int px_mult;
+    // The asset this book prices, latched once units are known. Held as a
+    // pointer purely so to_px() below does not repeat the RefData lookup on
+    // every order.
+    //
+    // This replaces `int px_mult`, which was assigned `1 / a->get_units()`.
+    // get_units() is the RAW minPriceIncrement -- CME sends 25.0 for ES and NQ,
+    // not the 0.25 display tick -- so that expression was 1/25.0 = 0.04
+    // truncated to int 0. Every order in this book landed on level 0. Level 0
+    // is in bounds, so update_sz never logged; bid_px[0] == ask_px[0] == 0
+    // tripped the baddata test in create_point; publish_book returned before
+    // sending; and the book emitted nothing at all, silently. TachBook has
+    // never priced a CME future.
+    //
+    // Fixed by deleting the arithmetic rather than by widening the type.
+    // OB.cpp:1516-1522 records why: when it kept its own copy of this
+    // conversion, the copy drifted from the ladder it addressed by a factor of
+    // dispFactor and rejected every record in a session with nothing looking
+    // wrong. ref::Price is the definition of a tick index. There is now one
+    // implementation and both books call it.
+    const frame::ref::Asset* asset_ = nullptr;
+    bool have_scale = false;
     int eob_counter = 0;
+
+    // Price -> ladder index. The single conversion, shared with OB.cpp.
+    //
+    // Price::from_double is round(pxd / units + eps) -- see Price.hpp:66-73.
+    // It is unguarded against a price so large the conversion to int is UB, so
+    // the callers keep their bounds checks: update_sz() rejects an index off
+    // either end of the ladder, and the cancel-delete path checks explicitly
+    // before touching `orders`. Those guards now sit downstream of the same
+    // arithmetic that produced the index, which is the property OB.cpp's
+    // comment says was missing when they diverged.
+    int to_px(double pxd) const noexcept
+    {
+      return frame::ref::Price::from_double(static_cast<long double>(pxd), asset_).to_int();
+    }
+
+    // publish_book outcome census. A book that emits nothing looks identical
+    // to a book that gets nothing; these tell the two apart and give every
+    // later latency figure its denominator.
+    uint64_t pb_calls = 0;      // publish_book entered
+    uint64_t pb_same = 0;       // dropped: point identical to previous
+    uint64_t pb_baddata = 0;    // dropped: create_point flagged the point
+    uint64_t pb_sent = 0;       // EndOfBurst actually sent
+    uint64_t pb_noscale = 0;    // data dropped for want of units
+
+    // One-shot scale audit. `units` reaches an Asset from two places that do
+    // not agree: universe.csv column 4 (1.0 for ES and NQ) and the CME FDF via
+    // set_units (25.0 for the same two). maxpx, which sizes the ladder, comes
+    // only from universe.csv column 7. So the divisor and the array it indexes
+    // are configured independently -- the exact hazard OB.cpp:1516-1522 was
+    // written about. Printing the first few conversions makes the resulting
+    // scale a measurement instead of an inference.
+    int dbg_px_left = 5;
 
     bool have_sec_id = 0;
     int sec_id = 0;
@@ -191,6 +261,16 @@ namespace frame::ob::act
       maxprice = a->maxpx;
 
       snprintf(name, sizeof(name), "TACHOB_%s", frame::ref::RefData::inst().get_asset_name(sym).c_str());
+
+      // Fail here, not silently at run time. update_sz() bounds on
+      // levels.size(), so an asset whose configured maxpx exceeds ARRAY_SIZE
+      // has every order above the array rejected one at a time, forever, and
+      // the book simply never forms a level. That is what NQ did for a whole
+      // session: maxpx 200000 against a 102400 array, zero published updates,
+      // no startup complaint.
+      ASSERTF(maxprice <= static_cast<int>(ARRAY_SIZE),
+              boost::format("%1%: maxpx %2% exceeds TachBook ladder %3%; raise ARRAY_SIZE")
+                % name % maxprice % ARRAY_SIZE);
 
       // Reserve capacity for orders map to avoid rehashing during trading
       // Typical liquid instrument has 5000-10000 active orders
@@ -260,6 +340,25 @@ namespace frame::ob::act
     void shutdown_handler(const actors::msg::Shutdown *m) noexcept
     {
       (void)m;
+      // Every drop reason, with its denominator, on one line. Without this a
+      // book that publishes nothing is indistinguishable from a book that is
+      // fed nothing, and the latency CSV just says n=0.
+      //
+      // Assembled into one string and written once. Each book is its own
+      // thread and they shut down together; chained operator<< on std::cerr
+      // interleaves character-wise between them, which shredded the first
+      // census into unparseable fragments.
+      std::ostringstream o;
+      o << get_name() << " shutting down"
+        << " units=" << (asset_ ? asset_->get_units() : 0.0)
+        << " orders=" << orders.size()
+        << " publish_book_calls=" << pb_calls
+        << " sent=" << pb_sent
+        << " drop_unchanged=" << pb_same
+        << " drop_baddata=" << pb_baddata
+        << " drop_noscale=" << pb_noscale
+        << "\n";
+      std::cerr << o.str() << std::flush;
     }
 
     void get_handler(const frame::cons::msg::Get *m) noexcept
@@ -276,9 +375,20 @@ namespace frame::ob::act
       bool sender_is_mtd = sender_str && boost::algorithm::icontains(std::string(sender_str), "MTD");
       bool sender_is_timer = sender_str && boost::algorithm::icontains(std::string(sender_str), "Timer");
       bool sender_is_super = sender_str && boost::algorithm::icontains(std::string(sender_str), "super");
-      bool sender_allowed = (sender_has_aggr || sender_is_mtd || sender_is_timer) && !sender_is_super;
+      // Latency instrumentation (md_perf_meter / LatencyProbe). Admitted
+      // explicitly rather than by naming the probe "...aggr..." to sneak past
+      // the check above -- that would work, by accident of a substring match,
+      // and would mislead the next person to read this gate.
+      //
+      // A perf subscriber is passive: it reads pl->hndl_tim_epoch and
+      // pl->publish_ts off the payload, histograms the deltas, and sends
+      // nothing back. It takes the HI-prio path because that is the path a
+      // real aggregator takes, and measuring any other path would not answer
+      // the question being asked.
+      bool sender_is_perf = sender_str && boost::algorithm::icontains(std::string(sender_str), "perf");
+      bool sender_allowed = (sender_has_aggr || sender_is_mtd || sender_is_timer || sender_is_perf) && !sender_is_super;
 
-      ASSERTF(sender_allowed, boost::format("Only aggregators, MTD, or Timer (not super) can subscribe to TachBook, got: %1%") % sender_str);
+      ASSERTF(sender_allowed, boost::format("Only aggregators, MTD, Timer, or perf probes (not super) can subscribe to TachBook, got: %1%") % sender_str);
 
       if (m->prio == frame::mda::msg::Subscribe::AGGR) // for fast send
       {
@@ -304,7 +414,7 @@ namespace frame::ob::act
       }
       else if (m->prio == frame::mda::msg::Subscribe::HI)
       {
-        ASSERTF(sender_has_aggr, boost::format("no hi prio sub allowed from: %1%") % sender_str);
+        ASSERTF(sender_has_aggr || sender_is_perf, boost::format("no hi prio sub allowed from: %1%") % sender_str);
         // Check if sender already exists in loprio_subs
         auto it_lo = std::find(loprio_subs.begin(), loprio_subs.end(), m->sender);
         ASSERT(it_lo == loprio_subs.end(), "subscriber already exists in loprio_subs");
@@ -361,19 +471,43 @@ namespace frame::ob::act
 
     void data_handler(const frame::mda::msg::Data *m) noexcept
     {
-      if (!have_sec_id)
+      if (!have_sec_id || !have_scale) [[unlikely]]
       {
         auto a = frame::ref::RefData::get_asset(sym);
         ASSERT(a, "no asset");
-        if (a->sec_id)
+        if (!have_sec_id && a->sec_id)
         {
           sec_id = a->sec_id;
           have_sec_id = true;
-          px_mult = 1 / a->get_units();
-          std::cerr << get_name() << " " << "sec_id=" << sec_id
-                    << " have_sec_id=" << std::boolalpha << have_sec_id << std::noboolalpha
-                    << std::endl;
         }
+        // Separate condition from sec_id on purpose: units arrive with the
+        // FDF, sec_id can be stamped earlier by set_ex_sym_id(). The two were
+        // latched together, so a book whose securityID was stamped first was
+        // left with no scale for the rest of the session.
+        if (!have_scale && a->get_units() > 0.0)
+        {
+          asset_ = a;
+          have_scale = true;
+          std::ostringstream o;
+          o << get_name() << " sec_id=" << sec_id
+            << " units=" << a->get_units()
+            << " maxpx=" << a->maxpx
+            << " ladder=" << ARRAY_SIZE
+            << " scale_ok=1"
+            << "\n";
+          std::cerr << o.str() << std::flush;
+        }
+      }
+
+      // Units are what make a price mean a level. Without them every order
+      // would land on index 0 and the book would be garbage that still looks
+      // well-formed. Drop the message rather than poison the ladder, and count
+      // the drops so the gap is visible rather than showing up as an
+      // unexplained n=0 downstream.
+      if (!have_scale) [[unlikely]]
+      {
+        ++pb_noscale;
+        return;
       }
 
       boost::intrusive_ptr<frame::mda::msg::data_pay_load> pl=0;
@@ -388,7 +522,7 @@ namespace frame::ob::act
 
         const auto &mbo = std::get<bfile::l3_mbo_v2_t>(m->l3);
 #ifdef DEBUGTACHBOOK
-        std::cerr << get_name() << " " << "MBO: " << mbo << " px=" << (mbo.pxd * px_mult) << std::endl;
+        std::cerr << get_name() << " " << "MBO: " << mbo << " px=" << to_px(mbo.pxd) << std::endl;
 #endif
         if (mbo.securityID != sec_id)
           return;
@@ -397,7 +531,7 @@ namespace frame::ob::act
         if (is_add(mbo))
         {
 #ifdef DEBUGTACHBOOK
-          std::cerr << get_name() << " " << "ADD: px=" << (mbo.pxd * px_mult) << std::endl;
+          std::cerr << get_name() << " " << "ADD: px=" << to_px(mbo.pxd) << std::endl;
 #endif
 
           // if (mbo.orderID == 127131791135780)
@@ -407,7 +541,29 @@ namespace frame::ob::act
 
           orders.emplace(mbo.orderID, mbo);
           auto side = get_side(mbo);
-          auto px = std::round(mbo.pxd * px_mult);
+          auto px = to_px(mbo.pxd);
+
+          if (dbg_px_left > 0) [[unlikely]]
+          {
+            --dbg_px_left;
+            // in_ladder is tested against ARRAY_SIZE, not maxprice: maxprice
+            // is never the bound update_sz() applies. Testing it against
+            // maxprice printed in_ladder=1 for NQ indices that update_sz went
+            // on to reject, which is worse than not printing it at all.
+            //
+            // One string, one write: every book runs on its own thread and
+            // chained operator<< interleaves between them, which made the
+            // first shutdown census unreadable.
+            std::ostringstream o;
+            o << get_name() << " SCALE pxd=" << std::fixed << std::setprecision(6) << mbo.pxd
+              << " units=" << asset_->get_units()
+              << " -> px=" << px
+              << " ARRAY_SIZE=" << ARRAY_SIZE
+              << " maxpx=" << maxprice
+              << " in_ladder=" << (px >= 0 && px < static_cast<int>(ARRAY_SIZE))
+              << "\n";
+            std::cerr << o.str() << std::flush;
+          }
 
           if (side == en::bs::BUY)
           {
@@ -465,12 +621,24 @@ namespace frame::ob::act
           pl->hndl_tim_epoch = mbo.handlerendtim;
           pl->txtim_epoch = mbo.transactTime;
           pl->sendtim_epoch = mbo.sendingTime;
+          // MsgBuf mailbox depth for the packet this record came from. Read
+          // off the INCOMING mbo, never off `ord` in the cancel paths: `ord`
+          // is the copy of the original add that has been sitting in the
+          // orders map, and its qlen belongs to that older packet.
+          pl->ingress_qlen = mbo.ingress_qlen;
+          // Same rule, same reason: the position this record held in ITS
+          // packet, not the position the resting order held in the packet
+          // that created it.
+          pl->pkt_entry_idx = mbo.pkt_entry_idx;
+          // And the identity of that packet. Same rule again -- off the
+          // incoming mbo, never off `ord`.
+          pl->pkt_seq_num = mbo.pkt_seq_num;
         }
 
         else if (is_canc(mbo))
         {
 #ifdef DEBUGTACHBOOK
-          std::cerr << get_name() << " " << "CANC: px=" << (mbo.pxd * px_mult) << std::endl;
+          std::cerr << get_name() << " " << "CANC: px=" << to_px(mbo.pxd) << std::endl;
 #endif
 
           // if (mbo.orderID == 127131791135780)
@@ -483,7 +651,7 @@ namespace frame::ob::act
             return;
           auto &ord = p->second;
           auto side = get_side(ord);
-          auto px = std::round(ord.pxd * px_mult);
+          auto px = to_px(ord.pxd);
 
           if (mbo.displayQty > ord.displayQty || ((mbo.pxd > 0) && !eq(mbo.pxd, ord.pxd)))
           {
@@ -495,8 +663,8 @@ namespace frame::ob::act
 // is the size >?
 #ifdef DEBUGTACHBOOK
             {
-              auto old_px = static_cast<int>(std::round(ord.pxd * px_mult));
-              auto new_px = static_cast<int>(std::round(mbo.pxd * px_mult));
+              auto old_px = to_px(ord.pxd);
+              auto new_px = to_px(mbo.pxd);
               std::cerr << get_name() << " " << "CANC_REPLACE: orderID=" << mbo.orderID
                         << " side=" << mbo.side
                         << " old_px=" << old_px
@@ -536,7 +704,7 @@ namespace frame::ob::act
               {
                 bid.update_sz(px, -static_cast<int>(ord.displayQty));
                 ASSERT(bid.get_sz(px) < 1'000'000, "bid size <0 on canc replace");
-                auto new_px = std::round(mbo.pxd * px_mult);
+                auto new_px = to_px(mbo.pxd);
                 bid.update_sz(new_px, mbo.displayQty);
                 ord.pxd = mbo.pxd;
               }
@@ -545,7 +713,7 @@ namespace frame::ob::act
                 //ASSERT(ask.get_sz(px) > 0, "ask size is 0 on canc replace");
                 //ASSERT(ask.get_sz(px) >= mbo.displayQty, "ask size < cancel size");
                 ask.update_sz(px, -static_cast<int>(mbo.displayQty));
-                auto new_px = std::round(mbo.pxd * px_mult);
+                auto new_px = to_px(mbo.pxd);
                 ask.update_sz(new_px, mbo.displayQty);
                 ord.pxd = mbo.pxd;
               }
@@ -563,7 +731,7 @@ namespace frame::ob::act
                 //ASSERT(bid.get_sz(px) > 0, "bid size is 0 on canc replace");
                 //ASSERT(bid.get_sz(px) >= ord.displayQty, "bid size < cancel size on canc replace");
                 bid.update_sz(px, -static_cast<int>(ord.displayQty));
-                auto new_px = std::round(mbo.pxd * px_mult);
+                auto new_px = to_px(mbo.pxd);
                 bid.update_sz(new_px, mbo.displayQty);
                 ord.pxd = mbo.pxd;
                 ord.displayQty = mbo.displayQty;
@@ -573,7 +741,7 @@ namespace frame::ob::act
                 //ASSERT(ask.get_sz(px) > 0, "ask size is 0 on canc replace");
                 //ASSERT(ask.get_sz(px) >= ord.displayQty, "ask size < cancel size on canc replace");
                 ask.update_sz(px, -static_cast<int>(ord.displayQty));
-                auto new_px = std::round(mbo.pxd * px_mult);
+                auto new_px = to_px(mbo.pxd);
                 ask.update_sz(new_px, mbo.displayQty);
                 ord.pxd = mbo.pxd;
                 ord.displayQty = mbo.displayQty;
@@ -590,7 +758,7 @@ namespace frame::ob::act
                 //ASSERT(bid.get_sz(px) > 0, "bid size is 0 on canc replace");
                 //ASSERT(bid.get_sz(px) >= ord.displayQty, "bid size < cancel size on canc replace");
                 bid.update_sz(px, -static_cast<int>(ord.displayQty));
-                auto new_px = std::round(mbo.pxd * px_mult);
+                auto new_px = to_px(mbo.pxd);
                 bid.update_sz(new_px, mbo.displayQty);
                 ord.pxd = mbo.pxd;
                 ord.displayQty = mbo.displayQty;
@@ -600,7 +768,7 @@ namespace frame::ob::act
                 //ASSERT(ask.get_sz(px) > 0, "ask size is 0 on canc replace");
                 //ASSERT(ask.get_sz(px) >= ord.displayQty, "ask size < cancel size on canc replace");
                 ask.update_sz(px, -static_cast<int>(ord.displayQty));
-                auto new_px = std::round(mbo.pxd * px_mult);
+                auto new_px = to_px(mbo.pxd);
                 ask.update_sz(new_px, mbo.displayQty);
                 ord.pxd = mbo.pxd;
                 ord.displayQty = mbo.displayQty;
@@ -661,12 +829,24 @@ namespace frame::ob::act
           pl->hndl_tim_epoch = mbo.handlerendtim;
           pl->txtim_epoch = mbo.transactTime;
           pl->sendtim_epoch = mbo.sendingTime;
+          // MsgBuf mailbox depth for the packet this record came from. Read
+          // off the INCOMING mbo, never off `ord` in the cancel paths: `ord`
+          // is the copy of the original add that has been sitting in the
+          // orders map, and its qlen belongs to that older packet.
+          pl->ingress_qlen = mbo.ingress_qlen;
+          // Same rule, same reason: the position this record held in ITS
+          // packet, not the position the resting order held in the packet
+          // that created it.
+          pl->pkt_entry_idx = mbo.pkt_entry_idx;
+          // And the identity of that packet. Same rule again -- off the
+          // incoming mbo, never off `ord`.
+          pl->pkt_seq_num = mbo.pkt_seq_num;
         }
 
         else if (is_cand(mbo))
         {
 #ifdef DEBUGTACHBOOK
-          std::cerr << get_name() << " " << "CAND: px=" << (mbo.pxd * px_mult) << std::endl;
+          std::cerr << get_name() << " " << "CAND: px=" << to_px(mbo.pxd) << std::endl;
 #endif
 
           // if (mbo.orderID == 127131791135780)
@@ -679,12 +859,14 @@ namespace frame::ob::act
             return;
           auto &ord = p->second;
           auto side = get_side(ord);
-          auto px = std::round(ord.pxd * px_mult);
+          auto px = to_px(ord.pxd);
 
-          if (px < 0 || px >= ARRAY_SIZE)
+          // ARRAY_SIZE is size_t; without the cast a negative px converts to a
+          // huge unsigned and the first half of this test is dead.
+          if (px < 0 || px >= static_cast<int>(ARRAY_SIZE))
           {
-              log_err("px out of bounds on cancd: px=%d pxd=%f px_mult=%f orderID=%lu",
-                      px, ord.pxd, px_mult, mbo.orderID);
+              log_err("px out of bounds on cancd: px=%d pxd=%f units=%f orderID=%lu",
+                      px, ord.pxd, asset_->get_units(), mbo.orderID);
               orders.erase(p);
               return;
           }
@@ -719,6 +901,18 @@ namespace frame::ob::act
           pl->hndl_tim_epoch = mbo.handlerendtim;
           pl->txtim_epoch = mbo.transactTime;
           pl->sendtim_epoch = mbo.sendingTime;
+          // MsgBuf mailbox depth for the packet this record came from. Read
+          // off the INCOMING mbo, never off `ord` in the cancel paths: `ord`
+          // is the copy of the original add that has been sitting in the
+          // orders map, and its qlen belongs to that older packet.
+          pl->ingress_qlen = mbo.ingress_qlen;
+          // Same rule, same reason: the position this record held in ITS
+          // packet, not the position the resting order held in the packet
+          // that created it.
+          pl->pkt_entry_idx = mbo.pkt_entry_idx;
+          // And the identity of that packet. Same rule again -- off the
+          // incoming mbo, never off `ord`.
+          pl->pkt_seq_num = mbo.pkt_seq_num;
 
           orders.erase(p);
         }
@@ -756,7 +950,7 @@ namespace frame::ob::act
           #endif
 
           auto side = get_side(ord);
-          // auto px = std::round(ord.pxd * px_mult);
+          // auto px = to_px(ord.pxd);
 
           pl = frame::mda::msg::data_pay_load::make_payload(
               mbot.handlerendtim,
@@ -777,6 +971,10 @@ namespace frame::ob::act
           pl->hndl_tim_epoch = mbot.handlerendtim;
           pl->txtim_epoch = mbot.transactTime;
           pl->sendtim_epoch = mbot.sendingTime;
+          // From the trade record, not from `ord`. See the mbo paths above.
+          pl->ingress_qlen = mbot.ingress_qlen;
+          pl->pkt_entry_idx = mbot.pkt_entry_idx;
+          pl->pkt_seq_num = mbot.pkt_seq_num;
 
           // initialize point with 0
           pl->point_ = {};
@@ -784,6 +982,13 @@ namespace frame::ob::act
 #ifdef DEBUGTACHBOOK
           std::cerr << get_name() << " sending trade notify " << *pl << std::endl;
 #endif
+
+          // Trades do NOT go through publish_book, so stamp here too. Note the
+          // different denominator: this path has no fast_compare and no
+          // baddata filter -- its only reject is order-not-found above. Trade
+          // and book-update latencies must be reported separately; pooling
+          // them mixes two populations selected by different rules.
+          pl->publish_ts = chutil::Time::epoch();
 
           for (auto &sub : aggr_subs)
           {
@@ -995,7 +1200,32 @@ namespace frame::ob::act
 
       // send end of burst
 
+      ++pb_calls;
+
       create_point(pl);
+
+#ifndef ALWAYSPUB
+      // Bad data is tested BEFORE the unchanged test, and prev_pl is only ever
+      // a point that passed. Both orderings drop the same records; only the
+      // reported reason differs, and the old order reported it wrongly.
+      //
+      // When a book has no bid or no ask, create_point memsets the point and
+      // returns early, so the point is all zeros. Under the old order the
+      // first such point became prev_pl, and every later all-zero point
+      // compared equal to it. A book that never formed a level therefore
+      // reported drop_unchanged=12756 drop_baddata=1 -- "the book is quiet"
+      // -- when the truth was that not one record ever reached a level. NQ
+      // read exactly that way for a full session.
+      //
+      // Keeping a rejected point as prev_pl is wrong on its own terms too: the
+      // next good point is then deduped against a point that was never
+      // published.
+      if (pl->point_.baddata)
+      {
+        ++pb_baddata;
+        return;
+      }
+#endif
 
       if (prev_pl)
       {
@@ -1003,22 +1233,32 @@ namespace frame::ob::act
         if (is_equal)
         {
           //std::cerr << " no change in book " << get_name() << std::endl;
+          ++pb_same;
           return;
         }
       }
       prev_pl = pl;
 
-#ifndef ALWAYSPUB
-      // create_point already validated and set baddata flag
-      // No need to re-fetch best prices - already validated
-      if (pl->point_.baddata)
-      {
-        return;
-      }
-#endif
-
       if (!pl->point_.baddata)
       {
+
+        // Stamp the publish instant as late as possible: everything above --
+        // applying the order to the book, uncross, create_point, fast_compare
+        // -- is book-build work and belongs in the hndl_tim_epoch->publish_ts
+        // leg, not in the subscriber's mailbox-hop leg.
+        //
+        // Caveat for whoever reads the numbers: any work done for aggr_subs
+        // below lands between this stamp and the hiprio enqueue, and would
+        // inflate every hiprio subscriber's measured hop.
+        //
+        // None exist. aggr_subs is empty in every configuration, for two
+        // independent reasons: subscribe_handler's AGGR branch opens with
+        // ERRF("no aggr sub allowed"), and Subscribe's constructor takes its
+        // priority as a bool, so AGGR(2) cannot even be expressed -- it
+        // narrows to 1, which is HI. So the loop below is dead and the term
+        // is zero for every reader, not just for md_perf_meter.
+        pl->publish_ts = chutil::Time::epoch();
+        ++pb_sent;
 
         for (auto &sub : aggr_subs)
         {

@@ -294,6 +294,14 @@ namespace mdp3
                     // process message
                     log_dbg("processing message sn: %d, qseq_num: %d", sn, qseq_num);
                     bool is_channel_reset = false;
+                    // Ingress mailbox depth for THIS packet. Note msg is the
+                    // reorder-map entry (p->second), so msg.qlen belongs to the
+                    // packet actually being decoded -- not to whatever packet
+                    // happened to trigger this drain. Contrast `ts` on the next
+                    // line, which is the arriving packet's recv_ts and is wrong
+                    // for every packet released out of a gap. Do not copy that
+                    // pattern here.
+                    decoder.set_ingress_qlen(msg.qlen);
                     auto rc = decoder.mbo_data(&msg.message[0], msg.len, ts, is_channel_reset);
                     if (!rc)
                     {
@@ -320,7 +328,14 @@ namespace mdp3
                 else if (--waitcnt > 0)
                 {
                     numwaits++;
-                    log_wrn("waiting for gap to close waitcnt: %d, numwaits: %d", waitcnt, numwaits);
+                    // ERR, not WRN, and carries its own tim:. This line is the
+                    // TRUE start of latency contamination -- packets begin
+                    // buffering in msg_q here, before any recovery event fires.
+                    // Without a call-site stamp it cannot be placed on the
+                    // timeline at all, because the logger's line prefix is
+                    // 00/00/0000 00:00:00.000000000 (Logger.cpp rt=false).
+                    log_err("waiting for gap to close waitcnt: %d, numwaits: %d, tim: %s",
+                            waitcnt, numwaits, chutil::Time::now_utc().to_string());
                     return;
                 }
                 else
@@ -330,7 +345,7 @@ namespace mdp3
                     seqnumnotfound.insert(qseq_num + 1);
 
                     // we hve a gap and its not start
-                    log_wrn("have gap sn: %d, expected: %d, tim: %s", sn, qseq_num + 1,
+                    log_err("have gap sn: %d, expected: %d, tim: %s", sn, qseq_num + 1,
                             chutil::Time::now_utc().to_string());
 
                     if (dorecovery)

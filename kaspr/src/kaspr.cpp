@@ -14,6 +14,7 @@
 #include "kaspr.hpp"
 
 #include <iostream>
+#include <sstream>
 #include <csignal>
 #include <thread>
 #include <chrono>
@@ -47,6 +48,23 @@ static std::string resolve_path(const std::string& config_dir, const std::string
     return (std::filesystem::path(config_dir) / path).string();
 }
 
+std::vector<int> Kaspr::parse_cpu_list(const std::string& s)
+{
+    std::vector<int> out;
+    std::string tok;
+    std::istringstream is(s);
+    while (std::getline(is, tok, ',')) {
+        // strip whitespace; "16, 48" is the form a human types
+        size_t a = tok.find_first_not_of(" \t");
+        if (a == std::string::npos) continue;
+        size_t b = tok.find_last_not_of(" \t");
+        tok = tok.substr(a, b - a + 1);
+        if (tok.empty()) continue;
+        out.push_back(std::stoi(tok));  // throws on garbage, which is correct
+    }
+    return out;
+}
+
 Kaspr::Kaspr(const std::string& config_file, bool reset_positions)
     : Manager("kaspr_manager"), config_file_(config_file), reset_positions_(reset_positions)
 {
@@ -68,7 +86,17 @@ Kaspr::Kaspr(const std::string& config_file, bool reset_positions)
     if (enable_tachbook_) {
         std::cerr << "Kaspr: TachBook (MBO L3) enabled - will run silently alongside OB" << std::endl;
     }
+
+    // Latency probe. Default OFF: the production recorder must not grow a
+    // TachBook subscriber because a measurement config existed once.
+    enable_perf_probe_ = pt_general.get<bool>("kaspr.general.perf_probe", false);
+    probe_bin_ms_      = pt_general.get<int>("kaspr.general.perf_bin_ms", 100);
+    probe_csv_dir_     = pt_general.get<std::string>("kaspr.general.perf_csv_dir", "");
 #endif
+
+    // Comma list of cpu ids for the TachBook threads, assigned round-robin in
+    // creation order. Default "" = do not pin.
+    tachbook_cpus_ = pt_general.get<std::string>("kaspr.general.tachbook_cpus", "");
 
     // Create Logger first so log_inf works
     logger = new polonaise::logger::act::Logger("kaspr_log", nullptr);
@@ -78,6 +106,7 @@ Kaspr::Kaspr(const std::string& config_file, bool reset_positions)
     create_order_books();
 #ifdef USE_TACHBOOK
     create_tach_books();
+    create_probes();      // after the books: nothing to subscribe to before
 #endif
     create_support_modules();
     create_som();           // Create SOM before DB so DB can subscribe to it
@@ -156,7 +185,19 @@ void Kaspr::create_tach_books()
     for (size_t i = 0; i < tach_books.size(); i++)
         tach_books[i].resize(n, nullptr);
 
-    std::set<std::string> futures_mnemonics = {"ES", "NQ"};
+    // ZN is here because it is the third liquid book on a different channel
+    // (344, CBOT rates) and a different price scale. ES and NQ both arrive on
+    // equity channels; measuring only those cannot tell a per-channel effect
+    // apart from a per-book one.
+    // Round-robin the configured cpus over the books in creation order. This
+    // is deliberately dumb: it does not know which book is busy. ESZ6 and the
+    // dead M6 books get equal weight, so a short list will land the hot book
+    // and an idle one on the same cpu. Order the list with that in mind, or
+    // give it as many entries as there are books.
+    auto tb_cpu_vec = parse_cpu_list(tachbook_cpus_);
+    size_t tb_i = 0;
+
+    std::set<std::string> futures_mnemonics = {"ES", "NQ", "ZN"};
     for (size_t j = 1; j < n; j++)
     {
         auto a = frame::ref::RefData::inst().get_asset(j);
@@ -166,19 +207,73 @@ void Kaspr::create_tach_books()
                       << " (" << a->mnemonic << ", id=" << j << ")" << std::endl;
 
             auto tb = new frame::ob::act::TachBook(j);
-            add_to_manage_q(tb);
+            std::set<int> aff;
+            if (!tb_cpu_vec.empty()) {
+                aff.insert(tb_cpu_vec[tb_i % tb_cpu_vec.size()]);
+                std::cerr << "Kaspr:   TachBook " << a->name << " -> cpu "
+                          << *aff.begin() << std::endl;
+                ++tb_i;
+            }
+            add_to_manage_q(tb, aff);
             tach_books[en::x::CMEMDFUT][j] = tb;
 
             if (a->mnemonic == "ES") {
                 es_tach_books.push_back(tb);
             } else if (a->mnemonic == "NQ") {
                 nq_tach_books.push_back(tb);
+            } else if (a->mnemonic == "ZN") {
+                zn_tach_books.push_back(tb);
             }
         }
     }
 
     std::cerr << "Kaspr: Created " << es_tach_books.size() << " ES TachBooks" << std::endl;
     std::cerr << "Kaspr: Created " << nq_tach_books.size() << " NQ TachBooks" << std::endl;
+    std::cerr << "Kaspr: Created " << zn_tach_books.size() << " ZN TachBooks" << std::endl;
+}
+
+void Kaspr::create_probes()
+{
+    if (!enable_perf_probe_)
+        return;
+
+    if (!enable_tachbook_) {
+        // Not a warning to bury in a log: the run produces no samples at all.
+        std::cerr << "Kaspr: perf_probe requested but tachbook is OFF -- "
+                     "nothing to subscribe to, no samples will be written"
+                  << std::endl;
+        return;
+    }
+
+    std::cerr << "Kaspr: Creating LatencyProbes (bin " << probe_bin_ms_ << " ms)" << std::endl;
+
+    // One probe per TachBook. The tag carries "perf" because
+    // TachBook::subscribe_handler admits a HI-priority subscriber only on that
+    // substring -- rename it and the probe silently receives nothing.
+    auto attach = [&](cfsmp tb) {
+        auto sym = static_cast<frame::ob::act::TachBook *>(tb)->get_sym();
+        auto a   = frame::ref::RefData::inst().get_asset(sym);
+        if (!a) return;
+
+        std::string tag = "perf_" + a->name;
+        std::string csv;
+        if (!probe_csv_dir_.empty())
+            csv = probe_csv_dir_ + "/lat_" + a->name + ".csv";
+
+        auto p = create_LatencyProbe(tb, sym, tag.c_str(), probe_bin_ms_, csv);
+        add_to_manage_q(p);
+        probes.push_back(p);
+
+        std::cerr << "Kaspr:   probe " << tag
+                  << " -> " << (csv.empty() ? std::string("(console only)") : csv)
+                  << std::endl;
+    };
+
+    for (auto tb : es_tach_books) attach(tb);
+    for (auto tb : nq_tach_books) attach(tb);
+    for (auto tb : zn_tach_books) attach(tb);
+
+    std::cerr << "Kaspr: Created " << probes.size() << " LatencyProbes" << std::endl;
 }
 #endif
 
@@ -367,6 +462,27 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     handler->mbo_order_books = order_books.at(venue);
     handler->binrec = nullptr;
 
+#ifdef USE_TACHBOOK
+    // Measurement mode. handler_if has ONE book vector, indexed by asset_id --
+    // it feeds OB or TachBook, never both. So creating TachBooks is not enough
+    // to measure them: without this swap they are constructed, started, and
+    // then sit at zero messages forever, and the probe writes an empty CSV.
+    //
+    // This is destructive by construction, which is why it is a separate flag
+    // and not implied by tachbook+perf_probe. With it on, the OBs get nothing,
+    // so lights, SOM sim-fills, DB and MTD all see a dead market. That is fine
+    // for a latency window and useless for anything else. Never set it on the
+    // production recorder.
+    if (enable_tachbook_ && enable_perf_probe_ &&
+        pt_general.get<bool>("kaspr.general.perf_route_tachbook", false))
+    {
+        handler->mbo_order_books = tach_books.at(venue);
+        std::cerr << "Kaspr: PERF MODE - channel " << chan
+                  << " market data routed to TachBook; OB receives nothing"
+                  << std::endl;
+    }
+#endif
+
     auto dorecovery = pt_chan.get<bool>("cme_do_recovery", true);
     auto disable_mbo = pt_chan.get<bool>("cme_disable_mbo", false);
     auto maxmpblevel = pt_chan.get<int>("cme_max_mbp_level", 0);
@@ -396,12 +512,46 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
         p_cme.get<std::string>("name").c_str()
     );
 
-    // Manage MDP3 actors (no CPU pinning for kaspr)
-    add_to_manage_q(mdp3cfsmp[0]);  // recovery_processor
-    add_to_manage_q(mdp3cfsmp[1]);  // message_processor
-    add_to_manage_q(mdp3cfsmp[2]);  // msg_buf_a
-    add_to_manage_q(mdp3cfsmp[4]);  // socket_processor_a
-    add_to_manage_q(mdp3cfsmp[5]);  // socket_processor_b
+    // Manage MDP3 actors.
+    //
+    // cme_cpus is a comma list of exactly 5 cpu ids, in the order the actors
+    // are listed below:
+    //
+    //     recovery, message_processor, msg_buf_a, socket_proc_a, socket_proc_b
+    //
+    // Absent or empty => no pinning, which is the pre-existing behaviour and
+    // what the production recorder gets. A list of any other length is a
+    // hard error, not a partial application: pinning three of five actors and
+    // saying nothing is exactly the silent-half-configured failure this
+    // codebase keeps producing.
+    //
+    // socket_proc_a and socket_proc_b are the A and B sides of the same feed.
+    // They are busy at the same instant, so do NOT put them on two SMT
+    // siblings of one physical core -- they will fight for the same execution
+    // units precisely during a burst. Siblings on this box are (N, N+32):
+    // cpu16/cpu48 are one core, not two.
+    auto cpu_str = pt_chan.get<std::string>("cme_cpus", "");
+    auto cpus    = parse_cpu_list(cpu_str);
+
+    if (!cpus.empty() && cpus.size() != 5) {
+        throw std::runtime_error(
+            "chan " + chanstr + ": cme_cpus needs exactly 5 cpu ids "
+            "(recovery,msgproc,msgbuf,sock_a,sock_b), got " +
+            std::to_string(cpus.size()) + " from \"" + cpu_str + "\"");
+    }
+
+    auto pin = [&](size_t i) -> std::set<int> {
+        if (cpus.empty()) return {};
+        std::cerr << "Kaspr:   chan " << chanstr << " actor[" << i
+                  << "] -> cpu " << cpus[i] << std::endl;
+        return {cpus[i]};
+    };
+
+    add_to_manage_q(mdp3cfsmp[0], pin(0));  // recovery_processor
+    add_to_manage_q(mdp3cfsmp[1], pin(1));  // message_processor
+    add_to_manage_q(mdp3cfsmp[2], pin(2));  // msg_buf_a
+    add_to_manage_q(mdp3cfsmp[4], pin(3));  // socket_processor_a
+    add_to_manage_q(mdp3cfsmp[5], pin(4));  // socket_processor_b
 
     std::cerr << "Kaspr: MDP3 channel " << chan << " configured" << std::endl;
 }
@@ -420,6 +570,21 @@ void Kaspr::start_market_data()
         start_channel("prod_nasdaq", en::x::CMEMDFUT);
     }
 
+    // Channel 344 - CBOT interest rate futures, ZN/ZF/ZB/ZT/UB (CMEMDFUT)
+    //
+    // This branch did not exist. kaspr.ini has carried chan_344 true for as
+    // long as the setting has been there, and it did nothing: the flag was
+    // read by nobody, so no treasury future has ever reached a book on this
+    // path. The universe rows, the zn_order_books vector in the header and
+    // the prod_treasury_futures section in cme.ini were all already present,
+    // which is why it looked wired.
+    //
+    // A config key nothing reads is silent by construction. That is the same
+    // failure as the TachBook ladder: the system reported normal operation
+    // while producing nothing.
+    if (pt_general.get<bool>("kaspr.channels.chan_344", false)) {
+        start_channel("prod_treasury_futures", en::x::CMEMDFUT);
+    }
 }
 
 } // namespace kaspr

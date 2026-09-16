@@ -59,7 +59,9 @@ namespace mcast_recv
     bool fastsend;
     uint64_t last_ts = 0;
     bool big_endian;
-    mutable int ts_cnt = 0;
+    // ts_cnt is gone with the subsample in read(). Left as a note because a
+    // stride counter here is the obvious thing to reach for again, and the
+    // measurement that says not to is in read()'s comment.
 
     void read(message_buffer *m) const noexcept
     {
@@ -75,10 +77,52 @@ namespace mcast_recv
         seq_num = boost::endian::big_to_native(seq_num);
       m->seqnum = seq_num;
       m->chan = chan;
-      if (ts_cnt++ % 16 == 0)
-        m->recv_ts = chutil::Time::epoch();
-      else
-        m->recv_ts = 0;
+      // EVERY PACKET IS STAMPED. There is no subsample any more. 16 then 5;
+      // now 1, because the reason for the divisor did not survive being
+      // measured.
+      //
+      // The old comment here argued "clock_gettime on every packet is a cost
+      // on this loop, and this loop is what keeps the socket drained." That is
+      // false on this box, and the measurements are:
+      //
+      //   clocksource                  tsc   (/sys/devices/system/clocksource/
+      //                                       clocksource0/current_clocksource)
+      //
+      // tsc is the condition for the vDSO fast path, so system_clock::now()
+      // resolves in userspace against the TSC and NEVER ENTERS THE KERNEL. It
+      // is not a system call. strace -c over 2,100,000 calls counted 66
+      // syscalls total, every one of them process startup, and zero
+      // clock_gettime. That is the proof; the rest is cost:
+      //
+      //   Time::epoch()        p50    20.25 ns   (p99 21.87, max 22.55)
+      //   recvfrom, loopback   p50      510 ns   (min 240)
+      //
+      // Loopback recvfrom has no driver, no NAPI and no wire, so 510 ns is a
+      // hard LOWER BOUND on the read it is being compared against. The clock
+      // is 4% of that floor and a smaller fraction of the real thing.
+      //
+      // In absolute terms: be generous and call the whole read loop 500k
+      // packets/sec in a burst. 500k x 20 ns = 10 ms/sec, i.e. 1% of one core,
+      // to stamp everything. The 1-in-5 was buying back 0.8% of a core.
+      //
+      // WHAT IT COST TO BUY IT. A packet with recv_ts == 0 carries no t0, so
+      // handler_if stamps handlerendtim = 0 and LatencyProbe::sample() threw it
+      // into rej_zero_t0 before recording either leg or the qlen -- four fifths
+      // of all arrivals discarded. Over 44.8k bins on 2026-09-16 that left the
+      // median non-empty bin at n=1 for ESZ6 and n=0 for ZNZ6: a "bin mean"
+      // computed from a single observation, or none. It also destroyed every
+      // quantile and the whole distribution shape, and it made the per-bin
+      // min/max bounds on a thinned subset rather than on the bin.
+      //
+      // Consequences of stamping all, so nothing downstream reads as a fault:
+      //   - rej_zero_t0 should now be 0. Non-zero means a genuinely unstamped
+      //     record is reaching a subscriber, which is a real finding again
+      //     instead of the expected case.
+      //   - the probe's sample_ratio (all_n / l1_n) should now be 1.0, not ~5.
+      //   - leg 1 now includes this 20 ns in every measurement rather than in
+      //     one fifth of them. It was always inside the interval; it is now
+      //     uniformly inside it, which is the honest version.
+      m->recv_ts = chutil::Time::epoch();
     }
 
 #ifdef DEBUGSOCKET
@@ -163,6 +207,33 @@ std::cerr << get_name() << " started on port: " << port
 
     // this implementation pre-dates the message pool
     // do we still need to pre-allocate?
+    //
+    // No. Traced 2026-09-16; the answer is in the loop below.
+    //
+    // pre_alloc_q is a one-way drain. A buffer taken at the top is handed to
+    // msg_processor->send() and ownership goes with it -- nothing ever pushes
+    // it back. So the 1024 buffers allocated at entry are spent on the first
+    // 1024 packets and the queue is empty for the rest of the run. Every packet
+    // after that is served by the refill below, i.e. a fresh `new`, which since
+    // ProcessQ gained MemoryPool<...,16,16,4096> is a pool hit anyway. The
+    // pre-allocation therefore buys one burst at startup and nothing after.
+    //
+    // What it still does, permanently, is cap the read batch. Once empty:
+    //   read loop (cond `!pre_alloc_q.empty()`) exits having read 0
+    //   refill                                  +4 buffers
+    //   drain q, send downstream
+    //   has_more(sock) -> goto L1               read <= 4, refill +4, repeat
+    // The refill sits after the read loop and before the drain, and L1 is above
+    // both, so every pass through L1 hits it. The loop settles at 4 packets per
+    // pass and stays there.
+    //
+    // It does NOT stall and it does NOT stop draining the socket -- an earlier
+    // reading of this code claimed silent packet loss under burst and that was
+    // wrong, the reader keeps reading. The cost is batching efficiency only:
+    // 4 reads + 4 pool allocs + 4 sends per pass instead of one large batch.
+    // Still worth removing, since a knob that looks like a pre-allocation and
+    // actually behaves like a rate limiter is the kind of thing that gets
+    // mis-tuned. See the tracking issue.
     void continue_handler_new(const actors::msg::Continue *) noexcept
     {
       actors::HybridBuffer<msg::ProcessQ<seqnumT> *> q(256);
