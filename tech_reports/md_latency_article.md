@@ -860,6 +860,123 @@ One bin in roughly 5,000; 69 messages out of 213,538. It moves no mean in this
 article. It is the residual the model does not cover, and I would rather print it
 than bury it.
 
+## What this means if you are building one
+
+Everything above is a measurement. This section is the design advice that falls
+out of it, and it is narrower than I expected when I started.
+
+**The lever is per-message service time, not the queue.** The two numbers in
+`med = floor + slope × idx` do different jobs: the floor sets the median, the
+slope sets the tail. Across six streams the floor varies by 0.42 µs — 6.81 to
+7.23 — and the slope varies by 3.1×. Everything interesting in the p99 column of
+the opening table is bought with the slope.
+
+That gives a blunt test for whether an optimisation is worth doing. Taking 100 ns
+off the floor moves every message by 100 ns, including the tail ones. Taking
+100 ns off the slope moves a message by `idx` × 100 ns, and `idx` is precisely
+what is large in the tail. On ZN book the p99 message sits at position 25, so the
+same 100 ns is worth 2.5 µs there and 0.1 µs at the median.
+
+**Find out where your messages actually sit.** The packet-size table earlier is
+packet-weighted. That is the wrong weighting for this question, because a large
+packet contains more messages and therefore holds more of your latency. Weighted
+by message:
+
+```
+                 messages    at idx 0   mean    p50   p90   p99   max
+  ES book       2,861,519      86.7%    0.60      0     1    11    44
+  NQ book       3,792,033      78.4%    0.77      0     3    10    41
+  ZN book       1,119,746      83.8%    1.17      0     2    25    44
+  ES trade        296,736       0.5%    4.29      2     9    33    84
+  NQ trade        110,003       0.4%    3.67      1     9    32    84
+  ZN trade        114,154       0.7%   16.21      8    47    77    84
+```
+
+The books and the trades are not the same system. On the books, four messages in
+five arrive alone in their packet and pay the floor and nothing else — median
+`idx` is 0 on all three. On the trades, **99.3% to 99.6% of messages have someone
+ahead of them.** A trade message is essentially never alone. The median ZN trade
+message is ninth in its packet and has paid eight slopes before it is touched.
+
+That fact alone reproduces the medians in the opening table, with no appeal to
+queueing. Take the published ladder and evaluate it at each stream's own position
+quantiles:
+
+```
+              floor   slope  i@p50  pred p50  obs p50  i@p99  pred p99  obs p99  cover
+  ES book    6.98us   566ns      0    6.98us   7.08us     11    13.2us   18.5us    71%
+  NQ book    7.23us   312ns      0    7.23us   7.28us     10    10.4us   13.6us    76%
+  ZN book    6.83us   966ns      0    6.83us   7.10us     25    31.0us   57.0us    54%
+  ES trade   6.81us   714ns      2    8.24us   9.02us     33    30.4us   38.0us    80%
+  NQ trade   7.14us   526ns      1    7.67us   8.34us     32    24.0us   31.2us    77%
+  ZN trade   6.81us   965ns      8   14.53us  15.36us     77    81.1us  219.4us    37%
+```
+
+ZN trade's median is 15.4 µs against ES book's 7.1 µs, and 14.5 of those 15.4 are
+accounted for by "you are ninth in your packet, on the stream with the dearest
+messages." Two multiplied factors, both bad, neither of them a queue.
+
+This is a check, not an identity — the median of a sum is not the sum of medians,
+and composing a `idx` quantile with a ladder fitted on medians is looser still.
+Note that the prediction is low on all six rows, by 0.05 to 0.83 µs at the
+median, and that the error grows with `idx`. It is a biased estimator and the
+bias has a sign. Read the right-hand block as a lower bound on the tail rather
+than a forecast of it.
+
+**The coverage column is the one to act on.** Where the ladder accounts for
+70–80% of the p99, position is the whole story and the slope is worth attacking.
+Where it accounts for 37% — ZN trade — something else owns the other 63%. The
+same split appears in the total time budget:
+
+```
+               total ms   floor %   slope %   residual
+  NQ book        28,624     95.8%      3.2%       1.0%
+  ES book        21,851     91.4%      4.5%       4.1%
+  NQ trade        1,037     75.7%     20.5%       3.8%
+  ES trade        3,147     64.2%     28.9%       6.9%
+  ZN book        10,429     73.3%     12.1%      14.6%
+  ZN trade        3,477     22.4%     51.3%      26.3%
+```
+
+This budget is sum-weighted, so unlike every other table here it is fully exposed
+to the stalls — which is the point of the residual column. The ladder is fitted
+at `qlen 0` on medians, so whatever it does not account for is queueing plus
+stalls plus whatever else is in there. On NQ book the residual is 1.0%: the model
+is the system. On ZN trade it is 26.3%, and no amount of tuning the decode loop
+will touch that quarter.
+
+So the order of work is: measure your residual first. If it is small, optimise
+the slope. If it is large, the slope is not your problem, and you should go find
+out what is — which in this system is a stall population I still cannot explain.
+
+**Three things that look like the answer and are not.**
+
+*Reducing the message rate.* The ranking runs the wrong way. NQ book is the
+busiest stream here, 806 packets/s, and has the best p99 at 13.6 µs. ZN book is
+the quietest, 241 packets/s, and has the worst at 57.0 µs. On Fed day ZN book got
+*faster* — 12.4 → 7.7 µs — at ten times the packet rate. A system with ρ nowhere
+near 1 does not behave like one near saturation, and this one is not near
+saturation: 87% to 99.7% of messages arrive to an empty ring.
+
+*Sizing the ring.* Those same percentages say most messages never queue at all.
+Adding ring capacity changes nothing at the median and nothing at the p99 of the
+book streams. The queue is real — `qlen ≥ 3` costs +1.5 µs at p50 and +21 to
++145 µs at p99 — but it fires on 0.08% of messages. Worth knowing about; not
+worth designing around.
+
+*Batching harder.* The slope is charged per message regardless of how the
+messages arrived. Coalescing does not reduce the work, it moves messages to
+higher `idx`, which is the variable that makes tails long. The trade streams are
+what a batched book stream looks like: same floor, 0.4% of messages at `idx 0`,
+and a p99 two to four times worse.
+
+**One caveat on the slope itself.** The 3.1× spread between NQ and ZN is real and
+reproducible, and I do not know what causes it. If it is cache residency then
+"make the cold path cheaper" really means "make the cold path smaller", which is
+different and harder work than shaving instructions. If it is message mix then ZN
+messages are simply dearer and there may be nothing to win. That question needs
+hardware counters and is open.
+
 ## What I would take away
 
 1. **Measure the pair, not the aggregate.** The variables I needed were in the
@@ -909,6 +1026,7 @@ kaspr/perf/kh_imed.py [HH:MM:SS]   # idx ladder on medians    (attempt four, a)
 kaspr/perf/kh_isp.py  [HH:MM:SS]   # idx ladder at fixed span (attempt four, b)
 kaspr/perf/kh_idx.py  [HH:MM:SS]   # the mean-based ladder, kept for contrast
 kaspr/perf/kh_pkt.py  [HH:MM:SS]   # packet size distribution and concentration
+kaspr/perf/kh_prac.py [HH:MM:SS]   # message-weighted idx, ladder check, budget
 kaspr/perf/kh_scat.py [HH:MM:SS]   # the bin-level fit, kept for contrast
 kaspr/perf/kh_proc.py [HH:MM:SS]   # arrival ORDER: ACF, Fano, shuffle, Hurst
 kaspr/perf/kh_gap.py               # arrival MARGINAL: gaps vs Exp(same mean)
@@ -956,10 +1074,20 @@ accumulators, so the two populations are identical and joinable.
 8. The startup window is excluded by a time cut. Startup is a snapshot replay,
    not a latency measurement, and it puts messages at 8 ms and 76 ms into the
    file.
-9. The arrival-process section runs on the uncut capture, so it spans a regime
-   change the latency tables do not — a quiet stretch and a busy one pooled
-   together read as clustering whether or not the process is self-exciting. The
-   shuffle control does not separate those, and neither does anything else here.
-   Splitting the sample by time and re-running is the obvious next test and has
-   not been done. Until it is, "self-exciting" is the *reading*, and "not
-   Poisson in either the marginal or the ordering" is the measurement.
+9. The time budget in the practitioner section is the only **sum-weighted**
+    table in the article, so it is the only one the stalls can move. That is
+    deliberate — the residual column is where they show up — but it means the
+    floor/slope shares are not comparable with any other table here, and the
+    residual is not purely queueing. It is queueing *plus* stalls plus fit
+    error, undivided.
+10. The `pred p50` / `pred p99` columns compose a quantile of `idx` with a
+    ladder fitted on medians. That is not an identity, and it underestimates on
+    all six streams by an amount that grows with `idx`. It is a lower bound
+    presented as one, not a model.
+11. The arrival-process section runs on the uncut capture, so it spans a regime
+    change the latency tables do not — a quiet stretch and a busy one pooled
+    together read as clustering whether or not the process is self-exciting. The
+    shuffle control does not separate those, and neither does anything else
+    here. Splitting the sample by time and re-running is the obvious next test
+    and has not been done. Until it is, "self-exciting" is the *reading*, and
+    "not Poisson in either the marginal or the ordering" is the measurement.
