@@ -590,6 +590,127 @@ namespace frame::perf::act
     uint64_t arr_written[NPOP] = {0, 0};
     uint64_t arr_inline[NPOP] = {0, 0}; // buffer-full writes; expect 0
 
+    // ---- per-MESSAGE log, one record per admitted message ---------------
+    //
+    // WHY THIS EXISTS. qlen, idx and leg 1 are all in hand, per message, in
+    // sample(). They were being folded into bin sums and a bin MAX and then
+    // dropped. A max and a sum do not identify a joint distribution: once 166
+    // messages collapse to (qlen_max, l1_sum, n), no arithmetic recovers which
+    // message was deep. Every qlen-vs-latency table built off the CSV was
+    // therefore a BOUND, not a measurement -- the group was SELECTED on the
+    // deepest message in the bin but AVERAGED over all of them, and msgs/bin
+    // itself rises with depth (ZN book: 6.7 at depth 0, 479.6 at depth 3-4),
+    // so the effect was divided by a denominator that grew with it. That is
+    // what flattened the observed ladder to ~1.2 us and hid the result.
+    //
+    // The CSV's qlen_SUM column does not have that defect -- mean depth and
+    // mean latency share a denominator, and the bin-level fits built on it are
+    // sound. But they stay ECOLOGICAL: they say "bins where messages saw
+    // deeper queues were slower", not "a message at depth d costs a + b*d".
+    // Only the pairing below can say the second thing.
+    //
+    // Emitted at the same point as the bin accumulators, after all four
+    // rejects, so its population is exactly the row's l1_n -- same admission
+    // rule, same denominator, joinable to the CSV on bin_key_ns.
+#pragma pack(push, 1)
+    struct MsgRec
+    {
+      uint64_t t1;    // publish ts; t1 - (t1 % bin_ns) == the CSV's bin_key_ns
+      uint32_t l1_ns; // t1 - t0 for THIS message. Saturates at ~4.29 s.
+      uint16_t qlen;  // ingress_qlen for THIS message (packets ahead in MsgBuf)
+      uint16_t idx;   // decode position inside its own packet, THIS message
+    };
+#pragma pack(pop)
+    static_assert(sizeof(MsgRec) == 16, "MsgRec must stay 16 bytes");
+
+    // Messages outnumber packets ~1.1x on book and ~3x on trade, so this is 4x
+    // the arrival buffer: 16384 records = 256 KB per population. At the Fed
+    // peak (772 pkt/s * 1.09 batch) that is ~19 s of headroom between flushes.
+    static constexpr std::size_t MSGBUF = 16384;
+    MsgRec msg_buf[NPOP][MSGBUF];
+    std::size_t msg_n[NPOP] = {0, 0};
+    std::ofstream msg_f[NPOP];
+    bool msg_open[NPOP] = {false, false};
+    uint64_t msg_written[NPOP] = {0, 0};
+    uint64_t msg_inline[NPOP] = {0, 0}; // buffer-full writes; expect 0
+    uint64_t msg_sat[NPOP] = {0, 0};    // any field saturated; expect 0
+
+    void msg_ensure(int pop) noexcept
+    {
+      if (msg_open[pop] || csv_path.empty())
+        return;
+      msg_open[pop] = true; // set first: a failed open must not retry per msg
+
+      std::string base = csv_path;
+      const std::size_t dot = base.rfind(".csv");
+      if (dot != std::string::npos)
+        base.erase(dot);
+      base += (pop == POP_BOOK) ? "_book.msg" : "_trade.msg";
+
+      msg_f[pop].open(base, std::ios::app | std::ios::binary);
+      if (!msg_f[pop].is_open())
+        return;
+
+      if (msg_f[pop].tellp() == std::streampos(0))
+      {
+        char h[64];
+        memset(h, 0, sizeof(h));
+        memcpy(h, "KHMSGV01", 8);
+        const uint32_t recsz = uint32_t(sizeof(MsgRec));
+        const uint32_t ver = 1;
+        memcpy(h + 8, &recsz, 4);
+        memcpy(h + 12, &ver, 4);
+        snprintf(h + 16, 32, "sym=%d pop=%s", sym,
+                 (pop == POP_BOOK) ? "book" : "trade");
+        const uint64_t now = chutil::Time::epoch();
+        memcpy(h + 48, &now, 8);
+        // bin_ns so a reader can rebuild the CSV's bin key without being told.
+        memcpy(h + 56, &bin_ns, 8);
+        msg_f[pop].write(h, sizeof(h));
+      }
+    }
+
+    void msg_write(int pop) noexcept
+    {
+      if (!msg_n[pop])
+        return;
+      if (msg_open[pop] && msg_f[pop].is_open())
+      {
+        msg_f[pop].write(reinterpret_cast<const char *>(msg_buf[pop]),
+                         std::streamsize(msg_n[pop] * sizeof(MsgRec)));
+        msg_written[pop] += msg_n[pop];
+      }
+      msg_n[pop] = 0;
+    }
+
+    // Called from sample() with the values already in registers. No clock read,
+    // no allocation, no branch on anything but the buffer bound.
+    void msg_record(int pop, uint64_t t1, uint64_t l1,
+                    uint32_t qlen, uint32_t idx) noexcept
+    {
+      if (csv_path.empty())
+        return;
+      msg_ensure(pop);
+      if (!msg_f[pop].is_open())
+        return;
+
+      if (msg_n[pop] >= MSGBUF)
+      {
+        ++msg_inline[pop]; // never drop -- a hole would look like a quiet spell
+        msg_write(pop);
+      }
+      MsgRec &r = msg_buf[pop][msg_n[pop]++];
+      r.t1 = t1;
+      // Saturate rather than wrap, and COUNT it. A wrapped value is a
+      // plausible-looking lie; a saturated one with a non-zero counter beside
+      // it is a known bound.
+      if (l1 > 0xFFFFFFFFULL || qlen > 0xFFFFu || idx > 0xFFFFu)
+        ++msg_sat[pop];
+      r.l1_ns = uint32_t(l1 > 0xFFFFFFFFULL ? 0xFFFFFFFFu : l1);
+      r.qlen = uint16_t(qlen > 0xFFFFu ? 0xFFFFu : qlen);
+      r.idx = uint16_t(idx > 0xFFFFu ? 0xFFFFu : idx);
+    }
+
     // Opened lazily on the first record, so an instrument that never trades
     // leaves no empty file. Header is 64 bytes: magic, record size, version,
     // then the instrument and population as text, so a file found on its own
@@ -647,6 +768,12 @@ namespace frame::perf::act
         arr_write(p);
         if (arr_open[p] && arr_f[p].is_open())
           arr_f[p].flush();
+        // Per-message log rides the same tick. Both are binary side-files with
+        // their own buffers and both must survive a shutdown, so neither may
+        // sit behind the CSV's early return.
+        msg_write(p);
+        if (msg_open[p] && msg_f[p].is_open())
+          msg_f[p].flush();
       }
     }
 
@@ -968,6 +1095,13 @@ namespace frame::perf::act
         b->qlen_max[pop] = q;
       if (q < b->qlen_min[pop])
         b->qlen_min[pop] = q;
+
+      // THE PAIRING. q, idx and t1-t0 are all in registers here, all for the
+      // SAME message. Everything above this line folds them into bin
+      // aggregates, which is lossy in a way that cannot be undone downstream.
+      // This keeps the triple intact. Last statement in sample() so that if it
+      // ever has to be removed, nothing else moves.
+      msg_record(pop, t1, t1 - t0, q, idx);
     }
 
     void eob_handler(const frame::ob::msg::EndOfBurst *m) noexcept
@@ -1177,6 +1311,13 @@ namespace frame::perf::act
            << (a_span_sum[p] ? (1.0 - double(a_n[p]) / double(a_span_sum[p])) : 0.0)
            << " arr_recs=" << arr_written[p]
            << " arr_inline=" << arr_inline[p]
+           // msg_recs must equal this population's l1_n -- same admission
+           // rule, same point in sample(). A divergence means the per-message
+           // log and the CSV are no longer the same population and nothing
+           // may be joined between them.
+           << " msg_recs=" << msg_written[p]
+           << " msg_inline=" << msg_inline[p]
+           << " msg_sat=" << msg_sat[p]
            << " mean_batch="
            << (a_closed_n[p] ? (double(a_batch_sum[p]) / double(a_closed_n[p])) : 0.0)
            << " mean_interarrival_ns="
