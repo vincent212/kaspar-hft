@@ -92,5 +92,20 @@ namespace actors
       std::lock_guard<std::mutex> lock(mut);
       return cb_.size() + overflow_.size();
     }
+
+    // Unlocked ring occupancy. See Queue::circ_buf_len for why this exists.
+    //
+    // Safe to read without the lock ONLY because boost::circular_buffer::size()
+    // is `return m_size;` (circular_buffer/base.hpp:777) — one aligned load of
+    // one member. A concurrent push/pop makes it stale by one, never garbage.
+    //
+    // overflow_ is deliberately NOT added in. std::deque::size() is
+    // `_M_finish - _M_start` (stl_deque.h:1330), five pointer loads across two
+    // iterators combined arithmetically; a concurrent mutation yields an
+    // arbitrary result, and because the type is unsigned a transient negative
+    // reads as an enormous number. So this counter saturates at the ring size:
+    // if it reports cb_.capacity(), the true depth is >= that, possibly far
+    // more. Size the ring (ACTOR_BQUEUE_SIZE) so that does not happen.
+    std::size_t circ_buf_len() const noexcept override { return cb_.size(); }
   };
 }

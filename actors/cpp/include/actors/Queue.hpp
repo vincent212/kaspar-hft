@@ -29,5 +29,17 @@ namespace actors
     virtual void push(const T& x) = 0;
     virtual bool is_empty() const = 0;
     virtual std::size_t length() const = 0;
+
+    // Ring occupancy only, read WITHOUT the queue lock. Exists so a sampler
+    // (QLen) can gauge depth without contending on the very mutex it is
+    // measuring — length() takes that lock, and contention is worst exactly
+    // when depth is high, so length() can manufacture the correlation it is
+    // supposed to observe.
+    //
+    // The reading is approximate: stale by however many push/pop calls land
+    // between the read and its use. It is NOT a substitute for length(); it
+    // omits any overflow beyond the ring. Default is the locked length() so
+    // queue kinds without a safely-unlocked counter stay correct.
+    virtual std::size_t circ_buf_len() const noexcept { return length(); }
   };
 }
