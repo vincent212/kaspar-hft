@@ -116,3 +116,9 @@ core.*
 dbento_pcap_parse/scripts/out/
 dbento_pcap_parse/*/src/*.P
 dbento_pcap_parse/filter_bin/src/filter_bin
+
+# LaTeX build artifacts
+tech_reports/*.aux
+tech_reports/*.log
+tech_reports/*.out
+tech_reports/*.toc

@@ -45,53 +45,34 @@
 \maketitle
 
 \begin{abstract}
-Automated execution algorithms fall into two broad families
-\cite{johnson2010,bayesiantca2019}: schedule-based algorithms and
-liquidity-seeking algorithms. This paper concerns the schedule-based family. This
-family commonly includes four algorithms:
-Time-Weighted Average Price (TWAP), Volume-Weighted Average Price (VWAP),
-Percentage of Volume (POV), and Implementation Shortfall (IS). TWAP follows a
-clock, whereas VWAP follows a forecast of the intraday volume \emph{curve}, POV reacts
-to \emph{realized} volume to hold a target participation rate, and IS
-front-loads execution to minimize slippage against the parent order arrival price.
-All are
-\emph{model-based}: their execution decisions are derived from an explicit
-model, forecast, schedule, or control rule rather than from following individual
-resting orders. We introduce \pov{}, a method for placing passive limit
-orders within the framework of percentage-of-volume execution (a passive POV, or
-PPOV --- here denoting passive execution whose \emph{order-placement rate} is set
-from observed order flow rather than from traded volume).
-Placing a passive order to fill efficiently
-conventionally involves an order-book model and some prediction of where the order
-will fill. \pov{} needs neither: it replaces that prediction with
-\emph{tracking}, resting each passive order at the price of an order already in
-the book. It \emph{shadows} the passive limit orders that other participants
-actually post: on observing a
-third-party add for a limit order, it may transmit its own limit order at the
-same price \emph{on the same venue}, and it records only a single association
-between the observed order's exchange identifier and its own shadow-order
-identifier. Cancellation is then \emph{identifier-driven}: a shadow-order is
-withdrawn when the order it follows ends --- at once when that order is cancelled,
-and after a brief grace window when it is hit by a trade.
-The placement decision is thus model-free --- price and venue are read off the
-observed order --- which is what lets it serve as a benchmark for passive-order
-placement on central limit order book (CLOB) venues.
-Model-free is not information-free. \pov{} consumes a great deal of market
-information: it reads every order-book message and places only where a
-participant has just committed capital. The distinction is that it
-\emph{computes} nothing from that information: the price it rests at is copied
-from an observed order, and the decision to withdraw is a lookup on that order's
-identifier. Information is inherited from the flow rather than derived from a
-model, and the distinction matters for what the benchmark measures.
+Automated execution algorithms are organized into schedule-based and
+liquidity-seeking families \cite{johnson2010,bayesiantca2019}. This paper
+concerns the first, whose members --- Time-Weighted Average Price (TWAP),
+Volume-Weighted Average Price (VWAP), Percentage of Volume (POV) and
+Implementation Shortfall --- are all \emph{model-based}: each derives its
+decisions from an explicit model, forecast, schedule or control rule. We introduce \pov{}, a passive POV
+whose \emph{order-placement rate} is set from observed order flow rather than
+from traded volume. Placing a passive order to fill efficiently conventionally
+involves an order-book model and a fill prediction.
+\pov{} replaces that prediction with \emph{tracking}: on observing a
+third-party add, it may transmit its own limit order at the same price
+\emph{on the same venue}, recording a single association between the observed
+order's exchange identifier and its own. Cancellation is then
+\emph{identifier-driven} --- the shadow is withdrawn when the order it follows
+ends, at once on a cancel and after a brief grace window on a trade. The placement decision is thus \emph{model-free}: price
+and venue are read off the observed order.
+
+Model-free is not information-free. \pov{} reads every order-book message and
+places only where a participant has just committed capital, while
+\emph{computing} nothing from what it reads. Information is inherited from the
+flow rather than derived from a model.
+
 We evaluate \pov{} on a full calendar year of replayed Chicago Mercantile
-Exchange (CME) ES futures in a deterministic market-replay simulator.
-We report its slippage characteristics and latency sensitivity. We compare
-\pov{} to the aggressive equivalent POV and discuss the differences and
-similarities between the two execution methods.
-We propose \pov{} as a model-free benchmark for passive-order placement, against
-which a predictive placement model can be scored once the comparisons of
-Section~\ref{sec:future} have been run. The algorithm and the order-book
-simulator are implemented in the open-source
+Exchange (CME) ES futures in a deterministic market-replay simulator, reporting
+its slippage and latency sensitivity and comparing it against the aggressive
+equivalent POV. We propose it as a model-free benchmark for passive-order
+placement, against which a predictive placement model can be scored. The
+algorithm and the order-book simulator are implemented in the open-source
 \textsc{kaspar-hft} project.\footnote{\url{https://github.com/vincent212/kaspar-hft}}
 \end{abstract}
 
