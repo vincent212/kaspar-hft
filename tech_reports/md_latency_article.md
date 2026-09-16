@@ -1,7 +1,7 @@
 # The Queue Is Inside the Packet
 
-*Market-data latency measured one message at a time: the queue barely matters,
-and the thing that does is not random.*
+*Market-data latency measured one message at a time: the queue is rare but
+sharp, the batch is constant and smooth, and neither is random.*
 
 Here is a number from my market-data recorder, measured this afternoon on live
 CME multicast: from the socket read to the order book being published,
@@ -35,8 +35,9 @@ Three instruments, both populations:
 - **NQ** — E-mini Nasdaq 100
 - **ZN** — 10-year Treasury Note
 
-**5.87 million messages** across six streams, 2026-09-16, 14:21 to 15:00 ET,
-a busy afternoon tape. Every table is cut from that one window.
+**8.24 million messages** across six streams, 2026-09-16, 14:25 to 15:18 ET,
+53 minutes of a busy afternoon tape. Every table is cut from that one window,
+which starts after the startup snapshot replay has finished.
 
 One caveat up front, because it bounds everything below: `t0` is a *software*
 timestamp taken at the socket read. Time spent in the NIC and the kernel before
@@ -154,107 +155,193 @@ The test is the same move again — stop averaging over the other variable. Hold
 serialisation is left in its latency, and vary `qlen`. Whatever still moves is
 the queue.
 
-One estimator note first, because it decides what the table says. On a
-39-minute window the *mean* latency inside a `qlen` cell is not a measure of
-the queue. A cell can hold 38 messages, and one multi-millisecond stall
-anywhere in it moves the mean by tens of microseconds. NQ book's mean at
-`qlen 0` is 280 µs against a median of 7.4 µs — the mean is describing the
-stalls, which are a separate phenomenon with their own section below. Every
-table from here on is **medians**. The means are printed alongside so the gap
-is visible.
+One estimator note first, because it decides what the table says. The *mean*
+latency inside a `qlen` cell is not a measure of the queue. A cell can hold 49
+messages, and one multi-millisecond stall anywhere in it moves the mean by tens
+of microseconds — on an earlier cut NQ book's mean at `qlen 0` was 280 µs
+against a median of 7.4 µs. The mean was describing stalls, which are a
+separate phenomenon with their own section below. Every table from here on is
+**medians and percentiles**, never means.
 
-Here is every stream. `m.span` is the average size of the packet those
-messages arrived in, and `m.idx` their average position inside it — the
-confounder, measured rather than assumed. `med@idx0` is the deconfounded
-number: first in your own packet, so only the queue is left.
+The tables below have eight columns and every one of them is load-bearing, so
+here is what each means before you read any numbers.
+
+**`qlen`** — the row label. The number of packets already sitting in the ring
+buffer, waiting to be decoded, at the instant *this* message's packet was
+handed to the consumer. `qlen 0` means the ring was empty and your packet was
+picked up immediately. `qlen 3` means three other packets were in front of
+yours. This is the treatment variable: the thing the queueing model says should
+drive latency.
+
+**`msgs`** — how many messages in the whole sample saw that exact `qlen`. This
+is the denominator for the `median` column, and it is the first thing to look
+at, because it collapses fast. ES book has 2.6 million messages at `qlen 0` and
+49 at `qlen 6`. Any statement about `qlen 6` is a statement about 49 messages.
+
+**`median`** — the median socket-to-book latency of those `msgs`, pooled over
+every position inside the packet. This is the *naive* answer: group by queue
+length, report the middle. It is the column that is wrong, and the rest of the
+table exists to show why.
+
+**`m.span`** — the mean *packet span* of those messages: how many total SBE
+messages were in the UDP datagram each of them arrived in. A packet carrying
+one message has span 1; a packet carrying twenty has span 20. This is the
+suspected confounder. If `m.span` climbs as `qlen` climbs, then messages deep
+in the queue also arrived in fatter packets, and the `median` column is
+charging both effects to the queue.
+
+**`m.idx`** — the mean *position* of those messages inside their own packet.
+`idx 0` is first to be decoded, `idx 19` is twentieth. This is the confounder
+expressed as the quantity that actually costs time: if you are at `idx 9`, nine
+decodes ran before yours, and that wait is inside your measured latency.
+`m.span` and `m.idx` move together by construction — a bigger packet has more
+positions in it — and `m.idx` is roughly `m.span / 2`.
+
+**`n@idx0`** — the subset of `msgs` that were **first in their own packet**.
+This is the deconfounded sample. For these messages there is by definition zero
+in-packet serialisation, so whatever latency they show above the floor cannot
+be position. It is the denominator for the last three columns, and it is
+*smaller* than `msgs` — sometimes much smaller, which is the whole problem with
+the high-`qlen` rows.
+
+**`med@idx0`** — the median latency of that deconfounded subset. **This is the
+answer.** Position held at zero, queue varying: the rise down this column is
+the queue and nothing else. The bracketed number is the change from the
+`qlen 0` row, so it reads as "what did the queue cost me."
+
+**`p90@idx0`, `p99@idx0`** — the 90th and 99th percentile of the *same*
+deconfounded subset. Same messages, same filter, further out in the
+distribution. `med@idx0` says what a typical message paid; these say what an
+unlucky one paid. They are suppressed with a `-` where `n@idx0` is too small
+for the percentile to mean anything — below 200 samples the 99th percentile is
+just the largest sample with a decimal point on it, and printing it would look
+like a measurement.
+
+A row reads: *of the N messages that saw this queue length, the typical one
+paid `median`; they were sitting at position `m.idx` of a `m.span`-message
+packet on average; of the subset that were first in their packet, the typical
+one paid `med@idx0` and the unlucky ones paid `p90`/`p99`.*
 
 ```
-  ESZ6 book        msgs    median    m.span   m.idx      n@idx0    med@idx0
-    qlen 0    2,107,611     7.2us      2.14    0.59   1,832,975       7.0us
-    qlen 1      147,086     6.5us      1.70    0.35     132,284       6.3us  (-0.7)
-    qlen 2       10,632     7.2us      1.38    0.18      10,140       7.1us  (+0.1)
-    qlen 3        1,377     8.5us      1.20    0.06       1,322       8.4us  (+1.4)
-    qlen 4          294    10.0us      1.17    0.06         280       9.9us  (+2.9)
-    qlen 5           83    12.3us      1.49    0.14          79      11.7us  (+4.7)
-    qlen 6           38    15.8us      1.18    0.08          36      15.5us  (+8.5)
+  ESZ6 book       msgs   median  m.span   m.idx      n@idx0        med@idx0  p90@idx0  p99@idx0
+    qlen 0     2629873    7.1us    2.20    0.62     2274499           7.0us     9.8us    13.9us
+    qlen 1      179554    6.6us    1.78    0.39      160260     6.3us (-0.6)    11.4us    17.9us
+    qlen 2       12650    7.2us    1.45    0.21       12043     7.1us (+0.1)    12.3us    22.3us
+    qlen 3        1605    8.6us    1.20    0.06        1536     8.5us (+1.5)    15.7us    35.0us
+    qlen 4         373   10.2us    4.20    1.58         317     9.8us (+2.8)    21.8us    79.2us
+    qlen 5         133   15.4us    9.70    4.29          97    11.5us (+4.5)    27.5us         -
+    qlen 6          49   17.8us    1.14    0.06          47   17.0us (+10.1)         -         -
 
-  NQZ6 book        msgs    median    m.span   m.idx      n@idx0    med@idx0
-    qlen 0    2,437,399     7.4us      2.39    0.79   1,906,234       7.2us
-    qlen 1      337,911     6.1us      2.12    0.59     269,835       6.0us  (-1.3)
-    qlen 2       11,289     7.1us      1.93    0.35       9,988       7.0us  (-0.2)
-    qlen 3        1,169     8.4us      1.45    0.10       1,081       8.3us  (+1.1)
-    qlen 4          213    11.8us      1.54    0.24         188      11.2us  (+4.0)
-    qlen 5           90    16.9us      1.44    0.22          82      16.2us  (+8.9)
-    qlen 6           41    17.9us      1.20    0.15          36      17.6us (+10.4)
-    qlen 7           47    19.2us      1.57    0.40          37      20.2us (+13.0)
+  NQZ6 book       msgs   median  m.span   m.idx      n@idx0        med@idx0  p90@idx0  p99@idx0
+    qlen 0     3268753    7.4us    2.40    0.80     2554055           7.2us     9.5us    12.5us
+    qlen 1      457805    6.1us    2.11    0.58      366542     5.9us (-1.3)     8.6us    12.9us
+    qlen 2       15018    7.0us    1.92    0.36       13288     7.0us (-0.3)    11.5us    20.6us
+    qlen 3        1621    8.6us    2.84    0.80        1437     8.4us (+1.1)    14.4us    34.3us
+    qlen 4         337   12.1us    3.41    1.18         273    11.2us (+4.0)    27.6us   456.4us
+    qlen 5         119   17.4us    1.39    0.21         108    16.3us (+9.1)   377.5us         -
+    qlen 6          72   16.8us    1.19    0.12          64    16.8us (+9.5)   414.5us         -
+    qlen 7          57   19.4us    1.51    0.35          46   22.8us (+15.5)         -         -
 
-  ZNZ6 book        msgs    median    m.span   m.idx      n@idx0    med@idx0
-    qlen 0      820,162     7.2us      3.11    1.11     686,799       6.9us
-    qlen 1      104,270     6.3us      3.34    1.19      88,120       6.0us  (-0.9)
-    qlen 2        4,115    10.6us     11.90    5.43       2,359       7.6us  (+0.7)
-    qlen 3        1,019   107.6us     19.97    9.49         376       9.4us  (+2.5)
-    qlen 4          443   131.1us     24.93   11.96         108      11.5us  (+4.6)
-    qlen 5          195   258.0us     27.91   13.46          34      21.7us (+14.7)
-    qlen 6           67   164.1us     17.99    8.49          29         n/a
-    qlen 7          112   194.5us     27.34   13.17          18         n/a
+  ZNZ6 book       msgs   median  m.span   m.idx      n@idx0        med@idx0  p90@idx0  p99@idx0
+    qlen 0      980847    7.2us    3.13    1.12      823227           6.9us    10.2us    15.4us
+    qlen 1      123802    6.3us    3.38    1.21      104591     6.0us (-0.9)     9.4us    17.0us
+    qlen 2        4810   10.8us   12.06    5.51        2725     7.6us (+0.8)    14.2us    72.8us
+    qlen 3        1085   85.5us   18.88    8.94         428     9.4us (+2.5)    27.3us   160.3us
+    qlen 4         477  128.2us   23.33   11.18         130    11.6us (+4.7)    69.4us         -
+    qlen 5         206  256.0us   26.50   12.74          44   21.7us (+14.8)         -         -
+    qlen 6          70  163.3us   17.21    8.11          31   18.3us (+11.4)         -         -
 
-  ESZ6 trade       msgs    median    m.span   m.idx      n@idx0    med@idx0
-    qlen 0      224,598     9.0us      8.37    4.18       1,008       7.6us
-    qlen 1          760     8.4us      9.53    5.13           7         n/a
+  ESZ6 trade      msgs   median  m.span   m.idx      n@idx0        med@idx0  p90@idx0  p99@idx0
+    qlen 0      290929    9.0us    8.53    4.25        1505           7.9us    11.2us    15.7us
+    qlen 1        1230   10.4us   22.66   11.50          14             n/a         -         -
+    qlen 2         127  145.5us   58.50   28.79           2             n/a         -         -
 
-  NQZ6 trade       msgs    median    m.span   m.idx      n@idx0    med@idx0
-    qlen 0       79,369     8.4us      6.91    3.56         307       8.3us
-    qlen 1          205     7.8us      5.41    2.66           3         n/a
-    qlen 2           65   100.7us     83.72   41.58           0         n/a
+  NQZ6 trade      msgs   median  m.span   m.idx      n@idx0        med@idx0  p90@idx0  p99@idx0
+    qlen 0      108021    8.3us    7.06    3.64         412           8.2us    10.7us    32.7us
+    qlen 1         386    8.5us   16.11    7.93           5             n/a         -         -
+    qlen 2          65  100.7us   83.72   41.58           0             n/a         -         -
 
-  ZNZ6 trade       msgs    median    m.span   m.idx      n@idx0    med@idx0
-    qlen 0       90,810    14.7us     31.13   15.54         491       8.1us
-    qlen 1        3,461    32.5us     29.41   14.68          85      73.8us (+65.7)
-    qlen 2          574   276.8us     69.42   35.27           7         n/a
-    qlen 3           62   221.1us     78.31   51.56           0         n/a
+  ZNZ6 trade      msgs   median  m.span   m.idx      n@idx0        med@idx0  p90@idx0  p99@idx0
+    qlen 0      107664   14.9us   31.86   15.92         641           8.3us    62.6us   111.4us
+    qlen 1        4160   44.7us   30.84   15.37         104   76.1us (+67.8)   153.4us         -
+    qlen 2         755  219.5us   71.95   36.29           9             n/a         -         -
 ```
 
-Two things in that table, and the first one is the answer to the objection
+Three things in that table, and the first one is the answer to the objection
 that started this section.
 
 **The queue is convex.** Read `med@idx0` down each book. ES: 7.0, 6.3, 7.1,
-8.4, 9.9, 11.7, 15.5. The successive increments are −0.7, +0.8, +1.3, +1.5,
-+1.8, +3.8 — each step costs more than the last. NQ: −1.3, +1.3, +2.2, +2.9,
-+5.0. ZN: −0.9, +1.6, +1.8, +2.1, +10.2. Three independent multicast channels,
+8.5, 9.8, 11.5, 17.0. The successive increments are −0.7, +0.8, +1.4, +1.3,
++1.7, +5.5 — each step costs more than the last. NQ: −1.3, +1.1, +1.4, +2.8,
++5.1. ZN: −0.9, +1.6, +1.8, +2.2, +10.1. Three independent multicast channels,
 three convex curves, with the confounder held fixed.
 
 That is what a queue is supposed to look like, and it is the one place in this
-whole measurement where the textbook shape actually shows up. It is also
-*small*: +8.5 µs at ES `qlen 6`, on 36 messages out of 2.27 million. The shape
-is right and the magnitude is negligible, which is the least satisfying
-possible combination.
+whole measurement where the textbook shape actually shows up.
+
+**But the convexity is far stronger in the tail than at the median**, and this
+is the part I missed in the first two versions of this article. Compare what
+three queued packets cost at each quantile:
+
+```
+  qlen 0 -> qlen 3        p50      p90      p99
+    ES book             1.21x    1.60x    2.52x
+    NQ book             1.15x    1.53x    2.79x
+    ZN book             1.35x    2.66x   10.47x
+```
+
+Monotone in all three instruments. At the median, three packets of queue cost
+ES **+1.5 µs** and I was ready to call that negligible. At p99 the same three
+packets cost ES **+21 µs** and ZN **+145 µs**.
+
+So the honest statement is not "the queue is negligible." It is: **the queue
+barely moves the typical message and strongly moves the unlucky one.** A median
+is a statement about the centre, and I had been reading a centre-statistic as
+though it bounded the whole distribution. It does not. If you care about p99 —
+and in this business you do — the queue is worth an order of magnitude more
+than the median says.
+
+What stays true is the *frequency*: ES book sees `qlen >= 3` on 1,605 messages
+out of 2.8 million, which is 0.06%. The queue is a large effect on a rare
+event. That is a different claim from "small effect", and it is the one the
+data supports.
 
 **Now read `m.span`.** It splits the streams into two kinds, and the split is
 the opposite of what I expected.
 
-**On ZN, the packets do get bigger as the ring fills.** ZN book goes 3.1 → 3.3 →
-11.9 → 20.0 → 24.9 → 27.9 messages per packet across `qlen` 0 to 5. A ninefold
-growth. So a message at `qlen 3` is not just behind three packets, it is sitting
-around position 9 of a 20-message packet. Both effects land on it at once, and
-the naive `qlen` table charges the whole thing to the queue. Deconfounded:
+**On ZN, the packets do get bigger as the ring fills.** ZN book goes 3.13 →
+3.38 → 12.06 → 18.88 → 23.33 → 26.50 messages per packet across `qlen` 0 to 5.
+An eightfold growth. So a message at `qlen 3` is not just behind three packets,
+it is sitting around position 9 of a 19-message packet. Both effects land on it
+at once, and the naive `qlen` table charges the whole thing to the queue.
+Deconfounded:
 
 ```
   ZN book     raw rise    at idx 0    overstated by
     qlen 1      -0.9        -0.9        (both negative)
-    qlen 2      +3.4        +0.7            4.9x
-    qlen 3    +100.4        +2.5             40x
-    qlen 4    +123.9        +4.6             27x
-    qlen 5    +250.8       +14.7             17x
+    qlen 2      +3.6        +0.7            5.1x
+    qlen 3     +78.3        +2.5             31x
+    qlen 4    +121.0        +4.7             26x
+    qlen 5    +248.8       +14.8             17x
 ```
 
 ZN book at `qlen 1` is not slower than an empty ring, it is 0.9 µs *faster*.
-The headline 108 µs at `qlen 3` is 9.4 µs once you stand at the front of the
-packet. Forty times.
+The headline 85 µs at `qlen 3` is 9.4 µs once you stand at the front of the
+packet. Thirty-one times.
 
-**On ES and NQ book, packets get *smaller* as the ring fills** — ES 2.14 down to
-1.18, NQ 2.39 down to 1.20. There is no upward confounding to remove, and the
-deconfounded column duly tracks the raw one: ES `med@idx0` +0.1/+1.4/+2.9
-against raw +0.0/+1.3/+2.8. Those rows were honest all along.
+**On ES and NQ book, packets get *smaller* as the ring fills** — ES 2.20 down
+to 1.20 and NQ 2.40 down to 1.19 over the rows that carry real weight. There is
+no upward confounding to remove, and the deconfounded column duly tracks the
+raw one: ES `med@idx0` +0.1/+1.5 against raw +0.1/+1.5. Those rows were honest
+all along.
+
+Two caveats on that claim, because the columns are not as clean as I would
+like. ES `m.span` is not monotone: it falls to 1.20 at `qlen 3` and then jumps
+to 4.20 and 9.70 at `qlen` 4 and 5. Those two rows hold 373 and 133 messages,
+so the jump is a handful of bursts, not a regime. And NQ `qlen 3` sits at span
+2.84 against 2.40 at `qlen 0` — a mild rise, not a fall. The clean statement is
+that ES and NQ do not show ZN's eightfold packet growth, not that their span
+falls monotonically.
 
 Why the opposite signs? ES and NQ book run fast with a median packet of one
 message, so their ring backs up with *many small* packets — being queued there
@@ -264,10 +351,12 @@ big at the same time. Same mechanism, different regime. That is a reading of the
 pattern, not a separate measurement.
 
 What survives, and it is a better result than the one it replaces: **the queue
-has exactly the shape the textbook says, and a magnitude nobody would care
-about.** Convex on all three books, and worth under 15 µs at queue lengths that
-occur a few dozen times in two million messages. On ZN it is *forty times*
-smaller than the naive table said.
+has exactly the shape the textbook says, on a rare event, with a magnitude that
+depends entirely on which quantile you ask about.** Convex on all three books.
+Worth +1.5 µs at the median and +21 to +145 µs at p99, at queue lengths that
+occur on 0.06% of messages. On ZN the naive table overstated it by *thirty-one
+times* at the median — but the naive table was also, by accident, closer to the
+right answer for the tail than the median was.
 
 The lesson repeats at every level of aggregation. I wrote a section about the
 ecological fallacy and then left a milder version of it in the table directly
@@ -294,8 +383,8 @@ latency at each position:
   ZN trade 7.96  9.14 10.42 12.31 14.55 16.97 19.02 23.14 27.19 31.21 36.91
 ```
 
-Monotone on every stream, no exceptions. Six streams, 5.7 million messages,
-`qlen == 0` throughout.
+Monotone on every stream, no exceptions. Six streams, 7.4 million messages at
+`qlen == 0`.
 
 ## Attempt four: the ladder was confounded too
 
@@ -528,9 +617,11 @@ Which closes the loop:
 > latency by a straight line.**
 
 The queue in front of the packet — the thing the model would have you focus on —
-is convex, exactly as the textbook says, and worth under 15 µs at queue lengths
-that occur a few dozen times in two million messages. It has the right shape and
-a negligible size.
+is convex, exactly as the textbook says. It has the right shape, it fires on
+0.06% of messages, and when it fires it costs +1.5 µs at the median and +21 to
++145 µs at p99. It is a rare, sharp effect sitting on top of a common, smooth
+one. The batch explains where the bulk of the tail mass comes from; the queue
+explains why the far tail is worse than the batch alone predicts.
 
 ## One thing I cannot explain
 
@@ -575,6 +666,16 @@ than bury it.
    revealed the next instance one level down. I have no reason to think the
    fourth one is the last.
 
+5. **The estimator is a modelling choice, and one estimator is not enough.**
+   Means got destroyed by stalls, so I switched to medians — and then read the
+   median as though it described the distribution. It describes the centre. The
+   queue looks negligible at p50 and looks like a 2.5–10× amplifier at p99, and
+   both of those are the same data with the same filter. Report a quantile
+   sweep, not a point. And carry `n` next to every quantile, because the number
+   of samples needed to estimate p99 is two orders of magnitude larger than the
+   number needed for p50 — most of the interesting cells here cannot support a
+   p99 at all, and the honest thing is to leave the cell blank.
+
 ---
 
 ## Reproducing
@@ -584,6 +685,7 @@ Readers and instrumentation live on the `perf/live-wire-to-book` branch:
 ```
 kaspr/perf/kh_msg.py  [HH:MM:SS]   # per-message qlen, idx, hot path
 kaspr/perf/kh_qidx.py [HH:MM:SS]   # qlen with idx held at 0  (attempt three)
+kaspr/perf/kh_qtail.py [HH:MM:SS]  # p90/p99/p999 of those same cells, with n
 kaspr/perf/kh_imed.py [HH:MM:SS]   # idx ladder on medians    (attempt four, a)
 kaspr/perf/kh_isp.py  [HH:MM:SS]   # idx ladder at fixed span (attempt four, b)
 kaspr/perf/kh_idx.py  [HH:MM:SS]   # the mean-based ladder, kept for contrast
@@ -607,19 +709,30 @@ accumulators, so the two populations are identical and joinable.
    not been done.
 2. The cache explanation in the 3× section is inferred, not measured, and is
    confounded with message mix.
-3. One box, one session, **39 minutes**. Numbers in the first version of this
+3. One box, one session, **53 minutes**. Numbers in the first version of this
    article, taken from a 12-minute cut of the same session, did not all survive
    the longer window — the `idx` slopes moved by up to 2.4× and the
-   packet-size time-share moved by 4×. A 39-minute window is not obviously
+   packet-size time-share moved by 4×. A 53-minute window is not obviously
    enough either.
 4. `idx` is a decode position, not a randomised treatment. Large packets differ
    from small ones in message *content*, not only in position, and the
    fixed-span test shows they are intrinsically dearer per message. Holding span
    fixed removes the composition effect from the *shape* of the ladder. It does
    not tell you why a span-34 packet costs more per message than a span-2 one.
-5. Medians answer "what does the typical message pay." They deliberately say
-   nothing about the tail. The stalls in the section above are real, they are
-   the largest latencies in the dataset, and nothing here explains them.
-6. The startup window is excluded by a time cut. Startup is a snapshot replay,
+5. The p90/p99 columns are sound only where `n@idx0` is large. Below 200
+   samples the 99th percentile is the largest sample or the one beneath it, so
+   it is suppressed rather than printed. That means the tail of the *deep*
+   queue rows — `qlen` 5 and above — is not measured at all here. The p99
+   amplification result rests on `qlen` 0 to 3 on the three book streams, where
+   the cells hold 1,400 messages or more.
+6. p999 is not reported anywhere in this article. At `qlen 3` it would rest on
+   one or two samples. An earlier draft of this analysis quoted p999 figures of
+   67 ms that turned out to be the startup snapshot replay leaking past a
+   missing time cut — they were flat across every `qlen`, which is what gave it
+   away, since a queue effect that does not vary with queue length is not a
+   queue effect.
+7. The stalls in the section above are real, they are the largest latencies in
+   the dataset, and nothing here explains them.
+8. The startup window is excluded by a time cut. Startup is a snapshot replay,
    not a latency measurement, and it puts messages at 8 ms and 76 ms into the
    file.
