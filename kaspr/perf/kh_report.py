@@ -109,7 +109,17 @@ def ia_moments(hdr, rows, pop):
         if not a:
             continue
         b_us = b / 1000.0
-        if c * a < b_us * b_us:
+        # Cauchy-Schwarz WITH THE TRUNCATION SLACK CARRIED. The probe banks
+        # floor(gap/1000)^2, so each term is up to 1us^2 short of (gap/1000)^2
+        # and a naive n*sumsq >= sum^2 fails on rounding alone -- at a == 1 it
+        # fails for EVERY gap that is not an exact multiple of 1000ns. That
+        # false positive is what made this column read 170-1309 instead of 0.
+        #
+        # floor(g/1000) > g/1000 - 1 for each of the `a` gaps, so
+        # sum(floor) > b_us - a, and the true bound is (b_us - a)^2. Below
+        # that is a REAL wrap.
+        lb = b_us - a
+        if lb > 0 and c * a < lb * lb:
             wrapped += 1
             continue
         N += a; S += b; Q += c
