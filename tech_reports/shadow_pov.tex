@@ -1077,7 +1077,6 @@ are doing recognisably different things.}
 \midrule
 Shadowed event              & resting add & trade print \\
 Rate                        & 5\,\% of adds & 2\,\% of prints \\
-Placement band (ticks)      & 3 & 10 \\
 Completed windows           & 9{,}592 & 9{,}581 \\
 \midrule
 Relative slippage (ticks/contract) & $+0.0955 \pm 0.0130$ & $+0.0952 \pm 0.0135$ \\
@@ -1362,19 +1361,14 @@ separate for that reason: thirty seconds is not an operating point, it is a
 comes from the information it inherits, and it answers it by destroying that
 information's freshness while holding everything else fixed.
 
-We ran the passive configuration of Table~\ref{tab:styles} --- shadowing
-$5\,\%$ of adds within a $3$-tick band --- twice over the same 246 sessions,
-once with zero delay and once with the order, the cancel and the feed each
-delayed by thirty seconds. The algorithm, the price source, the band, the rate
-and the corpus are identical. The only difference is how long after observing an
-order the shadow reaches the exchange.
 
 \begin{table}[!htbp]
 \centering
 \caption{The same passive configuration run against itself, with and without a
 thirty-second delay on the order, the cancel and the feed. ES futures, 246
-sessions of calendar 2025, 100 contracts bought and 100 sold per window, $5\,\%$
-of adds shadowed within a $3$-tick band. Thirty seconds is chosen as a control
+sessions of calendar 2025, 100 contracts bought and 100 sold per window, the
+passive configuration of Table~\ref{tab:styles} throughout. Thirty seconds is
+chosen as a control
 rather than as a plausible latency: it is long enough that the observation the
 shadow was placed from has been overtaken by the market many times over.
 Intervals are 95\,\% and clustered by session.}
