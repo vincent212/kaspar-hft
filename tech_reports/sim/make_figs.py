@@ -1,7 +1,7 @@
 import csv, glob, math, os
 import numpy as np, matplotlib
 matplotlib.use('Agg'); import matplotlib.pyplot as plt
-D_OUT='/vast/home/vmayeski/kaspar-hft/tech_reports/sim'
+D_OUT=os.path.dirname(os.path.abspath(__file__))
 
 def cse(y,dy):
     m=~np.isnan(y); y,dy=y[m],dy[m]
@@ -28,9 +28,9 @@ def slip(pat):
     day=np.array([r['_day'] for r in rows]); y=np.array([float(r['slip_paired_ticks']) for r in rows])
     return (y.mean(), 1.96*cse(y,day))
 
-P_MK = mk('/vast/home/vmayeski/gridruns/jan_r2000_md3/*.m.csv')
+P_MK = mk('/vast/home/vmayeski/gridruns/mk_year_md3/mkt/rate500_sz100/*.csv')
 A_MK = mk('/vast/home/vmayeski/gridruns/aggr_zero_mk/mkt/aggr200/*.csv')
-P_SL = slip('/vast/home/vmayeski/gridruns/jan_r2000_md3/*.w.csv')
+P_SL = slip('/vast/home/vmayeski/gridruns/mk_year_md3/csv/rate500_sz100/*.csv')
 A_SL = slip('/vast/home/vmayeski/gridruns/aggr_zero_mk/csv/aggr200/*.csv')
 PC, AC = '#1f4e9c', '#b03030'; H=[1,5,30]
 

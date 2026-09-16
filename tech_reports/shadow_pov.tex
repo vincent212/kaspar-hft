@@ -73,9 +73,9 @@ between the observed order's exchange identifier and its own shadow-order
 identifier. Cancellation is then \emph{identifier-driven}: a shadow-order is
 withdrawn when the order it follows ends --- at once when that order is cancelled,
 and after a brief grace window when it is hit by a trade.
-As this approach is model-free --- it uses no order-book model and no fill
-prediction --- it can serve as a
-benchmark for passive-order placement on central limit order book (CLOB) venues.
+The placement decision is thus model-free --- price and venue are read off the
+observed order --- which is what lets it serve as a benchmark for passive-order
+placement on central limit order book (CLOB) venues.
 Model-free is not information-free. \pov{} consumes a great deal of market
 information: it reads every order-book message and places only where a
 participant has just committed capital. The distinction is that it
@@ -252,9 +252,10 @@ reader reads ours in the right sense. Every order \pov{} sends is displayed.
   passive-order placement, built on \emph{participant shadowing}: on observing a
   third-party add, \pov{} places a passive order at that add's price and venue,
   attaches it to the arriving order by exchange identifier, and ties its
-  lifecycle to that order. Placement uses no order-book model and no fill
-  prediction, giving predictive placement models a reference to
-  beat (Sections~\ref{sec:algo}, \ref{sec:disc}).
+  lifecycle to that order. Placement is model-free in the sense used
+  throughout: price and venue are read off the observed order, giving predictive
+  placement models a reference to beat (Sections~\ref{sec:algo},
+  \ref{sec:disc}).
   \item We define \emph{identifier-driven cancel mirroring}: cancellation
   triggered by a delete/trade for the followed order's identifier rather than
   by market-state evaluation, retaining a single identifier association per
@@ -647,7 +648,8 @@ before reaching the shadow.
 \label{sec:map}
 
 For each followed order, the core association retains \emph{only} its
-$(\text{venue},$ exchange identifier$)$ key paired with the shadow identifier; it
+$(\text{venue},\;\text{exchange identifier})$ key paired with the shadow
+identifier; it
 does not retain the followed order's price, quantity, queue position, order-book
 state, or timestamp.
 The algorithm additionally maintains global configuration --- target side,
@@ -762,7 +764,7 @@ C++.
 \label{sec:sim}
 
 The simulator is the instrument this paper is
-written with, so it is worth stating what it does and does not provide. It
+written with, so it is worth stating what it provides. It
 reconstructs a full order-by-order (MBO) book from recorded exchange packet
 captures, maintaining every resting order individually rather than aggregated
 depth, which is what makes a queue position --- and therefore a fill inference
@@ -776,10 +778,12 @@ executions imply that aggression has reached a resting order \emph{behind} it:
 the shadow has earlier time priority than that order, so an aggressor that
 reached the one must have passed through the other.
 
-\paragraph{What the simulator does not provide.} Market impact. Orders are
-filled against the recorded feed as though they had not been there; nothing withdraws
-from a stale quote and no counterparty reprices. The consequence of this is that
-the simulator does not model market impact.
+\paragraph{Market impact.} The simulator leaves it out. Orders are filled
+against the recorded feed as though they had not been there: the book carries on
+exactly as it did on the day, so a quote the algorithm sits in front of stays
+where it is and a counterparty that would have repriced does not. Every cost
+reported here is therefore a cost before the market's reaction to the order that
+produced it.
 
 It is built using the actor-model architecture
 \cite{hewitt1973,agha1986}: independent components communicate
@@ -809,8 +813,7 @@ The added guards are:
   $p \ge b_0-\delta_{\text{place}}$ against best bid $b_0$), but is only
   \emph{cancelled for distance} once it drifts beyond a looser cancel band
   $\delta_{\text{cancel}}$, with $\delta_{\text{place}}<\delta_{\text{cancel}}$.
-  The runs reported here use $3$ and $5$ ticks for passive placement and $10$
-  and $12$ for the aggressive configuration. The gap introduces hysteresis: it
+  The gap introduces hysteresis: it
   prevents a one-tick oscillation of the inside from triggering a
   place/cancel/replace loop that would burn message budget and queue priority.
   The placement band $\delta_{\text{place}}$ also bounds how far from the inside a
@@ -912,7 +915,7 @@ passive-against-aggressive experiment of Section~\ref{sec:eval:results}.
 We evaluate the baseline algorithm performance here. Since our simulator does not
 model market impact, the algorithm's measured cost carries no component that
 scales with participation rate or order size. We therefore focus on the base
-case, where slippage is measured in idealised conditions. We then compare the
+case, where slippage is measured in idealized conditions. We then compare the
 passive \pov{} against its aggressive equivalent. Finally we check the latency
 degradation characteristics.
 
@@ -986,9 +989,9 @@ Quoting both sides at once raises the question of whether the algorithm's own
 bid- and offer-side shadows interact. They cannot trade against each other: the
 simulator matches each shadow against the recorded feed, never against another
 shadow. Nor can they queue behind one another, since each attaches to a
-third-party order on its own side of the book. On ES, which is one tick wide at
-$96.3\,\%$ of window openings, there is no intervening price level at which the
-two sides could meet. The interaction that does remain is through the position
+third-party order on its own side of the book. On ES, which is one tick wide at almost every window
+opening, there is rarely an intervening price level at which the two sides could
+meet. The interaction that does remain is through the position
 and completion guards of Section~\ref{sec:prod}, which see net position and can
 therefore pull a shadow on one side because of fills on the other.
 
@@ -1051,12 +1054,12 @@ it.
 \paragraph{Passive against aggressive.}
 The informative comparison is between the two execution styles. Both execute the
 same parent over the same corpus; one rests and one crosses; and they are
-configured so that the realised participation is approximately equal, which is
+configured so that the realized participation is approximately equal, which is
 the only basis on which their costs can be set side by side. Participation is not
 a control input in either style: neither can be told to hit a target rate --- it
 emerges from following at a fixed placement rate (Section~\ref{sec:select}) ---
 so it cannot be forced to match. Instead of forcing it, we swept the placement
-rates and selected the pair of settings whose realised participation came out
+rates and selected the pair of settings whose realized participation came out
 empirically closest, $4.46\%$ passive against $4.86\%$ aggressive.
 
 \begin{table}[t]
@@ -1067,8 +1070,8 @@ window, zero simulated latency on all three paths. Cost is in ticks per
 contract: a positive slippage is a loss, a negative relative cost is a gain.
 Intervals are 95\,\% and clustered by session, since windows within a day are
 not independent. \emph{Crossed} is the share of executed quantity that filled on
-arrival rather than resting, and it is the only line on which the two styles
-are doing recognisably different things.}
+arrival rather than resting: it is the line that separates the two styles
+mechanically, and the cost lines agree across it.}
 \label{tab:styles}
 \small
 \begin{tabular}{lrr}
@@ -1115,8 +1118,6 @@ longer interval averages over a broader slice of the session. So even
 where a leg beats VWAP, the margin does not translate into usable alpha, and the
 column should not be read as a ranking of the two methods.
 
-
-
 \paragraph{Post-fill mark-outs cross-check.} Table~\ref{tab:markout} reports the
 mid-price move over the one, five and thirty seconds after each individual fill,
 signed so that a positive value is a move against the fill. The mark-outs are
@@ -1133,8 +1134,6 @@ Figure~\ref{fig:markout} compares the mark-out of the two execution styles,
 Figure~\ref{fig:slippage} their relative slippage, and Figure~\ref{fig:crosscheck} puts
 the two measures side by side for both.
 
-
-
 \begin{table}[!htbp]
 \centering
 \caption{Three measures of the same executions, in ticks per contract.
@@ -1148,8 +1147,9 @@ completed round trip achieved, mark-out is how the mid moved after each
 individual fill. Agreement between them is therefore a consistency check ---
 what a window paid lines up with what happened after its fills --- and not a
 replication.
-Both rows cover the full corpus: 246 sessions, and $1.6$ million individual
-passive fills. Intervals are 95\,\% and clustered by session.}
+Both rows cover the full corpus: 245 sessions and $1.63$ million individual
+fills for the passive style, 246 sessions and $1.64$ million for the aggressive.
+Intervals are 95\,\% and clustered by session.}
 \label{tab:markout}
 \footnotesize
 \setlength{\tabcolsep}{4pt}
@@ -1160,7 +1160,7 @@ passive fills. Intervals are 95\,\% and clustered by session.}
  & (vs.\ mid) & 1\,s & 5\,s & 30\,s \\
 \midrule
 \pov{} (passive) & $+0.0953 \pm 0.0130$ & $+0.0825 \pm 0.0076$ & $+0.0743 \pm 0.0110$ & $+0.0993 \pm 0.0200$ \\
-Aggressive POV   & $+0.095 \pm 0.014$ & $+0.083 \pm 0.007$ & $+0.087 \pm 0.012$ & $+0.091 \pm 0.019$ \\
+Aggressive POV   & $+0.0952 \pm 0.0135$ & $+0.0826 \pm 0.0072$ & $+0.0874 \pm 0.0118$ & $+0.0913 \pm 0.0190$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1228,12 +1228,14 @@ styles across the range.
 futures, 246 sessions of 2025, 100 contracts bought and 100 sold per window,
 every other parameter fixed within each style. The configurations here are
 \emph{not} the pair of Table~\ref{tab:styles}: that pair was selected for the
-closest realised participation match, whereas these two were each left at their
+closest realized participation match, whereas these two were each left at their
 own working settings so that the delay is the only thing varied within a style.
-The aggressive style in particular shadows $1\,\%$ of prints here against
+Both styles therefore sit at a different placement rate here than in
+Table~\ref{tab:styles}: the aggressive one shadows $1\,\%$ of prints against
 $2\,\%$ there, which is why its zero-delay row reads $3.18\,\%$ participation
-and $92$\,s rather than $4.86\,\%$ and $62.4$\,s. Rows are comparable down a
-column, not across tables.}
+and $92$\,s rather than $4.86\,\%$ and $62.4$\,s, and the passive one reads
+$4.51\,\%$ against $4.46\,\%$. Rows are comparable down a column; across
+tables they are not.}
 \label{tab:latency}
 \small
 \begin{tabular}{rrrrrr}
@@ -1258,7 +1260,7 @@ Delay & Windows & Rel.\ slippage & vs.\ immediate & Participation & Time \\
 \end{tabular}
 \end{table}
 
-\paragraph{1. Cost rises monotonically} Passive \pov{} costs
+\paragraph{1. Cost rises monotonically.} Passive \pov{} costs
 $+0.097$ ticks per contract at zero delay and $+0.150$ at 5\,ms, a 55\,\%
 increase; aggressive POV goes from $+0.087$ to $+0.296$, more than a tripling.
 Every step in both columns lies outside the preceding cell's interval, and
@@ -1361,12 +1363,12 @@ separate for that reason: thirty seconds is not an operating point, it is a
 comes from the information it inherits, and it answers it by destroying that
 information's freshness while holding everything else fixed.
 
-
 \begin{table}[!htbp]
 \centering
 \caption{The same passive configuration run against itself, with and without a
-thirty-second delay on the order, the cancel and the feed. ES futures, 246
-sessions of calendar 2025, 100 contracts bought and 100 sold per window, the
+thirty-second delay on the order, the cancel and the feed. ES futures, 245
+sessions of calendar 2025 without the delay and 246 with it, 100 contracts
+bought and 100 sold per window, the
 passive configuration of Table~\ref{tab:styles} throughout. Thirty seconds is
 chosen as a control
 rather than as a plausible latency: it is long enough that the observation the
@@ -1394,9 +1396,7 @@ Section~\ref{sec:latency} at an extreme. The difference, $0.272$ ticks per
 contract, is what acting immediately on an observed order is worth over acting
 on the same observation half a minute later.
 
-The comparison is between the method and itself, which is what makes it hard to
-argue with: there is no alternative strategy whose fairness can be disputed, and
-no parameter differs between the two rows but one. What it establishes is that
+What this establishes is that
 the inherited information is real and that it is \emph{perishable}. It does not
 establish what that information is worth against placing with none at all --- at
 thirty seconds the price is still inherited from a real participant's order,
@@ -1563,7 +1563,7 @@ Two consequences follow, and they are what make the method useful as a
 reference. First, a passive result at or better than mid from a model-free
 method would indicate an error in the measurement or an unmodelled edge, so the
 small positive cost is a sanity condition the benchmark must satisfy, not a
-weakness to be minimised. Second, the same argument predicts that the expected
+weakness to be minimized. Second, the same argument predicts that the expected
 \emph{cost} of resting and of crossing should converge, leaving the choice
 between them a choice about speed and participation rather than about price. A
 predictive placement model is then scored on exactly the quantity \pov{} cannot
@@ -1609,10 +1609,10 @@ strategy layer above it.
 \label{sec:future}
 % ---------------------------------------------------------------
 
-The measurements of Section~\ref{sec:eval} are preliminary. They establish the
-mechanism and characterise its cost over one instrument and one year, not a
-completed benchmark study, and several directions remain before \pov{} can be treated as a
-validated reference.
+The measurements of Section~\ref{sec:eval} establish the mechanism and
+characterize its cost over one instrument and one year. A completed benchmark
+study needs more than that, and several directions remain before \pov{} can be
+treated as a validated reference.
 
 \paragraph{Comparison against established methods.} The central open task is to
 score \pov{} against competing passive-placement rules under the same
@@ -1630,7 +1630,7 @@ rates, the fraction of followed orders whose lifecycle ends in a fill rather tha
 a cancellation, queue-position dynamics, and sensitivity to the order-placement
 rate $\rho$ and the grace window $B$.
 
-\paragraph{Statistical strength.} The safety guards (the two-band hysteresis and the completion and over-hedge
+\paragraph{Ablating the guards.} The safety guards (the two-band hysteresis and the completion and over-hedge
 limits) should be ablated to quantify their effect on the reported costs.
 
 \paragraph{Market impact and breadth.} The replay uses a zero-impact simulator;
@@ -1650,10 +1650,10 @@ aggregate-volume targets of VWAP/TWAP/POV for direct observation of the passive
 orders participants actually post. By shadowing individual resting orders by
 exchange identifier --- mirroring price and venue, and tying cancellation to
 the shadowed order's lifecycle through a lookup on the followed order's identifier 
---- \pov{} needs no volume forecast of its own, uses followed orders as
-observable references for local execution flow, obtains
-venue selection as an emergent property rather than a routing computation, and
-makes cancellation an identifier-driven expected-$O(1)$ decision. Over a full
+--- \pov{} works without a volume forecast of its own, uses followed orders as
+observable references for local execution flow, and obtains venue selection as
+an emergent property of the flow it follows rather than from a routing
+computation. Over a full
 calendar year of replayed CME ES sessions we compared passive \pov{} against an
 aggressive equivalent at nearly matched participation, and swept the simulated latency
 from zero to five milliseconds on the order, the cancel and the feed together.
@@ -1665,7 +1665,7 @@ a tenth of a tick, or $\$1.19$ per contract on ES --- and beats immediate
 execution (crossing the spread) by $0.4236$ ticks. 
 Post-fill mark-outs computed from different data at
 a different grain agree with that figure, so it is a measurement rather than an
-artefact of one definition.
+artifact of one definition.
 
 \emph{Passive and aggressive cost the same, at zero latency.} At matched
 participation the aggressive equivalent returns $+0.0952 \pm 0.0135$ against
@@ -1692,8 +1692,8 @@ participation as its quotes convert into crosses and aggressive losing it as its
 marketable orders miss. An implementation that can reach the exchange quickly
 has a genuine choice; one that cannot should rest.
 
-Because it places passive orders with no order-book model and no fill
-prediction, we propose \pov{} as a model-free benchmark for passive-order
+Because its placement decision reads a price off an observed order and stops
+there, we propose \pov{} as a model-free benchmark for passive-order
 placement --- a reference a predictive placement model should be expected to
 beat, on the improvement it delivers over these numbers and at a latency it can
 actually achieve.
