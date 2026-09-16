@@ -34,6 +34,7 @@
 #include "frame/ob/msg/TradeNotify.hpp"
 #include <boost/format.hpp>
 #include "logger/act/Logger.hpp"
+#include "chutil/Time.hpp"   // publish_ts stamp; was only reached transitively
 
 //#define DEBUGTACHBOOK
 #define UNCROSS_BOOK
@@ -276,9 +277,20 @@ namespace light::tachbook
       bool sender_is_mtd = sender_str && boost::algorithm::icontains(std::string(sender_str), "MTD");
       bool sender_is_timer = sender_str && boost::algorithm::icontains(std::string(sender_str), "Timer");
       bool sender_is_super = sender_str && boost::algorithm::icontains(std::string(sender_str), "super");
-      bool sender_allowed = (sender_has_aggr || sender_is_mtd || sender_is_timer) && !sender_is_super;
+      // Latency instrumentation (md_perf_meter / LatencyProbe). Admitted
+      // explicitly rather than by naming the probe "...aggr..." to sneak past
+      // the check above -- that would work, by accident of a substring match,
+      // and would mislead the next person to read this gate.
+      //
+      // A perf subscriber is passive: it reads pl->hndl_tim_epoch and
+      // pl->publish_ts off the payload, histograms the deltas, and sends
+      // nothing back. It takes the HI-prio path because that is the path a
+      // real aggregator takes, and measuring any other path would not answer
+      // the question being asked.
+      bool sender_is_perf = sender_str && boost::algorithm::icontains(std::string(sender_str), "perf");
+      bool sender_allowed = (sender_has_aggr || sender_is_mtd || sender_is_timer || sender_is_perf) && !sender_is_super;
 
-      ASSERTF(sender_allowed, boost::format("Only aggregators, MTD, or Timer (not super) can subscribe to TachBook, got: %1%") % sender_str);
+      ASSERTF(sender_allowed, boost::format("Only aggregators, MTD, Timer, or perf probes (not super) can subscribe to TachBook, got: %1%") % sender_str);
 
       if (m->prio == frame::mda::msg::Subscribe::AGGR) // for fast send
       {
@@ -304,7 +316,7 @@ namespace light::tachbook
       }
       else if (m->prio == frame::mda::msg::Subscribe::HI)
       {
-        ASSERTF(sender_has_aggr, boost::format("no hi prio sub allowed from: %1%") % sender_str);
+        ASSERTF(sender_has_aggr || sender_is_perf, boost::format("no hi prio sub allowed from: %1%") % sender_str);
         // Check if sender already exists in loprio_subs
         auto it_lo = std::find(loprio_subs.begin(), loprio_subs.end(), m->sender);
         ASSERT(it_lo == loprio_subs.end(), "subscriber already exists in loprio_subs");
@@ -785,6 +797,13 @@ namespace light::tachbook
           std::cerr << get_name() << " sending trade notify " << *pl << std::endl;
 #endif
 
+          // Trades do NOT go through publish_book, so stamp here too. Note the
+          // different denominator: this path has no fast_compare and no
+          // baddata filter -- its only reject is order-not-found above. Trade
+          // and book-update latencies must be reported separately; pooling
+          // them mixes two populations selected by different rules.
+          pl->publish_ts = chutil::Time::epoch();
+
           for (auto &sub : aggr_subs)
           {
             frame::ob::msg::TradeNotify msg(pl);
@@ -1019,6 +1038,25 @@ namespace light::tachbook
 
       if (!pl->point_.baddata)
       {
+
+        // Stamp the publish instant as late as possible: everything above --
+        // applying the order to the book, uncross, create_point, fast_compare
+        // -- is book-build work and belongs in the hndl_tim_epoch->publish_ts
+        // leg, not in the subscriber's mailbox-hop leg.
+        //
+        // Caveat for whoever reads the numbers: aggr_subs below are served by
+        // fast_send, which runs the subscriber's handler inline on THIS thread.
+        // If any aggr subs existed, their work would land between this stamp
+        // and the hiprio enqueue and inflate every hiprio subscriber's measured
+        // hop.
+        //
+        // None exist. aggr_subs is empty in every configuration, for two
+        // independent reasons: subscribe_handler's AGGR branch opens with
+        // ERRF("no aggr sub allowed"), and Subscribe's constructor takes its
+        // priority as a bool, so AGGR(2) cannot even be expressed -- it
+        // narrows to 1, which is HI. So the fast_send loop below is dead and
+        // the term is zero for every reader, not just for md_perf_meter.
+        pl->publish_ts = chutil::Time::epoch();
 
         for (auto &sub : aggr_subs)
         {
