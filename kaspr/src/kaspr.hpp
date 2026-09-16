@@ -66,6 +66,7 @@
 #include "frame/ob/if/OB.hpp"
 #ifdef USE_TACHBOOK
 #include "light/if/TachBook.hpp"
+#include "interface/frame/perf/if/LatencyProbe.hpp"
 #endif
 #include "frame/mtim/if/Timer.hpp"
 #include "cons/if/Cons.hpp"
@@ -132,6 +133,16 @@ struct Kaspr : public actors::Manager
     std::vector<cfsmp> es_tach_books;
     std::vector<cfsmp> nq_tach_books;
     bool enable_tachbook_ = false;
+
+    // LatencyProbe - one per measured TachBook. Off unless the config asks
+    // for it, so the production recorder never pays for a subscriber it did
+    // not ask for. Attaching a probe is NOT free of observer effect: it adds
+    // a real subscriber to TachBook's fan-out, so the book does work it would
+    // not otherwise do. That cost lands in leg 2, not leg 1.
+    std::vector<cfsmp> probes;
+    bool enable_perf_probe_ = false;
+    int  probe_bin_ms_ = 100;
+    std::string probe_csv_dir_;
 #endif
 
     // Treasury futures (channel 344, CMEMDFUT venue)
@@ -197,6 +208,13 @@ private:
 #ifdef USE_TACHBOOK
     /** Create TachBook (MBO L3) books in parallel with OB. */
     void create_tach_books();
+
+    /**
+     * Attach a LatencyProbe to each TachBook, if the config asks for it.
+     * Must run AFTER create_tach_books() -- there is nothing to subscribe to
+     * before that.
+     */
+    void create_probes();
 #endif
 
     /**

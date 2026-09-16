@@ -68,6 +68,12 @@ Kaspr::Kaspr(const std::string& config_file, bool reset_positions)
     if (enable_tachbook_) {
         std::cerr << "Kaspr: TachBook (MBO L3) enabled - will run silently alongside OB" << std::endl;
     }
+
+    // Latency probe. Default OFF: the production recorder must not grow a
+    // TachBook subscriber because a measurement config existed once.
+    enable_perf_probe_ = pt_general.get<bool>("kaspr.general.perf_probe", false);
+    probe_bin_ms_      = pt_general.get<int>("kaspr.general.perf_bin_ms", 100);
+    probe_csv_dir_     = pt_general.get<std::string>("kaspr.general.perf_csv_dir", "");
 #endif
 
     // Create Logger first so log_inf works
@@ -78,6 +84,7 @@ Kaspr::Kaspr(const std::string& config_file, bool reset_positions)
     create_order_books();
 #ifdef USE_TACHBOOK
     create_tach_books();
+    create_probes();      // after the books: nothing to subscribe to before
 #endif
     create_support_modules();
     create_som();           // Create SOM before DB so DB can subscribe to it
@@ -179,6 +186,49 @@ void Kaspr::create_tach_books()
 
     std::cerr << "Kaspr: Created " << es_tach_books.size() << " ES TachBooks" << std::endl;
     std::cerr << "Kaspr: Created " << nq_tach_books.size() << " NQ TachBooks" << std::endl;
+}
+
+void Kaspr::create_probes()
+{
+    if (!enable_perf_probe_)
+        return;
+
+    if (!enable_tachbook_) {
+        // Not a warning to bury in a log: the run produces no samples at all.
+        std::cerr << "Kaspr: perf_probe requested but tachbook is OFF -- "
+                     "nothing to subscribe to, no samples will be written"
+                  << std::endl;
+        return;
+    }
+
+    std::cerr << "Kaspr: Creating LatencyProbes (bin " << probe_bin_ms_ << " ms)" << std::endl;
+
+    // One probe per TachBook. The tag carries "perf" because
+    // TachBook::subscribe_handler admits a HI-priority subscriber only on that
+    // substring -- rename it and the probe silently receives nothing.
+    auto attach = [&](cfsmp tb) {
+        auto sym = static_cast<frame::ob::act::TachBook *>(tb)->get_sym();
+        auto a   = frame::ref::RefData::inst().get_asset(sym);
+        if (!a) return;
+
+        std::string tag = "perf_" + a->name;
+        std::string csv;
+        if (!probe_csv_dir_.empty())
+            csv = probe_csv_dir_ + "/lat_" + a->name + ".csv";
+
+        auto p = create_LatencyProbe(tb, sym, tag.c_str(), probe_bin_ms_, csv);
+        add_to_manage_q(p);
+        probes.push_back(p);
+
+        std::cerr << "Kaspr:   probe " << tag
+                  << " -> " << (csv.empty() ? std::string("(console only)") : csv)
+                  << std::endl;
+    };
+
+    for (auto tb : es_tach_books) attach(tb);
+    for (auto tb : nq_tach_books) attach(tb);
+
+    std::cerr << "Kaspr: Created " << probes.size() << " LatencyProbes" << std::endl;
 }
 #endif
 
