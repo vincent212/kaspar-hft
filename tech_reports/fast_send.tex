@@ -257,7 +257,7 @@ positive only for \fs{}.}
 \label{tab:survey}
 \footnotesize
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{p{2.2cm} p{1.5cm} p{3.1cm} p{3.0cm} c}
+\begin{tabular}{p{2.2cm} p{1.8cm} p{3.1cm} p{3.0cm} c}
 \toprule
 System & Runtime & Actor $\to$ thread mapping & Synchronous / request--reply & Sender runs handler? \\
 \midrule
@@ -268,8 +268,8 @@ CAF & C++ & cooperative work-stealing scheduler over $P{=}\#\text{cores}$ worker
 SObjectizer & C++ & agents bound to dispatchers supplying worker threads/pools & async by default; \texttt{so5extra} \texttt{request\_reply} blocks; runs on provider's dispatcher & No \\
 Actix & Rust / Tokio & actors are tasks on Arbiter event-loop threads (M:N) & \texttt{send} returns a \texttt{Request} future; \texttt{do\_send} fire-and-forget & No \\
 Pony & Pony RT & work-stealing scheduler, one thread per core; per-actor heaps & none --- behaviours are asynchronous by design & No \\
-Swift actors & Swift RT & serial executor per actor over a cooperative pool & cross-actor access requires \texttt{await}; synchronous cross-actor calls prohibited by the compiler & No \\
-Ray, Dapr, Proto.Actor & distributed & one worker/process or mailbox per actor; M:N pools & remote call returns a future/promise; turn-based dispatch & No \\
+Swift actors & Swift RT & serial executor per actor over a cooperative pool & cross-actor access requires \texttt{await}; synchronous cross-actor calls are prohibited & No \\
+Ray, Dapr, Proto.Actor & distributed & one worker/process or mailbox per actor; M:N pools & remote call returns a future; turn-based dispatch & No \\
 \midrule
 \fs{} (this work) & C++/Rust & per-actor exclusive-access lock; sender's thread runs the handler & blocking call returns a value on the sender's thread & \textbf{Yes} \\
 \bottomrule
@@ -1017,8 +1017,8 @@ per-message operation should produce a measurable step down in latency. The
 actor framework's C++ microbenchmark suite measures exactly these steps on a
 \emph{sequential} round trip --- ping $\to$ pong $\to$ reply with a single
 message in flight, so each sample is a clean latency rather than a saturated
-throughput \cite{kasparperf}. All figures below were taken on an Apple M3 (arm64)
-(arm64), macOS, compiled \texttt{-O3 -march=native}, without CPU pinning, over
+throughput \cite{kasparperf}. All figures below were taken on an Apple M3 (arm64),
+macOS, compiled \texttt{-O3 -march=native}, without CPU pinning, over
 $N=10^6$ samples. They are \emph{indicative rather than a specification}:
 absolute numbers move with hardware, allocator, and turbo state, and this is
 neither the x86-64 Linux target nor a pinned, quiescent machine. The
