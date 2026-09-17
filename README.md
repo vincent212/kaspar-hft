@@ -612,6 +612,65 @@ above are indicative, not a spec. Full comparison, raw output, and the
 run-on-server runbook in the
 [perf README](actors/cpp/perf/README.md#second-data-point-x86-64-linux).
 
+## Case study: tick-to-book latency (live CME MDP3)
+
+Socket-to-book ("tick-to-book") latency measured on a live CME MDP 3.0 feed for
+ES, NQ, and ZN futures — 8.29 M messages over a 53-minute afternoon session,
+timestamped from the socket read (`t0`) to the book publish (`t1`). This is
+software-timestamped socket-to-book, not wire-to-book. Full analysis in
+[tech_reports/fast_send.pdf](tech_reports/fast_send.pdf).
+
+Each message's latency decomposes as **median ≈ floor + slope × idx**, where
+`idx` is the message's position inside its UDP packet:
+
+- **floor** ≈ 7 µs — SBE decode + order-book mutation for a message first in its
+  packet (`idx = 0`).
+- **slope** 0.31–0.97 µs/msg — the in-packet serialization cost; message *k* pays
+  *k* × slope.
+
+**Hot-path floor** (first in packet, empty ring — no queue, no serialization):
+
+| stream | floor (µs) | samples |
+|---|---:|---:|
+| ES book | 7.01 | 1,781,767 |
+| NQ book | 7.24 | 1,841,447 |
+| ZN book | 6.89 | 671,271 |
+| ES trade | 7.62 | 1,008 |
+| NQ trade | 8.30 | 298 |
+| ZN trade | 7.96 | 474 |
+
+The floor is the most stable number in the study: three independent estimators
+agree within 0.35 µs on the book streams, and it moved ≤ 0.4 µs during an FOMC
+release that raised the packet rate 4.6–9.8× in a second.
+
+**Distribution** (unconditional, every message, µs):
+
+| stream | p50 | p90 | p99 | p99.9 | max |
+|---|---:|---:|---:|---:|---:|
+| ES book | 7.1 | 10.6 | 18.5 | 41.2 | 1148.4 |
+| NQ book | 7.3 | 9.9 | 13.6 | 24.7 | 5567.0 |
+| ZN book | 7.1 | 12.1 | 57.0 | 180.9 | 2458.2 |
+| ES trade | 9.0 | 15.3 | 38.0 | 127.7 | 421.5 |
+| NQ trade | 8.3 | 12.5 | 31.2 | 83.7 | 694.2 |
+| ZN trade | 15.4 | 69.3 | 219.4 | 409.5 | 504.8 |
+
+**What this says about the actor framework.** The `fast_send` hop (~30 ns) is
+**under 1%** of the ~7 µs floor — the actor model is nowhere near the bottleneck.
+The floor is SBE decode + book work; the tail is set by the **arrival process**,
+not the framework or the queue:
+
+- Arrivals are **non-Poisson and self-exciting** (Hawkes-like, branching ratio
+  0.85–0.97): 74–85% of interarrival gaps are shorter than 1/10 of the mean, vs
+  9.5% for a Poisson feed of the same rate.
+- Those bursts become **large packets** (CME coalesces), and in-packet position
+  becomes latency through the slope — this is where the tail lives.
+- The mailbox **queue** is a rare event: the ring is empty for 87–99.7% of
+  messages, and queue depth ≥ 3 fires on ~0.08%. It is convex, as queueing theory
+  predicts, but small.
+
+**Design takeaway:** to cut the tail, attack the per-message decode **slope**, not
+the queue depth or the message rate.
+
 ## Writing
 
 Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.substack.com](https://vincentmayeski.substack.com)):

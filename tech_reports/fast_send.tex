@@ -1,8 +1,9 @@
-\documentclass[11pt]{article}
+ \documentclass[11pt]{article}
 
 % ---------------------------------------------------------------
-% Synchronous message delivery in actor systems (fast_send)
-% arXiv preprint (cs.DC / cs.PL)  --- DRAFT
+% Suitability of the actor model of concurrency for high-frequency trading
+% arXiv preprint --- primary q-fin.TR (Trading & Market Microstructure);
+% cross-list cs.DC
 % ---------------------------------------------------------------
 
 \usepackage[utf8]{inputenc}
@@ -17,11 +18,18 @@
 \usepackage[ruled,vlined,linesnumbered]{algorithm2e}
 \usepackage{microtype}
 \usepackage{caption}
+% Captions get their own font: smaller than body, bold "Table/Figure N." label.
+\captionsetup{font=small, labelfont=bf, labelsep=period}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
 \usepackage{placeins}
+\usepackage{graphicx}
+\usepackage{draftwatermark}
+\SetWatermarkText{DRAFT}
+\SetWatermarkScale{1.1}
+\SetWatermarkColor[gray]{0.92}
 % Give small tables/figures room to sit near their text rather than flushing to the end.
 \renewcommand{\topfraction}{0.9}
 \renewcommand{\bottomfraction}{0.8}
@@ -30,18 +38,6 @@
 \setcounter{topnumber}{3}
 \setcounter{bottomnumber}{2}
 \setcounter{totalnumber}{5}
-% --- DRAFT-ONLY block: delete from here to "end DRAFT-ONLY" for camera-ready ---
-\usepackage{draftwatermark}
-\SetWatermarkText{DRAFT}
-\SetWatermarkScale{1.1}
-\SetWatermarkColor[gray]{0.90}
-\usepackage{fancyhdr}
-\pagestyle{fancy}
-\fancyhf{}
-\fancyfoot[C]{\textbf{DRAFT} --- not for distribution --- \thepage}
-\renewcommand{\headrulewidth}{0pt}
-% --- end DRAFT-ONLY ---
-
 \geometry{margin=1in}
 \hypersetup{colorlinks=true, linkcolor=blue!50!black, citecolor=blue!50!black,
             urlcolor=blue!50!black}
@@ -49,9 +45,9 @@
 \newcommand{\fs}{\texttt{fast\_send}}
 \newcommand{\snd}{\texttt{send}}
 
-\title{\textbf{Synchronous Message Delivery in Actor Systems\\
-with Receiver Transparency and Cyclic-Invocation Detection}\\
-\large The \texttt{fast\_send} Mechanism}
+\title{\textbf{Suitability of the Actor Model of Concurrency for\\
+High-Frequency Trading}\\
+\large The \texttt{fast\_send} Mechanism and a Tick-to-Book Latency Study}
 
 \author{%
   Vincent Maciejewski\\
@@ -59,46 +55,56 @@ with Receiver Transparency and Cyclic-Invocation Detection}\\
   \small \texttt{mayeski@gmail.com}
 }
 
-\date{\textbf{DRAFT} --- September 2026}
+\date{September 2026}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-The actor model isolates concurrent entities behind asynchronous message
-passing: a sender enqueues a message on the receiver's mailbox and continues,
-and the receiver processes it later on its own thread. For actors that reside in
-the same process on the same machine, this discipline imposes overhead that the
-isolation guarantee does not require --- heap allocation of every message, two
-queue operations, a scheduler dispatch, and a context switch per delivery, with
-a second round trip for any reply. We describe \fs{}, a synchronous delivery
-mechanism in which the sending thread acquires exclusive access to the receiving
-actor and executes the receiver's message handler directly, on the sender's own
-thread, returning the reply as a value. The defining property is
-\emph{receiver transparency}: the handler is written identically for both
-delivery modes and has no programmatic means to determine which was used, which
-thread executes it, or whether the sender is blocked awaiting a reply. A unified
-reply operation routes responses correctly in both modes, and the reply value is
-heap-allocated in both modes so that the handler cannot infer the mode from
-allocation behavior. Synchronous delivery across a chain of actors runs entirely
-on the first actor's thread when the chain's locks are uncontended, reducing
-scheduler context switches from $O(N)$ on the asynchronous path to $O(1)$.
-Because synchronous invocation can form cycles that would deadlock a
-non-reentrant lock or overflow the stack under a reentrant one, the mechanism
-carries a thread-local call-chain membership test that detects a cyclic
-invocation \emph{before} the target lock is acquired, and either raises a cyclic
-invocation exception or, in a best-effort variant, falls back to asynchronous
-delivery. A refined variant keys the call chain on (actor, message-class) pairs
-to admit legitimate callback patterns while still catching unbounded recursion.
-Five delivery operations --- asynchronous, blocking synchronous, spin-wait
-synchronous, non-blocking synchronous, and best-effort void --- expose the full
-latency/robustness spectrum behind one transparent handler interface. We give
-the mechanism, the detection algorithm, and an analytical account of the
-per-message operations eliminated, corroborated by microbenchmarks of the C++
-implementation in which the synchronous path completes a round trip in tens of
-nanoseconds --- roughly $60\times$ below the ungrouped asynchronous path --- and
-a memory pool cuts the latency tail by two orders of magnitude; a
-saturated-throughput and contention evaluation is left to future work.
+The many benefits of the actor model --- per-actor state isolation, freedom
+from data races and deadlocks, and sequential single-message reasoning --- have
+been recognized for decades, yet the model has long been dismissed as unsuitable
+for high-frequency trading (HFT). The reasoning was that actors imply many
+threads, many mailbox queues, and a message --- with its heap allocation, queue
+operations, scheduler dispatch, and context switch --- for every interaction:
+overhead incompatible with a microsecond latency budget. This paper argues that
+the dismissal is wrong for co-located actors, and supports the argument not only
+analytically but with a deployed, measured implementation --- \emph{kaspar-hft},
+an open-source C++20 framework that extends the actor model into a form suitable
+for HFT and is its reference implementation. The extensions are four: \fs{}, a
+synchronous delivery
+mechanism in which the sending thread runs the receiver's handler inline and
+takes the reply as a value; actor \emph{groups}, which co-schedule a set of actors
+on one thread behind a single shared mailbox; selectable mailbox queue
+implementations matched per actor to its write pattern; and a memory pool that
+removes per-message allocation and its tail.
+
+The central mechanism is \fs{}, whose defining property is \emph{receiver
+transparency}: the handler is written identically for synchronous and
+asynchronous delivery and has no programmatic means to determine which was used,
+which thread executes it, or whether the sender is blocked. Synchronous delivery
+across a chain of grouped actors runs entirely on the first actor's thread,
+reducing scheduler context switches from $O(N)$ on the asynchronous path to
+$O(1)$; a thread-local call-chain test detects cyclic synchronous invocation
+before any lock is taken; and five delivery operations expose the
+latency/robustness spectrum behind one transparent interface. Microbenchmarks put
+the synchronous round trip at tens of nanoseconds --- roughly two orders of
+magnitude below the ungrouped asynchronous path --- and the pool cuts the
+allocator tail by two orders of magnitude.
+
+We then measure the framework in a real HFT setting: socket-to-book
+(``tick-to-book'') latency on a live CME market-data feed for ES, NQ, and ZN
+futures. The latency decomposes into a $\sim\!7~\mu$s decode-and-book floor plus a
+per-message serialization slope, and the framework's own per-message contribution
+is under $1\%$ of the floor. The tail is set not by the actor machinery or the
+mailbox queue --- which is convex, as queueing theory predicts, but fires on
+$0.08\%$ of messages --- but by the arrival process, which is non-Poisson and
+self-exciting (Hawkes-like, branching ratio $0.85$--$0.97$). The latency the
+concurrency model adds is thus minor next to the irreducible latencies a real HFT
+data path already endures. Finally, the shared-queue group yields a
+production/simulation duality: the same actor code runs unchanged in live trading
+and in deterministic backtest. A saturated-throughput and contention evaluation
+is left to future work.
 \end{abstract}
 
 \vspace{0.5em}
@@ -138,7 +144,7 @@ incurs, on conventional implementations:
   so a request-and-reply crosses the mailbox twice and the scheduler twice.
 \end{itemize}
 
-For a co-located pair, all of this is avoidable in principle: the sender's own
+For a same-process pair, all of this is avoidable in principle: the sender's own
 thread could run the receiver's handler directly and take the reply as a return
 value. The difficulty is doing so without breaking the abstraction the actor
 model exists to provide. A direct handler invocation --- calling the receiver's
@@ -155,7 +161,10 @@ asynchronous delivery and cannot determine which was used --- the property we
 call \emph{receiver transparency}. Because synchronous invocations can form
 cycles, and a cycle deadlocks a non-reentrant lock or overflows the stack under
 a reentrant one, the mechanism carries a lightweight cyclic-invocation detector
-that fires before any lock is taken.
+that fires before any lock is taken. \fs{} is implemented in \emph{kaspar-hft}, an
+open-source C++20 actor framework for high-frequency
+trading;\footnote{\url{https://github.com/vincent212/kaspar-hft}} all code and
+measurements in this paper are drawn from that repository.
 
 \paragraph{Contributions.}
 \begin{enumerate}[leftmargin=1.6em]
@@ -415,14 +424,34 @@ program. Fault isolation follows from the same isolation: a failing actor can be
 restarted by a supervisor without corrupting the state of others, the
 foundation of the ``let it crash'' reliability discipline \cite{armstrong2003}.
 
-\paragraph{The cost.} These properties are not free, and it would be dishonest
-to imply otherwise. The message-passing discipline that buys isolation is
+\paragraph{The cost.} These properties are not free. The message-passing
+discipline that buys isolation is
 exactly the source of the per-message overhead this paper is concerned with:
 heap allocation, mailbox queue operations, scheduling, and context switches
 (Section~\ref{sec:perf}). This is the tax paid for isolation, and on the hottest
 paths it has historically been the reason engineers abandon the actor model and
 return to shared memory and locks. The tension between the model's safety and
 its per-message cost is the entire subject of this paper.
+
+\paragraph{Determinism and simulation.} A further benefit follows from the same
+isolation and becomes decisive in a trading system. Because an actor's behavior
+is a function of the message sequence on its mailbox and nothing else --- no
+shared state, and no wall-clock or global-random side channel once the actor
+obtains time and randomness as messages --- an actor is deterministically
+reproducible: the same input sequence yields the same states, outputs, and faults
+on every run. This makes the actor a natural unit of \emph{simulation}. When
+actors are co-scheduled behind one queue (Section~\ref{sec:micro}), that single
+queue is fed by live sources in production or replayed from a recorded or
+synthetic sequence in simulation, and the actors cannot tell the two apart. The
+same code is therefore both a real-time execution engine and a deterministic
+simulator: a trading strategy is developed and backtested against recorded market
+data, debugged by replaying the exact sequence that produced a fault, and
+deployed to production without modification. Shared-memory and callback-based
+designs do not offer this without effort --- their behavior depends on thread
+interleavings and ambient clocks that a simulator must otherwise mock away,
+whereas for actors the property falls out of the message discipline. The duality,
+and its use in developing an execution algorithm, are the subject of
+Section~\ref{sec:duality}.
 
 \paragraph{The generation argument.} There is a further benefit that is only
 now coming into view, and it may in the end be the most consequential. An actor
@@ -912,10 +941,10 @@ connected by exactly two cross-thread hops.
 cross-thread hops --- and hence the only context switches --- on the critical
 path are the two asynchronous \snd{}s (reader$\to$buffer and
 signal$\to$order-handler); each such hop is the expensive operation, measured at
-$\sim\!2.25\,\mu$s per round trip (Table~\ref{tab:transport}), because it wakes
+$\sim\!3.4\,\mu$s per round trip (Table~\ref{tab:transport}), because it wakes
 another thread. The entire decode/book/signal servicing chain instead collapses
-onto a single thread via \fs{}, each hop costing $\sim\!36$~ns --- roughly
-$55$--$62\times$ less (see Table~\ref{tab:transport}) --- so it incurs no queue and no context switch. That servicing
+onto a single thread via \fs{}, each hop costing $\sim\!30$~ns --- more than two
+orders of magnitude less (see Table~\ref{tab:transport}) --- so it incurs no queue and no context switch. That servicing
 chain is the M/M/1 stage of Section~\ref{sec:qtheory} whose per-message service
 time, and hence $\mu$, is set by the aggregate cost of these \fs{}s.}
 \label{fig:hftarch}
@@ -1012,56 +1041,41 @@ microbenchmarks of the synchronous path itself.
 \subsection{Microbenchmarks of the C++ implementation}
 \label{sec:micro}
 
-The analytical account of Table~\ref{tab:elim} predicts that removing each
-per-message operation should produce a measurable step down in latency. The
-actor framework's C++ microbenchmark suite measures exactly these steps on a
-\emph{sequential} round trip --- ping $\to$ pong $\to$ reply with a single
-message in flight, so each sample is a clean latency rather than a saturated
-throughput \cite{kasparperf}. All figures below were taken on an Apple M3 (arm64),
-macOS, compiled \texttt{-O3 -march=native}, without CPU pinning, over
-$N=10^6$ samples. They are \emph{indicative rather than a specification}:
-absolute numbers move with hardware, allocator, and turbo state, and this is
-neither the x86-64 Linux target nor a pinned, quiescent machine. The
-\emph{ratios} between rows --- each isolating one eliminated operation --- are
-the durable result. Because a \fs{} is so cheap that per-sample percentiles
-quantize to the \texttt{steady\_clock} tick ($\sim\!40$~ns on this platform;
-$\sim\!10$~ns on the x86-64 Linux box, so the tick is platform-specific and the
-bench prints the measured value rather than asserting it), its rows are reported
-as amortized ns (total wall time over $N$, one clock-read pair), which resolves
-costs below the tick.
+Table~\ref{tab:elim} predicts that eliminating each per-message operation
+produces a measurable reduction in latency. The framework's C++ microbenchmark
+suite measures these steps on a \emph{sequential} round trip --- ping $\to$ pong
+$\to$ reply with a single message in flight, so each sample is a latency rather
+than a saturated throughput \cite{kasparperf}. The figures below were taken on an
+AMD~EPYC~9374F (RHEL~9, \texttt{g++}~15), compiled \texttt{-O3 -march=native}
+and pinned with \texttt{taskset} to two cores, reported as the median of three
+runs. Absolute values depend on hardware, allocator, thread placement, and turbo
+state; the durable result is the \emph{ratio} between rows, each of which
+isolates one eliminated operation. The \texttt{steady\_clock} resolution on this
+machine quantizes to $\sim\!10$~ns, so a per-sample \fs{} percentile is
+resolution-bound; \fs{} costs are therefore also reported as amortized ns (total
+wall time over $N$ operations, a single clock-read pair), which resolves costs
+below one tick.
 
-We present three measurements: the cost of crossing threads
-(Table~\ref{tab:transport}), the internal overhead of \fs{} itself
-(Table~\ref{tab:fsvariants}), and the effect of the memory pool
-(Table~\ref{tab:alloc}).
+Table~\ref{tab:transport} isolates the cost of crossing threads; the two
+paragraphs that follow it decompose the internal overhead of \fs{} and the
+effect of the memory pool.
 
-\paragraph{Only crossing threads costs anything.} Table~\ref{tab:transport} is
-the central result. It holds the work constant --- the same ping/pong round trip
-with a reply --- and varies only \emph{how} the message is delivered, so each row
-adds back exactly one mechanism. An asynchronous \snd{} between two actors on
-\emph{separate} threads costs about $2250$~ns at the median, and that cost is
-almost entirely the two cross-core mailbox wakeups it performs per round trip,
-each a mutex acquisition plus a condition-variable signal that the receiving
-thread must be scheduled to service. This --- not ``message passing'' in the
-abstract --- is where actor latency actually comes from. Remove the thread
-crossing and the wakeups vanish; remove the queue as well and essentially
-nothing is left. The \fs{} row is the point of the paper: at $\sim\!36$~ns
-amortized it is roughly $55$--$62\times$ cheaper than the cross-thread \snd{} ---
-the exact multiple depends on the metric, since \fs{}'s per-sample $p50$ sits at
-the clock floor and its true cost is only resolved amortized, so this divides an
-amortized figure into a $p50$ and is approximate --- because it is, mechanically,
-a locked function call. A like-for-like comparison avoids the metric mismatch
-entirely. Measured the same way in the same process --- one clock-read pair
-around a tight loop of $N$ operations, so there is no per-call clock overhead and
-no quantization --- a bare (non-virtual) function call costs $\sim\!2.9$~ns and a
-\fs{} of a stack-allocated message with a trivial handler costs $\sim\!14$~ns.
-That is $\sim\!10$~ns of overhead over a direct call: the uncontended
-receiver-lock acquire/release, the message field setup, the handler-cache
-dispatch, and the reply wrapping --- on the order of one to two mispredicted
-virtual calls, not one. The $\sim\!36$~ns round-trip figure in
-Table~\ref{tab:transport} is larger because it additionally includes the two heap
-message allocations of the ping/pong pair (a stack message and the pool remove
-most of that; see Table~\ref{tab:alloc}).
+\paragraph{The cost is thread-crossing, not messaging.} Table~\ref{tab:transport}
+holds the work constant --- one ping/pong round trip with a reply --- and varies
+only the delivery mechanism, so each row adds back one operation. A cross-thread
+asynchronous \snd{} between two actors on separate cores costs $\approx 3.4\,\mu$s
+at the median. This cost is dominated by the two cross-core mailbox wakeups per
+round trip, each a mutex acquisition and a condition-variable signal on which the
+receiving thread must be scheduled; it is placement-sensitive, because the
+cross-core path depends on which cores the two threads occupy. Co-scheduling the
+two actors on one thread (grouping) removes both wakeups and reduces the round
+trip to $90$~ns, a $37\times$ reduction. Replacing the remaining mailbox push/pop
+with an inline \fs{} reduces it to $\sim\!30$~ns (amortized; the per-sample $p50$
+is resolution-bound), because a \fs{} is mechanically a locked function call: it
+takes the receiver's lock and runs the handler inline. Measured the same way, a
+bare direct call costs $\sim\!1$~ns, so \fs{} adds $\sim\!10$~ns over a direct
+call --- covering the receiver-lock acquire/release, message-field setup,
+handler-cache dispatch, and reply wrapping.
 
 \begin{table}[!htb]
 \centering
@@ -1069,141 +1083,1190 @@ most of that; see Table~\ref{tab:alloc}).
 round trip with a reply; only the delivery mechanism varies. Each row eliminates
 one operation relative to the row above. ``Thread hop'' is a cross-core mailbox
 wakeup (mutex $+$ condition variable); ``queue'' is a mailbox push/pop.
-$p50$/$p99$ are per-sample round-trip latency except the \fs{} row, which is
-amortized (see text); its speedup therefore divides an amortized figure into a
-$p50$ and is approximate. Ungrouped $p99$ is $6750$~ns; the grouped and \fs{} rows
-show no meaningful spread.}
+The $p50$ column is per-sample round-trip latency; the \fs{} figure is
+amortized, because its per-sample $p50$ is resolution-bound (the
+\texttt{steady\_clock} tick is $\sim\!10$~ns), and its speedup is computed on
+amortized figures. The grouped and \fs{} rows show negligible spread.}
 \label{tab:transport}
 \small
 \begin{tabular}{lccccr}
 \toprule
 Delivery mode & Threads & Thread hop & Queue & $p50$ RT (ns) & Speedup \\
 \midrule
-\snd{}, ungrouped        & 2 & yes & yes & $2250$        & $1\times$ \\
-\snd{}, grouped          & 1 & no  & yes & $125$         & $18\times$ \\
-\fs{} (inline)           & 1 & no  & no  & $\sim\!36$    & $\sim\!55$--$62\times$ \\
+\snd{}, ungrouped        & 2 & yes & yes & $\sim\!3370$  & $1\times$ \\
+\snd{}, grouped          & 1 & no  & yes & $90$          & $37\times$ \\
+\fs{} (inline)           & 1 & no  & no  & $\sim\!30$    & $\sim\!110\times$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Actor grouping, and why \fs{} beats it.} The middle row of
-Table~\ref{tab:transport} is worth dwelling on, because it is the strongest
-alternative and the one \fs{} must beat. The framework lets a set of actors be
-placed in a \texttt{Group}: the group's actors are co-scheduled on a
-\emph{single} thread behind a \emph{single} mailbox, so an asynchronous \snd{}
-between two actors in the same group never crosses a core and never wakes another
-thread --- it is a push and a pop on a queue already owned by the running thread.
-This is the conventional low-latency actor optimization --- the same idea as
-same-thread messaging in Actor4j or a shared dispatcher in Akka
-(Section~\ref{sec:survey}) --- and it is dramatic on its own: it takes the round
-trip from $2250$~ns to $125$~ns, an $18\times$ improvement, purely by removing
-the thread hop. But grouping still pays for the queue: the message is enqueued,
-the run loop dequeues it, and the handler runs on a later turn. \fs{} removes
-that last layer. Within the same single thread, it does not enqueue at all; it
-takes the receiver's lock and runs the handler inline, returning the reply as a
-value, for $\sim\!36$~ns --- about $3.5\times$ faster than the best that grouping
-achieves. Grouping removes the thread hop; \fs{} removes the thread hop
-\emph{and} the queue. This second step --- a synchronous, inline, receiver-transparent
-delivery that outperforms same-thread asynchronous messaging --- is what is
-distinctive about the kaspar framework and is, to our knowledge, absent from the
-mainstream actor systems surveyed in Section~\ref{sec:survey}. The intended usage
-follows directly: group the actors of a servicing stage onto one thread, then
-drive them with \fs{}, and an $N$-actor pipeline collapses to a single inline call
-chain (the middle section of Figure~\ref{fig:hftarch}).
+\paragraph{Grouping, and why \fs{} improves on it.} The grouped row is the
+strongest conventional alternative. The framework places a set of actors in a
+\texttt{Group}, co-scheduled on a single thread behind a single mailbox, so an
+asynchronous \snd{} within the group never crosses a core: it is a push and a pop
+on a queue owned by the running thread. This is the standard low-latency actor
+optimization --- same-thread messaging in Actor4j, a shared dispatcher in Akka
+(Section~\ref{sec:survey}) --- and it reduces the round trip from $\sim\!3.4\,\mu$s
+to $90$~ns. Grouping still pays for the queue: the message is enqueued, the run
+loop dequeues it, and the handler runs on a later turn. \fs{} removes that layer.
+On the same thread it does not enqueue; it takes the receiver's lock and runs the
+handler inline, returning the reply as a value, in $\sim\!30$~ns --- about
+$3\times$ faster than grouping. Grouping removes the thread hop; \fs{} removes the
+thread hop \emph{and} the queue. This synchronous, inline, receiver-transparent
+delivery is, to our knowledge, absent from the mainstream actor systems surveyed
+in Section~\ref{sec:survey}. The intended use follows: group the actors of a
+servicing stage onto one thread and drive them with \fs{}, so that an $N$-actor
+pipeline collapses to a single inline call chain (the middle section of
+Figure~\ref{fig:hftarch}).
 
-\paragraph{The internal overhead of \fs{} is minimal.} Table~\ref{tab:fsvariants}
-decomposes that $\sim\!36$~ns by varying only where the request message lives and
-whether a reply is sent. A bare \fs{} that allocates nothing --- a stack request,
-no reply --- dispatches in $35.9$~ns, and that is the true floor: message-id
-lookup, lock, and the inline handler call, with zero heap traffic. Everything
-above it is allocation, not dispatch. Each global \texttt{new}\,$+$\,\texttt{delete}
-of a small message adds about $15$~ns; a pooled allocation adds only $2$--$3$~ns.
-In other words the mechanism itself imposes essentially no overhead beyond a
-function call; the only variable cost a caller pays is for memory it chooses to
-allocate, and both stack allocation and the memory pool drive that toward zero.
-
-\begin{table}[!htb]
-\centering
-\caption{\textbf{\fs{} overhead is dominated by allocation, not dispatch.} Four
-\fs{} configurations, amortized ns per operation, pool on. Backing out the rows:
-base dispatch $\approx 36$~ns; each global \texttt{new}$+$\texttt{delete}
-$\approx 15$~ns; each pooled allocation $\approx 2$--$3$~ns. With the pool off,
-\emph{pooled input $+$ reply} rises to $65.6$~ns, matching \emph{heap input $+$
-reply}.}
-\label{tab:fsvariants}
-\small
-\begin{tabular}{llr}
-\toprule
-\fs{} variant & Message allocations & Amortized (ns/op) \\
-\midrule
-stack input, no reply    & none                    & $35.9$ \\
-pooled input $+$ reply    & 2 pooled                & $41.3$ \\
-stack input $+$ reply     & 1 global (the reply)    & $51.1$ \\
-heap input $+$ reply      & 2 global                & $65.8$ \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\paragraph{The memory pool cuts the tail by two orders of magnitude.}
-Table~\ref{tab:alloc} isolates the allocator with a compile-time switch, holding
-the message types fixed. At the median the pool's win is modest on this platform:
-$124.5$~ns falls to $92.8$~ns ($\sim\!26\%$). This median win is
-\emph{allocator-specific and does not travel}: on the x86-64 Linux target glibc's
-\texttt{tcache} is \emph{faster} than the macOS allocator on this pattern (a global
-\texttt{new}/\texttt{delete} costs $\sim\!3.6$~ns there vs $\sim\!15$~ns here), so
-the same median win \emph{shrinks} to $\sim\!7.5\%$ --- the opposite of what a
-``slower Linux allocator'' would suggest. The durable, portable benefit is not the
-median but the tail: in a separate run the \emph{maximum} round trip
-fell from $5.5$~ms to $33\,\mu$s once pooled, because the pool never takes the
-global allocator's occasional slow path. That is the number that matters for the
-queueing argument of Section~\ref{sec:queueing}: it is a two-order-of-magnitude
-cut to the exact $p99.9{+}$ tail that a slow servicing stage feeds into a growing
+\paragraph{Allocation, not dispatch, is the only variable cost.} Beyond the
+inline dispatch, the only per-message cost a caller pays is for memory it chooses
+to allocate. A request message kept on the stack requires none, because \fs{}
+blocks until the handler returns (Section~\ref{sec:mech}). For a message that must
+outlive the call, allocation from a \texttt{MemoryPool} replaces a general-purpose
+\texttt{new}/\texttt{delete}. On a grouped-\snd{} round trip with two allocations,
+the pool reduces the amortized cost from $\sim\!128$~ns (pool off) to $\sim\!92$~ns
+(pool on). The larger and platform-independent benefit is the tail: in a separate
+run the maximum round trip fell from $5.5$~ms to $33\,\mu$s once pooled, because
+the pool never takes the general allocator's occasional slow path. This is the
+quantity that matters for Section~\ref{sec:queueing}: a two-order-of-magnitude
+reduction of the $p99.9{+}$ tail that a slow servicing stage feeds into a growing
 queue.
 
+\paragraph{Scope.} These are sequential latencies with one message in flight, not
+saturated throughput, and they do not vary contention or chain depth. The
+established results are: \fs{} costs tens of nanoseconds; its overhead over a
+direct call is $\sim\!10$~ns plus whatever memory the caller allocates; it
+improves on same-thread grouping by about $3\times$; and pooling removes the
+latency tail. The multi-axis, saturated evaluation (Section~\ref{sec:disc})
+remains future work.
+
+\subsection{Mailbox queue types and their selection}
+\label{sec:qtypes}
+
+The mailbox is a \texttt{std::variant} over four multi-producer/single-consumer
+queue implementations, selectable per actor: \texttt{BQueue} (a mutex and
+condition variable around a ring buffer); \texttt{BQueueBatched} (the same lock,
+but the consumer drains the whole queue under one acquisition); \texttt{ShardedBQueue}
+($N$ independent lanes, each separately locked, joined by an atomic cursor); and
+\texttt{LockFreeMPSC} (a bounded lock-free Vyukov ring, in which a producer
+reserves a slot with a single atomic operation). Because the variant holds the
+concrete type, \texttt{push} and the drain loop are devirtualized and inlined.
+Table~\ref{tab:qtypes} measures the four on the EPYC target across the three
+regimes that separate them; a fourth regime, a single cross-thread message,
+distinguishes none of them, because thread placement moves the figure by
+$2.2\times$ --- more than the gap between queues.
+
 \begin{table}[!htb]
 \centering
-\caption{\textbf{Global allocator vs \texttt{MemoryPool}}, grouped \snd{},
-amortized ns per round trip (two allocations per round trip). The compile-time
-switch \texttt{DISABLE\_MEMORY\_POOL} is the only difference between columns; with
-it off, pooled types collapse to the plain \texttt{new}/\texttt{delete} cost,
-confirming the switch is all that changes. Tail (separate run): maximum round
-trip $5.5$~ms $\to$ $33\,\mu$s.}
-\label{tab:alloc}
+\caption{\textbf{Four mailbox queue types, one column per distinguishing regime}
+(EPYC target, pinned, median of three runs). \emph{Grouped}: single-thread
+round-trip median. \emph{Burst}: single bursty producer, amortized cost per
+message. \emph{Fan-in}: 32 concurrent producers, push $p99$. Bold marks the best
+in each regime; no type is best in all three.}
+\label{tab:qtypes}
+\small
+\begin{tabular}{lrrr}
+\toprule
+Queue type & Grouped $p50$ (ns) & Burst (ns/msg) & Fan-in $p99$ ($\mu$s) \\
+\midrule
+\texttt{BQueue}        & $90$          & $605.8$          & $69.9$ \\
+\texttt{BQueueBatched} & $90$          & $\mathbf{584.9}$ & $72.4$ \\
+\texttt{ShardedBQueue} & $190$         & $983.1$          & $\mathbf{6.6}$ \\
+\texttt{LockFreeMPSC}  & $\mathbf{70}$ & $672.0$          & $16.5$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+No single queue wins everywhere. On a shared (grouped) thread, \texttt{LockFreeMPSC}
+has the lowest median ($70$~ns, $1.3\times$ below \texttt{BQueue}), because its
+push and pop are each an uncontended atomic operation with no lock or wakeup.
+Under a bursty single producer --- the market-data regime of the case study ---
+\texttt{BQueueBatched} is fastest ($584.9$~ns/msg): draining an entire packet
+burst under one lock acquisition amortizes the lock over the burst, and
+\texttt{BQueue} trails by under $4\%$. Under 32-producer fan-in, \texttt{ShardedBQueue}
+wins decisively --- $p99$ of $6.6~\mu$s against \texttt{BQueue}'s $69.9~\mu$s
+($10.6\times$), and $3.6\times$ the throughput --- because its independent lanes
+remove the single-mutex serialization that dominates the other three; it pays for
+those lanes in the other regimes, where it is the slowest of the four.
+
+The selection rule follows. Default every actor to \texttt{BQueue}: it is fastest
+or within a few percent in every regime except fan-in, and it has the most stable
+tail of the four (grouped \texttt{max} $2.4$--$9~\mu$s, versus $14$--$16~\mu$s for
+\texttt{LockFreeMPSC}). Override to \texttt{ShardedBQueue} only for the few actors
+written to by many producers concurrently --- a shared order-out actor, or a
+fan-in aggregator across market-data handlers --- the one regime in which it wins.
+\texttt{LockFreeMPSC}, despite the best grouped median, is not recommended as a
+default because its tail is the least stable measured; \texttt{ShardedBQueue} is
+not a default because its lanes are wasted, and counterproductive, outside fan-in.
+
+\FloatBarrier
+
+% ---------------------------------------------------------------
+\section{Case study: tick-to-book latency in a live market-data path}
+\label{sec:casestudy}
+% ---------------------------------------------------------------
+
+The microbenchmarks of Section~\ref{sec:micro} measure the framework's
+per-message cost in isolation, and the queueing analysis of
+Section~\ref{sec:queueing} predicts, in principle, where latency comes from. This
+section grounds both in a live measurement of the \textsc{kaspar-hft}
+market-data path on production exchange data, and asks the paper's title question
+directly: is the actor model's overhead small enough for a high-frequency
+market-data path? The measurements below are drawn from a companion latency study
+of the same system \cite{mdlatency2026}.
+
+\subsection{Setup}
+
+The path under measurement is the market-data ingest of Section~\ref{sec:hftarch}:
+read a UDP datagram off CME MDP~3.0 multicast, decode the Simple Binary Encoding
+(SBE) messages \cite{fixsbe} inside it, apply them to an order book, and publish.
+Two timestamps are taken per message --- $t_0$ when the datagram comes up from the
+socket, $t_1$ when the book update is published --- and their difference is
+recorded for every message. Structurally this is two actor stages: a socket-reader
+actor hands each datagram to a decode-and-order-book actor by an asynchronous
+\snd{} (necessarily asynchronous --- a blocking reader would stop draining its
+socket and drop packets), and decode plus book construction run together on the
+second thread. The handoff between the two stages is the decoder's mailbox --- a
+bounded ring buffer of datagrams (a \texttt{BQueue}) --- and we write
+$\text{qlen}$ for its occupancy: the number of datagrams already
+waiting in the ring when a given datagram is handed to the decoder, so
+$\text{qlen}=0$ means the ring was empty and the datagram was picked up at once.
+This is the ``ring'' and the ``queue'' referred to throughout this section. The
+handoff is a single bursty producer, the regime in which \texttt{BQueueBatched}
+is marginally faster than the \texttt{BQueue} used here (Section~\ref{sec:qtypes});
+the difference is a few percent of the mailbox cost and negligible against the
+$\sim\!7~\mu$s floor.
+Three instruments (E-mini S\&P~500, ES; E-mini Nasdaq-100, NQ;
+10-year Treasury Note, ZN), each with a book-update and a trade stream:
+$8.29$~million messages over 53 minutes of a busy afternoon
+(2026-09-16). One caveat bounds everything below: $t_0$ is a \emph{software}
+timestamp taken at the socket read, so time spent in the NIC and the kernel is
+excluded. This is socket-to-book, not wire-to-book.
+
+\subsection{The per-message model: floor plus serialization}
+\label{sec:floorslope}
+
+One UDP datagram carries many SBE messages, decoded in order. Write $\text{idx}$
+for a message's position within its packet, counted from zero: $\text{idx}=0$ is
+the message decoded first, $\text{idx}=1$ the next, and so on. A message at
+position $\text{idx}$ therefore waits for the $\text{idx}$ decodes ahead of it
+before its own runs --- a wait that sits inside its measured latency, and that is
+zero exactly when $\text{idx}=0$. Restricting to messages that arrive to an empty
+ring (nothing queued ahead of their packet), so the only remaining wait is
+in-packet, the median latency is linear in $\text{idx}$,
+\[
+  \text{median latency} \;\approx\; \text{floor} \;+\; \text{slope}\times\text{idx},
+\]
+with the two coefficients of Table~\ref{tab:floorslope}, fitted on medians. (Means
+are useless here: a single multi-millisecond stall in a cell moves the mean by
+tens of microseconds, so every quantity in this section is a median or a
+percentile.) The two coefficients carry the argument.
+
+The \emph{floor} --- the intercept, a message first in its packet --- agrees to
+within $0.42~\mu$s across six independent streams, $6.8$--$7.2~\mu$s. It is the
+irreducible cost of decoding one SBE message and applying it to the book; it is
+insensitive to queue length; and it is stable under
+load, moving by at most $+0.4~\mu$s (and \emph{falling} on two of three
+instruments) during a Federal Reserve release that raised the packet rate
+$4.6$--$9.8\times$ in a second. Against this $\sim\!7~\mu$s floor the framework's
+per-message contribution --- the mailbox handoff and dispatch of
+Section~\ref{sec:micro} --- is tens of nanoseconds: a \fs{} dispatch is
+$\sim\!30$~ns. \emph{The actor abstraction is under $1\%$ of the floor}; the floor
+is SBE decode and book mutation, not message delivery.
+
+The \emph{slope} --- the per-message serialization cost, $0.31$--$0.97~\mu$s ---
+determines the tail. In-packet position scales linearly into latency: the last
+message of a $45$-message packet incurs $44\times0.57 \approx 25~\mu$s on top of
+the floor, deterministically. On the trade streams a message is essentially never alone
+($99.3$--$99.6\%$ have another message ahead of them in the same packet), which is
+why the trade medians already sit above the book medians. Shaving $100$~ns off the
+floor moves every message by $100$~ns; shaving it off the slope moves a message by
+$\text{idx}\times100$~ns, and $\text{idx}$ is exactly what is large in the tail.
+The design lever is the slope --- not the floor, and not the mailbox queue, which
+is rare: between $87\%$ and $99.7\%$ of messages arrive to find the ring empty.
+
+\begin{table}[t]
+\centering
+\caption{The per-message model
+$\text{median}\approx\text{floor}+\text{slope}\times\text{idx}$, fitted on medians
+at queue length zero. The floor (a message first in its packet) agrees within
+$0.42~\mu$s across six streams; the slope (the in-packet serialization cost)
+varies $\sim\!3\times$ and is where the tail is bought.}
+\label{tab:floorslope}
 \small
 \begin{tabular}{lrr}
 \toprule
-Message source & Pool on (ns/RT) & Pool off (ns/RT) \\
+Stream & Floor ($\mu$s) & Slope (ns/msg) \\
 \midrule
-plain \texttt{new}/\texttt{delete} & $124.5$ & $128.1$ \\
-\texttt{MemoryPool}                & $\mathbf{92.8}$ & $128.2$ \\
+ES book  & 6.98 & 566 \\
+NQ book  & 7.23 & 312 \\
+ZN book  & 6.83 & 966 \\
+ES trade & 6.81 & 714 \\
+NQ trade & 7.14 & 526 \\
+ZN trade & 6.81 & 965 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Guidance, and what is not shown.} The measurements yield a mechanical
-rule for hot-path callers: group the actors of a stage onto one thread; deliver
-with \fs{}; keep the request message on the stack when possible (it need never be
-heap-lived, because \fs{} blocks until the handler returns,
-Section~\ref{sec:mech}); and for any message that must outlive the call, draw it
-from a \texttt{MemoryPool}, turning a global allocation ($\sim\!15$~ns on macOS,
-$\sim\!3.6$~ns on glibc) into a $\sim\!2$--$3$~ns pooled one and, above all,
-removing the allocator tail --- the one part of the pool's benefit that is
-platform-independent. What these numbers do
-\emph{not} establish is equally important: they are sequential latencies with one
-message in flight, not saturated throughput; they do not vary contention or chain
-depth; and they were taken primarily on an Apple M3. A pinned cross-check on the
-x86-64 Linux target (AMD EPYC 9374F, \texttt{g++} 15) reproduces the \emph{ratios} ---
-grouping still collapses the round trip, \fs{} still removes what remains, and its
-overhead over a bare call still measures single-digit nanoseconds ($+9$~ns there,
-about \emph{one} unpredictable virtual call) --- but not the allocator or
-clock-resolution \emph{absolutes} above. That
-multi-axis, saturated evaluation --- the subject of Section~\ref{sec:disc} ---
-remains future work. What is established is that \fs{} costs tens of nanoseconds,
-that its overhead is a function call plus whatever memory the caller chooses to
-allocate, that it beats even same-thread asynchronous grouping by roughly
-$3.5\times$, and that pooling removes the latency tail.
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.68\linewidth, height=6.4cm,
+  xlabel={In-packet position idx}, ylabel={Median latency ($\mu$s)},
+  domain=0:40, samples=2,
+  xmin=0, xmax=40, ymin=6,
+  legend style={at={(1.02,1)},anchor=north west,font=\small},
+  legend cell align=left,
+  grid=both, grid style={gray!20},
+]
+\addplot[blue,thick]           {6.98+0.566*x}; \addlegendentry{ES book (566 ns/msg)}
+\addplot[red,thick]            {7.23+0.312*x}; \addlegendentry{NQ book (312)}
+\addplot[green!55!black,thick] {6.83+0.966*x}; \addlegendentry{ZN book (966)}
+\addplot[blue,dashed]          {6.81+0.714*x}; \addlegendentry{ES trade (714)}
+\addplot[red,dashed]           {7.14+0.526*x}; \addlegendentry{NQ trade (526)}
+\addplot[green!55!black,dashed] {6.81+0.965*x}; \addlegendentry{ZN trade (965)}
+\end{axis}
+\end{tikzpicture}
+\caption{The per-message model $\text{median}=\text{floor}+\text{slope}\times
+\text{idx}$ (Table~\ref{tab:floorslope}), one line per stream. All six share a
+$\sim\!7~\mu$s floor at $\text{idx}=0$; the slope --- the per-message
+serialization cost --- sets the divergence, from $312$~ns/msg (NQ~book) to
+$966$~ns/msg (ZN~book).}
+\label{fig:floorslope}
+\end{figure}
+
+\subsection{Three estimates of the floor}
+\label{sec:floor-robust}
+
+The floor of Table~\ref{tab:floorslope} is a fitted intercept. Two further
+estimates, constructed differently, agree with it. The first isolates the hot path
+directly: the subset of messages with $\text{qlen}=0$ and $\text{idx}=0$, for which
+neither the queue nor in-packet serialization contributes, so its median is the
+floor with no model interposed (Table~\ref{tab:floordirect}). Across six streams
+the spread is $1.41~\mu$s; across the three book streams it is $0.35~\mu$s.
+
+\begin{table}[!htb]
+\centering
+\caption{\textbf{Direct hot-path floor:} median latency of the subset at
+$\text{qlen}=0$ and $\text{idx}=0$, with the sample size. No queue and no in-packet
+serialization contribute to these messages.}
+\label{tab:floordirect}
+\small
+\begin{tabular}{lrr}
+\toprule
+Stream & Median ($\mu$s) & $n$ \\
+\midrule
+ES book  & 7.01 & 1{,}781{,}767 \\
+NQ book  & 7.24 & 1{,}841{,}447 \\
+ZN book  & 6.89 & \phantom{0,}671{,}271 \\
+ES trade & 7.62 & \phantom{0,00}1{,}008 \\
+NQ trade & 8.30 & \phantom{0,000,}298 \\
+ZN trade & 7.96 & \phantom{0,000,}474 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The second estimate is the fitted $\text{idx}=0$ intercept of the median ladder
+(Table~\ref{tab:floorslope}). The third is measured during the Federal Open Market
+Committee statement, when the packet rate rose $6.5\times$, $4.6\times$, and
+$9.8\times$ on the three instruments within a second; taking the floor from
+single-message packets ($\text{span}\approx1$) in that window gives the third row
+of Table~\ref{tab:floor3}. The three agree to within a few tenths of a
+microsecond.
+
+\begin{table}[!htb]
+\centering
+\caption{\textbf{Three independent estimates of the floor} ($\mu$s), book streams.
+The three methods differ in their sample, their estimator, and the load regime
+they were taken under, and agree to within $0.4~\mu$s.}
+\label{tab:floor3}
+\small
+\begin{tabular}{lrrr}
+\toprule
+Method & ES & NQ & ZN \\
+\midrule
+Direct median ($\text{qlen}=0$, $\text{idx}=0$)        & 7.01 & 7.24 & 6.89 \\
+Fitted $\text{idx}=0$ intercept (median ladder)        & 6.98 & 7.23 & 6.83 \\
+Floor at $\text{span}\approx 1$ during the FOMC release & 7.1\phantom{0} & 7.5\phantom{0} & 7.0\phantom{0} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The third estimate is the informative one. During the release the floor moved by
+at most $+0.4~\mu$s, and fell on two of the three instruments. The hot path is not
+rate-sensitive: three methods, three instruments, all within $6.8$--$7.5~\mu$s.
+This is the most stable quantity in the study --- it moved negligibly when the
+sample tripled, when the estimator changed from mean to median, and when the
+packet rate rose tenfold.
+
+\subsection{The distribution and its tail}
+
+The median is not the quantity a trading operation is judged on; the tail is.
+Table~\ref{tab:mddist} gives the unconditional distribution. The medians cluster
+--- three separate multicast channels, three instruments, all within $0.2~\mu$s
+--- but the tails come apart: ES book's $p99$ is $18.5~\mu$s, ZN book's is
+$57.0~\mu$s, and ZN trade's is $219~\mu$s. Expressed as amplification from median
+to $p99$, the streams range from $1.9\times$ (NQ book) to $14.2\times$ (ZN
+trade). A single ``$8~\mu$s'' figure for this system would be true and would say
+nothing about the quantity that matters.
+
+\begin{table}[t]
+\centering
+\caption{Unconditional socket-to-book latency distribution ($\mu$s), every
+admitted message per stream, no conditioning. The median is uniform across
+streams; the tail is not.}
+\label{tab:mddist}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+Stream & Messages & $p50$ & $p90$ & $p99$ & $p99.9$ & max \\
+\midrule
+ES book  & 2{,}861{,}519 & 7.1 & 10.6 & 18.5 & 41.2 & 1148.4 \\
+NQ book  & 3{,}792{,}033 & 7.3 & \phantom{0}9.9 & 13.6 & 24.7 & 5567.0 \\
+ZN book  & 1{,}119{,}746 & 7.1 & 12.1 & 57.0 & 180.9 & 2458.2 \\
+ES trade & \phantom{0,}296{,}736 & 9.0 & 15.3 & 38.0 & 127.7 & \phantom{0}421.5 \\
+NQ trade & \phantom{0,}110{,}003 & 8.3 & 12.5 & 31.2 & 83.7 & \phantom{0}694.2 \\
+ZN trade & \phantom{0,}114{,}154 & 15.4 & 69.3 & 219.4 & 409.5 & \phantom{0}504.8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.8\linewidth, height=6.2cm,
+  ymode=log, log basis y=10,
+  symbolic x coords={p50,p90,p99,p99.9},
+  xtick=data, ymin=5, ymax=500,
+  ylabel={Socket-to-book latency ($\mu$s)},
+  legend style={at={(1.02,1)},anchor=north west,font=\small},
+  legend cell align=left, enlarge x limits=0.1,
+  grid=both, grid style={gray!20},
+]
+\addplot+[mark=*]         coordinates {(p50,7.1)(p90,10.6)(p99,18.5)(p99.9,41.2)};  \addlegendentry{ES book}
+\addplot+[mark=square*]   coordinates {(p50,7.3)(p90,9.9)(p99,13.6)(p99.9,24.7)};   \addlegendentry{NQ book}
+\addplot+[mark=triangle*] coordinates {(p50,7.1)(p90,12.1)(p99,57.0)(p99.9,180.9)}; \addlegendentry{ZN book}
+\addplot+[mark=o]         coordinates {(p50,9.0)(p90,15.3)(p99,38.0)(p99.9,127.7)}; \addlegendentry{ES trade}
+\addplot+[mark=square]    coordinates {(p50,8.3)(p90,12.5)(p99,31.2)(p99.9,83.7)};  \addlegendentry{NQ trade}
+\addplot+[mark=triangle]  coordinates {(p50,15.4)(p90,69.3)(p99,219.4)(p99.9,409.5)}; \addlegendentry{ZN trade}
+\end{axis}
+\end{tikzpicture}
+\caption{Socket-to-book latency percentiles per stream (Table~\ref{tab:mddist}),
+log scale. Medians cluster near $7$--$15~\mu$s; the tails diverge, ZN~trade
+reaching $219~\mu$s at $p99$ and $410~\mu$s at $p99.9$.}
+\label{fig:mddist}
+\end{figure}
+
+The tail is set by the in-packet serialization of Section~\ref{sec:floorslope},
+not by the framework: a message's latency is floor plus slope times its position,
+and a bursty feed produces long packets, so the tail is that slope multiplied by a
+large position.
+
+\subsection{Isolating the queue from packet position}
+\label{sec:queue-deconf}
+
+The floor-plus-slope model of Section~\ref{sec:floorslope} and the distribution of
+Table~\ref{tab:mddist} both aggregate over queue occupancy. Grouping latency by
+$\text{qlen}$ and reporting a within-group statistic measures the queue only if
+nothing else varies across the groups. Something does: a burst that fills the ring
+tends also to produce larger packets, so a message at high $\text{qlen}$ also sits,
+on some streams, deeper inside its own packet. Part of the rise a naive
+$\text{qlen}$ table attributes to the queue is therefore in-packet position. The
+correction is the move of Section~\ref{sec:floorslope} applied again: hold
+$\text{idx}=0$, so the message is first in its packet and no in-packet
+serialization remains in its latency, and vary $\text{qlen}$. Whatever still moves
+is the queue.
+
+\paragraph{Estimator.} Within a $\text{qlen}$ cell the \emph{mean} is not a measure
+of the queue. A cell may hold tens of messages, and a single multi-millisecond
+stall moves the mean by tens of microseconds: on one cut NQ~book's mean at
+$\text{qlen}=0$ was $280~\mu$s against a median of $7.4~\mu$s. Stalls are a
+separate phenomenon; every figure in this section is a median or a percentile.
+
+\paragraph{Columns.} Tables~\ref{tab:deconf-es}--\ref{tab:deconf-trade} carry
+eleven columns. \emph{qlen} is the number of packets already in the ring when this
+message's packet was handed to the consumer. \emph{msgs} is the count at that
+queue length --- the denominator for the pooled quantiles, and it collapses
+quickly (ES~book has $2.66$~million messages at $\text{qlen}=0$ and $51$ at
+$\text{qlen}=6$). \emph{med}, \emph{$p90$}, \emph{$p99$} are the latency quantiles
+pooled over in-packet position; these are the confounded columns and form an upper
+bound on the queue's cost. \emph{span} is the mean packet size (SBE messages per
+datagram) of those messages --- the suspected confounder --- and \emph{idx} their
+mean in-packet position, which is approximately $\text{span}/2$. \emph{$n_0$} is
+the subset first in their own packet, the deconfounded sample; \emph{med$_0$},
+\emph{$p90_0$}, \emph{$p99_0$} are the quantiles of that subset, with the bracketed
+figure in med$_0$ the change from the $\text{qlen}=0$ row. Percentiles are
+suppressed (\,--\,) where $n_0$ is below roughly $200$, at which point a $99$th
+percentile is the largest sample rather than a measurement.
+
+\begin{table}[htbp]
+\centering
+\caption{\textbf{ESZ6 book: queue occupancy versus latency, deconfounded from
+packet position.} Latencies in $\mu$s. Pooled quantiles (med, $p90$, $p99$) run
+over all in-packet positions; span/idx are the mean packet size and in-packet
+position; $n_0$ and the $_0$ quantiles are the subset first in their packet
+($\text{idx}=0$). Bracketed: change in med$_0$ from $\text{qlen}=0$.}
+\label{tab:deconf-es}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{rrrrrrrrrrr}
+\toprule
+qlen & msgs & med & $p90$ & $p99$ & span & idx & $n_0$ & med$_0$ & $p90_0$ & $p99_0$ \\
+\midrule
+0 & 2{,}664{,}628 & 7.1 & 10.4 & 17.9 & 2.20 & 0.62 & 2{,}303{,}948 & 6.9 & 9.8 & 13.9 \\
+1 & 181{,}719 & 6.5 & 12.3 & 24.2 & 1.78 & 0.39 & 162{,}136 & 6.3 ($-$0.6) & 11.4 & 17.9 \\
+2 & 12{,}790 & 7.2 & 12.8 & 42.2 & 1.45 & 0.21 & 12{,}175 & 7.1 ($+$0.2) & 12.3 & 22.2 \\
+3 & 1{,}619 & 8.6 & 16.5 & 44.6 & 1.20 & 0.06 & 1{,}547 & 8.5 ($+$1.5) & 15.7 & 35.0 \\
+4 & 376 & 10.2 & 92.8 & 309.7 & 4.17 & 1.57 & 320 & 9.8 ($+$2.8) & 21.8 & 79.2 \\
+5 & 134 & 15.3 & 348.6 & -- & 9.64 & 4.26 & 97 & 11.5 ($+$4.6) & 27.5 & -- \\
+6 & 51 & 17.0 & -- & -- & 1.18 & 0.08 & 48 & 16.6 ($+$9.7) & -- & -- \\
+7 & 90 & 398.0 & 445.2 & -- & 26.00 & 12.50 & 22 & n/a & -- & -- \\
+8 & 41 & 459.7 & -- & -- & 14.46 & 6.73 & 18 & n/a & -- & -- \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{\textbf{NQZ6 book: queue occupancy versus latency, deconfounded.}
+Columns as in Table~\ref{tab:deconf-es}.}
+\label{tab:deconf-nq}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{rrrrrrrrrrr}
+\toprule
+qlen & msgs & med & $p90$ & $p99$ & span & idx & $n_0$ & med$_0$ & $p90_0$ & $p99_0$ \\
+\midrule
+0 & 3{,}310{,}403 & 7.4 & 9.9 & 13.5 & 2.40 & 0.80 & 2{,}586{,}119 & 7.2 & 9.5 & 12.4 \\
+1 & 463{,}440 & 6.1 & 9.0 & 13.6 & 2.11 & 0.58 & 371{,}010 & 5.9 ($-$1.3) & 8.6 & 12.9 \\
+2 & 15{,}274 & 7.0 & 11.6 & 25.8 & 1.92 & 0.36 & 13{,}508 & 6.9 ($-$0.3) & 11.4 & 20.5 \\
+3 & 1{,}641 & 8.6 & 17.8 & 168.5 & 2.82 & 0.79 & 1{,}457 & 8.3 ($+$1.1) & 14.3 & 34.3 \\
+4 & 340 & 12.1 & 91.8 & 456.4 & 3.39 & 1.17 & 276 & 11.2 ($+$4.0) & 27.6 & 456.4 \\
+5 & 121 & 17.7 & 384.8 & -- & 1.39 & 0.21 & 109 & 16.4 ($+$9.2) & 382.0 & -- \\
+6 & 72 & 16.8 & 393.5 & -- & 1.19 & 0.12 & 64 & 16.8 ($+$9.5) & 414.5 & -- \\
+7 & 57 & 19.4 & -- & -- & 1.51 & 0.35 & 46 & 22.8 ($+$15.5) & -- & -- \\
+8 & 36 & 95.4 & -- & -- & 2.06 & 0.50 & 29 & n/a & -- & -- \\
+9 & 42 & 74.0 & -- & -- & 1.95 & 0.55 & 34 & 67.7 ($+$60.5) & -- & -- \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{\textbf{ZNZ6 book: queue occupancy versus latency, deconfounded.}
+Columns as in Table~\ref{tab:deconf-es}. ZN is the stream whose packets grow with
+queue length; compare med and med$_0$.}
+\label{tab:deconf-zn}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{rrrrrrrrrrr}
+\toprule
+qlen & msgs & med & $p90$ & $p99$ & span & idx & $n_0$ & med$_0$ & $p90_0$ & $p99_0$ \\
+\midrule
+0 & 988{,}149 & 7.2 & 11.9 & 43.9 & 3.13 & 1.12 & 829{,}350 & 6.9 & 10.2 & 15.4 \\
+1 & 124{,}649 & 6.3 & 12.6 & 88.8 & 3.41 & 1.22 & 105{,}162 & 6.0 ($-$0.9) & 9.4 & 17.0 \\
+2 & 4{,}831 & 10.8 & 97.3 & 266.6 & 12.02 & 5.49 & 2{,}740 & 7.6 ($+$0.7) & 14.2 & 72.8 \\
+3 & 1{,}088 & 84.9 & 214.0 & 307.4 & 18.83 & 8.92 & 430 & 9.4 ($+$2.5) & 27.3 & 160.3 \\
+4 & 477 & 128.2 & 228.5 & 458.5 & 23.33 & 11.18 & 130 & 11.6 ($+$4.7) & 69.4 & -- \\
+5 & 206 & 256.0 & 326.8 & 334.5 & 26.50 & 12.74 & 44 & 21.7 ($+$14.8) & -- & -- \\
+6 & 70 & 163.3 & 191.5 & -- & 17.21 & 8.11 & 31 & 18.3 ($+$11.4) & -- & -- \\
+7 & 115 & 193.4 & 342.0 & -- & 26.65 & 12.83 & 21 & n/a & -- & -- \\
+8 & 50 & 150.2 & -- & -- & 20.56 & 9.78 & 12 & n/a & -- & -- \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{\textbf{Trade streams: queue occupancy versus latency, deconfounded.}
+Columns as in Table~\ref{tab:deconf-es}, with a leading stream label. The trade
+streams reach $\text{qlen}\ge 1$ on too few messages for the deconfounded subset
+to support percentiles.}
+\label{tab:deconf-trade}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrrrrrr}
+\toprule
+stream & qlen & msgs & med & $p90$ & $p99$ & span & idx & $n_0$ & med$_0$ & $p90_0$ & $p99_0$ \\
+\midrule
+ES & 0 & 295{,}337 & 9.0 & 15.2 & 34.6 & 8.51 & 4.25 & 1{,}522 & 7.9 & 11.2 & 15.7 \\
+ES & 1 & 1{,}242 & 10.3 & 128.7 & 202.7 & 22.48 & 11.41 & 14 & n/a & -- & -- \\
+ES & 2 & 129 & 144.7 & 216.8 & -- & 57.64 & 28.36 & 2 & n/a & -- & -- \\
+\midrule
+NQ & 0 & 109{,}541 & 8.3 & 12.5 & 29.6 & 7.06 & 3.63 & 416 & 8.2 & 10.7 & 32.7 \\
+NQ & 1 & 387 & 8.5 & 74.7 & 93.9 & 16.07 & 7.91 & 5 & n/a & -- & -- \\
+NQ & 2 & 65 & 100.7 & 139.7 & -- & 83.72 & 41.58 & 0 & n/a & -- & -- \\
+\midrule
+ZN & 0 & 108{,}706 & 15.0 & 61.0 & 142.4 & 32.03 & 16.00 & 649 & 8.4 & 62.9 & 111.4 \\
+ZN & 1 & 4{,}213 & 50.5 & 191.2 & 285.9 & 30.68 & 15.28 & 107 & 76.8 ($+$68.4) & 170.5 & -- \\
+ZN & 2 & 755 & 219.5 & 385.0 & 415.2 & 71.95 & 36.29 & 9 & n/a & -- & -- \\
+ZN & 3 & 139 & 234.8 & 259.5 & -- & 68.78 & 39.65 & 2 & n/a & -- & -- \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\paragraph{The queue is convex.} Reading med$_0$ down each book stream isolates
+the queue with position held at zero. ES: $6.9, 6.3, 7.1, 8.5, 9.8, 11.5,
+16.6~\mu$s, successive increments $-0.6, +0.8, +1.4, +1.3, +1.7, +5.1$. NQ:
+increments $-1.3, +1.0, +1.4, +2.9, +5.2$. ZN: $-0.9, +1.6, +1.8, +2.2, +10.1$.
+Three independent multicast channels give three convex curves with the confounder
+held fixed --- the shape the M/M/1 model of Section~\ref{sec:queueing} predicts.
+
+\paragraph{The convexity is concentrated in the tail.} The queue's effect on the
+median is small; its effect on the upper percentiles is roughly an order of
+magnitude larger. Table~\ref{tab:deconf-ratios} gives the ratio from
+$\text{qlen}=0$ to $\text{qlen}=3$ at each quantile. With position held at zero,
+three queued packets cost ES $+1.5~\mu$s at the median but $+21~\mu$s at $p99$, and
+ZN $+145~\mu$s at $p99$. The pooled columns --- every message at that queue length,
+whatever its packet position, the figure an operator experiences --- are larger
+again, and diverge from the deconfounded ratios exactly where packets grow with
+queue length: on ES the two agree (ES packets do not grow with $\text{qlen}$), on
+ZN they do not.
+
+\begin{table}[htbp]
+\centering
+\caption{\textbf{Queue cost from $\text{qlen}=0$ to $\text{qlen}=3$, as a ratio at
+each quantile.} Left: position held at $\text{idx}=0$ (queue only). Right: pooled
+over in-packet position (queue $+$ packet, as experienced). The two agree on ES,
+where packets do not grow with queue length, and diverge on ZN, where they do.}
+\label{tab:deconf-ratios}
+\small
+\begin{tabular}{lrrr@{\hspace{2.4em}}rrr}
+\toprule
+& \multicolumn{3}{c}{At $\text{idx}=0$} & \multicolumn{3}{c}{Pooled over idx} \\
+\cmidrule(lr){2-4}\cmidrule(l){5-7}
+Stream & $p50$ & $p90$ & $p99$ & $p50$ & $p90$ & $p99$ \\
+\midrule
+ES book & $1.23\times$ & $1.60\times$ & $2.52\times$ & $1.21\times$ & $1.59\times$ & $2.49\times$ \\
+NQ book & $1.15\times$ & $1.51\times$ & $2.77\times$ & $1.16\times$ & $1.80\times$ & $12.48\times$ \\
+ZN book & $1.36\times$ & $2.68\times$ & $10.41\times$ & $11.79\times$ & $17.98\times$ & $7.00\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Frequency.} The effect is confined to a rare event. ES~book reaches
+$\text{qlen}\ge 3$ on $2{,}311$ of $2{,}861{,}519$ messages, $0.08\%$. The queue is
+a large effect at the percentiles on a small fraction of messages, not a small
+effect everywhere.
+
+\paragraph{Packet growth splits the streams.} The \emph{span} column separates two
+regimes. On ZN, packets grow as the ring fills --- ZN~book runs $3.13 \to 3.41 \to
+12.02 \to 18.83 \to 23.33 \to 26.50$ messages per packet from $\text{qlen}=0$ to
+$5$ --- so a message at high $\text{qlen}$ is both behind more packets and deeper
+inside a larger one, and the naive table charges both to the queue.
+Table~\ref{tab:deconf-zngrowth} quantifies the overstatement: ZN~book's raw median
+rise at $\text{qlen}=3$ is $+77.7~\mu$s but $+2.5~\mu$s at $\text{idx}=0$, an
+overstatement of $31\times$. On ES and NQ~book, packets \emph{shrink} as the ring
+fills (ES $2.20 \to 1.20$, NQ $2.40 \to 1.19$ over the rows carrying weight), there
+is no upward confounding to remove, and med$_0$ tracks the pooled median (ES
+$+0.2/+1.5$ deconfounded against $+0.1/+1.5$ pooled). Two caveats: ES~span is not
+monotone --- it falls to $1.20$ at $\text{qlen}=3$ then rises to $4.17$ and $9.64$
+at $\text{qlen}=4,5$, on $376$ and $134$ messages, a handful of bursts rather than
+a regime --- and NQ at $\text{qlen}=3$ shows span $2.82$ against $2.40$, a mild
+rise. The supported statement is that ES and NQ do not exhibit ZN's eightfold
+growth, not that their span falls monotonically.
+
+\begin{table}[htbp]
+\centering
+\caption{\textbf{ZNZ6 book: the packet-growth confounder, quantified.} Raw rise is
+the pooled-median change from $\text{qlen}=0$; the $\text{idx}=0$ column is the
+same change with packet position held at zero; the ratio is the overstatement in
+the naive column. Rises in $\mu$s.}
+\label{tab:deconf-zngrowth}
+\small
+\begin{tabular}{lrrl}
+\toprule
+qlen & raw rise & at $\text{idx}=0$ & overstated by \\
+\midrule
+1 & $-0.9$ & $-0.9$ & (both negative) \\
+2 & $+3.6$ & $+0.7$ & $5.1\times$ \\
+3 & $+77.7$ & $+2.5$ & $31\times$ \\
+4 & $+121.0$ & $+4.7$ & $26\times$ \\
+5 & $+248.8$ & $+14.8$ & $17\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The mechanism is a reading of the pattern, not a separate measurement: ES and
+NQ~book run fast with a median packet of one message, so their ring backs up with
+many small packets and being queued indicates a high arrival rate rather than a
+large packet; ZN is quiet, and the main event that fills its ring is a genuine
+burst, which enlarges packets at the same time.
+
+\paragraph{Result.} The queue has the shape queueing theory predicts --- convex on
+all three book streams --- on a rare event ($\text{qlen}\ge 3$ at $0.08\%$ of
+messages), with a magnitude that depends on the quantile: about $+1.5~\mu$s at the
+median and $+21$ to $+145~\mu$s at $p99$. Where packets grow with queue length
+(ZN), a naive $\text{qlen}$ table overstates the median rise by up to $31\times$;
+the deconfounded columns remove that. This does not alter the suitability
+conclusion below: the queue's contribution, like the floor's and the slope's, is a
+property of the feed and the servicing time, not of the actor framework, whose
+$\sim\!30$~ns hop is below every figure in these tables.
 
 \FloatBarrier
+
+\subsection{Suitability}
+\label{sec:suitability}
+
+Nothing the framework does appears in any of this. The floor is decode and
+book work, and the slope is protocol serialization; neither is the framework. The
+actor abstraction --- the mailbox handoff and the \fs{}/\snd{} dispatch --- is
+$\sim\!30$~ns against a $\sim\!7~\mu$s floor, under $1\%$, and it does not grow
+with in-packet position, so it contributes nothing to the tail either.
+
+This also places the queueing analysis of Section~\ref{sec:queueing} correctly.
+That analysis predicts the tail diverges as utilization $\rho\to1$, and it is the
+right theory for a \emph{saturated} servicing stage. This stage is not saturated:
+$\rho$ is far from $1$, since almost every message finds an empty ring, so
+queueing is not the operative tail mechanism here --- the in-packet serialization
+of a bursty, self-excited feed is. And $\rho$ itself is governed by the
+decode-and-book service time ($\sim\!7~\mu$s), of which the messaging framework is
+under $1\%$; it is the per-message work, not the delivery mechanism, that
+determines whether this stage saturates.
+
+The verdict is affirmative and specific: the actor model is suitable for a
+high-frequency market-data path because its per-message overhead is a fraction of
+a percent of the irreducible work and it contributes nothing to the tail. What an
+implementer must engineer is the per-message service time --- the decode-and-book
+slope --- and the feed's batch structure, not the messaging framework.
+
+\subsection{Design implications}
+\label{sec:design}
+
+The measurements yield a specific design rule. In
+$\text{med}=\text{floor}+\text{slope}\times\text{idx}$ the two terms do different
+jobs: the floor sets the median, the slope sets the tail. Across the six streams
+the floor varies by $0.42~\mu$s ($6.81$ to $7.23$) and the slope by $3.1\times$;
+the $p99$ column of Table~\ref{tab:mddist} is bought almost entirely with the
+slope. This gives a test for whether an optimization is worth doing: removing
+$100$~ns from the floor moves every message by $100$~ns, while removing $100$~ns
+from the slope moves a message by $\text{idx}\times100$~ns, and $\text{idx}$ is
+what is large in the tail. On ZN~book the $p99$ message sits at position $25$,
+where $100$~ns of slope is worth $2.5~\mu$s against $0.1~\mu$s at the median.
+
+\paragraph{Where messages sit.} The packet-size distribution is packet-weighted,
+the wrong weighting for this question, because a larger packet holds more messages
+and therefore more of the latency. Table~\ref{tab:idxdist} weights by message. On
+the books, four messages in five arrive alone in their packet ($\text{idx}=0$) and
+pay the floor only --- the median $\text{idx}$ is zero on all three. On the trades,
+$99.3\%$ to $99.6\%$ of messages have another ahead of them; a trade message is
+essentially never alone, and the median ZN~trade message is ninth in its packet,
+having incurred eight slopes before it is decoded.
+
+\begin{table}[!htb]
+\centering
+\caption{\textbf{In-packet position, message-weighted.} Distribution of
+$\text{idx}$ over all admitted messages per stream. On the books the median
+message is first in its packet; on the trades it is not.}
+\label{tab:idxdist}
+\small
+\begin{tabular}{lrrrrrrr}
+\toprule
+Stream & Messages & $\text{idx}=0$ & mean & $p50$ & $p90$ & $p99$ & max \\
+\midrule
+ES book  & 2{,}861{,}519 & $86.7\%$ & 0.60 & 0 & 1 & 11 & 44 \\
+NQ book  & 3{,}792{,}033 & $78.4\%$ & 0.77 & 0 & 3 & 10 & 41 \\
+ZN book  & 1{,}119{,}746 & $83.8\%$ & 1.17 & 0 & 2 & 25 & 44 \\
+ES trade & \phantom{0,}296{,}736 & $0.5\%$ & 4.29 & 2 & \phantom{0}9 & 33 & 84 \\
+NQ trade & \phantom{0,}110{,}003 & $0.4\%$ & 3.67 & 1 & \phantom{0}9 & 32 & 84 \\
+ZN trade & \phantom{0,}114{,}154 & $0.7\%$ & 16.21 & 8 & 47 & 77 & 84 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Position reproduces the medians.} Evaluating the fitted ladder at each
+stream's own position quantiles reproduces the observed medians with no appeal to
+queueing (Table~\ref{tab:laddercheck}). ZN~trade's median is $15.4~\mu$s against
+ES~book's $7.1~\mu$s, and $14.5$ of those $15.4$ follow from being ninth in the
+packet on the stream with the largest slope --- two multiplied factors, neither a
+queue. This is a check rather than an identity: the median of a sum is not the sum
+of medians, and composing an $\text{idx}$ quantile with a median-fitted ladder is
+looser still. The prediction is low on all six rows, by $0.05$ to $0.83~\mu$s at
+the median, with the error growing in $\text{idx}$; the right-hand block is a lower
+bound on the tail, not a forecast.
+
+\begin{table}[!htb]
+\centering
+\caption{\textbf{Position reproduces the medians.} The fitted floor-plus-slope
+ladder evaluated at each stream's own $\text{idx}$ quantiles (i@$p50$, i@$p99$),
+against observed latency. \emph{cover} is the predicted $p99$ as a fraction of the
+observed $p99$: how much of the tail in-packet position accounts for.}
+\label{tab:laddercheck}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrrrr}
+\toprule
+Stream & floor & slope & i@$p50$ & pred $p50$ & obs $p50$ & i@$p99$ & pred $p99$ & obs $p99$ & cover \\
+\midrule
+ES book  & $6.98~\mu$s & $566$~ns & 0 & $6.98~\mu$s & $7.08~\mu$s & 11 & $13.2~\mu$s & $18.5~\mu$s & $71\%$ \\
+NQ book  & $7.23~\mu$s & $312$~ns & 0 & $7.23~\mu$s & $7.28~\mu$s & 10 & $10.4~\mu$s & $13.6~\mu$s & $76\%$ \\
+ZN book  & $6.83~\mu$s & $966$~ns & 0 & $6.83~\mu$s & $7.10~\mu$s & 25 & $31.0~\mu$s & $57.0~\mu$s & $54\%$ \\
+ES trade & $6.81~\mu$s & $714$~ns & 2 & $8.24~\mu$s & $9.02~\mu$s & 33 & $30.4~\mu$s & $38.0~\mu$s & $80\%$ \\
+NQ trade & $7.14~\mu$s & $526$~ns & 1 & $7.67~\mu$s & $8.34~\mu$s & 32 & $24.0~\mu$s & $31.2~\mu$s & $77\%$ \\
+ZN trade & $6.81~\mu$s & $965$~ns & 8 & $14.53~\mu$s & $15.36~\mu$s & 77 & $81.1~\mu$s & $219.4~\mu$s & $37\%$ \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\paragraph{Coverage is the actionable column.} Where the ladder accounts for
+$70$--$80\%$ of the $p99$, position is the whole story and the slope is worth
+attacking; where it accounts for $37\%$ (ZN~trade), something else owns the other
+$63\%$. The same split appears in the time budget (Table~\ref{tab:budget}), which
+is sum-weighted and therefore fully exposed to stalls --- the purpose of its
+residual column. The ladder is fitted at $\text{qlen}=0$ on medians, so the
+residual is queueing plus stalls plus anything else it does not capture. On
+NQ~book the residual is $1.0\%$: the model is the system. On ZN~trade it is
+$26.3\%$, which no tuning of the decode loop will reach. The order of work follows:
+measure the residual first; if it is small, optimize the slope; if it is large, the
+slope is not the problem and the cause must be found --- in this system, a stall
+population that remains unexplained.
+
+\begin{table}[!htb]
+\centering
+\caption{\textbf{Time budget, sum-weighted.} Total decode-and-book time per stream
+and its split into floor, slope, and residual (queueing, stalls, and anything else
+the $\text{qlen}=0$ median ladder does not capture). Being sum-weighted, this is
+the one table fully exposed to stalls.}
+\label{tab:budget}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Stream & Total (ms) & Floor & Slope & Residual \\
+\midrule
+NQ book  & 28{,}624 & $95.8\%$ & \phantom{0}$3.2\%$ & \phantom{0}$1.0\%$ \\
+ES book  & 21{,}851 & $91.4\%$ & \phantom{0}$4.5\%$ & \phantom{0}$4.1\%$ \\
+NQ trade & \phantom{0}1{,}037 & $75.7\%$ & $20.5\%$ & \phantom{0}$3.8\%$ \\
+ES trade & \phantom{0}3{,}147 & $64.2\%$ & $28.9\%$ & \phantom{0}$6.9\%$ \\
+ZN book  & 10{,}429 & $73.3\%$ & $12.1\%$ & $14.6\%$ \\
+ZN trade & \phantom{0}3{,}477 & $22.4\%$ & $51.3\%$ & $26.3\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!htb]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.82\linewidth, height=6cm,
+  ybar stacked, bar width=16pt,
+  symbolic x coords={ES book,NQ book,ZN book,ES trade,NQ trade,ZN trade},
+  xtick=data, x tick label style={rotate=20,anchor=east,font=\small},
+  ymin=0, ymax=100, ylabel={Share of $p99$ latency (\%)},
+  legend style={at={(0.5,-0.28)},anchor=north,legend columns=3,font=\small},
+  legend cell align=left, enlarge x limits=0.14,
+]
+\addplot[fill=gray!35,draw=gray!55!black] coordinates {
+  (ES book,37.7) (NQ book,53.2) (ZN book,12.0) (ES trade,17.9) (NQ trade,22.9) (ZN trade,3.1)};
+\addplot[fill=blue!45,draw=blue!65!black] coordinates {
+  (ES book,33.7) (NQ book,22.9) (ZN book,42.4) (ES trade,62.0) (NQ trade,53.9) (ZN trade,33.9)};
+\addplot[fill=red!45,draw=red!65!black] coordinates {
+  (ES book,28.6) (NQ book,23.9) (ZN book,45.6) (ES trade,20.1) (NQ trade,23.2) (ZN trade,63.0)};
+\legend{floor, batch ($\text{slope}\times\text{idx}$), residual (queue $+$ stalls)}
+\end{axis}
+\end{tikzpicture}
+\caption{\textbf{The tail is not the floor.} Composition of each stream's $p99$
+socket-to-book latency: the floor, the in-packet batch
+($\text{slope}\times\text{idx}$ evaluated at the $p99$ position), and the residual
+(queue and stalls); absolute $p99$ ranges from $13.6$ to $219.4~\mu$s
+(Table~\ref{tab:laddercheck}). The floor --- decode, book, and the actor framework
+--- is a minority of the tail and falls to $3$--$12\%$ on the worst streams (ZN);
+the structured growth is the batch term. The queue, which fires on $0.08\%$ of
+messages, is only a small part of the residual; the remainder is the stall
+population.}
+\label{fig:tailcomp}
+\end{figure}
+
+\paragraph{Three approaches that do not help.} \emph{Reducing the message rate.}
+The ranking runs the other way: NQ~book is the busiest stream ($806$ packets/s) and
+has the best $p99$ ($13.6~\mu$s); ZN~book is the quietest ($241$ packets/s) and the
+worst ($57.0~\mu$s). During the FOMC release ZN~book grew faster --- $12.4 \to
+7.7~\mu$s --- at ten times the packet rate. A stage with $\rho$ far from $1$ does
+not behave like one near saturation, and this one is not: $87\%$ to $99.7\%$ of
+messages arrive to an empty ring. \emph{Sizing the ring.} Those same fractions show
+most messages never queue; added ring capacity changes nothing at the median or at
+the $p99$ of the book streams. The queue is real --- $\text{qlen}\ge 3$ costs
+$+1.5~\mu$s at $p50$ and $+21$ to $+145~\mu$s at $p99$ --- but it fires on $0.08\%$
+of messages. \emph{Batching harder.} The slope is charged per message regardless of
+arrival pattern; coalescing does not reduce the work, it moves messages to higher
+$\text{idx}$, the variable that lengthens tails. The trade streams are what a
+batched book stream looks like: the same floor, $0.4\%$ of messages at
+$\text{idx}=0$, and a $p99$ two to four times worse.
+
+\paragraph{An open question on the slope.} The $3.1\times$ spread between NQ and ZN
+is reproducible and unexplained. If it is cache residency, then making the cold
+path cheaper means making it smaller --- harder than shaving instructions. If it is
+message mix, ZN messages are simply more expensive and there may be nothing to win.
+Resolving this requires hardware performance counters and is left open.
+
+\FloatBarrier
+
+\subsection{The arrival process}
+\label{sec:arrival}
+
+The sections above reduce the tail to packet span, and span is set by how many
+messages arrive together --- a property of the arrival process. The natural null
+is a Poisson process, and it fails in two independent ways. A Poisson process
+requires both that the marginal gaps be exponentially distributed and that
+successive gaps be independent; both fail here, for different reasons and with
+different consequences.
+
+\paragraph{Background: what Poisson means and how to reject it.} A \emph{Poisson
+process} is the standard model of ``random, independent'' arrivals and the
+assumption under which the queueing results of Section~\ref{sec:queueing} hold:
+the time between successive arrivals is exponentially distributed, and each gap is
+independent of the last, so arrivals neither cluster nor anticipate one another
+\cite{kleinrock1975}. If the market-data feed were Poisson, packets would arrive
+one at a time and evenly spread, the queue would rarely build, and the tail would
+follow from utilization alone. It is not, and four standard statistics measure how
+far it departs. The \emph{coefficient of variation} (CV) is the standard deviation
+of the gaps over their mean; it is exactly $1$ for a Poisson process and larger
+when the gaps are more uneven than exponential. The \emph{Fano factor}
+\cite{fano1947} is the variance of the number of arrivals in a fixed window
+divided by the mean of that count; it is $1$ for a Poisson process at every window
+size, rises above $1$ when arrivals cluster, and keeps rising \emph{with the
+window} when the clustering persists across timescales. The \emph{Hurst exponent}
+$H$ \cite{hurst1951} summarizes that scaling: $H=0.5$ for a Poisson or any
+independent process, whereas $H>0.5$ signals long-range dependence --- bursts
+nested within bursts rather than one characteristic clump size. To decide whether
+a departure is due to the \emph{sizes} of the gaps or their \emph{order}, we apply
+a \emph{Fisher--Yates shuffle} \cite{fisheryates1938} --- the standard algorithm
+that puts a list into a uniformly random order (the computing equivalent of a fair
+shuffle of a deck of cards, with every one of the $n!$ orderings equally likely).
+Applied to the sequence of gaps it keeps the exact multiset of gap sizes unchanged
+and destroys only their order, so any statistic that falls after shuffling was
+measuring order, not size.
+Finally, a \emph{Hawkes process} \cite{hawkes1971,bacry2015} is a self-exciting
+point process in which each arrival transiently raises the rate of further
+arrivals --- a model of contagion or momentum --- whose \emph{branching ratio} is
+the mean number of further arrivals each arrival directly triggers; a value near
+$1$ is ``near-critical'' and produces large, long bursts. Figure~\ref{fig:raster}
+gives the intuition; the rest of this section makes it quantitative.
+
+\begin{figure}[!htb]
+\centering
+\begin{tikzpicture}[x=1.05cm]
+  \node[left] at (-0.1,1.0) {\small Measured};
+  \draw[thick,gray] (0,1.0) -- (10,1.0);
+  \foreach \x in {0.2,0.35,0.47,0.58,0.72,0.86,1.02,3.55,3.7,3.86,4.02,4.2,5.1,6.85,7.0,7.16,7.33,8.4,9.4,9.75}
+    \draw[blue,thick] (\x,0.82) -- (\x,1.18);
+  \node[left] at (-0.1,0.0) {\small Poisson};
+  \draw[thick,gray] (0,0.0) -- (10,0.0);
+  \foreach \x in {0.25,0.5,0.8,1.35,1.75,2.35,2.95,3.5,4.05,4.6,5.15,5.75,6.3,6.85,7.4,8.0,8.45,9.05,9.6,9.9}
+    \draw[red,thick] (\x,-0.18) -- (\x,0.18);
+\end{tikzpicture}
+\caption{\textbf{Why the feed is not Poisson (schematic).} Each row contains the
+same number of packet arrivals over the same interval. A Poisson process of that
+average rate spreads them out (bottom); the measured feed clusters them into
+bursts separated by idle gaps (top). The clustering is what fills the ring and
+enlarges packets. It is quantified --- not invented --- in
+Figure~\ref{fig:fano} and Tables~\ref{tab:expgap}--\ref{tab:order}, where the
+measured process reaches a Fano factor above $1000$ against Poisson's $1$. The
+tick positions here are illustrative, not the measured timestamps.}
+\label{fig:raster}
+\end{figure}
+
+One sampling note: the two tests below read raw packet arrival timestamps from a
+separate side file (arrival times only, no latency), over the whole capture after
+the startup replay rather than the $14$:$25$--$15$:$18$ latency window. The sample
+$n$ is therefore larger than in the latency tables and the rates differ slightly;
+the Fano statistic at a $5$-second window needs the full span.
+
+\paragraph{The marginal is not exponential.} The fair null is an exponential with
+the same mean, which fixes the average rate so that every difference is shape
+rather than level; for $\text{Exp}(1/m)$ the $p$-th quantile is $-m\ln(1-p)$.
+Table~\ref{tab:expgap} compares the two on ES~book. The ratio is below $1$ through
+$p90$ and above $1$ in the tail, crossing once: most packets arrive far closer
+together than a Poisson of the same rate would place them, paid for by rare long
+idles --- the signature of a burst process.
+
+\begin{table}[!htb]
+\centering
+\caption{\textbf{ESZ6 book interarrival gaps against an exponential of the same
+mean} ($n=4{,}154{,}158$, mean gap $1793.6~\mu$s, rate $557.5$/s). The ratio
+crosses $1$ once.}
+\label{tab:expgap}
+\small
+\begin{tabular}{lrrr}
+\toprule
+Quantile & Measured ($\mu$s) & Exp, same mean ($\mu$s) & Ratio \\
+\midrule
+$p10$   & \phantom{000}7.22 & \phantom{0}188.97 & $0.04\times$ \\
+$p50$   & \phantom{00}74.60 & 1243.22 & $0.06\times$ \\
+$p90$   & \phantom{0}3196.83 & 4129.88 & $0.77\times$ \\
+$p99$   & 32182.96 & 8259.77 & $3.90\times$ \\
+$p99.9$ & 119057.18 & 12389.65 & $9.61\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The quantity that matters for a ring buffer is the share of packets that arrive
+nearly on top of the one before. For any exponential this is a constant,
+$P(\text{gap}<\text{mean}/10)=1-e^{-0.1}=9.52\%$. Table~\ref{tab:cvgap} shows it
+reaching $85\%$ on ZN~book: these are the back-to-back runs that fill the ring and
+enlarge the packet, and a Poisson source at the identical average rate would
+essentially never deliver them. Both CV and CV$^2$ are tabulated with their
+definitions, since the two are frequently confused.
+
+\begin{table}[!htb]
+\centering
+\caption{\textbf{Interarrival-gap dispersion.} CV is the coefficient of variation
+of the gaps and CV$^2$ its square. $P(\text{gap}<\text{mean}/10)$ is the share of
+near-back-to-back arrivals; for any exponential it is $9.52\%$.}
+\label{tab:cvgap}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Stream & CV & CV$^2$ & $P(\text{gap}<\text{mean}/10)$ & vs Poisson $9.52\%$ \\
+\midrule
+ES book  & 10.97 & 120.4 & $73.94\%$ & $7.8\times$ \\
+NQ book  & 28.97 & 839.1 & $63.11\%$ & $6.6\times$ \\
+ZN book  & 13.60 & 184.9 & $84.82\%$ & $8.9\times$ \\
+ES trade &  4.10 &  16.8 & $56.01\%$ & $5.9\times$ \\
+NQ trade &  4.78 &  22.8 & $39.97\%$ & $4.2\times$ \\
+ZN trade &  6.11 &  37.4 & $84.20\%$ & $8.8\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Equivalently, the decoder never experiences the average rate.
+Table~\ref{tab:rate} contrasts the mean packet rate with the instantaneous rate
+implied by the median gap; for an exponential that ratio is $1/\ln 2 = 1.44\times$
+at any rate. ZN~book is quoted at $241$ packets per second, yet the typical
+back-to-back pair arrives at an instantaneous rate near twenty-nine thousand.
+
+\begin{table}[!htb]
+\centering
+\caption{\textbf{The decoder does not experience the average rate.} Mean packet
+rate against the instantaneous rate implied by the median gap. For an exponential
+the ratio is $1.44\times$.}
+\label{tab:rate}
+\small
+\begin{tabular}{lrrr}
+\toprule
+Stream & Mean rate & Rate from median gap & Ratio \\
+\midrule
+ES book & $557.5$/s & $13{,}405$/s & $24.1\times$ \\
+NQ book & $806.0$/s & $11{,}555$/s & $14.3\times$ \\
+ZN book & $240.9$/s & $29{,}028$/s & $120.5\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The order is not independent either.} A non-exponential marginal alone
+would still admit a renewal process --- heavy-tailed gaps drawn independently.
+The control is a seeded Fisher--Yates shuffle of the gap sequence, which preserves
+the marginal exactly and destroys only the ordering; if the burstiness lived in
+the marginal, the shuffle would change nothing. Table~\ref{tab:order} reports the
+result. Gap autocorrelation is positive at all seven lags tested on all six
+streams ($42$ of $42$ outside the white-noise band): long gaps follow long, short
+follow short. The Fano factor --- variance of the count in a window over its mean,
+$1.0$ for Poisson at every window size --- reaches $1024$--$1260$ on the book
+streams at a $5$-second window and collapses by $2.8\times$ to $18.5\times$ under
+the shuffle. That collapse is the result: the burstiness lives in the ordering,
+because the shuffle left the marginal untouched and still removed most of it. Fano
+scaling gives $\text{Fano}(T)\sim T^{2H-1}$; the measured Hurst exponent is
+$0.643$--$0.743$ against a shuffled null of $0.600$--$0.660$ and $0.5$ for any
+renewal process. If the generating process is Hawkes, the Fano ceiling implies a
+branching ratio $n\le 1-1/\sqrt{\text{Fano}}$ of $0.850$ to $0.972$ --- each
+arrival triggering close to one further arrival, a system just below criticality.
+
+\begin{table}[!htb]
+\centering
+\caption{\textbf{Ordering statistics.} Gap ACF~L1 is the lag-1 gap
+autocorrelation; Fano(5s) is the count Fano factor at a $5$-second window
+($1.0$ for Poisson at any window); \emph{shuffled} recomputes it after a seeded
+Fisher--Yates shuffle of the gap sequence, which preserves the marginal and
+destroys the order; \emph{collapse} is their ratio. $H$ is the Hurst exponent from
+Fano scaling ($0.5$ for Poisson or any renewal process); $H$~shuffled is the same
+on the shuffled series.}
+\label{tab:order}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+Stream & gap ACF L1 & Fano(5s) & shuffled & collapse & $H$ & $H$ shuffled \\
+\midrule
+ES book  & $+0.040$ & 1024.2 & \phantom{0}55.3 & $18.5\times$ & 0.743 & 0.622 \\
+NQ book  & $+0.005$ & 1260.0 & 103.1 & $12.2\times$ & 0.702 & 0.660 \\
+ZN book  & $+0.052$ & 1133.5 & \phantom{0}69.4 & $16.3\times$ & 0.711 & 0.624 \\
+ES trade & $+0.131$ & \phantom{00}65.6 & \phantom{0}12.8 & $5.1\times$ & 0.680 & 0.604 \\
+NQ trade & $+0.065$ & \phantom{00}44.3 & \phantom{00}7.1 & $6.2\times$ & 0.695 & 0.600 \\
+ZN trade & $+0.284$ & \phantom{00}73.0 & \phantom{0}25.7 & $2.8\times$ & 0.643 & 0.615 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two caveats. The shuffle is not a control for a slowly drifting rate, which
+shuffling also destroys; this sample cannot separate self-excitation from
+non-stationarity, and both read as clustering. And the shuffled null is
+$0.60$--$0.66$, not $0.5$ --- finite-sample bias in the Hurst estimator at these
+window counts --- so the effect is the gap between $0.74$ and $0.62$, not the
+distance from $0.5$.
+
+\begin{figure}[!htb]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.82\linewidth, height=6cm,
+  ybar, bar width=8pt, ymode=log, log origin=infty,
+  symbolic x coords={ES book,NQ book,ZN book,ES trade,NQ trade,ZN trade},
+  xtick=data, x tick label style={rotate=20,anchor=east,font=\small},
+  ymin=1, ymax=4000, ylabel={Fano factor at $5$~s (log)},
+  legend style={at={(0.98,0.98)},anchor=north east,font=\small},
+  legend cell align=left, enlarge x limits=0.12,
+]
+\addplot[fill=gray!45,draw=gray!60!black] coordinates {
+  (ES book,55.3) (NQ book,103.1) (ZN book,69.4) (ES trade,12.8) (NQ trade,7.1) (ZN trade,25.7)};
+\addplot[fill=red!55,draw=red!70!black] coordinates {
+  (ES book,1024.2) (NQ book,1260.0) (ZN book,1133.5) (ES trade,65.6) (NQ trade,44.3) (ZN trade,73.0)};
+\legend{shuffled (marginal only), measured (marginal $+$ order)}
+\end{axis}
+\end{tikzpicture}
+\caption{\textbf{Two reasons the arrivals beat Poisson.} Count Fano factor at a
+$5$-second window (Table~\ref{tab:order}); Poisson is $1$ at every window --- the
+baseline at the bottom of the axis. The shuffled bar, with the gap sequence
+reordered and the marginal preserved, is the burstiness the marginal alone
+carries; the measured bar adds the ordering. Both tower over the Poisson
+baseline, and the measured/shuffled gap ($2.8$--$18.5\times$) is contributed by
+correlation that a marginal statistic such as $c_a^2$ cannot see.}
+\label{fig:fano}
+\end{figure}
+
+\paragraph{Why this lengthens the tail beyond Poisson.} The mechanism is
+mechanical. Clustered arrivals place several packets inside one decode interval;
+CME coalesces what it can into a single datagram, so clustering converts into
+span --- more SBE messages per UDP packet --- and span converts into latency
+linearly, message $k$ paying $k\times\text{slope}$ at $0.31$--$0.97~\mu$s per
+message with no randomness. A Poisson source at $557$ packets/s would leave
+$1.79$~ms between packets and deliver a span-$1$ packet almost every time; the
+measured stream has a $74~\mu$s median gap and span-$45$ packets, and the last
+message of one pays $44\times0.57=25~\mu$s of serialization on top of a $7~\mu$s
+floor. The tail originates in the arrival process: clustering becomes packet span,
+and span becomes latency through the slope.
+
+This is also why the standard queueing correction is insufficient. Kingman's
+approximation \cite{kingman1961}
+$\mathbb{E}[W]\approx\frac{\rho}{1-\rho}\cdot\frac{c_a^2+c_s^2}{2}\cdot\mathbb{E}[S]$
+admits burstiness only through $c_a^2$, the squared CV of the marginal, and
+understates here in two independent ways. First, the shuffle shows that
+correlation contributes beyond anything the marginal can explain, and $c_a^2$
+cannot see ordering. Second, $\rho$ is far from $1$ --- $87\%$ to $99.7\%$ of
+messages find the ring empty --- so the $\rho/(1-\rho)$ term does almost no work.
+The queue term is small and the variability term is blind to the mechanism that
+actually produces the tail. The queue in front of the packet is convex, as
+Section~\ref{sec:queue-deconf} shows, fires on $0.08\%$ of messages, and when it
+fires costs $+1.5~\mu$s at the median and $+21$ to $+145~\mu$s at $p99$: a rare,
+sharp effect on top of a common, smooth one. The batch accounts for the bulk of
+the tail mass; the queue accounts for why the far tail exceeds what the batch
+alone predicts.
+
+\begin{figure}[!htb]
+\centering
+\begin{tikzpicture}[font=\small,
+  pkt/.style={draw, fill=blue!12, minimum height=6mm, minimum width=7mm},
+  cell/.style={draw, minimum height=5mm, minimum width=4.5mm, inner sep=1pt},
+  dec/.style={draw, fill=gray!15, minimum width=10mm, minimum height=7mm},
+]
+\node[font=\bfseries] at (1.0,2.6) {Queueing-theory model};
+\node[pkt] (p1) at (-0.6,1.2) {};
+\node[pkt] (p2) at (0.2,1.2) {};
+\node[pkt] (p3) at (1.0,1.2) {};
+\node[dec] (d1) at (2.5,1.2) {decode};
+\draw[-{Latex}] (p3.east) -- (d1.west);
+\node[align=center, text width=4.2cm] at (0.9,-0.1)
+  {latency $=$ wait behind queued packets; large only as $\rho \to 1$};
+\draw[dashed, gray] (3.9,-0.7) -- (3.9,2.8);
+\node[font=\bfseries] at (7.4,2.6) {This system};
+\node[draw, dashed, minimum width=11mm, minimum height=6mm, text=gray] (ring) at (5.1,1.2) {empty};
+\node[cell] (c0) at (6.4,1.2) {0};
+\node[cell] (c1) at (6.9,1.2) {1};
+\node at (7.35,1.2) {$\cdots$};
+\node[cell, fill=red!30] (c44) at (7.85,1.2) {44};
+\node[dec] (d2) at (9.4,1.2) {decode};
+\node at (7.1,1.9) {\footnotesize one packet, span 45};
+\draw[-{Latex}] (c44.east) -- (d2.west);
+\node[align=center, text width=4.7cm] at (7.3,-0.1)
+  {ring empty ($\rho \approx 0$); msg~44 pays $44 \times \text{slope}$ inside one packet};
+\end{tikzpicture}
+\caption{\textbf{Why queueing theory misses the tail.} The M/M/1 model charges
+latency to packets waiting in the mailbox, which is large only near saturation.
+In the measured system the ring is empty $87$--$99.7\%$ of the time
+($\rho \approx 0$), yet one coalesced packet can carry dozens of messages, and
+the $k$-th pays $k \times \text{slope}$ of serialization before it is decoded ---
+a tail the queueing model cannot see, because it assumes one service per arrival.}
+\label{fig:whyqueue}
+\end{figure}
+
+\subsection{Limits of this measurement}
+
+$t_0$ is a software timestamp at the socket read, so this is socket-to-book, not
+wire-to-book; hardware receive timestamps would close that gap and were not taken.
+The data is one box and one $53$-minute session; a $12$-minute cut of the same
+session gave per-message slopes that moved by up to $2.4\times$, so this window is
+not obviously sufficient either. The per-message service cost varies $\sim\!3\times$
+across instruments (ZN is dearest), and whether that is cold-cache residency or a
+genuinely heavier message mix cannot be separated without hardware counters. The
+deep-queue rows ($\text{qlen}\ge5$) are too sparse to characterize their tail, so
+the queue result rests on queue lengths $0$--$3$ on the three book streams. And a
+separate population of multi-millisecond stalls --- the largest latencies in the
+dataset --- is real and remains unexplained here.
+
+% ---------------------------------------------------------------
+\section{Production and simulation: a duality of the group}
+\label{sec:duality}
+% ---------------------------------------------------------------
+
+\paragraph{The group defines a single message order.} A \texttt{Group}
+co-schedules its member actors on one thread behind one shared mailbox
+(Section~\ref{sec:micro}): the members do not own separate queues; the group's
+single queue holds every message addressed to any member, and the run loop
+dispatches them one at a time. Beyond the latency effect measured earlier --- the
+collapse of the round trip from $\sim\!3.4\,\mu$s to $90$~ns --- this has a
+structural consequence. A single queue imposes a single total order on all
+messages entering the group, so the group's entire execution --- every actor
+state transition and every outgoing message --- is a deterministic function of
+that one input sequence.
+
+\paragraph{The same actors run in production and in simulation.} That property
+makes one group two systems. In production the queue is fed by live sources ---
+socket readers, timers, market-data actors --- and the run loop executes in real
+time. In simulation the queue is fed from a recorded or synthetic sequence, and
+the run loop executes as fast as the host permits. The member actors are
+identical in both modes: a handler cannot determine whether the message it is
+processing arrived from a live socket or a backtest file, which is the receiver
+transparency of Section~\ref{sec:transparency} extended from the delivery
+mechanism to the data source. No strategy actor is edited, recompiled, or
+conditionally branched to move between live trading and backtest, and replaying
+the same input sequence reproduces the same states and outputs. The one
+discipline the duality imposes on an actor is that it acquire time, randomness,
+and external input through messages or injected interfaces rather than through
+global calls, so that the simulator can supply them deterministically.
+
+\paragraph{Relation to prior work.} Two ingredients of this design have prior
+art; their combination is uncommon. The single-shared-queue group is a
+first-class facility in Actor4j \cite{actor4j2018}, where a group's actors run on
+one thread with their mailboxes outsourced to the thread's queue --- presented
+there as a message-passing throughput optimization, not as a simulation
+mechanism. The same-code production/simulation duality is the principle of
+deterministic simulation testing: FoundationDB's Flow runtime \cite{foundationdb}
+and systems such as TigerBeetle run unmodified production code inside a
+single-threaded deterministic simulator, but there the unit of determinism is an
+asynchronous continuation or an explicit state machine rather than a group of
+mailbox actors sharing a queue. Agent-based market simulators such as ABIDES
+\cite{abides} drive actor-like agents behind one time-ordered event queue, but
+those agents exist only in simulation and are not a deployed production system.
+The design here couples the two: the shared-queue group is the seam that makes
+mode-agnostic actors run identically in real-time production and in deterministic
+backtest. We are not aware of this specific combination being described
+elsewhere.
+
+\paragraph{Example: developing an execution algorithm.} This duality is how the
+order-level shadowing execution algorithm of the companion paper \cite{shadowpov}
+was developed. The strategy is an actor that consumes market-data and order-event
+messages and emits child-order messages; it was built and validated entirely in
+simulation, driven from recorded CME sessions, and then deployed to production
+without modification --- the same actor and the same handlers, reading from a
+live feed instead of a file. The $246$-session slippage comparison reported there
+was produced by the simulation mode of the same group that runs the strategy
+live. The child-order logic is written once and is agnostic to the mode in which
+it executes.
 
 % ---------------------------------------------------------------
 \section{Discussion and limitations}
@@ -1273,6 +2336,18 @@ characterization is the subject of ongoing work.
 \section{Conclusion}
 % ---------------------------------------------------------------
 
+The actor model has long been dismissed for high-frequency trading on a plausible
+but mistaken premise: that its safety is inseparable from a discipline --- one
+thread per actor, a mailbox per actor, a message and a context switch for every
+interaction --- whose per-message cost cannot fit a microsecond budget. The
+premise conflates the model with one way of implementing it. For \emph{co-located}
+actors the discipline can be honored without that cost, and the resulting system
+is fast enough for the HFT hot path while keeping the properties that made the
+model attractive in the first place: per-actor state isolation, freedom from data
+races and deadlocks, and sequential single-message reasoning. This paper supports
+that thesis both analytically and with a deployed, measured implementation ---
+kaspar-hft --- rather than as theory alone.
+
 Asynchronous message passing is intrinsic to the actor model's guarantees and
 indispensable across machines, but for co-located actors it imposes heap
 allocation, queue operations, scheduling, and context switches that isolation
@@ -1289,16 +2364,39 @@ operations expose the latency/robustness spectrum behind one transparent handler
 interface. The performance case is made analytically, as the elimination of
 per-message work, and corroborated by microbenchmarks in which the synchronous
 path completes a round trip in tens of nanoseconds and a memory pool cuts the
-latency tail by two orders of magnitude; a saturated-throughput evaluation under
-contention remains to be done.
+latency tail by two orders of magnitude.
 
-% ---------------------------------------------------------------
-\section*{Disclosure}
-% ---------------------------------------------------------------
+The applied study places these numbers against a live market-data path. On the
+kaspar-hft framework, socket-to-book latency decomposes into a $\sim\!7~\mu$s
+decode-and-book floor and a per-message serialization slope; the floor is stable
+to within a few tenths of a microsecond across three estimators and a tenfold
+change in packet rate, and the framework's own $\sim\!30$~ns hop is under $1\%$ of
+it. The tail is not the framework and not, primarily, the queue: with in-packet
+position held fixed the mailbox queue is convex exactly as queueing theory
+predicts but fires on only $0.08\%$ of messages, while the dominant effect is the
+arrival process, which is non-Poisson and self-exciting (Hawkes-like, branching
+ratio $0.85$--$0.97$) and converts bursts into large packets and in-packet
+position into latency through the slope. The design lever is therefore the
+per-message service time, not the queue depth or the message rate. The same study
+also fixes the choice among the four mailbox queue implementations --- BQueue by
+default, ShardedBQueue for high-fan-in actors --- and shows that a group of actors
+sharing one queue is at once a real-time execution engine and a deterministic
+simulator, so a trading strategy is developed in backtest and deployed to
+production without modification.
 
-The \fs{} mechanism and its cyclic-invocation detection are the subject of a
-pending patent application. This paper is a technical description and does not
-constitute legal advice.
+Taken together, the mechanism and the measurement answer the question in the
+title. The four extensions --- \fs{}, actor groups, per-actor mailbox selection,
+and the memory pool --- reduce the actor framework's contribution on a live
+tick-to-book path to under one percent of the irreducible decode-and-book floor,
+and to nothing in the tail, which belongs to the market's arrival process and not
+to the messaging layer. An HFT data path built on this model therefore pays
+essentially no latency penalty for the actor discipline, and in return obtains
+data-race and deadlock freedom, single-message reasoning that is unusually
+amenable to automatic code generation, and a production/simulation duality in
+which the same strategy code is backtested and traded without change. The actor
+model, long held unsuitable for high-frequency trading, is suitable, and a real
+system trades on it. The remaining work is the saturated-throughput and
+contention evaluation that this sequential study does not attempt.
 
 % ---------------------------------------------------------------
 \begin{thebibliography}{99}
@@ -1438,6 +2536,46 @@ constitute legal advice.
   \emph{kaspar-hft actor framework: C++ message-passing microbenchmarks
   (\texttt{actors/cpp/perf}).}
   \url{https://github.com/vincent212/kaspar-hft}, 2026.
+\bibitem{mdlatency2026} V.~Maciejewski.
+  \emph{The Queue Is Inside the Packet: Market-Data Latency Measured One Message
+  at a Time.} kaspar-hft technical report
+  (\texttt{tech\_reports/md\_latency\_article.md}), 2026.
+  \url{https://github.com/vincent212/kaspar-hft}.
+\bibitem{fixsbe} FIX Trading Community.
+  \emph{Simple Binary Encoding (SBE), Version 1.0.} Technical Standard, 2020.
+  \url{https://www.fixtrading.org/standards/sbe/}.
+\bibitem{shadowpov} V.~Maciejewski.
+  \emph{Model-Free Passive Execution via Order-Level Shadowing.} kaspar-hft
+  technical report (\texttt{tech\_reports/shadow\_pov}), 2026.
+  \url{https://github.com/vincent212/kaspar-hft}.
+\bibitem{foundationdb} J.~Zhou, M.~Xu, A.~Shraer, et al.
+  \emph{FoundationDB: A Distributed Unbundled Transactional Key Value Store.}
+  In Proc.\ ACM SIGMOD, 2021. \url{https://doi.org/10.1145/3448016.3457559}.
+\bibitem{abides} D.~Byrd, M.~Hybinette, and T.~H.~Balch.
+  \emph{ABIDES: Towards High-Fidelity Multi-Agent Market Simulation.}
+  In Proc.\ ACM SIGSIM-PADS, 2020. \url{https://doi.org/10.1145/3384441.3395986}.
+\bibitem{kingman1961} J.~F.~C.~Kingman.
+  \emph{The Single Server Queue in Heavy Traffic.}
+  Mathematical Proceedings of the Cambridge Philosophical Society,
+  57(4):902--904, 1961. \url{https://doi.org/10.1017/S0305004100036094}.
+\bibitem{fano1947} U.~Fano.
+  \emph{Ionization Yield of Radiations. II. The Fluctuations of the Number of
+  Ions.} Physical Review, 72(1):26--29, 1947.
+  \url{https://doi.org/10.1103/PhysRev.72.26}.
+\bibitem{hurst1951} H.~E.~Hurst.
+  \emph{Long-Term Storage Capacity of Reservoirs.} Transactions of the American
+  Society of Civil Engineers, 116:770--799, 1951.
+  \url{https://doi.org/10.1061/TACEAT.0006518}.
+\bibitem{hawkes1971} A.~G.~Hawkes.
+  \emph{Spectra of Some Self-Exciting and Mutually Exciting Point Processes.}
+  Biometrika, 58(1):83--90, 1971. \url{https://doi.org/10.1093/biomet/58.1.83}.
+\bibitem{bacry2015} E.~Bacry, I.~Mastromatteo, and J.-F.~Muzy.
+  \emph{Hawkes Processes in Finance.} Market Microstructure and Liquidity,
+  1(1):1550005, 2015. \url{https://doi.org/10.1142/S2382626615500057}.
+\bibitem{fisheryates1938} R.~A.~Fisher and F.~Yates.
+  \emph{Statistical Tables for Biological, Agricultural and Medical Research.}
+  Oliver \& Boyd, London, 1938. (Shuffle algorithm; see also D.~E.~Knuth,
+  \emph{The Art of Computer Programming}, Vol.~2, Algorithm~P.)
 \end{thebibliography}
 
 \end{document}
