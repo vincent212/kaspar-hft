@@ -45,7 +45,7 @@
 \newcommand{\fs}{\texttt{fast\_send}}
 \newcommand{\snd}{\texttt{send}}
 
-\title{\textbf{Suitability of the Actor Model of Concurrency for\\
+\title{\textbf{Evaluating Suitability of the Actor Model of Concurrency for\\
 High-Frequency Trading}\\
 \large The \texttt{fast\_send} Mechanism and a Tick-to-Book Latency Study}
 
@@ -62,9 +62,9 @@ High-Frequency Trading}\\
 
 \begin{abstract}
 The many benefits of the actor model --- per-actor state isolation, freedom
-from data races and deadlocks, and sequential single-message reasoning --- have
-been recognized for decades, yet the model has long been dismissed as unsuitable
-for high-frequency trading (HFT). The reasoning was that actors imply many
+from data races, resistance to lock-ordering deadlocks, and sequential
+single-message reasoning --- have been recognized for decades, yet the model has
+long been dismissed as unsuitable for high-frequency trading (HFT). The reasoning was that actors imply many
 threads, many mailbox queues, and a message --- with its heap allocation, queue
 operations, scheduler dispatch, and context switch --- for every interaction:
 overhead incompatible with a microsecond latency budget. This paper argues that
@@ -99,7 +99,9 @@ per-message serialization slope, and the framework's own per-message contributio
 is under $1\%$ of the floor. The tail is set not by the actor machinery or the
 mailbox queue --- which is convex, as queueing theory predicts, but fires on
 $0.08\%$ of messages --- but by the arrival process, which is non-Poisson and
-self-exciting (Hawkes-like, branching ratio $0.85$--$0.97$). The latency the
+strongly clustered, consistent with a self-exciting process (under a Hawkes
+interpretation the observed Fano scaling implies a branching ratio $\approx
+0.85$--$0.97$). The latency the
 concurrency model adds is thus minor next to the irreducible latencies a real HFT
 data path already endures. Finally, the shared-queue group yields a
 production/simulation duality: the same actor code runs unchanged in live trading
@@ -388,7 +390,7 @@ the receiver's own scheduled thread or context. Some systems (Pony, Swift's
 cross-actor calls) forbid a synchronous call altogether. No mainstream actor
 runtime executes the receiver's handler on the sender's thread under the
 receiver's exclusive-access lock. That combination --- cross-thread synchronous
-execution under receiver transparency --- is precisely the design point \fs{}
+execution under receiver transparency --- is the design point \fs{}
 occupies, and the safety machinery of Section~\ref{sec:cycle} is what it
 requires to be usable.
 
@@ -431,7 +433,7 @@ heap allocation, mailbox queue operations, scheduling, and context switches
 (Section~\ref{sec:perf}). This is the tax paid for isolation, and on the hottest
 paths it has historically been the reason engineers abandon the actor model and
 return to shared memory and locks. The tension between the model's safety and
-its per-message cost is the entire subject of this paper.
+its per-message cost is the subject of this paper.
 
 \paragraph{Determinism and simulation.} A further benefit follows from the same
 isolation and becomes decisive in a trading system. Because an actor's behavior
@@ -468,7 +470,7 @@ alternative is sharp and is documented. Generating \emph{correct} lock-based
 concurrent code is hard even for strong models: a dedicated benchmark for
 concurrent code generation finds that current LLMs struggle to produce correct
 synchronization and repeatedly introduce concurrency errors
-\cite{concur2026}. The actor discipline eliminates precisely the hazard that
+\cite{concur2026}. The actor discipline eliminates the hazard that
 both human authors and code generators handle worst --- shared mutable state
 guarded by hand-written locks --- so actor code is not only faster to produce
 but is likely to be more robust and closer to correct than a hand-rolled
@@ -532,10 +534,9 @@ Object pattern \cite{activeobject1996} interposes a proxy, activation queue, and
 scheduler so that the client's thread never runs the servant's method on a
 separate thread. The Monitor Object pattern \cite{posa2} does run a method on the
 caller's thread under a lock --- sharing the caller-thread-execution mechanism
-with \fs{} --- but a monitor is a passive data structure invoked by direct
-method call: there is no mailbox, no asynchronous alternative, no dual mode, and
-no notion of the callee as an isolated actor that cannot observe how it was
-reached.
+with \fs{} --- but a monitor is a passive object invoked by a direct method
+call: it has no mailbox, offers no asynchronous alternative, and does not present
+the callee as an isolated actor that cannot observe how it was reached.
 
 \paragraph{Deterministic reactor concurrency.} A separate recent line of work
 constrains, rather than accelerates, actor-style concurrency: Lingua Franca
@@ -943,8 +944,9 @@ path are the two asynchronous \snd{}s (reader$\to$buffer and
 signal$\to$order-handler); each such hop is the expensive operation, measured at
 $\sim\!3.4\,\mu$s per round trip (Table~\ref{tab:transport}), because it wakes
 another thread. The entire decode/book/signal servicing chain instead collapses
-onto a single thread via \fs{}, each hop costing $\sim\!30$~ns --- more than two
-orders of magnitude less (see Table~\ref{tab:transport}) --- so it incurs no queue and no context switch. That servicing
+onto a single thread via \fs{}, each hop costing $\sim\!10$~ns --- about one
+virtual call, three orders of magnitude less than a thread-crossing \snd{} (see
+Table~\ref{tab:transport}) --- so it incurs no queue and no context switch. That servicing
 chain is the M/M/1 stage of Section~\ref{sec:qtheory} whose per-message service
 time, and hence $\mu$, is set by the aggregate cost of these \fs{}s.}
 \label{fig:hftarch}
@@ -964,8 +966,8 @@ land in a buffer actor --- the queue --- whose service handler forwards each
 message down the remainder of the chain by \fs{}: arbitration between the A and B
 feeds, Simple Binary Encoding decode, order-book construction, and signal
 generation all run synchronously, in sequence, on this one thread, with no
-intervening queue and no context switch between stages. This is precisely the
-chained synchronous execution of Section~\ref{sec:mech}: an $N$-stage chain with
+intervening queue and no context switch between stages. This is the chained
+synchronous execution of Section~\ref{sec:mech}: an $N$-stage chain with
 $O(1)$ rather than $O(N)$ context switches. This section is the queue-servicing
 code whose per-message time sets $\mu$, and it is where \fs{} earns its keep.
 
@@ -1271,8 +1273,9 @@ load, moving by at most $+0.4~\mu$s (and \emph{falling} on two of three
 instruments) during a Federal Reserve release that raised the packet rate
 $4.6$--$9.8\times$ in a second. Against this $\sim\!7~\mu$s floor the framework's
 per-message contribution --- the mailbox handoff and dispatch of
-Section~\ref{sec:micro} --- is tens of nanoseconds: a \fs{} dispatch is
-$\sim\!30$~ns. \emph{The actor abstraction is under $1\%$ of the floor}; the floor
+Section~\ref{sec:micro} --- is tens of nanoseconds: a \fs{} hop adds $\sim\!10$~ns
+over a direct call (about one virtual call; the full ping/pong round trip is
+$\sim\!30$~ns). \emph{The actor abstraction is under $1\%$ of the floor}; the floor
 is SBE decode and book mutation, not message delivery.
 
 The \emph{slope} --- the per-message serialization cost, $0.31$--$0.97~\mu$s ---
@@ -1282,8 +1285,8 @@ the floor, deterministically. On the trade streams a message is essentially neve
 ($99.3$--$99.6\%$ have another message ahead of them in the same packet), which is
 why the trade medians already sit above the book medians. Shaving $100$~ns off the
 floor moves every message by $100$~ns; shaving it off the slope moves a message by
-$\text{idx}\times100$~ns, and $\text{idx}$ is exactly what is large in the tail.
-The design lever is the slope --- not the floor, and not the mailbox queue, which
+$\text{idx}\times100$~ns, and $\text{idx}$ is largest in the tail. The design
+lever is therefore the slope rather than the floor or the mailbox queue, which
 is rare: between $87\%$ and $99.7\%$ of messages arrive to find the ring empty.
 
 \begin{table}[t]
@@ -1403,7 +1406,7 @@ packet rate rose tenfold.
 
 \subsection{The distribution and its tail}
 
-The median is not the quantity a trading operation is judged on; the tail is.
+A trading operation is judged on the tail, not the median.
 Table~\ref{tab:mddist} gives the unconditional distribution. The medians cluster
 --- three separate multicast channels, three instruments, all within $0.2~\mu$s
 --- but the tails come apart: ES book's $p99$ is $18.5~\mu$s, ZN book's is
@@ -1700,18 +1703,20 @@ median and $+21$ to $+145~\mu$s at $p99$. Where packets grow with queue length
 the deconfounded columns remove that. This does not alter the suitability
 conclusion below: the queue's contribution, like the floor's and the slope's, is a
 property of the feed and the servicing time, not of the actor framework, whose
-$\sim\!30$~ns hop is below every figure in these tables.
+$\sim\!10$~ns hop is below every figure in these tables.
 
 \FloatBarrier
 
 \subsection{Suitability}
 \label{sec:suitability}
 
-Nothing the framework does appears in any of this. The floor is decode and
+The framework does not appear in this decomposition. The floor is decode and
 book work, and the slope is protocol serialization; neither is the framework. The
-actor abstraction --- the mailbox handoff and the \fs{}/\snd{} dispatch --- is
-$\sim\!30$~ns against a $\sim\!7~\mu$s floor, under $1\%$, and it does not grow
-with in-packet position, so it contributes nothing to the tail either.
+actor abstraction --- the mailbox handoff and the \fs{}/\snd{} dispatch --- costs
+about one virtual call per hop ($\sim\!10$~ns), a few tens of nanoseconds across
+the collapsed decode/book/signal chain, against a $\sim\!7~\mu$s floor: well under
+$1\%$, and it does not grow with in-packet position, so it makes no measurable
+contribution to the tail under this workload.
 
 This also places the queueing analysis of Section~\ref{sec:queueing} correctly.
 That analysis predicts the tail diverges as utilization $\rho\to1$, and it is the
@@ -1725,7 +1730,8 @@ determines whether this stage saturates.
 
 The verdict is affirmative and specific: the actor model is suitable for a
 high-frequency market-data path because its per-message overhead is a fraction of
-a percent of the irreducible work and it contributes nothing to the tail. What an
+a percent of the irreducible work and makes no measurable contribution to the
+observed tail. What an
 implementer must engineer is the per-message service time --- the decode-and-book
 slope --- and the feed's batch structure, not the messaging framework.
 
@@ -1748,9 +1754,9 @@ the wrong weighting for this question, because a larger packet holds more messag
 and therefore more of the latency. Table~\ref{tab:idxdist} weights by message. On
 the books, four messages in five arrive alone in their packet ($\text{idx}=0$) and
 pay the floor only --- the median $\text{idx}$ is zero on all three. On the trades,
-$99.3\%$ to $99.6\%$ of messages have another ahead of them; a trade message is
-essentially never alone, and the median ZN~trade message is ninth in its packet,
-having incurred eight slopes before it is decoded.
+$99.3\%$ to $99.6\%$ of messages have another ahead of them; a trade message
+almost always shares its packet, and the median ZN~trade message is ninth in its
+packet, having incurred eight slopes before it is decoded.
 
 \begin{table}[!htb]
 \centering
@@ -2344,7 +2350,8 @@ premise conflates the model with one way of implementing it. For \emph{co-locate
 actors the discipline can be honored without that cost, and the resulting system
 is fast enough for the HFT hot path while keeping the properties that made the
 model attractive in the first place: per-actor state isolation, freedom from data
-races and deadlocks, and sequential single-message reasoning. This paper supports
+races, resistance to lock-ordering deadlocks, and sequential single-message
+reasoning. This paper supports
 that thesis both analytically and with a deployed, measured implementation ---
 kaspar-hft --- rather than as theory alone.
 
@@ -2370,12 +2377,14 @@ The applied study places these numbers against a live market-data path. On the
 kaspar-hft framework, socket-to-book latency decomposes into a $\sim\!7~\mu$s
 decode-and-book floor and a per-message serialization slope; the floor is stable
 to within a few tenths of a microsecond across three estimators and a tenfold
-change in packet rate, and the framework's own $\sim\!30$~ns hop is under $1\%$ of
-it. The tail is not the framework and not, primarily, the queue: with in-packet
+change in packet rate, and the framework's own per-hop overhead ($\sim\!10$~ns,
+about one virtual call) is well under $1\%$ of it. The tail is not the framework and not, primarily, the queue: with in-packet
 position held fixed the mailbox queue is convex exactly as queueing theory
 predicts but fires on only $0.08\%$ of messages, while the dominant effect is the
-arrival process, which is non-Poisson and self-exciting (Hawkes-like, branching
-ratio $0.85$--$0.97$) and converts bursts into large packets and in-packet
+arrival process, which is non-Poisson and strongly clustered, consistent with a
+self-exciting process (under a Hawkes interpretation the Fano scaling implies a
+branching ratio $\approx 0.85$--$0.97$), and converts bursts into large packets
+and in-packet
 position into latency through the slope. The design lever is therefore the
 per-message service time, not the queue depth or the message rate. The same study
 also fixes the choice among the four mailbox queue implementations --- BQueue by
@@ -2388,10 +2397,11 @@ Taken together, the mechanism and the measurement answer the question in the
 title. The four extensions --- \fs{}, actor groups, per-actor mailbox selection,
 and the memory pool --- reduce the actor framework's contribution on a live
 tick-to-book path to under one percent of the irreducible decode-and-book floor,
-and to nothing in the tail, which belongs to the market's arrival process and not
-to the messaging layer. An HFT data path built on this model therefore pays
-essentially no latency penalty for the actor discipline, and in return obtains
-data-race and deadlock freedom, single-message reasoning that is unusually
+and to no measurable contribution to the tail, which belongs to the market's
+arrival process and not to the messaging layer. An HFT data path built on this
+model therefore pays essentially no latency penalty for the actor discipline, and
+in return obtains data-race freedom, resistance to lock-ordering deadlocks,
+single-message reasoning that is unusually
 amenable to automatic code generation, and a production/simulation duality in
 which the same strategy code is backtested and traded without change. The actor
 model, long held unsuitable for high-frequency trading, is suitable, and a real
