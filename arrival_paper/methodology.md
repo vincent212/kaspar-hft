@@ -496,7 +496,19 @@ We simulate an exponential Hawkes on a fixed 60-second window at each of nine $(
 
 **Why the visualization matters for the paper.** The empirical panel we build (per-30-min window across 730 sessions × 3 streams) samples this 2-D plane at every point. If tail thickness correlated only with $\bar\lambda$, the top-right cell would be the worst-tail cell. If tail thickness correlated only with $n$, the bottom-left cell would tie with the bottom-right. The correlations we report in §5.6 tell us which of those two stories the data actually says.
 
-**Figure spec.** `figs/hawkes_grid_3x3.png` — a 3-row × 9-column grid (3 for the three visualisations × 9 for the (λ̄, n) cells). Simulation script: `arrival_paper/make_hawkes_grid.py` (uses Ogata thinning; RNG seed pinned per cell for reproducibility). To be generated once the batch produces enough real fits to overlay one measured cell per panel as a reality check.
+**What happens at $n = 1$ and beyond — the critical boundary.**
+
+The three cells shown (n = 0.30 / 0.60 / 0.90) are all **subcritical**: each event fires on average $n < 1$ future events through its exponential kernel, the cascade dies out, and the long-run mean intensity $\bar\lambda = \mu / (1 - n)$ is finite. As $n \uparrow 1$ that denominator collapses and $\bar\lambda$ blows up — you can already see it in the third column: at n = 0.90, the same $\mu$ that produced ~2 events/s at n = 0.30 now produces bursts an order of magnitude larger, because each burst breeds ~9 follow-ons on average before dying.
+
+- **$n = 1$ exactly** is the **critical** point. The formula $\bar\lambda = \mu / (1 - n)$ diverges. On any finite time window the process is still well-defined and fires finitely often, but the counts don't stabilise — the variance of $N(T)$ grows superlinearly with $T$ (versus linearly for $n < 1$ and for Poisson). This is the boundary between "damped self-exciting" and "explosive" regimes and the theoretical target of the Filimonov-Sornette / Hardiman-Bouchaud claim that liquid futures sit *just* below it.
+
+- **$n > 1$ is supercritical**: each event fires more than one child on average, so the cascade explodes exponentially and the model diverges in finite time. This is not a regime one observes in fitted markets — a well-behaved MLE on real data never returns $n > 1$ on a stable session. If a fit lands there it's a sign of estimator instability, non-stationarity across the fit window, or a mis-specified kernel, not a real property of the arrivals. Our optimizer constrains $\alpha < \beta$ (equivalently $n < 1$) at the boundary and reports fits that hit the boundary as unreliable.
+
+- **What "close to critical" means empirically.** Filimonov-Sornette report $n_\text{day} \approx 0.85$–$0.95$ on ES over the 2000s–2010s. Our own pilot on NQH5 2025-03-10 lands at $n = 0.90$ — consistent with the "near-critical but stable" regime. The paper's per-session distributions of $n$ across the corpus test whether that near-criticality is a stable property of these markets or drifts with regime.
+
+![Hawkes 3×3 grid: mean intensity × branching ratio](figs/hawkes_grid_3x3.png)
+
+**Figure.** `figs/hawkes_grid_3x3.png` — 9 cells, each stacking the event raster (top), cumulative count $N(t)$ (middle), and analytic $\lambda(t)$ (bottom). Rows are mean intensity $\bar\lambda \in \{2, 10, 50\}$ events/s; columns are branching ratio $n \in \{0.30, 0.60, 0.90\}$. Simulated by Ogata thinning over 15 s at $\beta = 1$/s (so the excitation kernel decays on a 1-second timescale in every cell). Generator: `arrival_paper/make_hawkes_grid.py` (RNG seed pinned per cell for reproducibility).
 
 ### 1.7 Why Hawkes captures CME MDP3 and Poisson doesn't
 
