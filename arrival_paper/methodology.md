@@ -992,21 +992,37 @@ The §5 panel isn't the endpoint. It's the raw material that unlocks every headl
 
 **Step C — Feed into the adverse-selection attribution (§7 of the paper).** Every maker fill on that session gets a `λ̂` value (from the online estimator warm-started with that session's fitted parameters). Then per-fill adverse P&L is regressed on `log λ̂` plus controls, and ΔR² of that regression over an arrival-blind baseline is the paper's headline number. **This regression needs the per-session Hawkes fit as an input** — without §5-panel row #d, we can't compute λ̂ on session d.
 
-**Step D — Measure each of the three tails and report marginal correlations with (n, λ̄).**
+**Step D — The paper's central claim: three tails move together, and all three track the arrival-process signature.**
 
-The paper's empirical hook is **three tails in three domains** — the decoder-latency tail, the maker-adverse-selection tail, and the return-fat-tail. All three are consequences of the arrival process (Blanc-Bouchaud, Bacry-Muzy, Jaisson-Rosenbaum for returns; N-A / Cartea-Jaimungal for adverse selection; fast_send for latency). This paper measures each of them at scale and reports how each correlates with the Hawkes summaries `(n, λ̄)` we already fit in §5.
+The paper's empirical hook is **three tails in three domains** — the decoder-latency tail, the maker-adverse-selection tail, and the return fat-tail. All three are known consequences of the arrival process in prior work, considered separately (Blanc-Bouchaud, Bacry-Muzy, Jaisson-Rosenbaum for returns; Cartea-Jaimungal for adverse selection; fast_send for latency). **This paper puts them on the same 30-minute window and asks whether they move together, and whether they track the same arrival-process signature.** That's the whole claim — nothing more, nothing less.
 
-For each per-window or per-session Hawkes fit we compute the three tail metrics:
+For each 30-min window on each session on each stream (~5000 windows × 3 streams total) we compute the three tail metrics:
 
-- `log |adv_pnl_top_decile|` — 95th-percentile absolute maker markout for fills in the window
+- `log |adv_pnl_p95|` — 95th-percentile absolute maker markout for fills in the window
 - `1/ν` — reciprocal of the Hill / Fréchet return-tail exponent estimated on the window's mid-quote returns
 - `log p99_lat` — 99th-percentile decoder wire-to-book latency in the window (from the three-timestamp anatomy)
 
-We then report:
+**Two results we report, in this order:**
 
-1. **Marginal correlations table.** For each of the three tails and each of `n` and `λ̄`, one Spearman ρ and its p-value. Six numbers per stream × 3 streams = 18 correlations. This is the paper's empirical claim: **each of the three tails correlates with arrival-side intensity/criticality on our corpus**.
-2. **Cross-tail correlations.** Pairwise Spearman across the three tails themselves: `ρ(latency, adv_pnl)`, `ρ(latency, ret)`, `ρ(adv_pnl, ret)`. If these are all positive and non-trivial, the three tails move together. That is a *finding to report*, not a factor model to fit.
-3. **Cross-product stability.** Do the six marginal signs and magnitudes hold on all three products (ES, NQ, BTC)? A per-stream table with the same 18 correlations answers this.
+**Result 1 — the three tails move together.** Pairwise Spearman across the three tails themselves, on the ~5000-window panel per stream:
+
+$$
+\rho(\text{lat tail},\, \text{adv-P\&L tail}), \quad \rho(\text{lat tail},\, \text{return tail}), \quad \rho(\text{adv-P\&L tail},\, \text{return tail})
+$$
+
+Nine correlations total (3 pairs × 3 streams). **If all nine are positive and non-trivial (say ρ > 0.15 with p ≪ 10⁻³), the paper's central empirical claim is confirmed: the three tails are co-moving. Nothing further is required for the headline result.** A 3×3 scatter figure per stream (each panel one tail-pair) is the paper's most important visualisation.
+
+**Result 2 — the co-movement tracks the arrival-process signature $(n, \bar\lambda)$.** For each of the three tails, marginal + partial Spearman against both Hawkes summaries:
+
+$$
+\rho(n,\, \text{tail}), \quad \rho(\bar\lambda,\, \text{tail}), \quad \rho(n,\, \text{tail}\mid\bar\lambda), \quad \rho(\bar\lambda,\, \text{tail}\mid n)
+$$
+
+That's 4 correlations × 3 tails × 3 streams = 36 cells in an "arrival-side attribution" table. **If the tails move together AND each individually correlates with the same arrival-side observables, the shared cause is empirically identified without needing a latent-factor model.** This is what makes the paper self-contained: the tails aren't just co-moving — they're co-moving *with the same driver*.
+
+**How the two results combine into the paper's headline.** Result 1 says the three tails are one signal (empirically). Result 2 identifies what that signal is (empirically, at the level of marginal + partial correlations, without a latent-factor model): a high-intensity, near-critical arrival process. Together: **high λ̄ and high n → simultaneously fat latency tails, fat adverse-P&L tails, and fat return tails.** That is the whole paper.
+
+**Cross-product stability.** All nine cross-tail correlations and all 36 arrival-side attribution cells are reported per stream (ES, NQ, BTC). If the signs and rough magnitudes are consistent across streams the claim survives the "CME-equity-quirk" objection.
 
 **What we deliberately do NOT do in this paper:**
 
