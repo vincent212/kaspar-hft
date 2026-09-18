@@ -127,7 +127,29 @@ def build_packet_tape(msg_tape_csv: str,
             agg = joined
 
     if agg is None or len(agg) == 0:
-        raise RuntimeError(f"{msg_tape_csv} produced no rows")
+        # Zero-row day (holiday / half-session / no matching secID). Emit an
+        # empty parquet with the right schema so downstream code that opens
+        # every session's parquet doesn't need to special-case missing files.
+        print(f"[packet_tape] WARNING: {msg_tape_csv} has zero rows; "
+              f"writing empty parquet", file=sys.stderr)
+        agg = pd.DataFrame({
+            "packet_seq": pd.Series(dtype="int64"),
+            "transactTime_first": pd.Series(dtype="int64"),
+            "transactTime_last": pd.Series(dtype="int64"),
+            "sendingTime_first": pd.Series(dtype="int64"),
+            "sendingTime_last": pd.Series(dtype="int64"),
+            "handlerendtim": pd.Series(dtype="int64"),
+            "recv_time": pd.Series(dtype="int64"),
+            "max_idx_in_packet": pd.Series(dtype="int32"),
+            "n_msgs": pd.Series(dtype="int64"),
+            "n_add": pd.Series(dtype="int32"),
+            "n_modify": pd.Series(dtype="int32"),
+            "n_delete": pd.Series(dtype="int32"),
+            "n_trade": pd.Series(dtype="int32"),
+        })
+        Path(out_parquet).parent.mkdir(parents=True, exist_ok=True)
+        agg.to_parquet(out_parquet, compression="snappy", index=False)
+        return agg
 
     agg = agg.sort_values("packet_seq").reset_index(drop=True)
     # recv_time == 0 means "no trade in this packet carried it"; store as

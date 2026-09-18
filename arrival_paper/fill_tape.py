@@ -365,7 +365,17 @@ def build_fill_tape(
     # Markouts
     # ------------------------------------------------------------------
     print("[fill_tape] loading bbbochg tape...", file=sys.stderr)
-    bbo = load_bbbochg(bbbochg_csv, sym=bbo_sym)
+    try:
+        bbo = load_bbbochg(bbbochg_csv, sym=bbo_sym)
+    except (EOFError, pd.errors.ParserError, OSError) as e:
+        # Truncated / partially written gzip (e.g. from a killed prior run).
+        # Treat it as no-BBO-data so markouts land as NaN; downstream can
+        # decide whether to keep or drop these rows.
+        print(f"[fill_tape] WARNING: bbbochg {bbbochg_csv} unreadable "
+              f"({type(e).__name__}: {e}); markouts will be NaN",
+              file=sys.stderr)
+        bbo = pd.DataFrame(columns=["tx_time", "venue", "sym",
+                                     "best_bid", "best_ask", "mid"])
 
     if len(bbo) == 0:
         print("[fill_tape] WARNING: no BBO rows after sym filter; "
