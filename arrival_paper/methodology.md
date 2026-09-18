@@ -1076,7 +1076,27 @@ The idea of running a bivariate Hawkes on up-tick vs down-tick arrivals is not n
 
 - **Da Fonseca, Zaatour (2014)** — "Hawkes process: fast calibration, application to trade clustering, and diffusive limit." Bivariate estimator + diffusive limit that ties the signed intensity to a stochastic-volatility model.
 
-**What this paper adds on top of that lineage.** (i) Signed-Hawkes fits across a corpus large enough (3 products × 730 sessions × ~10 windows/session) to give per-regime distributions of the four excitation terms `(α_{++}, α_{+-}, α_{-+}, α_{--})`, not point estimates from a handful of days. (ii) The four-parameter cross-excitation matrix reported alongside the paper's three tail metrics on the same windows — nobody has co-published the signed-Hawkes fit with the maker-fill markout tail at MBO L3 resolution on public data. (iii) A working online O(1) signed-intensity estimator (`SignedHawkesEstimator`) that produces `(λ̂⁺, λ̂⁻)` in real time for use as an execution gate — the theory in Bacry-Delattre-Hoffmann-Muzy is fitted offline; ours ships in a Shadow POV algorithm.
+**Distinguishing "signed Hawkes as a fitted model" (published, well-cited) from "signed λ̂ as a live alpha signal" (much thinner).**
+
+The lineage above is unambiguous on the *model side*: the 2-D Hawkes on signed arrivals is published, replicated, and extended by multiple groups. **What is much less obvious in the published record is signed λ̂(t) = λ̂⁺(t) − λ̂⁻(t) deployed as a live directional alpha with a P&L attribution.** The closest published anchors:
+
+- **Cont, Kukanov, Stoikov (2014)** — "The Price Impact of Order Book Events" (J. Financial Econometrics). The definitive published paper showing that **signed order flow imbalance (OFI)** — a simple rectangular-window average of signed book events — predicts next mid-move return with meaningful $R^2$ on NYSE stocks. This is the closest published "signed flow as alpha" result. But OFI uses a rectangular window, not a Hawkes-decayed memory.
+
+- **Cartea, Jaimungal, Ricci (2014)** — the signed Hawkes intensity is a *state variable* in an optimal-MM HJB, used to set spreads. Not framed as a directional alpha for the maker's own account.
+
+- **Bacry-Delattre-Hoffmann-Muzy 2013** and follow-ups — fit the model, characterise its cross-excitation, characterise the diffusive limit. Do not compute the running $\hat\lambda^+(t) - \hat\lambda^-(t)$ series, backtest it as a directional signal, or attribute per-fill P&L to it.
+
+**The specific claim we're planning to investigate — and honestly haven't fully verified in the literature yet:**
+
+Hawkes-decayed signed imbalance should be a strictly sharper version of Cont-Kukanov-Stoikov's OFI: it weights recent events more heavily and lets the effect of a single message decay on the (fitted) $1/\beta$ timescale rather than being averaged uniformly over an arbitrary window. **The natural claim** — "Hawkes-decayed signed OFI is a better directional alpha than rectangular OFI, with a P&L number to prove it, on public MDP3, at scale" — **would be a real result if it holds and if nobody has published it that specifically.** We haven't found a paper that co-publishes this exact chain (Hawkes fit → online signed estimator → per-fill P&L attribution → beats rectangular OFI baseline on the same test).
+
+**What we commit to reporting in the paper** — regardless of how the alpha claim resolves:
+1. The four excitation parameters $(α_{++}, α_{+-}, α_{-+}, α_{--})$ across the ~5000-window panel, per stream (ES / NQ / BTC) — the empirical distribution isn't in the literature at this scale.
+2. Per-fill markout attribution regression: does $\hat\lambda^{−}(t_\text{fill})$ (or $\hat\lambda^{+}(t_\text{fill})$ on ask fills) explain adverse-selection variance the arrival-blind baseline misses? This is the sharpest test of the paper's core claim.
+3. Head-to-head backtest: signed-Hawkes signal vs Cont-Kukanov-Stoikov rectangular-OFI baseline on next-100 ms mid moves, same corpus, same fills. If Hawkes wins, that specific chain becomes a headline. If it ties, the paper reports the tie and the signed-Hawkes fits stand on their own.
+4. Deployment: `SignedHawkesEstimator` shipped as a working O(1) online estimator that a passive quoter gates on.
+
+**Author's caveat.** If a reader points us to prior work that publishes the exact "Hawkes-signed alpha with P&L attribution" chain we haven't found, we will cite it and reframe. The gap we perceive may be a gap in our reading rather than in the field.
 
 **Event classification for the signed intensity.** For every MBO / trade record, tag it as `+`, `−`, or neutral:
 
