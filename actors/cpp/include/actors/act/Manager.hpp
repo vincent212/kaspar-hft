@@ -189,6 +189,23 @@ class ZmqReceiver;
     std::map<std::string, std::size_t> get_queue_lengths() const noexcept;
 
     /**
+     * Same, but sampled WITHOUT taking any mailbox lock.
+     *
+     * get_queue_lengths() acquires every managed actor's mailbox mutex — the
+     * same mutex its push()/pop() use. Contention is worst exactly when the
+     * queues are deep, so a periodic sampler built on it perturbs the thing it
+     * is measuring, in the direction that flatters the depth->latency story.
+     * Use this one for periodic gauges (QLen); use get_queue_lengths() when an
+     * exact count matters more than the disturbance.
+     *
+     * Approximate and ring-only: see Queue::circ_buf_len. A value equal to the
+     * ring size means "at least this deep", not "this deep".
+     *
+     * @return Map of actor name to unlocked ring occupancy
+     */
+    std::map<std::string, std::size_t> get_circ_buf_lengths() const noexcept;
+
+    /**
      * Get thread ID and message count per actor
      * @return Map of actor name to (tid, message_count) tuple
      */

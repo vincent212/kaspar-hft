@@ -8,6 +8,7 @@
  */
 
 #include <atomic>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 
@@ -40,11 +41,31 @@ namespace actors
     mutable bool is_fast = false;
     mutable bool last = false;
 
+    /**
+     * Destination mailbox depth at the moment this message was enqueued.
+     *
+     * This is the PER-MESSAGE queue depth. It is what QLen cannot give you:
+     * QLen is a gauge on a 100 ms grid, so a burst that fills and drains a
+     * mailbox between two ticks is invisible to it. This number rides along
+     * with the message, so every message reports the backlog it personally
+     * queued behind. Join latency against it directly — no time alignment, no
+     * wake jitter, no gauge caveat.
+     *
+     * Written once by Actor::add_message_to_queue, read by the receiving
+     * handler. Zero for fast_send (no queue was involved) and zero until the
+     * message is actually enqueued.
+     *
+     * Ring-only and approximate: see Queue::circ_buf_len. A value equal to
+     * ACTOR_BQUEUE_SIZE means "at least this deep".
+     */
+    mutable uint32_t qlen = 0;
+
     Message(const Message& other)
       : sender(other.sender)
       , destination(nullptr)
       , is_fast(other.is_fast)
       , last(other.last)
+      , qlen(0)                 // a copy has not been enqueued yet
       , msg_id_(other.msg_id_)  // identity is preserved across a copy
     {}
 
@@ -54,6 +75,7 @@ namespace actors
         destination = nullptr;
         is_fast = other.is_fast;
         last = other.last;
+        qlen = 0;
         // msg_id_ is identity: not reassigned.
       }
       return *this;
