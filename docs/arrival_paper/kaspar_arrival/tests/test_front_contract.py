@@ -1,20 +1,27 @@
 # Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
 # Licensed under the MIT License.
-"""Tests for the front-contract picker."""
+"""Tests for the front-contract picker (DB-primary, volstats cross-check)."""
 
 from __future__ import annotations
 
 import csv
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
 
 from kaspar_arrival.front_contract import (
     build_front_contract_csv,
+    load_kaspar_db_fronts,
     load_universe_csv,
-    pick_front,
+    volstats_top_fdf,
 )
+
+
+# ---------------------------------------------------------------------------
+# Fixture helpers
+# ---------------------------------------------------------------------------
 
 
 def _write_universe(path: Path, rows: list[dict]):
@@ -35,144 +42,243 @@ def _write_volstats(path: Path, chan: int, ymd: str, insts: list[dict]):
         json.dump({"channel": chan, "date": ymd, "instruments": insts}, f)
 
 
-class TestPickFront:
-    def test_picks_max_volume_outright(self):
-        universe = {
-            42288528: {"type": "FDF", "symbol": "NQH5", "asset": "NQ"},
-            42003617: {"type": "FDF", "symbol": "MNQH5", "asset": "MNQ"},
-            99999999: {"type": "SDF", "symbol": "NQH5-NQM5", "asset": "NQ"},  # spread
-        }
-        insts = [
-            {"securityID": 42003617, "vol_max": 3_000_000, "vol_last": 3_000_000, "trades": 2_500_000},
-            {"securityID": 42288528, "vol_max": 800_000, "vol_last": 800_000, "trades": 700_000},
-            {"securityID": 99999999, "vol_max": 500_000, "vol_last": 500_000, "trades": 400_000},
-        ]
-        picked = pick_front({"instruments": insts}, universe, target_asset="NQ")
-        assert picked["security_id"] == 42288528  # MNQH5 excluded (wrong asset), spread excluded (SDF)
-        assert picked["symbol"] == "NQH5"
-
-    def test_micros_excluded_when_asset_is_full(self):
-        """Chan 318 mixes NQ, MNQ, MES, RTY, M2K — MNQ has more raw volume
-        than NQ on many days. Picker must keep NQ outrights only."""
-        universe = {
-            1: {"type": "FDF", "symbol": "MNQH5", "asset": "MNQ"},
-            2: {"type": "FDF", "symbol": "NQH5", "asset": "NQ"},
-            3: {"type": "FDF", "symbol": "MESH5", "asset": "MES"},
-        }
-        insts = [
-            {"securityID": 1, "vol_max": 5_000_000, "vol_last": 0, "trades": 0},
-            {"securityID": 2, "vol_max": 1_000_000, "vol_last": 0, "trades": 0},
-            {"securityID": 3, "vol_max": 4_000_000, "vol_last": 0, "trades": 0},
-        ]
-        picked = pick_front({"instruments": insts}, universe, target_asset="NQ")
-        assert picked["security_id"] == 2
-
-    def test_spreads_excluded(self):
-        universe = {
-            1: {"type": "FDF", "symbol": "NQH5", "asset": "NQ"},
-            2: {"type": "SDF", "symbol": "NQH5-NQM5", "asset": "NQ"},
-        }
-        insts = [
-            {"securityID": 1, "vol_max": 100, "vol_last": 0, "trades": 0},
-            {"securityID": 2, "vol_max": 10_000, "vol_last": 0, "trades": 0},
-        ]
-        picked = pick_front({"instruments": insts}, universe, target_asset="NQ")
-        assert picked["security_id"] == 1
-
-    def test_no_universe_picks_pure_argmax(self):
-        """Chan 326 has no master_universe: fall through to argmax vol."""
-        insts = [
-            {"securityID": 1, "vol_max": 100, "vol_last": 0, "trades": 0},
-            {"securityID": 2, "vol_max": 10_000, "vol_last": 0, "trades": 0},
-            {"securityID": 3, "vol_max": 500, "vol_last": 0, "trades": 0},
-        ]
-        picked = pick_front({"instruments": insts}, universe=None, target_asset=None)
-        assert picked["security_id"] == 2
-
-    def test_returns_none_when_no_matching_asset(self):
-        universe = {1: {"type": "FDF", "symbol": "MESH5", "asset": "MES"}}
-        insts = [{"securityID": 1, "vol_max": 999, "vol_last": 0, "trades": 0}]
-        picked = pick_front({"instruments": insts}, universe, target_asset="NQ")
-        assert picked is None
+def _make_kaspar_db(path: Path, equity_rows=None, btc_rows=None):
+    """Build a minimal kaspar.db with front_contract_equity + front_contract_btc."""
+    con = sqlite3.connect(str(path))
+    con.execute("""CREATE TABLE front_contract_equity (
+        session_date TEXT, es_front TEXT, nq_front TEXT,
+        es_raw TEXT, nq_raw TEXT, sync_flag INTEGER, stab_flag INTEGER)""")
+    con.execute("""CREATE TABLE front_contract_btc (
+        session_date TEXT, btc_front TEXT)""")
+    for r in equity_rows or []:
+        con.execute(
+            "INSERT INTO front_contract_equity VALUES (?,?,?,?,?,?,?)",
+            (r["session_date"], r.get("es_front"), r.get("nq_front"),
+             r.get("es_raw"), r.get("nq_raw"),
+             r.get("sync_flag", 0), r.get("stab_flag", 0))
+        )
+    for r in btc_rows or []:
+        con.execute("INSERT INTO front_contract_btc VALUES (?,?)",
+                    (r["session_date"], r.get("btc_front")))
+    con.commit()
+    con.close()
 
 
-class TestLoadUniverse:
-    def test_load_master_universe_csv(self, tmp_path):
+# ---------------------------------------------------------------------------
+# load_universe_csv
+# ---------------------------------------------------------------------------
+
+
+class TestLoadUniverseCsv:
+    def test_keyed_by_symbol_fdf_only(self, tmp_path):
         p = tmp_path / "u.csv"
         _write_universe(p, [
             {"type": "FDF", "securityID": "42288528", "symbol": "NQH5",
              "asset": "NQ", "tickSize": "0.25"},
             {"type": "SDF", "securityID": "999", "symbol": "SPREAD",
              "asset": "NQ", "tickSize": "0.25"},
+            {"type": "ODF", "securityID": "888", "symbol": "OPT",
+             "asset": "NQ", "tickSize": "0.25"},
         ])
         univ = load_universe_csv(str(p))
-        assert 42288528 in univ
-        assert univ[42288528]["type"] == "FDF"
-        assert univ[42288528]["symbol"] == "NQH5"
-        assert 999 in univ
+        assert "NQH5" in univ
+        assert univ["NQH5"]["securityID"] == "42288528"
+        assert "SPREAD" not in univ
+        assert "OPT" not in univ
+
+
+# ---------------------------------------------------------------------------
+# load_kaspar_db_fronts
+# ---------------------------------------------------------------------------
+
+
+class TestLoadKasparDbFronts:
+    def test_equity_and_btc(self, tmp_path):
+        db = tmp_path / "kaspar.db"
+        _make_kaspar_db(db,
+            equity_rows=[
+                {"session_date": "2025-03-10", "es_front": "ESH5", "nq_front": "NQH5"},
+                {"session_date": "2025-03-11", "es_front": "ESM5", "nq_front": "NQM5",
+                 "sync_flag": 1, "stab_flag": 0},
+            ],
+            btc_rows=[
+                {"session_date": "2025-03-10", "btc_front": "BTCH5"},
+            ]
+        )
+        fronts = load_kaspar_db_fronts(str(db), channels=[310, 318, 326])
+        assert fronts[(310, "20250310")]["symbol"] == "ESH5"
+        assert fronts[(318, "20250310")]["symbol"] == "NQH5"
+        assert fronts[(310, "20250311")]["sync_flag"] == 1
+        assert fronts[(326, "20250310")]["symbol"] == "BTCH5"
+
+    def test_nulls_skipped(self, tmp_path):
+        db = tmp_path / "kaspar.db"
+        _make_kaspar_db(db,
+            equity_rows=[{"session_date": "2025-03-10",
+                          "es_front": None, "nq_front": "NQH5"}]
+        )
+        fronts = load_kaspar_db_fronts(str(db), channels=[310, 318])
+        # ES row was None → not stored
+        assert (310, "20250310") not in fronts
+        assert fronts[(318, "20250310")]["symbol"] == "NQH5"
+
+
+# ---------------------------------------------------------------------------
+# volstats_top_fdf
+# ---------------------------------------------------------------------------
+
+
+class TestVolstatsTopFdf:
+    def test_filters_micros_and_spreads(self, tmp_path):
+        universe = {
+            "MNQH5": {"type": "FDF", "securityID": "1", "asset": "MNQ"},
+            "NQH5":  {"type": "FDF", "securityID": "2", "asset": "NQ"},
+            "MESH5": {"type": "FDF", "securityID": "3", "asset": "MES"},
+        }
+        p = tmp_path / "v.json"
+        _write_volstats(p, 318, "20250310", [
+            {"securityID": 1, "vol_max": 5_000_000},   # MNQ — highest raw
+            {"securityID": 2, "vol_max": 1_000_000},   # NQ
+            {"securityID": 3, "vol_max": 4_000_000},   # MES
+        ])
+        # Target NQ: micro must be excluded even though it outvolumes NQ.
+        assert volstats_top_fdf(p, universe, target_asset="NQ") == 2
+
+    def test_no_universe_argmax_across_all(self, tmp_path):
+        p = tmp_path / "v.json"
+        _write_volstats(p, 326, "20250310", [
+            {"securityID": 5, "vol_max": 100},
+            {"securityID": 6, "vol_max": 999},
+            {"securityID": 7, "vol_max": 50},
+        ])
+        assert volstats_top_fdf(p, universe_by_sym=None, target_asset=None) == 6
+
+    def test_missing_json_returns_none(self, tmp_path):
+        p = tmp_path / "does_not_exist.json"
+        assert volstats_top_fdf(p, universe_by_sym={}, target_asset="NQ") is None
+
+    def test_no_matching_asset_returns_none(self, tmp_path):
+        universe = {"MES": {"type": "FDF", "securityID": "1", "asset": "MES"}}
+        p = tmp_path / "v.json"
+        _write_volstats(p, 310, "20250310",
+                        [{"securityID": 1, "vol_max": 999}])
+        assert volstats_top_fdf(p, universe, target_asset="ES") is None
+
+
+# ---------------------------------------------------------------------------
+# build_front_contract_csv (end-to-end)
+# ---------------------------------------------------------------------------
 
 
 class TestBuildFrontContractCsv:
-    def test_end_to_end_three_channels(self, tmp_path):
-        volstats_root = tmp_path / "volstats"
+    def _make_scaffolding(self, tmp_path):
+        db_path = tmp_path / "kaspar.db"
+        _make_kaspar_db(db_path,
+            equity_rows=[
+                {"session_date": "2025-03-10", "es_front": "ESH5", "nq_front": "NQH5"},
+                {"session_date": "2025-03-11", "es_front": "ESM5", "nq_front": "NQM5",
+                 "sync_flag": 1},
+            ],
+            btc_rows=[{"session_date": "2025-03-10", "btc_front": "BTCH5"}],
+        )
         universe_root = tmp_path / "universe"
-
-        # chan 310 (ES) universe + JSON
         _write_universe(universe_root / "310" / "master_universe.310.csv", [
-            {"type": "FDF", "securityID": "111", "symbol": "ESH5", "asset": "ES"},
-            {"type": "FDF", "securityID": "222", "symbol": "MESH5", "asset": "MES"},
+            {"type": "FDF", "securityID": "5002", "symbol": "ESH5", "asset": "ES"},
+            {"type": "FDF", "securityID": "4916", "symbol": "ESM5", "asset": "ES"},
         ])
+        _write_universe(universe_root / "318" / "master_universe.318.csv", [
+            {"type": "FDF", "securityID": "42288528", "symbol": "NQH5", "asset": "NQ"},
+            {"type": "FDF", "securityID": "42005804", "symbol": "NQM5", "asset": "NQ"},
+        ])
+        volstats_root = tmp_path / "volstats"
         _write_volstats(volstats_root / "310" / "volume.310.20250310.json",
                         310, "20250310",
-                        [{"securityID": 222, "vol_max": 5_000_000, "vol_last": 0, "trades": 0},
-                         {"securityID": 111, "vol_max": 1_000_000, "vol_last": 0, "trades": 500_000}])
-
-        # chan 318 (NQ) universe + JSON
-        _write_universe(universe_root / "318" / "master_universe.318.csv", [
-            {"type": "FDF", "securityID": "333", "symbol": "NQH5", "asset": "NQ"},
-            {"type": "FDF", "securityID": "444", "symbol": "MNQH5", "asset": "MNQ"},
-        ])
+                        [{"securityID": 5002, "vol_max": 1_000_000},
+                         {"securityID": 4916, "vol_max": 100_000}])
         _write_volstats(volstats_root / "318" / "volume.318.20250310.json",
                         318, "20250310",
-                        [{"securityID": 444, "vol_max": 3_000_000, "vol_last": 0, "trades": 0},
-                         {"securityID": 333, "vol_max": 800_000, "vol_last": 0, "trades": 600_000}])
-
-        # chan 326 (BTC) — no universe
+                        [{"securityID": 42288528, "vol_max": 800_000}])
         _write_volstats(volstats_root / "326" / "volume.326.20250310.json",
                         326, "20250310",
-                        [{"securityID": 555, "vol_max": 40_000, "vol_last": 0, "trades": 30_000}])
+                        [{"securityID": 999_777, "vol_max": 40_000}])
+        return db_path, universe_root, volstats_root
 
-        out = tmp_path / "front_contract.csv"
-        n = build_front_contract_csv(str(volstats_root), str(universe_root),
+    def test_happy_path(self, tmp_path):
+        db, univ, vol = self._make_scaffolding(tmp_path)
+        out = tmp_path / "front.csv"
+        n = build_front_contract_csv(str(db), str(univ), str(vol),
                                      channels=[310, 318, 326], out_csv=str(out))
-        assert n == 3
+        # 4 equity rows (ES×2 dates + NQ×2 dates) + 1 BTC row
+        assert n == 5
+        rows = list(csv.DictReader(open(out)))
+        by_key = {(int(r["channel"]), r["session_date"]): r for r in rows}
+        # ES on 20250310: DB says ESH5 → secID 5002, volstats agrees.
+        r = by_key[(310, "20250310")]
+        assert r["symbol"] == "ESH5" and r["security_id"] == "5002" and r["volstats_ok"] == "yes"
+        # BTC (chan 326, no master_universe): sec_id from volstats fallback
+        r = by_key[(326, "20250310")]
+        assert r["security_id"] == "999777"
+        assert "volstats fallback" in r["notes"]
+        # 20250311 rows exist even though volstats fixtures don't include them
+        assert (310, "20250311") in by_key
+        assert (318, "20250311") in by_key
+        # sync_flag propagated
+        assert by_key[(310, "20250311")]["sync_flag"] == "1"
 
-        with open(out) as f:
-            rows = list(csv.DictReader(f))
-        by_chan = {int(r["channel"]): r for r in rows}
-        # ES picked 111 (ESH5), not 222 (MESH5) — micro excluded
-        assert by_chan[310]["security_id"] == "111"
-        assert by_chan[310]["symbol"] == "ESH5"
-        assert by_chan[310]["asset"] == "ES"
-        # NQ picked 333 (NQH5), not 444 (MNQH5)
-        assert by_chan[318]["security_id"] == "333"
-        assert by_chan[318]["symbol"] == "NQH5"
-        # BTC (no universe) picked argmax = 555
-        assert by_chan[326]["security_id"] == "555"
-        assert by_chan[326]["symbol"] == ""    # no universe → symbol blank
-
-    def test_no_matching_outright_reports_note(self, tmp_path):
-        volstats_root = tmp_path / "volstats"
+    def test_symbol_missing_from_master_leaves_sec_id_empty(self, tmp_path):
+        """Regression: earlier build would silently populate sec_id from
+        volstats_top when master_universe lacked the DB symbol — that gave
+        the WRONG securityID for a mismatched symbol (NQH4 in 2024 → NQH5's
+        secID). Now sec_id must stay empty."""
+        db_path = tmp_path / "kaspar.db"
+        _make_kaspar_db(db_path,
+            equity_rows=[{"session_date": "2024-01-02",
+                          "es_front": "ESH4", "nq_front": "NQH4"}]
+        )
         universe_root = tmp_path / "universe"
-        _write_universe(universe_root / "310" / "master_universe.310.csv", [
-            {"type": "FDF", "securityID": "222", "symbol": "MESH5", "asset": "MES"},
+        # Master universe only has 2025 contracts; 2024 is missing.
+        _write_universe(universe_root / "318" / "master_universe.318.csv", [
+            {"type": "FDF", "securityID": "42288528", "symbol": "NQH5", "asset": "NQ"},
         ])
-        _write_volstats(volstats_root / "310" / "volume.310.20250310.json",
+        volstats_root = tmp_path / "volstats"
+        _write_volstats(volstats_root / "318" / "volume.318.20240102.json",
+                        318, "20240102",
+                        [{"securityID": 42288528, "vol_max": 100_000}])
+        out = tmp_path / "front.csv"
+        build_front_contract_csv(str(db_path), str(universe_root),
+                                 str(volstats_root), channels=[318],
+                                 out_csv=str(out))
+        row = next(csv.DictReader(open(out)))
+        assert row["symbol"] == "NQH4"
+        # Bug repro: this used to be "42288528" (NQH5's secID). Now empty.
+        assert row["security_id"] == ""
+        assert "not in master_universe" in row["notes"]
+
+    def test_volstats_mismatch_reported(self, tmp_path):
+        db, univ, vol = self._make_scaffolding(tmp_path)
+        # Overwrite volstats so ES's top volume is ESM5 (the next contract),
+        # but the DB pick for 20250310 is still ESH5.
+        _write_volstats(vol / "310" / "volume.310.20250310.json",
                         310, "20250310",
-                        [{"securityID": 222, "vol_max": 5, "vol_last": 0, "trades": 0}])
-        out = tmp_path / "front_contract.csv"
-        build_front_contract_csv(str(volstats_root), str(universe_root),
+                        [{"securityID": 4916, "vol_max": 2_000_000},   # ESM5 top
+                         {"securityID": 5002, "vol_max": 500_000}])    # ESH5 tail
+        out = tmp_path / "front.csv"
+        build_front_contract_csv(str(db), str(univ), str(vol),
                                  channels=[310], out_csv=str(out))
-        with open(out) as f:
-            row = next(csv.DictReader(f))
-        assert row["notes"] == "no_matching_outright"
+        row = next(csv.DictReader(open(out)))
+        assert row["symbol"] == "ESH5"
+        assert row["security_id"] == "5002"
+        assert row["volstats_top"] == "4916"
+        assert row["volstats_ok"] == "no"
+        assert "volstats top 4916 != DB pick 5002" in row["notes"]
+
+    def test_min_yyyymmdd_filter(self, tmp_path):
+        db, univ, vol = self._make_scaffolding(tmp_path)
+        out = tmp_path / "front.csv"
+        n = build_front_contract_csv(str(db), str(univ), str(vol),
+                                     channels=[310, 318], out_csv=str(out),
+                                     min_yyyymmdd="20250311")
+        # 20250310 rows filtered out; only 20250311 kept (2 rows: ES + NQ)
+        assert n == 2
+        rows = list(csv.DictReader(open(out)))
+        assert all(r["session_date"] == "20250311" for r in rows)
