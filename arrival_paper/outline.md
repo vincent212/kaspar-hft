@@ -2,13 +2,13 @@
 
 **Paper outline — 2026-09-17 — v@m2te.ch**
 
-**Working title:** "Three Tails, One Signal: Latency, Adverse Selection, and Return Fat-Tails from the CME MDP3 Arrival Process in ES, NQ, and BTC"
+**Working title:** "Three Tails in the CME MDP3 Arrival Process: Latency, Adverse Selection, and Return Fat-Tails across ES, NQ, and BTC"
 
 **The pitch (verbatim to appear in the abstract):**
 
-> *Three tails in three domains — the decoder-latency tail, the maker-adverse-selection tail, and the return-fat-tail — are driven by one latent property of the arrival process: how close it sits to critical Hawkes branching on that day. We test this on 731 days across ES, NQ, and BTC and find a single one-factor SEM captures X% of the joint variance of the three tail metrics.*
+> *Three tails in three domains — the decoder-latency tail, the maker-adverse-selection tail, and the return-fat-tail — are each linked to the intensity and criticality of the CME MDP3 message-arrival process. We measure all three at scale on 730 sessions across ES, NQ, and BTC, fit exponential Hawkes per window, and report per-stream marginal and partial correlations between each tail and both Hawkes summaries `(n, λ̄)`. Whether the three tails share a single hidden driver — a Market Activation Level (MAL) — we raise as a future-paper question and do not fit here.*
 
-**Central thesis (extended):** the near-critical Hawkes clustering that fattens the packet-decoder latency tail (fast_send), produces the toxic maker fills (§7), and generates the fat-tailed return distribution (§8) is one phenomenon observed at three points in the pipeline. The paper's job is to (a) demonstrate the empirical link at per-fill resolution on public MBO L3 across 3 products × 731 days, (b) fit a one-factor structural equation model that captures the joint variance, and (c) publish the online-λ̂ estimator that turns this into a runtime signal.
+**Central thesis (extended):** the near-critical Hawkes clustering that fattens the packet-decoder latency tail (fast_send extended), produces the toxic maker fills (§7), and generates the fat-tailed return distribution (§8) shows up in all three domains. This paper's job is to (a) demonstrate the empirical link at per-fill resolution on public MBO L3 across 3 products × 730 sessions, (b) report the marginal and partial correlations for each of `(n × 3 tails)` and `(λ̄ × 3 tails)` across the corpus, and (c) publish the online-λ̂ estimator that turns arrival-side monitoring into a runtime signal for a Shadow POV execution algorithm. We deliberately do **not** fit a one-factor SEM or a latent-factor Hawkes extension — those belong to a follow-up (see Future Work: MAL).
 
 **Scope decisions (locked with author):**
 
@@ -78,7 +78,7 @@ Filimonov did 12 years but ES-only, mid-price only. Achab EUREX single-year. Bel
 Kirilenko is episodic (2010 flash crash). Filimonov detected precursors at 10-min windows. Nobody publishes Hawkes params × per-fill markouts distributions across ~20 FOMC 14:00–14:30 windows vs matched controls.
 
 **N-G. Unification (fat tails + adverse selection + latency ← one λ̂).**
-The individual bilateral links are all replications (Bacry-Muzy / Blanc-Bouchaud on fat tails; fast_send on latency; N-A on adverse selection). The **three-way cross-domain tie-in** — one latent per-day factor loading all three — has not been published. Modest but real.
+The individual bilateral links are all replications (Bacry-Muzy / Blanc-Bouchaud on fat tails; fast_send on latency; N-A on adverse selection). The **three-way cross-domain correlations** — reported jointly across a 730-session × 3-product corpus at per-window resolution — have not been published together. Modest but real. Whether they share a single hidden driver is a follow-up (see Future Work: MAL) and not claimed in this paper.
 
 #### TIER 3 — DELIVERABLES (not novel research, but useful practitioner output)
 
@@ -101,7 +101,7 @@ The individual bilateral links are all replications (Bacry-Muzy / Blanc-Bouchaud
 
 ### The pitch line
 
-> This paper's headline contribution is **N-A**: to attribute per-fill adverse selection to the message arrival process, at scale, on public MDP3. Everything else — the multi-product corpus (N-D), the multi-year stability (N-E), the regime splits (N-F), the three-way unification (N-G) — supports N-A. **N-B** (three-timestamp anatomy) and **N-C** (message vs packet) ship regardless of whether N-A holds. The public Python module (N-H) makes N-A reproducible outside our stack.
+> This paper's headline contribution is **N-A**: to attribute per-fill adverse selection to the message arrival process, at scale, on public MDP3. Everything else — the multi-product corpus (N-D), the multi-year stability (N-E), the regime splits (N-F), the three-way marginal-correlation panel (N-G) — supports N-A. **N-B** (three-timestamp anatomy) and **N-C** (message vs packet) ship regardless of whether N-A holds. The public Python module (N-H) makes N-A reproducible outside our stack. The one-factor / latent-driver unification is deferred to a follow-up (see Future Work: MAL).
 
 ---
 
@@ -109,7 +109,7 @@ The individual bilateral links are all replications (Bacry-Muzy / Blanc-Bouchaud
 
 ### Abstract
 
-Three tails in three domains — the decoder-latency tail, the maker-adverse-selection tail, and the return-fat-tail — are driven by one latent property of the arrival process: how close it sits to critical Hawkes branching on that day. We test this on 731 trading days across CME ES, NQ, and BTC futures book feeds (chan 310/318/326) using raw MDP3 with three per-message timestamps (matching-engine, gateway-send, capture-recv). We fit marked exponential Hawkes per session (mean branching ratio ~ 0.85 ES, ~ 0.92 NQ, ~ ? BTC), track every historical passive maker order via MBO L3 order_id to compute per-fill adverse P&L, and estimate return-tail exponents ν_day. A single one-factor structural-equation model on the daily triple (n_day, |adv_pnl_top_decile|, 1/ν_day) captures **X%** of the joint variance across the corpus. As applications we (i) predict next-100 ms packet spans and decoder-latency percentiles from real-time λ̂ (RMSE ≤ Y µs), and (ii) show that a passive quoter gating on λ̂ saves **Z ticks per fill** of adverse selection at **W%** loss in fill rate. Companion Python module `kaspar_arrival` (MIT) ships the online O(1) intensity estimator and the full analysis pipeline.
+Three tails in three domains — the decoder-latency tail, the maker-adverse-selection tail, and the return-fat-tail — are each linked to the CME MDP3 message-arrival process. We measure all three at scale on ~730 trading days across CME ES, NQ, and BTC futures book feeds (chan 310/318/326) using raw MDP3 with three per-message timestamps (matching-engine, gateway-send, capture-recv). We fit exponential Hawkes per 30-min window (mean branching ratio ~ 0.85 ES, ~ 0.92 NQ, ~ ? BTC), track every historical passive maker order via MBO L3 order_id to compute per-fill adverse P&L, and estimate return-tail exponents ν_window. We then report per-stream marginal and partial correlations of each of the three tails against the two Hawkes summaries `(n_window, λ̄_window)` — six correlations per stream × 3 streams. As applications we (i) predict next-100 ms packet spans and decoder-latency percentiles from real-time λ̂ (RMSE ≤ Y µs), and (ii) show that a passive quoter gating on λ̂ saves **Z ticks per fill** of adverse selection at **W%** loss in fill rate. Companion Python module `kaspar_arrival` (MIT) ships the online O(1) intensity estimator and the full analysis pipeline. Whether the three tails share a single hidden driver — a Market Activation Level (MAL) — is raised as a follow-up question and not fit here.
 
 ### 1. Introduction
 
@@ -128,10 +128,10 @@ Each of these has a substantial literature and each is treated in its own commun
 - Fits marked exponential Hawkes to raw MDP3 message tapes across 731 days × 3 products (ES chan 310, NQ chan 318, BTC chan 326), producing per-session parameter distributions with time-rescaling goodness-of-fit tests.
 - Computes per-fill adverse P&L on every historical maker fill in public MBO L3 (via order_id tracking), and correlates it with real-time λ̂.
 - Estimates return tail exponents ν_day at multiple horizons per session.
-- Assembles the daily triple (n_day, |adv_pnl_top_decile|, 1/ν_day) and fits a one-factor SEM. The joint-variance share captured is the paper's headline number.
+- Assembles the per-window triple (n_window, |adv_pnl_p95|, 1/ν_window) and reports its marginal correlations against (n_window, λ̄_window). The full 18-correlation panel is the headline result. No SEM is fit in this paper.
 - Publishes an online O(1) intensity estimator as an MIT Python module and demonstrates two applications: a latency predictor (§5) and a λ̂-gated passive quoter (§9).
 
-**Why three products.** ES and NQ share clientele and correlate closely; if the framework holds only on those it's a CME-equity artifact. BTC (CME chan 326 crypto futures) has a distinctly different clientele and liquidity profile — if the same one-factor SEM holds across all three, that's evidence for the general claim about near-critical financial arrivals, not an ES/NQ quirk.
+**Why three products.** ES and NQ share clientele and correlate closely; if the correlations hold only on those it's a CME-equity artifact. BTC (CME chan 326 crypto futures) has a distinctly different clientele and liquidity profile — if the same tail-vs-Hawkes correlation signs and magnitudes hold across all three, that's evidence for a general property of near-critical financial arrivals, not an ES/NQ quirk.
 
 ### 1.5 Prior art and what this paper actually adds
 
@@ -480,7 +480,7 @@ Each of §7.1–7.5 is re-run on each of these regime subsets and the results co
 
 **The point of this section is not novelty. The link Hawkes → fat-tailed returns is well-established** (Blanc, Donier & Bouchaud 2017 QHawkes; Bacry & Muzy 2015; Jaisson & Rosenbaum 2015-16; Hardiman & Bouchaud 2014 on E-mini S&P specifically; 2025 Econ Letters on trading intensity and extreme returns). We cite these heavily.
 
-**The contribution here is unification across three domains.** The same near-critical Hawkes intensity λ̂ that we characterize in §3, that produces the toxic per-fill markouts of §7, is *also* what governs the fat-tailed return distribution over the same session. All three are observations of one arrival process at three points in the pipeline:
+**The empirical contribution here is three-domain joint measurement.** The same near-critical Hawkes intensity λ̂ that we characterize in §3, that predicts the toxic per-fill markouts of §7, *also* correlates with the fat-tailed return distribution over the same window. We report all three correlations. Whether they trace back to a single hidden driver is left for a follow-up paper. The three domains:
 
 | domain | metric | where in this paper | where in prior art |
 |---|---|---|---|
@@ -510,7 +510,7 @@ Build a 731 × 3 panel with columns: `n_day` (Hawkes branching ratio from §3), 
 
 **Regression:** `|adv_pnl_top_decile_day| ~ a · (1/ν_day) + b · X_controls + FE`. A significant `a` means fat-tail days *are* toxic-fill days beyond order-book controls.
 
-**The unification claim to test literally:** the three metrics are one signal — a single per-day latent variable ("how near-critical is the arrival process today") loads them all. Fit a one-factor structural equation model: `n_day = μ_n + λ_n · θ_day + ε`, similarly for ν and adverse-P&L. Test H₀: `θ_day` explains ≥ X% of the joint variance.
+**What we measure in this paper (no latent-factor fit).** For each stream (ES, NQ, BTC) and each 30-min window we compute the arrival-side pair `(n_window, λ̄_window)` and the three tail metrics. We report the 6-cell marginal-correlation table (each of 3 tails × each of {n, λ̄}) plus partial correlations to test whether `n` and `λ̄` are redundant proxies of each other. Whether all five variables share a single per-window latent driver `θ` (a Market Activation Level) is the question of a follow-up paper (see Future Work: MAL) — this paper builds the panel and reports the correlations that a future MAL paper would fit.
 
 #### 8.3 Message-level vs trade-level subordination
 
@@ -532,7 +532,7 @@ Prior subordination literature (Clark 1973, Ané & Geman 2000) uses trade or vol
 
 #### 8.5 Explicit prior-art acknowledgment
 
-We do NOT claim to have discovered "arrival process governs fat tails." That's Blanc-Bouchaud, Bacry-Muzy, Hardiman-Bouchaud, Jaisson-Rosenbaum. We (i) confirm their prediction on our corpus, (ii) extend to NQ and BTC where it hasn't been tested, and (iii) tie it to the per-fill adverse-selection and decoder-latency tails via a single latent factor. **The unification is the contribution; the individual bilateral links are replications.**
+We do NOT claim to have discovered "arrival process governs fat tails." That's Blanc-Bouchaud, Bacry-Muzy, Hardiman-Bouchaud, Jaisson-Rosenbaum. We (i) confirm their prediction on our corpus, (ii) extend to NQ and BTC where it hasn't been tested, and (iii) report per-window correlations tying the same arrival-side signals to per-fill adverse selection and decoder latency. **The three-domain joint measurement across ES / NQ / BTC × 730 sessions is the contribution; the individual bilateral links are replications.** Whether the three correlations trace back to a single latent driver is left for a follow-up paper.
 
 ### 9. Application — passive quoter with intensity gate
 
@@ -711,7 +711,7 @@ Store derived tapes in `/vast/home/vmayeski/out/arrival_paper/tapes/{stream}/{da
 39. Per-day return tail exponent ν_day (Hill + Fréchet) at multiple Δ, per stream.
 40. Assemble (n_day, ν_day, adv_pnl_top_decile_day) panel — 731 × 3 × 3 (streams).
 41. Cross-sectional correlations and regressions per stream; test the three-way link.
-42. One-factor SEM: is there a single latent θ_day loading all three?
+42. Report the 18-correlation panel (3 tails × 2 Hawkes summaries × 3 streams) marginal + partial. No SEM fit in this paper; the latent-factor question is a follow-up.
 43. Message vs trade-level subordination test (Ané-Geman comparison + Hawkes compensator).
 44. Cross-product replication: does the factor structure hold on ES + NQ + BTC?
 
@@ -753,7 +753,7 @@ Store derived tapes in `/vast/home/vmayeski/out/arrival_paper/tapes/{stream}/{da
 | 10 | FOMC-day intensity profile vs matched control days, minute-resolution around 14:00 | FOMC as info event |
 | 11 | Attribution: ΔR² of arrival-augmented model over baseline, per stream and per regime | **the headline: how much of adverse selection the arrival process explains** |
 | 12 | Fast/slow × λ̂-decile × adverse-P&L heatmap; queue-cleared vs queue-standing markout distributions | queue-dynamics answers Q1-Q3 (§7.7) |
-| 13 | Three-panel scatter across 731 days per stream: (a) n_day vs 1/ν_day, (b) n_day vs adv_pnl, (c) 1/ν_day vs adv_pnl — with the one-factor SEM fit overlaid | **the unification figure** — three tails, one latent |
+| 13 | Three-panel scatter across ~5000 windows per stream: (a) n_window vs 1/ν_window, (b) n_window vs adv_pnl_p95, (c) 1/ν_window vs adv_pnl_p95 — Spearman ρ + partial-ρ annotated | **the three-tail correlation figure** |
 
 ---
 
@@ -761,13 +761,14 @@ Store derived tapes in `/vast/home/vmayeski/out/arrival_paper/tapes/{stream}/{da
 
 Scope for v1 is one outright front-month per stream (ES front, NQ front, BTC front). The following extensions are deliberately out of scope; each has enough interesting content to be its own paper.
 
-- **Cross-excitation between related outrights on the same channel.** Chan 318 carries NQ (E-mini) alongside MNQ (Micro NQ) — a strong prior says a burst on one excites the other, both directly (arb bots cross-hitting) and through common information. Fit a bivariate marked Hawkes on {NQ, MNQ} and estimate the off-diagonal α terms; do the same on chan 310 for {ES, MES}. Adds one dimension per stream; keep the same MAL latent state; test whether one θ_MAL drives both.
+- **Market Activation Level (MAL) — the latent-factor unification.** This paper measures each of the three tails and reports their marginal + partial correlations with `(n, λ̄)`. The natural follow-up is: are all five variables (the three tails + n + λ̄) shadows of a single hidden per-window market state θ_MAL? Formal statement: fit a five-observed one-hidden-factor SEM (or a MAL-augmented Hawkes with θ_MAL entering both the intensity kernel and the tail-thickness likelihoods) on the ~5000-window panel we build here. That is its own paper — it requires careful identification, sensitivity to window size, and a defensible econometric strategy for coupling arrival-side and tail-side likelihoods. The empirical panel this paper delivers is exactly what such a MAL paper would need as input.
+- **Cross-excitation between related outrights on the same channel.** Chan 318 carries NQ (E-mini) alongside MNQ (Micro NQ) — a strong prior says a burst on one excites the other, both directly (arb bots cross-hitting) and through common information. Fit a bivariate marked Hawkes on {NQ, MNQ} and estimate the off-diagonal α terms; do the same on chan 310 for {ES, MES}.
 - **Cross-market excitation between channels.** NQ ↔ ES is the natural pair (equity-index co-movement, common-factor risk). Same bivariate Hawkes formalism but the two streams live on different channels with different `handlerendtim` origins, so alignment needs care. Only worth doing after the within-channel micro↔full result is up.
 - **Options overlay** — the CME MDP3 options feeds sit adjacent to the underlying futures feeds. Options-market activity is an obvious upstream driver of underlying-futures arrivals via delta-hedging flow. Requires a distinct feed handler.
 - **Latency-tail causal experiment** — swap the decoder's memory allocator (jemalloc vs pool allocator) and re-fit; expect only the exogenous piece of the latency tail to move, not the arrival-driven queueing piece. Backs the paper's causal claim about which tail component we're measuring.
 - **Cross-venue microstructure** (CME vs ICE for the same product family) — different matching engines, different orderbook rules, similar underlyings. Tests whether the arrival regularities we find are venue-specific or product-specific.
 
-Signal we're getting good enough within-scope results to defer these: MAL-factor fit explains > 40 % of variance across the three signatures (§4), and per-stream Hill exponents cluster tightly by regime.
+Signal we're getting good enough within-scope results to defer these: the 18-correlation marginal panel is uniformly signed and significant across streams, and per-stream Hill exponents cluster tightly by regime.
 
 ---
 
