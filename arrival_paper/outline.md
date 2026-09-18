@@ -15,7 +15,7 @@
 
 > *Three tails in three domains of a modern HFT system — the decoder-latency tail, the maker-adverse-selection tail, and the return fat-tail — move together, and all three track the same driver: how bursty and how near-critical the CME MDP3 message-arrival process is on the window under measurement. We fit exponential Hawkes per 30-min window on 730 sessions across ES, NQ, and BTC (~5000 windows × 3 streams) and show three things: (i) the three tail metrics are strongly cross-correlated across windows; (ii) each tail correlates individually with both Hawkes summaries $(n_\text{window}, \bar\lambda_\text{window})$; (iii) after partialling out one Hawkes summary, the other still carries independent information about the tails. The paper concludes that a single arrival-process signature — high intensity and near-critical branching — is the shared cause of tail behaviour across all three domains. We ship a working online O(1) intensity estimator (`kaspar_arrival`, MIT) that a market-making system can gate on in real time. Whether the shared cause can be reified as a single hidden per-window latent state (a Market Activation Level, MAL) is a follow-up we do not fit here.*
 
-**Central thesis (extended):** the near-critical Hawkes clustering that fattens the packet-decoder latency tail (fast_send extended), produces the toxic maker fills (§7), and generates the fat-tailed return distribution (§8) is one arrival-process phenomenon showing up in three domains at once. This paper's job is to demonstrate that the three tails **move together across the ~5000-window panel** and that each tracks the two Hawkes summaries $(n, \bar\lambda)$ — the empirical proof of shared causation without needing a latent-factor model. Concretely:
+**Central thesis (extended):** the near-critical Hawkes clustering that fattens the packet-decoder latency tail, produces the toxic maker fills (§7), and generates the fat-tailed return distribution (§8) is one arrival-process phenomenon showing up in three domains at once. This paper's job is to demonstrate that the three tails **move together across the ~5000-window panel** and that each tracks the two Hawkes summaries $(n, \bar\lambda)$ — the empirical proof of shared causation without needing a latent-factor model. Concretely:
 
 (a) **Cross-tail co-movement** — pairwise Spearman across (latency tail, adverse-P&L tail, return tail): three correlations per stream × 3 streams = 9 correlations. This is the "they move together" evidence.
 
@@ -29,9 +29,9 @@ We deliberately do **not** fit a one-factor SEM or a latent-factor Hawkes extens
 
 1. **Marked Hawkes** — condition α on packet size / order size / trade size. One extra parameter, better fit.
 2. **Both anchors for markouts** — compute markouts anchored on (a) trades and (b) all book-update events. Trades give clean signs and fewer observations; book events give ~100× the sample.
-3. **This is a standalone paper**, not an extension of fast_send. fast_send analyzed a single day and rejected Poisson; this paper fits generative models across a multi-year corpus and adds the P&L bridge.
+3. **Standalone paper.** Self-contained empirical result on the arrival-process signature that ties three tails together; not a sequel to any prior work.
 4. **Corpus: 731 trading days**, 2023-01 to 2026-02, three streams — ES (chan 310), NQ (chan 318), and **BTC (chan 326, CME Crypto Futures)**. ES and NQ are already decoded to `/vast/home/vmayeski/out/bin/{310,318}/` (1.3 TB, .ok markers). BTC PCAPs live at `/vast/vendor/databento/pcaps/glbx/futures-xcme/YYYYMMDD/` on `224.0.33.240:14326` (legacy IP, ~158 files/day × 313 days) and still need `.bin` conversion via `dbento_pcap_to_bin --chan 326`; task #78 is the pending pipeline step. BTC is added as a *third stream* — same methodology across three products.
-5. **Message-level arrival process, not packet-level.** The natural unit for both info content and latency work is the individual SBE *message* (book add/modify/cancel/execute or trade). fast_send characterized packet arrivals; this paper characterizes messages *within* packets and treats packet-span as a downstream summary. A packet with 45 messages is 45 arrivals of information.
+5. **Message-level arrival process, not packet-level.** The natural unit for both info content and latency work is the individual SBE *message* (book add/modify/cancel/execute or trade). This paper characterises messages *within* packets and treats packet-span as a downstream summary. A packet with 45 messages is 45 arrivals of information — the message-level view captures clustering the packet-level view flattens.
 6. **Three timestamps per message.** The .bin schema (`r_l3.hpp`) carries all three: `transactTime` (matching-engine time), `sendingTime` (CME gateway packet header), and `recv_time` (pcap kernel timestamp). Their differences are treated as first-class objects in the paper.
 7. **Adverse selection is measured on real historical passive fills, not a simulated quoter.** MBO L3 carries every order lifecycle: add → modify → cancel → execute. Every trade in the tape carries the maker order_id, and we can trace back to that order's Add event to recover submission time, submission price, side, and time-in-queue. Compute markouts after each *real* maker fill. This is stronger than any simulator: no fill model, no queue assumption, no synthetic quote placement — the sample is every passive fill that actually happened in ES and NQ across 731 days. Mid markouts on all trades stay as a wider robustness comparison.
 8. **Regime splits are first-class in every result.**
@@ -41,15 +41,7 @@ We deliberately do **not** fit a one-factor SEM or a latent-factor Hawkes extens
 
 ---
 
-## What's genuinely new vs. fast_send
-
-fast_send established, on one day of ES/NQ/ZN book+trade:
-
-- Marginal not exponential (CV 4-29, P(gap<mean/10) 40-85%)
-- Order not independent (Fano(5s) 1024-1260, collapses under Fisher-Yates shuffle)
-- Hurst 0.64-0.74, Hawkes-consistent (branching ratio upper bound 0.85-0.97)
-
-Everything in fast_send was a *rejection* of Poisson on a *single day*, and it was computed on **packet** arrivals.
+## What's genuinely new
 
 ### Novelty stack — three tiers
 
@@ -79,7 +71,7 @@ Every prior Hawkes-on-CME paper uses one timestamp (either exchange transact or 
 
 **★ N-C. Message-level (not packet-level) arrival characterization AND its side-by-side comparison with packet-level.**
 
-Academic literature is all at message/event level (they buy Databento/TAQ; no packets). fast_send is all at packet level. Presenting both, on the same corpus, showing the packet-level view understates message-level clustering by the mean-span factor — that's our specific empirical angle.
+Academic literature is all at message/event level (they buy Databento or TAQ book data; no raw packets). Any prior packet-level HFT work is single-day and doesn't put the two side-by-side. Presenting both on the same corpus, showing the packet-level view understates message-level clustering by the mean-span factor, is a specific empirical angle available only to authors with raw pcap access.
 
 #### TIER 2 — REPLICATION AT NEW SCOPE (worth stating, not the headline)
 
@@ -93,7 +85,7 @@ Filimonov did 12 years but ES-only, mid-price only. Achab EUREX single-year. Bel
 Kirilenko is episodic (2010 flash crash). Filimonov detected precursors at 10-min windows. Nobody publishes Hawkes params × per-fill markouts distributions across ~20 FOMC 14:00–14:30 windows vs matched controls.
 
 **N-G. Unification (fat tails + adverse selection + latency ← one λ̂).**
-The individual bilateral links are all replications (Bacry-Muzy / Blanc-Bouchaud on fat tails; fast_send on latency; N-A on adverse selection). The **three-way cross-domain correlations** — reported jointly across a 730-session × 3-product corpus at per-window resolution — have not been published together. Modest but real. Whether they share a single hidden driver is a follow-up (see Future Work: MAL) and not claimed in this paper.
+The individual bilateral links are all replications (Bacry-Muzy / Blanc-Bouchaud on fat tails; prior work on packet-arrival latency; N-A on adverse selection). The **three-way cross-domain correlations** — reported jointly across a 730-session × 3-product corpus at per-window resolution — have not been published together. Modest but real. Whether they share a single hidden driver is a follow-up (see Future Work: MAL) and not claimed in this paper.
 
 #### TIER 3 — DELIVERABLES (not novel research, but useful practitioner output)
 
@@ -778,7 +770,19 @@ Scope for v1 is one outright front-month per stream (ES front, NQ front, BTC fro
 
 - **Market Activation Level (MAL) — the latent-factor unification.** This paper measures each of the three tails and reports their marginal + partial correlations with `(n, λ̄)`. The natural follow-up is: are all five variables (the three tails + n + λ̄) shadows of a single hidden per-window market state θ_MAL? Formal statement: fit a five-observed one-hidden-factor SEM (or a MAL-augmented Hawkes with θ_MAL entering both the intensity kernel and the tail-thickness likelihoods) on the ~5000-window panel we build here. That is its own paper — it requires careful identification, sensitivity to window size, and a defensible econometric strategy for coupling arrival-side and tail-side likelihoods. The empirical panel this paper delivers is exactly what such a MAL paper would need as input.
 
-- **Signed-Hawkes directional alpha (its own paper).** This paper uses the *total* Hawkes intensity `λ̂(t) = λ̂⁺(t) + λ̂⁻(t)` because the three-tails story (latency queue, adverse-P&L on a symmetric quoter, return fat-tail) doesn't distinguish buy pressure from sell pressure. The signed variant `λ̂⁺(t) − λ̂⁻(t)` is a natural directional-alpha candidate that the current paper does *not* investigate. The proposed follow-on: fit 2-D exp-Hawkes on signed events (up-tick / down-tick, or aggressive-buy / aggressive-sell), compute the online signed intensity, and backtest it against Cont-Kukanov-Stoikov 2014's rectangular-window Order Flow Imbalance (OFI) baseline on the same MDP3 corpus with real per-fill P&L attribution. The specific "Hawkes-decayed signed OFI as a direct HFT alpha, head-to-head vs rectangular OFI" chain appears under-explored in the published literature — the closest prior art (Cartea-Jaimungal-Ricci 2014) uses signed Hawkes as a state variable in an optimal-MM HJB, not as a stand-alone alpha with backtest numbers. A dedicated follow-on paper on this question is the right home for the result, positive or null. Author's separate note: preliminary experiments with rectangular OFI (Cont-Kukanov-Stoikov style) on liquid CME futures did not reproduce the equity-market $R^2$ result — futures may have different signed-flow dynamics than the NYSE stocks the OFI paper studies. Whether Hawkes-decayed OFI recovers the effect on liquid futures is exactly the open question the follow-on paper would answer.
+- **Signed-Hawkes directional alpha (its own paper — literature verified 2026-09).** This paper uses the *total* Hawkes intensity `λ̂(t) = λ̂⁺(t) + λ̂⁻(t)` because the three-tails story (latency queue, adverse-P&L on a symmetric quoter, return fat-tail) doesn't distinguish buy pressure from sell pressure. The signed variant `λ̂⁺(t) − λ̂⁻(t)` is a natural directional-alpha candidate that the current paper does *not* investigate.
+
+  **Lit-search verdict (targeted search, 2026-09):** the *specific* chain "raw `λ̂⁺(t) − λ̂⁻(t)` from 2-D exponential Hawkes on signed events, benchmarked head-to-head vs Cont-Kukanov-Stoikov 2014 rectangular OFI, with real P&L on a real exchange corpus" is **not published**. Closest priors and what they do NOT do:
+  - **Cestari, Barchi, Busetto, Marazzina, Formentin (2023, arXiv:2312.16190) → Raffaelli et al. (2026, *Decisions in Economics and Finance*)** — MHP + Continuous-time Output Error (COE) hybrid on BTC/USD with simulated-trading P&L. Wrong asset for our claim (crypto, single asset), *hybrid* not raw λ⁺−λ⁻, no CKS benchmark.
+  - **Rambaldi, Bacry, Muzy (2018, *SIAM J. Financial Math.*)** — intensity *ratio* (not difference) as trade-sign predictor on EuroStoxx + Bund (~800 days). Reports accuracy 73-80%, not P&L. No CKS benchmark.
+  - **Cont, Cucuringu, Zhang (2021, arXiv:2112.13213)** and **Kolm, Turiel, Westray (2023, *Mathematical Finance*)** — modern OFI-alpha extensions, but *rectangular window* / deep learning, not Hawkes memory. These are the baseline family the follow-on beats or ties.
+  - **Cartea, Jaimungal, Ricci (2014, 2018)** — signed Hawkes as *state variable* in HJB market-making control. Not raw direct alpha.
+
+  **Positioning for the follow-on paper**: not "new Hawkes alpha" — **"clean isolation experiment"**. Drop-in replacement of the CKS rectangular window with a Hawkes-decayed sum, everything else held fixed (same regression, same execution model), P&L (not R²) at matched horizons on both CME futures and Nasdaq equities. Cite Bacry-Delattre-Hoffmann-Muzy 2013 + Bacry-Muzy 2014 for the 2-D signed Hawkes construction, Rambaldi-Bacry-Muzy 2018 for the intensity-as-sign-predictor precedent, Cont-Cucuringu-Zhang 2021 + Kolm-Turiel-Westray 2023 for the modern OFI-alpha baseline family. Distinguish from Cartea-Jaimungal-Ricci (Hawkes-in-HJB, not direct alpha) and from Cestari/Raffaelli (hybrid, no CKS benchmark).
+
+  **Falsifiable up-front prediction**: Hawkes-decayed OFI beats the rectangular window at horizons ≤ a few seconds (where the memory kernel matters) but ties or loses at horizons ≥ ~1 min (rectangular window's cumulative sum captures the memory adequately). Consistent with an OU-decay finding on CSI 300 futures (arXiv:2505.17388).
+
+  **Author's separate note**: preliminary experiments with rectangular OFI (CKS 2014 style) on liquid CME futures did not reproduce the NYSE-equity `R²` result. Futures may have different signed-flow dynamics; whether Hawkes decay recovers the effect on liquid futures is exactly the question. This is one of the follow-on paper's two acid tests.
 - **Cross-excitation between related outrights on the same channel.** Chan 318 carries NQ (E-mini) alongside MNQ (Micro NQ) — a strong prior says a burst on one excites the other, both directly (arb bots cross-hitting) and through common information. Fit a bivariate marked Hawkes on {NQ, MNQ} and estimate the off-diagonal α terms; do the same on chan 310 for {ES, MES}.
 - **Cross-market excitation between channels.** NQ ↔ ES is the natural pair (equity-index co-movement, common-factor risk). Same bivariate Hawkes formalism but the two streams live on different channels with different `handlerendtim` origins, so alignment needs care. Only worth doing after the within-channel micro↔full result is up.
 - **Options overlay** — the CME MDP3 options feeds sit adjacent to the underlying futures feeds. Options-market activity is an obvious upstream driver of underlying-futures arrivals via delta-hedging flow. Requires a distinct feed handler.
