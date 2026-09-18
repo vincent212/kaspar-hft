@@ -12,11 +12,22 @@
  * CSV row of arrival-process fields:
  *
  *   transactTime, sendingTime, handlerendtim, recv_time,
+ *   packet_seq, idx_in_packet,
  *   typ, action, side, pxd, sz, orderID
  *
  * typ    — 'M' for MBO order event, 'T' for MBO-trade
  * action — orderUpdateAction (0=New, 1=Change, 2=Delete, ...) for MBO; 'X' for trade
  * recv_time — pcap kernel timestamp (present on trades; blank on MBO)
+ * packet_seq   — 0-indexed count of unique UDP packets observed in the .bin, by
+ *                the time this record was decoded (assigned across ALL records,
+ *                not just those matching the secID filter). Detected by change
+ *                in handlerendtim (the decoder writes handlerendtim once per
+ *                packet: it is the kernel-time at which decoding of that packet
+ *                finished, so it is constant within a packet and monotone
+ *                across packets).
+ * idx_in_packet — 0-indexed position of this record within its UDP packet.
+ *                Holes are expected after the secID filter: if a packet had
+ *                8 messages and 3 matched, idx values could be 1, 4, 7.
  *
  * All timestamps are ns since epoch. Downstream Python does the stats.
  *
@@ -117,6 +128,7 @@ int main(int argc, char* argv[])
 
     // CSV header
     (*out) << "transactTime,sendingTime,handlerendtim,recv_time,"
+              "packet_seq,idx_in_packet,"
               "typ,action,side,pxd,sz,orderID\n";
 
     gzFile f = gzopen(file.c_str(), "rb");
@@ -126,11 +138,43 @@ int main(int argc, char* argv[])
     uint64_t ts = 0;
     uint64_t n_mbo = 0, n_trd = 0, n_kept_mbo = 0, n_kept_trd = 0;
 
+    // Packet boundary tracking: handlerendtim is set once per UDP packet by the
+    // decoder (it is the kernel time at which decoding of that packet completed).
+    // Two consecutive records with the same handlerendtim came from the same
+    // packet; a change signals the start of a new packet.
+    //
+    // Packet indices are assigned across ALL records seen in the .bin (not just
+    // ones matching --secid), so packet_seq is a stable wire-order index. That
+    // means after filtering, idx_in_packet can have holes — e.g. idx = 1, 4, 7
+    // if a packet held 8 messages and 3 matched.
+    uint64_t prev_handlerendtim = 0;
+    uint64_t packet_seq = 0;         // 0-indexed; first packet is 0
+    uint32_t idx_in_packet = 0;
+    bool have_seen_packet = false;
+
+    auto advance_packet_index = [&](uint64_t handlerendtim) {
+        if (!have_seen_packet) {
+            have_seen_packet = true;
+            prev_handlerendtim = handlerendtim;
+            idx_in_packet = 0;
+            packet_seq = 0;
+            return;
+        }
+        if (handlerendtim != prev_handlerendtim) {
+            ++packet_seq;
+            idx_in_packet = 0;
+            prev_handlerendtim = handlerendtim;
+        } else {
+            ++idx_in_packet;
+        }
+    };
+
     char buf[256];
     while (bfile::read_l3(f, l3, ts)) {
         if (std::holds_alternative<bfile::l3_mbo_v2_t>(l3)) {
             const auto& m = std::get<bfile::l3_mbo_v2_t>(l3);
             ++n_mbo;
+            advance_packet_index(m.handlerendtim);
 
             // Track orderID→securityID for downstream trade attribution.
             // Add: bind. Delete: erase after emit. Change: leave bound.
@@ -143,10 +187,12 @@ int main(int argc, char* argv[])
             if (!w_mbo) continue;
             ++n_kept_mbo;
             int nchar = std::snprintf(buf, sizeof(buf),
-                "%lu,%lu,%lu,,M,%u,%c,%.9f,%u,%lu\n",
+                "%lu,%lu,%lu,,%lu,%u,M,%u,%c,%.9f,%u,%lu\n",
                 (unsigned long)m.transactTime,
                 (unsigned long)m.sendingTime,
                 (unsigned long)m.handlerendtim,
+                (unsigned long)packet_seq,
+                (unsigned)idx_in_packet,
                 (unsigned)m.orderUpdateAction,
                 m.side,
                 m.pxd,
@@ -160,6 +206,7 @@ int main(int argc, char* argv[])
         } else if (std::holds_alternative<bfile::l3_mbo_trd_v2_t>(l3)) {
             const auto& t = std::get<bfile::l3_mbo_trd_v2_t>(l3);
             ++n_trd;
+            advance_packet_index(t.handlerendtim);
 
             auto it = oid2sec.find(t.orderID);
             if (it == oid2sec.end()) continue;   // maker not seen (recovery/history)
@@ -168,11 +215,13 @@ int main(int argc, char* argv[])
             if (!w_trd) continue;
             ++n_kept_trd;
             int nchar = std::snprintf(buf, sizeof(buf),
-                "%lu,%lu,%lu,%lu,T,X,,,%d,%lu\n",
+                "%lu,%lu,%lu,%lu,%lu,%u,T,X,,,%d,%lu\n",
                 (unsigned long)t.transactTime,
                 (unsigned long)t.sendingTime,
                 (unsigned long)t.handlerendtim,
                 (unsigned long)t.recv_time,
+                (unsigned long)packet_seq,
+                (unsigned)idx_in_packet,
                 (int)t.lastQty,
                 (unsigned long)t.orderID);
             out->write(buf, nchar);
