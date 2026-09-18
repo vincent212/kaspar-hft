@@ -6,15 +6,19 @@
 
 This is the paper. Nothing more, nothing less.
 
-**Claim.** On a panel of ~5000 30-minute windows across ~730 sessions × 3 CME products (ES, NQ, BTC), three tails move together and all three track the same driver:
+**Claim.** On a panel of ~5000 30-minute windows across ~730 sessions × 3 CME products (ES, NQ, BTC), **five tails move together** and all five track the same driver. Three of the five are separate physical stages of the message-arrival latency chain that the three-timestamp anatomy in the .bin data (`transactTime`, `sendingTime`, `recv_time`, `handlerendtim`) exposes for the first time at scale:
 
-- **decoder wire-to-book latency tail** (p99 latency, from three-timestamp anatomy)
-- **maker-adverse-selection tail** (p95 |markout| on real historical passive fills)
-- **return fat-tail exponent** (Hill / Fréchet on window mid-quote returns)
+- **Matching-engine tail** — p99 of `sendingTime − transactTime` (how long CME's matching engine took to publish an event through its gateway)
+- **Send-to-receive tail** — p99 of `recv_time − sendingTime` (network transit from CME's gateway to our pcap capture)
+- **Decoder tail** — p99 of `handlerendtim − recv_time` (our software decoder wire-to-book)
+- **Maker-adverse-selection tail** — p95 of |markout| on real historical passive fills
+- **Return fat-tail** — Hill / Fréchet tail exponent 1/ν on window mid-quote returns
 
-All three correlate — marginally and after partialling — with the two Hawkes summaries fitted per window: **λ̄ (mean intensity)** and **n = α/β (branching ratio)**. High λ̄ and high n → simultaneously fat tails in all three domains.
+All five correlate — marginally and after partialling — with the two Hawkes summaries fitted per window: **λ̄ (mean intensity)** and **n = α/β (branching ratio)**. High λ̄ and high n → simultaneously fat tails in all five domains.
 
-**Novelty (lit-search verified 2026-09).** The three pairwise legs are separately published (return × Hawkes: Hardiman-Bercot-Bouchaud 2013, Filimonov-Sornette 2012, Wehrli-Wheatley-Sornette 2021; adverse-selection × Hawkes: Cartea-Jaimungal-Ricci 2014, Rambaldi-Bacry-Lillo 2017; decoder-latency: essentially unpublished). What is NOT published anywhere the two-agent lit search could find is the **joint three-way panel** with cross-tail correlations + joint Hawkes attribution + three-product cross-check.
+The three latency-stage tails are separate physical mechanisms (queueing on CME's ME, queueing on CME's egress + network, queueing on our decoder) sharing the same *arrival-side driver* — that is a stronger empirical statement than a single "end-to-end latency" tail correlates, because it shows the effect is not an artifact of one specific queue.
+
+**Novelty (lit-search verified 2026-09).** The pairwise legs are separately published (return × Hawkes: Hardiman-Bercot-Bouchaud 2013, Filimonov-Sornette 2012, Wehrli-Wheatley-Sornette 2021; adverse-selection × Hawkes: Cartea-Jaimungal-Ricci 2014, Rambaldi-Bacry-Lillo 2017; decoder / packet-arrival latency: essentially unpublished at panel scale; matching-engine or send-to-receive latency decomposition: unpublished — three-timestamp anatomy has not appeared before). What is NOT published anywhere the two-agent lit search could find is the **joint five-way panel** with cross-tail correlations + joint Hawkes attribution + three-product cross-check.
 
 **Deployment.** Shipping the online O(1) intensity estimator (`arrival_paper.online.HawkesEstimator`, MIT) that a market-making system can gate on in real time. Backtest: Shadow POV λ̂-gating on the paper's fill_tape.
 
@@ -42,7 +46,7 @@ All three correlate — marginally and after partialling — with the two Hawkes
 
 **The pitch (verbatim to appear in the abstract):**
 
-> *Three tails in three domains of a modern HFT system — the decoder wire-to-book latency tail, the maker-adverse-selection tail, and the return fat-tail — move together, and all three track the same driver: how bursty and how near-critical the CME MDP3 message-arrival process is on the window under measurement. Prior work has separately linked the fat-tailed return distribution to Hawkes self-excitation (Hardiman-Bercot-Bouchaud 2013; Filimonov-Sornette 2012; Wehrli-Wheatley-Sornette 2021), and separately linked adverse-selection cost to mutually-exciting order flow in stochastic-control models (Cartea-Jaimungal-Ricci 2014) and event-clustering estimates (Rambaldi-Bacry-Lillo 2017); we extend that chain to a third, engineering-side tail — the 99th-percentile wire-to-book decoding time — and show that on a session-panel across three products all three tail metrics co-move and load on the same Hawkes-arrival factors $(\bar\lambda, n)$, which no prior empirical paper reports jointly. We fit exponential Hawkes per 30-min window on 730 sessions across ES, NQ, and BTC (~5000 windows × 3 streams) and report: (i) nine pairwise cross-tail Spearman correlations (3 pairs × 3 streams); (ii) 36 marginal + partial correlations of each tail against $(n, \bar\lambda)$ (3 tails × 4 correlations × 3 streams); (iii) an online O(1) intensity estimator (`kaspar_arrival`, MIT) that a market-making system can gate on in real time. Whether the shared arrival-side signature can be reified as a single hidden per-window latent state (a Market Activation Level, MAL) is a follow-up we do not fit here.*
+> *Five tails from a modern HFT system — three physical latency stages (matching-engine → gateway, gateway → pcap capture, decoder wire-to-book), plus maker-adverse-selection markouts and the return fat-tail — move together, and all five track the same driver: how bursty and how near-critical the CME MDP3 message-arrival process is on the window under measurement. Prior work has separately linked the fat-tailed return distribution to Hawkes self-excitation (Hardiman-Bercot-Bouchaud 2013; Filimonov-Sornette 2012; Wehrli-Wheatley-Sornette 2021), and separately linked adverse-selection cost to mutually-exciting order flow in stochastic-control models (Cartea-Jaimungal-Ricci 2014) and event-clustering estimates (Rambaldi-Bacry-Lillo 2017); we extend that chain to three engineering-side tails — decomposed via the three-timestamp anatomy (`transactTime`, `sendingTime`, `recv_time`) that public MDP3 raw pcaps make available — and show that on a session-panel across three products all five tail metrics co-move and load on the same Hawkes-arrival factors $(\bar\lambda, n)$, which no prior empirical paper reports jointly. We fit exponential Hawkes per 30-min window on 730 sessions across ES, NQ, and BTC (~5000 windows × 3 streams) and report: (i) 30 pairwise cross-tail Spearman correlations (10 pairs × 3 streams); (ii) 60 marginal + partial correlations of each tail against $(n, \bar\lambda)$ (5 tails × 4 correlations × 3 streams); (iii) an online O(1) intensity estimator (`arrival_paper.online.HawkesEstimator`, MIT) that a market-making system can gate on in real time. Whether the shared arrival-side signature can be reified as a single hidden per-window latent state (a Market Activation Level, MAL) is a follow-up we do not fit here.*
 
 **Central thesis (extended):** the near-critical Hawkes clustering that fattens the packet-decoder latency tail, produces the toxic maker fills (§7), and generates the fat-tailed return distribution (§8) is one arrival-process phenomenon showing up in three domains at once. This paper's job is to demonstrate that the three tails **move together across the ~5000-window panel** and that each tracks the two Hawkes summaries $(n, \bar\lambda)$ — the empirical proof of shared causation without needing a latent-factor model. Concretely:
 
@@ -113,19 +117,24 @@ Filimonov did 12 years but ES-only, mid-price only. Achab EUREX single-year. Bel
 **N-F. Regime splits at corpus scale (open / close / FOMC vs matched controls).**
 Kirilenko is episodic (2010 flash crash). Filimonov detected precursors at 10-min windows. Nobody publishes Hawkes params × per-fill markouts distributions across ~20 FOMC 14:00–14:30 windows vs matched controls.
 
-**N-G. Three-way co-movement + shared arrival-side attribution (verified novel 2026-09).**
+**N-G. Five-way co-movement + shared arrival-side attribution (verified novel 2026-09).**
 
-The pairwise links are all published:
+The pairwise legs are published to very different depths:
 - **Return-tail × Hawkes** — Hardiman, Bercot & Bouchaud (2013, *Eur. Phys. J. B*, arXiv:1302.1405); Filimonov & Sornette (2012, *Phys. Rev. E*, arXiv:1201.3572); Wehrli, Wheatley & Sornette (2021, *Quant. Finance*).
 - **Adverse-selection × Hawkes** — Cartea, Jaimungal & Ricci (2014, *SIAM J. Financial Math.*, SSRN 3306158) as a stochastic-control model; Rambaldi, Bacry & Lillo (2017, *Quant. Finance*, arXiv:1602.07663) as an event-clustering estimate; Kirilenko-Kyle-Samadi-Tuzun (2017, *J. Finance*) and Easley-López de Prado-O'Hara VPIN as single-episode empirical anchors.
-- **Decoder / wire-to-book latency tail** — essentially absent from the peer-reviewed literature. The theoretical strand (Daw & Pender 2018 *Stochastic Systems*, Koops et al. Hawkes/G/1 queues) has no market-data component; the empirical HFT-latency lit (Aquilina, Budish & O'Neill 2022, *QJE* on latency arbitrage) measures **race-margin** latency as a market-quality quantity, not the **99th-percentile of decoder wire-to-book time** as a per-firm engineering quantity — different quantity, different unit.
+- **Three latency subtails × Hawkes** — essentially absent. Theoretical strand (Daw & Pender 2018 *Stochastic Systems*, Koops et al. Hawkes/G/1 queues) has no market-data component. Empirical HFT-latency literature (Aquilina, Budish & O'Neill 2022, *QJE*) measures **race-margin** latency as a market-quality quantity, not per-stage decomposition of exchange-side + wire + decoder queueing times. **The three-timestamp decomposition itself is our N-B contribution.**
 
 **What no prior paper reports** (targeted lit-search, 2026-09, arxiv + Semantic Scholar + SSRN + Google Scholar):
-- All three tail metrics on the *same* panel of many sessions,
-- With pairwise correlations reported (`ρ(latency, adv_pnl)`, `ρ(latency, ret)`, `ρ(adv_pnl, ret)`),
-- Plus a joint regression on Hawkes `(n, λ̄)`.
+- All five tail metrics on the *same* panel of many sessions,
+- Latency decomposed into three physical stages via matching-engine / gateway / pcap timestamps,
+- With pairwise cross-tail correlations reported (10 pairs),
+- Plus joint marginal + partial correlations against Hawkes `(n, λ̄)`.
 
-This paper's N-G contribution is exactly that. Modest but empirically real. Whether the co-movement reflects a single hidden driver is a follow-up (see Future Work: MAL) and not claimed here.
+**Why decomposing the latency chain matters for the paper's story.** A single end-to-end latency tail could be dismissed as artifact of one specific queue. Showing that **three separate physical stages** (CME matching engine → CME gateway; CME gateway → pcap capture; pcap capture → our decoder) all show the same tail-vs-arrival-intensity relationship makes the effect much harder to attribute to a single infrastructural quirk. **The arrival-process signature reaches into every queue in the chain, one after another.**
+
+**Blunt readable framing.** When the arrival process spikes, *every* queue in the ecosystem congests at the same time — the exchange's matching engine, the exchange's egress gateway, the network wire, every recipient's decoder, and (indirectly, through those bottlenecks) every passive quote resting in every book. Nobody in the chain is exempt from the same driver; nobody's queue clears while another's fills. **Every HFT is flying blind at the same time.** That is the paper's one-line takeaway, and it is why arrival-side monitoring — the online O(1) intensity estimator we ship — is a system-wide risk signal, not just a decoder-buffer sizing tool.
+
+This paper's N-G contribution is exactly that five-way joint. Modest but empirically real. Whether the co-movement reflects a single hidden driver is a follow-up (see Future Work: MAL) and not claimed here.
 
 **Pre-emptive review positioning (two cautions from the lit search).** The paper's related-work section will explicitly:
 1. Cite Hardiman-Bercot-Bouchaud (2013) and Filimonov-Sornette (2012) *first* when introducing the return-tail leg — they establish that the panel-scale link exists and pre-empt "this has been done" reviewer objections on that leg. Our extension is to the *other two* tails on the same panel, not to the return-tail leg itself.
