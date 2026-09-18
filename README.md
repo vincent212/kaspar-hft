@@ -17,12 +17,9 @@
   <a href="tech_reports/kaspar_onepager.pdf">one-pager</a>
 </p>
 
-<p align="center">
-  <img src="tech_reports/img/fast_send_latency.png" width="640"
-       alt="fast_send actor round-trip latency: 3370 ns cross-thread async, 90 ns grouped, 30 ns fast_send">
-</p>
+**Kaspar-hft** is a turn-key CME futures trading system *and* a queue-position-accurate order-book simulator — the same strategy code runs in backtest, paper trading, and live — built on a custom C++20 actor framework designed for microsecond latency.
 
-### Why it's interesting
+## Kaspar-hft highlights
 
 - **~30 ns actor round trip.** `fast_send` runs the receiver's handler inline on the caller's thread — ~110× faster than cross-thread async and ~3× faster than same-thread grouping, with no data races and no locks in your code ([paper](tech_reports/fast_send.pdf)).
 - **The actor layer is under 1% of real work.** On a live CME tick-to-book path the framework adds under 1% of the ~7 µs decode-and-book cost and nothing measurable to the latency tail — the actor abstraction is effectively free on the hot path.
@@ -601,6 +598,14 @@ spec; the ratios are the point.** macOS: Apple M3 (8-core, arm64), `-O3 -march=n
 pinning. Linux: AMD EPYC 9374F, RHEL 9, g++ 15, `-O3 -march=native`, `taskset` to
 two cores (not fully quiesced — see [second data point](actors/cpp/perf/README.md#second-data-point-x86-64-linux)).
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="tech_reports/img/fast_send_latency_dark.png">
+    <img src="tech_reports/img/fast_send_latency.png" width="620"
+         alt="fast_send round-trip latency (EPYC): 3370 ns cross-thread async, 90 ns grouped, 30 ns fast_send">
+  </picture>
+</p>
+
 | path | macOS p50 | Linux p50 | notes |
 |---|---:|---:|---|
 | `send`, separate threads | ~2250 ns | ~3370 ns | cross-core mailbox wakeup (mutex + condvar), twice |
@@ -708,8 +713,11 @@ not the framework or the queue:
   it is the mailbox occupancy, not the actor framework, that moves latency.
 
 <p align="center">
-  <img src="tech_reports/img/queue_latency.png" width="600"
-       alt="Median latency vs mailbox queue occupancy: ~7us floor at qlen=0, rising convexly as the ring fills">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="tech_reports/img/queue_latency_dark.png">
+    <img src="tech_reports/img/queue_latency.png" width="600"
+         alt="Median latency vs mailbox queue occupancy for ES/NQ/ZN book: ~7us floor at qlen=0, rising convexly as the ring fills">
+  </picture>
 </p>
 
 With in-packet position held fixed, latency at `qlen = 0` sits at the ~7 µs floor
