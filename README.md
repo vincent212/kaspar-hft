@@ -784,7 +784,13 @@ So shadow execution pays adverse selection in full. What it does is reach the sa
 
 The same delay applied to all three paths at once — the outbound order, the outbound cancel, and the inbound market-data feed.
 
-![Relative slippage against round-trip delay](tech_reports/sim/latency_slippage.png)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="tech_reports/sim/latency_slippage_dark.png">
+    <img src="tech_reports/sim/latency_slippage.png" width="660"
+         alt="Relative slippage against round-trip delay: Shadow-PPOV (passive) vs Aggressive POV">
+  </picture>
+</p>
 
 | Delay | Passive | Aggressive |
 |---:|---:|---:|
