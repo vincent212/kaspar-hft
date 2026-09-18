@@ -1056,6 +1056,28 @@ For a Shadow-POV-style algorithm (always buying, or always selling on the passiv
 
 **Signed variant — `λ⁺(t)` (market-up) and `λ⁻(t)` (market-down).** The bid/ask split above is a *mechanical* split by book side; it's not the same as up-pressure vs down-pressure. A cancel on the bid updates the bid side (mechanical split says "bid-side event") but is actually bearish (someone is removing a buy quote → less demand). The cleaner signed variant partitions arrivals by *the direction they move price*, not the side of the book they touch.
 
+**Prior art on signed / multivariate Hawkes for order flow — what exists, what we add.**
+
+The idea of running a bivariate Hawkes on up-tick vs down-tick arrivals is not new; the paper's contribution is scale (~5000 windows across 3 products × 730 sessions) and the linkage to per-fill adverse selection and decoder latency. The lineage:
+
+- **Bacry, Delattre, Hoffmann, Muzy (2013)** — "Modelling microstructure noise with mutually exciting point processes." Foundational 2-D Hawkes on {up-tick, down-tick} mid moves — the canonical mechanical decomposition of price moves into signed arrivals. Estimates the four excitation parameters and shows the cross-excitation `α_{+-}, α_{-+}` is empirically dominant on FX futures. Our `λ⁺ / λ⁻` split follows their labelling.
+
+- **Bacry, Iuga, Lasnier, Lehalle (2013)** — "Market impacts and the life cycle of investors orders." Bivariate Hawkes on aggressor buy vs aggressor sell trades (trade-side signed intensity). Uses the fit to characterise how orders arrive in clusters and the persistence of aggressor direction. Complements the mid-move signed variant above.
+
+- **Rambaldi, Bacry, Lillo (2017)** — "The role of volume in order book dynamics: a multivariate Hawkes process analysis." Marked multivariate Hawkes on E-mini S&P at the level of {bid-add, bid-cancel, ask-add, ask-cancel, mkt-buy, mkt-sell}. Directly extends Bacry-Delattre-Hoffmann-Muzy with size marks and a full 6-D structure.
+
+- **Achab, Bacry, Muzy, Rambaldi (2017)** — "Analysis of order book flows using a non-parametric estimation of the branching ratio matrix." Estimates the full multivariate branching-ratio matrix `n_{ab}` on order book events without assuming an exponential kernel. Gives a non-parametric analogue of what our exp-kernel MLE returns.
+
+- **Cartea, Jaimungal, Ricci (2014)** — "Buy low, sell high: A high frequency trading perspective." Uses a signed Hawkes on aggressor arrivals inside an optimal market-making control problem. Direct antecedent of our "quoter gates on `λ⁻` when working the bid" prescription in §7.
+
+- **Filimonov, Sornette (2012, 2015)** — "Quantifying reflexivity in financial markets." Establishes the near-critical branching ratio ($n \approx 0.85$–$0.95$) on ES; foundational for the paper's regime characterisation. Uses 1-D unsigned Hawkes.
+
+- **Lu, Abergel (2018)** — "High-dimensional Hawkes processes for limit order books." Signed and multivariate variants at 10-level book resolution.
+
+- **Da Fonseca, Zaatour (2014)** — "Hawkes process: fast calibration, application to trade clustering, and diffusive limit." Bivariate estimator + diffusive limit that ties the signed intensity to a stochastic-volatility model.
+
+**What this paper adds on top of that lineage.** (i) Signed-Hawkes fits across a corpus large enough (3 products × 730 sessions × ~10 windows/session) to give per-regime distributions of the four excitation terms `(α_{++}, α_{+-}, α_{-+}, α_{--})`, not point estimates from a handful of days. (ii) The four-parameter cross-excitation matrix reported alongside the paper's three tail metrics on the same windows — nobody has co-published the signed-Hawkes fit with the maker-fill markout tail at MBO L3 resolution on public data. (iii) A working online O(1) signed-intensity estimator (`SignedHawkesEstimator`) that produces `(λ̂⁺, λ̂⁻)` in real time for use as an execution gate — the theory in Bacry-Delattre-Hoffmann-Muzy is fitted offline; ours ships in a Shadow POV algorithm.
+
 **Event classification for the signed intensity.** For every MBO / trade record, tag it as `+`, `−`, or neutral:
 
 - **`+` (buy-pressure / market-up)**
