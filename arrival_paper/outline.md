@@ -6,7 +6,9 @@
 
 This is the paper. Nothing more, nothing less.
 
-**Claim.** On a panel of ~5000 30-minute windows across ~730 sessions × 3 CME products (ES, NQ, BTC), **five tails move together** and all five track the same driver. Three of the five are separate physical stages of the message-arrival latency chain that the three-timestamp anatomy in the .bin data (`transactTime`, `sendingTime`, `recv_time`, `handlerendtim`) exposes for the first time at scale:
+**Corpus.** **CME NQ front-month only** (chan 318). 2025-01-01 → 2026-02-27, ~416 sessions × ~10 windows / session ≈ **~4000 windows**. ES and BTC deferred to a cross-product follow-on paper (see Future Work).
+
+**Claim.** On this ~4000-window NQ panel, **five tails move together** and all five track the same driver. Three of the five are separate physical stages of the message-arrival latency chain that the three-timestamp anatomy in the .bin data (`transactTime`, `sendingTime`, `recv_time`, `handlerendtim`) exposes for the first time at scale:
 
 - **Matching-engine tail** — p99 of `sendingTime − transactTime` (how long CME's matching engine took to publish an event through its gateway)
 - **Send-to-receive tail** — p99 of `recv_time − sendingTime` (network transit from CME's gateway to our pcap capture)
@@ -16,6 +18,8 @@ This is the paper. Nothing more, nothing less.
 
 All five correlate — marginally and after partialling — with the two Hawkes summaries fitted per window: **λ̄ (mean intensity)** and **n = α/β (branching ratio)**. High λ̄ and high n → simultaneously fat tails in all five domains.
 
+**Correlations reported.** 10 pairwise cross-tail Spearman correlations on the NQ panel + 20 marginal + partial arrival-side attribution cells (5 tails × 4 correlations {ρ(n), ρ(λ̄), ρ(n|λ̄), ρ(λ̄|n)}) = **30 correlations total**.
+
 The three latency-stage tails are separate physical mechanisms (queueing on CME's ME, queueing on CME's egress + network, queueing on our decoder) sharing the same *arrival-side driver* — that is a stronger empirical statement than a single "end-to-end latency" tail correlates, because it shows the effect is not an artifact of one specific queue.
 
 **Novelty (lit-search verified 2026-09).** The pairwise legs are separately published (return × Hawkes: Hardiman-Bercot-Bouchaud 2013, Filimonov-Sornette 2012, Wehrli-Wheatley-Sornette 2021; adverse-selection × Hawkes: Cartea-Jaimungal-Ricci 2014, Rambaldi-Bacry-Lillo 2017; decoder / packet-arrival latency: essentially unpublished at panel scale; matching-engine or send-to-receive latency decomposition: unpublished — three-timestamp anatomy has not appeared before). What is NOT published anywhere the two-agent lit search could find is the **joint five-way panel** with cross-tail correlations + joint Hawkes attribution + three-product cross-check.
@@ -24,9 +28,10 @@ The three latency-stage tails are separate physical mechanisms (queueing on CME'
 
 **What this paper does NOT do — deferred to follow-on papers.**
 
-- **No latent-factor model.** No one-factor SEM, no MAL-extended Hawkes. The "why do the three tails share this arrival-side signature" question is a follow-on (MAL paper).
+- **No latent-factor model.** No one-factor SEM, no MAL-extended Hawkes. The "why do the tails share this arrival-side signature" question is a follow-on (MAL paper).
 - **No signed λ.** Only total λ̂ = λ̂⁺ + λ̂⁻. The signed variant λ̂⁺ − λ̂⁻ as a directional alpha is its own follow-on (signed-Hawkes-vs-CKS-OFI paper).
-- **No cross-market or cross-asset excitation.** Fit one Hawkes per (session, stream) independently. NQ↔MNQ, ES↔MES, NQ↔ES cross-excitation is another follow-on.
+- **No cross-product replication.** NQ only. ES and BTC are deferred to a cross-product follow-on paper — same methodology, different streams. The 3-product replication was Tier-2 novelty (N-D) and its absence weakens the "not-an-NQ-artifact" claim slightly; the follow-on closes that gap.
+- **No cross-market or cross-asset excitation.** Fit one Hawkes per session independently. NQ↔MNQ, ES↔MES, NQ↔ES cross-excitation is another follow-on.
 
 **Filters applied.**
 - Drop bottom 10% of windows by event count (low-intensity gate; n unreliable there, tails tiny anyway).
@@ -35,7 +40,7 @@ The three latency-stage tails are separate physical mechanisms (queueing on CME'
 
 ---
 
-**Working title:** "Long Latency Tails in HFT Systems Have the Same Signature as Fat Return Tails and Adverse-Selection Tails — Evidence from CME MDP3 on ES, NQ, and BTC, with Implications for Market-Making Systems"
+**Working title:** "Long Latency Tails in HFT Systems Have the Same Signature as Fat Return Tails and Adverse-Selection Tails — Evidence from CME MDP3 NQ Futures, with Implications for Market-Making Systems"
 
 **Alternative title candidates** (pick one on final draft):
 - "Long Latency Tails in HFT Systems Have the Same Signature as Fat Return Tails and Adverse-Selection Tails: Implications for Market-Making Systems" (current — punchy, honest about "signature" not "cause", flags the deployment angle)
@@ -46,7 +51,7 @@ The three latency-stage tails are separate physical mechanisms (queueing on CME'
 
 **The pitch (verbatim to appear in the abstract):**
 
-> *Five tails from a modern HFT system — three physical latency stages (matching-engine → gateway, gateway → pcap capture, decoder wire-to-book), plus maker-adverse-selection markouts and the return fat-tail — move together, and all five track the same driver: how bursty and how near-critical the CME MDP3 message-arrival process is on the window under measurement. Prior work has separately linked the fat-tailed return distribution to Hawkes self-excitation (Hardiman-Bercot-Bouchaud 2013; Filimonov-Sornette 2012; Wehrli-Wheatley-Sornette 2021), and separately linked adverse-selection cost to mutually-exciting order flow in stochastic-control models (Cartea-Jaimungal-Ricci 2014) and event-clustering estimates (Rambaldi-Bacry-Lillo 2017); we extend that chain to three engineering-side tails — decomposed via the three-timestamp anatomy (`transactTime`, `sendingTime`, `recv_time`) that public MDP3 raw pcaps make available — and show that on a session-panel across three products all five tail metrics co-move and load on the same Hawkes-arrival factors $(\bar\lambda, n)$, which no prior empirical paper reports jointly. We fit exponential Hawkes per 30-min window on 730 sessions across ES, NQ, and BTC (~5000 windows × 3 streams) and report: (i) 30 pairwise cross-tail Spearman correlations (10 pairs × 3 streams); (ii) 60 marginal + partial correlations of each tail against $(n, \bar\lambda)$ (5 tails × 4 correlations × 3 streams); (iii) an online O(1) intensity estimator (`arrival_paper.online.HawkesEstimator`, MIT) that a market-making system can gate on in real time. Whether the shared arrival-side signature can be reified as a single hidden per-window latent state (a Market Activation Level, MAL) is a follow-up we do not fit here.*
+> *Five tails from a modern HFT system — three physical latency stages (matching-engine → gateway, gateway → pcap capture, decoder wire-to-book), plus maker-adverse-selection markouts and the return fat-tail — move together, and all five track the same driver: how bursty and how near-critical the CME MDP3 message-arrival process is on the window under measurement. Prior work has separately linked the fat-tailed return distribution to Hawkes self-excitation (Hardiman-Bercot-Bouchaud 2013; Filimonov-Sornette 2012; Wehrli-Wheatley-Sornette 2021), and separately linked adverse-selection cost to mutually-exciting order flow in stochastic-control models (Cartea-Jaimungal-Ricci 2014) and event-clustering estimates (Rambaldi-Bacry-Lillo 2017); we extend that chain to three engineering-side tails — decomposed via the three-timestamp anatomy (`transactTime`, `sendingTime`, `recv_time`) that public MDP3 raw pcaps make available — and show that on a per-session panel of the NQ E-mini front month all five tail metrics co-move and load on the same Hawkes-arrival factors $(\bar\lambda, n)$, which no prior empirical paper reports jointly. We fit exponential Hawkes per 30-min window on ~416 NQ sessions (2025-01 → 2026-02, ~4000 windows) and report: (i) 10 pairwise cross-tail Spearman correlations; (ii) 20 marginal + partial correlations of each tail against $(n, \bar\lambda)$ (5 tails × 4 correlations); (iii) an online O(1) intensity estimator (`arrival_paper.online.HawkesEstimator`, MIT) that a market-making system can gate on in real time. Cross-product replication on ES and BTC, and latent-factor unification (MAL), are deferred to follow-on papers.*
 
 **Central thesis (extended):** the near-critical Hawkes clustering that fattens the packet-decoder latency tail, produces the toxic maker fills (§7), and generates the fat-tailed return distribution (§8) is one arrival-process phenomenon showing up in three domains at once. This paper's job is to demonstrate that the three tails **move together across the ~5000-window panel** and that each tracks the two Hawkes summaries $(n, \bar\lambda)$ — the empirical proof of shared causation without needing a latent-factor model. Concretely:
 
@@ -169,7 +174,7 @@ This paper's N-G contribution is exactly that five-way joint. Modest but empiric
 
 ### Abstract
 
-Three tails in three domains — the decoder-latency tail, the maker-adverse-selection tail, and the return-fat-tail — are each linked to the CME MDP3 message-arrival process. We measure all three at scale on ~730 trading days across CME ES, NQ, and BTC futures book feeds (chan 310/318/326) using raw MDP3 with three per-message timestamps (matching-engine, gateway-send, capture-recv). We fit exponential Hawkes per 30-min window (mean branching ratio ~ 0.85 ES, ~ 0.92 NQ, ~ ? BTC), track every historical passive maker order via MBO L3 order_id to compute per-fill adverse P&L, and estimate return-tail exponents ν_window. We then report per-stream marginal and partial correlations of each of the three tails against the two Hawkes summaries `(n_window, λ̄_window)` — six correlations per stream × 3 streams. As applications we (i) predict next-100 ms packet spans and decoder-latency percentiles from real-time λ̂ (RMSE ≤ Y µs), and (ii) show that a passive quoter gating on λ̂ saves **Z ticks per fill** of adverse selection at **W%** loss in fill rate. Companion Python module `kaspar_arrival` (MIT) ships the online O(1) intensity estimator and the full analysis pipeline. Whether the three tails share a single hidden driver — a Market Activation Level (MAL) — is raised as a follow-up question and not fit here.
+Five tails in five domains — three physical latency stages (matching-engine → gateway, gateway → capture, decoder wire-to-book), the maker-adverse-selection tail, and the return fat-tail — are each linked to the CME MDP3 NQ message-arrival process. We measure all five on ~416 trading sessions of the NQ E-mini front-month (chan 318, 2025-01 → 2026-02) using raw MDP3 with three per-message timestamps (matching-engine, gateway-send, capture-recv). We fit exponential Hawkes per 30-min window (mean branching ratio ~ 0.92 NQ), track every historical passive maker order via MBO L3 order_id to compute per-fill adverse P&L, and estimate return-tail exponents ν_window. We then report marginal and partial correlations of each of the five tails against the two Hawkes summaries `(n_window, λ̄_window)` — 20 arrival-side attribution cells — plus 10 pairwise cross-tail correlations. As applications we (i) predict next-100 ms packet spans and decoder-latency percentiles from real-time λ̂ (RMSE ≤ Y µs), and (ii) show that a passive quoter gating on λ̂ saves **Z ticks per fill** of adverse selection at **W%** loss in fill rate. Companion Python module `arrival_paper` (MIT) ships the online O(1) intensity estimator and the full analysis pipeline. Cross-product replication on ES and BTC, and whether the five tails share a single hidden driver (Market Activation Level, MAL), are follow-on papers.
 
 ### 1. Introduction
 
@@ -592,7 +597,7 @@ Prior subordination literature (Clark 1973, Ané & Geman 2000) uses trade or vol
 
 #### 8.5 Explicit prior-art acknowledgment
 
-We do NOT claim to have discovered "arrival process governs fat tails." That's Blanc-Bouchaud, Bacry-Muzy, Hardiman-Bouchaud, Jaisson-Rosenbaum. We (i) confirm their prediction on our corpus, (ii) extend to NQ and BTC where it hasn't been tested, and (iii) report per-window correlations tying the same arrival-side signals to per-fill adverse selection and decoder latency. **The three-domain joint measurement across ES / NQ / BTC × 730 sessions is the contribution; the individual bilateral links are replications.** Whether the three correlations trace back to a single latent driver is left for a follow-up paper.
+We do NOT claim to have discovered "arrival process governs fat tails." That's Blanc-Bouchaud, Bacry-Muzy, Hardiman-Bouchaud, Jaisson-Rosenbaum. We (i) confirm their prediction on our NQ corpus, (ii) extend to NQ where it hasn't been thoroughly tested at this granularity, and (iii) report per-window correlations tying the same arrival-side signals to per-fill adverse selection and three separate physical stages of decoder latency. **The five-domain joint measurement on ~416 NQ sessions is the contribution; the individual bilateral links are replications.** Cross-product replication on ES and BTC, and whether the five correlations trace back to a single latent driver, are follow-up papers.
 
 ### 9. Application — passive quoter with intensity gate
 

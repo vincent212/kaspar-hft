@@ -8,14 +8,13 @@
 
 ## Target
 
-Ship an arXiv paper (working title: *"Long Latency Tails in HFT Systems Have the Same Signature as Fat Return Tails and Adverse-Selection Tails — Evidence from CME MDP3 on ES, NQ, and BTC, with Implications for Market-Making Systems"*).
+Ship an arXiv paper (working title: *"Long Latency Tails in HFT Systems Have the Same Signature as Fat Return Tails and Adverse-Selection Tails — Evidence from CME MDP3 NQ Futures, with Implications for Market-Making Systems"*).
 
 **Scope frozen 2026-09-18 (see `outline.md` §SCOPE).** Deliver: (i) three tail metrics on a ~5000-window panel co-move; (ii) all three track (n, λ̄) via marginal + partial Spearman correlations; (iii) working online O(1) intensity estimator + Shadow POV λ̂-gating backtest. NO latent-factor model (MAL is a follow-on). NO signed λ (that's another follow-on).
 
 ## Corpus
 
-- ES chan 310, NQ chan 318 — `.bin` already extracted, `/vast/home/vmayeski/out/bin/{310,318}/`, 731 trading days 2023-01 to 2026-02.
-- BTC chan 326 — `.bin` conversion running in background for 2025 only (313 days). ETA hours.
+- NQ chan 318 only — `.bin` already extracted at `/vast/home/vmayeski/out/bin/318/`, ~416 sessions 2025-01 → 2026-02. ES (chan 310) and BTC (chan 326) already extracted but deferred to a cross-product follow-on paper; their .bin files remain on disk unused for this paper.
 
 ## Realistic total effort
 
@@ -31,7 +30,7 @@ Ship an arXiv paper (working title: *"Long Latency Tails in HFT Systems Have the
 | **Week 6** | Online estimator + Lindley latency simulation shipped. | Python `kaspar_arrival` module. Latency-tail scalar per session. λ̂-vs-realized-vol scatter on pilot day. |
 | **Week 7-9** | Fill-tape construction from MBO L3. Attach queue features + λ̂. Per-fill markouts at 6 horizons. | fill_tape parquet per session. Validation vs a hand-checked sample of ~200 fills. |
 | **Week 10** | Return-tail Hill estimation per session. | `1/ν_day` and `1/ν_hour` in the panel. |
-| **Week 11** | Full per-window panel assembled — ~5000 rows × 3 streams, five tail metrics per row. **Result 1** (30 cross-tail Spearman correlations, 10 pairs × 3 streams) computed. **Result 2** (60-cell arrival-side attribution) computed. Robustness across window sizes. | Numerical result: signs + magnitudes of all 90 correlations. |
+| **Week 11** | Full per-window panel assembled — ~4000 NQ rows, five tail metrics per row. **Result 1** (10 cross-tail Spearman correlations) computed. **Result 2** (20-cell arrival-side attribution) computed. Robustness across window sizes. | Numerical result: signs + magnitudes of all 30 correlations. |
 | **Week 12** | Cross-product analysis (ES/NQ/BTC). Regime splits (open/close/FOMC). Passive-quoter frontier. | All figures 1-11 drafted. |
 | **Week 13-16** | LaTeX drafting. Companion `.md` article (like `md_latency_article.md`). Internal review. arXiv submission. | Paper submitted. |
 
@@ -122,14 +121,14 @@ If elapsed to Week 20 with no submission → cut line applies (see below).
 
 | # | task | est hrs | parallel? | risk |
 |---|---|---|---|---|
-| H1 | Assemble per-window panel: ~5000 rows × 12 columns per stream (window_id, session, n, λ̄, five tail metrics — ME p99, send-recv p99, decoder p99, log\|adv_pnl\|_p95, 1/ν —  event_count, gate_flag) | 14 | no | low |
+| H1 | Assemble per-window panel: ~4000 rows × 12 columns (window_id, session, n, λ̄, five tail metrics — ME p99, send-recv p99, decoder p99, log\|adv_pnl\|_p95, 1/ν —  event_count, gate_flag) | 14 | no | low |
 | H2 | Activity gate: drop bottom 10% by event count; sensitivity at 5% and 20% | 4 | no | low |
 | H3 | Roll-day drop: exclude ± 1 day around volstats-vs-DB mismatch flags | 2 | no | low |
-| H4 | **Result 1 — cross-tail co-movement**: 30 pairwise Spearman correlations (10 tail pairs × 3 streams) + 5×5 cross-tail correlation heat-map per stream | 10 | no | low |
-| H5 | **Result 2 — arrival-side attribution**: 60-cell table of marginal + partial Spearman for each of (5 tails × {n, λ̄}) × 3 streams | 10 | no | low |
+| H4 | **Result 1 — cross-tail co-movement**: 10 pairwise Spearman correlations (10 tail pairs) + 5×5 cross-tail correlation heat-map | 10 | no | low |
+| H5 | **Result 2 — arrival-side attribution**: 20-cell table of marginal + partial Spearman for each of (5 tails × {n, λ̄}) | 10 | no | low |
 | H6 | Robustness: rerun H4 + H5 at 5-min, 15-min, 30-min, 60-min window sizes; report stability of signs and rough magnitudes | 12 | no | low |
-| H7 | Cross-product comparison: sign and magnitude consistency of the 90 correlations across ES / NQ / BTC | 8 | no | low |
-| H8 | Regime splits (open / close / FOMC vs matched controls) — same 90 correlations per regime | 20 | no | medium |
+| H7 | *Deleted: cross-product comparison ES / NQ / BTC. Deferred to follow-on paper. All ES and BTC tape files stay on disk but are not analysed in this paper.* | 8 | no | low |
+| H8 | Regime splits (open / close / FOMC vs matched controls) — same 30 correlations per regime | 20 | no | medium |
 | **H subtotal** | | **~80 hrs (~2 weeks)** | | |
 
 *Deleted from earlier plan: MAL SEM fit, two-factor SEM, partial-out-volume + re-fit SEM residuals, stratified within-decile SEM regressions. These are follow-on paper tasks per the outline's SCOPE section.*
@@ -167,10 +166,10 @@ If elapsed to Week 20 with no submission → cut line applies (see below).
 | E — latency sim | ~32 |
 | F — fill tape | ~170 |
 | G — return tail | ~40 |
-| H — panel + correlations (no SEM) | ~80 |
+| H — panel + correlations (no SEM, NQ only) | ~60 |
 | I — application | ~32 |
 | J — writing | ~190 |
-| **Total** | **~890 hrs** |
+| **Total** | **~840 hrs** |
 
 At **35 hrs/week focused** → **~26 weeks = 6 months** elapsed.
 At **20 hrs/week competing with day-job** → **~45 weeks = 10 months** elapsed.
