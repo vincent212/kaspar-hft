@@ -1046,7 +1046,21 @@ $$
 
 That's the **online intensity estimator**. Ship it in Python as `arrival_paper.online.HawkesIntensityEstimator`, initialise with `(μ, α, β)` from that session's batch fit (from §5.4's panel), and stream events through it. Each maker fill on that session gets an `λ̂` tag in real time.
 
-**Directional variant — 1-D vs 2-D `λ̂`.** The single-`λ̂` version above treats all message arrivals as one stream. For a passive quoter resting on *both* sides that's a reasonable first pass — "is the whole book bursty right now?" — but a directional version is stronger. Fit a 2-D Hawkes on `{bid-update, ask-update}` arrivals (§3.3) and run two online estimators in parallel giving `λ̂_bid(t)` and `λ̂_ask(t)`. Then:
+**Scope note — this paper uses TOTAL intensity only.**
+
+The remainder of this section (§7.5 and below) describes the *signed* and *directional* variants of the online estimator as they would be developed in a follow-on paper. **They are not the primary object of this paper.** Here's why the split matters:
+
+- **Decoder-latency tail** is queueing-driven — the queue in front of `handler_if` fills up whenever the total message rate spikes, regardless of whether those messages point buy or sell. The signed decomposition is irrelevant to this tail.
+- **Return fat-tail** is well-captured by total intensity through the volatility-rate relation $\sigma^2(t) \approx \text{tick\_size}^2 \cdot \lambda(t) \cdot \mathrm{E}[\text{jump}^2]$. Signing adds precision but doesn't change the "high λ → fat tail" story.
+- **Adverse-P&L tail** on a *symmetric* passive quoter (buys and sells the same size) also mostly tracks total intensity — high λ = many aggressor arrivals, symmetric across sides in expectation.
+
+So this paper's three-tails-share-one-arrival-signature thesis lives on **total λ**. The signed variant is a natural extension that unlocks a directional alpha story separately, and its literature review, backtest against Cont-Kukanov-Stoikov OFI, and per-fill P&L attribution deserve a dedicated paper. See "Future work: signed-Hawkes alpha" in the outline.
+
+The signed / directional material that follows is kept here as **background** so the estimator's construction and the underlying model are recorded — but no signed result appears in this paper's headline claims.
+
+---
+
+**Directional variant — 1-D vs 2-D `λ̂` (background, not used in this paper).** The single-`λ̂` version above treats all message arrivals as one stream. For a passive quoter resting on *both* sides that's a reasonable first pass — "is the whole book bursty right now?" — but a directional version is stronger. Fit a 2-D Hawkes on `{bid-update, ask-update}` arrivals (§3.3) and run two online estimators in parallel giving `λ̂_bid(t)` and `λ̂_ask(t)`. Then:
 
 - **Bid-side updates cluster with bearish aggression** (sellers hitting the bid): high `λ̂_bid` → bid-side under pressure → resting bid quotes exposed to adverse selection.
 - **Ask-side updates cluster with bullish aggression** (buyers lifting the ask): high `λ̂_ask` → ask-side under pressure → resting ask quotes exposed.
