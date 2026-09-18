@@ -91,7 +91,10 @@ def _open_maybe_gzip(path: str):
 def _iter_msgtape(path: str) -> Iterator[dict]:
     """Yield one dict per CSV row of a msgtape file.
 
-    Coerces the numeric columns to int/float. Empty strings become None.
+    Coerces the numeric columns to int/float. Empty strings become 0.
+    packet_seq / idx_in_packet columns are recognised but not parsed here —
+    fill_tape doesn't need them, and skipping the int() coercions saves
+    ~200M avoidable calls on a busy NQ session.
     """
     with _open_maybe_gzip(path) as f:
         reader = csv.reader(f)
@@ -99,11 +102,6 @@ def _iter_msgtape(path: str) -> Iterator[dict]:
         col = {name: i for i, name in enumerate(header)}
         # Grab column indexes once, out of the hot loop.
         i_transact = col["transactTime"]
-        i_sending = col["sendingTime"]
-        i_handler = col["handlerendtim"]
-        i_recv = col["recv_time"]
-        i_pkt = col.get("packet_seq")
-        i_idx = col.get("idx_in_packet")
         i_typ = col["typ"]
         i_action = col["action"]
         i_side = col["side"]
@@ -113,11 +111,6 @@ def _iter_msgtape(path: str) -> Iterator[dict]:
         for row in reader:
             yield {
                 "transactTime": int(row[i_transact]),
-                "sendingTime": int(row[i_sending]),
-                "handlerendtim": int(row[i_handler]),
-                "recv_time": int(row[i_recv]) if row[i_recv] else 0,
-                "packet_seq": int(row[i_pkt]) if i_pkt is not None else 0,
-                "idx_in_packet": int(row[i_idx]) if i_idx is not None else 0,
                 "typ": row[i_typ],
                 "action": row[i_action],
                 "side": row[i_side],
@@ -173,12 +166,16 @@ def _bbo_mid_asof(bbo_tx: np.ndarray, bbo_mid: np.ndarray, target_ts: np.ndarray
 # ---------------------------------------------------------------------------
 
 
+PXD_STORAGE_SCALE = 1e9   # msgtape stores pxd × 1e9 as an integer.
+
+
 def build_fill_tape(
     msg_tape_csv: str,
     bbbochg_csv: str,
     out_parquet: str,
+    disp_factor: float,
+    tick_size: float,
     bbo_sym: Optional[int] = None,
-    tick_size_scale: float = 1e9,
     log_every: int = 1_000_000,
 ) -> pd.DataFrame:
     """Build a fill_tape from a per-securityID message_tape and a channel-level
@@ -189,18 +186,39 @@ def build_fill_tape(
     msg_tape_csv : path to CSV emitted by msgtape (this securityID only)
     bbbochg_csv  : path to gzipped CSV emitted by bin_replay_bbo (channel-wide)
     out_parquet  : where to write the fill_tape (parquet, snappy)
-    bbo_sym      : if given, filter bbbochg to this sym (the msgtape's sym on
-                   the venue's internal sym table). If None, uses the whole
-                   channel — fine when the msgtape's securityID is the sole
-                   inhabitant of `bbo_sym`.
-    tick_size_scale : the pxd column is stored on this scale in the paper's
-                   downstream tick-units (1e9 = decimal ticks × 10^9).
+    disp_factor  : master_universe row's `dispFactor` for this instrument
+                   (e.g. 0.01 for CME NQ/ES). Converts the raw pxd value from
+                   msgtape into a native decimal price:
+                       native_price = (pxd_stored / PXD_STORAGE_SCALE) * disp_factor
+    tick_size    : master_universe row's `tickSize` for this instrument
+                   (e.g. 0.25 for CME NQ/ES). Converts the OB tick-index in
+                   bbbochg (best_bid, best_ask) into a native decimal price:
+                       fwd_mid_native = fwd_mid_tick_index * tick_size
+    bbo_sym      : if given, filter bbbochg to this sym (the venue's internal
+                   sym integer). Set None to use the whole channel.
     log_every    : progress print interval (rows read from msg_tape).
+
+    Notes on units — critical, do not remove
+    ---------------------------------------
+    msgtape's `pxd` field is what CME calls the "display price" divided by
+    dispFactor, stored by msgtape as `int(round(pxd * 1e9))` to keep integer
+    precision. Native price recovers as (pxd / 1e9) * disp_factor.
+
+    bbbochg's `best_bid` / `best_ask` are the OB's internal tick-index integers
+    (best_bid = 80123 for NQH5 near 20030.75); native price = tick_index *
+    tick_size. tick_size = minPriceIncrement * dispFactor.
+
+    Markouts are computed in NATIVE PRICE units so that the number a paper
+    reader sees is directly interpretable (e.g., "0.75 points on NQ" =
+    3 ticks) and so that identities across assets remain in comparable units.
 
     Returns
     -------
     DataFrame written to out_parquet.
     """
+    if disp_factor <= 0 or tick_size <= 0:
+        raise ValueError("disp_factor and tick_size must be positive; "
+                         f"got disp_factor={disp_factor}, tick_size={tick_size}")
     # ------------------------------------------------------------------
     # Pass 1: stream the message tape, build fill rows.
     # ------------------------------------------------------------------
@@ -227,8 +245,9 @@ def build_fill_tape(
         if typ == "M":
             oid = r["orderID"]
             action = r["action"]
-            price = int(round(r["pxd"] * tick_size_scale))
-            side_code = ord(r["side"]) if r["side"] else 0
+            price = int(round(r["pxd"] * PXD_STORAGE_SCALE))
+            side_str = r["side"]
+            side_code = ord(side_str[0]) if side_str else 0
             side = +1 if side_code == SIDE_BID else (-1 if side_code == SIDE_ASK else 0)
 
             if action == "0":     # Add
@@ -330,6 +349,11 @@ def build_fill_tape(
     df = pd.DataFrame(fills, columns=cols)
     df["is_partial"] = df["remaining_size_after_fill"] > 0
 
+    # exec_price_native carries the native decimal price so downstream code
+    # doesn't need to remember the pxd storage convention.
+    df["exec_price_native"] = (df["exec_price_ticks"].astype("float64")
+                               / PXD_STORAGE_SCALE) * disp_factor
+
     # Queue-depth placeholders (v2).
     df["size_ahead_at_submit"] = np.nan
     df["size_remaining_at_fill"] = np.nan
@@ -347,34 +371,35 @@ def build_fill_tape(
         print("[fill_tape] WARNING: no BBO rows after sym filter; "
               "markouts will be NaN", file=sys.stderr)
         for tau in MARKOUT_TAU_NS:
-            df[f"markout_{tau}"] = np.nan
+            df[f"markout_{_tau_label(tau)}"] = np.nan
         for k in MARKOUT_TAU_EVT:
             df[f"markout_{k}evt"] = np.nan
     else:
         bbo_tx = bbo["tx_time"].to_numpy()
-        bbo_mid = bbo["mid"].to_numpy()
+        bbo_mid_ticks = bbo["mid"].to_numpy()   # OB tick indices, not native.
 
-        # Fixed-time markouts.
+        # Fixed-time markouts, computed in NATIVE PRICE.
         exec_ts = df["exec_ts"].to_numpy()
         maker_side = df["maker_side"].to_numpy()
-        exec_px = df["exec_price_ticks"].to_numpy()
+        exec_price_native = df["exec_price_native"].to_numpy()
 
         for tau in MARKOUT_TAU_NS:
-            fwd_mid = _bbo_mid_asof(bbo_tx, bbo_mid, exec_ts + tau)
-            # markout, maker perspective, in the same tick units as exec_price_ticks
-            # if exec_price_ticks was tick*1e9, then fwd_mid is ticks (not ×1e9).
-            # Rescale exec_px to plain ticks for the difference.
-            markout = maker_side * (fwd_mid - exec_px / tick_size_scale)
-            label = _tau_label(tau)
-            df[f"markout_{label}"] = markout
+            fwd_mid_ticks = _bbo_mid_asof(bbo_tx, bbo_mid_ticks, exec_ts + tau)
+            fwd_mid_native = fwd_mid_ticks * tick_size
+            markout = maker_side * (fwd_mid_native - exec_price_native)
+            df[f"markout_{_tau_label(tau)}"] = markout
 
         # Event-count markouts: for each fill, look up the mid at the k-th
         # bbbochg event strictly after the fill's exec_ts.
         for k in MARKOUT_TAU_EVT:
-            # For each exec_ts, find its bbo index, then jump forward k.
             idx = np.searchsorted(bbo_tx, exec_ts, side="right") + (k - 1)
-            fwd_mid = np.where(idx < len(bbo_mid), bbo_mid[np.clip(idx, 0, len(bbo_mid) - 1)], np.nan)
-            markout = maker_side * (fwd_mid - exec_px / tick_size_scale)
+            fwd_mid_ticks = np.where(
+                idx < len(bbo_mid_ticks),
+                bbo_mid_ticks[np.clip(idx, 0, len(bbo_mid_ticks) - 1)],
+                np.nan,
+            )
+            fwd_mid_native = fwd_mid_ticks * tick_size
+            markout = maker_side * (fwd_mid_native - exec_price_native)
             df[f"markout_{k}evt"] = markout
 
     # ------------------------------------------------------------------
@@ -413,15 +438,20 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="output parquet path")
     ap.add_argument("--bbo-sym", type=int, default=None,
                     help="BBO sym to filter on (default: no filter)")
-    ap.add_argument("--tick-scale", type=float, default=1e9,
-                    help="msgtape pxd is tick × this scale (default 1e9)")
+    ap.add_argument("--disp-factor", type=float, required=True,
+                    help="master_universe dispFactor for this instrument "
+                         "(e.g. 0.01 for CME NQ/ES)")
+    ap.add_argument("--tick-size", type=float, required=True,
+                    help="master_universe tickSize for this instrument "
+                         "(e.g. 0.25 for CME NQ/ES)")
     args = ap.parse_args()
     build_fill_tape(
         msg_tape_csv=args.msg_tape,
         bbbochg_csv=args.bbbochg,
         out_parquet=args.out,
+        disp_factor=args.disp_factor,
+        tick_size=args.tick_size,
         bbo_sym=args.bbo_sym,
-        tick_size_scale=args.tick_scale,
     )
     return 0
 

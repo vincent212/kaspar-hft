@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from kaspar_arrival.fill_tape import _bbo_mid_asof, load_bbbochg
+from arrival_paper.fill_tape import _bbo_mid_asof, load_bbbochg
 
 
 class TestBboMidAsof:

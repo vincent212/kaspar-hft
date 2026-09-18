@@ -270,8 +270,8 @@ The three arrival processes give three different Hawkes fits — arguably the *m
 
 Package: `kaspar_arrival/` (public — no proprietary internals).
 
-- `kaspar_arrival.mle`: batch fitter for {unmarked, marked, 2-D} exp-Hawkes on numpy arrays
-- `kaspar_arrival.online`: O(1) recursive λ̂(t) update
+- `arrival_paper.mle`: batch fitter for {unmarked, marked, 2-D} exp-Hawkes on numpy arrays
+- `arrival_paper.online`: O(1) recursive λ̂(t) update
   ```python
   def update(self, t_new, mark=1.0):
       dt = t_new - self.t_last
@@ -279,8 +279,8 @@ Package: `kaspar_arrival/` (public — no proprietary internals).
       self.t_last = t_new
       return self.mu + self.s      # current intensity estimate
   ```
-- `kaspar_arrival.markout`: markout(τ) computer for trade and book-event anchors
-- `kaspar_arrival.plot`: standard figures
+- `arrival_paper.markout`: markout(τ) computer for trade and book-event anchors
+- `arrival_paper.plot`: standard figures
 
 ### 5. Latency prediction
 
@@ -644,7 +644,7 @@ Store derived tapes in `/vast/home/vmayeski/out/arrival_paper/tapes/{stream}/{da
 
 **B. Statistics infra (per-day features)**
 
-4. Python `kaspar_arrival.stats`: CV, CV², Fano(T), Hurst estimator on arrival_tape.
+4. Python `arrival_paper.stats`: CV, CV², Fano(T), Hurst estimator on arrival_tape.
 5. Reproduce fast_send single-day numbers as a regression test.
 6. Run across 731 days, emit `daily_stats.json` per (stream, day).
 
@@ -658,7 +658,7 @@ Store derived tapes in `/vast/home/vmayeski/out/arrival_paper/tapes/{stream}/{da
 
 **D. Online estimator**
 
-12. `kaspar_arrival.online` — O(1) `update(t, mark)` → λ̂ recursive.
+12. `arrival_paper.online` — O(1) `update(t, mark)` → λ̂ recursive.
 13. Sanity check on simulated Hawkes (recover params).
 
 **E. Latency prediction**

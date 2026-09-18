@@ -55,7 +55,7 @@ If elapsed to Week 20 with no submission → cut line applies (see below).
 
 | # | task | est hrs | parallel? | risk |
 |---|---|---|---|---|
-| B1 | Python module `kaspar_arrival.stats`: CV, CV², P(gap<mean/10), Fano, Hurst, ACF | 16 | no | low |
+| B1 | Python module `arrival_paper.stats`: CV, CV², P(gap<mean/10), Fano, Hurst, ACF | 16 | no | low |
 | B2 | Fisher-Yates shuffle collapse test | 8 | no | low |
 | B3 | Run across 2,200 sessions in parallel; emit `daily_stats.json` per session | 8 | yes | low |
 | B4 | Reproduce fast_send numbers on the pilot day as regression test | 8 | no | low |
@@ -65,7 +65,7 @@ If elapsed to Week 20 with no submission → cut line applies (see below).
 
 | # | task | est hrs | parallel? | risk |
 |---|---|---|---|---|
-| C1 | Unmarked exp-Hawkes MLE with analytic gradient (`kaspar_arrival.hawkes.fit_expo`) | 24 | no | low |
+| C1 | Unmarked exp-Hawkes MLE with analytic gradient (`arrival_paper.hawkes.fit_expo`) | 24 | no | low |
 | C2 | Marked Hawkes with size γ | 20 | no | low |
 | C3 | 2-D signed (buy/sell pressure) Hawkes with 2×2 excitation | 32 | no | medium — 6-parameter MLE, potential local optima |
 | C4 | Time-rescaling KS + Ljung-Box residual tests | 12 | no | low |
@@ -77,7 +77,7 @@ If elapsed to Week 20 with no submission → cut line applies (see below).
 
 | # | task | est hrs | parallel? | risk |
 |---|---|---|---|---|
-| D1 | 1-D online intensity estimator (`kaspar_arrival.online.HawkesIntensityEstimator`) with `O(1)` update | 12 | no | low |
+| D1 | 1-D online intensity estimator (`arrival_paper.online.HawkesIntensityEstimator`) with `O(1)` update | 12 | no | low |
 | D2 | 2-D signed online estimator | 20 | no | low |
 | D3 | Sanity check on synthetic Hawkes (recover fit params) | 8 | no | low |
 | **D subtotal** | | **~40 hrs (~1 week)** | | |

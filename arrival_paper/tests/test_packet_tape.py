@@ -7,7 +7,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from kaspar_arrival.packet_tape import build_packet_tape
+from arrival_paper.packet_tape import build_packet_tape
 
 
 class TestPacketTapeSingleMsg:

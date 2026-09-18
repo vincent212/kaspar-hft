@@ -164,6 +164,7 @@ def build_front_contract_csv(
     channels: Iterable[int],
     out_csv: str,
     min_yyyymmdd: Optional[str] = None,
+    drop_roll_window: int = 0,
 ) -> int:
     """Aggregate one CSV row per (session_date, channel) from kaspar.db,
     joined to master_universe for securityID + optional volstats cross-check.
@@ -236,6 +237,34 @@ def build_front_contract_csv(
             "notes": notes,
         })
 
+    # Roll-day exclusion.
+    # On the days where the DB-picked front differs from the volstats-argmax
+    # outright, both the old and new contract are actively trading and the
+    # session's arrival intensity is split across them. That confounds every
+    # Hawkes / Fano / markout statistic. Drop the flagged sessions plus the
+    # `drop_roll_window` calendar days before and after each flagged session
+    # on the same channel.
+    if drop_roll_window > 0:
+        from datetime import date, timedelta
+
+        def _parse(ymd: str) -> date:
+            return date(int(ymd[0:4]), int(ymd[4:6]), int(ymd[6:8]))
+
+        drops: set[tuple[int, str]] = set()
+        for r in rows:
+            if r.get("volstats_ok") == "no":
+                center = _parse(r["session_date"])
+                for delta in range(-drop_roll_window, drop_roll_window + 1):
+                    d = center + timedelta(days=delta)
+                    drops.add((r["channel"], d.strftime("%Y%m%d")))
+        # Mark or filter. We annotate + filter.
+        kept = []
+        for r in rows:
+            if (r["channel"], r["session_date"]) in drops:
+                continue    # dropped
+            kept.append(r)
+        rows = kept
+
     rows.sort(key=lambda r: (r["session_date"], r["channel"]))
     fieldnames = ["session_date", "channel", "asset", "symbol", "security_id",
                   "sync_flag", "stab_flag",
@@ -259,6 +288,11 @@ def main() -> int:
     ap.add_argument("--channels", default="310,318,326")
     ap.add_argument("--min-date", default=None,
                     help="skip sessions before this yyyymmdd (e.g. 20250101)")
+    ap.add_argument("--drop-roll-window", type=int, default=1,
+                    help="drop N calendar days on each side of every "
+                         "volstats/DB mismatch session (roll days). "
+                         "Default 1 → drop [D-1, D, D+1] around each flagged "
+                         "session on the same channel.")
     ap.add_argument("--out", required=True, help="output CSV path")
     args = ap.parse_args()
     chans = [int(c) for c in args.channels.split(",") if c.strip()]
@@ -269,6 +303,7 @@ def main() -> int:
         channels=chans,
         out_csv=args.out,
         min_yyyymmdd=args.min_date,
+        drop_roll_window=args.drop_roll_window,
     )
     print(f"wrote {n} rows to {args.out}")
     return 0

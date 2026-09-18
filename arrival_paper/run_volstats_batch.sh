@@ -5,7 +5,7 @@
 # Run volstats over every .bin for 2024-2026 across chan 310 (ES), 318 (NQ),
 # 326 (BTC). Skips 2023 by design. Output JSONs go under
 #   /vast/home/vmayeski/out/arrival_paper/volstats/<chan>/volume.<chan>.<yyyymmdd>.json
-# and the front-contract picker (kaspar_arrival.front_contract) reads them.
+# and the front-contract picker (arrival_paper.front_contract) reads them.
 #
 # Usage:
 #   bash run_volstats_batch.sh [--dry-run] [--jobs N]

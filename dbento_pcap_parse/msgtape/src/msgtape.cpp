@@ -39,9 +39,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <unordered_map>
 
 #include <boost/program_options.hpp>
 
@@ -76,6 +78,15 @@ bool in_rth(uint64_t ts_ns)
 int main(int argc, char* argv[])
 {
     SET_ARGS;
+
+    // --rth-only reads localtime_r(); make sure TZ is picked up. If TZ isn't
+    // in the environment, force America/New_York so the CME RTH window (9:30
+    // - 16:00 ET) is honoured. Without this the tape silently drops the first
+    // ~5 hours of RTH under a UTC-default server.
+    if (getenv("TZ") == nullptr) {
+        setenv("TZ", "America/New_York", 1);
+    }
+    tzset();
 
     po::options_description desc("msgtape options");
     desc.add_options()

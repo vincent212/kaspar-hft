@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from kaspar_arrival.validate import (
+from arrival_paper.validate import (
     check_fill_sequence_consistency,
     check_side_identity,
     check_signflip_identity,

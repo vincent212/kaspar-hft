@@ -17,10 +17,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from kaspar_arrival.fill_tape import build_fill_tape, _tau_label
+from arrival_paper.fill_tape import build_fill_tape, _tau_label
 
 
-def _run(tmp_path, msg_rows, bbo_rows, write_msg, write_bbo, bbo_sym=10):
+def _run(tmp_path, msg_rows, bbo_rows, write_msg, write_bbo, bbo_sym=10,
+         disp_factor=1.0, tick_size=1.0):
+    """Default disp_factor=1 and tick_size=1 keep the test math simple:
+    the pxd values in the fixtures are already in "native" units so
+    exec_price_native == pxd and fwd_mid_native == tick_index. Individual
+    tests override these to exercise the unit conversions."""
     msg_path = tmp_path / "msg.csv"
     bbo_path = tmp_path / "bbo.csv.gz"
     out_path = tmp_path / "fill.parquet"
@@ -30,6 +35,8 @@ def _run(tmp_path, msg_rows, bbo_rows, write_msg, write_bbo, bbo_sym=10):
         msg_tape_csv=str(msg_path),
         bbbochg_csv=str(bbo_path),
         out_parquet=str(out_path),
+        disp_factor=disp_factor,
+        tick_size=tick_size,
         bbo_sym=bbo_sym,
         log_every=0,
     )
@@ -229,8 +236,9 @@ class TestMarkoutArithmetic:
     def test_maker_bid_gets_negative_markout_when_mid_falls(
         self, tmp_path, msg_writer, bbo_writer, write_msg, write_bbo
     ):
-        # Maker is +1 (bid), fills at price 1000 (in tick × 1e9 units → 1000.0).
-        # 1 s after exec, mid falls from 1000 to 990 → maker markout = +1 × (990 - 1000) = -10.
+        # With disp_factor=1, tick_size=1: fwd_mid_native == tick_index,
+        # exec_price_native == pxd. Maker fills at 1000; mid drops to 990.
+        # markout = maker_side × (990 - 1000) = -10.
         msg = [
             msg_writer(ts=1_000_000_000, typ="M", action="0", side="0",
                        pxd=1000.0, sz=1, oid=1),
@@ -238,20 +246,15 @@ class TestMarkoutArithmetic:
         ]
         bbo = [
             bbo_writer(ts=500_000_000, sym=10, bid=995, ask=1005),
-            bbo_writer(ts=3_000_000_000, sym=10, bid=985, ask=995),  # 1 s after exec: mid=990
+            bbo_writer(ts=3_000_000_000, sym=10, bid=985, ask=995),
         ]
         df, _ = _run(tmp_path, msg, bbo, write_msg, write_bbo)
         assert len(df) == 1
-        # markout at 1 s: maker_side × (mid_forward - exec_price_ticks / tick_scale)
-        # exec_price_ticks stored as tick × 1e9 = 1e12. tick_scale = 1e9 → exec/scale = 1000.
-        # mid_forward at t=3s is (985+995)/2 = 990.
-        assert df["markout_1s"].iloc[0] == pytest.approx(990 - 1000)   # = -10
+        assert df["markout_1s"].iloc[0] == pytest.approx(-10)
 
     def test_maker_ask_gets_positive_markout_when_mid_falls(
         self, tmp_path, msg_writer, bbo_writer, write_msg, write_bbo
     ):
-        # Maker is -1 (ask), fills at price 1100. mid drops after: aggressor bought
-        # high; maker sold high → maker markout is positive.
         msg = [
             msg_writer(ts=1_000_000_000, typ="M", action="0", side="1",
                        pxd=1100.0, sz=1, oid=1),
@@ -259,11 +262,100 @@ class TestMarkoutArithmetic:
         ]
         bbo = [
             bbo_writer(ts=500_000_000, sym=10, bid=1095, ask=1105),
-            bbo_writer(ts=3_000_000_000, sym=10, bid=1085, ask=1095),  # 1 s later: mid=1090
+            bbo_writer(ts=3_000_000_000, sym=10, bid=1085, ask=1095),
         ]
         df, _ = _run(tmp_path, msg, bbo, write_msg, write_bbo)
-        # maker_side = -1, mid_forward = 1090, exec/scale = 1100 → -1 × (1090 - 1100) = +10
         assert df["markout_1s"].iloc[0] == pytest.approx(10)
+
+
+class TestMarkoutUnitsRealisticCME:
+    """Regression test for the units bug where exec_price_ticks (pxd × 1e9)
+    was being subtracted from an OB tick-index. On CME NQ this would give
+    markouts on the order of ±10^5 when they should be ±1 tick (±0.25).
+
+    Realistic NQ setup:
+      pxd = 1988100 (msgtape stores raw pxd, dispFactor = 0.01 makes native
+                     price 19881.00)
+      bbbochg best_bid/best_ask are OB tick indices; tick_size = 0.25
+      so a native price of 19881.00 is tick_index 79524."""
+
+    def test_nq_markout_is_reasonable(
+        self, tmp_path, msg_writer, bbo_writer, write_msg, write_bbo
+    ):
+        # Maker fills at native price 19881.00 (pxd = 1988100 with dispFactor 0.01).
+        # 1 s later, mid falls to native 19880.75 (tick_index 79523).
+        # Expected markout: maker_side=+1 × (19880.75 - 19881.00) = -0.25 (one tick down).
+        msg = [
+            msg_writer(ts=1_000_000_000, typ="M", action="0", side="0",
+                       pxd=1988100.0, sz=1, oid=1),
+            msg_writer(ts=2_000_000_000, typ="T", sz=1, oid=1),
+        ]
+        bbo = [
+            # tick_index 79524 = native 19881.00
+            bbo_writer(ts=500_000_000, sym=10, bid=79523, ask=79525),
+            # after fill: mid = (79522 + 79524) / 2 = 79523 = native 19880.75
+            bbo_writer(ts=3_000_000_000, sym=10, bid=79522, ask=79524),
+        ]
+        df, _ = _run(tmp_path, msg, bbo, write_msg, write_bbo,
+                     disp_factor=0.01, tick_size=0.25)
+        assert len(df) == 1
+        row = df.iloc[0]
+        # exec_price_native derived correctly from pxd + disp_factor
+        assert row["exec_price_native"] == pytest.approx(19881.00)
+        # Markout is one tick down (native price), NOT ±10^5.
+        assert row["markout_1s"] == pytest.approx(-0.25)
+        # Every markout column present and finite (regression: empty-BBO
+        # fallback used to name them markout_1000000000 instead of markout_1s).
+        for c in ("markout_100ms", "markout_1s", "markout_10s", "markout_30s"):
+            assert c in df.columns
+            assert not pd.isna(row[c])
+
+    def test_es_markout_is_reasonable(
+        self, tmp_path, msg_writer, bbo_writer, write_msg, write_bbo
+    ):
+        # ES: same disp_factor 0.01, tick_size 0.25.
+        # Maker fills at pxd = 600000 → native 6000.00. Mid rises 1 tick to 6000.25.
+        # maker_side = +1 (bid), markout = 6000.25 - 6000.00 = +0.25.
+        msg = [
+            msg_writer(ts=1_000_000_000, typ="M", action="0", side="0",
+                       pxd=600000.0, sz=1, oid=1),
+            msg_writer(ts=2_000_000_000, typ="T", sz=1, oid=1),
+        ]
+        bbo = [
+            bbo_writer(ts=500_000_000, sym=5, bid=23999, ask=24001),
+            bbo_writer(ts=3_000_000_000, sym=5, bid=24000, ask=24002),
+        ]
+        df, _ = _run(tmp_path, msg, bbo, write_msg, write_bbo,
+                     disp_factor=0.01, tick_size=0.25, bbo_sym=5)
+        assert df["exec_price_native"].iloc[0] == pytest.approx(6000.00)
+        assert df["markout_1s"].iloc[0] == pytest.approx(0.25)
+
+
+class TestMarkoutColumnNamingConsistency:
+    """Regression: the empty-BBO fallback path used to write column names
+    like markout_1000000000 (raw ns) while the populated path wrote
+    markout_1s — meaning downstream code broke silently on empty-BBO days.
+    Both paths must now use the same _tau_label naming."""
+
+    def test_empty_bbo_uses_labeled_column_names(
+        self, tmp_path, msg_writer, bbo_writer, write_msg, write_bbo
+    ):
+        msg = [
+            msg_writer(ts=1_000_000_000, typ="M", action="0", side="0",
+                       pxd=1000.0, sz=1, oid=1),
+            msg_writer(ts=2_000_000_000, typ="T", sz=1, oid=1),
+        ]
+        # Force empty BBO: bbo_sym=99 doesn't match any row (all sym=10).
+        bbo = [bbo_writer(ts=500_000_000, sym=10, bid=999, ask=1001)]
+        df, _ = _run(tmp_path, msg, bbo, write_msg, write_bbo, bbo_sym=99)
+        # Expected column names (populated-BBO path uses these labels too):
+        for c in ("markout_100ms", "markout_1s", "markout_10s", "markout_30s",
+                  "markout_100evt", "markout_500evt"):
+            assert c in df.columns, f"missing labeled markout column {c}"
+        # Regression: no raw-ns column names.
+        for c in df.columns:
+            assert not c.startswith("markout_1000")
+            assert not c.startswith("markout_10000")
 
 
 class TestMarkoutEventCount:

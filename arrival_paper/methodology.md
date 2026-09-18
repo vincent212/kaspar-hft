@@ -77,7 +77,7 @@ $$
 
 This 9.52% number appears again and again in the rest of the paper — remember it. It's the Poisson benchmark for "how often do two arrivals come nearly back-to-back". If empirical data shows 60-85% instead of 9.52%, we've definitively rejected Poisson.
 
-![Exponential distribution of interarrival gaps](pilot/figs/exponential_gaps.png)
+![Exponential distribution of interarrival gaps](figs/exponential_gaps.png)
 
 *The exponential PDF of interarrival gaps for a rate-300/s Poisson process. The dashed vertical lines mark the p50 (median), p90, and p99 quantiles. Under Poisson, half the gaps are shorter than the median 2.3 ms and 10% are longer than 7.7 ms — a specific shape with a soft right tail. Real CME MDP3 data has a completely different shape: far more mass near 0 (bunched arrivals) and a much heavier right tail (long quiet stretches).*
 
@@ -538,7 +538,7 @@ Origin: Fano (1947) in cosmic-ray physics — same problem, counts of independen
 
 **What Fano does visually — same mean rate, four different processes.** All four rows below have the same average rate (~20 arrivals per second), but the *dispersion* of arrivals inside 1-second windows differs by orders of magnitude:
 
-![Rasters at four Fano levels](pilot/figs/rasters_by_fano.png)
+![Rasters at four Fano levels](figs/rasters_by_fano.png)
 
 *Top row (F ≈ 0, highly regular): arrivals march at a near-lattice cadence — every 50 ms like clockwork. Bins all have roughly the same count.*
 *Second row (F ≈ 1, Poisson): the reference. Arrivals look "randomly spread" — no big gaps, no big bunches, mildly uneven bin counts.*
@@ -547,7 +547,7 @@ Origin: Fano (1947) in cosmic-ray physics — same problem, counts of independen
 
 **The same picture as a histogram of counts per 1-s bin:**
 
-![Count histograms at four Fano levels](pilot/figs/count_hists_by_fano.png)
+![Count histograms at four Fano levels](figs/count_hists_by_fano.png)
 
 *Each panel shows the empirical distribution of arrivals per 1-second bin (colored bars) with the theoretical Poisson pmf at the same mean overlaid as a black curve.*
 
@@ -597,7 +597,7 @@ Higher `H` means more persistent clustering.
 
 **Fano scales differently with window size for each process:**
 
-![Fano factor vs window size](pilot/figs/fano_scaling.png)
+![Fano factor vs window size](figs/fano_scaling.png)
 
 *Log-log plot of F(T) vs the window size T for the four simulated processes.*
 
@@ -1313,7 +1313,7 @@ $$
 \hat{\lambda}(t) \;=\; \mu + S(t)
 $$
 
-That's the **online intensity estimator**. Ship it in Python as `kaspar_arrival.online.HawkesIntensityEstimator`, initialise with `(μ, α, β)` from that session's batch fit (from §5.4's panel), and stream events through it. Each maker fill on that session gets an `λ̂` tag in real time.
+That's the **online intensity estimator**. Ship it in Python as `arrival_paper.online.HawkesIntensityEstimator`, initialise with `(μ, α, β)` from that session's batch fit (from §5.4's panel), and stream events through it. Each maker fill on that session gets an `λ̂` tag in real time.
 
 **Directional variant — 1-D vs 2-D `λ̂`.** The single-`λ̂` version above treats all message arrivals as one stream. For a passive quoter resting on *both* sides that's a reasonable first pass — "is the whole book bursty right now?" — but a directional version is stronger. Fit a 2-D Hawkes on `{bid-update, ask-update}` arrivals (§3.3) and run two online estimators in parallel giving `λ̂_bid(t)` and `λ̂_ask(t)`. Then:
 
@@ -1371,7 +1371,7 @@ $$
 \hat{\lambda}^-(t) \;=\; \mu^- + S_{-+}(t) + S_{--}(t)
 $$
 
-Ship as `kaspar_arrival.online.SignedHawkesEstimator` alongside the aggregate estimator.
+Ship as `arrival_paper.online.SignedHawkesEstimator` alongside the aggregate estimator.
 
 **Trader use of the signed intensity.**
 
@@ -1515,8 +1515,8 @@ If all three hold, the paper's premise is intact and we proceed to §7-§8 witho
 
 - **Tape extraction**: C++ tool `msgtape` (to be built alongside `binstats` in `dbento_pcap_parse/`), emits per-message CSV of `(transactTime_ns, sendingTime_ns, msg_type, side, pxd, size, orderID)` for a given securityID and time window.
 - **Statistics**: Python (`numpy`, `pandas`, `scipy`) in the `kaspar_arrival` module. All stats above are pure functions of an arrival timestamp array.
-- **Hawkes MLE**: `kaspar_arrival.hawkes.fit_expo`, `.fit_marked`, `.fit_bivariate` — vectorised numpy with analytic gradients.
-- **Online estimator**: `kaspar_arrival.online.HawkesIntensityEstimator` — `O(1)` recursive update per arrival, used at inference time.
+- **Hawkes MLE**: `arrival_paper.hawkes.fit_expo`, `.fit_marked`, `.fit_bivariate` — vectorised numpy with analytic gradients.
+- **Online estimator**: `arrival_paper.online.HawkesIntensityEstimator` — `O(1)` recursive update per arrival, used at inference time.
 
 ### 6.2 One-command per-session pipeline
 
@@ -1527,7 +1527,7 @@ msgtape --datafile 318.20250310.databento.bin \
         --rth --out NQ.20250310.msgtape.csv
 
 # fit + diagnose
-python -m kaspar_arrival.fit \
+python -m arrival_paper.fit \
         --tape NQ.20250310.msgtape.csv \
         --model expo,marked,bivariate \
         --out NQ.20250310.hawkes.json

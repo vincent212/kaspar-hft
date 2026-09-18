@@ -37,7 +37,6 @@
 
 #include "chutil/Macros.hpp"
 #include "actors/Actor.hpp"
-#include "actors/MemoryPool.hpp"  // BBBOChg uses actors::MemoryPool but doesn't include it
 #include "actors/msg/Start.hpp"
 #include "actors/msg/Shutdown.hpp"
 #include "frame/ob/msg/BBBOChg.hpp"

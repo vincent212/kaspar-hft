@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from kaspar_arrival.front_contract import (
+from arrival_paper.front_contract import (
     build_front_contract_csv,
     load_kaspar_db_fronts,
     load_universe_csv,
@@ -271,6 +271,69 @@ class TestBuildFrontContractCsv:
         assert row["volstats_top"] == "4916"
         assert row["volstats_ok"] == "no"
         assert "volstats top 4916 != DB pick 5002" in row["notes"]
+
+    def test_drop_roll_window_removes_mismatch_and_neighbors(self, tmp_path):
+        """A volstats-mismatch session and its D-1 / D+1 must be dropped
+        when drop_roll_window=1 is set. Only the same-channel neighbors
+        should be dropped, not the other channel's."""
+        db_path = tmp_path / "kaspar.db"
+        _make_kaspar_db(db_path,
+            equity_rows=[
+                # Day before, day of, day after all present on both channels.
+                {"session_date": "2025-03-10", "es_front": "ESH5", "nq_front": "NQH5"},
+                {"session_date": "2025-03-11", "es_front": "ESM5", "nq_front": "NQH5"},  # ES rolls, NQ unchanged
+                {"session_date": "2025-03-12", "es_front": "ESM5", "nq_front": "NQH5"},
+            ]
+        )
+        universe_root = tmp_path / "universe"
+        _write_universe(universe_root / "310" / "master_universe.310.csv", [
+            {"type": "FDF", "securityID": "5002", "symbol": "ESH5", "asset": "ES"},
+            {"type": "FDF", "securityID": "4916", "symbol": "ESM5", "asset": "ES"},
+        ])
+        _write_universe(universe_root / "318" / "master_universe.318.csv", [
+            {"type": "FDF", "securityID": "42288528", "symbol": "NQH5", "asset": "NQ"},
+        ])
+        volstats_root = tmp_path / "volstats"
+        # On 20250311 volstats top for ES is still ESH5 (5002), DB says ESM5 (4916) → mismatch
+        _write_volstats(volstats_root / "310" / "volume.310.20250311.json",
+                        310, "20250311",
+                        [{"securityID": 5002, "vol_max": 2_000_000},
+                         {"securityID": 4916, "vol_max": 1_500_000}])
+        # NQ has no mismatch on any of the 3 days.
+        for ymd in ("20250310", "20250311", "20250312"):
+            _write_volstats(volstats_root / "318" / f"volume.318.{ymd}.json",
+                            318, ymd,
+                            [{"securityID": 42288528, "vol_max": 800_000}])
+        out = tmp_path / "front.csv"
+        build_front_contract_csv(str(db_path), str(universe_root),
+                                 str(volstats_root), channels=[310, 318],
+                                 out_csv=str(out), drop_roll_window=1)
+        rows = list(csv.DictReader(open(out)))
+        by_key = {(int(r["channel"]), r["session_date"]): r for r in rows}
+        # ES chan on 3/10, 3/11, 3/12 all dropped (3/11 mismatch → window ±1)
+        assert (310, "20250310") not in by_key
+        assert (310, "20250311") not in by_key
+        assert (310, "20250312") not in by_key
+        # NQ chan untouched by the ES mismatch — all 3 NQ rows survive
+        assert (318, "20250310") in by_key
+        assert (318, "20250311") in by_key
+        assert (318, "20250312") in by_key
+
+    def test_drop_roll_window_zero_keeps_mismatch(self, tmp_path):
+        """drop_roll_window=0 (the default in code, though the CLI defaults
+        to 1) keeps mismatch rows in the output."""
+        db, univ, vol = self._make_scaffolding(tmp_path)
+        # Force a mismatch on 20250310 ES.
+        _write_volstats(vol / "310" / "volume.310.20250310.json",
+                        310, "20250310",
+                        [{"securityID": 4916, "vol_max": 2_000_000},
+                         {"securityID": 5002, "vol_max": 500_000}])
+        out = tmp_path / "front.csv"
+        n = build_front_contract_csv(str(db), str(univ), str(vol),
+                                     channels=[310], out_csv=str(out),
+                                     drop_roll_window=0)
+        # 2 ES rows: 20250310 (mismatch) + 20250311 (no volstats for it)
+        assert n == 2
 
     def test_min_yyyymmdd_filter(self, tmp_path):
         db, univ, vol = self._make_scaffolding(tmp_path)
