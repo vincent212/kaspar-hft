@@ -2,7 +2,7 @@
 
 *2026-09-18 — v@m2te.ch*
 
-*Companion draft to `arrival_process_paper_outline_2026-09-17.md`. This document supplies the fitted-model machinery for §3 of the paper.*
+*Companion draft to `outline.md`. This document supplies the fitted-model machinery for §3 of the paper.*
 
 ---
 
@@ -77,7 +77,7 @@ $$
 
 This 9.52% number appears again and again in the rest of the paper — remember it. It's the Poisson benchmark for "how often do two arrivals come nearly back-to-back". If empirical data shows 60-85% instead of 9.52%, we've definitively rejected Poisson.
 
-![Exponential distribution of interarrival gaps](arrival_paper_pilot/figs/exponential_gaps.png)
+![Exponential distribution of interarrival gaps](pilot/figs/exponential_gaps.png)
 
 *The exponential PDF of interarrival gaps for a rate-300/s Poisson process. The dashed vertical lines mark the p50 (median), p90, and p99 quantiles. Under Poisson, half the gaps are shorter than the median 2.3 ms and 10% are longer than 7.7 ms — a specific shape with a soft right tail. Real CME MDP3 data has a completely different shape: far more mass near 0 (bunched arrivals) and a much heavier right tail (long quiet stretches).*
 
@@ -538,7 +538,7 @@ Origin: Fano (1947) in cosmic-ray physics — same problem, counts of independen
 
 **What Fano does visually — same mean rate, four different processes.** All four rows below have the same average rate (~20 arrivals per second), but the *dispersion* of arrivals inside 1-second windows differs by orders of magnitude:
 
-![Rasters at four Fano levels](arrival_paper_pilot/figs/rasters_by_fano.png)
+![Rasters at four Fano levels](pilot/figs/rasters_by_fano.png)
 
 *Top row (F ≈ 0, highly regular): arrivals march at a near-lattice cadence — every 50 ms like clockwork. Bins all have roughly the same count.*
 *Second row (F ≈ 1, Poisson): the reference. Arrivals look "randomly spread" — no big gaps, no big bunches, mildly uneven bin counts.*
@@ -547,7 +547,7 @@ Origin: Fano (1947) in cosmic-ray physics — same problem, counts of independen
 
 **The same picture as a histogram of counts per 1-s bin:**
 
-![Count histograms at four Fano levels](arrival_paper_pilot/figs/count_hists_by_fano.png)
+![Count histograms at four Fano levels](pilot/figs/count_hists_by_fano.png)
 
 *Each panel shows the empirical distribution of arrivals per 1-second bin (colored bars) with the theoretical Poisson pmf at the same mean overlaid as a black curve.*
 
@@ -597,7 +597,7 @@ Higher `H` means more persistent clustering.
 
 **Fano scales differently with window size for each process:**
 
-![Fano factor vs window size](arrival_paper_pilot/figs/fano_scaling.png)
+![Fano factor vs window size](pilot/figs/fano_scaling.png)
 
 *Log-log plot of F(T) vs the window size T for the four simulated processes.*
 

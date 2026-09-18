@@ -6,7 +6,7 @@ Produces:
   3. count_hists_by_fano.png — histogram of per-bin counts at same Fano levels
   4. fano_visual.png         — Fano value → what the count histogram looks like
 
-All charts land in /home/vmayeski/kaspar-hft/tech_reports/arrival_paper_pilot/figs/.
+All charts land in /home/vmayeski/kaspar-hft/docs/arrival_paper/pilot/figs/.
 """
 import numpy as np
 import matplotlib
@@ -14,7 +14,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
 
-OUT = '/home/vmayeski/kaspar-hft/tech_reports/arrival_paper_pilot/figs'
+OUT = '/home/vmayeski/kaspar-hft/docs/arrival_paper/pilot/figs'
 os.makedirs(OUT, exist_ok=True)
 rng = np.random.default_rng(7)
 

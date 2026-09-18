@@ -2,7 +2,7 @@
 
 *2026-09-18 — v@m2te.ch*
 
-*Companion to `arrival_process_paper_outline_2026-09-17.md` and `arrival_paper_methodology_2026-09-18.md`. This document is the execution schedule — tasks, durations, milestones, cut-lines. Not for the article.*
+*Companion to `outline.md` and `methodology.md`. This document is the execution schedule — tasks, durations, milestones, cut-lines. Not for the article.*
 
 ---
 
