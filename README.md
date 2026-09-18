@@ -10,6 +10,30 @@
 
 ---
 
+<p align="center">
+  <a href="https://github.com/vincent212/kaspar-hft/stargazers">⭐&nbsp;Star&nbsp;the&nbsp;repo</a> &bull;
+  <a href="tech_reports/fast_send.pdf">fast_send&nbsp;paper</a> &bull;
+  <a href="https://arxiv.org/abs/2609.18019">Shadow-POV&nbsp;paper&nbsp;(arXiv)</a> &bull;
+  <a href="tech_reports/kaspar_onepager.pdf">one-pager</a>
+</p>
+
+<p align="center">
+  <img src="tech_reports/img/fast_send_latency.png" width="640"
+       alt="fast_send actor round-trip latency: 3370 ns cross-thread async, 90 ns grouped, 30 ns fast_send">
+</p>
+
+### Why it's interesting
+
+- **~30 ns actor round trip.** `fast_send` runs the receiver's handler inline on the caller's thread — ~110× faster than cross-thread async and ~3× faster than same-thread grouping, with no data races and no locks in your code ([paper](tech_reports/fast_send.pdf)).
+- **The actor layer is under 1% of real work.** On a live CME tick-to-book path the framework adds under 1% of the ~7 µs decode-and-book cost and nothing measurable to the latency tail — the actor abstraction is effectively free on the hot path.
+- **Queue-position-accurate fills.** Your simulated orders sit in the price-time book and fill only when the market trades *through* them — not the instant-fill-at-mid fantasy of toy backtesters.
+- **Backtest == production.** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live iLink 3; switching is a config change, so a backtest exercises the exact code path that will trade.
+- **Not a toy.** Full MDP3 SBE decode, order-by-order (MBO) book reconstruction, iLink 3 sessions with HMAC auth, sequence management, and primary/secondary failover.
+- **CME-certified.** The MDP3 market-data handler and the iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle — sequence gaps, retransmission and recovery, terminate/reconnect, and failover — so you don't hand-roll the edge cases a commercial SDK sells you.
+- **Two papers back it.** The concurrency design ([`fast_send`](tech_reports/fast_send.pdf)) and the execution results ([Shadow-POV, arXiv:2609.18019](https://arxiv.org/abs/2609.18019)).
+
+---
+
 **Kaspar** is two things sharing one codebase.
 
 It is a **turn-key production trading system**: MDP3 multicast in, full order books reconstructed order-by-order, an execution algorithm on top, and iLink 3 sessions out to CME — with SBE encoding, HMAC authentication, sequence management and primary/secondary failover already written.
@@ -27,6 +51,21 @@ Unlike toy backtesting engines that assume instant fills at mid, Kaspar models r
 Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) — *"a peak of a long crest in the Western Tatras, one of Poland's main winter ski areas."*
 
 **Author:** [Vincent Mayeski](https://www.linkedin.com/in/vmayeski/) — [mayeski@gmail.com](mailto:mayeski@gmail.com) | [GitHub](https://github.com/vincent212)
+
+## Production-grade session handling — CME-certified
+
+Kaspar's market-data and order-entry stacks are complete session implementations, not just SBE codecs, and both have passed **CME autocertification**. They implement the full protocol lifecycle and its edge cases — the recovery, reconnection, and failover logic a commercial SDK is sold to cover — so you don't hand-roll any of it:
+
+**iLink 3 order entry** ([`ilink/`](ilink/))
+- **Session lifecycle** — `Negotiate` / `NegotiationResponse` / `NegotiationReject`, `Establish` / `EstablishmentAck` / `EstablishmentReject`, `Terminate` / `DoTerminate`, `ResetUUID`, and party-details registration (`RegisterPartyDetails` / `PartyDetailsAck`).
+- **Reliability & recovery** — `Sequence` heartbeats, `NotApplied` gap detection, `Retransmission` / `RetransmissionReject` message recovery, and automatic re-establish / reconnect.
+- **Auth & failover** — HMAC-SHA256 authentication and primary/secondary failover (`InitPrimary` / `InitSecondary`, `handler_primary` / `handler_secondary`).
+
+**MDP 3.0 market data** ([`mdp3/`](mdp3/))
+- **Gap handling** — sequence-gap detection and channel-reset handling across the A/B feeds.
+- **Full recovery** — snapshot recovery, instrument-definition recovery (`DoInstrumentRecovery` / `EndInstrumentRecovery`), and incremental data recovery (`DoDataRecovery` / `EndDataRecovery`, via `RecoveryProcessor`, `DataRecoveryRecorder`, and `InstrumentRecoveryRecorder`).
+
+This is precisely the "you'll code sequence gap fills, session persistence, and failover yourself — and still have to pass autocertification" work that commercial iLink 3 SDKs are sold to cover. In Kaspar it is implemented, certified, and open source.
 
 ## Key Features
 
@@ -233,7 +272,7 @@ The actor framework provides the concurrency model for the entire system:
 
 - **Message passing** — `BQueue` mailbox per actor, O(1) dispatch via `handler_cache[msg_id]`
 - **Groups for deterministic simulation** — A `Group` runs multiple actors on a single thread with a single message queue. In PCAP replay, the entire pipeline (OB, lights, SOM) goes into one Group — market data, order placement, and fill matching execute in strict message order. No race conditions, no timing artifacts. Bit-exact reproducible backtests.
-- **Zero-copy fast path** — `fast_send()` executes the handler in the caller's thread for synchronous queries — no queue, no thread hop. See the technical report [**fast_send.pdf**](tech_reports/fast_send.pdf) for the synchronous-delivery design and its measured cost (~24 ns round trip; see [`actors/cpp/perf`](actors/cpp/perf)).
+- **Zero-copy fast path** — `fast_send()` executes the handler in the caller's thread for synchronous queries — no queue, no thread hop. See the technical report [**fast_send.pdf**](tech_reports/fast_send.pdf) for the synchronous-delivery design and its measured cost (~24 ns round trip on Apple M3, ~30 ns on EPYC; see [`actors/cpp/perf`](actors/cpp/perf)).
 - **CPU affinity** — Pin actors to cores for deterministic latency
 - **C++/Rust interop** — C++ and Rust actors can talk in the **same process** over a C-ABI FFI bridge (`send`/`fast_send` work across the language boundary). This is in-process only — there is no remote/cross-process actor transport.
 - **Rust port** — [`actors/rust`](actors/rust) (`actors`) is a from-scratch Rust port of the actor core (on-stack `fast_send`, integer-ID O(1) dispatch, `BQueue`, object pool). It is in-process only (no ZMQ/registry/groups yet) and ships a **matching engine** as an example — see its [README](actors/rust/README.md) and [DEVELOPER_GUIDE](actors/rust/DEVELOPER_GUIDE.md).
@@ -542,7 +581,7 @@ kaspr {
 | [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) | Writing actors in the Rust port |
 | [actors/rust/MATCHING_ENGINE.md](actors/rust/MATCHING_ENGINE.md) | The matching-engine example |
 | [tech_reports/fast_send.pdf](tech_reports/fast_send.pdf) | Technical report: `fast_send` synchronous message delivery |
-| [tech_reports/shadow_pov.pdf](tech_reports/shadow_pov.pdf) | Technical report: Shadow-POV passive execution |
+| [tech_reports/shadow_pov.pdf](tech_reports/shadow_pov.pdf) &middot; [arXiv:2609.18019](https://arxiv.org/abs/2609.18019) | Technical report: Shadow-POV passive execution |
 | [sim/scripts/run_grid.sh](sim/scripts/run_grid.sh) | The parameter sweep: cells, sessions, and how a run is reproduced |
 
 ## Performance Characteristics
@@ -691,7 +730,7 @@ Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.su
 
 Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow by following the orders other participants place.
 
-The method, the measurement corpus and every number below are written up in the technical report [**shadow_pov.pdf**](tech_reports/shadow_pov.pdf) — *Shadow-PPOV: Model-Free Passive Execution via Order-Level Shadowing and Identifier-Driven Cancellation*.
+The method, the measurement corpus and every number below are written up in the technical report [**shadow_pov.pdf**](tech_reports/shadow_pov.pdf) — *Model-Free Passive Execution via Order-Level Shadowing* — also on arXiv: [**arXiv:2609.18019**](https://arxiv.org/abs/2609.18019).
 
 ### What it costs: relative slippage
 
