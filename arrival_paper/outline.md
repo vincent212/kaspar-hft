@@ -2,7 +2,14 @@
 
 **Paper outline — 2026-09-17 — v@m2te.ch**
 
-**Working title:** "Three Tails in the CME MDP3 Arrival Process: Latency, Adverse Selection, and Return Fat-Tails across ES, NQ, and BTC"
+**Working title:** "Long Latency Tails in HFT Systems Have the Same Signature as Fat Return Tails and Adverse-Selection Tails — Evidence from CME MDP3 on ES, NQ, and BTC, with Implications for Market-Making Systems"
+
+**Alternative title candidates** (pick one on final draft):
+- "Long Latency Tails in HFT Systems Have the Same Signature as Fat Return Tails and Adverse-Selection Tails: Implications for Market-Making Systems" (current — punchy, honest about "signature" not "cause", flags the deployment angle)
+- "Three Correlated Tails in HFT: Latency, Returns, and Adverse Selection Track the Message-Arrival Hawkes, and What That Means for Market Makers"
+- "The Common Arrival-Process Signature Behind Latency, Return, and Adverse-Selection Tails in CME Futures — with Implications for Market Making"
+
+"Same cause" would be the MAL claim we deferred; "same signature" states the empirical fact this paper actually delivers. The "implications for market making" clause promises the paper's deployment story: the online λ̂ estimator + Shadow POV gating result.
 
 **The pitch (verbatim to appear in the abstract):**
 

@@ -474,6 +474,30 @@ $$
 
 That's the "close to critical" story from Filimonov-Sornette and Hardiman-Bouchaud that we replicate and extend.
 
+### 1.6a Visualising the two knobs — what "branching" and "intensity" actually look like
+
+Two Hawkes fits with the same branching ratio but different mean intensity look completely different in an event raster, and same-intensity but different-branching fits look completely different too. Since these are the two knobs the paper stratifies markouts by, spend a minute looking at how they trade off visually.
+
+We simulate an exponential Hawkes on a fixed 60-second window at each of nine $(\bar\lambda, n)$ combinations — the 3×3 factorial of $\bar\lambda \in \{2, 10, 50\}$ events/s and $n \in \{0.30, 0.60, 0.90\}$. For each cell we show:
+
+1. **Event raster** — every arrival as a vertical tick on a 60-second axis. Reveals visible clustering.
+2. **Count curve $N(t)$** — cumulative event count on the same axis. Steeper stretches = bursts.
+3. **Intensity trace $\lambda(t)$** — the underlying Hawkes intensity computed from the simulation. Peaks after clusters, decays during quiet stretches.
+
+**What you should see across the panels:**
+
+- **Low $\bar\lambda$, low $n$ ($\bar\lambda=2$, $n=0.30$).** Nearly Poissonian — event ticks look uniformly random, count curve is nearly a straight line, intensity trace hugs the mean with tiny wiggles. Two events per second, no clustering.
+
+- **High $\bar\lambda$, low $n$ ($\bar\lambda=50$, $n=0.30$).** Dense but still nearly Poissonian — 50 events per second on average, ticks packed together but distributed evenly, count curve steep and straight, intensity trace roughly constant. Busy without being bursty.
+
+- **Low $\bar\lambda$, high $n$ ($\bar\lambda=2$, $n=0.90$).** The most instructive cell for the paper. Mean rate is only 2/s but arrivals come in unmistakable bursts — long empty stretches punctuated by rapid clusters. The intensity trace spikes hard during bursts (up to 20-30 events/s locally) and drifts back to near zero between them. Same mean intensity as the top-left cell but shape is completely different.
+
+- **High $\bar\lambda$, high $n$ ($\bar\lambda=50$, $n=0.90$).** Chaotic — dense arrivals AND strong clustering. The intensity trace swings from ~20/s to ~200/s within the same session. This is what near-critical high-traffic hours (open, close, macro release) actually look like on the CME.
+
+**Why the visualization matters for the paper.** The empirical panel we build (per-30-min window across 730 sessions × 3 streams) samples this 2-D plane at every point. If tail thickness correlated only with $\bar\lambda$, the top-right cell would be the worst-tail cell. If tail thickness correlated only with $n$, the bottom-left cell would tie with the bottom-right. The correlations we report in §5.6 tell us which of those two stories the data actually says.
+
+**Figure spec.** `figs/hawkes_grid_3x3.png` — a 3-row × 9-column grid (3 for the three visualisations × 9 for the (λ̄, n) cells). Simulation script: `arrival_paper/make_hawkes_grid.py` (uses Ogata thinning; RNG seed pinned per cell for reproducibility). To be generated once the batch produces enough real fits to overlay one measured cell per panel as a reality check.
+
 ### 1.7 Why Hawkes captures CME MDP3 and Poisson doesn't
 
 Three data signatures that a Poisson (or any renewal process) cannot produce, but a Hawkes with `n` close to 1 produces naturally:
@@ -706,6 +730,61 @@ $$
 - Underpins the directional signed-markout prediction in §7.5 of the paper.
 
 ## 4. Maximum-likelihood estimation
+
+### 4.0 What "fitting a Hawkes process" actually means — plain English first
+
+Before the math: **what are we doing when we fit a Hawkes to a day's arrival timestamps?**
+
+We have one input and three knobs.
+
+**The input** is a list of arrival times
+
+$$
+t_1 \;<\; t_2 \;<\; \ldots \;<\; t_n
+$$
+
+for one session and one instrument — the timestamps at which MBO or trade messages fired on that session, sorted. Nothing else. Not the prices, not the sizes, not the sides. Just the times.
+
+**The three knobs** are $(\mu, \alpha, \beta)$:
+
+- $\mu$ (mu) — **the exogenous rate**. Even if nothing has happened recently, events arrive at rate $\mu$ per second. In units of events/second. Think of $\mu$ as the rate at which "news" arrives.
+
+- $\alpha$ (alpha) — **the jump size**. Every time an event happens, the intensity spikes up by $\alpha$. In units of events/second. Think of $\alpha$ as "how much does one message beget others."
+
+- $\beta$ (beta) — **the decay rate**. Each spike from $\alpha$ fades exponentially with time constant $1/\beta$. In units of 1/second. Think of $\beta$ as "how fast does excitement fade."
+
+Together, these three knobs make the intensity at any time $t$ equal to
+
+$$
+\lambda(t) \;=\; \mu \;+\; \sum_{t_i < t} \alpha \, e^{-\beta (t - t_i)}
+$$
+
+That is: the current arrival rate is the exogenous base rate $\mu$, plus a contribution from every past event that's decayed by how long ago it was.
+
+**Fitting means: turn the three knobs until this model gives the observed timestamps the highest probability.** Formally, we maximise the log-likelihood written in §4.1. Intuitively:
+
+- If we set $\alpha$ too low, the model can't explain the visible burst-clustering in the data — after a burst, the observed rate is high, but the model would say the rate is still just $\mu$.
+- If we set $\alpha$ too high (approaching $\beta$), the model predicts explosive clustering that doesn't actually happen — we'd be over-explaining and burning likelihood on the compensator (the second term of §4.1).
+- If we set $\mu$ too high, the model puts probability mass on quiet periods that were actually quiet. Bad.
+- If we set $\mu$ too low, the model has no way to fire events at the start of the day before any priors have accumulated. Also bad.
+
+The optimizer (§4.2) tries settings systematically until it finds the triple $(\hat\mu, \hat\alpha, \hat\beta)$ that maximises the log-likelihood. That's the fit.
+
+**Once we have the fit, what do we measure?**
+
+- **Intensity $\lambda(t)$**. Plug the fitted $(\hat\mu, \hat\alpha, \hat\beta)$ into the formula above, and you get $\lambda(t)$ at any time $t$ — a scalar in events/second. This is the paper's real-time signal (see the online estimator, Step E). It's high when the arrivals have been clustering recently, low when the market's been quiet.
+
+- **Branching ratio $n = \alpha / \beta$**. A single unitless number in $[0, 1)$ for the fit to be stationary. Interpretation: on average, each event triggers $n$ future events (of any generation) via the exponential kernel. $n$ close to 0 means arrivals are barely self-exciting (essentially Poisson); $n$ close to 1 means arrivals are near-critical — every event triggers roughly one more, in a chain. §1.6 goes deeper.
+
+- **Long-run mean intensity $\bar\lambda = \mu / (1 - n)$**. The stationary expected arrival rate over a very long observation window. This is $\mu$ (news rate) *amplified* by a factor $1 / (1 - n)$ from self-excitation. On a session where $\mu = 0.45$/s and $n = 0.90$, the mean intensity is $\bar\lambda = 4.5$/s — ten times bigger than $\mu$ alone because each "news event" cascades into ~10 follow-ons before dying out.
+
+**Numerical example (NQH5, 2025-03-10).** On the pilot session we fit:
+
+$$
+\hat\mu = 0.45\ \text{events/s}, \qquad \hat\alpha = 0.068, \qquad \hat\beta = 0.076,
+$$
+
+giving branching ratio $\hat n = 0.68/0.076 \approx 0.90$ and long-run mean intensity $\bar\lambda \approx 4.5$ events/s. This says: on that session, NQ was strongly self-exciting (n = 0.90 is near-critical), the exogenous news rate was small (0.45/s), and the observed mean rate of ~5/s was carried mostly by cascading self-excitation rather than fresh news.
 
 ### 4.1 Log-likelihood
 
