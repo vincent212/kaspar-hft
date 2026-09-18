@@ -757,6 +757,20 @@ Store derived tapes in `/vast/home/vmayeski/out/arrival_paper/tapes/{stream}/{da
 
 ---
 
+## Future work (deferred; not in v1)
+
+Scope for v1 is one outright front-month per stream (ES front, NQ front, BTC front). The following extensions are deliberately out of scope; each has enough interesting content to be its own paper.
+
+- **Cross-excitation between related outrights on the same channel.** Chan 318 carries NQ (E-mini) alongside MNQ (Micro NQ) — a strong prior says a burst on one excites the other, both directly (arb bots cross-hitting) and through common information. Fit a bivariate marked Hawkes on {NQ, MNQ} and estimate the off-diagonal α terms; do the same on chan 310 for {ES, MES}. Adds one dimension per stream; keep the same MAL latent state; test whether one θ_MAL drives both.
+- **Cross-market excitation between channels.** NQ ↔ ES is the natural pair (equity-index co-movement, common-factor risk). Same bivariate Hawkes formalism but the two streams live on different channels with different `handlerendtim` origins, so alignment needs care. Only worth doing after the within-channel micro↔full result is up.
+- **Options overlay** — the CME MDP3 options feeds sit adjacent to the underlying futures feeds. Options-market activity is an obvious upstream driver of underlying-futures arrivals via delta-hedging flow. Requires a distinct feed handler.
+- **Latency-tail causal experiment** — swap the decoder's memory allocator (jemalloc vs pool allocator) and re-fit; expect only the exogenous piece of the latency tail to move, not the arrival-driven queueing piece. Backs the paper's causal claim about which tail component we're measuring.
+- **Cross-venue microstructure** (CME vs ICE for the same product family) — different matching engines, different orderbook rules, similar underlyings. Tests whether the arrival regularities we find are venue-specific or product-specific.
+
+Signal we're getting good enough within-scope results to defer these: MAL-factor fit explains > 40 % of variance across the three signatures (§4), and per-stream Hill exponents cluster tightly by regime.
+
+---
+
 ## Publication notes
 
 - **Nothing proprietary in the .bin format schema goes in the paper.** Same discipline as fast_send: aggregate statistics and Python only.
