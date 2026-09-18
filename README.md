@@ -704,8 +704,18 @@ not the framework or the queue:
 - Those bursts become **large packets** (CME coalesces), and in-packet position
   becomes latency through the slope — this is where the tail lives.
 - The mailbox **queue** is a rare event: the ring is empty for 87–99.7% of
-  messages, and queue depth ≥ 3 fires on ~0.08%. It is convex, as queueing theory
-  predicts, but small.
+  messages, and queue depth ≥ 3 fires on ~0.08%. Its cost is real but small — and
+  it is the mailbox occupancy, not the actor framework, that moves latency.
+
+<p align="center">
+  <img src="tech_reports/img/queue_latency.png" width="600"
+       alt="Median latency vs mailbox queue occupancy: ~7us floor at qlen=0, rising convexly as the ring fills">
+</p>
+
+With in-packet position held fixed, latency at `qlen = 0` sits at the ~7 µs floor
+(where 87–99.7% of messages are); when a burst does back the ring up, the median
+climbs **convexly** with occupancy — the queueing effect is genuine but confined
+to a rare tail.
 
 **Design takeaway:** to cut the tail, attack the per-message decode **slope**, not
 the queue depth or the message rate.
