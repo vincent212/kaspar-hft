@@ -8,7 +8,9 @@
 
 ## Target
 
-Ship an arXiv paper titled *"Three Tails, One Signal: Latency, Adverse Selection, and Return Fat-Tails from the CME MDP3 Arrival Process in ES, NQ, and BTC"*, introducing the **MAL** (Market Activation Level) model.
+Ship an arXiv paper (working title: *"Long Latency Tails in HFT Systems Have the Same Signature as Fat Return Tails and Adverse-Selection Tails — Evidence from CME MDP3 on ES, NQ, and BTC, with Implications for Market-Making Systems"*).
+
+**Scope frozen 2026-09-18 (see `outline.md` §SCOPE).** Deliver: (i) three tail metrics on a ~5000-window panel co-move; (ii) all three track (n, λ̄) via marginal + partial Spearman correlations; (iii) working online O(1) intensity estimator + Shadow POV λ̂-gating backtest. NO latent-factor model (MAL is a follow-on). NO signed λ (that's another follow-on).
 
 ## Corpus
 
@@ -29,7 +31,7 @@ Ship an arXiv paper titled *"Three Tails, One Signal: Latency, Adverse Selection
 | **Week 6** | Online estimator + Lindley latency simulation shipped. | Python `kaspar_arrival` module. Latency-tail scalar per session. λ̂-vs-realized-vol scatter on pilot day. |
 | **Week 7-9** | Fill-tape construction from MBO L3. Attach queue features + λ̂. Per-fill markouts at 6 horizons. | fill_tape parquet per session. Validation vs a hand-checked sample of ~200 fills. |
 | **Week 10** | Return-tail Hill estimation per session. | `1/ν_day` and `1/ν_hour` in the panel. |
-| **Week 11** | Full panel assembled — daily (2,200 rows) and hourly (14,000 rows) × 3 streams. MAL SEM fitted. Robustness checks. | Numerical result: MAL one-factor R² for daily and hourly. |
+| **Week 11** | Full per-window panel assembled — ~5000 rows × 3 streams. **Result 1** (9 cross-tail Spearman correlations) computed. **Result 2** (36-cell arrival-side attribution) computed. Robustness across window sizes. | Numerical result: signs + magnitudes of all 45 correlations. |
 | **Week 12** | Cross-product analysis (ES/NQ/BTC). Regime splits (open/close/FOMC). Passive-quoter frontier. | All figures 1-11 drafted. |
 | **Week 13-16** | LaTeX drafting. Companion `.md` article (like `md_latency_article.md`). Internal review. arXiv submission. | Paper submitted. |
 
@@ -116,29 +118,32 @@ If elapsed to Week 20 with no submission → cut line applies (see below).
 | G4 | Run across corpus | 4 | yes | low |
 | **G subtotal** | | **~40 hrs (~1 week)** | | |
 
-### Group H — Panel + MAL SEM
+### Group H — Panel + correlations (no SEM, no MAL — see scope in outline)
 
 | # | task | est hrs | parallel? | risk |
 |---|---|---|---|---|
-| H1 | Assemble daily panel: 2,200 × 30 columns per stream | 8 | no | low |
-| H2 | Assemble hourly panel: 14,000 × 30 columns per stream | 8 | no | low |
-| H3 | Activity gate (drop bottom 10% by event count) | 4 | no | low |
-| H4 | Primary MAL SEM: five-observed one-hidden-factor fit | 12 | no | medium — SEM convergence, `lavaan`/`semopy` |
-| H5 | Robustness: two-factor SEM (activity + criticality) | 8 | no | low |
-| H6 | Robustness: partial-out volume, re-fit one-factor SEM on residuals | 8 | no | low |
-| H7 | Robustness: stratified analysis (n vs adv_pnl within mean-λ decile) | 8 | no | low |
-| H8 | Cross-product ES/NQ/BTC comparison | 12 | no | low |
-| H9 | Regime splits (open/close/FOMC vs matched controls) | 20 | no | medium |
-| **H subtotal** | | **~90 hrs (~2 weeks)** | | |
+| H1 | Assemble per-window panel: ~5000 rows × 10 columns per stream (window_id, session, n, λ̄, log|adv_pnl|_p95, 1/ν, log p99_lat, event_count, gate_flag) | 12 | no | low |
+| H2 | Activity gate: drop bottom 10% by event count; sensitivity at 5% and 20% | 4 | no | low |
+| H3 | Roll-day drop: exclude ± 1 day around volstats-vs-DB mismatch flags | 2 | no | low |
+| H4 | **Result 1 — cross-tail co-movement**: 9 pairwise Spearman correlations (3 tail pairs × 3 streams) + 3×3 scatter figure per stream | 8 | no | low |
+| H5 | **Result 2 — arrival-side attribution**: 36-cell table of marginal + partial Spearman for each of (3 tails × {n, λ̄}) × 3 streams | 8 | no | low |
+| H6 | Robustness: rerun H4 + H5 at 5-min, 15-min, 30-min, 60-min window sizes; report stability of signs and rough magnitudes | 12 | no | low |
+| H7 | Cross-product comparison: sign and magnitude consistency of the 45 correlations across ES / NQ / BTC | 8 | no | low |
+| H8 | Regime splits (open / close / FOMC vs matched controls) — same 45 correlations per regime | 20 | no | medium |
+| **H subtotal** | | **~74 hrs (~2 weeks)** | | |
+
+*Deleted from earlier plan: MAL SEM fit, two-factor SEM, partial-out-volume + re-fit SEM residuals, stratified within-decile SEM regressions. These are follow-on paper tasks per the outline's SCOPE section.*
 
 ### Group I — Application (passive-quoter frontier)
 
 | # | task | est hrs | parallel? | risk |
 |---|---|---|---|---|
-| I1 | Compute fill-rate + avg adverse-markout curve as function of `λ̂` threshold `θ` | 12 | no | low |
-| I2 | Directional variant using 2-D signed `λ̂` | 12 | no | low |
-| I3 | Compare across ES/NQ/BTC | 8 | no | low |
+| I1 | Compute fill-rate + avg adverse-markout curve as function of `λ̂` threshold `θ` — **total intensity only** | 12 | no | low |
+| I2 | Cross-product comparison ES / NQ / BTC of the fill-rate-vs-toxicity frontier | 8 | no | low |
+| I3 | Shadow POV λ̂-gate backtest: replay a POV algo on the fill_tape with and without a λ̂ > θ block-quote gate; report ticks-saved-per-fill × slippage | 12 | no | low |
 | **I subtotal** | | **~32 hrs (~1 week)** | | |
+
+*Deleted from earlier plan: signed-λ̂ directional variant (I2 old). That's the follow-on signed-Hawkes-alpha paper.*
 
 ### Group J — Writing
 
@@ -162,10 +167,10 @@ If elapsed to Week 20 with no submission → cut line applies (see below).
 | E — latency sim | ~32 |
 | F — fill tape | ~170 |
 | G — return tail | ~40 |
-| H — panel + MAL SEM | ~90 |
+| H — panel + correlations (no SEM) | ~74 |
 | I — application | ~32 |
 | J — writing | ~190 |
-| **Total** | **~900 hrs** |
+| **Total** | **~884 hrs** |
 
 At **35 hrs/week focused** → **~26 weeks = 6 months** elapsed.
 At **20 hrs/week competing with day-job** → **~45 weeks = 10 months** elapsed.
@@ -181,7 +186,7 @@ At **20 hrs/week competing with day-job** → **~45 weeks = 10 months** elapsed.
 - **E (Lindley)** independent of C, D, F.
 - **F (fill tape)** needs A3 (BBO) — this is the critical path.
 - **G (return tail)** needs A3 (BBO) for mid-price reconstruction, otherwise independent.
-- **H (SEM)** is downstream of everything.
+- **H (panel + correlations)** is downstream of everything.
 - **J (writing)** starts in parallel with C/D/E once the introduction and methodology sections are drafted.
 
 Critical path: **A1 → A2 → A3 → F → H → J**. That's the tightest sequential chain and defines the schedule.
@@ -193,7 +198,7 @@ Critical path: **A1 → A2 → A3 → F → H → J**. That's the tightest seque
 - **G Hill estimator + Fréchet fit** — well-scoped statistical task. Delegate.
 - **J3 figure scripts** — one-day-per-figure sub-tasks. Delegate to a data-viz-capable agent one at a time.
 
-Everything else — MLE numerics, SEM identification, fill-tape semantics, MAL model positioning — stays with you because it's judgment-heavy.
+Everything else — MLE numerics, fill-tape semantics, correlation-panel interpretation, cross-tail figure design — stays with you because it's judgment-heavy.
 
 ## Risks + mitigations
 
@@ -202,7 +207,8 @@ Everything else — MLE numerics, SEM identification, fill-tape semantics, MAL m
 | Hawkes MLE fails to converge on many sessions | medium | medium | use MoM warm-start; retry with bounds; flag failed sessions rather than drop |
 | BBO reconstruction has subtle bugs | medium | high | hand-check a 5-min window against a Databento reference; unit-test edge cases |
 | Fill-tape semantics wrong on iceberg/modify | high | high | validate against a small hand-checked sample; consult CME MDP3 semantics doc |
-| MAL SEM captures < 15% joint variance | medium | high | fall back to A/B/C/E/F standalone paper; MAL becomes a follow-up |
+| Cross-tail correlations weak or one-sign-flipped on a stream | medium | medium | report the null honestly; the paper still stands on the pairwise-established priors (Hardiman-Bercot-Bouchaud, Filimonov-Sornette, etc.); the "three-way joint on same panel + 3 products" contribution survives even if one cell is flat |
+| Decoder-latency-tail measurement noisy (handlerendtim quantization, replay-mode artifacts) | medium | high | use a hand-checked pilot day; report the noise level and the SNR; if too noisy, revert to using packet-span instead of decode time |
 | BTC results very different from ES/NQ | medium | medium | report as regime effect, don't force one story |
 | Compute overrun (multi-day sessions or 731-day scale takes weeks) | low | medium | already have 72-core box + terabytes of scratch; monitor |
 | Day-job trading competes for hours | high | high | reserve fixed weekly hours (say Mon/Wed/Fri mornings); protect them |

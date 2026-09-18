@@ -1,6 +1,35 @@
 # Arrival Process, Latency, and Toxicity in CME ES / NQ
 
-**Paper outline — 2026-09-17 — v@m2te.ch**
+**Paper outline — v@m2te.ch — scope frozen 2026-09-18**
+
+## SCOPE (frozen — do not expand)
+
+This is the paper. Nothing more, nothing less.
+
+**Claim.** On a panel of ~5000 30-minute windows across ~730 sessions × 3 CME products (ES, NQ, BTC), three tails move together and all three track the same driver:
+
+- **decoder wire-to-book latency tail** (p99 latency, from three-timestamp anatomy)
+- **maker-adverse-selection tail** (p95 |markout| on real historical passive fills)
+- **return fat-tail exponent** (Hill / Fréchet on window mid-quote returns)
+
+All three correlate — marginally and after partialling — with the two Hawkes summaries fitted per window: **λ̄ (mean intensity)** and **n = α/β (branching ratio)**. High λ̄ and high n → simultaneously fat tails in all three domains.
+
+**Novelty (lit-search verified 2026-09).** The three pairwise legs are separately published (return × Hawkes: Hardiman-Bercot-Bouchaud 2013, Filimonov-Sornette 2012, Wehrli-Wheatley-Sornette 2021; adverse-selection × Hawkes: Cartea-Jaimungal-Ricci 2014, Rambaldi-Bacry-Lillo 2017; decoder-latency: essentially unpublished). What is NOT published anywhere the two-agent lit search could find is the **joint three-way panel** with cross-tail correlations + joint Hawkes attribution + three-product cross-check.
+
+**Deployment.** Shipping the online O(1) intensity estimator (`arrival_paper.online.HawkesEstimator`, MIT) that a market-making system can gate on in real time. Backtest: Shadow POV λ̂-gating on the paper's fill_tape.
+
+**What this paper does NOT do — deferred to follow-on papers.**
+
+- **No latent-factor model.** No one-factor SEM, no MAL-extended Hawkes. The "why do the three tails share this arrival-side signature" question is a follow-on (MAL paper).
+- **No signed λ.** Only total λ̂ = λ̂⁺ + λ̂⁻. The signed variant λ̂⁺ − λ̂⁻ as a directional alpha is its own follow-on (signed-Hawkes-vs-CKS-OFI paper).
+- **No cross-market or cross-asset excitation.** Fit one Hawkes per (session, stream) independently. NQ↔MNQ, ES↔MES, NQ↔ES cross-excitation is another follow-on.
+
+**Filters applied.**
+- Drop bottom 10% of windows by event count (low-intensity gate; n unreliable there, tails tiny anyway).
+- Drop volstats-vs-DB roll-day mismatches ± 1 day around each (contract-roll churn contaminates both n and λ̄).
+- 2025-01-01 → 2026-02-27 corpus (2024 skipped for now; BTC deferred if master_universe.326 doesn't materialise).
+
+---
 
 **Working title:** "Long Latency Tails in HFT Systems Have the Same Signature as Fat Return Tails and Adverse-Selection Tails — Evidence from CME MDP3 on ES, NQ, and BTC, with Implications for Market-Making Systems"
 
