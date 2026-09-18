@@ -1364,7 +1364,13 @@ void act::OB::notifybbbosubs(
     en::x venue)
 {
   // Throttle: minimum 100ms between notifications (max 10/sec)
-  // txtim is in nanoseconds
+  // txtim is in nanoseconds.
+  //
+  // Compile with -DBBBO_NO_THROTTLE to disable this throttle entirely,
+  // e.g. for the arrival-process BBO tape recorder (bin_replay_bbo) which
+  // needs every top-of-book change, not a decimated 10/sec view. Production
+  // keeps the throttle on to bound SOM/light hop budgets.
+#ifndef BBBO_NO_THROTTLE
   const uint64_t MIN_INTERVAL_NS = 100'000'000;  // 100ms in nanoseconds
 
   if (last_bbo_notify_tim != 0) {
@@ -1374,6 +1380,7 @@ void act::OB::notifybbbosubs(
       return;
     }
   }
+#endif
 
   if (best_bid >= best_ask)
   {

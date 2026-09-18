@@ -116,6 +116,13 @@ core.*
 dbento_pcap_parse/scripts/out/
 dbento_pcap_parse/*/src/*.P
 dbento_pcap_parse/filter_bin/src/filter_bin
+dbento_pcap_parse/msgtape/src/msgtape
+dbento_pcap_parse/bin_replay_bbo/src/bin_replay_bbo
+dbento_pcap_parse/bin_replay_bbo/src/bin_replay_bbo_log.*
+dbento_pcap_parse/bin_replay_bbo/src/bin_replay_bbo_universe_seed.csv
+dbento_pcap_parse/bin_replay_bbo/src/fenics_*.out
+dbento_pcap_parse/bin_replay_bbo/src/som*.out
+dbento_pcap_parse/bin_replay_bbo/src/volume_*.csv
 
 # LaTeX build artifacts
 tech_reports/*.aux
