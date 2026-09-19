@@ -422,9 +422,11 @@ def build_hourly_panel(msg_tape_csv: str,
             row["p50_lat_handler_ns"] = p50_hd
             row["p99_lat_handler_ns"] = p99_hd
 
-            # Queue sim runs on the raw matching-engine arrival stream T_m
-            # (transactTime, same one Hawkes is fit on inside this window).
-            # window_ts is already the in-window slice and sorted.
+            # Queue sim runs on the RAW matching-engine arrival stream T_m
+            # (transactTime, sorted, same-ns duplicates KEPT). Same-ns
+            // records are distinct SBE messages that each require one
+            // service slot — dropping them would erase the burst structure
+            // the paper is measuring.
             p50_qs, p99_qs = qsim_p50p99_in_window(
                 window_ts, qsim_service_us * 1_000)
             row["p50_qsim_ns"] = p50_qs

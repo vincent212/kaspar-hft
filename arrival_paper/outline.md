@@ -1,18 +1,35 @@
-# Arrival Process, Latency, and Toxicity in CME ES / NQ
+# Modelling Real-World Latency Tails in a CME Futures Order-Book Simulator
 
-**Paper outline — v@m2te.ch — scope frozen 2026-09-18**
+**Paper outline — v@m2te.ch — scope frozen 2026-09-18, reframed 2026-09-18**
 
 ## SCOPE (frozen — do not expand)
 
-This is the paper. Nothing more, nothing less.
+This is a paper on **order-book simulator methodology**, not a descriptive paper on tails.
 
-**Corpus.** **CME NQ front-month only** (chan 318). 2025-01-01 → 2026-02-27, ~416 sessions × ~10 windows / session ≈ **~4000 windows**. ES and BTC deferred to a cross-product follow-on paper (see Future Work).
+**Thesis.** Treating execution latency as constant in an LOB simulator materially misprices market-making and passive-execution algorithms. On CME MDP3 message data we (a) measure that the four other tails (matching-engine latency, send-to-handler latency, maker adverse selection, return) all move together and load on the same Hawkes arrival intensity + branching ratio; (b) upgrade the Kaspar simulator's latency model from constant delay to a two-queue system (an exchange-side queue absorbing matching-engine bursts + a local system queue with deterministic service driven by the same arrival stream); (c) re-run the shadow POV execution algorithm under constant-delay and tail-aware latency and quantify the P&L / adverse-selection / fill-rate delta as a **correction to prior shadow-POV numbers**.
 
-**Claim.** On this ~4000-window NQ panel, **five tails move together** and all five track the same driver. Three of the five are separate physical stages of the message-arrival latency chain that the three-timestamp anatomy in the .bin data (`transactTime`, `sendingTime`, `recv_time`, `handlerendtim`) exposes for the first time at scale:
+**Corpus for measurement.** **CME NQ front-month only** (chan 318). 2025-01-01 → 2026-02-27, up to ~281 sessions (as many as complete under a ≤24 h compute budget), ~10 30-min windows/session ≈ ~2800 windows. ES and BTC deferred to cross-product follow-on.
+
+**Simulator upgrade.** Kaspar's current simulator uses a constant per-message delay. New model:
+- **Exchange-side queue** — matching-engine time draws from the empirical `sendingTime − transactTime` distribution conditioned on the current window's Hawkes state.
+- **System-side queue** — deterministic service of X μs (default 7 μs) fed by real handlerendtim arrivals, giving the modelled p50/p99 receive latency the fifth tail already reports.
+- Compose the two: total order-round-trip = exchange-side wait + system-side service.
+- Baseline for comparison: current constant-delay setup.
+
+**Shadow re-run.** Same shadow POV configuration as prior article, run twice on the same tape:
+- Baseline: constant delay (previous article's number).
+- Corrected: tail-aware two-queue delay.
+- Report P&L, adverse-selection cost per fill, fill rate.
+
+**What the fat-tail measurement contributes.** It supplies the driving distributions the simulator needs — not a standalone claim. The five tails still get correlations vs (n, λ̄) reported (grid heatmaps and 22–30 Spearman cells) because the correlation structure is what motivates the two-queue design: latency and adverse selection co-move under the same Hawkes driver, so a simulator that fixes latency without repricing adverse selection would be internally inconsistent.
+
+**Working title.** "Modelling Real-World Latency Tails in a CME Futures Order-Book Simulator — and What They Do to a Shadow POV Execution Algorithm"
+
+**Claim.** On this ~4000-window NQ panel, **five tails move together** and all five track the same driver. The tail set:
 
 - **Matching-engine tail** — p99 of `sendingTime − transactTime` (how long CME's matching engine took to publish an event through its gateway)
-- **Send-to-receive tail** — p99 of `recv_time − sendingTime` (network transit from CME's gateway to our pcap capture)
-- **Decoder tail** — p99 of `handlerendtim − recv_time` (our software decoder wire-to-book)
+- **Send-to-handler tail** — p99 of `handlerendtim − sendingTime` (databento wire → handler-end; the software-side decode / dispatch time under the same message-arrival load)
+- **Modelled receive-queue latency tail — the HFT-system centrepiece** — for the sequence of message arrivals at `sendingTime` we simulate a single-server G/D/1 queue with a fixed **1 μs receive overhead** and deterministic **service time swept from 1 μs to 20 μs**; report p50 and p99 of per-message system time (wait + service) as a function of service time. On the operating point of the deployed decoder (default 7 μs), track the per-window p99 as `log_p99_qlen`. This is the tail an HFT system architect actually cares about — it says "for a decoder budgeted at X μs per message, this is the p99 wire-to-book latency your resting book will see under real CME NQ arrival bursts."
 - **Maker-adverse-selection tail** — p95 of |markout| on real historical passive fills
 - **Return fat-tail** — Hill / Fréchet tail exponent 1/ν on window mid-quote returns
 
@@ -20,9 +37,24 @@ All five correlate — marginally and after partialling — with the two Hawkes 
 
 **Correlations reported.** 10 pairwise cross-tail Spearman correlations on the NQ panel + 20 marginal + partial arrival-side attribution cells (5 tails × 4 correlations {ρ(n), ρ(λ̄), ρ(n|λ̄), ρ(λ̄|n)}) = **30 correlations total**.
 
-The three latency-stage tails are separate physical mechanisms (queueing on CME's ME, queueing on CME's egress + network, queueing on our decoder) sharing the same *arrival-side driver* — that is a stronger empirical statement than a single "end-to-end latency" tail correlates, because it shows the effect is not an artifact of one specific queue.
+The three arrival-side latency-stage tails (matching-engine, send-to-handler, modelled receive-queue) are separate physical mechanisms sharing the same *arrival-side driver* — a stronger empirical statement than "one end-to-end latency tail correlates," because the effect reaches into every queue in the chain, one after another. In particular the modelled receive-queue tail is a design-time knob: system-architecture readers get the p99-vs-service-time curve for their own decoder budget, computed on real NQ traffic (not synthetic Poisson).
 
-**Novelty (lit-search verified 2026-09).** The pairwise legs are separately published (return × Hawkes: Hardiman-Bercot-Bouchaud 2013, Filimonov-Sornette 2012, Wehrli-Wheatley-Sornette 2021; adverse-selection × Hawkes: Cartea-Jaimungal-Ricci 2014, Rambaldi-Bacry-Lillo 2017; decoder / packet-arrival latency: essentially unpublished at panel scale; matching-engine or send-to-receive latency decomposition: unpublished — three-timestamp anatomy has not appeared before). What is NOT published anywhere the two-agent lit search could find is the **joint five-way panel** with cross-tail correlations + joint Hawkes attribution + three-product cross-check.
+**First look at the modelled-queue tail** (NQH5, 2025-01-02, 17.3 M arrivals, receive = 1 μs):
+
+| service (μs) | p50 sys time (μs) | p99 sys time (μs) |
+|---|---|---|
+| 1 | 1.0 | 5.0 |
+| 5 | 5.0 | 30.0 |
+| 7 | 7.0 | 42.0 |
+| 10 | 10.0 | 70.0 |
+| 15 | 15.0 | 130.6 |
+| 20 | 20.0 | 201.5 |
+
+p50 tracks the service floor 1:1 (the median arrival finds the queue empty), but p99 grows super-linearly with service budget — at 20 μs the burstiest 1% of arrivals see 10× the service time by the time they clear. Chart: `arrival_paper/figs/qlen_service_sweep_20250102.png`.
+
+Note on what the tape can't split. The .bin data schema reserves a `recv_time` field (pcap kernel timestamp) that would let us physically split the send-to-handler stage into network-transit vs software-decoder. In the current databento .bin conversion pipeline `recv_time` is zero-initialized (no pcap timestamps are propagated), so a *direct* two-way physical split of that stage is not computable from this tape. The modelled-queue tail is exactly the substitute: instead of measuring one specific decoder, we simulate the queue behaviour parametrically so the reader can pick their own service-time operating point.
+
+**Novelty (lit-search verified 2026-09).** The pairwise legs are separately published (return × Hawkes: Hardiman-Bercot-Bouchaud 2013, Filimonov-Sornette 2012, Wehrli-Wheatley-Sornette 2021; adverse-selection × Hawkes: Cartea-Jaimungal-Ricci 2014, Rambaldi-Bacry-Lillo 2017; end-to-end HFT latency at panel scale: essentially unpublished for CME futures; separating matching-engine latency from downstream decode latency inside one Hawkes attribution framework: unpublished). What is NOT published anywhere the two-agent lit search could find is the **joint five-way panel** with cross-tail correlations + joint Hawkes attribution + a **modelled-queue-latency curve on real CME arrivals** that HFT system architects can use to size their own decoder — computed on ~416 NQ sessions of raw MDP3, not synthetic Poisson.
 
 **Deployment.** Shipping the online O(1) intensity estimator (`arrival_paper.online.HawkesEstimator`, MIT) that a market-making system can gate on in real time. Backtest: Shadow POV λ̂-gating on the paper's fill_tape.
 
@@ -174,462 +206,277 @@ This paper's N-G contribution is exactly that five-way joint. Modest but empiric
 
 ### Abstract
 
-Five tails in five domains — three physical latency stages (matching-engine → gateway, gateway → capture, decoder wire-to-book), the maker-adverse-selection tail, and the return fat-tail — are each linked to the CME MDP3 NQ message-arrival process. We measure all five on ~416 trading sessions of the NQ E-mini front-month (chan 318, 2025-01 → 2026-02) using raw MDP3 with three per-message timestamps (matching-engine, gateway-send, capture-recv). We fit exponential Hawkes per 30-min window (mean branching ratio ~ 0.92 NQ), track every historical passive maker order via MBO L3 order_id to compute per-fill adverse P&L, and estimate return-tail exponents ν_window. We then report marginal and partial correlations of each of the five tails against the two Hawkes summaries `(n_window, λ̄_window)` — 20 arrival-side attribution cells — plus 10 pairwise cross-tail correlations. As applications we (i) predict next-100 ms packet spans and decoder-latency percentiles from real-time λ̂ (RMSE ≤ Y µs), and (ii) show that a passive quoter gating on λ̂ saves **Z ticks per fill** of adverse selection at **W%** loss in fill rate. Companion Python module `arrival_paper` (MIT) ships the online O(1) intensity estimator and the full analysis pipeline. Cross-product replication on ES and BTC, and whether the five tails share a single hidden driver (Market Activation Level, MAL), are follow-on papers.
+Limit-order-book simulators treat per-message latency as a constant scalar or an i.i.d. draw from a supplied distribution, with no coupling to the arrival process. This paper shows that assumption is materially wrong for CME NQ and provides a minimal correction. We measure five tails on ~281 sessions of NQ front-month MDP3 (matching-engine latency, send-to-handler latency, modelled queue latency, adverse-selection markout, return proxy), fit exponential Hawkes per 30-min window, and report their behaviour across the (λ̄, n) plane on a 5×5 equal-quantile grid. We then upgrade the Kaspar simulator's constant per-message delay to a two-queue G/D/1 model — one system-side queue with the operator's own service time, one exchange-side queue with a service time estimated from public MDP3 by taking a low quantile of `sendingTime − transactTime`. The recursion is a one-line change to Kaspar's existing `pub_q` and `del_q` release rule, guarded by `#ifdef OB_TAIL_DELAY` so the constant path stays bit-identical. Heavy-tailed system latency emerges naturally: the Hawkes clustering lives in the tape's arrival timestamps, and a G/D/1 with the right service time reads it off for free. We A/B a shadow POV execution algorithm on the same tape under {constant delay, tail-aware delay} and quantify the P&L, fill-rate, and adverse-selection delta as a correction to prior shadow-POV results. Companion open-source repo ships the msgtape parser, per-window panel builder, calibration script for exchange service time, and the Kaspar OB upgrade.
 
 ### 1. Introduction
 
-**The three tails.** A trading system experiences three quite different pathologies, each in its own domain:
+LOB simulators are the standard tool for evaluating market-making and execution algorithms in academic and industrial research: ABIDES (Byrd et al. 2020), ABIDES-Markets, MarketSim (Wellman group), JAX-LOB (Frey et al. 2023), CoinTossX (Jericevich et al. 2022), Kaspar. Every one of them treats latency as a constant scalar or an i.i.d. draw from an exogenous distribution, decoupled from the arrival process. On real CME MDP3 data this assumption is wrong — arrivals are Hawkes-clustered, and the same clustering that produces fat return tails and adverse-selection tails also produces heavy-tailed system latency through any downstream queue.
 
-1. **The decoder-latency tail** — the p99 wire-to-book time is dominated by rare bursts when many messages arrive inside one decode interval, converting into oversized UDP packets and inflated per-message serialisation cost (fast_send, 2026).
-2. **The maker-adverse-selection tail** — the worst adverse markouts on passive fills are concentrated in a small share of fills, disproportionately fast fills that occur near the peak of activity bursts (Kirilenko 2011, aligrithm 2026).
-3. **The return-fat-tail** — the unconditional distribution of high-frequency price returns has power-law tails much heavier than a Gaussian (Bacry-Muzy 2015, Blanc-Donier-Bouchaud 2017, and 30 years of stylized facts).
+**LOB simulator landscape.**
 
-Each of these has a substantial literature and each is treated in its own community — infrastructure engineers, execution quants, and stochastic-analysis researchers rarely read the same papers.
+| Simulator | Substrate | Latency model | Book type | Tape replay | Agents | Reproducibility |
+|---|---|---|---|---|---|---|
+| ABIDES (Byrd 2020) | ns discrete-event, Python | Per-link scalar or i.i.d. distribution | MBP synth | No | ZI + MM + HFT | Seeded |
+| ABIDES-Markets | ABIDES + ARL | Same as ABIDES | Same | No | RL + strategic | Seeded |
+| MarketSim (Wellman) | Strategic ABM, Java | Fixed cross-venue delay | MBP synth | No | Strategic MM / arb | Deterministic |
+| JAX-LOB (Frey 2023) | GPU parallel, JAX | None | MBP | Yes | None | Deterministic |
+| CoinTossX (Jericevich 2022) | Real matching engine, Go | Real network | MBP | Yes | External clients | Not deterministic |
+| LOBSTER | Reconstruction only | N/A | MBO | Yes (playback) | None | Deterministic |
+| Kaspar (this paper) | Actor framework, C++20 | Constant scalar (baseline); **G/D/1 (new)** | MBP or MBO | Yes (MDP3 .bin) | Shadow POV | Deterministic (market time) |
 
-**The claim.** They are the same phenomenon. The near-critical Hawkes clustering of the underlying message arrival process is the common driver. When λ̂(t) — the local message-arrival intensity — spikes, packet spans grow, passive quotes get filled by informed aggressors while the price walks against them, and the marginal return distribution over that window is heavy-tailed. On days where the fitted branching ratio `n_day` sits closer to 1, all three tails fatten together. On days where it sits further from 1, all three tails are more moderate.
+None of the seven has a queue-based latency model driven by the arrival stream. That is the gap this paper closes.
 
-**What this paper does:**
+**Contributions.**
 
-- Fits marked exponential Hawkes to raw MDP3 message tapes across 731 days × 3 products (ES chan 310, NQ chan 318, BTC chan 326), producing per-session parameter distributions with time-rescaling goodness-of-fit tests.
-- Computes per-fill adverse P&L on every historical maker fill in public MBO L3 (via order_id tracking), and correlates it with real-time λ̂.
-- Estimates return tail exponents ν_day at multiple horizons per session.
-- Assembles the per-window triple (n_window, |adv_pnl_p95|, 1/ν_window) and reports its marginal correlations against (n_window, λ̄_window). The full 18-correlation panel is the headline result. No SEM is fit in this paper.
-- Publishes an online O(1) intensity estimator as an MIT Python module and demonstrates two applications: a latency predictor (§5) and a λ̂-gated passive quoter (§9).
+1. **Measurement.** ~281 sessions of NQ front-month MDP3 (~2800 30-min windows), per-window Hawkes fit + five tail metrics + paired absolute-and-relative 5×5 heatmaps on the (λ̄, n) plane.
+2. **A minimal simulator upgrade.** One line of arithmetic in Kaspar's OB release rule flips the model from constant-delay to two-queue G/D/1. Two scalar knobs: `service_us_inbound` (operator profiles their own decoder), `service_us_outbound` (estimated from public MDP3). Regression-safe under `#ifdef`.
+3. **An exchange service-time recipe.** A practitioner running any LOB simulator can take public MDP3, compute `sendingTime − transactTime` per message, and use a low quantile of that distribution as the exchange service time. That's the paper's core deliverable to the broader simulator user community — they already have their own inbound service time from profiling their own code.
+4. **Shadow POV A/B.** Same tape, same algo, two latency models. Reports P&L / fill-rate / adverse-selection delta as a correction to prior shadow-POV results.
 
-**Why three products.** ES and NQ share clientele and correlate closely; if the correlations hold only on those it's a CME-equity artifact. BTC (CME chan 326 crypto futures) has a distinctly different clientele and liquidity profile — if the same tail-vs-Hawkes correlation signs and magnitudes hold across all three, that's evidence for a general property of near-critical financial arrivals, not an ES/NQ quirk.
+**Why the tails come out for free.** Section 3 walks through the intuition: given a G/D/1 with any scalar service time, quiet arrivals emerge with system_time ≈ service_us and bursty arrivals inherit the residual service time of the message ahead. Cluster N messages inside one service_us and the Nth pays ~N × service_us. The tail *is* the cluster-size distribution, and cluster sizes come straight from the tape's Hawkes-structured arrivals — no fitted latency distribution needed.
+
+**Positioning.** This is the empirical/engineering realization of Daw & Pender's (2018) queue-Hawkes theory inside a real trading simulator, validated by a controlled A/B on a shadow POV algorithm calibrated on years of CME NQ MDP3 data.
 
 ### 1.5 Prior art and what this paper actually adds
 
-The four component pieces of this paper — Hawkes on financial arrivals, multivariate Hawkes on LOB, Hawkes for market making, and adverse-selection markouts — each have substantial prior literatures. The specific combination and the corpus scale are what is new.
+This paper sits at the intersection of four literatures: (i) LOB simulators for HFT algorithm evaluation, (ii) exchange-round-trip latency measurement, (iii) queue-Hawkes theory, and (iv) latency-aware market-making backtests. The prior-art survey below was run 2026-09-18 across arXiv, SSRN, Google Scholar, Semantic Scholar, and the ACM DL.
 
-**Closest prior work, by thread:**
+**A. LOB / market-microstructure simulators — how they treat latency**
 
-**A. Hawkes on E-mini S&P (direct competition on the ES side)**
-- **Filimonov & Sornette (2012, 2015)** [arXiv 1302.1405 and follow-ups] — apply Hawkes to E-mini S&P mid-price changes 1998-2010, argue "reflexivity" (branching ratio → 1) has increased over time. This is the seminal work on the exact contract we study.
-- **Hardiman, Bercot & Bouchaud (2013)** — "Critical reflexivity in financial markets" — challenge Filimonov & Sornette on two fronts: (i) branching ratio is close to critical *throughout* 1998-2012 (constant, not rising), and (ii) the Hawkes kernel decays as a *power-law*, not exponential. Also concludes the market is near-critical.
-- **Da Fonseca & Zaatour, Hardiman & Bouchaud** — goodness-of-fit machinery for Hawkes on financial data.
+The dominant published simulators treat per-message latency as **constant or i.i.d. from a supplied distribution, with no state coupling to arrival intensity**:
 
-**B. Multivariate Hawkes on LOB (direct competition on the framework)**
-- **Bacry & Muzy (2015)** review "Hawkes Processes in Finance" — foundational.
-- **Achab, Bacry, Muzy, Rambaldi (2018)** [arXiv 1706.03411, Quant Finance] — nonparametric branching-ratio matrix on EUREX 12-dim event process. This is the state-of-the-art for the bid/ask cross-excitation framework.
-- **Morariu-Patrichi & Pakkanen (2018)** — state-dependent Hawkes for LOB (queue-reactive).
-- **Rambaldi, Bacry, Lillo** — volume-marked Hawkes.
+- **Byrd, Hybinette, Balch (2020)** *ABIDES: Towards High-Fidelity Market Simulation for AI Research* (ACM SIGSIM-PADS; arXiv 1904.12066). Discrete-event nanosecond simulator modelled on NASDAQ ITCH/OUCH. Per-link agent↔exchange latencies are pairwise scalars — constant or drawn from a supplied distribution. **Directly the class of simulator this paper upgrades.**
+- **Vyetrenko, Byrd, Petosa, Mahfouz, Dervovic, Veloso, Balch (2020)** *Get Real: Realism Metrics for Robust LOB Market Simulations* (ICAIF). Stylized-fact realism agenda for ABIDES-style sims — latency handled implicitly via inter-arrival stylized facts, not modelled per message.
+- **Wah & Wellman (2016)** *Latency arbitrage in fragmented markets* (Algorithmic Finance 5). Two-venue ABM; latency is a fixed cross-venue delay used only to define an arbitrage window.
+- **Wang, Hoang, Vorobeychik, Wellman (2021 / MarketSim @ ICAIF 2024)** — strategic ABM; latency not modelled per message.
+- **Jericevich, Chang, Gebbie (2022)** *CoinTossX* (SoftwareX). Production-grade research matching engine; measures latency but does not model client-side stochastic delay.
+- **Cliff (2019)** *A Cloud-Native Globally Distributed Financial Exchange Simulator* (arXiv 1909.12926). Geographically-varying per-link latency; still deterministic per link.
+- **Frey et al. (2023)** *JAX-LOB* (ICAIF) and **Shi et al. (2024)** *TRADES* — GPU / neural-generative sims; latency ignored.
+- **arXiv 2510.08085 (2025)** *A Deterministic LOB Simulator with Hawkes-Driven Order Flow* — Hawkes on the *order flow*, **not** on the *latency*. Closest hit on Hawkes-inside-a-sim; the latency angle is unclaimed.
+- **Rosenbaum & Souilmi (2026)** *Bridging the Reality Gap in LOB Simulation* (arXiv 2603.24137). Discusses exchange round-trip latency as an emergent inter-event clustering scale but does not model the stack.
+- **Oxford-Man (2020)** *Fast Agent-Based Simulation of Pro-Rata LOBs with Study of Latency Effects*. Constant per-agent latency knob; sweeps its value, does not model its distribution.
 
-**C. Hawkes for market making / adverse-selection modeling**
-- **Toke & Pomponio (2012)** — bivariate Hawkes for trades-through.
-- **Kumar (2021)** [arXiv 2109.15110] — Deep Hawkes for HFT market making.
-- **Bellia (2017)** [SSRN 3074313] — HFT market making, liquidity provision, adverse selection.
-- **Easley, López de Prado, O'Hara** — VPIN and flow toxicity (the coarse aggregate proxy for what we compute per-fill).
+**B. Decomposition of exchange round-trip latency inside a simulator**
 
-**D. Empirical adverse-selection markouts on maker fills**
-- **Aligrithm blog (2026)** "Fast-fills-are-bad-fills" — reports market-order avg −0.72 tick markout, sub-minute limit fills −0.31, ten-minute+ limit fills +0.43. The exact intuition we quantify, but in blog form on a small sample, without linking to Hawkes intensity.
-- Practitioner literature broadly agrees that fast fills are toxic; academic quantification with MBO L3 across years is scarce.
+Very thin literature. The main exchange-side latency measurement paper is:
 
-**Debate to be aware of** — Filimonov/Sornette vs Hardiman/Bouchaud on whether branching ratio has risen and whether the kernel is exponential vs power-law. Our multi-year corpus 2023-2026 is in a position to weigh in on both.
+- **Aquilina, Budish, O'Neill (2022)** *Quantifying the HFT "Arms Race"* (QJE 137(1)). Measures the *race margin* (public microsecond gap between a marketable message and the trailing losers) from LSE INET logs. This is an exchange-side quantity — public race margin, not a per-firm engineering decomposition, and it is not embedded in a simulator.
+- **Stoikov & co-authors (2020)** *The Importance of Low Latency to Order Book Imbalance Strategies* (arXiv 2006.08682). Empirical latency-sensitivity study, no decomposition.
 
-**What this paper adds that the above literature does not:**
+**No prior work found** for a peer-reviewed simulator that separately parameterises matching-engine service time, network transit, and decoder time from MDP3-class data.
 
-1. **Three-timestamp anatomy (transact / send / recv) — genuinely novel.** Every prior Hawkes-on-CME paper uses a single timestamp (either exchange transact time or their capture time, depending on the data feed they had). None of the four threads above decompose the arrival process into matching-engine, gateway-send, and capture-recv sub-processes. The `t_send − t_match` distribution — CME's gateway queueing signature — is, as far as I can find, unpublished. This is a first-class contribution.
+**C. Queue-Hawkes theory — Hawkes arrivals feeding a service queue**
 
-2. **Message-level vs packet-level side-by-side.** All academic Hawkes-on-LOB work is at the *event* level (implicitly message-level, since they buy Databento or TAQ book data). No academic paper we can find explicitly contrasts packet-level and message-level arrival statistics — that's the fast_send angle and it's ours by default. This paper reports both and shows how much the packet-level view understates message-level clustering.
+The theoretical machinery exists but has not been coupled to trading-system execution latency:
 
-3. **Multi-year (731 days), ES + NQ + BTC, same corpus, same methodology.** Filimonov 12 years but ES-only and mid-price only; Achab EUREX single-year; Bellia specific-episode datasets. Nobody has published a matched-methodology study of E-mini S&P (ES), E-mini NASDAQ-100 (NQ), *and* CME BTC futures (chan 326) with per-day Hawkes parameter distributions. The NQ and BTC sides are each a contribution on their own — the literature over-samples ES, and CME BTC futures arrival processes are virtually unpublished (crypto Hawkes work is on spot venues like Coinbase/Binance, not CME MDP3). If the framework holds across three products with very different clienteles and liquidity profiles, that's evidence the story is a general property of near-critical financial arrivals, not an ES/NQ quirk.
+- **Daw & Pender (2018)** *Queues Driven by Hawkes Processes* (Stochastic Systems), and *The Queue-Hawkes Process: Ephemeral Self-Excitement* (arXiv 1811.04282 / WSC 2018). Canonical result: heavy-tailed queue-length under heavy-tailed intensity jumps. **The theoretical foundation this paper builds on.**
+- **Koops et al. (2018/2022)** *Infinite-server queues with Hawkes arrivals* (Queueing Systems). Analytical, non-financial.
+- **Gao & Zhu (2024)** *Single-Server Queues with State-Dependent Hawkes Arrivals* (Math. of OR) and *Steady-State Analysis and Online Learning for Queues with Hawkes Arrivals* (arXiv 2311.02577). Theoretical extensions, still non-financial.
 
-4. **Explicit λ̂-decile × per-fill markout on real MBO L3 maker fills at years' scale.** The Achab paper connects branching-ratio matrix to book flows but doesn't compute markouts. The Bellia and Easley VPIN papers compute adverse selection but not conditional on real-time Hawkes intensity. The Aligrithm-style fast-fill studies compute markouts but not conditional on Hawkes intensity. **The λ̂ × real-maker-fill markout cross-product on years of MBO L3 is, as far as we can tell, unpublished.** This is the paper's headline result.
+The financial-Hawkes literature works on order-flow arrivals, not on service queues producing execution delay:
 
-5. **Online O(1) intensity estimator packaged as a public Python module.** The academic Hawkes literature focuses on batch MLE. Real-time intensity is straightforward once you write the recursion, but no widely-adopted open module exists (as of the search). Making `kaspar_arrival` an MIT-licensed practitioner deliverable fills that gap.
+- **Rambaldi, Bacry, Lillo (2017)** [arXiv 1602.07663] — Hawkes on order-book events; no queue model of latency.
+- **Bacry, Mastromatteo, Muzy (2015)** *Hawkes Processes in Finance* (Market Microstructure and Liquidity). Foundational review of event arrivals, not service queues.
+- **Cartea, Jaimungal, Ricci (2014)** *Buy Low Sell High* (SIAM J. Fin. Math. 5). Multivariate mutually-exciting order arrivals in market-making, no exogenous latency queue.
+- **Bacry, Gaïffas, Muzy (2015) queue-reactive Hawkes**, and *State-Dependent Hawkes for LOB Modelling* (arXiv 1809.08060). Hawkes coupled to book **state**, not to a service queue producing message-processing delay.
 
-6. **Regime splits (open / close / FOMC) with fitted Hawkes + markouts per regime.** Kirilenko et al. studied the 2010 flash crash episodically; Filimonov detected precursors at 10-min windows. Nobody publishes a corpus-scale Hawkes parameter distribution across ~20 FOMC days vs matched controls. The FOMC 14:00-14:30 intensity/markout profile alone is a novel empirical result.
+**Nothing found** that couples a Hawkes cluster arrival stream to a *service queue whose backlog is the execution-side latency*. That is the specific theoretical gap this paper's two-queue simulator fills.
 
-7. **Reproducible pipeline from raw MDP3 PCAP to results.** Academic papers cite Databento or TAQ but rarely publish the parser. `dbento_pcap_parse` + `bin_to_tapes` + `kaspar_arrival` is the full stack, which is unusual for the microstructure literature.
+**D. Latency-model swap on a market-making backtest — P&L / adverse-selection / fill-rate delta**
 
-**Weakness / risk to acknowledge upfront** — the mid markout side of our analysis is not novel; that's why we lean on the fill-conditional (real maker MBO fill) measurement as the money result. The Hawkes-fit numbers will slot into a 15-year-old debate and we should be candid about which side we come down on (early hypothesis: Hardiman/Bouchaud is closer, branching ratio near-critical and roughly stable, kernel closer to power-law than pure exponential).
+The closest prior work reports latency-sensitivity, but not a controlled simulator-model swap:
 
-### 2. Data and preprocessing
+- **Cartea & Sánchez-Betancourt (2021)** *The Shadow Price of Latency: Improving Intraday Fill Ratios in FX* (SIAM J. Fin. Math.; SSRN 3190961). Empirical FX study of how latency degrades fill ratios; derives what a taker would pay to reduce latency. Closest existing "swap latency, measure P&L" work — but latency is treated as an exogenous scalar or empirical distribution against a static book, not swapped between simulator models.
+- **Moallemi & Sağlam (2013)** *The Cost of Latency in HFT* (Operations Research 61(5)). Closed-form cost of a *constant* latency for a representative execution agent. No simulator, no tail case.
+- **Cartea & Sánchez-Betancourt (2022)** *Optimal Execution with Stochastic Delay* (Finance & Stochastics). Analytical stochastic-delay execution; no simulator sweep.
+- **Cartea, Jaimungal, Sánchez-Betancourt (2021)** *Latency and Liquidity Risk* (IJTAF; arXiv 1908.03281). Compares fill / adverse-selection outcomes under latency; analytical, not simulator-based.
+- **Bergault, Drissi, Guéant (2020)** *The Cost of Latency for MM under Latency* (Quantitative Finance 20(9); arXiv 1806.05849). Optimal MM with a fixed latency parameter, sensitivity to that parameter reported.
+- **arXiv 2504.00846 (2025)** *The effect of latency on optimal order execution policy* — RL policies under varying latency; assumes constant delay.
+- **arXiv 2505.12465 (2025)** *Resolving Latency and Inventory Risk in MM with RL* — RL agent robustness under latency perturbation; still parametric constant delay.
+- **Bonart & Gould (2017)** *Latency and Liquidity Provision in a LOB* (Quantitative Finance; arXiv 1511.04116). Empirical inter-arrival phases around market orders; not a simulator-swap experiment.
+- **Sun, Bipin et al. (2024)** *Market Simulation under Adverse Selection* (arXiv 2409.12721). Adverse-selection–aware sim; latency held constant.
 
-#### 2.1 The .bin archive
-- **ES (chan 310) and NQ (chan 318)**: 731 trading days each, 2023-01-03 → 2026-02-27, pre-decoded L3 record files at `/vast/home/vmayeski/out/bin/{chan}/{chan}.{yyyymmdd}.databento.bin` (1.3 TB combined, .ok markers).
-- **BTC (chan 326, CME Crypto Futures)**: same date range in raw PCAPs at `/vast/vendor/databento/pcaps/glbx/futures-xcme/YYYYMMDD/`, on `224.0.33.240:14326` (legacy IP; the chan re-IP'd to `224.4.70.16` in production but archived pcaps use the old address). **Requires `dbento_pcap_to_bin --chan 326` to produce chan-326 .bin files** — task #78 in the working list. Compute budget: ~24 hrs on 72 cores for the full 3-year backfill.
-- All three streams carry MBO records (add/modify/cancel/execute), trades, best-bid/ask reconstruction, and packet-level receive timestamps.
+**Novelty verdict — by angle**
 
-**Cross-product caveat for BTC**: CME BTC futures liquidity has ramped substantially through 2023-2026; the early corpus will have lower message rates than late corpus. Report the intraday-normalized statistics (per-message and per-second scaled by daily volume) alongside raw rates so cross-product comparisons stay honest.
+1. **LOB simulators with tail-aware, arrival-driven latency:** *Novel.* All surveyed simulators (ABIDES, ABIDES-Markets, MarketSim, CoinTossX, JAX-LOB, Oxford-Man pro-rata sim, arXiv 2510.08085) treat latency as constant or i.i.d. draws with no state coupling. Two-queue Hawkes-driven latency inside a discrete-event replay is unclaimed.
+2. **Decomposition of round-trip latency into matching / transit / decoder inside a simulator on MDP3 data:** *Novel.* Aquilina-Budish-O'Neill measure a related public quantity but do not decompose it or embed it in a simulator; nothing else found.
+3. **Coupling Hawkes arrivals to a service queue that *is* execution latency:** *Novel application; partial theoretical replication.* Daw-Pender and Gao-Zhu supply the queue-Hawkes theory; no prior work applies it to per-firm HFT execution latency inside a trading simulator.
+4. **Constant-delay vs tail-delay simulator swap on a market-making / execution algo, reporting P&L, adverse selection, fill rate delta:** *Partial prior art.* Cartea & Sánchez-Betancourt's shadow-price papers report latency-P&L sensitivity in FX but not a simulator-model swap; Bergault-Drissi-Guéant sweep a constant-latency parameter. The specific controlled A/B — *same book, same tape, same algo, only the latency model changes* — is unclaimed.
 
-#### 2.2 Windowing
-- **RTH only**: 09:30 → 16:00 ET (14:30-21:00 UTC in winter, 13:30-20:00 in summer)
-- **Front-month only**: match against MDP3 InstrumentDefinition + volume ranking
-- **Roll days skipped**: exclude the two days flanking the roll to avoid mixed-contract stream artifacts
-- Net expected: 700 clean trading days × 6.5 hours × 2 streams
+**Paper's positioning.** The empirical/engineering realization of Daw & Pender's queue-Hawkes theory inside a real trading simulator, validated by the constant-vs-tail A/B on a shadow POV algorithm calibrated on years of CME NQ MDP3 data. Cite Daw & Pender 2018 and Gao & Zhu 2024 as the queue-Hawkes foundation; cite Byrd/Balch/Hybinette 2020 as the ABIDES-class simulator this work upgrades; cite Aquilina-Budish-O'Neill 2022 as the public-good latency measurement whose per-firm engineering complement we supply.
 
-#### 2.3 Derived tapes (one per session per stream)
-- `packet_tape`: (packet_recv_ts, packet_send_ts, span, first_msg_type)
-- `message_tape` (the primary tape for arrival-process work): (t_match, t_send, t_recv, msg_type ∈ {book_add, book_mod, book_cxl, trade}, side, price_ticks, size, order_id, level, packet_seq, idx_within_packet)
-- `bbo_tape`: (event_ts_ns, best_bid_ticks, best_ask_ticks, best_bid_size, best_ask_size) — reconstructed from message_tape
-- `trade_tape`: (t_match, t_send, t_recv, aggressor_side ∈ {+1,−1}, price_ticks, size, maker_order_id, aggressor_order_id) — subset of message_tape with `msg_type = trade`
-- `fill_tape` (per-maker-fill): built by joining trade_tape.maker_order_id back to its Add/Modify in message_tape. Columns:
-  - **Identity**: order_id, side, submit_ts, submit_price, submit_size, exec_ts, exec_price, exec_size
-  - **Time**: `time_in_queue = exec_ts − last_modify_ts`, `lifetime = exec_ts − add_ts`
-  - **Queue-at-submit**: `size_ahead_at_submit` (total size at same price level on same side, minus our own), `n_orders_ahead_at_submit`, `bbo_size_opposite_at_submit`, `spread_at_submit`
-  - **Queue-at-fill**: `size_remaining_at_fill` (same-side same-price total AFTER our fill — what's left of the queue at our price), `n_orders_behind_at_fill` (how many orders queued *after* us that are still resting at our price), `bbo_size_opposite_at_fill`, `spread_at_fill`
-  - **Aggressor**: `aggressor_side`, `aggressor_size` (their trade size), `aggressor_order_id`
-  - **Arrival-process**: `λ̂_at_submit`, `λ̂_at_fill`, `λ̂_delta = λ̂_at_fill − λ̂_at_submit`, `dq_ahead_rate` (rate at which same-price same-side size ahead of us depleted during `[submit_ts, exec_ts]`)
-  - **Markout target**: `mid_at_fill`, `mid_at_fill + τ` for each τ ∈ {100ms, 1s, 10s, 30s, 100 evts, 500 evts}
+**Weakness to acknowledge upfront.** The queue-Hawkes theory (Daw & Pender) is not ours; what is ours is the empirical distributions driving the two queues, the two-queue architecture inside a discrete-event replay, and the controlled A/B on a shadow POV. If a reviewer asks "why not use ABIDES?" — the answer is that ABIDES models arrival events but constant latency; layering a two-queue Hawkes-driven latency model on top of it would produce essentially the same paper we write here, just with ABIDES as the substrate. The Kaspar simulator is the substrate we own and can measure against real MDP3 recordings; the ABIDES port is a follow-on.
 
-The `message_tape` is the master; `fill_tape` is the primary tape for the adverse-selection analysis. Every downstream analysis reads from `message_tape` (arrival-process work) or `fill_tape` (adverse-selection work).
+### 2. Data and measurement
 
-### 3. Arrival-process characterization across 731 days
+#### 2.1 Corpus
 
-**Two arrival series per stream per day** — analyzed side-by-side in every subsection below:
+- **CME NQ front-month, chan 318, RTH-only.** 2025-01-01 → 2026-02-27, target ~281 sessions × ~10 30-min windows/session ≈ ~2800 windows.
+- Per-session tapes emitted by the parser stack (`dbento_pcap_parse` + `arrival_paper.fill_tape` + `arrival_paper.packet_tape`):
+  - `msgtape.csv` — per-securityID, RTH-only, three per-message timestamps (`transactTime`, `sendingTime`, `handlerendtim`) plus action / pxd / sz / orderID.
+  - `fill_tape.parquet` — every historical passive maker fill, with mid-anchored markouts at multiple horizons.
+  - `bbbochg.csv.gz` — channel-wide BBBO change stream.
+  - `packet_tape.parquet` — per-UDP-packet aggregate.
+- Front-contract picker: `front_contract.py` (kaspar.db volume/OI + master universe, roll-day exclusion ±1 day).
 
-- **Packet-level series** (`packet_recv_ts`) — matches fast_send methodology; useful for latency work
-- **Message-level series** (per-SBE-message `transactTime`) — the *true* arrival of information events; strictly finer-grained than packet-level
+#### 2.2 Per-window panel (`hourly_panel.py`)
 
-Ratio n_msgs / n_packets = mean span. Packet-level CV is bounded above by message-level CV; Fano and H are typically higher on messages than packets because within-packet clustering is invisible at packet level.
+One row per 30-min window. Columns:
 
-#### 3.1 Stability of the non-Poisson fingerprint (per-day CV, Fano, H)
-- **Table:** distribution of {CV, Fano(5s), H} across days, by stream — mean / median / p10 / p90
-- **Figure:** time series of Fano(5s) and H over 731 days, with major events annotated (Fed days, CPI, election, roll dates)
-- Test: does Fano scale with mean rate? Regress log(Fano) ~ log(rate) with day fixed effects
-- Test: does H depend on day-of-cycle (rollovers, month-ends, ETF-rebalance days)?
+- **Hawkes fit.** `mu`, `alpha`, `beta`, `n_branch`, `lambda_bar`, `converged`, `log_mean_lambda`.
+- **Five tails** — p50 alongside p99 (or p95 for markout / return) so `p99/p50` ratios are available:
+  - `p50_lat_me_ns`, `p99_lat_me_ns` — matching-engine latency, `sendingTime − transactTime`.
+  - `p50_lat_handler_ns`, `p99_lat_handler_ns` — send-to-handler latency, `handlerendtim − sendingTime`.
+  - `p50_qsim_ns`, `p99_qsim_ns` — **modelled queue latency** from a G/D/1 sim on real `handlerendtim` arrivals at deterministic service `service_us` (default 7 μs). This is the same recursion the Kaspar simulator will use; the paper's grid is thus both a measurement and a ground truth for the sim.
+  - `p50_absmark`, `p95_absmark` — adverse-selection markout on maker fills.
+  - `p50_absret`, `p95_absret` — return fat-tail proxy from fill exec-price stride.
+- **Filters.** Drop `kept=False` windows (below `min_events` intensity gate); drop volstats-vs-DB roll-day mismatches ±1 day.
 
-#### 3.2 Fitted exponential Hawkes (unmarked) per session
-- Model: `λ(t) = μ + Σ_i α · exp(-β·(t - t_i)) 1{t_i < t}`
-- Per-session MLE via `scipy.optimize.minimize` on the log-likelihood
-  ```
-  LL(θ) = Σ_i log(λ(t_i)) − ∫_0^T λ(s) ds
-  ```
-- **Table:** distribution of {μ, α, β, n = α/β} across 731 days per stream
-- **Time-rescaling test:** compensator `Λ(t_i) = ∫_0^{t_i} λ(s)ds` should give i.i.d. Exp(1) inter-event times on {Λ(t_i)−Λ(t_{i−1})}. Report KS p-value per day, and fraction of days with p > 0.05.
+#### 2.3 5×5 grid analysis (`grid_scan.py`)
 
-#### 3.3 Marked Hawkes with size marks (scope decision 1)
-- Model: `λ(t) = μ + Σ_i α · (1 + s_i)^γ · exp(-β·(t - t_i))`
-  - `s_i` = packet span (arrival marks) OR trade size (trade marks)
-  - `γ` = size-sensitivity exponent
-- Fit per session
-- Compare LL vs unmarked Hawkes (LR test)
-- **Result to expect:** γ > 0, meaning larger packets/trades trigger more subsequent arrivals — the classical "big trade attracts follow-on flow" story
+Every kept + converged window is one point (`lambda_bar`, `n_branch`). Bin both axes into equal-quantile 5-bin edges → 25 cells. For each cell, per tail, report:
 
-#### 3.4 Two-dimensional Hawkes: bid-side vs ask-side excitation
-- Fit joint Hawkes on `{bid-update, ask-update}` arrivals
-- Estimate 2×2 excitation matrix `A = [[α_{bb}, α_{ba}], [α_{ab}, α_{aa}]]`
-- Cross-excitation `α_{ab}, α_{ba}` measures how much one side's updates drag the other
+- **Absolute grid** — median across the cell's windows of the tail's raw p99 (in μs for latencies, price units for markout/return).
+- **Relative grid** — median across the cell's windows of `p99 / p50` (dimensionless, "how much fatter than the median").
 
-#### 3.5 Three-timestamp anatomy (scope decision 6)
+Plus a **cell mass** heatmap (# windows per cell). 5 tails × 2 grids + 1 mass = **11 heatmaps** as the paper's central figure block.
 
-For every SBE message we have `t_match` (matching-engine `transactTime`), `t_send` (packet-header `sendingTime`), `t_recv` (pcap kernel timestamp).
+The grid is a reporting object: it shows how each tail behaves across the (λ̄, n) plane and provides the ground truth against which the sim's per-cell p99 is compared for calibration.
 
-- **Match → Send** (CME-internal queueing): distribution of `t_send − t_match` per message. This is CME's exchange-gateway service time and is a private property of the CME cluster.
-- **Send → Recv** (network transit and our capture): distribution of `t_recv − t_send` — dominated by network path (colo cross-connect + NIC + kernel).
-- **Batching signature**: for messages with identical `t_send` but different `t_match` values (they were coalesced into one packet), plot `t_send − t_match` as a function of position within packet.
+### 3. Why heavy tails emerge from a plain G/D/1 with the arrival stream
 
-**Table (planned) — per stream, aggregated:**
+The paper's core insight: given any scalar service time `s`, feeding real CME MDP3 arrivals into a G/D/1 produces heavy-tailed system latency **for free** — no fitted latency distribution, no CDF sampler, no Hawkes-state variable at draw time.
 
-| metric | p50 (µs) | p90 (µs) | p99 (µs) | share with delta = 0 |
-|---|---|---|---|---|
-| t_send − t_match | | | | |
-| t_recv − t_send | | | | |
-| t_recv − t_match | | | | |
+#### 3.1 The recursion
 
-The three arrival processes give three different Hawkes fits — arguably the *match* process is the physically meaningful one (this is what the market is doing), while the *send* process is what any downstream latency work has to plan against.
-
-### 4. Python module + online intensity estimator
-
-Package: `kaspar_arrival/` (public — no proprietary internals).
-
-- `arrival_paper.mle`: batch fitter for {unmarked, marked, 2-D} exp-Hawkes on numpy arrays
-- `arrival_paper.online`: O(1) recursive λ̂(t) update
-  ```python
-  def update(self, t_new, mark=1.0):
-      dt = t_new - self.t_last
-      self.s = self.s * np.exp(-self.beta * dt) + self.alpha * mark
-      self.t_last = t_new
-      return self.mu + self.s      # current intensity estimate
-  ```
-- `arrival_paper.markout`: markout(τ) computer for trade and book-event anchors
-- `arrival_paper.plot`: standard figures
-
-### 5. Latency prediction
-
-- Reuse fast_send's `latency = floor + slope · idx + queue_penalty` fit; refit per stream per session
-- Fit `E[span | λ̂-decile] → P(idx = k | λ̂)`
-- Emit `predicted_latency_percentile(q, λ̂)`
-- CV: 90/10 split within-day, then cross-day
-
-**Metric:** p99 latency prediction RMSE, mean absolute quantile error at {p50, p90, p99}.
-
-### 6. Adverse selection — from mid-anchored markouts to simulator fills
-
-#### 6.1 Mid-anchored markouts (robustness / fast approximation)
-For each anchor event at time `t_i` (either a trade or a book event), assign a side:
-- **Trade anchor**: `s_i = +1` if trade lifted the ask, `−1` if hit the bid (aggressor side from execute + best-quote lookup)
-- **Book-event anchor**: `s_i = +1` if best-bid tick moved up or best-ask size grew; `−1` if best-ask tick moved down or best-bid size grew. Ambiguous events skipped.
-
-Markout at horizon τ:
-```
-markout(τ)_i = s_i · (mid(t_i + τ) − mid(t_i)) / tick_size
-```
-- τ ∈ {100ms, 1s, 10s, 30s}
-- Event-based τ ∈ {50 evts, 100 evts, 500 evts} (measured in `event_tape` events)
-
-Negative markout = adverse: price moved against the aggressor side.
-
-#### 6.2 Real maker fills from MBO L3 (scope decision 7 — the actual measurement)
-
-Mid-anchored markouts assume infinite depth and instant fill for everyone. That is not how a passive quoter is filled — they wait in queue and get filled selectively, precisely when there is an aggressor on the other side. Instead of simulating this, we use **every real historical maker fill in the market**.
-
-**The mechanic:** MDP3 MBO is L3 order-by-order. Every Execute message carries the maker order_id being filled. We track order lifecycles:
-
-- **Add** — `(add_ts, add_price, side, size, order_id)`
-- **Modify** — new price/size for same order_id
-- **Cancel** — removes order_id
-- **Execute** — trade against order_id, `(exec_ts, exec_price, exec_size)`
-
-**Fill tape construction:** for every Execute message on a resting order, join back to the most recent Add/Modify of that order_id to recover:
+For message `i` with arrival time `arrival[i]` (using the tape's `handlerendtim` for the system-side queue, or `transactTime` for measurement), release time is:
 
 ```
-(submit_ts, submit_price, side, submit_size, order_id,
- exec_ts, exec_price, exec_size,
- time_in_queue = exec_ts − last_modify_ts,
- lifetime      = exec_ts − add_ts,
- aggressor_side = ¬side,
- aggressor_size, aggressor_order_id)
+release[i]  = max(arrival[i], release[i−1]) + s
+sys_time[i] = release[i] − arrival[i]
+            = max(0, release[i−1] − arrival[i]) + s
 ```
 
-Then at `exec_ts` compute mid drift at each horizon τ. The maker's realized adverse P&L per fill is:
+That's it. One scalar knob.
 
-```
-adv_pnl(τ) = side · (mid(exec_ts + τ) − exec_price) · tick_value
-```
+#### 3.2 Why bursts fatten the tail
 
-Negative = adverse (price moved against the maker after they were filled).
+In a quiet stretch, `release[i−1] < arrival[i]` — the server was idle waiting — so `sys_time[i] = s` exactly. In a bursty stretch, `arrival[i] − arrival[i−1] < s`, so `release[i−1] > arrival[i]` and message `i` inherits the previous message's residual service time on top of its own service. Cluster `N` messages inside one service_us, and the `N`th message pays roughly `N × s`. The tail *is* the distribution of cluster sizes, and cluster sizes come straight from the tape's Hawkes-structured arrivals.
 
-**Also record at exec_ts:**
-- Local intensity λ̂(exec_ts⁻) — message-level, from online estimator
-- Book state: BBO spread, top-level size (bid + ask), imbalance
-- Trade-flow burst: number of trades in the preceding 100 ms / 500 ms
+Empirically on our corpus, at `s = 7 μs`: the median arrival's `sys_time` is 7 μs (quiet moment, queue empty), the p99 is 40–50 μs (arrived at the tail of a 6–7-message cluster).
 
-**Why this is stronger than a simulator:**
+#### 3.3 Same recursion in two homes
 
-- **Every real passive fill in ES + NQ for 731 days** — millions of maker fills without any modeling assumption
-- **No queue model needed** — we already have the maker's *actual* time-in-queue and lifetime from MBO
-- **No fill model needed** — the fill is what happened; we just anchor markouts on it
-- **Cross-sectionally rich** — condition on maker size (retail vs pro), time-in-queue (fast cancels vs stale quotes), submission distance from BBO, etc.
+- **Python (paper's analysis).** `arrival_paper.hourly_panel.qsim_p50p99_in_window` runs the recursion per 30-min window on real `handlerendtim` arrivals; reports p50/p99 as one of the five tails.
+- **C++ (Kaspar simulator upgrade).** `OB.cpp`'s existing `pub_q` (inbound) and `del_q` (outbound) FIFOs replace their current constant-lag release rule with the G/D/1 recursion above.
 
-**Two headline metrics:**
+The reader can verify the sim is correct by comparing per-cell p99 from the Python `qsim` (paper table) to the sim's per-cell p99 running on the same tape with the same `s`. They must agree to within rounding.
 
-1. **Fill-conditional adverse P&L** — mean signed P&L per fill at τ, sliced by λ̂-decile
-2. **Adverse-fill intensity elasticity** — how much |adverse_pnl| rises per unit of log(λ̂)
+### 4. Simulator upgrade
 
-**Robustness checks:**
+Implementation is minimal, guarded by a compile-time flag so the constant-delay baseline stays bit-identical.
 
-- **Filter out short-lived (< X ms) orders** — noise from pings and fleet cancels
-- **Filter out ISO / cross fills** where possible (they're a different phenomenon)
-- **Split by maker size tier** — small vs large orders may face different toxicity
-- **Mid-anchored markouts on ALL trades** (§6.1) as the wider comparison
+- **Two G/D/1 queues**, one per side, both already present in `OB.hpp` as `pub_q` (inbound) and `del_q` (outbound). The change is a one-line arithmetic swap in each queue's release rule: current `release = arrival + feed_delay` becomes `release = max(arrival, release_prev) + service_us`.
+- **Two scalar knobs.** `service_us_inbound` = operator's own decoder / handler cost (they profile their own code). `service_us_outbound` = CME's matching-engine service time (estimated from public MDP3 by §6's recipe).
+- **`#ifdef OB_TAIL_DELAY`** guards both edits. Undefined → constant-delay path unchanged, all existing tests continue to pass. Defined + service knobs set → G/D/1 path.
+- **No new queues, no new actors, no new messages.** Deterministic under market time (no wall-clock timers) — same replay produces the same P&L.
 
-**Compute:** the fill-tape is a subset of `message_tape` (every Execute with its maker_add lookup). Building it is one pass through `message_tape` per day with an order-id → open-order hashmap. Trivial on 72 cores.
+Full C++ diff and unit tests: see `frame_kaspr/` in the companion repo. This paper does not reproduce the diff.
 
-### 7. Main result — arrival intensity × toxicity
+**Operator config (kaspr.ini):**
 
-Two parallel result tracks: (a) mid-anchored markouts on all anchor events, (b) simulator fills.
+| Knob | What |
+|---|---|
+| `service_us_inbound` | Own decoder service time (μs) |
+| `service_us_outbound` | Exchange service time (μs), calibrated per §6 |
+| `OB_TAIL_DELAY` (compile) | Whether to use the G/D/1 path or the constant path |
 
-#### 7.1 Bucketing by intensity — mid markouts
-- Compute λ̂(t_i^−) just before each anchor event (message-level intensity)
-- Sort events into deciles by λ̂
-- **Table:** median |markout|, mean signed markout, share adverse — per decile × per τ × per anchor-type × per stream
-- **Figure:** heatmap: decile × τ, cell value = median |markout|
+### 5. A/B: shadow POV under constant vs tail-aware latency
 
-**Expected shape:** monotone increase in |markout| with decile, top decile ~ 2-5× median decile.
+Same tape, same instrument config, same shadow POV parameters. Twice on the same NQ corpus:
 
-#### 7.2 Bucketing by intensity — real maker fills from MBO (the money result)
-- Group `fill_tape` rows by λ̂ at exec_ts (also try λ̂ at submit_ts; report both — they answer different questions)
-- **Table:** for each decile, per-fill mean adverse P&L at each τ, fill count, mean time-in-queue, mean lifetime, aggressor-size distribution
-- **Figure:** decile-conditioned adverse-P&L curve, faceted by stream × τ
+- **Baseline.** `OB_TAIL_DELAY` undefined. Constant `delay = X μs`, `feed_delay = Y μs` matching the previously published shadow-POV runs.
+- **Corrected.** `OB_TAIL_DELAY` defined. `service_us_inbound = 7`, `service_us_outbound = <recipe output>` from §6.
 
-**Expected shape:** top-decile fills carry substantially more adverse selection than median-decile fills — often by a larger multiple than the mid-anchored markouts (§7.1) show, because the fill event selects the adverse subset of price movements. In §7.1 we average markouts over all events; in §7.2 we average only over the events where a maker actually got filled.
+Both runs feed the same P&L / fill-rate / adverse-selection collector.
 
-#### 7.3 Regression with controls
-```
-adverse_pnl(τ)_i ~ β₀ + β₁ · log(λ̂_i^−) + β₂ · spread_i + β₃ · |book_imbalance|_i
-                 + β₄ · queue_position_i + β₅ · time_of_day_i + day_FE_i
-```
-- Cluster SE on trading day
-- Report β₁ (the intensity slope), t-stat, R²
-- Interaction: `β₁ × 1{VIX > 25}` — does the intensity-toxicity link strengthen in high vol?
-- Run once on mid markouts, once on simulator fill P&L
+**Reported deltas** (bootstrap CI by session):
 
-#### 7.4 Cross-day stability
-- Regress at the daily level → distribution of β₁ across 731 days
-- **Result to look for:** β₁ significantly positive on ≥ 90% of days, mean t-stat > 3
+1. Cumulative P&L (baseline − corrected) and its distribution across sessions.
+2. Fill rate (fills / posted quotes) per regime bin (bottom / middle / top of the (λ̄, n) grid).
+3. Adverse-selection cost per fill — mean and p95 |markout| under each latency model.
+4. Order round-trip p50/p99 distribution — sanity check that the sim's simulated latencies match the empirical grid from §2.3.
 
-#### 7.5 Directional prediction (2-D Hawkes)
-- Signed markout ~ (bid-side λ̂ − ask-side λ̂)
-- Directional 2-D excitation matrix predicts fill P&L sign
+**Framing.** This is a correction to the prior article's shadow-POV numbers, not a new algo. If the delta is small, the prior conclusions stand. If it is large, subsequent shadow work must adopt the tail-aware sim.
 
-#### 7.6 Attribution — arrival-process share of adverse selection
+### 6. Practical guidance for LOB-simulator users
 
-This is the central-thesis test. Decompose the variance / mean of per-fill adverse P&L into contributions from arrival-process features vs "everything else":
+**Two audiences, two service times.**
 
-**Baseline model** (arrival-process-blind):
-```
-adv_pnl(τ) ~ α + β_1·spread + β_2·imbalance + β_3·log(order_size) + day_FE + time_of_day_FE
-```
+| Audience | Service time they need | How they get it |
+|---|---|---|
+| Their own decoder / handler | `service_us_inbound` | Profile their own code. They wrote it, they can measure it. |
+| CME's matching-engine + gateway | `service_us_outbound` | **They don't know it. This paper's recipe extracts it from public MDP3.** |
 
-**Arrival-augmented model** (add the intensity features from fill_tape):
-```
-adv_pnl(τ) ~ [baseline] + γ_1·log(λ̂_at_fill) + γ_2·log(λ̂_delta_positive)
-           + γ_3·log(1/time_in_queue) + γ_4·log(dq_ahead_rate)
-```
+The paper's central practitioner deliverable is the exchange-side recipe:
 
-- ΔR² between the two models is the share of adverse-P&L variance the arrival process explains
-- F-test on the joint significance of {γ_1, γ_2, γ_3, γ_4}
-- Report per stream and per regime
-- **Headline number**: "The arrival process explains X% of the per-fill adverse-P&L variance beyond order-book state alone."
+#### 6.1 Recipe for estimating exchange service time from public MDP3
 
-#### 7.7 Queue dynamics through the arrival-process lens
+1. Get a public MDP3 corpus (Databento or similar) covering the target instrument.
+2. Build a msgtape (parser shipped in `arrival_paper/`) emitting `transactTime` and `sendingTime` per message.
+3. Compute per-message `sendingTime − transactTime` in microseconds.
+4. Report the p1 across the whole corpus (or p1 per 30-min window, corpus mean of those p1s if you want to be conservative). Under G/D/1, the fastest 1% of arrivals see an empty server, so their system time collapses to the service time itself.
+5. Use that value as `service_us_outbound`. On our NQ corpus, this comes out to ~X μs (final number pending full-corpus completion).
 
-Queue-microstructure work as a full topic is a separate paper. This section stays tight: three questions, each answered via the arrival-process framing.
+The `arrival_paper.calibrate_service_time` script automates steps 3–4.
 
-**Q1. Fast fills vs slow fills — is the toxicity story just the fast-fill story?**
+#### 6.2 Which tails matter most
 
-Split fills by `time_in_queue` into buckets: {<100ms, 100ms-1s, 1s-10s, 10s-1min, >1min}.
-- For each bucket, mean adverse markout at each τ (replicates Aligrithm-style result on our corpus)
-- Within each bucket, further split by λ̂-decile
-- **The test:** does λ̂ still explain adverse P&L *within* the fast-fill bucket, or is time-in-queue a sufficient statistic? If λ̂ still matters within the same time-in-queue bin, the arrival-process story is not just a rebranding of "fast fills are bad."
+On our corpus:
 
-**Q2. Queue drained vs queue standing — did the aggressor blow through us or just clip us?**
+- **Matching-engine latency dominates** — a 3.4 ms p99 median vs 20 μs for the receive-side handler tail.
+- **Modelled queue at 7 μs service** — 49 μs p99. Meaningful for downstream decoders, but small next to the ME side.
+- **Adverse selection and return fat-tail** — the co-moving tails a market-making algo must actually hedge against.
 
-At exec_ts, look at `size_remaining_at_fill` (same-side same-price total size after our fill). Bucket:
-- `size_remaining = 0` — aggressor cleared the entire price level (walked the book). Highest toxicity expected.
-- `size_remaining > 0` but small — partial clear.
-- `size_remaining` large — aggressor just clipped the front of a deep queue and we happened to be it.
+#### 6.3 Where NOT to trust a constant-delay sim
 
-Cross with λ̂: does a high-λ̂ fill more often clear the whole level?
+- **Bursty regimes.** FOMC / CPI / macro-event windows have inter-arrival tightening that makes queue backup dominate.
+- **Near-critical n.** Even outside macro events, n > 0.9 windows produce clustering that a constant-delay sim can't reproduce.
+- **Passive-fill P&L attribution.** Adverse-selection concentration in the fastest fills is a queue-backup phenomenon; constant-delay sims under-cost it.
 
-**Q3. Alone vs in a crowd — were we at a thinly-populated price or in a long queue?**
+### 7. Discussion & limitations
 
-At exec_ts, look at `n_orders_behind_at_fill`:
-- 0 — we were the only order at our price (or all behind us have already cancelled)
-- Small (1-3) — thin queue
-- Large — deep queue behind us; others were willing to join
+- **Corpus scope.** NQ only. ES and BTC are deferred; the recipe generalizes but calibration numbers are NQ-specific.
+- **Interactive fills ignored.** Our orders don't perturb the market data in this replay setup. Real interactive fills would need a full agent-based extension.
+- **Race margin vs. per-firm latency.** Aquilina-Budish-O'Neill (2022) measures a public-good race-margin quantity from LSE INET logs. We measure per-firm engineering latency from CME MDP3. Different objects — do not conflate.
+- **Model class.** We fit exponential Hawkes for tractability. Power-law kernels (Hardiman-Bercot-Bouchaud 2013) would fit the intraday-decay curve better; using them would push our n estimates modestly upward but not change the sim recursion.
+- **G/D/1 assumes deterministic service.** Real decoders have jitter; adding a small service-time noise ε in the sim is a trivial extension left to future work.
 
-Interpretation: if `n_orders_behind` is large, other quoters agreed with the price; if it's 0, our order was the outlier. Expected: deep queue behind = more informed flow willing to lean the same way = less adverse markout (we're in a crowd of similarly-informed makers, not a "sitting duck"). Or the reverse — deep queues may indicate a stale consensus that a fresh aggressor exploits. Test empirically.
+### 8. Future work — Hawkes-aware Shadow POV
 
-Cross with λ̂: does the *arrival-rate* explain queue depth better than pure size, and does that interact with markout?
+The five tails this paper reports co-move under a single Hawkes-driven arrival state (λ̄, n). The current shadow POV is oblivious to that state; it participates at a target rate against measured trade volume without conditioning on burstiness. The natural follow-on paper extends shadow POV to be Hawkes-aware:
 
-**These three questions justify the queue features on the fill_tape without opening a queue-microstructure paper.**
+1. Ingest the online (λ̄, n) estimator (`arrival_paper.online.HawkesEstimator`).
+2. Condition participation rate on the current grid cell — throttle in near-critical cells, participate normally in quiet cells.
+3. Condition adverse-selection budget on the cell's markout distribution — stand down when the p95 |markout| exceeds a threshold.
+4. Condition passive-quote width on the cell's return fat-tail.
+5. Re-run the A/B: constant-delay + non-Hawkes shadow vs tail-aware delay + Hawkes-aware shadow. Report the incremental P&L / fill-rate / adverse-selection delta attributable specifically to the Hawkes conditioning.
 
-#### 7.6 Regime splits (scope decision 8) — three separate panels
+**Why this paper first.** A Hawkes-aware shadow evaluated in a constant-delay sim would show phantom edge because the sim under-costs bursts. The simulator upgrade in this paper is the prerequisite that makes the Hawkes-aware follow-on honest.
 
-Each of §7.1–7.5 is re-run on each of these regime subsets and the results compared:
+### 9. Conclusion
 
-**A. Open window (09:30–09:45 ET)** — the first 15 minutes carry disproportionate flow and vol-scalper activity. Hypothesis: highest λ̂ across the day, largest β₁, largest per-fill adverse P&L. This is where the vol-scalper gets paid or gets run over.
+LOB simulators are the default tool for evaluating market-making and execution algorithms. Every published one uses constant or i.i.d. latency, decoupled from the arrival process. On CME NQ, the arrival process is Hawkes-clustered and the resulting service-queue latency is heavy-tailed — you cannot see that in a constant-delay sim.
 
-**B. Close window (15:45–16:00 ET)** — last 15 minutes; MOC imbalance flow builds through 15:50. Hypothesis: rising λ̂ curve, distinct microstructure (MOC-driven).
-
-**C. FOMC-day 14:00–14:30 ET** — 20+ Fed announcement days across the corpus, isolated from the rest. Hypothesis: a *massive* intensity spike at 14:00 (statement release) with elevated β₁ and adverse P&L in the immediate post-release window. Sub-analysis: does the *pre-release* intensity profile change (leaks, positioning) vs a control day matched on VIX and volume?
-
-**D. Roll-neighbor days (D-2 to D-1 of contract roll)** and **CPI/NFP days** — robustness slices reported in the appendix.
-
-**Reporting** — one summary table across regimes:
-
-| regime | days | events/day | mean λ̂ | β₁ (intensity slope) | top-decile per-fill P&L (ticks) |
-|---|---|---|---|---|---|
-| Full RTH ex-events | | | | | |
-| Open 15 min | | | | | |
-| Close 15 min | | | | | |
-| FOMC 14:00–14:30 | | | | | |
-| Non-FOMC control 14:00–14:30 | | | | | |
-| Roll-neighbor | | | | | |
-
-### 8. Unification — one arrival process governs three tails
-
-**The point of this section is not novelty. The link Hawkes → fat-tailed returns is well-established** (Blanc, Donier & Bouchaud 2017 QHawkes; Bacry & Muzy 2015; Jaisson & Rosenbaum 2015-16; Hardiman & Bouchaud 2014 on E-mini S&P specifically; 2025 Econ Letters on trading intensity and extreme returns). We cite these heavily.
-
-**The empirical contribution here is three-domain joint measurement.** The same near-critical Hawkes intensity λ̂ that we characterize in §3, that predicts the toxic per-fill markouts of §7, *also* correlates with the fat-tailed return distribution over the same window. We report all three correlations. Whether they trace back to a single hidden driver is left for a follow-up paper. The three domains:
-
-| domain | metric | where in this paper | where in prior art |
-|---|---|---|---|
-| Infrastructure | packet-span, decoder latency p99 | fast_send (§Arrival) | fast_send |
-| Execution | per-fill maker adverse P&L | §6-7 of this paper | Kirilenko, Baron, Bellia, Aligrithm |
-| Price | return tail exponent, kurtosis | **§8 (this section)** | Blanc-Bouchaud, Hardiman-Bouchaud |
-
-Nobody has published the three-way cross-check on a single corpus. Doing it across ES + NQ + BTC × 731 days is our specific contribution.
-
-#### 8.1 Return-tail characterization per session per stream
-
-For each (session, stream):
-- Sample mid-price returns at fixed message-index Δ (Δ ∈ {50 msgs, 500 msgs, 5000 msgs, 5 s, 1 min, 5 min, 30 min})
-- Estimate tail exponent `ν_day` via Hill estimator on |r| upper tail; also fit Fréchet to block maxima
-- Estimate return kurtosis (raw and robust to outliers)
-- Report all three per (session, stream, Δ)
-
-#### 8.2 Cross-day panel — n × ν × adverse-P&L triangle
-
-Build a 731 × 3 panel with columns: `n_day` (Hawkes branching ratio from §3), `ν_day` (return tail exponent from §8.1), `adv_pnl_top_decile_day` (mean per-fill adverse P&L in the top λ̂-decile from §7).
-
-**Cross-sectional tests (per stream):**
-
-- `corr(n_day, 1/ν_day)` — QHawkes predicts monotone: higher n → fatter tail (smaller ν)
-- `corr(n_day, |adv_pnl_top_decile|)` — higher n → more toxic top-decile fills
-- `corr(1/ν_day, |adv_pnl_top_decile|)` — the direct three-way link
-
-**Regression:** `|adv_pnl_top_decile_day| ~ a · (1/ν_day) + b · X_controls + FE`. A significant `a` means fat-tail days *are* toxic-fill days beyond order-book controls.
-
-**What we measure in this paper (no latent-factor fit).** For each stream (ES, NQ, BTC) and each 30-min window we compute the arrival-side pair `(n_window, λ̄_window)` and the three tail metrics. We report the 6-cell marginal-correlation table (each of 3 tails × each of {n, λ̄}) plus partial correlations to test whether `n` and `λ̄` are redundant proxies of each other. Whether all five variables share a single per-window latent driver `θ` (a Market Activation Level) is the question of a follow-up paper (see Future Work: MAL) — this paper builds the panel and reports the correlations that a future MAL paper would fit.
-
-#### 8.3 Message-level vs trade-level subordination
-
-Prior subordination literature (Clark 1973, Ané & Geman 2000) uses trade or volume arrivals as the subordinator that normalizes returns to Gaussian. We test:
-
-- Subordinate returns by cumulative *message* count (Add+Modify+Cancel+Execute) vs by cumulative *trade* count
-- Compare goodness-of-Gaussian on the subordinated sequence — QQ deviation, kurtosis
-- Compare against subordinating by `∫ λ̂(s) ds` (the Hawkes compensator)
-
-**Claim to test:** the message-level or compensator subordination out-performs trade-level in explaining return non-Gaussianity, because messages carry the pre-trade information that trades don't. This is a genuinely new empirical test in the subordination literature.
-
-#### 8.4 Cross-product test — ES vs NQ vs BTC
-
-- Report `(n_day, ν_day, adv_pnl_top_decile_day)` distributions per stream
-- Compare shapes: does BTC's higher return kurtosis map to higher branching ratio, or to fatter marginal step sizes (marked Hawkes γ)?
-- Test whether the same `θ_day` factor structure holds on all three products
-
-**If it holds on all three products of very different clienteles, that's the paper's most robust claim: the arrival-process-governs-everything story is a property of near-critical financial arrivals in general, not a CME-equity-index artifact.**
-
-#### 8.5 Explicit prior-art acknowledgment
-
-We do NOT claim to have discovered "arrival process governs fat tails." That's Blanc-Bouchaud, Bacry-Muzy, Hardiman-Bouchaud, Jaisson-Rosenbaum. We (i) confirm their prediction on our NQ corpus, (ii) extend to NQ where it hasn't been thoroughly tested at this granularity, and (iii) report per-window correlations tying the same arrival-side signals to per-fill adverse selection and three separate physical stages of decoder latency. **The five-domain joint measurement on ~416 NQ sessions is the contribution; the individual bilateral links are replications.** Cross-product replication on ES and BTC, and whether the five correlations trace back to a single latent driver, are follow-up papers.
-
-### 9. Application — passive quoter with intensity gate
-
-- Simulated passive-quote strategy: rest at BBO ± 1 tick
-- Skip placement when λ̂ > θ_q (q-th percentile threshold)
-- Sweep q ∈ {50, 70, 80, 90, 95, 99}
-- Metrics: fill rate, mean signed markout per fill, net edge per fill, hit rate on informed side
-- **Figure:** frontier — fill-rate vs avg |markout| across q values
-- Optionally combined with a taker mode: aggress when λ̂ > θ' AND book_imbalance favorable
-
-### 10. Discussion
-- What kind of Hawkes describes CME MDP3? (near-critical, size-marked, cross-exciting bid/ask)
-- Comparison with Bacry-Muzy microstructure Hawkes literature
-- Comparison with informed-trading models (Kyle, PIN, VPIN) — VPIN is a coarser proxy of the same signal
-- Limitations: unmarked H may miss stealth mid-size flow; RTH-only misses overnight regime
-- Open questions:
-  - Can the same estimator generalize to non-CME venues (options, spot FX, equities)?
-  - Does the intensity-markout link narrow around Fed/CPI (i.e., are those events "priced in" faster)?
-  - Best kernel — exp vs power-law vs sum-of-exps?
-
-### 11. Conclusion
-- CME MDP3 book feeds are near-critically Hawkes, and this property is stable across 3+ years
-- Real-time intensity is a first-order predictor of adverse-selection cost
-- A drop-in Python estimator enables passive quoters to skip toxic bursts at a cost measured in fill rate
-- Reproducible pipeline: `.bin` → derived tapes → figures + tables + Python module
+The correction is small: one line of arithmetic per queue and one exchange-side service time estimated from public MDP3. The tails come out for free because the arrival stream already carries the Hawkes state. We provide the recipe, the code, and the corrected shadow-POV numbers.
 
 ### Appendices
-- A. Exp-Hawkes MLE derivation and code
-- B. Marked-Hawkes gradient derivation
-- C. Time-rescaling residual test details
-- D. Multi-year table (731 days) — arrival stats, Hawkes params, markout decile-lifts
-- E. Python module API + reproduction runbook
+
+- A. Exponential-Hawkes MLE derivation, Ogata thinning simulation, and the recursion used in `hawkes_smoke.py`.
+- B. The G/D/1 recursion, its Python implementation (`qsim_p50p99_in_window`), and unit tests.
+- C. Full 5×5 grid heatmaps for all 5 tails × {absolute, ratio}, plus the cell-mass heatmap.
+- D. C++ `OB.cpp` diff for the two-queue upgrade, `#ifdef OB_TAIL_DELAY` guards, and the regression-test proof that the constant path is bit-identical.
+- E. `arrival_paper` Python module API + reproducibility runbook (msgtape parser → panel builder → grid_scan → calibrate_service_time).
 
 ---
 
@@ -824,30 +671,16 @@ Store derived tapes in `/vast/home/vmayeski/out/arrival_paper/tapes/{stream}/{da
 
 ## Future work (deferred; not in v1)
 
-Scope for v1 is one outright front-month per stream (ES front, NQ front, BTC front). The following extensions are deliberately out of scope; each has enough interesting content to be its own paper.
+Scope for v1 is the NQ front-month simulator upgrade + shadow POV A/B. The following extensions are deferred; each has enough distinct content to be its own paper.
 
-- **Market Activation Level (MAL) — the latent-factor unification.** This paper measures each of the three tails and reports their marginal + partial correlations with `(n, λ̄)`. The natural follow-up is: are all five variables (the three tails + n + λ̄) shadows of a single hidden per-window market state θ_MAL? Formal statement: fit a five-observed one-hidden-factor SEM (or a MAL-augmented Hawkes with θ_MAL entering both the intensity kernel and the tail-thickness likelihoods) on the ~5000-window panel we build here. That is its own paper — it requires careful identification, sensitivity to window size, and a defensible econometric strategy for coupling arrival-side and tail-side likelihoods. The empirical panel this paper delivers is exactly what such a MAL paper would need as input.
-
-- **Signed-Hawkes directional alpha (its own paper — literature verified 2026-09).** This paper uses the *total* Hawkes intensity `λ̂(t) = λ̂⁺(t) + λ̂⁻(t)` because the three-tails story (latency queue, adverse-P&L on a symmetric quoter, return fat-tail) doesn't distinguish buy pressure from sell pressure. The signed variant `λ̂⁺(t) − λ̂⁻(t)` is a natural directional-alpha candidate that the current paper does *not* investigate.
-
-  **Lit-search verdict (targeted search, 2026-09):** the *specific* chain "raw `λ̂⁺(t) − λ̂⁻(t)` from 2-D exponential Hawkes on signed events, benchmarked head-to-head vs Cont-Kukanov-Stoikov 2014 rectangular OFI, with real P&L on a real exchange corpus" is **not published**. Closest priors and what they do NOT do:
-  - **Cestari, Barchi, Busetto, Marazzina, Formentin (2023, arXiv:2312.16190) → Raffaelli et al. (2026, *Decisions in Economics and Finance*)** — MHP + Continuous-time Output Error (COE) hybrid on BTC/USD with simulated-trading P&L. Wrong asset for our claim (crypto, single asset), *hybrid* not raw λ⁺−λ⁻, no CKS benchmark.
-  - **Rambaldi, Bacry, Muzy (2018, *SIAM J. Financial Math.*)** — intensity *ratio* (not difference) as trade-sign predictor on EuroStoxx + Bund (~800 days). Reports accuracy 73-80%, not P&L. No CKS benchmark.
-  - **Cont, Cucuringu, Zhang (2021, arXiv:2112.13213)** and **Kolm, Turiel, Westray (2023, *Mathematical Finance*)** — modern OFI-alpha extensions, but *rectangular window* / deep learning, not Hawkes memory. These are the baseline family the follow-on beats or ties.
-  - **Cartea, Jaimungal, Ricci (2014, 2018)** — signed Hawkes as *state variable* in HJB market-making control. Not raw direct alpha.
-
-  **Positioning for the follow-on paper**: not "new Hawkes alpha" — **"clean isolation experiment"**. Drop-in replacement of the CKS rectangular window with a Hawkes-decayed sum, everything else held fixed (same regression, same execution model), P&L (not R²) at matched horizons on both CME futures and Nasdaq equities. Cite Bacry-Delattre-Hoffmann-Muzy 2013 + Bacry-Muzy 2014 for the 2-D signed Hawkes construction, Rambaldi-Bacry-Muzy 2018 for the intensity-as-sign-predictor precedent, Cont-Cucuringu-Zhang 2021 + Kolm-Turiel-Westray 2023 for the modern OFI-alpha baseline family. Distinguish from Cartea-Jaimungal-Ricci (Hawkes-in-HJB, not direct alpha) and from Cestari/Raffaelli (hybrid, no CKS benchmark).
-
-  **Falsifiable up-front prediction**: Hawkes-decayed OFI beats the rectangular window at horizons ≤ a few seconds (where the memory kernel matters) but ties or loses at horizons ≥ ~1 min (rectangular window's cumulative sum captures the memory adequately). Consistent with an OU-decay finding on CSI 300 futures (arXiv:2505.17388).
-
-  **Author's separate note**: preliminary experiments with rectangular OFI (CKS 2014 style) on liquid CME futures did not reproduce the NYSE-equity `R²` result. Futures may have different signed-flow dynamics; whether Hawkes decay recovers the effect on liquid futures is exactly the question. This is one of the follow-on paper's two acid tests.
-- **Cross-excitation between related outrights on the same channel.** Chan 318 carries NQ (E-mini) alongside MNQ (Micro NQ) — a strong prior says a burst on one excites the other, both directly (arb bots cross-hitting) and through common information. Fit a bivariate marked Hawkes on {NQ, MNQ} and estimate the off-diagonal α terms; do the same on chan 310 for {ES, MES}.
-- **Cross-market excitation between channels.** NQ ↔ ES is the natural pair (equity-index co-movement, common-factor risk). Same bivariate Hawkes formalism but the two streams live on different channels with different `handlerendtim` origins, so alignment needs care. Only worth doing after the within-channel micro↔full result is up.
-- **Options overlay** — the CME MDP3 options feeds sit adjacent to the underlying futures feeds. Options-market activity is an obvious upstream driver of underlying-futures arrivals via delta-hedging flow. Requires a distinct feed handler.
-- **Latency-tail causal experiment** — swap the decoder's memory allocator (jemalloc vs pool allocator) and re-fit; expect only the exogenous piece of the latency tail to move, not the arrival-driven queueing piece. Backs the paper's causal claim about which tail component we're measuring.
-- **Cross-venue microstructure** (CME vs ICE for the same product family) — different matching engines, different orderbook rules, similar underlyings. Tests whether the arrival regularities we find are venue-specific or product-specific.
-
-Signal we're getting good enough within-scope results to defer these: the 18-correlation marginal panel is uniformly signed and significant across streams, and per-stream Hill exponents cluster tightly by regime.
+- **Hawkes-aware shadow POV (the natural direct follow-on).** See §8 in the paper outline. This paper's simulator upgrade is the prerequisite: a Hawkes-aware algo evaluated in a constant-delay sim would show phantom edge because the sim under-costs bursts. Once the sim mirrors real-market latency, extend shadow POV to (i) ingest an online (λ̄, n) estimator, (ii) throttle participation in near-critical cells, (iii) condition adverse-selection budget on the cell's markout distribution, (iv) condition passive-quote width on the cell's return fat-tail. Re-run the A/B: tail-aware sim × Hawkes-aware shadow vs tail-aware sim × non-Hawkes shadow. Report incremental P&L / fill-rate / adverse-selection delta attributable to the Hawkes conditioning.
+- **Cross-product replication.** Extend to CME ES front (chan 310) and CME BTC front (chan 326). The G/D/1 recursion and the exchange-service-time recipe are product-agnostic; the only new work is running the calibration on the other corpora and verifying that the 5×5 grid tells a consistent story.
+- **Interactive fills.** Current sim replays market data; our simulated orders don't perturb the book. Extending to interactive fills means simulated fills feed back into the arrival process (partial-fill dynamics, our own quotes influencing the queue) — a full agent-based extension.
+- **ABIDES port.** Ship the two-queue G/D/1 recursion as an ABIDES plug-in so the broader research community can use it without adopting Kaspar. The port is one edit to ABIDES's per-link latency draw plus a config exposing the two service times.
+- **Cross-instrument latency coupling.** NQ↔ES on colo have correlated latencies (shared infrastructure, cross-hedging flow). Extend the sampler to draw jointly from a bivariate distribution across two channels' outbound queues.
+- **Full pcap rebuild for the network-transit tail.** `recv_time` is zero-initialised in the databento .bin pipeline. A raw-pcap re-parse would split the send-to-handler stage into network transit + software decoder, adding a sixth measurable tail.
+- **Non-deterministic service time.** Real decoders have jitter; the trivial extension is `service_us + ε` with ε from a jitter distribution the operator measures on their own hardware.
+- **Signed-Hawkes directional alpha.** Its own paper, lit-search-verified novel in 2026-09 (see reference memory). This paper uses total λ̂ only; the signed variant λ̂⁺ − λ̂⁻ as directional alpha is a separate research program.
 
 ---
 

@@ -83,7 +83,7 @@ run_one() {
 
     # 1. msgtape (per-securityID, RTH-only)
     if [[ ! -s "$msg_out" ]]; then
-        TZ=America/New_York "$MSGTAPE_BIN" \
+        TZ=America/New_York nice -n 19 ionice -c 3 "$MSGTAPE_BIN" \
             --datafile "$bin" --secid "$secid" --rth-only \
             --out "$msg_out" >/dev/null 2>&1 || {
             echo "FAIL msgtape $ymd chan=$chan sec=$secid"
@@ -101,7 +101,7 @@ run_one() {
         return 0
     fi
     if [[ ! -s "$bbo_out" ]]; then
-        "$BIN_REPLAY_BBO" \
+        nice -n 19 ionice -c 3 "$BIN_REPLAY_BBO" \
             --datafile "$bin" \
             --universe "$univ_day" \
             --out "$bbo_out" --asset "$asset" \
@@ -125,7 +125,7 @@ run_one() {
         return 0
     fi
     if [[ ! -s "$fill_out" ]]; then
-        cd "$KA_ROOT" && python3 -m arrival_paper.fill_tape \
+        cd "$KA_ROOT" && nice -n 19 ionice -c 3 python3 -m arrival_paper.fill_tape \
             --msg-tape "$msg_out" --bbbochg "$bbo_out" \
             --disp-factor "$disp_factor" --tick-size "$tick_size" \
             --out "$fill_out" >/dev/null 2>&1 || {
@@ -136,7 +136,7 @@ run_one() {
 
     # 4. packet_tape (Python)
     if [[ ! -s "$pkt_out" ]]; then
-        cd "$KA_ROOT" && python3 -m arrival_paper.packet_tape \
+        cd "$KA_ROOT" && nice -n 19 ionice -c 3 python3 -m arrival_paper.packet_tape \
             --msg-tape "$msg_out" --out "$pkt_out" >/dev/null 2>&1 || {
             echo "FAIL packet_tape $ymd chan=$chan"
             return 1
