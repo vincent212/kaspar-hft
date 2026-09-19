@@ -256,6 +256,70 @@ TEST_F(OBTailDelayTest, InboundUntimedMessageBypassesRecursion) {
       << "it must go through inline instead";
 }
 
+// Fan-out to N subscribers on the SAME MD event must count as ONE queue
+// service, not N. Bug this catches: without the last_arrival_inbound_ns
+// guard, each fan-out call advances last_release_inbound_ns by s, so the
+// k-th subscriber sees k*s of fabricated queue delay that has no physical
+// analogue.
+TEST_F(OBTailDelayTest, InboundFanOutIsOneServicePerMessage) {
+  const int s_in_us = 7;
+  const uint64_t s_in_ns = uint64_t(s_in_us) * 1000;
+  ob->set_service_us_inbound(s_in_us);
+
+  // Register three more subscribers so the same `now` fires publish_delayed
+  // four times per message (one per sub).
+  MockActor s2{"s2"}, s3{"s3"}, s4{"s4"};
+  for (MockActor* s : {&s2, &s3, &s4}) {
+    auto sub = new mda::msg::Subscribe(mda::msg::Subscribe::HI);
+    sub->sender = s;
+    ob->reply_to = s;
+    ob->process_message(sub);
+    ob->reply_to = nullptr;
+    s->clear();
+  }
+
+  const uint64_t before = ob->get_last_release_inbound_ns();
+  const uint64_t now = kT0 + 1'000'000ULL;
+
+  // Simulate the fan-out pattern: same `now`, four subs, four separate calls.
+  for (MockActor* s : {&feed, &s2, &s3, &s4}) {
+    auto* m = new frame::ob::msg::EndOfBurst();
+    ob->publish_delayed(s, m, now);
+  }
+
+  // The recursion must have advanced ONCE. Expected: idle server, so release
+  // == now + s. Bug value would be now + 4*s.
+  const uint64_t expected = std::max(now, before) + s_in_ns;
+  EXPECT_EQ(ob->get_last_release_inbound_ns(), expected)
+      << "last_release_inbound_ns must advance exactly once per MD event, "
+      << "not once per subscriber fan-out";
+  EXPECT_EQ(ob->pub_q_size(), 4u)
+      << "all four fan-out entries must still be queued";
+}
+
+// Distinct MD events at different `now` must each advance the recursion.
+// Regression guard for the fix above: the "reuse" branch must not extend to
+// distinct arrivals that happen to be close in time.
+TEST_F(OBTailDelayTest, InboundDistinctArrivalsEachAdvanceRecursion) {
+  const int s_in_us = 7;
+  const uint64_t s_in_ns = uint64_t(s_in_us) * 1000;
+  ob->set_service_us_inbound(s_in_us);
+
+  const uint64_t a1 = kT0 + 1'000'000ULL;
+  const uint64_t a2 = a1 + 1;  // 1 ns later, still inside the s-window
+
+  auto* m1 = new frame::ob::msg::EndOfBurst();
+  ob->publish_delayed(&feed, m1, a1);
+  const uint64_t r1 = ob->get_last_release_inbound_ns();
+
+  auto* m2 = new frame::ob::msg::EndOfBurst();
+  ob->publish_delayed(&feed, m2, a2);
+  const uint64_t r2 = ob->get_last_release_inbound_ns();
+
+  EXPECT_EQ(r1, a1 + s_in_ns);
+  EXPECT_EQ(r2, r1 + s_in_ns) << "a saturated arrival must stack behind r1";
+}
+
 // -----------------------------------------------------------------------------
 // Outbound queue: burst of orders inside one service-time interval must stack.
 // -----------------------------------------------------------------------------

@@ -2439,6 +2439,11 @@ if (debug)
     // constant-lag path is bypassed. Arrival is ts0 (the tape time SOM decided
     // to act), not a constant-delay-shifted stamp. State is advanced only when
     // we actually release below, so recomputation on later ticks is idempotent.
+    ASSERTF(service_us_outbound > 0,
+            boost::format("OB_TAIL_DELAY: service_us_outbound=%d must be set "
+                          "to a positive value before orders are processed "
+                          "(ob_set_service_us_outbound)")
+              % service_us_outbound);
     const uint64_t order_engine_arrive_time =
         std::max<uint64_t>(order_leave_time, last_release_outbound_ns)
           + uint64_t(service_us_outbound) * 1000;

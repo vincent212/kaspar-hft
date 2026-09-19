@@ -268,11 +268,13 @@ void SimKaspr::create_order_books()
 
 #ifdef OB_TAIL_DELAY
     // Two-queue G/D/1 service times (paper §4.1 (3)-(4), §5.2). -1 = leave
-    // OB's own default. Under the flag these are the whole latency model on
-    // each release rule; the constant-lag scalars above are bypassed.
-    if (service_us_inbound_ >= 0)
+    // OB's own default (which is itself -1: an assertion fires at first
+    // market data if the operator forgot to set it). OB requires the values
+    // to be strictly positive; the sentinel -1 is passed through unchanged
+    // so the assertion in OB triggers, not this call.
+    if (service_us_inbound_ > 0)
       ob_set_service_us_inbound(ob, service_us_inbound_);
-    if (service_us_outbound_ >= 0)
+    if (service_us_outbound_ > 0)
       ob_set_service_us_outbound(ob, service_us_outbound_);
 #endif
 
