@@ -221,6 +221,9 @@ TEST_F(OBTailDelayTest, InboundPublishDelayedMatchesLindleyRecursion) {
   uint64_t d_prev = 0;
   for (size_t i = 0; i < arrivals.size(); ++i) {
     const uint64_t a = arrivals[i];
+    // Simulate a new MD arrival: data_handler bumps the counter in
+    // production; unit tests call the test-only helper.
+    ob->bump_inbound_event_counter_for_test();
     // A payload-less publish is legitimate for the recursion test -- OB never
     // inspects the message here; publish_delayed only stamps and queues it.
     auto* m = new frame::ob::msg::EndOfBurst();
@@ -256,18 +259,16 @@ TEST_F(OBTailDelayTest, InboundUntimedMessageBypassesRecursion) {
       << "it must go through inline instead";
 }
 
-// Fan-out to N subscribers on the SAME MD event must count as ONE queue
-// service, not N. Bug this catches: without the last_arrival_inbound_ns
-// guard, each fan-out call advances last_release_inbound_ns by s, so the
-// k-th subscriber sees k*s of fabricated queue delay that has no physical
-// analogue.
+// Fan-out to N subscribers on ONE MD event must count as ONE queue service.
+// Model: production data_handler bumps inbound_event_counter once; the four
+// publish_delayed calls below all share that counter value, so the Lindley
+// state advances exactly once.
 TEST_F(OBTailDelayTest, InboundFanOutIsOneServicePerMessage) {
   const int s_in_us = 7;
   const uint64_t s_in_ns = uint64_t(s_in_us) * 1000;
   ob->set_service_us_inbound(s_in_us);
 
-  // Register three more subscribers so the same `now` fires publish_delayed
-  // four times per message (one per sub).
+  // Register three more subscribers.
   MockActor s2{"s2"}, s3{"s3"}, s4{"s4"};
   for (MockActor* s : {&s2, &s3, &s4}) {
     auto sub = new mda::msg::Subscribe(mda::msg::Subscribe::HI);
@@ -281,14 +282,13 @@ TEST_F(OBTailDelayTest, InboundFanOutIsOneServicePerMessage) {
   const uint64_t before = ob->get_last_release_inbound_ns();
   const uint64_t now = kT0 + 1'000'000ULL;
 
-  // Simulate the fan-out pattern: same `now`, four subs, four separate calls.
+  // ONE MD arrival = one counter bump. Four fan-out publishes below share it.
+  ob->bump_inbound_event_counter_for_test();
   for (MockActor* s : {&feed, &s2, &s3, &s4}) {
     auto* m = new frame::ob::msg::EndOfBurst();
     ob->publish_delayed(s, m, now);
   }
 
-  // The recursion must have advanced ONCE. Expected: idle server, so release
-  // == now + s. Bug value would be now + 4*s.
   const uint64_t expected = std::max(now, before) + s_in_ns;
   EXPECT_EQ(ob->get_last_release_inbound_ns(), expected)
       << "last_release_inbound_ns must advance exactly once per MD event, "
@@ -297,27 +297,60 @@ TEST_F(OBTailDelayTest, InboundFanOutIsOneServicePerMessage) {
       << "all four fan-out entries must still be queued";
 }
 
-// Distinct MD events at different `now` must each advance the recursion.
-// Regression guard for the fix above: the "reuse" branch must not extend to
-// distinct arrivals that happen to be close in time.
+// Distinct MD events at DIFFERENT `now` must each advance the recursion.
 TEST_F(OBTailDelayTest, InboundDistinctArrivalsEachAdvanceRecursion) {
   const int s_in_us = 7;
   const uint64_t s_in_ns = uint64_t(s_in_us) * 1000;
   ob->set_service_us_inbound(s_in_us);
 
   const uint64_t a1 = kT0 + 1'000'000ULL;
-  const uint64_t a2 = a1 + 1;  // 1 ns later, still inside the s-window
+  const uint64_t a2 = a1 + 1;
 
+  ob->bump_inbound_event_counter_for_test();
   auto* m1 = new frame::ob::msg::EndOfBurst();
   ob->publish_delayed(&feed, m1, a1);
   const uint64_t r1 = ob->get_last_release_inbound_ns();
 
+  ob->bump_inbound_event_counter_for_test();
   auto* m2 = new frame::ob::msg::EndOfBurst();
   ob->publish_delayed(&feed, m2, a2);
   const uint64_t r2 = ob->get_last_release_inbound_ns();
 
   EXPECT_EQ(r1, a1 + s_in_ns);
   EXPECT_EQ(r2, r1 + s_in_ns) << "a saturated arrival must stack behind r1";
+}
+
+// Regression for code-review finding #3: distinct SBE records sharing
+// transactTime (e.g. one CME transaction that emits a sweep of N deletes)
+// must each pay ONE queue service, not collapse into one. The old
+// timestamp-only fan-out guard undercounted burst depth by ~10x on sweep
+// events -- exactly the tail the paper is measuring.
+TEST_F(OBTailDelayTest, InboundSameNsDistinctEventsEachAdvance) {
+  const int s_in_us = 7;
+  const uint64_t s_in_ns = uint64_t(s_in_us) * 1000;
+  ob->set_service_us_inbound(s_in_us);
+
+  const uint64_t before = ob->get_last_release_inbound_ns();
+  const uint64_t txtim = kT0 + 1'000'000ULL;
+  constexpr int N = 10;   // ten SBE records at the same transactTime
+
+  for (int i = 0; i < N; ++i) {
+    // Each SBE record is a NEW MD arrival -> data_handler bumps the counter
+    // -> the Lindley state must advance despite `now` being unchanged.
+    ob->bump_inbound_event_counter_for_test();
+    auto* m = new frame::ob::msg::EndOfBurst();
+    ob->publish_delayed(&feed, m, txtim);
+  }
+
+  // Under the buggy same-`now` collapse, expected release would be just
+  // std::max(txtim, before) + s_in_ns. Under the correct semantics the ten
+  // arrivals stack: d_i = txtim + i * s.
+  const uint64_t expected = std::max(txtim, before) + uint64_t(N) * s_in_ns;
+  EXPECT_EQ(ob->get_last_release_inbound_ns(), expected)
+      << "N distinct SBE records at the same transactTime must each pay one "
+      << "queue service; the timestamp-only fan-out guard would give "
+      << (std::max(txtim, before) + s_in_ns);
+  EXPECT_EQ(ob->pub_q_size(), size_t(N));
 }
 
 // -----------------------------------------------------------------------------

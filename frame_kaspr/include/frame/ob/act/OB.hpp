@@ -288,34 +288,39 @@ namespace frame
           // service, single server, FCFS. The scalar s_in is the whole
           // inbound-side latency model under this build. See paper §4.1 eqs (3)-(4).
           //
-          // Fan-out safety: OB emits one publish_delayed call per subscriber
-          // per message; every call for the same message has the same `now`.
-          // Advance the queue state on the FIRST fan-out call for a given
-          // `now` and reuse that release stamp on subsequent fan-outs, so the
-          // recursion counts one queue-service per MESSAGE arrival, not per
-          // subscriber. Same-nanosecond distinct MD events (extremely rare)
-          // are collapsed into one queue event, which is a defensible
-          // modelling choice for MDP3 tick resolution.
+          // Fan-out semantics: OB emits one publish_delayed call per
+          // subscriber for every MD event, each with a freshly-allocated
+          // message (different pointer). To count ONE queue service per
+          // arrival (not per subscriber), the caller stamps every MD event
+          // with a monotone `inbound_event_counter` at data_handler entry;
+          // publish_delayed advances the recursion when it sees a new
+          // counter value and reuses the current release stamp on
+          // subsequent calls with the same value. Distinct SBE records that
+          // share transactTime (e.g. a single tx that emits a sweep of
+          // deletes plus a trade) each get a distinct counter increment
+          // and therefore each pay one queue service, as required.
           if (now == 0)
           {
             sub->send(m, this);
             return;
           }
+          // Release-safe: an assertion compiles to nothing under -DNOASSERT
+          // and uint64_t(-1)*1000 wraps to ~2^64, silently stamping every
+          // publish at effectively infinity so drain_pub_q never fires.
+          // The abort() below runs in every build mode.
+          if (service_us_inbound <= 0) { std::abort(); }
           ASSERTF(service_us_inbound > 0,
                   boost::format("OB_TAIL_DELAY: service_us_inbound=%d must be "
                                 "set to a positive value before market data "
                                 "is processed (ob_set_service_us_inbound)")
                     % service_us_inbound);
-          uint64_t release;
-          if (now == last_arrival_inbound_ns) {
-            release = last_release_inbound_ns;
-          } else {
-            release = std::max(now, last_release_inbound_ns)
-                    + uint64_t(service_us_inbound) * 1000;
-            last_release_inbound_ns = release;
-            last_arrival_inbound_ns = now;
+          if (inbound_event_counter != last_advanced_inbound_event_id) {
+            last_release_inbound_ns =
+                std::max(now, last_release_inbound_ns)
+                + uint64_t(service_us_inbound) * 1000;
+            last_advanced_inbound_event_id = inbound_event_counter;
           }
-          pub_q.emplace_back(release, sub, m);
+          pub_q.emplace_back(last_release_inbound_ns, sub, m);
 #else
           if (feed_delay <= 0 || now == 0)
           {
@@ -380,6 +385,13 @@ namespace frame
         }
         int get_service_us_inbound() const noexcept { return service_us_inbound; }
         int get_service_us_outbound() const noexcept { return service_us_outbound; }
+        // Test-only: simulate one MD arrival by bumping the event counter.
+        // Production callers reach the counter through data_handler; unit
+        // tests that exercise publish_delayed directly (bypassing the
+        // MDP3 handler) must bump this manually before every distinct
+        // arrival to model the "one queue service per MD event" invariant.
+        void bump_inbound_event_counter_for_test() noexcept { ++inbound_event_counter; }
+        uint64_t get_inbound_event_counter_for_test() const noexcept { return inbound_event_counter; }
         // d_{i-1} on each side, exposed for unit tests that check the
         // recursion identity directly. Read-only.
         uint64_t get_last_release_inbound_ns() const noexcept { return last_release_inbound_ns; }
@@ -455,10 +467,16 @@ namespace frame
         uint64_t last_release_inbound_ns  = 0;
         uint64_t last_release_outbound_ns = 0;
         // Fan-out guard: OB emits one publish_delayed call per subscriber for
-        // the same MD event, all with the same `now`. Track the last-seen
-        // arrival ns so the Lindley state advances once per message, not once
-        // per subscriber. Zero = no message yet processed.
-        uint64_t last_arrival_inbound_ns  = 0;
+        // the same MD event (each with a freshly-allocated message pointer).
+        // A monotone counter incremented by data_handler at every MD arrival
+        // marks each event; publish_delayed advances the Lindley state the
+        // first time it sees a new counter value and reuses the current
+        // release stamp on subsequent fan-out calls with the same value.
+        // Distinct SBE records sharing transactTime still each bump the
+        // counter and each pay one queue service, as required by the paper's
+        // one-service-per-arrival semantics.
+        uint64_t inbound_event_counter        = 0;
+        uint64_t last_advanced_inbound_event_id = 0;
 #endif
         // Stamp of the market-data record currently being processed. Fills and
         // cancel-acks are generated BY that record, so this is when they

@@ -264,17 +264,30 @@ void SimKaspr::create_order_books()
       ob_set_delay(ob, ob_delay_us_ >= 0 ? ob_delay_us_ : 1000, ob_cancel_delay_us_);
     // Inbound leg. Set unconditionally -- 0 is a meaningful value (publish
     // immediately) and is the default, so there is no "leave OB alone" case.
+    // Under OB_TAIL_DELAY the constant feed_delay is bypassed by the Lindley
+    // release rule; warn if the operator passed a nonzero value so the CLI
+    // provenance line below doesn't silently claim a delay that isn't used.
+#ifdef OB_TAIL_DELAY
+    if (ob_feed_delay_us_ > 0) {
+      std::cerr << "SimKaspr: WARN OB_TAIL_DELAY is on -- --ob-feed-delay-us="
+                << ob_feed_delay_us_
+                << " is ignored on the inbound path; use --service-us-inbound"
+                << std::endl;
+    }
+#endif
     ob_set_feed_delay(ob, ob_feed_delay_us_);
 
 #ifdef OB_TAIL_DELAY
-    // Two-queue G/D/1 service times (paper §4.1 (3)-(4), §5.2). -1 = leave
-    // OB's own default (which is itself -1: an assertion fires at first
-    // market data if the operator forgot to set it). OB requires the values
-    // to be strictly positive; the sentinel -1 is passed through unchanged
-    // so the assertion in OB triggers, not this call.
-    if (service_us_inbound_ > 0)
+    // Two-queue G/D/1 service times (paper §4.1 (3)-(4), §5.2). Sentinel
+    // -1 means "leave OB's own default" (which is itself -1: an assertion
+    // fires at first market data if the operator forgot to set it). Any
+    // OTHER value (including 0 and negatives that the operator explicitly
+    // typed) is passed through to OB, whose setter/release-rule asserts
+    // > 0 -- that way the operator's actual bad input surfaces in the
+    // error message, not the phantom sentinel.
+    if (service_us_inbound_ != -1)
       ob_set_service_us_inbound(ob, service_us_inbound_);
-    if (service_us_outbound_ > 0)
+    if (service_us_outbound_ != -1)
       ob_set_service_us_outbound(ob, service_us_outbound_);
 #endif
 

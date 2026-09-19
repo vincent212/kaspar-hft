@@ -64,6 +64,10 @@ def load_arrivals(msg_tape_csv: str, max_events: int = 0) -> np.ndarray:
     with opener(msg_tape_csv, "rt", newline="") as f:
         reader = csv.reader(f)
         header = next(reader)
+        if "transactTime" not in header:
+            raise ValueError(
+                f"msg tape {msg_tape_csv}: missing column 'transactTime'; "
+                f"header is {header}")
         i = header.index("transactTime")
         for row in reader:
             try:
@@ -130,8 +134,17 @@ def fit_hawkes(t: np.ndarray,
     """
     if len(t) < 100:
         raise ValueError(f"too few events for a stable fit: {len(t)}")
-    t = np.asarray(t, dtype=np.float64)
-    t = t - t[0]        # start at 0
+    # If the caller handed us int64 nanoseconds, do the origin-shift in int64
+    # BEFORE the float conversion. At the 2026 epoch (t ~ 1.7e18) a naive
+    # `.astype(float64)/1e9` loses ~380 ns of mantissa; two events 200 ns
+    # apart become bit-identical and the exp-Hawkes MLE biases β low because
+    # the tightest inter-arrivals collapse to dt = 0.
+    t_in = np.asarray(t)
+    if np.issubdtype(t_in.dtype, np.integer):
+        t = (t_in - t_in[0]).astype(np.float64) / 1e9
+    else:
+        t = t_in.astype(np.float64, copy=True)
+        t = t - t[0]
     T = t[-1] + 1e-6
     # Start from reasonable priors: μ = N/(2T), α/β = 0.5, β = 1
     x0 = (len(t) / (2.0 * T), 0.5, 1.0)

@@ -1478,6 +1478,13 @@ void act::OB::process_message(cmsgt msg) noexcept
 
 void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
 {
+#ifdef OB_TAIL_DELAY
+  // One MD arrival = one bump. Every publish_delayed call inside the fan-out
+  // for this event reads the counter and pays one Lindley service; distinct
+  // SBE records sharing transactTime each land here independently and each
+  // pay their own service. Wraps at 2^64 which is fine (comparison is ==).
+  ++inbound_event_counter;
+#endif
 
   // Change types to uint64_t
   uint64_t extim = 0, sendtim = 0;
@@ -2439,6 +2446,11 @@ if (debug)
     // constant-lag path is bypassed. Arrival is ts0 (the tape time SOM decided
     // to act), not a constant-delay-shifted stamp. State is advanced only when
     // we actually release below, so recomputation on later ticks is idempotent.
+    // Release-safe: ASSERTF compiles to nothing under -DNOASSERT and a
+    // sentinel value of -1 wraps uint64_t multiply to ~2^64, silently
+    // stamping every outbound release at effectively infinity. The abort()
+    // below runs in every build mode.
+    if (service_us_outbound <= 0) { std::abort(); }
     ASSERTF(service_us_outbound > 0,
             boost::format("OB_TAIL_DELAY: service_us_outbound=%d must be set "
                           "to a positive value before orders are processed "
