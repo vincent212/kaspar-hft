@@ -41,6 +41,8 @@ SimKaspr::SimKaspr(std::string data_file,
                    int ob_delay_us,
                    int ob_cancel_delay_us,
                    int ob_feed_delay_us,
+                   int service_us_inbound,
+                   int service_us_outbound,
                    int max_dist,
                    int nlights_per_side,
                    int probe_size,
@@ -60,6 +62,8 @@ SimKaspr::SimKaspr(std::string data_file,
     , ob_delay_us_(ob_delay_us)
     , ob_cancel_delay_us_(ob_cancel_delay_us)
     , ob_feed_delay_us_(ob_feed_delay_us)
+    , service_us_inbound_(service_us_inbound)
+    , service_us_outbound_(service_us_outbound)
     , max_dist_(max_dist), nlights_per_side_(nlights_per_side)
     , probe_size_(probe_size)
     , probe_out_(std::move(probe_out))
@@ -261,6 +265,16 @@ void SimKaspr::create_order_books()
     // Inbound leg. Set unconditionally -- 0 is a meaningful value (publish
     // immediately) and is the default, so there is no "leave OB alone" case.
     ob_set_feed_delay(ob, ob_feed_delay_us_);
+
+#ifdef OB_TAIL_DELAY
+    // Two-queue G/D/1 service times (paper §4.1 (3)-(4), §5.2). -1 = leave
+    // OB's own default. Under the flag these are the whole latency model on
+    // each release rule; the constant-lag scalars above are bypassed.
+    if (service_us_inbound_ >= 0)
+      ob_set_service_us_inbound(ob, service_us_inbound_);
+    if (service_us_outbound_ >= 0)
+      ob_set_service_us_outbound(ob, service_us_outbound_);
+#endif
 
     std::cerr << "SimKaspr: OB " << a->name << " assetID=" << j
               << " secID=" << a->sec_id

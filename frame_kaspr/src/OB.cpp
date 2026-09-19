@@ -2431,6 +2431,19 @@ if (debug)
     ASSERT(p_->ts0 > 0, "bad ts0");
     auto ts0_tim = p_->ts0;
     auto order_leave_time = ts0_tim; // p_->ts0 > 0 ? ts0_tim : p_->send_tim;
+#ifdef OB_TAIL_DELAY
+    // Lindley recursion on the outbound queue (paper §4.1 eqs (3)-(4), §5.2):
+    //     d_i = max(a_i, d_{i-1}) + s_out.
+    // Cancels and sends share the queue and the same service time under this
+    // build; the cancel_delay / feed_delay / 40us-floor composition of the
+    // constant-lag path is bypassed. Arrival is ts0 (the tape time SOM decided
+    // to act), not a constant-delay-shifted stamp. State is advanced only when
+    // we actually release below, so recomputation on later ticks is idempotent.
+    const uint64_t order_engine_arrive_time =
+        std::max<uint64_t>(order_leave_time, last_release_outbound_ns)
+          + uint64_t(service_us_outbound) * 1000;
+    [[maybe_unused]] const int eff_delay = service_us_outbound; // logging only, below
+#else
     // A cancel and a new order traverse the same wire, so cancel_delay is
     // normally -1 (= delay); it exists only so an experiment can make the two
     // asymmetric. Note ts0 for a cancel is the time the CANCEL was decided,
@@ -2452,6 +2465,7 @@ if (debug)
         order_leave_time
           + uint64_t(feed_delay) * 1000
           + uint64_t(std::max(40, eff_delay)) * 1000; // 40 us floor
+#endif
     if (order_engine_arrive_time < to_proc->tim)
     {
 
@@ -2472,7 +2486,11 @@ if (debug)
               eff_delay);
 
       // we let this order through
-
+#ifdef OB_TAIL_DELAY
+      // Advance the outbound Lindley state d_{i-1} := d_i only on release.
+      // Recomputation on prior ticks that did NOT release must be idempotent.
+      last_release_outbound_ns = order_engine_arrive_time;
+#endif
       process_market_data(p_.get(), get<1>(*p));
       del_q.erase(p);
     }

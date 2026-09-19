@@ -51,6 +51,8 @@ namespace sim
              int ob_delay_us = -1,
              int ob_cancel_delay_us = -1,
              int ob_feed_delay_us = 0,
+             int service_us_inbound = -1,
+             int service_us_outbound = -1,
              int max_dist = -1,
              int nlights_per_side = -1,
              int probe_size = 0,
@@ -86,6 +88,11 @@ namespace sim
     // set by events it saw with no delay. 0 = publish immediately, which is
     // exactly the behaviour that existed before.
     int      ob_feed_delay_us_;
+    // Two-queue G/D/1 service times (paper §4.1 (3)-(4), §5.2). Inert unless
+    // built with -DOB_TAIL_DELAY; the constant-delay build ignores them. -1
+    // means "leave OB's own default".
+    int      service_us_inbound_;
+    int      service_us_outbound_;
     // How deep the light will rest, in ticks from the touch. The binding
     // limit on working size: (max_dist + 1) levels x lev_orders_max.
     // -1 = leave lights.ini alone.
