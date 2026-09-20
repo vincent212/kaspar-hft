@@ -40,9 +40,9 @@ A Closed-Form and Empirical Case for Multi-Actor HFT Pipelines}
 \begin{abstract}
 The received wisdom in high-frequency-trading (HFT) system design is that the entire hot path --- SBE decode, order-book application, strategy touch, order construction --- should live on a single-thread event loop, because every additional thread hop adds real wall-clock latency. This paper shows that received wisdom is wrong on real CME Market Data Platform version 3 (MDP3) packet flow, and reports two contrarian conclusions.
 
-\textbf{First: the thread-hop cost is a wash.} On a typical HFT task of total service $T = 10\,\mu\mathrm{s}$ under real Hawkes-clustered arrivals, the cluster-wait tail already sits at $\sim 40\,\mu\mathrm{s}$ at $p_{99}$ ($\sim 4\times$ the service floor), and the $3\,\mu\mathrm{s}$ per-hop cost that dominates the single-thread objection is dwarfed by that tail. The design-equation median cost $(N-1)h$ is small compared with the tail win from clustering.
+\textbf{First: the thread-hop cost is a wash.} The received single-thread wisdom assumes that a $\sim 3\,\mu\mathrm{s}$ mailbox hop is a material addition to end-to-end latency. On real Hawkes-clustered CME MDP3 packet arrivals, at a typical single-thread task $T = 10\,\mu\mathrm{s}$, the observed cluster-wait tail alone reaches $p_{99} = 39.96\,\mu\mathrm{s}$ --- about $30\,\mu\mathrm{s}$ of pure clustering queueing sitting on top of the $10\,\mu\mathrm{s}$ service floor. Against a tail of that magnitude, the $3\,\mu\mathrm{s}$ per-hop cost is not a first-order effect. The single-thread objection --- "every hop is a fixed tax that no benefit can overcome" --- is empirically wrong on this class of feed.
 
-\textbf{Second: two threads are strictly better than one.} Splitting the same task into two tasks of $5\,\mu\mathrm{s}$ each, running as separate actors on separate threads with one $3\,\mu\mathrm{s}$ mailbox hop between them, compresses the $p_{99}$ tail from $\sim 38\,\mu\mathrm{s}$ to $\sim 22\,\mu\mathrm{s}$ --- a factor of $\sim 2$ tail win --- at a median cost of $3\,\mu\mathrm{s}$. The Pareto win is real on every window of the 281-session corpus we tested. The same conclusion generalises to an $N$-stage series tandem: an $N^{-1/2}$ (or stronger) power-law tail-ratio contraction at a linear-in-$N$ median cost, capped by the number of natural cut points in the decode chain (four or five on CME MDP3).
+\textbf{Second: two threads are strictly better than one.} Splitting the same $10\,\mu\mathrm{s}$ task into two $5\,\mu\mathrm{s}$ actors running on separate threads with one $3\,\mu\mathrm{s}$ mailbox hop between them cuts the corpus-median $p_{99}$ tail from $39.96\,\mu\mathrm{s}$ to $22.66\,\mu\mathrm{s}$ ($-17.3\,\mu\mathrm{s}$) at a $+3\,\mu\mathrm{s}$ median cost. That is a Pareto improvement on every window we tested. The same pattern generalises to an $N$-stage series tandem with an $N^{-1/2}$-or-stronger tail-ratio contraction at a linear-in-$N$ median cost, capped by the number of natural cut points in the decode chain (four or five on CME MDP3).
 
 The effect is entirely arrival-law-driven: under a rate-matched Poisson null on the same arrival count, both wins vanish and the multi-actor architecture strictly loses. Two closed-form results anchor the mechanism (a burst-limit throughput identity and a batch-arrival tail-ratio result via the Poisson-cluster representation of Hawkes); a fork-based literature search over foundational tandem theory, Hawkes-adjacent queueing, and empirical HFT/RPC work found no direct prior art on either the theoretical statement or the empirical calibration. Companion code contains the message-tape parser, the per-window packet-Hawkes fitter, and the tandem Lindley simulator.
 \end{abstract}
@@ -56,14 +56,29 @@ The effect is entirely arrival-law-driven: under a rate-matched Poisson null on 
 \section{Introduction}
 \label{sec:intro}
 
-\subsection{The practitioner debate}
+\subsection{The design choice, and the safe default}
 \label{sec:intro-debate}
 
-The design of the ingress-to-order pipeline in a high-frequency trading system oscillates between two archetypes: the single-threaded event loop that processes every step of every message on one core (SBE decode, book application, strategy evaluation, order construction, all under one call chain, taking a total service time we denote $T$), and the multi-actor pipeline in which those steps are split across $N$ separate actors, each on its own thread with its own mailbox, connected by $N-1$ explicit hops whose per-hop wall-clock cost we denote $h$. Advocates of the single-thread design cite the cost of a mailbox hop --- typically a mailbox enqueue plus a cache-line transfer between the sender's core and the receiver's core, plus the cost of the receiver being scheduled or spinning --- and argue that $(N-1) h$ adds directly to every message's end-to-end latency, so every extra stage in the pipeline is a fixed tax that no throughput or tail benefit can overcome.
+The design of the ingress-to-order pipeline in a high-frequency trading system is a choice between two archetypes: the single-threaded event loop that processes every step of every message on one core (SBE decode, book application, strategy evaluation, order construction, all under one call chain, taking a total service time we denote $T$), and the multi-actor pipeline in which those steps are split across $N$ separate actors, each on its own thread with its own mailbox, connected by $N-1$ explicit hops whose per-hop wall-clock cost we denote $h$. It is not really a debate: almost everyone in the low-latency HFT community is in the single-thread camp, and single-threaded is generally viewed as the safe choice. The argument for it cites the cost of a mailbox hop --- typically a mailbox enqueue plus a cache-line transfer between the sender's core and the receiver's core, plus the cost of the receiver being scheduled or spinning --- and holds that $(N-1) h$ adds directly to every message's end-to-end latency, so every extra stage in the pipeline is a fixed tax that no throughput or tail benefit can overcome.
 
 That argument implicitly assumes an arrival process for which single-server throughput $1/T$ is comfortably larger than the peak arrival rate. On CME MDP3 the arrival process is strongly self-exciting: packets arrive in Hawkes-clustered bursts \citep{filimonovsornette2012,hardimanbercotbouchaud2013,bacry2015review}. During such bursts, the single-thread event loop's utilisation transiently exceeds 1, and cluster-induced queueing accumulates a tail that dwarfs $h$ by two orders of magnitude. This paper's central empirical observation is that on 281 sessions of NQ front-month packet arrivals, this cluster tail is what dominates observed end-to-end latency: the $99$th-percentile latency ($p_{99}$) of a $T = 10\,\mu\mathrm{s}$ constant-service queue driven by real packet arrivals reaches into the hundreds of microseconds during high-clustering windows, orders of magnitude above the service floor. Under a rate-matched Poisson null of the same arrival count the $p_{99}$ sits within a factor of $\sim 1.1$ of the median; the tail is entirely a Hawkes-cluster effect.
 
-Given that the tail is cluster-driven, the natural question is whether splitting the pipeline into $N > 1$ stages --- each running as an independent actor on its own core, with per-stage service $T/N$, so that the tail-driving cluster-wait is now split across $N$ smaller queues --- reduces the tail. If it does, and if the additional median cost $(N - 1) h$ is small relative to the tail savings, the multi-actor architecture is a Pareto improvement over the single-thread design, and the practitioner debate is resolved in favour of pipelining for HFT workloads specifically. All symbols in this paragraph are gathered in the notation table of Section~\ref{sec:notation}.
+Given that the tail is cluster-driven, the natural question is whether splitting the pipeline into $N > 1$ stages --- each running as an independent actor on its own core, with per-stage service $T/N$, so that the tail-driving cluster-wait is now split across $N$ smaller queues --- reduces the tail. If it does, and if the additional median cost $(N - 1) h$ is small relative to the tail savings, the multi-actor architecture is a Pareto improvement over the single-thread design, and the single-thread default is displaced for HFT workloads specifically. All symbols in this paragraph are gathered in the notation table of Section~\ref{sec:notation}.
+
+\subsection{Prior recommendations for single-thread hot paths}
+\label{sec:intro-singlethread-priors}
+
+The single-thread rule has a specific lineage in the low-latency-systems community, and we name that lineage here because the paper is arguing against it directly. In reverse chronological order, the lineage has three layers: the HFT-specific codification of the last decade, the general low-latency-systems and event-driven-server culture from which HFT inherited it, and one prominent published counter-argument that the field discarded.
+
+\paragraph{Modern HFT-community codification (2010--present).} The founding statement of the current HFT-community formulation is Thompson's Single Writer Principle \citep{thompson2011singlewriter} --- ``a single-writer design consistently outperforms a `properly' lock-free or wait-free multi-writer design on most realistic workloads'' --- motivated by and applied in the LMAX Exchange architecture \citep{fowler2011lmax,lmaxdisruptor}. Rigtorp's widely cited low-latency tuning guide \citep{rigtorp_lowlatency} formalises the operational rule (``run a single thread in \texttt{SCHED\_OTHER} per core and use busy waiting/polling''), and Chronicle Software's public engineering materials \citep{chronicle_fasttrading} adopt the same architecture for market-data connectors (``within a single event loop \ldots busy-spinning and affinity locks''), pinning Chronicle Queue's design to a single writer per queue. The Aeron messaging library \citep{aeron} inherits the same lineage. The academic side is thinner, but \citet{kwan2023hftpatterns} codify the pattern as the standard low-latency-HFT design pattern, and recent practitioner posts \citep{hu2024sequencer} restate it explicitly (``all critical trading logic runs in a single-threaded event loop, eliminating context switches and lock contention entirely''). Inside HFT specifically, the same recommendation has been reinforced by two decades of private prop-trading arms-race practice among the Chicago desks (Getco, Jump, Optiver, DRW; late 2000s), reported second-hand in industry retrospectives but without an open-literature reference.
+
+\paragraph{Older event-driven-server lineage (1995--2010).} HFT did not invent this rule; it inherited it from the event-driven-server culture. The single-threaded event loop as an architectural pattern dates at least to Schmidt's Reactor pattern \citep{schmidt1995reactor} in the mid-1990s. It was sharpened by Kegel's C10K essay \citep{kegel1999c10k}, which named the OS thread-per-connection model as the bottleneck of scalable network servers and argued for event-driven designs. The pattern went mainstream in production with Sysoev's nginx web server \citep{sysoev2004nginx}, whose single-threaded worker process is explicitly justified as context-switch avoidance, and later with Dahl's Node.js runtime \citep{dahl2009nodejs}, which pushed the single-threaded event loop into ordinary application code.
+
+\paragraph{Pro-pipelining minority --- outside HFT.} A legitimate multi-decade pro-pipelining tradition exists in the datacenter and networking-systems literature; it has been the field's non-single-thread minority throughout the period covered by the previous two paragraphs. The earliest prominent published argument is the Staged Event-Driven Architecture (SEDA) of \citet{welsh2001seda}, which advocated exactly the multi-stage pipeline of independently scheduled event handlers that the present paper's tandem design revives. Welsh's 2010 retrospective \citep{welsh2010retrospective} is often cited as a walk-back to single-thread, but it is actually a hedged pro-pipelining recommendation: it advocates decoupling stages from thread pools, grouping multiple stages within a single thread-pool domain where latency is critical, and putting a separate thread pool and queue in front of any stage with long or nondeterministic runtime --- effectively the present paper's design rule in different vocabulary. Beyond SEDA the pro-pipelining tradition includes the Click Modular Router \citep{kohler2000click} for staged packet processing; Naiad \citep{murray2013naiad} for low-latency dataflow; Snap \citep{marty2019snap} for Google's multi-engine network stack; and the datacenter microsecond-tail-latency scheduler line --- Shinjuku \citep{kaffes2019shinjuku}, Shenango \citep{ousterhout2019shenango}, Caladan \citep{fried2020caladan}, Perséphone \citep{delimitrou2021persephone} --- which argues for centralised multi-core dispatch specifically to control the microsecond-scale tail. Perséphone in particular is targeted at ``wide service-time distributions,'' the closest existing framing to our arrival-law claim; but the datacenter line frames the problem as heavy-tailed \emph{service}, not clustered \emph{arrivals}. DPDK explicitly supports both run-to-completion and pipeline modes and its documentation recommends pipeline mode ``if some set of packets require longer to process'' \citep{dpdk}. Inside HFT specifically the pro-pipelining position is rare in the open literature; an obscure Chinese patent \citep{cn105654383a} describing a pipelined FAST market-data decoder is a lonely commercial artefact of it.
+
+None of the pro-pipelining sources above ties the design recommendation to Hawkes / self-exciting / near-critical arrival dynamics. The closest theoretical hooks are the MMPP-input tandem work of \citet{kimchydzinski2002mmpp} already cited in Section~\ref{sec:intro-priors} and the batch-arrival tandem phase-transition analysis of \citet{tandembatch2014}. The present paper's arrival-law-specific mechanism --- that the recommendation flips when arrivals are near-critically self-exciting --- remains uncontested by prior work.
+
+Yours truly gets a footnote on that list, but with an important caveat. An earlier paper by the present author \citep{mayeski_fastsend} did not argue for the single-thread principle in its own right. That paper is defensive rather than prescriptive: the actor model had long been dismissed as unsuitable for HFT because of asynchronous-dispatch overhead, and \texttt{fast\_send} is presented there as the mechanism that eliminates the overhead for co-located actors and thereby makes the actor model usable \emph{inside} a servicing chain that the received wisdom of the time had already placed on a single thread. The reference architecture in that paper --- reader $\to$ buffer via asynchronous \texttt{send}, decode/book/signal chain via \texttt{fast\_send} on one thread, signal $\to$ order-out via asynchronous \texttt{send} --- takes the collapsed single-thread servicing chain as the widely accepted design context of the time and delivers a way to compose it out of actors at zero context-switch cost. It does not compare single-thread against more-asynchronous topologies and pick single-thread; it takes the topology as given. The present paper is a retraction of that design context, not of the \texttt{fast\_send} mechanism: on Hawkes-clustered feeds, the aggregate servicing chain should be split into asynchronous stages once its total service time becomes long compared to the Hawkes-cluster tail. \texttt{fast\_send} remains the right mechanism for chaining actors that have been placed together on one thread; what changes is where the thread boundaries inside the servicing chain should sit. The corrected design rule is stated in Section~\ref{sec:conclusion}.
 
 \subsection{What this paper does}
 \label{sec:intro-plan}
@@ -127,6 +142,7 @@ Symbol $T$ serves double duty as the paper's canonical service floor and as the 
 
 % =====================================================================
 
+\clearpage
 \part{Analytical framework}
 
 \section{Analytical framework}
@@ -228,6 +244,7 @@ Theorem~\ref{thm:burst} is exact in the burst-saturation limit; away from it, pi
 
 % =====================================================================
 
+\clearpage
 \part{Empirical experiment}
 
 \section{Experiment setup}
@@ -319,8 +336,6 @@ The paper's simulator input is the packet-arrival stream, so the first empirical
 
 \subsection{Simulator}
 \label{sec:setup-simulator}
-
-\subsection{Model}
 \label{sec:sim-model}
 
 Packet arrivals $t_1 < t_2 < \cdots$ enter stage 1. Each stage $k$ is a single-server FIFO queue with deterministic service $T/N$ (own actor, own thread), and departures from stage $k$ are delayed by $h$ before arriving at stage $k+1$. Standard Lindley recursion per stage:
@@ -432,6 +447,8 @@ N^\star \;=\; \arg\min_N \Big[ (N-1) h \;+\; \kappa \, \Delta(N) \Big]
 \]
 for the operator's risk-aversion coefficient $\kappa$. Numerically at $T = 10, h = 3$: $N^\star = 2$ for any $\kappa \in [0.16, 1]$, $N^\star = 3$--$4$ for $\kappa > 1$, and the total end-to-end $p_{99}$ starts increasing beyond $N = 4$ because the accumulated $(N-1)h$ overtakes the residual $\Delta(N)$.
 
+\paragraph{Floor on $T$: short tasks cannot be usefully split.} Equations~\eqref{eq:design99}--\eqref{eq:design50} carry an obvious lower bound on the tasks the paper's recommendation applies to. The per-stage service is $T/N$, so splitting a task of total service $T$ into $N$ stages spends $(N-1) h$ of median cost to obtain the compression of a tail excess $\Delta(N)$ that itself cannot exceed the service floor $T$ by more than a constant multiplier set by the arrival law. When $T$ is of order the hop cost $h$ or below, the median cost per additional stage $h$ is already comparable to the entire single-stage latency $T$, and no achievable $\Delta(N)$ tail-win can offset it: the design equation prescribes $N^\star = 1$ mechanically. Concretely at the paper's calibration $h = 3\,\mu\mathrm{s}$, a task with $T = 1\,\mu\mathrm{s}$ cannot be usefully split into two half-microsecond stages --- one hop alone would add $3\,\mu\mathrm{s}$ of median to a task that clears in $1\,\mu\mathrm{s}$, for a tail-win bounded above by roughly $T$ itself. The paper's ``prefer to split long tasks'' rule presupposes $T$ comfortably larger than $h$; on this framework's shipping BQueue path ($h \approx 3\,\mu\mathrm{s}$) the sensible regime is $T \gtrsim 6\,\mu\mathrm{s}$, and the paper's $T = 10$ and $T = 20$ scenarios sit safely inside it. Sub-microsecond tasks --- for instance a single SBE integer decode, or a small handler that fires from a strategy fast path --- belong on \texttt{fast\_send}, not on a cross-thread mailbox, regardless of feed statistics.
+
 \subsection{Comparison scenario: $T = 20\,\mu\mathrm{s}$}
 \label{sec:results-scenarios}
 
@@ -466,6 +483,7 @@ The design equation is monotone in $h$: at fixed $T$ and fixed corpus $\Delta(N)
 
 % =====================================================================
 
+\clearpage
 \part{Evaluation and implementation}
 
 \section{Evaluation: do empirics match the analytical predictions?}
@@ -489,6 +507,8 @@ The design equation maps onto framework choices in a specific way. The paper's m
 \paragraph{Two hop paths in the shipping \kasparhft{} framework.} \kasparhft{} is a shared-nothing C++20 actor framework with two distinct dispatch paths that this paper needs to distinguish. Actors register under a \texttt{Manager}, groups of actors sharing a thread register as \texttt{Group}s, and messages flow one-way with no shared state. The default asynchronous send uses \texttt{BQueue}, a blocking mailbox built on \texttt{std::mutex} $+$ \texttt{std::condition\_variable} $+$ \texttt{boost::circular\_buffer}; a producer thread enqueues under the mutex and a consumer thread waits on the condition variable. This is the hop path the paper's Section~\ref{sec:setup-simulator} model corresponds to. On the same hardware as the paper's tape corpus, \citet{mayeski_actorhft} measures a wait/notify round-trip of $\sim 3.4\,\mu\mathrm{s}$, giving $h \approx 3.4\,\mu\mathrm{s}$ for a real pipelined tandem built on \kasparhft{}'s current mailbox.
 
 The \texttt{fast\_send} path is different: it is a \emph{synchronous} dispatch that acquires a per-actor mutex, calls the receiver's handler inline on the sender's thread, and returns the reply. There is no queue and no cross-thread wake-up. Its per-call cost is much smaller than the BQueue path's, but it is not a pipelined hop: the sender blocks until the receiver finishes, so a chain of \texttt{fast\_send}s serialises through all stages on one thread and offers none of the throughput speedup of Theorem~\ref{thm:burst}. The paper's design equation does not apply to \texttt{fast\_send} chains.
+
+A convenient consequence for practitioners is that in \kasparhft{} the two dispatch paths present the receiver with the same \texttt{MESSAGE\_HANDLER} interface: a handler cannot tell whether it was invoked via \texttt{fast\_send} or via an asynchronous \texttt{send}. Switching a boundary between the two paths is therefore a one-line change at the sender's call site --- \texttt{target->fast\_send(m,\ this)} vs \texttt{target->send(m,\ this)} --- with no code change on the receiver side. This makes the choice cheap to defer to the end of a build and cheap to flip per boundary once the end-to-end latency measurements are in.
 
 \paragraph{Natural cut points on a CME MDP3 handler.} The decode pipeline decomposes into four to five actors: \texttt{SocketReader} (UDP reception), \texttt{MessageProcessor} / SBE decoder, order-book actor (MBP or MBO), strategy actor (\shadowpov{} in \kasparhft{}), order manager. These are the paper's cut points; $N > 5$ requires artificial decomposition and hits diminishing returns.
 
@@ -514,6 +534,10 @@ The paper's two headline conclusions overturn the received wisdom in HFT system 
 \paragraph{Why the received wisdom persists.} We think the field arrived at the single-thread rule under a mental model of Poisson-like arrivals, where clustering does not exist and the tail sits near the service floor. On such a feed the received wisdom is correct --- our own results give exactly that answer under the Poisson null. What the field missed is that real exchange feeds have never been Poisson: near-critical branching ratios of $n \approx 0.9$ on CME futures have been documented for over a decade, and it is precisely those clusters that reverse the architectural recommendation. When your feed is bursty, thread-hop overhead is not a cost --- it is the price of admission to a Pareto-better operating point.
 
 \paragraph{What this changes in practice.} Multi-actor pipelines are the correct architecture for HFT feeds specifically because those feeds are self-exciting. Framework designers should replace wait/notify async mailboxes with busy-poll dequeue on pinned isolated cores, drive the mailbox mutex uncontended, keep memory-pool discipline, and set $N$ to the natural decomposition boundaries of the decode pipeline --- 4--5 stages on CME. Strategy designers of both POV-style and race-sensitive algorithms benefit from the same $N$ budget for the same reason: the tail is what matters, and the pipeline compresses it.
+
+\paragraph{Retraction of a prior design context, and the corrected design rule.} An earlier paper by the present author \citep{mayeski_fastsend} did not itself argue for the single-thread servicing chain; it took the collapsed single-thread servicing chain as the widely accepted design context of the time and offered \texttt{fast\_send} as the mechanism that makes actor composition inside it free of context-switch overhead. What the present paper retracts is the design context, not the mechanism: on Hawkes-clustered feeds the single-thread servicing chain should no longer be the unconditional default. The corrected position is that \texttt{fast\_send} (synchronous, inline, sub-microsecond) and asynchronous \texttt{BQueue} handoffs (a real pipelined hop at a few microseconds) are \emph{complementary} tools, and the choice between them is a per-boundary design decision that depends on the service time being chained and the arrival law of the feed the pipeline sits on. Designers should use \texttt{fast\_send} and asynchronous sends judiciously, according to which is appropriate for the task at hand.
+
+In shipping \kasparhft{} the \texttt{fast\_send} vs asynchronous-send choice at each actor boundary is normally left open until the end of the build, and is resolved by measuring the end-to-end median and tail latency of the assembled pipeline under the target feed. A convenient property of the \kasparhft{} actor API is that the receiving actor's \texttt{MESSAGE\_HANDLER} is agnostic to how it was invoked: swapping a synchronous \texttt{fast\_send} at a call site for an asynchronous \texttt{send} (or vice versa) is a one-line change on the sender side and requires no code change on the receiver side. The choice therefore lives entirely at each individual call site and can be flipped per boundary at end-of-build with minimal engineering cost. The paper's design equation now supplies the arrival-law-aware default value of that end-of-build measurement: on Hawkes-clustered feeds, long tasks should be split into shorter actors joined by asynchronous sends as a matter of preference, on the presumption that splitting compresses the overall tail more than the added hop cost inflates the median. The rule presupposes that the task being split has a service time $T$ comfortably larger than the hop cost $h$; a task of order $h$ or below cannot be usefully split (a $1\,\mu\mathrm{s}$ task cannot be turned into two $500$~ns actors when a hop alone costs $3\,\mu\mathrm{s}$), and Section~\ref{sec:results-design}'s floor makes the boundary explicit. Short synchronous chains inside one actor's servicing of one message therefore continue to use \texttt{fast\_send} unchanged. The end-of-build measurement remains the authoritative arbiter of any specific boundary.
 
 \paragraph{Main caveats.} The corpus is a single instrument (NQ front-month, chan 318); ES and BTC replications are follow-on work. The tape uses Databento's colo capture rather than our own, so any absolute-latency claim about the network sub-stage carries an unmeasured offset. Constant service is a simplification; the true per-actor work has state-dependent variability we do not model here. The cache-pollution cost of spinning receivers on many cores is bounded but not measured. And the tail-ratio result is stated as a conjecture in Part~I because a rigorous proof requires monotone-separable-network machinery adapted to Hawkes batch inputs (Appendix~\ref{app:proof-sketch}); the paper's empirical Part~II substitutes measurement for proof.
 
@@ -633,6 +657,81 @@ Zhao, K., Alizadeh, M., Pan, R., Ports, D. R. K., Perry, J., Yang, X., et~al. (2
 
 \bibitem[Mayeski(preparation)]{mayeski_actorhft}
 Mayeski, V. (in preparation). \kasparhft: a shared-nothing actor framework for CME futures --- fast\_send hop-cost measurement.
+
+\bibitem[Mayeski(2025)]{mayeski_fastsend}
+Mayeski, V. (2025). \texttt{fast\_send}: synchronous inline dispatch on the CME MDP3 hot path. M2 Tech technical report, \kasparhft{} repository. \url{https://github.com/vmayeski/kaspar-hft/blob/main/tech_reports/fast_send.pdf}
+
+\bibitem[Thompson(2011)]{thompson2011singlewriter}
+Thompson, M. (2011). The Single Writer Principle. \textit{Mechanical Sympathy}, 29 September 2011. \url{https://mechanical-sympathy.blogspot.com/2011/09/single-writer-principle.html}
+
+\bibitem[Fowler(2011)]{fowler2011lmax}
+Fowler, M. (2011). The LMAX Architecture. 12 July 2011. \url{https://martinfowler.com/articles/lmax.html}
+
+\bibitem[LMAX(2011)]{lmaxdisruptor}
+LMAX Exchange (2011). Disruptor: high-performance alternative to bounded queues for exchanging data between concurrent threads. \url{https://lmax-exchange.github.io/disruptor/}
+
+\bibitem[Rigtorp(2020)]{rigtorp_lowlatency}
+Rigtorp, E. (2020). Low latency tuning guide. \url{https://rigtorp.se/low-latency-guide/}
+
+\bibitem[Chronicle(2023)]{chronicle_fasttrading}
+Chronicle Software (2023). Building fast trading engines: Chronicle's approach to low-latency trading. \url{https://chronicle.software/insights/blogs/building-fast-trading-engines-chronicles-approach-to-low-latency-trading}
+
+\bibitem[Real Logic(2016)]{aeron}
+Real Logic (2016). Aeron: efficient reliable UDP unicast, UDP multicast, and IPC message transport. \url{https://aeron.io/}
+
+\bibitem[Kwan et al.(2023)]{kwan2023hftpatterns}
+Kwan, A., Wang, H., Luk, W. (2023). C++ design patterns for low-latency applications including high-frequency trading. arXiv 2309.04259.
+
+\bibitem[Hu(2024)]{hu2024sequencer}
+Hu, W. (2024). The deterministic event-driven sequencer architecture: a competitive edge for high-frequency trading. Medium, October 2024. \url{https://medium.com/@hu.wenzhe124124/the-deterministic-event-driven-sequencer-architecture-a-competitive-edge-for-high-frequency-371cbfbe9c2f}
+
+\bibitem[Schmidt(1995)]{schmidt1995reactor}
+Schmidt, D. C. (1995). Reactor: an object behavioral pattern for concurrent event demultiplexing and event handler dispatching. In \textit{Pattern Languages of Program Design}, J. O. Coplien and D. C. Schmidt (eds.), Addison-Wesley.
+
+\bibitem[Kegel(1999)]{kegel1999c10k}
+Kegel, D. (1999). The C10K problem. \url{https://www.kegel.com/c10k.html}
+
+\bibitem[Sysoev(2004)]{sysoev2004nginx}
+Sysoev, I. (2004). nginx: a high-performance HTTP server and reverse proxy. \url{https://nginx.org/}
+
+\bibitem[Dahl(2009)]{dahl2009nodejs}
+Dahl, R. (2009). Node.js: JavaScript runtime built on the V8 engine. Presented at JSConf EU, Berlin, November 2009. \url{https://nodejs.org/}
+
+\bibitem[Welsh et al.(2001)]{welsh2001seda}
+Welsh, M., Culler, D., Brewer, E. (2001). SEDA: an architecture for well-conditioned, scalable internet services. \textit{Proc. 18th ACM Symposium on Operating Systems Principles (SOSP)}, 230--243.
+
+\bibitem[Welsh(2010)]{welsh2010retrospective}
+Welsh, M. (2010). A retrospective on SEDA. \url{https://matt-welsh.blogspot.com/2010/07/retrospective-on-seda.html}
+
+\bibitem[Kohler et al.(2000)]{kohler2000click}
+Kohler, E., Morris, R., Chen, B., Jannotti, J., Kaashoek, M. F. (2000). The Click modular router. \textit{ACM Transactions on Computer Systems} 18(3), 263--297.
+
+\bibitem[Murray et al.(2013)]{murray2013naiad}
+Murray, D. G., McSherry, F., Isaacs, R., Isard, M., Barham, P., Abadi, M. (2013). Naiad: a timely dataflow system. \textit{Proc. 24th ACM Symposium on Operating Systems Principles (SOSP)}, 439--455.
+
+\bibitem[Marty et al.(2019)]{marty2019snap}
+Marty, M., de~Kruijf, M., Adriaens, J., Alfeld, C., et~al. (2019). Snap: a microkernel approach to host networking. \textit{Proc. 27th ACM Symposium on Operating Systems Principles (SOSP)}, 399--413.
+
+\bibitem[Kaffes et al.(2019)]{kaffes2019shinjuku}
+Kaffes, K., Chong, T., Humphries, J. T., Belay, A., Mazi\`eres, D., Kozyrakis, C. (2019). Shinjuku: preemptive scheduling for $\mu$second-scale tail latency. \textit{Proc. 16th USENIX Symposium on Networked Systems Design and Implementation (NSDI)}, 345--359.
+
+\bibitem[Ousterhout et al.(2019)]{ousterhout2019shenango}
+Ousterhout, A., Fried, J., Behrens, J., Belay, A., Balakrishnan, H. (2019). Shenango: achieving high CPU efficiency for latency-sensitive datacenter workloads. \textit{Proc. 16th USENIX NSDI}, 361--378.
+
+\bibitem[Fried et al.(2020)]{fried2020caladan}
+Fried, J., Ruan, Z., Ousterhout, A., Belay, A. (2020). Caladan: mitigating interference at microsecond timescales. \textit{Proc. 14th USENIX OSDI}, 281--297.
+
+\bibitem[Chen et al.(2021)]{delimitrou2021persephone}
+Chen, H., Delimitrou, C., Kozyrakis, C. (2021). Pers\'ephone: a microsecond-scale time-sharing scheduler for wide service-time distributions. \textit{Proc. 28th ACM SOSP}, 653--668.
+
+\bibitem[DPDK Project(2024)]{dpdk}
+DPDK Project (2024). DPDK Programmer's Guide: run-to-completion and pipeline modes. \url{https://doc.dpdk.org/guides/prog_guide/}
+
+\bibitem[Zhang(2016)]{cn105654383a}
+Zhang, X. (2016). Pipelined FAST protocol market-data decoder for high-frequency trading. Chinese patent CN105654383A.
+
+\bibitem[Vinnikov(2014)]{tandembatch2014}
+Vinnikov, A. (2014). Batch latency analysis and phase transitions for a tandem of queues. arXiv 1403.2400.
 
 \end{thebibliography}
 

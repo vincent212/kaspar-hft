@@ -52,8 +52,11 @@ N_STAGES = [1, 2, 4, 8, 12]
 # wait/notify-style hop) so the paper can show how the design equation flips
 # when h is a substantial fraction of T/N.
 SCENARIOS = [
-    ("T10_h3us", 10_000, 3_000, [1, 2, 4, 8, 12]),
-    ("T20_h3us", 20_000, 3_000, [1, 2, 4, 8, 12]),
+    ("T2_h3us",  2_000,  3_000, [1, 2, 4, 8, 12]),
+    ("T4_h3us",  4_000,  3_000, [1, 2, 4, 8, 12]),
+    ("T8_h3us",  8_000,  3_000, [1, 2, 4, 8, 12]),
+    ("T16_h3us", 16_000, 3_000, [1, 2, 4, 8, 12]),
+    ("T32_h3us", 32_000, 3_000, [1, 2, 4, 8, 12]),
 ]
 
 
