@@ -15,6 +15,8 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import multiprocessing as mp
+import os
 import sys
 import time
 from pathlib import Path
@@ -88,6 +90,52 @@ def quantiles_us(lat_ns: np.ndarray) -> tuple[float, float, float, float, float]
     )
 
 
+def run_session(task: tuple[str, str, list[dict]]) -> list[dict]:
+    """Grid for one session: (cache_dir, session, window metadata rows) -> rows."""
+    cache_dir, session, window_rows = task
+    npz_path = Path(cache_dir) / "arrivals" / f"{session}.npz"
+    if not npz_path.exists():
+        print(f"[run] missing {npz_path}, skipping", file=sys.stderr)
+        return []
+    rows: list[dict] = []
+    with np.load(npz_path) as npz:
+        for wrow in window_rows:
+            wid = int(wrow["window_id"])
+            key_H = f"w{wid}_H"
+            key_P = f"w{wid}_P"
+            if key_H not in npz.files or key_P not in npz.files:
+                continue
+            arr_H = npz[key_H]
+            arr_P = npz[key_P]
+
+            row = dict(wrow)
+            for label, T_ns, h_ns, Ns in SCENARIOS:
+                for regime, arrivals in (("H", arr_H), ("P", arr_P)):
+                    wait1 = None
+                    for N in sorted(set(Ns) | {1}):
+                        lat = tandem_lindley(
+                            arrivals, N,
+                            total_service_ns=T_ns, hop_ns=h_ns)
+                        # Pathwise bound (paper Thm 2): W(N) <= W(1)/N + (N-1)h,
+                        # W = latency - T. Tolerance N ns covers round(T/N).
+                        wait = lat - T_ns
+                        if N == 1:
+                            wait1 = wait
+                        excess = wait - (wait1 / N + (N - 1) * h_ns) - N
+                        row[f"{label}_{regime}_N{N}_bound_viol"] = int((excess > 0).sum())
+                        row[f"{label}_{regime}_N{N}_bound_viol_max_us"] = max(float(excess.max()), 0.0) / 1e3
+                        if N not in Ns:
+                            continue
+                        p50, p95, p99, p999, mx = quantiles_us(lat)
+                        row[f"{label}_{regime}_N{N}_p50_us"]  = p50
+                        row[f"{label}_{regime}_N{N}_p95_us"]  = p95
+                        row[f"{label}_{regime}_N{N}_p99_us"]  = p99
+                        row[f"{label}_{regime}_N{N}_p999_us"] = p999
+                        row[f"{label}_{regime}_N{N}_max_us"]  = mx
+            rows.append(row)
+    return rows
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--cache-dir", required=True,
@@ -95,6 +143,7 @@ def main() -> int:
                          "arrivals/{session}.npz")
     ap.add_argument("--out-dir", required=True,
                     help="where to write qsim_grid.parquet with the full grid")
+    ap.add_argument("--jobs", type=int, default=int(os.cpu_count() or 8))
     args = ap.parse_args()
 
     cache = Path(args.cache_dir)
@@ -116,53 +165,18 @@ def main() -> int:
 
     rows: list[dict] = []
     sessions = list(meta["session"].unique())
+    tasks = [(str(cache), s, meta[meta["session"] == s].to_dict("records"))
+             for s in sessions]
     t0 = time.time()
-    for si, session in enumerate(sessions):
-        npz_path = cache / "arrivals" / f"{session}.npz"
-        if not npz_path.exists():
-            print(f"[run] missing {npz_path}, skipping", file=sys.stderr)
-            continue
-        with np.load(npz_path) as npz:
-            window_rows = meta[meta["session"] == session]
-            for _, wrow in window_rows.iterrows():
-                wid = int(wrow["window_id"])
-                key_H = f"w{wid}_H"
-                key_P = f"w{wid}_P"
-                if key_H not in npz.files or key_P not in npz.files:
-                    continue
-                arr_H = npz[key_H]
-                arr_P = npz[key_P]
-
-                row = wrow.to_dict()
-                for label, T_ns, h_ns, Ns in SCENARIOS:
-                    for regime, arrivals in (("H", arr_H), ("P", arr_P)):
-                        wait1 = None
-                        for N in sorted(set(Ns) | {1}):
-                            lat = tandem_lindley(
-                                arrivals, N,
-                                total_service_ns=T_ns, hop_ns=h_ns)
-                            # Pathwise bound (paper Thm 2): W(N) <= W(1)/N + (N-1)h,
-                            # W = latency - T. Tolerance N ns covers round(T/N).
-                            wait = lat - T_ns
-                            if N == 1:
-                                wait1 = wait
-                            excess = wait - (wait1 / N + (N - 1) * h_ns) - N
-                            row[f"{label}_{regime}_N{N}_bound_viol"] = int((excess > 0).sum())
-                            row[f"{label}_{regime}_N{N}_bound_viol_max_us"] = max(float(excess.max()), 0.0) / 1e3
-                            if N not in Ns:
-                                continue
-                            p50, p95, p99, p999, mx = quantiles_us(lat)
-                            row[f"{label}_{regime}_N{N}_p50_us"]  = p50
-                            row[f"{label}_{regime}_N{N}_p95_us"]  = p95
-                            row[f"{label}_{regime}_N{N}_p99_us"]  = p99
-                            row[f"{label}_{regime}_N{N}_p999_us"] = p999
-                            row[f"{label}_{regime}_N{N}_max_us"]  = mx
-                rows.append(row)
-        if (si + 1) % 25 == 0 or (si + 1) == len(sessions):
-            elapsed = time.time() - t0
-            print(f"[run] {si+1}/{len(sessions)} sessions, "
-                  f"{len(rows)} window rows, {elapsed:.1f}s elapsed",
-                  file=sys.stderr)
+    with mp.Pool(processes=max(1, min(args.jobs, len(tasks)))) as pool:
+        for si, session_rows in enumerate(pool.imap_unordered(run_session, tasks)):
+            rows.extend(session_rows)
+            if (si + 1) % 25 == 0 or (si + 1) == len(sessions):
+                elapsed = time.time() - t0
+                print(f"[run] {si+1}/{len(sessions)} sessions, "
+                      f"{len(rows)} window rows, {elapsed:.1f}s elapsed",
+                      file=sys.stderr)
+    rows.sort(key=lambda r: (r["session"], int(r["window_id"])))
 
     df = pd.DataFrame(rows)
     out_path = out / "qsim_grid.parquet"
