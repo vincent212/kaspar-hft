@@ -109,7 +109,11 @@ def run_session(task: tuple[str, str, list[dict]]) -> list[dict]:
             arr_P = npz[key_P]
 
             row = dict(wrow)
+            # Utilisation is service-time dependent, so it is derived per
+            # scenario here rather than cached at one hardcoded service time.
+            lam = float(row.get("lambda_bar_obs", float("nan")))
             for label, T_ns, h_ns, Ns in SCENARIOS:
+                row[f"{label}_rho"] = lam * T_ns / 1e9
                 for regime, arrivals in (("H", arr_H), ("P", arr_P)):
                     wait1 = None
                     for N in sorted(set(Ns) | {1}):

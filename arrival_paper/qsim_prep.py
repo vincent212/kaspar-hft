@@ -9,7 +9,8 @@ and writes the results to a compact on-disk cache:
 
     <out-dir>/metadata.parquet       one row per (session, window) with
                                      n_messages, n_packets, span_mean, span_max,
-                                     lambda_bar_pkt, n_branch_pkt, converged, rho
+                                     lambda_bar_pkt, n_branch_pkt, converged,
+                                     window_span_ns, lambda_bar_obs
 
     <out-dir>/arrivals/{session}.npz keyed w{window_id}_H (real arrivals, int64 ns)
                                      and w{window_id}_P (Poisson-null arrivals,
@@ -45,7 +46,6 @@ from arrival_paper.hawkes_smoke import fit_hawkes
 DEFAULT_WINDOW_MIN      = 30
 MIN_PACKETS_PER_WINDOW  = 500
 MIN_MESSAGES_PER_WINDOW = 1000
-FLOOR_NS                = 7_230  # for rho calculation only; sim uses grid T
 CHECKPOINT_EVERY        = 25
 
 
@@ -107,8 +107,13 @@ def process_session(msg_tape_csv: str, out_arrivals_dir: str) -> pd.DataFrame:
         pkt_arr = np.array([p[0] for p in pairs], dtype=np.int64)
         spans   = np.array([p[1] for p in pairs], dtype=np.int64)
 
+        # Packet rate over the observed span. Utilisation is service-time
+        # dependent, so it is NOT stored here: rho(T) = lambda_bar_obs * T is
+        # computed per scenario in qsim_run.py. Storing a single `rho` at one
+        # hardcoded service time (as an earlier version did, at the long-retired
+        # 7.23 us floor) produces a column that matches no scenario in the sweep.
         window_span_ns = int(pkt_arr[-1] - pkt_arr[0])
-        rho = float(n_packets * FLOOR_NS) / max(1, window_span_ns)
+        lambda_bar_obs = float(n_packets) * 1e9 / max(1, window_span_ns)
 
         # Packet-Hawkes fit on packet arrivals.
         try:
@@ -142,7 +147,11 @@ def process_session(msg_tape_csv: str, out_arrivals_dir: str) -> pd.DataFrame:
             "lambda_bar_pkt": lam_pkt,
             "n_branch_pkt":   n_pkt,
             "converged":      converged,
-            "rho":            rho,
+            # Raw span plus the observed packet rate, so any downstream consumer
+            # can form rho(T) = lambda_bar_obs * T at the scenario's own service
+            # time. No service-time-dependent quantity is cached here.
+            "window_span_ns":  window_span_ns,
+            "lambda_bar_obs":  lambda_bar_obs,
         })
         npz_dict[f"w{int(wid)}_H"] = pkt_arr
         npz_dict[f"w{int(wid)}_P"] = poi_arr
