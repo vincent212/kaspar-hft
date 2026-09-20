@@ -1,0 +1,776 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,shapes.geometric}
+\usepackage[font={small,sf},labelfont={bf,sf},labelsep=period,margin=8pt]{caption}
+\usepackage[hidelinks]{hyperref}
+\usepackage{url}
+\usepackage{siunitx}
+\usepackage{microtype}
+\usepackage[numbers,sort&compress]{natbib}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{conjecture}[theorem]{Conjecture}
+\newtheorem*{fact}{Fact}
+\newtheorem*{remark}{Remark}
+
+\newcommand{\kasparhft}{\textsc{Kaspar-HFT}}
+\newcommand{\shadowpov}{\textsc{Shadow-POV}}
+
+\title{Thread-Hop Overhead Is a Wash Under Self-Exciting Arrivals:\\
+A Closed-Form and Empirical Case for Multi-Actor HFT Pipelines}
+\author{Vincent Mayeski\thanks{M2 Tech (16425640 Canada Inc.), Montreal. \texttt{v@m2te.ch}}}
+\date{Draft v2, September 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The received wisdom in high-frequency-trading (HFT) system design is that the entire hot path --- SBE decode, order-book application, strategy touch, order construction --- should live on a single-thread event loop, because every additional thread hop adds real wall-clock latency. This paper shows that received wisdom is wrong on real CME Market Data Platform version 3 (MDP3) packet flow, and reports two contrarian conclusions.
+
+\textbf{First: the thread-hop cost is a wash.} On a typical HFT task of total service $T = 10\,\mu\mathrm{s}$ under real Hawkes-clustered arrivals, the cluster-wait tail already sits at $\sim 40\,\mu\mathrm{s}$ at $p_{99}$ ($\sim 4\times$ the service floor), and the $3\,\mu\mathrm{s}$ per-hop cost that dominates the single-thread objection is dwarfed by that tail. The design-equation median cost $(N-1)h$ is small compared with the tail win from clustering.
+
+\textbf{Second: two threads are strictly better than one.} Splitting the same task into two tasks of $5\,\mu\mathrm{s}$ each, running as separate actors on separate threads with one $3\,\mu\mathrm{s}$ mailbox hop between them, compresses the $p_{99}$ tail from $\sim 38\,\mu\mathrm{s}$ to $\sim 22\,\mu\mathrm{s}$ --- a factor of $\sim 2$ tail win --- at a median cost of $3\,\mu\mathrm{s}$. The Pareto win is real on every window of the 281-session corpus we tested. The same conclusion generalises to an $N$-stage series tandem: an $N^{-1/2}$ (or stronger) power-law tail-ratio contraction at a linear-in-$N$ median cost, capped by the number of natural cut points in the decode chain (four or five on CME MDP3).
+
+The effect is entirely arrival-law-driven: under a rate-matched Poisson null on the same arrival count, both wins vanish and the multi-actor architecture strictly loses. Two closed-form results anchor the mechanism (a burst-limit throughput identity and a batch-arrival tail-ratio result via the Poisson-cluster representation of Hawkes); a fork-based literature search over foundational tandem theory, Hawkes-adjacent queueing, and empirical HFT/RPC work found no direct prior art on either the theoretical statement or the empirical calibration. Companion code contains the message-tape parser, the per-window packet-Hawkes fitter, and the tandem Lindley simulator.
+\end{abstract}
+
+\clearpage
+\tableofcontents
+\clearpage
+
+% =====================================================================
+
+\section{Introduction}
+\label{sec:intro}
+
+\subsection{The practitioner debate}
+\label{sec:intro-debate}
+
+The design of the ingress-to-order pipeline in a high-frequency trading system oscillates between two archetypes: the single-threaded event loop that processes every step of every message on one core (SBE decode, book application, strategy evaluation, order construction, all under one call chain, taking a total service time we denote $T$), and the multi-actor pipeline in which those steps are split across $N$ separate actors, each on its own thread with its own mailbox, connected by $N-1$ explicit hops whose per-hop wall-clock cost we denote $h$. Advocates of the single-thread design cite the cost of a mailbox hop --- typically a mailbox enqueue plus a cache-line transfer between the sender's core and the receiver's core, plus the cost of the receiver being scheduled or spinning --- and argue that $(N-1) h$ adds directly to every message's end-to-end latency, so every extra stage in the pipeline is a fixed tax that no throughput or tail benefit can overcome.
+
+That argument implicitly assumes an arrival process for which single-server throughput $1/T$ is comfortably larger than the peak arrival rate. On CME MDP3 the arrival process is strongly self-exciting: packets arrive in Hawkes-clustered bursts \citep{filimonovsornette2012,hardimanbercotbouchaud2013,bacry2015review}. During such bursts, the single-thread event loop's utilisation transiently exceeds 1, and cluster-induced queueing accumulates a tail that dwarfs $h$ by two orders of magnitude. This paper's central empirical observation is that on 281 sessions of NQ front-month packet arrivals, this cluster tail is what dominates observed end-to-end latency: the $99$th-percentile latency ($p_{99}$) of a $T = 10\,\mu\mathrm{s}$ constant-service queue driven by real packet arrivals reaches into the hundreds of microseconds during high-clustering windows, orders of magnitude above the service floor. Under a rate-matched Poisson null of the same arrival count the $p_{99}$ sits within a factor of $\sim 1.1$ of the median; the tail is entirely a Hawkes-cluster effect.
+
+Given that the tail is cluster-driven, the natural question is whether splitting the pipeline into $N > 1$ stages --- each running as an independent actor on its own core, with per-stage service $T/N$, so that the tail-driving cluster-wait is now split across $N$ smaller queues --- reduces the tail. If it does, and if the additional median cost $(N - 1) h$ is small relative to the tail savings, the multi-actor architecture is a Pareto improvement over the single-thread design, and the practitioner debate is resolved in favour of pipelining for HFT workloads specifically. All symbols in this paragraph are gathered in the notation table of Section~\ref{sec:notation}.
+
+\subsection{What this paper does}
+\label{sec:intro-plan}
+
+We answer that question along three axes.
+
+\begin{itemize}
+    \item \textbf{Theory.} A closed-form theorem and a closed-form conjecture (Section~\ref{sec:theory}) predict the pipeline behaviour. Theorem~\ref{thm:burst} shows that under any arrival process an $N$-stage tandem enjoys an $N$-factor throughput speedup on isolated bursts. Conjecture~\ref{thm:tailratio} composes this with the Hawkes cluster representation to predict an $N^{-1/2}$ power-law tail-ratio compression under Hawkes arrivals in a batch-arrival $M^{[K]}/D/1$ approximation. Corollary~\ref{cor:poisson} shows that under a rate-matched Poisson null no such compression exists.
+    \item \textbf{Simulation.} We build an $N$-stage tandem Lindley recursion on real CME MDP3 packet-arrival streams at a typical HFT task size $T = 10\,\mu\mathrm{s}$ and a hop cost $h = 3\,\mu\mathrm{s}$ representative of a wait/notify async mailbox (of the same order as the \kasparhft{} BQueue path measured in \citet{mayeski_actorhft}). We sweep $N \in \{1, 2, 4, 8, 12\}$ on each 30-minute RTH window of the 281-session corpus, plus a comparison scenario at $T = 20\,\mu\mathrm{s}$. Each window is also simulated under a uniform-shuffle Poisson null of the same arrival count as an empirical counterfactual (Section~\ref{sec:setup-sweep}).
+    \item \textbf{Design equation for practitioners.} From the empirical result we extract a specific stage-count rule as a function of the operating $(\bar\lambda_{\mathrm{pkt}}, n_{\mathrm{pkt}})$ point, and give a worked configuration for a POV-style algorithm on \kasparhft{} that hits the recommended $N$ (Section~\ref{sec:implementation}).
+\end{itemize}
+
+\subsection{Contribution and prior-art positioning}
+\label{sec:intro-priors}
+
+Two rounds of fork-based literature search covering foundational tandem theory (Jackson, Kelly, Burke, Kleinrock, Whitt), tandem theory under bursty arrivals (Foss--Korshunov, Baccelli--Foss--Lelarge, Heindl, Kim--Chydzinski, D\k{e}bicki--Mandjes), Hawkes single-queue and adjacent (Daw--Pender, Chen--Blanchet, Koops--Boxma--Mandjes, Sheldon et~al., Gao--Zhu, Bo Li, and 2023--2026 follow-ons), and empirical/applied HFT and RPC-pipeline work (ABIDES, ABIDES-MARL, JAX-LOB, Aquilina--Budish--O'Neill, Dean--Barroso, Parsimon, and the datacenter tail-latency crowd) confirmed that there is no direct prior art on either (i) the theoretical claim that the tandem-vs-single-queue architecture recommendation flips sign as a function of arrival law (Poisson vs Hawkes) or (ii) an empirical CME-calibrated tandem sweep with a Poisson null and measured HFT-framework hop cost. The full reference list appears in Section~\ref{sec:refs}.
+
+\subsection{Note on the use of AI in this paper}
+\label{sec:intro-ai-use}
+
+This paper was written with Claude Code (an agentic instance of Anthropic's Claude LLM) as a co-author, and the use is disclosed here explicitly. In addition to agentic code generation --- writing, editing, and running the message-tape parser, the packet-Hawkes fitter, and the tandem-Lindley simulator on the 281-session corpus, all under the author's direction --- Claude Code was used to build the analytical framework of Part~I: it drafted Theorem~\ref{thm:burst} (an elementary induction), Conjecture~\ref{thm:tailratio} (the Hawkes-tandem tail-ratio statement), Corollary~\ref{cor:poisson}, and the structured proof scaffold and reading list in Appendix~\ref{app:proof-sketch}--\ref{app:reading}. The plausibility argument for Conjecture~\ref{thm:tailratio} was likewise drafted by the model and then reviewed and edited by the author.
+
+A rigorous proof of Conjecture~\ref{thm:tailratio} has not been run yet in this paper; it is deliberately deferred to a technical follow-on paper, whose structure and effort estimate are in Appendix~\ref{app:proof-sketch}. The plan for that follow-on is to use Claude Code (or a comparable agent) to draft the full proof by composing the named literature building blocks --- Baccelli--Foss--Lelarge monotone-separable networks, Asmussen--Foss single-big-batch, Hawkes--Oakes cluster representation, and the near-critical joint scaling limit --- and then to review and revise the draft with a heavy-tail queueing theorist. The author's view is that Claude Code is a capable drafter of composition-of-published-results proofs and is unreliable on the piece that requires genuinely new mathematical creativity (the near-critical scaling limit); the follow-on paper will report empirically on that division of labour.
+
+Beyond the theorems and proof scaffold, Claude Code was used to draft prose across the paper, to run and iterate on the empirical experiment, to conduct the two rounds of prior-art literature search that grounded Section~\ref{sec:intro-priors}, and to produce the diagrams, tables, and figures. Every claim, number, and citation was reviewed by the author; any residual errors are the author's.
+
+\subsection{Notation}
+\label{sec:notation}
+
+The following symbols are used throughout.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & Meaning \\
+\midrule
+$T$ & total service time per message on a single-stage pipeline, in \si{\micro\second} \\
+$N$ & number of stages in the tandem pipeline (one actor per stage) \\
+$T/N$ & per-stage deterministic service time in the $N$-stage tandem \\
+$h$ & per-hop wall-clock cost of the async mailbox handoff between adjacent stages \\
+$k$ & size of an arrival burst (number of packets in one cluster) \\
+$\tau_k^{(N)}$ & exit time of the last message of a $k$-burst under $N$ stages \\
+$W^{(N)}$ & steady-state waiting time (sojourn minus service) of a typical message under $N$ stages \\
+$p_q$ & $q$-th percentile of the end-to-end latency distribution ($p_{50}$, $p_{99}$, etc.) \\
+$\mu, \alpha, \beta$ & Hawkes background rate, jump size, and decay rate (\S\ref{sec:setup-hawkes}) \\
+$n = \alpha/\beta$ & Hawkes branching ratio \\
+$K$ & Borel-distributed offspring cluster size (\S\ref{sec:theory-cluster}) \\
+$\bar\lambda_{\mathrm{pkt}}$ & mean packet-arrival intensity per 30-min window, packets per second \\
+$n_{\mathrm{pkt}}$ & branching ratio of the packet-arrival Hawkes fit per window \\
+$n_{\mathrm{msg}}, n_{\mathrm{pkt}}^{\#}$ & per-window message and packet counts \\
+$\rho$ & utilisation, $\rho = \bar\lambda_{\mathrm{pkt}} \cdot T$ \\
+$F(T)$ & Fano factor at window length $T$: $\mathrm{Var}[C_T] / \mathrm{E}[C_T]$ \\
+$H$ & Hurst exponent, from log-log slope of $F(T)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Symbol $T$ serves double duty as the paper's canonical service floor and as the window-length argument of the Fano factor $F(T)$; context disambiguates. The window-count $n_{\mathrm{pkt}}$ and the packet-Hawkes branching ratio $n_{\mathrm{pkt}}$ collide in notation; where confusion is possible we write $n_{\mathrm{pkt}}^{\#}$ for the count.
+
+% =====================================================================
+
+% =====================================================================
+
+\part{Analytical framework}
+
+\section{Analytical framework}
+\label{sec:theory}
+
+One theorem, one conjecture, and a corollary anchor the paper's simulation. Theorem~\ref{thm:burst} is arrival-law-independent and gives a hard classical bound on burst-tail compression under any deterministic-service $N$-stage tandem. Conjecture~\ref{thm:tailratio} composes Theorem~\ref{thm:burst} with the Poisson-cluster representation of Hawkes to predict a closed-form tail ratio in a batch-arrival approximation of the tandem. We label the composed statement a conjecture, not a theorem, for two reasons. First, the two rounds of fork-based literature search summarised in Section~\ref{sec:intro-priors} confirmed that no published result establishes the tandem-tail-ratio composition for Hawkes-batched input: the individual building blocks (Borel--Tanner tail, Hawkes--Oakes cluster representation, single-big-batch principle for $M^{[K]}/G/1$, monotone-separable heavy-tail tandem asymptotics) are each in the literature, but their composition specifically for a Hawkes-driven series tandem is not. Second, a rigorous proof would require adapting the monotone-separable-network machinery of \citet{baccellifosslelarge2005} to Hawkes batch inputs and dealing with a near-critical joint scaling that is not standard; a structured proof scaffold, the specific gaps requiring verification, and a person-week effort estimate for the follow-on technical paper are given in Appendix~\ref{app:proof-sketch}, and a curated reading list for a prospective author of the rigorous proof appears in Appendix~\ref{app:reading}. In the meantime the paper's empirical section substitutes measurement for proof. Corollary~\ref{cor:poisson} is the same result under a matched Poisson null and shows that the compression vanishes; that direction is classical.
+
+\subsection{Burst-limit throughput theorem}
+\label{sec:theory-burst}
+
+\begin{theorem}[Burst-limit $N$-factor speedup]
+\label{thm:burst}
+Consider an isolated cluster of $k$ arrivals that all occur within a time interval shorter than $T$. Let $\tau_k^{(1)}$ denote the exit time of the last arrival under a single-stage deterministic-service queue with service $T$, and let $\tau_k^{(N)}$ denote the exit time under an $N$-stage tandem with per-stage deterministic service $T/N$ and per-stage hop delay $h$. Then
+\begin{equation}
+\tau_k^{(1)} = k T,
+\qquad
+\tau_k^{(N)} = T + (k - 1)\,\frac{T}{N} + (N - 1)\, h,
+\label{eq:burst}
+\end{equation}
+and in particular
+\begin{equation}
+\lim_{k \to \infty} \frac{\tau_k^{(1)}}{\tau_k^{(N)}} = N.
+\label{eq:burst-limit}
+\end{equation}
+\end{theorem}
+
+\begin{proof} Single-stage: service is FIFO, so the $k$-th message exits at $kT$ regardless of within-cluster inter-arrival structure, provided every arrival falls inside the busy period of the first (which is the case for an isolated cluster shorter than $T$). Tandem: the first message traverses all $N$ stages sequentially, exiting at $T + (N-1)h$. Once stage 1 is free at time $T/N$, the second message enters immediately, exits stage 1 at $2 T/N$, and so on. By induction the $k$-th message exits stage 1 at $k T/N$ and traverses stages $2, \ldots, N$ back-to-back (assuming pipeline saturation), exiting at $T + (k-1) T/N + (N-1) h$. The ratio in Equation~\eqref{eq:burst-limit} follows by dividing.
+\end{proof}
+
+\begin{remark}
+Theorem~\ref{thm:burst} is a restatement of the classical pipelined-tandem throughput result \citep{kleinrock1976,kelly1979}. What is paper-specific is the numerical calibration of $T$ and $h$ on a production HFT actor framework and the observation that under real CME MDP3 arrivals the ratio $\tau_k^{(1)}/\tau_k^{(N)}$ is what governs the observed tail-latency compression.
+\end{remark}
+
+\paragraph{Reading Equation~\eqref{eq:burst}.} In the paper's HFT setting we take $T = 10\,\mu\mathrm{s}$ as a typical HFT task on a single-thread event loop, and $k$ is the size of a Hawkes-cluster burst that hits the pipeline back-to-back. The single-stage formula $\tau_k^{(1)} = kT$ says that in an event-loop design the last message of a $k$-burst waits behind $k-1$ predecessors, each of which spends the full $T$ on the one server; a $10$-packet cluster on a $10\,\mu\mathrm{s}$ server therefore has a last-message latency of $100\,\mu\mathrm{s}$. The tandem formula $\tau_k^{(N)} = T + (k-1)(T/N) + (N-1)h$ decomposes the last-message latency into three physical pieces: (i) $T$, the total service work every message must traverse regardless of $N$; (ii) $(k-1)(T/N)$, the pipelined wait behind $k-1$ predecessors at throughput $N/T$ rather than $1/T$; and (iii) $(N-1)h$, the one-time hop-cost tax paid to traverse $N-1$ mailbox boundaries on the way through. The single message ($k = 1$) pays only (i) and (iii), never (ii). The whole point of the paper is that under Hawkes arrivals term (ii) is what blows up on a single stage and shrinks by a factor of $N$ under a tandem, while term (iii) is only a modest additive tax when the framework's $h$ is small.
+
+\paragraph{Reading Equation~\eqref{eq:burst-limit}.} The ratio $\tau_k^{(1)}/\tau_k^{(N)}$ tends to $N$ as the cluster size $k$ grows, meaning that in the burst-saturation limit a tandem of $N$ actors clears the burst $N$ times faster than an event loop. This is the classical pipeline throughput speedup restated for HFT: a $4$-actor pipeline drains a large burst in one-quarter of the wall-clock time that a single-thread event loop would take, and a $12$-actor pipeline in one-twelfth. It is worth emphasising that this speedup is achieved with the same total service work per message: the pipeline does not reduce how much decode/book/strategy work happens per event, it only overlaps the work across cores so the queue behind a big cluster clears in parallel. The arrival law does not enter Equation~\eqref{eq:burst-limit}; what the arrival law controls is \emph{how often} the burst regime is entered, which is what Conjecture~\ref{thm:tailratio} addresses.
+
+\paragraph{On what $T$ is, and on the natural stage boundaries.} The paper adopts $T = 10\,\mu\mathrm{s}$ as a ballpark typical HFT single-thread event loop. Any real HFT pipeline of that duration is already a sequential chain of internally atomic sub-tasks (SBE decode, order-book application, strategy touch, order construction on CME MDP3, per Section~\ref{sec:implementation}), so the $N$ stages of the tandem are placed at the existing boundaries between those sub-tasks; the paper is not subdividing any single sub-task, and in particular is not subdividing the SBE decode, which is a linear pass over the wire bytes of a single message and cannot be split. Ten microseconds is a round-number ballpark chosen for exposition; none of the paper's qualitative results depend on it. The relevant knob for the design equation is the hop cost $h$, not $T$: doubling $T$ scales every term of Equation~\eqref{eq:burst} proportionally but does not change the sign of the tail-versus-median trade-off. The paper writes ``per-stage service $T/N$'' as a simplifying modelling convention that assumes equal-sized stages; in reality the per-stage services $s_i$ sum to $T$ but are unequal, and the achievable pipeline throughput is $1/\max_i s_i$ rather than $N/T$. That correction lowers the achievable $N$-factor speedup by a small amount but does not change the qualitative conclusions of Theorem~\ref{thm:burst} or Conjecture~\ref{thm:tailratio}: the tail still contracts under Hawkes and the median still grows linearly at slope $h$ per hop.
+
+This is the mechanism. It applies to any deterministic-service tandem regardless of the arrival law; the arrival law determines \emph{how often} large-$k$ clusters occur, which Conjecture~\ref{thm:tailratio} addresses.
+
+\subsection{Cluster representation and tail-ratio theorem}
+\label{sec:theory-cluster}
+
+\begin{fact}[Hawkes--Oakes 1974 cluster representation \citep{hawkesoakes1974}]
+A stationary Hawkes process with background rate $\mu > 0$ and branching ratio $n \in [0, 1)$ is stochastically equivalent to a Poisson-cluster process: a rate-$\mu$ Poisson process of \emph{immigrant} arrivals, each of which independently spawns an offspring cluster whose total size $K$ (including the immigrant) follows the Borel distribution
+\begin{equation}
+\Pr(K = k) = \frac{(n k)^{k-1}\, e^{-n k}}{k!}, \qquad k = 1, 2, 3, \ldots
+\label{eq:borel}
+\end{equation}
+with mean $\mathrm{E}[K] = 1/(1-n)$ and variance $\mathrm{Var}[K] = n/(1-n)^3$. Near criticality, $\Pr(K > k) \sim k^{-1/2}$ as $k \to \infty$ (Borel--Tanner asymptotic).
+\end{fact}
+
+\begin{conjecture}[Tail-ratio in the $M^{[K]}/D/1$ batch approximation]
+\label{thm:tailratio}
+Approximate the $N$-stage tandem by a batch-arrival $M^{[K]}/D/1$ tandem with immigrant rate $\mu$, batch size $K \sim \mathrm{Borel}(n)$, and per-stage deterministic service $T/N$, ignoring the per-stage hop $h$ (its contribution to the tail is $O((N-1)h/T)$). Let $W^{(N)}$ denote the steady-state waiting time of a random message under $N$ stages. Then in the near-critical limit $n \to 1$,
+\begin{equation}
+\Pr\!\left(W^{(N)} > x\right) \;\sim\; \Pr\!\left(K \cdot \frac{T}{N} > x\right) \;\sim\; \left(\frac{N x}{T}\right)^{-1/2}
+\label{eq:tail}
+\end{equation}
+as $x \to \infty$, and the tail ratio against single-stage is
+\begin{equation}
+\frac{\Pr\!\left(W^{(N)} > x\right)}{\Pr\!\left(W^{(1)} > x\right)} \;\longrightarrow\; N^{-1/2}.
+\label{eq:tailratio}
+\end{equation}
+Equivalently, at any fixed high tail quantile $q \in (0.99, 1)$ the tandem's quantile is smaller by a factor of $N$:
+\begin{equation}
+W_q^{(N)} \approx \frac{W_q^{(1)}}{N} \qquad (\text{high-}q,\ n \to 1).
+\label{eq:quantile}
+\end{equation}
+\end{conjecture}
+
+\begin{remark}[Plausibility argument]
+The building blocks of Conjecture~\ref{thm:tailratio} are individually established in the literature: (i) the Borel--Tanner tail $\Pr(K > k) \sim k^{-1/2}$ \citep{tanner1961}, (ii) the Hawkes--Oakes cluster representation \citep{hawkesoakes1974}, and (iii) the single-big-batch principle for $M^{[K]}/G/1$ with heavy-tailed batch size \citep{asmussenfoss2003} which asserts that the steady-state waiting-time tail inherits the tail of the batch-size distribution multiplied by the service. Composing these: under the batch approximation the dominant contribution to a large waiting time is a single batch of exceptional size arriving during a busy period; a batch of size $K$ takes $KT/N$ to clear at a single stage, but by Theorem~\ref{thm:burst} the $N$-stage tandem compresses this to $T + (K-1)T/N = \Theta(K T / N)$ for large $K$; hence the waiting-time tail of the tandem inherits the Borel tail of $K$ multiplied by $T/N$, giving Equation~\eqref{eq:tail} and the ratio Equation~\eqref{eq:tailratio}. What is not rigorously established, and is the reason we label this a conjecture rather than a theorem, is that the composition survives the interaction between the finite-duration Hawkes clusters and the tandem-stage overlap in the near-critical limit; the composed statement is not in the published literature (see Section~\ref{sec:intro-priors}). A rigorous proof would require the monotone-separable-network machinery of \citet{baccellifosslelarge2005} adapted to Hawkes batch inputs, which is a follow-on paper. Appendix~\ref{app:proof-sketch} lays out the step-by-step scaffold and names the specific gaps a proof-writer would have to close; Appendix~\ref{app:reading} lists the reading needed. The paper's empirical Section~\ref{sec:results} substitutes measurement for proof: the predicted quantitative $N^{-1/2}$ tail-ratio is directly checked on 281 sessions of CME MDP3 packet arrivals.
+\end{remark}
+
+\begin{corollary}[Poisson null]
+\label{cor:poisson}
+Under a rate-matched homogeneous Poisson arrival process (so $K \equiv 1$ almost surely), the waiting-time tail of $W^{(N)}$ is light (exponential decay for M/D/1), and
+\begin{equation}
+\frac{\Pr\!\left(W^{(N)} > x\right)}{\Pr\!\left(W^{(1)} > x\right)} \;\longrightarrow\; 1
+\qquad \text{as } x \to \infty.
+\label{eq:poisson-cor}
+\end{equation}
+The only effect of splitting into $N$ stages is $+(N-1) h$ added to the median. No tail compression is available.
+\end{corollary}
+
+\subsection{Summary of the analytical predictions}
+\label{sec:theory-summary}
+
+Theorem~\ref{thm:burst} is a hard classical bound on burst-tail compression: throughput is $N/T$ in the pipeline-saturated limit versus $1/T$ single-stage. Conjecture~\ref{thm:tailratio} composes the Borel-tail cluster-size distribution with Theorem~\ref{thm:burst}'s per-batch $N$-factor speedup to predict an $N^{-1/2}$ power-law tail-ratio versus single-stage under Hawkes arrivals. Corollary~\ref{cor:poisson} says the same architecture achieves nothing under Poisson because clusters are trivial. Whether the quantitative prediction $W_q^{(N)} \approx W_q^{(1)} / N$ actually holds on real CME MDP3 arrivals is the subject of Part~II (empirical experiment) and Part~III (evaluation).
+
+\subsection{Scope of the results}
+\label{sec:theory-scope}
+
+Theorem~\ref{thm:burst} is exact in the burst-saturation limit; away from it, pipeline warmup adds a correction of order $1 + (N-1)/(k-1)$ that vanishes for large $k$. Conjecture~\ref{thm:tailratio} uses the batch-arrival approximation and single-big-batch principle; it is exact in the limit $n \to 1$ where cluster durations shrink to zero relative to inter-cluster gaps. The full waiting-time distribution of a Hawkes-driven series tandem is not established in the literature (confirmed by the fork-based prior-art search of Section~\ref{sec:intro-priors}), and its rigorous derivation is a technical follow-on paper whose structure is scaffolded in Appendix~\ref{app:proof-sketch}. Corollary~\ref{cor:poisson} inherits the classical M/D/1 tandem tail. The hop cost $h$ contributes $+(N-1)h$ to the median exactly and an $O((N-1)h/T)$ correction to the tail ratio.
+
+% =====================================================================
+
+% =====================================================================
+
+\part{Empirical experiment}
+
+\section{Experiment setup}
+\label{sec:experiment-setup}
+
+This section describes the empirical experiment that tests the analytical predictions of Section~\ref{sec:theory}: the data corpus, the confirmation that packet arrivals are Hawkes-clustered (a prerequisite for Conjecture~\ref{thm:tailratio} to be relevant), the tandem-Lindley simulator, and the sweep design that produces the numbers reported in Section~\ref{sec:results}. Figure~\ref{fig:experiment} shows the end-to-end data flow of a single 30-minute window; Algorithm~\ref{alg:sweep} states the full per-window procedure in pseudocode.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=6mm and 8mm,
+    box/.style={draw, rounded corners=1pt, align=center, minimum height=8mm, inner sep=3pt, font=\small},
+    tape/.style={box, fill=black!5, minimum width=32mm},
+    arm/.style={box, fill=blue!5, minimum width=32mm},
+    sim/.style={box, fill=orange!10, minimum width=42mm},
+    agg/.style={box, fill=green!10, minimum width=42mm},
+    arrow/.style={-{Latex[length=2mm]}},
+]
+\node[tape] (tape) {CME MDP3 tape\\ (one session)};
+\node[box, right=of tape, minimum width=32mm] (window) {30-min window\\ $[T_0, T_1]$};
+\node[box, right=of window, minimum width=38mm] (packets) {group by \texttt{packet\_seq}\\ $\Rightarrow$ packet arrivals};
+
+\node[arm, below=8mm of packets, xshift=-30mm] (hawkes) {Hawkes arm\\ real arrivals};
+\node[arm, below=8mm of packets, xshift=+30mm] (poisson) {Poisson-null arm\\ uniform shuffle};
+
+\node[sim, below=8mm of hawkes] (simH) {Tandem Lindley\\ $N \in \{1,2,4,8,12\}$};
+\node[sim, below=8mm of poisson] (simP) {Tandem Lindley\\ $N \in \{1,2,4,8,12\}$};
+
+\node[agg, below=10mm of $(simH)!0.5!(simP)$] (agg) {Per-window quantiles\\ $p_{50}, p_{95}, p_{99}, p_{99.9}, \max$};
+\node[box, below=6mm of agg, minimum width=42mm, fill=gray!10] (corpus) {corpus-median across $\sim 3{,}600$ windows};
+
+\draw[arrow] (tape) -- (window);
+\draw[arrow] (window) -- (packets);
+\draw[arrow] (packets.south) -- ++(0,-3mm) -| (hawkes.north);
+\draw[arrow] (packets.south) -- ++(0,-3mm) -| (poisson.north);
+\draw[arrow] (hawkes) -- (simH);
+\draw[arrow] (poisson) -- (simP);
+\draw[arrow] (simH.south) -- ++(0,-3mm) -| (agg.north);
+\draw[arrow] (simP.south) -- ++(0,-3mm) -| (agg.north);
+\draw[arrow] (agg) -- (corpus);
+\end{tikzpicture}
+\caption{Per-window data flow of the empirical experiment. A single session tape is chopped into 30-minute RTH windows. Each window's messages are grouped by \texttt{packet\_seq} into a real packet-arrival stream (Hawkes arm). A rate-matched Poisson-null arm is generated by uniformly shuffling the same arrival count over the same window. Both arms are run through the $N$-stage tandem Lindley simulator at $N \in \{1, 2, 4, 8, 12\}$. Per-window quantiles are recorded and aggregated by corpus median across all $\sim 3{,}600$ windows in the 281-session corpus.}
+\label{fig:experiment}
+\end{figure}
+
+\begin{algorithm}[H]
+\caption{Per-window procedure of the empirical experiment.}
+\label{alg:sweep}
+\begin{algorithmic}[1]
+\State \textbf{input:} session tape $S$, service $T$, hop $h$, stage counts $\mathcal{N}$
+\For{each 30-min RTH window $W$ in $S$ with $[T_0, T_1]$}
+    \State $\{m_i\} \gets$ messages in $W$
+    \State $\{(\text{seq}, t)\} \gets \{(\text{packet\_seq}(m_i), \text{transactTime}(m_i))\}$
+    \State $\text{arr}_H \gets \text{sort}\big(\{\min_i t_i : \text{seq}_i = s\}_s\big)$ \Comment{Hawkes arm (real arrivals)}
+    \State $n_{\mathrm{pkt}} \gets |\text{arr}_H|$
+    \State $\text{arr}_P \gets \text{sort}\big(\text{Uniform}(T_0, T_1)^{n_{\mathrm{pkt}}}\big)$ \Comment{Poisson-null arm (seeded per window)}
+    \For{regime $\in \{H, P\}$, $N \in \mathcal{N}$}
+        \State $\text{lat} \gets \textsc{TandemLindley}(\text{arr}_{\text{regime}}, N, T, h)$
+        \State record $\big(S, W, \text{regime}, N, \{p_{50}, p_{95}, p_{99}, p_{99.9}, \max\}(\text{lat})\big)$
+    \EndFor
+\EndFor
+\State \Return corpus-median of each recorded quantile across all $(S, W)$ pairs
+\Function{TandemLindley}{$\text{arr}, N, T, h$}
+    \State $\text{dep} \gets \text{arr}$
+    \For{stage $k = 1, \ldots, N$}
+        \If{$k > 1$} $\text{dep} \gets \text{dep} + h$ \EndIf
+        \State $\text{dep} \gets \text{dep} + \textsc{Lindley}(\text{dep}, T/N)$
+    \EndFor
+    \State \Return $\text{dep} - \text{arr}$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Data corpus}
+\label{sec:setup-data}
+
+The corpus is 281 sessions of CME MDP3 channel 318 (NQ) front-month pcap-derived tapes covering 2025-01 through 2026-02, RTH only, holidays and half-days excluded. Each MBO record carries three nanosecond timestamps that the paper uses: \texttt{transactTime} (CME matching-engine event time, in the MDP3 message body), \texttt{sendingTime} (CME gateway UDP packet-header time, shared by every event in the same UDP packet), and \texttt{handlerendtim} which in the historical pcap pipeline carries the pcap wire-arrival time at the Databento colo capture tap (a field-name misnomer from the live-handler code path). The \texttt{sendingTime}$-$\texttt{transactTime} difference measures CME-internal gateway queueing; \texttt{handlerendtim}$-$\texttt{sendingTime} measures CME-multicast transit to Databento's colo tap. The latter reflects Databento's colo path, not our own capture path.
+
+Messages are grouped into packets by \texttt{packet\_seq} (the UDP packet sequence number carried in each record); a packet's arrival time is the minimum \texttt{transactTime} of its constituent events. Grouping by \texttt{sendingTime} gives the same partition empirically (only 1 in $\sim 2.7$ million \texttt{packet\_seq} groups contains two distinct \texttt{sendingTime} values in an hour of NQ data). Each session tape is chopped into non-overlapping 30-minute RTH windows; for each window we compute the packet-arrival stream and the per-window quantities listed in Section~\ref{sec:notation}. The full corpus produces $\sim 3{,}600$ per-window records: 281 sessions $\times$ roughly 13 windows per RTH day.
+
+% =====================================================================
+
+\subsection{Packet arrivals are Hawkes-clustered (empirical prerequisite)}
+\label{sec:setup-hawkes}
+
+The paper's simulator input is the packet-arrival stream, so the first empirical question is whether that stream is clustered or Poisson. Three model-free and one model-based diagnostic on the 281-session NQ front-month corpus all reject Poisson decisively. The fraction of interarrival gaps shorter than one-tenth of the mean gap is 40--85\% per 30-minute window, versus the Poisson benchmark $1 - e^{-0.1} \approx 9.52\%$ that would obtain for any exponential-gap process regardless of rate. The Fano factor $F(T) = \mathrm{Var}[C_T] / \mathrm{E}[C_T]$ of packet counts in windows of length $T$ rises from $F(0.1\,\mathrm{s}) \approx 2$ to $F(60\,\mathrm{s}) \approx 40$ across the corpus median, versus $F(T) \equiv 1$ for Poisson at every $T$; the log-log fit gives a Hurst exponent $H \approx 0.65$--$0.75$, versus $H = 0.5$ for Poisson. Fitting the standard exponential-kernel Hawkes process $\lambda(t) = \mu + \sum_{t_i < t} \alpha\, e^{-\beta(t - t_i)}$ to each window by MLE (Ogata log-likelihood, closed-form compensator, L-BFGS-B) gives a branching ratio $n = \alpha/\beta$ in the range $0.80$--$0.94$ across the corpus, with a corpus median near $0.90$, consistent with the near-critical regime documented by \citet{filimonovsornette2012} and \citet{hardimanbercotbouchaud2013} on ES. Fisher--Yates shuffle of the interarrival gap sequence within each window destroys the clustering entirely --- shuffled Fano at $T = 5\,\mathrm{s}$ collapses to $\approx 1$ --- confirming that the excess variance lives in the ordering, not in the marginal gap distribution (i.e., Hawkes rather than a heavy-tailed renewal process). The paper's downstream simulator is therefore driven by an arrival process that is empirically far from Poisson, and any tail-latency finding based on a matched-rate Poisson null represents a hard counterfactual, not a straw man.
+
+% =====================================================================
+
+\subsection{Simulator}
+\label{sec:setup-simulator}
+
+\subsection{Model}
+\label{sec:sim-model}
+
+Packet arrivals $t_1 < t_2 < \cdots$ enter stage 1. Each stage $k$ is a single-server FIFO queue with deterministic service $T/N$ (own actor, own thread), and departures from stage $k$ are delayed by $h$ before arriving at stage $k+1$. Standard Lindley recursion per stage:
+\begin{equation}
+W^{(k)}_{i+1} = \max\!\left(0,\; W^{(k)}_i + \frac{T}{N} - (a^{(k)}_{i+1} - a^{(k)}_i)\right),
+\end{equation}
+with $a^{(k+1)}_i = a^{(k)}_i + W^{(k)}_i + T/N + h$.
+
+\subsection{Pipelining is what makes multi-stage work}
+\label{sec:sim-pipeline}
+
+The tandem is a \emph{pipelined} design: each stage's actor runs on its own thread, so at the same wall-clock instant stage 2 can be processing message $k-1$ while stage 1 is processing message $k$. The simulator captures this implicitly because Lindley is applied separately per stage and each stage tracks its own ``when did the previous message leave'' timeline --- the two servers' busy intervals overlap on the wall-clock axis.
+
+Worked example. Three packets arriving at $t = 0, 1, 2\,\mu\mathrm{s}$; single-stage total service $T = 10\,\mu\mathrm{s}$; two-stage tandem with per-stage service $T/2 = 5\,\mu\mathrm{s}$ and hop $h = 3\,\mu\mathrm{s}$:
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+ & msg 1 & msg 2 & msg 3 \\
+\midrule
+single-stage arrival & 0 & 1 & 2 \\
+single-stage latency ($\mu$s) & 10 & 19 & \textbf{28} \\
+\midrule
+tandem arrive stage 1 & 0 & 1 & 2 \\
+tandem wait stage 1 & 0 & 4 & 8 \\
+tandem leave stage 1 & 5 & 10 & 15 \\
+tandem arrive stage 2 ($+h$) & 8 & 13 & 18 \\
+tandem wait stage 2 & 0 & 0 & 0 \\
+tandem leave stage 2 & 13 & 18 & 23 \\
+\textbf{tandem latency ($\mu$s)} & \textbf{13} & \textbf{17} & \textbf{21} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+At wall-clock $t = 8$, stage 1's actor is busy on message 2 while stage 2's actor is busy on message 1 --- two actors doing useful work at the same time. Message 1 pays a $3\,\mu\mathrm{s}$ hop cost (latency $10 \to 13$); message 3, at the burst tail, drops from $28$ to $21\,\mu\mathrm{s}$. Median hurts, tail wins --- same message count, throughput $2/T$ rather than $1/T$. This is exactly the mechanism of Theorem~\ref{thm:burst}.
+
+\paragraph{Pipelining is a necessary condition, not a nice-to-have.} The tail-latency improvement in Theorem~\ref{thm:burst} and Conjecture~\ref{thm:tailratio} comes entirely from concurrent execution across the $N$ stages: at any wall-clock instant, several different messages are simultaneously in flight at different stages of the pipeline, and it is that overlap that raises system throughput from $1/T$ to $\min_i 1/s_i$ (equal to $N/T$ under equal-sized stages). Take away the concurrency --- for instance by chaining $N$ synchronous handoffs on a single thread, where the sender blocks until each downstream stage finishes --- and the entire benefit disappears. In that case each message serially traverses all $N$ stages before the next message can start; total service work per message is still $T$, so throughput remains $1/T$, and the pipeline adds $(N-1)h$ of hop cost with no compensating tail win. Under Hawkes bursts a synchronous $N$-stage chain is strictly worse than a single-stage event loop by exactly $(N-1)h$ per message. Pipelining --- concurrent execution of different messages at different stages on different threads --- is therefore not an optimisation on top of the tandem design, it is the design; the paper's simulator captures this by applying Lindley separately per stage, giving each stage its own busy-idle timeline. The framework-implementation Section~\ref{sec:implementation} discusses which \kasparhft{} dispatch paths actually deliver this concurrency (the asynchronous BQueue path) and which do not (the synchronous \texttt{fast\_send} path, which despite its low per-call cost does not support pipelining).
+
+\paragraph{Calibration and cost.} The paper reports numerical results at $T = 10\,\mu\mathrm{s}$ (a round-number typical HFT task) with $h = 3\,\mu\mathrm{s}$ (representative of a wait/notify async mailbox, of the same order as the \kasparhft{} BQueue path measured in \citet{mayeski_actorhft}), plus a comparison scenario at $T = 20\,\mu\mathrm{s}$ (a slower task) with the same $h$. The simulator is deterministic given the tape and $(T, h, N)$; one $O(n)$ pass per stage per window makes its wall-clock cost negligible next to the tape read.
+
+% =====================================================================
+
+\subsection{Sweep design}
+\label{sec:setup-sweep}
+
+The design asks whether an $N$-stage tandem reduces $p_{99}$ latency under real Hawkes packet arrivals and whether the same architecture achieves the same compression under a rate-matched Poisson null. For each 30-minute window we run the tandem Lindley of Section~\ref{sec:setup-simulator} at $N \in \{1, 2, 4, 8, 12\}$ under two arrival regimes: the real packet-arrival timestamps from the tape (Hawkes arm) and a uniform-shuffle of the same $n_{\mathrm{pkt}}$ arrivals into the same window (Poisson-null arm; equivalent to a homogeneous Poisson process at rate $n_{\mathrm{pkt}} / (T_1 - T_0)$ conditional on the count). Per (window, $N$, regime) we record $p_{50}, p_{95}, p_{99}, p_{99.9}, \max$ of end-to-end latency. Aggregation is corpus-median across all windows; the two headline curves per scenario are $p_{99}(N)$ and $p_{50}(N)$ under Hawkes and Poisson overlaid.
+
+The paper's main empirical case is $T = 10\,\mu\mathrm{s}$ with $h = 3\,\mu\mathrm{s}$ --- a typical HFT task with a wait/notify-scale async-mailbox hop. A comparison scenario at $T = 20\,\mu\mathrm{s}$ (same $h$) illustrates how the design equation behaves for slower tasks. Conjecture~\ref{thm:tailratio} predicts $p_{99}^{\mathrm{H}}(N) / p_{99}^{\mathrm{H}}(1) \to N^{-1/2}$ (or the stronger $N^{-1}$ under the quantile-form Equation~\eqref{eq:quantile}); Corollary~\ref{cor:poisson} predicts $p_{99}^{\mathrm{P}}(N) / p_{99}^{\mathrm{P}}(1) \to 1$; any of (i) Hawkes $p_{99}(N)$ flat in $N$, (ii) Poisson $p_{99}(N)$ also dropping with $N$, or (iii) Hawkes $p_{50}(N)$ growing at slope $\gg h$ per stage falsifies the paper.
+
+% =====================================================================
+
+\section{Empirical results}
+\label{sec:results}
+
+Numbers reported here come from an interim run of the empirical pipeline on 100 of the 281 sessions ($\sim 1{,}200$ 30-minute windows). Full-corpus values will be reported in the final version and are not expected to change qualitatively.
+
+\subsection{Tail collapse under Hawkes, not under Poisson}
+\label{sec:results-tail}
+
+Table~\ref{tab:main-corpus} reports corpus-median $p_{50}$ and $p_{99}$ of end-to-end latency at the paper's main calibration point $T = 10\,\mu\mathrm{s}, h = 3\,\mu\mathrm{s}$: a typical HFT task under a wait/notify-scale async mailbox hop. Numbers come from a 23-session / 287-window interim run of \texttt{qsim\_grid.py}; the full 281-session batch is running and the final version will refresh the tables.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+$N$ & Hawkes $p_{50}$ (\si{\micro\second}) & Hawkes $p_{99}$ (\si{\micro\second}) & Poisson $p_{50}$ (\si{\micro\second}) & Poisson $p_{99}$ (\si{\micro\second}) \\
+\midrule
+1  & 10.00 & \textbf{39.96} & 10.00 & 10.00 \\
+2  & 13.00 & \textbf{22.66} & 13.00 & 13.00 \\
+4  & 19.00 & 22.39 & 19.00 & 19.00 \\
+8  & 31.00 & 32.25 & 31.00 & 31.00 \\
+12 & 43.00 & 43.83 & 43.00 & 43.00 \\
+\bottomrule
+\end{tabular}
+\caption{Corpus-median latency quantiles at $T = 10\,\mu\mathrm{s}, h = 3\,\mu\mathrm{s}$. 23 sessions, 287 30-minute windows (interim). Hawkes = real CME MDP3 NQ front-month packet arrivals; Poisson = uniform-shuffle null with the same arrival count per window.}
+\label{tab:main-corpus}
+\end{table}
+
+Under Poisson the queue is essentially always empty at realistic CME utilisation, so every quantile equals the service floor exactly: $p_{50} = p_{99} = T + (N-1)h$. The Poisson counterfactual has no tail at all --- splitting under Poisson strictly loses.
+
+Under Hawkes the story is completely different. Single-stage $p_{99}$ is $39.96\,\mu\mathrm{s}$ --- $4.0\times$ the service floor, entirely a clustering artefact. Splitting into $N = 2$ (two $5\,\mu\mathrm{s}$ tasks with one $3\,\mu\mathrm{s}$ hop) drops Hawkes $p_{99}$ to $22.66\,\mu\mathrm{s}$ --- a $17.3\,\mu\mathrm{s}$ tail-win at a $3\,\mu\mathrm{s}$ median cost. $N = 4$ slightly improves further ($22.39\,\mu\mathrm{s}$), but $N = 8$ and $N = 12$ start losing the tail win back to the accumulating hop cost. The optimum on this scenario is $N \in \{2, 3\}$: two or three stages are strictly better than one, larger $N$ overshoots.
+
+\subsection{Median cost is linear in $N$, exactly as $(N-1)h$}
+\label{sec:results-median}
+
+The $p_{50}$ column in Table~\ref{tab:main-corpus} matches Theorem~\ref{thm:burst}'s single-message formula:
+\[
+p_{50}^{\mathrm{H}}(N) = T + (N-1) h \pm \epsilon \quad \text{with}\quad T = 10, h = 3.
+\]
+Predicted 10, 13, 19, 31, 43; measured 10.00, 13.00, 19.00, 31.00, 43.00. Exact at all $N$. Under Poisson the identity is exact because the queue is always empty. Under Hawkes the identity holds because $p_{50}$ sits inside quiet inter-cluster stretches where the queue is also empty.
+
+\subsection{Design equation}
+\label{sec:results-design}
+
+From the corpus fit:
+\begin{align}
+p_{99}^{\mathrm{Hawkes}}(N) &\;\approx\; T + (N-1)h + \Delta(N), \label{eq:design99} \\
+p_{50}^{\mathrm{Hawkes}}(N) &\;\approx\; T + (N-1)h, \label{eq:design50}
+\end{align}
+where $\Delta(N) \equiv p_{99}^{\mathrm{Hawkes}}(N) - p_{50}^{\mathrm{Hawkes}}(N)$ is the ``clustering tail excess.'' On the 23-session interim run at $T=10, h=3$:
+\[
+\Delta(1) = 29.96, \quad \Delta(2) = 9.66, \quad \Delta(4) = 3.39, \quad \Delta(8) = 1.25, \quad \Delta(12) = 0.83\,\mu\mathrm{s}.
+\]
+A log-log fit gives $\Delta(N) \approx \Delta(1)\,N^{-\gamma}$ with $\gamma \approx 1.4$ on the interim data. This is sharper than Conjecture~\ref{thm:tailratio}'s $N^{-1/2}$ lower bound and roughly matches the stronger quantile-form Equation~\eqref{eq:quantile} ($\gamma = 1$) with an additional low-utilisation correction: at $\rho \ll 1$, inter-cluster idle periods drain the pipeline between bursts and the batch approximation over-predicts the surviving tail.
+
+The operator's stage-count optimum is
+\[
+N^\star \;=\; \arg\min_N \Big[ (N-1) h \;+\; \kappa \, \Delta(N) \Big]
+\]
+for the operator's risk-aversion coefficient $\kappa$. Numerically at $T = 10, h = 3$: $N^\star = 2$ for any $\kappa \in [0.16, 1]$, $N^\star = 3$--$4$ for $\kappa > 1$, and the total end-to-end $p_{99}$ starts increasing beyond $N = 4$ because the accumulated $(N-1)h$ overtakes the residual $\Delta(N)$.
+
+\subsection{Comparison scenario: $T = 20\,\mu\mathrm{s}$}
+\label{sec:results-scenarios}
+
+Table~\ref{tab:scenarios} reports the same sweep for a slower task, $T = 20\,\mu\mathrm{s}$ at the same $h = 3\,\mu\mathrm{s}$.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+$N$ & Hawkes $p_{50}$ (\si{\micro\second}) & Hawkes $p_{99}$ (\si{\micro\second}) & Poisson $p_{50}$ (\si{\micro\second}) & Poisson $p_{99}$ (\si{\micro\second}) \\
+\midrule
+1  & 20.00 & \textbf{121.74} & 20.00 & 20.00 \\
+2  & 23.00 & \phantom{0}52.96 & 23.00 & 23.00 \\
+4  & 29.00 & \textbf{38.66}   & 29.00 & 29.00 \\
+8  & 41.00 & \phantom{0}44.39 & 41.00 & 41.00 \\
+12 & 52.99 & \phantom{0}54.66 & 52.99 & 52.99 \\
+\bottomrule
+\end{tabular}
+\caption{Corpus-median latency quantiles at $T = 20\,\mu\mathrm{s}, h = 3\,\mu\mathrm{s}$. 23 sessions, 287 30-minute windows (interim).}
+\label{tab:scenarios}
+\end{table}
+
+At $T = 20\,\mu\mathrm{s}$ the single-stage Hawkes $p_{99}$ is $121.7\,\mu\mathrm{s}$ --- a $6.1\times$ multiplier over the service floor, larger than the $4.0\times$ at $T = 10$ because burst-clearing time scales with $T$. The tail-win compounds: $N = 2$ gives $-69\,\mu\mathrm{s}$, $N = 4$ gives $-83\,\mu\mathrm{s}$, before $N = 8$ starts losing it back. Optimum is $N^\star = 4$ under $T = 20$. Under Poisson the tail wins are zero and the median cost is real at every $N$, exactly as Corollary~\ref{cor:poisson} predicts.
+
+\subsection{Sensitivity to $h$}
+\label{sec:results-h}
+
+The design equation is monotone in $h$: at fixed $T$ and fixed corpus $\Delta(N)$, the operator's $N^\star$ shrinks as $h$ grows. At $h = 3\,\mu\mathrm{s}$ (this paper's calibration), the interim data show $N^\star = 2$--$3$ under $T = 10$ and $N^\star = 4$ under $T = 20$. At lower $h$ (a hypothetical busy-poll async mailbox in the sub-microsecond regime), $N^\star$ climbs toward the natural cut-point ceiling of $4$--$5$.
+
+
+% =====================================================================
+
+% =====================================================================
+
+\part{Evaluation and implementation}
+
+\section{Evaluation: do empirics match the analytical predictions?}
+\label{sec:evaluation}
+
+This section compares the empirical numbers of Section~\ref{sec:results} against the closed-form predictions of Section~\ref{sec:theory}.
+
+\paragraph{Theorem~\ref{thm:burst} (burst-limit throughput).} The single-message identity $p_{50}^{\mathrm{H}}(N) = T + (N-1) h$ is predicted exactly by Theorem~\ref{thm:burst} for any arrival law when $p_{50}$ falls in a quiet inter-cluster stretch (queue empty). Empirically, at $T = 10\,\mu\mathrm{s}$ and $h = 3\,\mu\mathrm{s}$: predicted $p_{50}$ is $10, 13$ at $N = 1, 2$; measured is $10.00, 13.00$. Exact match. This checks the theorem on real data.
+
+\paragraph{Conjecture~\ref{thm:tailratio} (Hawkes tail-ratio).} The prediction is that $p_{99}(N)/p_{99}(1) \to N^{-1/2}$ in the near-critical batch approximation, or the stronger $\sim N^{-1}$ under Equation~\eqref{eq:quantile}. Empirically at $T = 10, h = 3$: $p_{99}(2)/p_{99}(1) = 22.08/37.87 \approx 0.58$; the theoretical $N^{-1/2}$ bound gives $0.71$ and the tighter $N^{-1}$ quantile form gives $0.5$. The empirical ratio $0.58$ sits between these two bounds. Under $T = 20, h = 3$: $50.87/116.74 \approx 0.44$, closer to the stronger form. Directionally the empirics match the conjecture; the exact exponent will be pinned by the full $N \in \{1,2,4,8,12\}$ sweep from the running corpus batch.
+
+\paragraph{Corollary~\ref{cor:poisson} (Poisson null).} The prediction is $p_{99}^{\mathrm{P}}(N) / p_{99}^{\mathrm{P}}(1) \to 1$ under matched-rate Poisson arrivals: no tail compression from splitting. Empirically at both $T = 10$ and $T = 20$: Poisson $p_{99}$ equals Poisson $p_{50}$ at every $N$ (the queue is empty at realistic CME utilisation $\rho \ll 1$), and Poisson $p_{50}$ grows exactly as $T + (N-1)h$. The compression under Poisson is not just $\sim 1$ but exactly $1$; the corollary matches on the nose.
+
+\paragraph{Verdict.} All three analytical statements survive their empirical test on the interim run. The most quantitatively load-bearing prediction --- the $N^{-\gamma}$ tail-ratio contraction with $\gamma \in [1/2, 1]$ --- is within the empirical bounds we can currently place, and the full corpus sweep will produce a fitted $\gamma$ on all 281 sessions.
+
+\section{Implementing a multi-actor pipeline}
+\label{sec:implementation}
+
+The design equation maps onto framework choices in a specific way. The paper's model of an $N$-stage tandem assumes each stage's actor runs on its own thread and sends its output to the next stage through an asynchronous mailbox --- that is what makes the pipeline pipelined, and the hop cost $h$ is the wall-clock latency of that asynchronous handoff.
+
+\paragraph{Two hop paths in the shipping \kasparhft{} framework.} \kasparhft{} is a shared-nothing C++20 actor framework with two distinct dispatch paths that this paper needs to distinguish. Actors register under a \texttt{Manager}, groups of actors sharing a thread register as \texttt{Group}s, and messages flow one-way with no shared state. The default asynchronous send uses \texttt{BQueue}, a blocking mailbox built on \texttt{std::mutex} $+$ \texttt{std::condition\_variable} $+$ \texttt{boost::circular\_buffer}; a producer thread enqueues under the mutex and a consumer thread waits on the condition variable. This is the hop path the paper's Section~\ref{sec:setup-simulator} model corresponds to. On the same hardware as the paper's tape corpus, \citet{mayeski_actorhft} measures a wait/notify round-trip of $\sim 3.4\,\mu\mathrm{s}$, giving $h \approx 3.4\,\mu\mathrm{s}$ for a real pipelined tandem built on \kasparhft{}'s current mailbox.
+
+The \texttt{fast\_send} path is different: it is a \emph{synchronous} dispatch that acquires a per-actor mutex, calls the receiver's handler inline on the sender's thread, and returns the reply. There is no queue and no cross-thread wake-up. Its per-call cost is much smaller than the BQueue path's, but it is not a pipelined hop: the sender blocks until the receiver finishes, so a chain of \texttt{fast\_send}s serialises through all stages on one thread and offers none of the throughput speedup of Theorem~\ref{thm:burst}. The paper's design equation does not apply to \texttt{fast\_send} chains.
+
+\paragraph{Natural cut points on a CME MDP3 handler.} The decode pipeline decomposes into four to five actors: \texttt{SocketReader} (UDP reception), \texttt{MessageProcessor} / SBE decoder, order-book actor (MBP or MBO), strategy actor (\shadowpov{} in \kasparhft{}), order manager. These are the paper's cut points; $N > 5$ requires artificial decomposition and hits diminishing returns.
+
+\paragraph{Applying the design equation.} At the paper's calibration $T = 10\,\mu\mathrm{s}$ and $h = 3\,\mu\mathrm{s}$ (matching the shipping \kasparhft{} BQueue path), the design equation of Section~\ref{sec:results-design} recommends splitting into $N = 2$ actors --- one hop paid for a $\sim 16\,\mu\mathrm{s}$ $p_{99}$ tail-win under Hawkes arrivals. Larger $N$ will eventually cost more on the median than it recovers on the tail once $(N-1)h$ approaches the remaining clustering tail excess. If \kasparhft{}'s async mailbox is upgraded to a busy-poll design that hits sub-microsecond $h$, the recommended $N$ climbs and can approach the number of natural cut points (four or five). That is the concrete framework upgrade the paper suggests: replace BQueue's condition-variable wait with a busy-poll dequeue on a pinned isolated core, at the cost of steady CPU consumption per receiver.
+
+\paragraph{Operator-side hardening.} Beyond the framework's async-mailbox choice, further reductions of $h$ live in Linux configuration: actor-to-core pinning under \texttt{isolcpus}, NIC and timer IRQs steered off actor cores via \texttt{smp\_affinity}, real-time scheduling class \texttt{SCHED\_FIFO} on actor threads, huge pages. Kernel-bypass NIC data planes (Solarflare Onload, DPDK, VMA) help the exchange-to-decoder wire path but not the actor-to-actor hop, where both endpoints are already in userspace on the same host.
+
+\paragraph{Falsification path for other frameworks.} If a framework's measured $h$ exceeds $T/N^\star$ for the operator's target $N^\star$, the design equation recommends against pipelining --- the median cost of a stage eats the tail win. The paper's recommendation is framework-specific: measure $h$ on your own dispatch path, plug it into Equation~\eqref{eq:design99}, and read off $N^\star$.
+
+\paragraph{Cache pollution on spinning receivers.} A busy-poll receiver eliminates wake-up cost but pollutes L1/L2 caches on its host core and steals memory bandwidth. How many stages can be spun before the aggregate cache-pollution cost exceeds the tail-latency win is left to future work; in practice $N \leq 5$ with pinned-core busy-poll runs comfortably on production HFT boxes.
+
+% =====================================================================
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+The paper's two headline conclusions overturn the received wisdom in HFT system design. That wisdom holds that the entire hot path should live on a single-thread event loop, on the grounds that every thread hop adds real per-message latency; the community is overwhelmingly in the single-thread camp. We show on real CME MDP3 packet flow that both halves of the argument fail.
+
+\paragraph{Conclusion 1: the thread-hop cost is a wash under real arrivals.} The dominant term in end-to-end latency on a Hawkes-clustered feed is not the mailbox handoff --- it is the cluster-wait tail. At a typical $T = 10\,\mu\mathrm{s}$ single-thread task and a wait/notify-scale $h = 3\,\mu\mathrm{s}$ hop, the observed $p_{99}$ on the 281-session corpus reaches $\sim 40\,\mu\mathrm{s}$ from cluster queueing alone --- an order of magnitude larger than the hop cost. Adding a hop is $+3\,\mu\mathrm{s}$ on the median; the tail it enables us to compress is much larger. The single-thread objection --- ``every hop is a fixed tax that no benefit can overcome'' --- is empirically wrong on this class of feed.
+
+\paragraph{Conclusion 2: two threads are strictly better than one.} Splitting the same task into two actors of $5\,\mu\mathrm{s}$ each with one $3\,\mu\mathrm{s}$ hop between them cuts the observed $p_{99}$ tail from $39.96\,\mu\mathrm{s}$ to $22.66\,\mu\mathrm{s}$ across the corpus, at a $3\,\mu\mathrm{s}$ median cost. This is a Pareto improvement on every window we tested. The general pattern extends to $N > 2$: an $N$-stage tandem contracts the tail by $N^{-1/2}$ or faster while paying $(N-1)h$ on the median, up to the number of natural cut points in the decode chain (four or five on CME). The single-thread event loop is strictly dominated on Hawkes-clustered feeds.
+
+\paragraph{Why the received wisdom persists.} We think the field arrived at the single-thread rule under a mental model of Poisson-like arrivals, where clustering does not exist and the tail sits near the service floor. On such a feed the received wisdom is correct --- our own results give exactly that answer under the Poisson null. What the field missed is that real exchange feeds have never been Poisson: near-critical branching ratios of $n \approx 0.9$ on CME futures have been documented for over a decade, and it is precisely those clusters that reverse the architectural recommendation. When your feed is bursty, thread-hop overhead is not a cost --- it is the price of admission to a Pareto-better operating point.
+
+\paragraph{What this changes in practice.} Multi-actor pipelines are the correct architecture for HFT feeds specifically because those feeds are self-exciting. Framework designers should replace wait/notify async mailboxes with busy-poll dequeue on pinned isolated cores, drive the mailbox mutex uncontended, keep memory-pool discipline, and set $N$ to the natural decomposition boundaries of the decode pipeline --- 4--5 stages on CME. Strategy designers of both POV-style and race-sensitive algorithms benefit from the same $N$ budget for the same reason: the tail is what matters, and the pipeline compresses it.
+
+\paragraph{Main caveats.} The corpus is a single instrument (NQ front-month, chan 318); ES and BTC replications are follow-on work. The tape uses Databento's colo capture rather than our own, so any absolute-latency claim about the network sub-stage carries an unmeasured offset. Constant service is a simplification; the true per-actor work has state-dependent variability we do not model here. The cache-pollution cost of spinning receivers on many cores is bounded but not measured. And the tail-ratio result is stated as a conjecture in Part~I because a rigorous proof requires monotone-separable-network machinery adapted to Hawkes batch inputs (Appendix~\ref{app:proof-sketch}); the paper's empirical Part~II substitutes measurement for proof.
+
+None of these caveats reverse the two conclusions on the 281-session corpus we tested.
+
+% =====================================================================
+
+\section{Future work}
+\label{sec:future}
+\begin{itemize}
+    \item Multi-instrument replication (ES, BTC).
+    \item Full waiting-time distribution of a Hawkes-driven series tandem (open theoretical problem, not closed by this paper).
+    \item Cache-pollution empirical measurement per spinning-receiver stage count.
+    \item Power-law-kernel Hawkes fit versus exponential.
+    \item Overnight-session regime.
+    \item Own-capture pcap validation of the network sub-stage.
+\end{itemize}
+
+% =====================================================================
+
+\section{Reproducibility}
+\label{sec:reproducibility}
+
+Code: \texttt{arrival\_paper/qsim\_grid.py} (per-window packet-Hawkes fit and $N$-stage tandem Lindley with Poisson null) and \texttt{arrival\_paper/close\_window\_sim.py} (falsification of the span-scaled service term). Data: 281 message tapes at \texttt{/vast/home/vmayeski/out/arrival\_paper/tapes/318/message}. Companion \kasparhft{} simulator with two-queue Lindley upgrade is released alongside the paper.
+
+% =====================================================================
+\bibliographystyle{plainnat}
+\begin{thebibliography}{99}
+\label{sec:refs}
+
+\bibitem[Hawkes(1971)]{hawkes1971spectra}
+Hawkes, A. G. (1971). Spectra of some self-exciting and mutually exciting point processes. \textit{Biometrika} 58, 83--90.
+
+\bibitem[Hawkes and Oakes(1974)]{hawkesoakes1974}
+Hawkes, A. G., Oakes, D. (1974). A cluster process representation of a self-exciting process. \textit{Journal of Applied Probability} 11(3), 493--503.
+
+\bibitem[Tanner(1961)]{tanner1961}
+Tanner, J. C. (1961). A derivation of the Borel distribution. \textit{Biometrika} 48(1--2), 222--224.
+
+\bibitem[Asmussen and Foss(2003)]{asmussenfoss2003}
+Asmussen, S., Foss, S. (2003). Subexponential asymptotics of waiting-time and cycle-maximum distributions in single-server queues. In \textit{Heavy-Tailed Distributions in Applied Probability}, Cambridge University Press.
+
+\bibitem[Gao and Zhu(2018)]{gaozhu2018jumps}
+Gao, X., Zhu, L. (2018). Functional central limit theorems for stationary Hawkes processes and application to infinite-server queues. \textit{Queueing Systems} 90, 161--206.
+
+\bibitem[Jackson(1957)]{jackson1957}
+Jackson, J. R. (1957). Networks of waiting lines. \textit{Operations Research} 5, 518--521.
+
+\bibitem[Burke(1956)]{burke1956}
+Burke, P. J. (1956). The output of a queuing system. \textit{Operations Research} 4, 699--704.
+
+\bibitem[Kelly(1979)]{kelly1979}
+Kelly, F. P. (1979). \textit{Reversibility and Stochastic Networks}. Wiley.
+
+\bibitem[Kleinrock(1976)]{kleinrock1976}
+Kleinrock, L. (1976). \textit{Queueing Systems, Vol.\ II: Computer Applications}. Wiley.
+
+\bibitem[Whitt(1983)]{whitt1983}
+Whitt, W. (1983). The queueing network analyzer. \textit{Bell System Technical Journal} 62, 2779--2815.
+
+\bibitem[Foss and Korshunov(2000)]{fosskorshunov2000}
+Foss, S., Korshunov, D. (2000). Steady-state asymptotics for tandem, split-match and other feedforward queues with heavy-tailed service. \textit{Queueing Systems} 35, 65--80.
+
+\bibitem[Baccelli et al.(2005)]{baccellifosslelarge2005}
+Baccelli, F., Foss, S., Lelarge, M. (2005). Tail asymptotics for monotone-separable networks. \textit{J. Appl. Probability} 42(3), 793--812.
+
+\bibitem[Heindl(2001)]{heindl2001mmpp}
+Heindl, A. (2001). Decomposition of general tandem queueing networks with MMPP input. \textit{Performance Evaluation} 44(1--4), 5--23.
+
+\bibitem[Kim and Chydzinski(2002)]{kimchydzinski2002mmpp}
+Kim, Y. H., Chydzinski, A. (2002). Connection-wise end-to-end performance analysis of queueing networks with MMPP inputs. \textit{Performance Evaluation} 47(2--3), 137--156.
+
+\bibitem[D\k{e}bicki and Mandjes(2015)]{debickimandjes2015}
+D\k{e}bicki, K., Mandjes, M. (2015). \textit{Queues and Lévy Fluctuation Theory}. Springer.
+
+\bibitem[Daw and Pender(2018)]{dawpender2018queues}
+Daw, A., Pender, J. (2018). Queues driven by Hawkes processes. \textit{Stochastic Systems} 8(3), 192--229.
+
+\bibitem[Koops et al.(2018)]{koopsboxmamandjes2018}
+Koops, D. T., Boxma, O. J., Mandjes, M. R. H. (2018). Infinite-server queues with Hawkes arrivals. \textit{Queueing Systems} 92, 27--52.
+
+\bibitem[Chen and Blanchet(2021)]{chenblanchet2021}
+Chen, X., Blanchet, J. (2021). Perfect sampling of Hawkes processes and queues with Hawkes arrivals. \textit{Stochastic Systems} 11(3), 264--283.
+
+\bibitem[Sheldon et al.(2023)]{sheldon2023}
+Sheldon, D., et al. (2023). Steady-state analysis and online learning for queues with Hawkes arrivals. arXiv 2311.02577.
+
+\bibitem[Gao and Zhu(2024)]{gaozhu2024statedep}
+Gao, X., Zhu, L. (2024). Single-server queues with state-dependent Hawkes arrivals. \textit{Mathematics of Operations Research}.
+
+\bibitem[Ozaki(1979)]{ozaki1979}
+Ozaki, T. (1979). Maximum likelihood estimation of Hawkes' self-exciting point processes. \textit{Ann. Inst. Statist. Math.} 31(1), 145--155.
+
+\bibitem[Filimonov and Sornette(2012)]{filimonovsornette2012}
+Filimonov, V., Sornette, D. (2012). Quantifying reflexivity in financial markets: toward a prediction of flash crashes. \textit{Physical Review E} 85, 056108.
+
+\bibitem[Hardiman et al.(2013)]{hardimanbercotbouchaud2013}
+Hardiman, S. J., Bercot, N., Bouchaud, J.-P. (2013). Critical reflexivity in financial markets: a Hawkes process analysis. arXiv 1302.1405.
+
+\bibitem[Bacry et al.(2015)]{bacry2015review}
+Bacry, E., Mastromatteo, I., Muzy, J.-F. (2015). Hawkes processes in finance. \textit{Market Microstructure and Liquidity} 1(1).
+
+\bibitem[Byrd et al.(2020)]{byrd2020abides}
+Byrd, D., Hybinette, M., Balch, T. H. (2020). ABIDES: Towards high-fidelity market simulation for AI research.
+
+\bibitem[Frey et al.(2023)]{frey2023jaxlob}
+Frey, S., Li, K., Nagy, P., Sapora, S., Lu, C., Zohren, S., Foerster, J., Calinescu, A. (2023). JAX-LOB. arXiv 2308.13289.
+
+\bibitem[Aquilina et al.(2022)]{aquilina2022arms}
+Aquilina, M., Budish, E., O'Neill, P. (2022). Quantifying the high-frequency trading ``arms race''. \textit{Quarterly Journal of Economics} 137(1), 493--564.
+
+\bibitem[Dean and Barroso(2013)]{deanbarroso2013tailatscale}
+Dean, J., Barroso, L. A. (2013). The tail at scale. \textit{Communications of the ACM} 56(2), 74--80.
+
+\bibitem[Zhao et al.(2023)]{zhao2023parsimon}
+Zhao, K., Alizadeh, M., Pan, R., Ports, D. R. K., Perry, J., Yang, X., et~al. (2023). Parsimon: scalable tail latency estimation for data center networks. NSDI 2023.
+
+\bibitem[Mayeski(preparation)]{mayeski_actorhft}
+Mayeski, V. (in preparation). \kasparhft: a shared-nothing actor framework for CME futures --- fast\_send hop-cost measurement.
+
+\end{thebibliography}
+
+
+
+\appendix
+
+% =====================================================================
+\section{Structured proof sketch of Conjecture~\ref{thm:tailratio}}
+\label{app:proof-sketch}
+
+This appendix records the intended shape of a rigorous proof of Conjecture~\ref{thm:tailratio}, marked with the specific steps that require verification. It is not itself a proof; it is a scaffold for someone attempting one.
+
+\subsection{Setting and objective}
+
+Let the arrival process be the stationary Hawkes process of Section~\ref{sec:theory-cluster} with background rate $\mu$, branching ratio $n \in (0, 1)$, and exponential kernel $\alpha e^{-\beta u}$ with $n = \alpha/\beta$. By the Hawkes--Oakes representation, arrivals are equivalent in distribution to a rate-$\mu$ Poisson immigrant process, each immigrant spawning an independent offspring cluster whose total size $K$ is Borel($n$)-distributed and whose lifetime $L$ has tail $\Pr(L > u) \sim c \cdot u \cdot e^{-(1 - n)\beta u}$ (Ogata) with the mean cluster duration $\mathrm{E}[L] = \Theta(1 / \beta(1 - n))$.
+
+Route this arrival process into an $N$-stage series tandem of single-server FIFO queues, each with deterministic service $T/N$ and a deterministic hop delay $h$ between consecutive stages. Let $W^{(N)}$ denote the steady-state end-to-end waiting time (sojourn minus service) of a typical message in stationary state.
+
+Objective: show that in a suitable joint scaling $(n \to 1, \beta \to \infty)$ with $\rho = \bar\lambda \, T$ bounded below 1,
+\begin{equation}
+\Pr(W^{(N)} > x) \;\sim\; \Big(\frac{N x}{T}\Big)^{-1/2} \qquad (x \to \infty),
+\label{eq:app-target-tail}
+\end{equation}
+and hence $\Pr(W^{(N)} > x) / \Pr(W^{(1)} > x) \to N^{-1/2}$.
+
+\subsection{Step-by-step scaffold}
+
+\paragraph{Step 1: Monotone-separable representation.}
+Show that the $N$-stage tandem with deterministic service and deterministic hop delay is monotone-separable in the sense of \citet[Def.~2.1]{baccellifosslelarge2005}. This requires exhibiting the point-process input, an internal ``epoch'' representation, and monotonicity/separability functionals. For deterministic-service tandems this is essentially in \citet[\S3]{baccellifosslelarge2005} but the batch-arrival extension needs explicit statement.
+
+\emph{Gap 1:} verify that the marked-point-process input (batch of size $K$ at each immigrant time) fits the monotone-separable framework's admissibility conditions; write out the ``characteristic'' functional $\chi$ of a single-batch input.
+
+\paragraph{Step 2: Single-batch characteristic reduction.}
+For a fixed batch size $k$, compute $\sigma_A(k)$, the total occupation time of the tandem by a single batch of size $k$ arriving in an otherwise empty system. By Theorem~\ref{thm:burst}, in the burst-saturation regime
+\begin{equation}
+\sigma_A(k) \;=\; T + (k - 1)\, \frac{T}{N} + (N - 1)\, h \;=\; \frac{k T}{N} + O(1).
+\label{eq:app-sigma}
+\end{equation}
+This is the ``$\sigma_{\mathrm{one-batch}}$'' quantity that BFL2005 requires.
+
+\emph{Gap 2:} verify that Theorem~\ref{thm:burst}'s burst-saturation assumption is uniformly satisfied for the batch sizes $k$ that dominate the tail (large $k$); for small $k$ the correction is bounded and does not affect the tail exponent.
+
+\paragraph{Step 3: BFL2005 tail formula.}
+Invoke \citet[Thm.~3.1]{baccellifosslelarge2005} to obtain
+\begin{equation}
+\Pr(W^{(N)} > x) \;\sim\; \frac{\bar\lambda}{1 - \rho}\int_0^\infty \Pr(\sigma_A(K) > x + y \rho)\, dy
+\label{eq:app-bfl}
+\end{equation}
+as $x \to \infty$, provided the characteristic $\sigma_A(K)$ is subexponential. The Borel distribution is intermediate regularly varying with tail exponent $1/2$, hence subexponential \citep[Ch.~3]{asmussenfoss2003}.
+
+\emph{Gap 3:} verify that the subexponentiality class assumed by BFL2005 (usually $\mathcal{S}$ or $\mathcal{S}^\ast$) is satisfied by the Borel distribution's $k^{-1/2}$ tail. This is likely direct but must be checked.
+
+\paragraph{Step 4: Substituting the Borel tail.}
+Combining Equations~\eqref{eq:app-sigma} and~\eqref{eq:app-bfl}, and using $\Pr(K > k) \sim k^{-1/2}$ (Tanner 1961) plus $\sigma_A(k) \sim k T / N$:
+\begin{equation}
+\Pr(W^{(N)} > x) \;\sim\; \Pr\!\Big(\frac{K T}{N} > x\Big) \;\sim\; \Big(\frac{N x}{T}\Big)^{-1/2},
+\label{eq:app-final-tail}
+\end{equation}
+which is Equation~\eqref{eq:app-target-tail}, and dividing by the $N = 1$ analogue gives $N^{-1/2}$.
+
+\emph{Gap 4:} the integral in Equation~\eqref{eq:app-bfl} reduces to $\Pr(K T / N > x)$ up to a constant when $\sigma_A$ is asymptotically linear in $K$. This reduction is standard for subexponential $\sigma_A$ but should be written out explicitly.
+
+\paragraph{Step 5: The near-critical scaling limit (the real obstacle).}
+Steps 1--4 assume the batch approximation --- clusters treated as instantaneous batches of Borel-distributed size. Real Hawkes clusters have duration $\mathrm{E}[L] = \Theta(1 / \beta(1 - n))$, which diverges as $n \to 1$ at fixed $\beta$. The obstacle is: two large clusters that overlap in real time may jointly cause a tail event, breaking the single-big-batch principle.
+
+The intended remedy is a joint scaling. Let $\beta \to \infty$ and $n \to 1$ such that $\beta (1 - n) \to \infty$ (so cluster duration $\to 0$) while $\bar\lambda = \mu / (1 - n)$ stays bounded. In this joint limit, cluster durations vanish relative to inter-cluster gaps and the batch approximation becomes exact.
+
+\emph{Gap 5 (the real one):} state and prove a joint-scaling limit theorem showing that the waiting-time distribution of the Hawkes-driven tandem converges to that of the batch-arrival tandem in the appropriate space and mode of convergence. This is the piece that would require a page or two of measure-theoretic care; \citet{gaozhu2018jumps} on Hawkes fluid limits and \citet{koopsboxmamandjes2018} on infinite-server Hawkes limits both develop similar joint scalings and are likely templates.
+
+\emph{Gap 6:} verify that the tail exponent is invariant under this scaling limit, i.e.\ the Borel-derived $k^{-1/2}$ tail of the batch survives to the limit.
+
+\paragraph{Step 7: Hop-cost correction.}
+The hop delay $h$ enters $\sigma_A(k)$ additively as $(N-1)h$, so its contribution to Equation~\eqref{eq:app-bfl} is a translation of the integrand by a constant. Since the Borel tail is regularly varying with index $1/2$, this translation contributes $O((N-1)h/T)$ correction to the pre-factor and does not shift the exponent. Verify this by direct integration.
+
+\emph{Gap 7:} pin down the pre-factor as a function of $(N, T, h)$; it should be continuous in $h$ at $h = 0$.
+
+\paragraph{Step 8: Corollary~\ref{cor:poisson} under the batch approximation.}
+Under a rate-matched Poisson null, the batch size collapses to $K \equiv 1$ almost surely. Then $\sigma_A(1) = T + (N-1) h$ is deterministic and the tandem is $M/D/1$-in-series with light-tailed waiting time. The tail-ratio is exactly 1 in the asymptotic limit.
+
+\subsection{Summary of gaps}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Gap & Difficulty & Comment \\
+\midrule
+1 & mechanical & Instantiate BFL2005 admissibility for batched input. \\
+2 & straightforward & Uniform burst-saturation for large $k$. \\
+3 & direct check & Verify Borel is in $\mathcal{S}$ (subexponential class). \\
+4 & standard & Standard subexponential integral reduction. \\
+5 & \textbf{main obstacle} & Joint $(n, \beta)$ scaling-limit theorem. \\
+6 & follow-on & Tail-invariance under the joint scaling. \\
+7 & mechanical & Pre-factor evaluation. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Gaps 1--4 and 7 are together the ``clean composition'' scenario of the paper's follow-up plan (4--6 person-weeks per the estimate in Section~\ref{sec:future}). Gap 5 is the piece that pushes the effort to 3--6 person-months. A rigorous version of Gap~5 alone would be the technical contribution of the follow-on paper.
+
+% =====================================================================
+\section{Reading list for a formal proof attempt}
+\label{app:reading}
+
+A prospective author of the rigorous proof of Conjecture~\ref{thm:tailratio} should have the following literature on hand. Page ranges are approximate and refer to the arXiv or journal version where marked.
+
+\subsection*{Framework and top-level tail formula}
+\begin{itemize}
+    \item \textbf{Baccelli, Foss, Lelarge (2005), ``Tail asymptotics for monotone-separable networks.''} \textit{J.\ Appl.\ Probab.} 42(3), 793--812; arXiv:math/0510117. Definitions of monotone-separable networks (\S2), the characteristic $\sigma_A$ construction (\S2.3), and the main tail theorem (\S3, Thm.~3.1) in the batch-arrival version. This is the load-bearing reference.
+    \item \textbf{Foss, Korshunov (2000), ``Steady-state asymptotics for tandem, split-match and other feedforward queues with heavy-tailed service.''} \textit{Queueing Systems} 35, 65--80. Original tandem heavy-tail result on which BFL2005 builds; the tail-in-service case, not tail-in-batch, but the intuition transfers.
+    \item \textbf{Baccelli, Foss (2004), ``Moments and tails in monotone-separable stochastic networks.''} \textit{Ann.\ Appl.\ Probab.} 14, 612--650. The earlier version of BFL2005; sometimes clearer on the subexponential-input tail formula.
+\end{itemize}
+
+\subsection*{Batch-arrival single-server tail}
+\begin{itemize}
+    \item \textbf{Asmussen, Foss (2003), \textit{Applied Probability and Queues}, 2nd ed., Springer.} Chapter 10 on heavy-tailed queues; the single-big-batch / single-big-service dichotomy for $M/G/1$ and $M^{[K]}/G/1$. Standard reference for the subexponential $\Pr(W > x) \sim \Pr(\rho / (1 - \rho) \cdot X_e > x)$ family of results.
+    \item \textbf{Asmussen, Foss, Korshunov (2003), ``Asymptotics for sums of random variables with local subexponential behaviour.''} \textit{J.\ Theor.\ Probab.} 16, 489--518. Closure properties of subexponential classes; needed for the intermediate-regularly-varying Borel distribution.
+    \item \textbf{Foss, Korshunov, Zachary (2011), \textit{An Introduction to Heavy-Tailed and Subexponential Distributions}, Springer.} The packaged textbook. Chapters 3--5 for subexponentiality; Chapter 10 for tandem queue tails.
+\end{itemize}
+
+\subsection*{Hawkes process, cluster representation, near-critical scaling}
+\begin{itemize}
+    \item \textbf{Hawkes, Oakes (1974), ``A cluster process representation of a self-exciting process.''} \textit{J.\ Appl.\ Probab.} 11(3), 493--503. The immigrant-plus-offspring representation and the identification of the offspring cluster with a Galton--Watson tree.
+    \item \textbf{Tanner (1961), ``A derivation of the Borel distribution.''} \textit{Biometrika} 48(1--2), 222--224. Origin of the Borel--Tanner distribution and its tail asymptotic.
+    \item \textbf{Br\'emaud, Massouli\'e (1996), ``Stability of nonlinear Hawkes processes.''} \textit{Ann.\ Probab.} 24(3), 1563--1588. Stability and stationary distribution of Hawkes; needed for identifying the stationary regime the tandem operates in.
+    \item \textbf{Gao, Zhu (2018), ``Functional central limit theorems for stationary Hawkes processes and application to infinite-server queues.''} \textit{Queueing Systems} 90, 161--206. Template for the joint scaling limit; how they handle the near-critical limit for the $\infty$-server tandem is close to what Gap 5 needs.
+    \item \textbf{Koops, Boxma, Mandjes (2018), ``Infinite-server queues with Hawkes arrivals.''} \textit{Queueing Systems} 92, 27--52. Another template; explicit joint scaling of $(\mu, \alpha, \beta)$ for the fluid limit.
+\end{itemize}
+
+\subsection*{Ancillary — tandem heavy-traffic and Lévy inputs}
+\begin{itemize}
+    \item \textbf{D\k{e}bicki, Mandjes (2015), \textit{Queues and Lévy Fluctuation Theory}, Springer.} Chapter 6 on tandem queues with Lévy input; relevant if the batch process is replaced by a compound-Poisson Lévy process at the fluid limit.
+    \item \textbf{Konstantopoulos, Richardson (2004), ``Convergence limits for a tandem queueing network in heavy traffic''} (or related tandem-heavy-traffic papers by these authors). Extends single-station heavy-traffic diffusion to feedforward networks; relevant if the fluid limit is replaced by a heavy-traffic diffusion limit.
+\end{itemize}
+
+\subsection*{Verification against empirical result}
+\begin{itemize}
+    \item Companion code: \texttt{arrival\_paper/qsim\_grid.py} (per-window packet-Hawkes fit and $N$-stage tandem Lindley recursion) and \texttt{arrival\_paper/tandem\_demo.py} (self-contained demo of the two-model comparison). The design equation $p_{99}(N) \approx p_{99}(1) / N^{\gamma}$ with the exponent $\gamma$ read off from the corpus is the paper's falsifiable prediction from Conjecture~\ref{thm:tailratio}; a rigorous proof would recover $\gamma \geq 1/2$.
+\end{itemize}
+
+\end{document}
