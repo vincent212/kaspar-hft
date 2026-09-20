@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import csv
 import glob
+import hashlib
 import multiprocessing as mp
 import os
 import sys
@@ -119,9 +120,12 @@ def process_session(msg_tape_csv: str, out_arrivals_dir: str) -> pd.DataFrame:
             lam_pkt = float("nan"); n_pkt = float("nan"); converged = False
 
         # Poisson null: uniform-shuffle same arrival count over the window.
-        # Deterministic per (session, window_id) via a stable seed. Matches the
-        # legacy qsim_grid.py so cached results are directly comparable.
-        seed = abs(hash((session, int(wid)))) % (2**32)
+        # Deterministic per (session, window_id) via a stable MD5-derived seed.
+        # We do NOT use Python's built-in hash() on strings/tuples here because
+        # it is randomised per interpreter run (PYTHONHASHSEED) — that would
+        # make the cache non-reproducible across prep re-runs.
+        key = f"{session}|{int(wid)}".encode()
+        seed = int.from_bytes(hashlib.md5(key).digest()[:4], "big")
         rng = np.random.default_rng(seed)
         poi_arr = np.sort(
             rng.integers(low=int(pkt_arr[0]), high=int(pkt_arr[-1]) + 1,
@@ -165,30 +169,48 @@ def main() -> int:
     print(f"[prep] found {len(tapes)} tapes; jobs={args.jobs}", file=sys.stderr)
 
     parts: list[pd.DataFrame] = []
+    arrivals_dir = str(out / "arrivals")
     with mp.Pool(args.jobs) as pool:
-        it = pool.starmap(
-            process_session,
-            [(t, str(out / "arrivals")) for t in tapes],
+        # imap_unordered yields per-completed-worker so the enclosing progress
+        # log and checkpoint logic fire incrementally, not only at the end.
+        # (starmap blocks until every worker finishes and defeats the
+        # per-25-tape checkpoint that gives this pipeline its fault tolerance.)
+        results = pool.imap_unordered(
+            _process_session_worker,
+            [(t, arrivals_dir) for t in tapes],
             chunksize=1,
         )
-        for i, df in enumerate(it):
+        for i, df in enumerate(results):
             parts.append(df)
             nrows = 0 if df is None or df.empty else len(df)
             print(f"[prep] {i+1}/{len(tapes)}  rows={nrows}", file=sys.stderr)
             if (i + 1) % CHECKPOINT_EVERY == 0:
-                corpus = pd.concat([p for p in parts if p is not None and not p.empty],
-                                   ignore_index=True)
-                corpus.to_parquet(out / "metadata.parquet",
-                                  compression="snappy", index=False)
-                print(f"[prep] checkpoint: {len(corpus)} rows saved",
-                      file=sys.stderr)
+                _write_metadata(parts, out)
 
-    corpus = pd.concat([p for p in parts if p is not None and not p.empty],
-                       ignore_index=True)
+    _write_metadata(parts, out, final=True)
+    return 0
+
+
+def _process_session_worker(args_tuple: tuple[str, str]) -> pd.DataFrame:
+    """Adapter for mp.Pool.imap_unordered which passes a single tuple arg."""
+    tape, out_arrivals_dir = args_tuple
+    return process_session(tape, out_arrivals_dir)
+
+
+def _write_metadata(parts: list[pd.DataFrame], out: Path,
+                    final: bool = False) -> None:
+    filtered = [p for p in parts if p is not None and not p.empty]
+    if not filtered:
+        if final:
+            print("[prep] no valid sessions produced any metadata rows; "
+                  "check --tapes-dir and that CSV files have the expected "
+                  "transactTime and packet_seq columns", file=sys.stderr)
+        return
+    corpus = pd.concat(filtered, ignore_index=True)
     corpus.to_parquet(out / "metadata.parquet",
                       compression="snappy", index=False)
-    print(f"[prep] done: {len(corpus)} rows total", file=sys.stderr)
-    return 0
+    tag = "done" if final else "checkpoint"
+    print(f"[prep] {tag}: {len(corpus)} rows saved", file=sys.stderr)
 
 
 if __name__ == "__main__":

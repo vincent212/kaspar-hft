@@ -77,9 +77,12 @@ def tandem_lindley(arr_ns: np.ndarray, N: int, total_service_ns: int,
 
     Returns per-event end-to-end latency (in ns) = last-stage-departure - arrival.
     """
-    # Round to nearest ns rather than truncate: `total_service_ns // N` would
-    # lose up to N-1 ns per event, which shows up at 2-decimal precision on
-    # the p50 identity check at N=12 for T values not divisible by N.
+    # Round to nearest ns rather than truncate. `//` would lose up to N-1 ns
+    # per event when T is not divisible by N, which shows up as a 0.01-us
+    # deviation from the p50 identity T + (N-1)h. The current SCENARIOS grid
+    # picks T divisible by every N in use, so this is a defensive invariant
+    # against future scenario additions rather than a correction for anything
+    # in the current sweep.
     per_stage_service = int(round(total_service_ns / N))
     dep = arr_ns.copy()
     for stage in range(N):

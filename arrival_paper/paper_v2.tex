@@ -271,8 +271,8 @@ This section describes the empirical experiment that tests the analytical predic
 \node[arm, below=8mm of packets, xshift=-30mm] (hawkes) {Hawkes arm\\ real arrivals};
 \node[arm, below=8mm of packets, xshift=+30mm] (poisson) {Poisson-null arm\\ uniform shuffle};
 
-\node[sim, below=8mm of hawkes] (simH) {Tandem Lindley\\ $N \in \{1,2,4,8,12\}$};
-\node[sim, below=8mm of poisson] (simP) {Tandem Lindley\\ $N \in \{1,2,4,8,12\}$};
+\node[sim, below=8mm of hawkes] (simH) {Tandem Lindley\\ $N \in \{1,2,4,8\}$};
+\node[sim, below=8mm of poisson] (simP) {Tandem Lindley\\ $N \in \{1,2,4,8\}$};
 
 \node[agg, below=10mm of $(simH)!0.5!(simP)$] (agg) {Per-window quantiles\\ $p_{50}, p_{95}, p_{99}, p_{99.9}, \max$};
 \node[box, below=6mm of agg, minimum width=42mm, fill=gray!10] (corpus) {corpus-median across $\sim 3{,}600$ windows};
@@ -475,7 +475,7 @@ At $T = 20\,\mu\mathrm{s}$ the single-stage Hawkes $p_{99}$ is $121.7\,\mu\mathr
 
 The design equation is monotone in $h$: at fixed $T$ and fixed corpus $\Delta(N)$, the operator's $N^\star$ shrinks as $h$ grows. At $h = 1.7\,\mu\mathrm{s}$ (this paper's calibration) the design equation predicts $N^\star = 1$ at $T = 2\,\mu\mathrm{s}$ (below the $2h$ floor), and $N^\star \geq 2$ for $T \gtrsim 4\,\mu\mathrm{s}$ conditional on the corpus $\Delta(N)$; the exact $N^\star$ per row of the sweep, including whether it plateaus or increases monotonically with $T$, will be reported when the full sweep completes. At lower $h$ (a hypothetical busy-poll async mailbox in the sub-microsecond regime), $N^\star$ climbs faster toward the natural cut-point ceiling of $4$--$5$.
 
-\paragraph{$h$ is load-dependent; $1.7\,\mu\mathrm{s}$ is a conservative upper bound.} The $h = 1.7\,\mu\mathrm{s}$ figure is the one-way cost of the shipping \kasparhft{} BQueue mailbox measured at low load, where the receiver is sleeping on a condition variable and the send path must pay the kernel wake latency to bring it back onto CPU. That wake latency is the dominant term in the $\sim\!3.4\,\mu\mathrm{s}$ round-trip of Table~4 in \citet{mayeski_fastsend}. Under sustained load, and specifically inside a Hawkes cluster where the receiver's queue is never empty, the receiver never actually sleeps: successive messages arrive faster than the receiver's per-message service time, so it stays awake in a tight run-loop and the enqueue path reduces to a mutex acquire, a queue push, and a condition-variable notify against a receiver that is not waiting (a near-no-op). The effective $h$ in that regime is dominated by the mutex + cache-line-transfer cost, typically hundreds of nanoseconds rather than $1.7\,\mu\mathrm{s}$. This is exactly the operating regime in which the paper's tail-latency win is largest --- the win compounds while $h$ shrinks --- so the paper's reported effect underestimates the true benefit whenever the pipeline is inside a burst. Characterising the load-conditioned hop cost $h(\rho)$ is left to future work; a full accounting would strengthen the results reported here.
+\paragraph{$h$ is load-dependent; $1.7\,\mu\mathrm{s}$ is a conservative upper bound.} The $h = 1.7\,\mu\mathrm{s}$ figure is the one-way cost of the shipping \kasparhft{} BQueue mailbox measured at low load, where the receiver is sleeping on a condition variable and the send path must pay the kernel wake latency to bring it back onto CPU. That wake latency is the dominant term in the $\sim\!3.4\,\mu\mathrm{s}$ round-trip of Table~4 in \citet{mayeski_fastsend}, and the general fact that a spinning receiver delivers a message an order of magnitude faster than a wake-from-condvar receiver is standard in the microsecond-latency systems literature: \citet{david2013synch} measure the primitive costs directly on commodity Linux hardware, \citet{belay2014ix} exploit this in the IX data plane by pinning busy-polling network threads, and Rigtorp's operational guide \citep{rigtorp_lowlatency} formalises the ``run one thread per core and busy-wait'' rule that flows from it; the fast\_send paper's own grouped-\texttt{send} row (Table~4, $\sim\!90$ ns) is the same effect on the same framework --- when the receiver never actually sleeps, the send path collapses. Under sustained load, and specifically inside a Hawkes cluster where the receiver's queue is never empty, the receiver never sleeps: successive messages arrive faster than the receiver's per-message service time, so it stays awake in a tight run-loop and the enqueue path reduces to a mutex acquire, a queue push, and a condition-variable notify against a receiver that is not waiting (a near-no-op). The effective $h$ in that regime is dominated by the mutex $+$ cache-line-transfer cost, typically a few hundred nanoseconds rather than $1.7\,\mu\mathrm{s}$. This is exactly the operating regime in which the paper's tail-latency win is largest --- the win compounds while $h$ shrinks --- so the paper's reported effect underestimates the true benefit whenever the pipeline is inside a burst. Characterising the load-conditioned hop cost $h(\rho)$ is left to future work; a full accounting would strengthen the results reported here.
 
 
 % =====================================================================
@@ -490,7 +490,7 @@ The design equation is monotone in $h$: at fixed $T$ and fixed corpus $\Delta(N)
 
 This section compares the empirical numbers of Section~\ref{sec:results} against the closed-form predictions of Section~\ref{sec:theory}.
 
-\paragraph{Theorem~\ref{thm:burst} (burst-limit throughput).} The single-message identity $p_{50}^{\mathrm{H}}(N) = T + (N-1) h$ is predicted exactly by Theorem~\ref{thm:burst} for any arrival law when $p_{50}$ falls in a quiet inter-cluster stretch (queue empty). The interim $T = 10, h = 3\,\mu\mathrm{s}$ run confirmed this identity to sub-nanosecond within the simulator's integer-nanosecond service arithmetic (Table~\ref{tab:main-corpus} at $N \in \{2, 4, 8, 12\}$ matches the identity within one integer-ns rounding step per stage, visible only where $T$ is not divisible by $N$). The h~$=$~1.7~$\mu$s sweep now in flight is expected to reproduce this against the new hop calibration and will populate this table on completion.
+\paragraph{Theorem~\ref{thm:burst} (burst-limit throughput).} The single-message identity $p_{50}^{\mathrm{H}}(N) = T + (N-1) h$ is predicted exactly by Theorem~\ref{thm:burst} for any arrival law when $p_{50}$ falls in a quiet inter-cluster stretch (queue empty). The interim $T = 10, h = 3\,\mu\mathrm{s}$ run confirms this identity exactly for every $N \in \{2, 4, 8\}$ in Table~\ref{tab:main-corpus} (per-stage service $T/N$ divides evenly at these values). The $h = 1.7\,\mu\mathrm{s}$ sweep now in flight is expected to reproduce the identity across the same $N$ range against the new hop calibration, and will populate this table on completion.
 
 \paragraph{Conjecture~\ref{thm:tailratio} (Hawkes tail-ratio).} The prediction is that $p_{99}(N)/p_{99}(1) \to N^{-1/2}$ in the near-critical batch approximation, or the stronger $\sim N^{-1}$ under Equation~\eqref{eq:quantile}. On the interim $h = 3\,\mu\mathrm{s}$ run the empirical ratio at $T = 10$ was $\approx 0.58$ ($N = 2$) and at $T = 20$ was $\approx 0.44$, both between the theoretical bounds $\{0.5, 0.71\}$ and directionally matching the conjecture. The $h = 1.7\,\mu\mathrm{s}$ sweep will pin the exact exponent $\gamma$ across the full $T \in \{2, 4, 8, 16, 32\}\,\mu\mathrm{s}, N \in \{1, 2, 4, 8\}$ grid.
 
@@ -788,6 +788,12 @@ Zhang, X. (2016). Pipelined FAST protocol market-data decoder for high-frequency
 
 \bibitem[Vinnikov(2014)]{tandembatch2014}
 Vinnikov, A. (2014). Batch latency analysis and phase transitions for a tandem of queues. arXiv 1403.2400.
+
+\bibitem[David et al.(2013)]{david2013synch}
+David, T., Guerraoui, R., Trigonakis, V. (2013). Everything you always wanted to know about synchronization but were afraid to ask. \textit{Proc. 24th ACM Symposium on Operating Systems Principles (SOSP)}, 33--48.
+
+\bibitem[Belay et al.(2014)]{belay2014ix}
+Belay, A., Prekas, G., Klimovic, A., Grossman, S., Kozyrakis, C., Bugnion, E. (2014). IX: a protected dataplane operating system for high throughput and low latency. \textit{Proc. 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI)}, 49--65.
 
 \end{thebibliography}
 
