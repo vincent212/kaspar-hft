@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import csv
 import glob
+import hashlib
 import multiprocessing as mp
 import os
 import sys
@@ -168,8 +169,13 @@ def process_session(msg_tape_csv: str) -> pd.DataFrame:
             lam_pkt = float("nan"); n_pkt = float("nan"); converged = False
 
         # Poisson null: uniform-shuffle same arrival count over the window.
-        # Deterministic per (session, window_id) via a stable seed.
-        seed = abs(hash((session, int(wid)))) % (2**32)
+        # Deterministic per (session, window_id) via a stable MD5-derived
+        # seed. Kept in lockstep with qsim_prep.py:seed so the two pipelines
+        # produce byte-identical Poisson-null arrivals for the same
+        # (session, window_id) tuples. Do NOT use Python's built-in hash():
+        # PYTHONHASHSEED randomises it across interpreter runs.
+        key = f"{session}|{int(wid)}".encode()
+        seed = int.from_bytes(hashlib.md5(key).digest()[:4], "big")
         rng = np.random.default_rng(seed)
         poi_arr = np.sort(
             rng.integers(low=int(pkt_arr[0]), high=int(pkt_arr[-1]) + 1,

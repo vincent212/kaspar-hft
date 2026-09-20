@@ -207,6 +207,12 @@ def _write_metadata(parts: list[pd.DataFrame], out: Path,
                   "transactTime and packet_seq columns", file=sys.stderr)
         return
     corpus = pd.concat(filtered, ignore_index=True)
+    # imap_unordered yields in worker-completion order, so the concatenated
+    # frame's row order is non-deterministic across prep re-runs. Sort by
+    # (session, window_id) before writing so the metadata parquet is byte-
+    # identical across re-runs with identical input tapes.
+    corpus = corpus.sort_values(["session", "window_id"],
+                                kind="stable").reset_index(drop=True)
     corpus.to_parquet(out / "metadata.parquet",
                       compression="snappy", index=False)
     tag = "done" if final else "checkpoint"
