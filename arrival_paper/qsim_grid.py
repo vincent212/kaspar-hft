@@ -42,21 +42,22 @@ MIN_PACKETS_PER_WINDOW  = 500
 MIN_MESSAGES_PER_WINDOW = 1000
 CHECKPOINT_EVERY        = 25
 
-FLOOR_NS = 7_230       # total decode floor T (fast_send calibration)
-HOP_NS   = 90          # per-stage hop h (Kaspar-HFT busy-poll)
-N_STAGES = [1, 2, 4, 8, 12]
+FLOOR_NS = 7_230       # legacy fast_send-calibration floor (no longer used as main scenario)
+HOP_NS   = 90          # legacy per-stage hop (no longer used as main scenario)
+N_STAGES = [1, 2, 4, 8]
 
-# Additional (label, total_service_ns, hop_ns, N_list) scenarios.
-# Kaspar-HFT paper baseline is the pair (FLOOR_NS, HOP_NS, N_STAGES) above,
-# emitted with label "main". These are comparison scenarios (larger service,
-# wait/notify-style hop) so the paper can show how the design equation flips
-# when h is a substantial fraction of T/N.
+# (label, total_service_ns, hop_ns, N_list) scenarios for the arrival paper's
+# canonical sweep. h = 1_700 ns is the one-way async cross-thread hop cost
+# derived by halving the ~3.4 us round-trip figure in Table 4 of the fast_send
+# paper. T spans the regime from sub-hop (2 us; below the 2h floor, included
+# to demonstrate that the design equation prescribes N*=1 there) through the
+# edge case at 4 us and up to well above the floor at 32 us.
 SCENARIOS = [
-    ("T2_h1p7us",  2_000,  1_700, [1, 2, 4, 8, 12]),
-    ("T4_h1p7us",  4_000,  1_700, [1, 2, 4, 8, 12]),
-    ("T8_h1p7us",  8_000,  1_700, [1, 2, 4, 8, 12]),
-    ("T16_h1p7us", 16_000, 1_700, [1, 2, 4, 8, 12]),
-    ("T32_h1p7us", 32_000, 1_700, [1, 2, 4, 8, 12]),
+    ("T2_h1p7us",  2_000,  1_700, [1, 2, 4, 8]),
+    ("T4_h1p7us",  4_000,  1_700, [1, 2, 4, 8]),
+    ("T8_h1p7us",  8_000,  1_700, [1, 2, 4, 8]),
+    ("T16_h1p7us", 16_000, 1_700, [1, 2, 4, 8]),
+    ("T32_h1p7us", 32_000, 1_700, [1, 2, 4, 8]),
 ]
 
 
@@ -76,7 +77,10 @@ def tandem_lindley(arr_ns: np.ndarray, N: int, total_service_ns: int,
 
     Returns per-event end-to-end latency (in ns) = last-stage-departure - arrival.
     """
-    per_stage_service = total_service_ns // N
+    # Round to nearest ns rather than truncate: `total_service_ns // N` would
+    # lose up to N-1 ns per event, which shows up at 2-decimal precision on
+    # the p50 identity check at N=12 for T values not divisible by N.
+    per_stage_service = int(round(total_service_ns / N))
     dep = arr_ns.copy()
     for stage in range(N):
         if stage > 0:
@@ -272,7 +276,11 @@ def write_checkpoint(parts, out: Path, grid: int, min_cells: int,
     df["xb"] = assign_bin(df["n_branch_pkt"].to_numpy(),   n_edges)
     ky, kx = len(lam_edges) - 1, len(n_edges) - 1
 
-    primary_label = SCENARIOS[0][0]  # first scenario is the paper's main
+    # T = 8 us is the paper's canonical "representative" scenario: safely above
+    # the 2h floor and squarely in the regime where the design equation
+    # reliably applies. T = 2 us (SCENARIOS[0]) is the below-floor demo case
+    # and would produce uninformative heatmaps if used here.
+    primary_label = "T8_h1p7us"
     heatmap_stats = [
         (f"{primary_label}_H_N1_p99_us", "median cell p99 (us)",
                                   f"{primary_label} Hawkes p99, N=1", ".1f"),
