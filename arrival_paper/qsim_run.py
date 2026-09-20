@@ -135,11 +135,22 @@ def main() -> int:
 
                 row = wrow.to_dict()
                 for label, T_ns, h_ns, Ns in SCENARIOS:
-                    for N in Ns:
-                        for regime, arrivals in (("H", arr_H), ("P", arr_P)):
+                    for regime, arrivals in (("H", arr_H), ("P", arr_P)):
+                        wait1 = None
+                        for N in sorted(set(Ns) | {1}):
                             lat = tandem_lindley(
                                 arrivals, N,
                                 total_service_ns=T_ns, hop_ns=h_ns)
+                            # Pathwise bound (paper Thm 2): W(N) <= W(1)/N + (N-1)h,
+                            # W = latency - T. Tolerance N ns covers round(T/N).
+                            wait = lat - T_ns
+                            if N == 1:
+                                wait1 = wait
+                            excess = wait - (wait1 / N + (N - 1) * h_ns) - N
+                            row[f"{label}_{regime}_N{N}_bound_viol"] = int((excess > 0).sum())
+                            row[f"{label}_{regime}_N{N}_bound_viol_max_us"] = max(float(excess.max()), 0.0) / 1e3
+                            if N not in Ns:
+                                continue
                             p50, p95, p99, p999, mx = quantiles_us(lat)
                             row[f"{label}_{regime}_N{N}_p50_us"]  = p50
                             row[f"{label}_{regime}_N{N}_p95_us"]  = p95
@@ -158,6 +169,12 @@ def main() -> int:
     df.to_parquet(out_path, compression="snappy", index=False)
     print(f"[run] wrote {out_path}: {len(df)} rows, {len(df.columns)} cols "
           f"in {time.time() - t0:.1f}s", file=sys.stderr)
+
+    viol_cols = [c for c in df.columns if c.endswith("_bound_viol")]
+    n_viol_msgs = int(df[viol_cols].sum().sum())
+    n_viol_windows = int((df[viol_cols] > 0).any(axis=1).sum())
+    print(f"[run] Thm 2 bound check: {n_viol_msgs} violating messages in "
+          f"{n_viol_windows}/{len(df)} windows (expected 0)", file=sys.stderr)
     return 0
 
 
