@@ -475,6 +475,8 @@ At $T = 20\,\mu\mathrm{s}$ the single-stage Hawkes $p_{99}$ is $121.7\,\mu\mathr
 
 The design equation is monotone in $h$: at fixed $T$ and fixed corpus $\Delta(N)$, the operator's $N^\star$ shrinks as $h$ grows. At $h = 1.7\,\mu\mathrm{s}$ (this paper's calibration) the design equation predicts $N^\star = 1$ at $T = 2\,\mu\mathrm{s}$ (below the $2h$ floor), and $N^\star \geq 2$ for $T \gtrsim 4\,\mu\mathrm{s}$ conditional on the corpus $\Delta(N)$; the exact $N^\star$ per row of the sweep, including whether it plateaus or increases monotonically with $T$, will be reported when the full sweep completes. At lower $h$ (a hypothetical busy-poll async mailbox in the sub-microsecond regime), $N^\star$ climbs faster toward the natural cut-point ceiling of $4$--$5$.
 
+\paragraph{$h$ is load-dependent; $1.7\,\mu\mathrm{s}$ is a conservative upper bound.} The $h = 1.7\,\mu\mathrm{s}$ figure is the one-way cost of the shipping \kasparhft{} BQueue mailbox measured at low load, where the receiver is sleeping on a condition variable and the send path must pay the kernel wake latency to bring it back onto CPU. That wake latency is the dominant term in the $\sim\!3.4\,\mu\mathrm{s}$ round-trip of Table~4 in \citet{mayeski_fastsend}. Under sustained load, and specifically inside a Hawkes cluster where the receiver's queue is never empty, the receiver never actually sleeps: successive messages arrive faster than the receiver's per-message service time, so it stays awake in a tight run-loop and the enqueue path reduces to a mutex acquire, a queue push, and a condition-variable notify against a receiver that is not waiting (a near-no-op). The effective $h$ in that regime is dominated by the mutex + cache-line-transfer cost, typically hundreds of nanoseconds rather than $1.7\,\mu\mathrm{s}$. This is exactly the operating regime in which the paper's tail-latency win is largest --- the win compounds while $h$ shrinks --- so the paper's reported effect underestimates the true benefit whenever the pipeline is inside a burst. Characterising the load-conditioned hop cost $h(\rho)$ is left to future work; a full accounting would strengthen the results reported here.
+
 
 % =====================================================================
 
@@ -607,6 +609,7 @@ None of these caveats reverse the two conclusions on the 281-session corpus we t
     \item Power-law-kernel Hawkes fit versus exponential.
     \item Overnight-session regime.
     \item Own-capture pcap validation of the network sub-stage.
+    \item Load-conditioned hop cost $h(\rho)$. This paper calibrates $h = 1.7\,\mu\mathrm{s}$ from the low-load wake-latency figure in \citet{mayeski_fastsend}; under sustained-load conditions inside a Hawkes cluster the receiver never sleeps and the effective $h$ collapses toward the mutex + cache-line-transfer floor of a few hundred nanoseconds (Section~\ref{sec:results-h}). Measuring $h(\rho)$ directly and re-running the sweep against the load-conditioned $h$ would sharpen the reported tail-win, which the current single-$h$ sim understates.
 \end{itemize}
 
 % =====================================================================
