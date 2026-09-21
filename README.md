@@ -17,17 +17,17 @@
   <a href="tech_reports/kaspar_onepager.pdf">one-pager</a>
 </p>
 
-**Kaspar-hft** is a turn-key CME futures production trading system *and* a queue-position-accurate order-book simulator — the same strategy code runs in backtest, paper trading, and live — built on a custom C++20 actor framework designed for microsecond latency.
+**Kaspar-hft** is a turn-key CME futures production trading system *and* a queue-position-accurate order-book simulator — the same strategy code runs in backtest, paper trading, and live — built on a high-performance C++20 actor framework designed for nanosecond latency.
 
 ## Kaspar-hft highlights
 
-- **~30 ns actor round trip actor to actor messaging.** `fast_send` runs the receiver's handler inline on the caller's thread — ~110× faster than cross-thread async and ~3× faster than same-thread grouping, with no data races and no locks in your code.
-- **The actor layer is under 1% of real work.** On a live CME tick-to-book path the framework adds under 1% of the ~7 µs decode-and-book cost and nothing measurable to the latency tail — the actor abstraction is effectively free on the hot path.
-- **Backtest == production.** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live iLink 3; switching is a config change, so a backtest exercises the exact code path that will trade.
-- **CME-certified.** The MDP3 market-data handler and the iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle — sequence gaps, retransmission and recovery, terminate/reconnect, and failover — so you don't hand-roll the edge cases a commercial SDK sells you.
-- **Shadow execution algorithm** — Production-grade execution logic that piggybacks on real market flow. Places orders only when genuine interest appears at a price level. Zero idle quoting.
-- **Strategy authoring in C++ or Rust** — Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop. Either way there is no socket and no serialisation between the strategy and the book.
-- **Two papers back it.** The C++ Actor framework design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
+- **~30 ns actor round trip actor to actor messaging** `fast_send` runs the receiver's handler inline on the caller's thread passes the message on the stack.
+- **The actor layer has almost no everhead** On a live CME tick-to-book path the framework adds nothing measurable to the latency tail — the actor abstraction is effectively free on the hot path.
+- **Backtest == production** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live iLink 3; switching is a config change, so a backtest exercises the exact code path that will trade.
+- **CME-certified** The MDP3 market-data handler and the iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
+- **Shadow execution algorithm** — Production-grade execution logic that piggybacks on real market flow.
+- **Strategy authoring in C++ or Rust** — Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop.
+- **Two papers to dive deeper, more in the works** The C++ Actor framework design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
 
 ---
 
@@ -41,7 +41,7 @@ The same strategy code, the same execution algorithm and the same book run in PC
 
 You will find a one-page overview here: [**tech_reports/kaspar_onepager.pdf**](tech_reports/kaspar_onepager.pdf) — what the system does.
 
-**Why actors?** Each actor owns its private state and communicates only by messages, so no mutable state is shared between actors — and therefore no memory-level data race, and no locks in your own code; you reason about one message at a time against consistent state. Empirical studies call data races and deadlocks *"two mistakes that are hard to make with actors."*  Actor code is also unusually easy for AI coding agents to write: they know the actor pattern well and generate actors, their message handlers, and self-contained unit tests — send a message in, assert on the reply — with little friction, precisely because there is no shared state or locking to reason about. The usual objection is the messaging overhead; Kaspar answers it with `fast_send`, which runs the receiver's handler inline on the caller's thread and returns the reply as a value (**~10 ns of overhead over a direct call**). The design and measurements are written up in (https://arxiv.org/abs/2609.21173).
+**Why actors?** Each actor owns its private state and communicates only by messages, so no mutable state is shared between actors — and therefore no memory-level data race, and no locks in your own code; you reason about one message at a time against consistent state. Empirical studies call data races and deadlocks *"two mistakes that are hard to make with actors."*  Actor code is also unusually easy for AI coding agents to write: they know the actor pattern well and generate actors, their message handlers, and self-contained unit tests — send a message in, assert on the reply — with little friction, precisely because there is no shared state or locking to reason about. The usual objection is the messaging overhead; Kaspar answers it with `fast_send`, which runs the receiver's handler inline on the caller's thread and returns the reply as a value (**~10 ns of overhead over a direct call**).
 
 Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) — *"a peak of a long crest in the Western Tatras, one of Poland's main winter ski areas."*
 
@@ -49,18 +49,7 @@ Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) —
 
 ## Production-grade session handling — CME-certified
 
-Kaspar's market-data and order-entry stacks are complete session implementations, not just SBE codecs, and both have passed **CME autocertification**. They implement the full protocol lifecycle and its edge cases — the recovery, reconnection, and failover logic a commercial SDK is sold to cover — so you don't hand-roll any of it:
-
-**iLink 3 order entry** ([`ilink/`](ilink/))
-- **Session lifecycle** — `Negotiate` / `NegotiationResponse` / `NegotiationReject`, `Establish` / `EstablishmentAck` / `EstablishmentReject`, `Terminate` / `DoTerminate`, `ResetUUID`, and party-details registration (`RegisterPartyDetails` / `PartyDetailsAck`).
-- **Reliability & recovery** — `Sequence` heartbeats, `NotApplied` gap detection, `Retransmission` / `RetransmissionReject` message recovery, and automatic re-establish / reconnect.
-- **Auth & failover** — HMAC-SHA256 authentication and primary/secondary failover (`InitPrimary` / `InitSecondary`, `handler_primary` / `handler_secondary`).
-
-**MDP 3.0 market data** ([`mdp3/`](mdp3/))
-- **Gap handling** — sequence-gap detection and channel-reset handling across the A/B feeds.
-- **Full recovery** — snapshot recovery, instrument-definition recovery (`DoInstrumentRecovery` / `EndInstrumentRecovery`), and incremental data recovery (`DoDataRecovery` / `EndDataRecovery`, via `RecoveryProcessor`, `DataRecoveryRecorder`, and `InstrumentRecoveryRecorder`).
-
-This is precisely the "you'll code sequence gap fills, session persistence, and failover yourself — and still have to pass autocertification" work that commercial iLink 3 SDKs are sold to cover. In Kaspar it is implemented, certified, and open source.
+Kaspar's market-data and order-entry stacks are complete session implementations and both have passed **CME autocertification**. They implement the full protocol lifecycle and its edge cases — the recovery, reconnection, and failover logic a commercial SDK is sold to cover — so you don't hand-roll any of it.
 
 ## Build
 
@@ -118,12 +107,14 @@ kaspar/
 
 ## Actor Framework
 
-The actor framework provides the concurrency model for the entire system:
+The actor framework provides a uniform concurrency model for the entire system. Coding agents will pick up the documentation and will write actor components for you. All you have to do is fill in
+your message handlers.
 
 - **Message passing** — `BQueue` mailbox per actor, O(1) dispatch
-- **Groups for deterministic simulation** — A `Group` runs multiple actors on a single thread with a single message queue.
-- **Zero-copy fast path** — `fast_send()` executes the handler in the caller's thread for synchronous queries — no queue, no thread hop.
-- **C++/Rust interop** — C++ and Rust actors can talk in the **same process** over a C-ABI FFI bridge
+- **Groups** — A `Group` runs multiple actors on a single thread with a single message queue. Enables deterministic simulation.
+- **Zero-copy fast path** — `fast_send()` executes the handler in the caller's thread for synchronous queries — no queue, no thread hop, message passed on the stack.
+- **C++/Rust interop** — Strategies can be coded in C++ or Rust
+- **Sync vs Async send are fungible** - defere actor to thread mapping to deployment stage.
 
 The design behind the framework is written up here:
 [**Low-Latency Actor Systems in C++ and Rust**](https://vincentmayeski.substack.com/p/low-latency-actor-systems-in-c-and)
@@ -201,7 +192,7 @@ reference, and [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) 
 Every actor has a **mailbox**: a multi-producer/single-consumer (MPSC) queue that
 other threads push messages into and the actor's own thread drains.
 
-The four implementations:
+Pick the best queue for your use case:
 
 - **BQueue** — mutex + condition variable around a ring buffer. Simple, FIFO,
   sleeps when idle. **This is the default** (no `set_mailbox` call needed).
@@ -269,19 +260,15 @@ kaspr {
 | [CLAUDE_AGENT_GUIDE.md](actors/cpp/CLAUDE_AGENT_GUIDE.md) | Actor framework technical reference |
 | [actors/rust/README.md](actors/rust/README.md) | Rust actor-framework port — overview & quickstart |
 | [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) | Writing actors in the Rust port |
-| [actors/rust/MATCHING_ENGINE.md](actors/rust/MATCHING_ENGINE.md) | The matching-engine example |
 | [tech_reports/fast_send.pdf](tech_reports/fast_send.pdf) | Technical report: `fast_send` synchronous message delivery |
 | [tech_reports/shadow_pov.pdf](tech_reports/shadow_pov.pdf) &middot; [arXiv:2609.18019](https://arxiv.org/abs/2609.18019) | Technical report: Shadow-POV passive execution |
-| [sim/scripts/run_grid.sh](sim/scripts/run_grid.sh) | The parameter sweep: cells, sessions, and how a run is reproduced |
 
 ## Performance Characteristics
 
-- **Tick-to-trade latency**: measured on the colocated stack — median in the ~100 µs range, p99 under 1 ms, measured end to end from market data in to order on the wire.
-- **Message dispatch**: O(1) vector lookup by message ID — no virtual dispatch, no hash maps
-- **Actor send**: Sub-microsecond enqueue (mutex + condition variable, no allocation on hot path)
-- **Book update to strategy**: Single `EndOfBurst` message per MDP3 incremental cycle
-- **Memory**: Pool allocators for high-frequency message types, zero GC pauses
-- **Threading**: One thread per actor, CPU affinity pinning, no contention between instruments
+- **Actor async send**: fast enqueue (mutex + condition variable, no allocation on hot path)
+- **Actor sync send**: fast on the stack, same thread, pre-empts the queue
+- **Memory**: Pool allocators for same-size messages
+- **Grouping**: One thread per actor group
 
 ### Measured: actor messaging round-trip latency
 
@@ -349,8 +336,6 @@ not the framework or the queue:
 - Arrivals are **non-Poisson and self-exciting** (Hawkes-like, branching ratio
   0.85–0.97): 74–85% of interarrival gaps are shorter than 1/10 of the mean, vs
   9.5% for a Poisson feed of the same rate.
-- Those bursts become **large packets** (CME coalesces), and in-packet position
-  becomes latency through the slope — this is where the tail lives.
 - The mailbox **queue** is a rare event: the ring is empty for 87–99.7% of
   messages, and queue depth ≥ 3 fires on ~0.08%. Its cost is real but small — and
   it is the mailbox occupancy, not the actor framework, that moves latency.
@@ -363,15 +348,13 @@ not the framework or the queue:
   </picture>
 </p>
 
-With in-packet position held fixed, latency at `qlen = 0` sits at the ~7 µs floor
-(where 87–99.7% of messages are); when a burst does back the ring up, the median
-climbs **convexly** with occupancy — the queueing effect is genuine but confined
-to a rare tail.
+## Shadow Execution Algo
 
-**Design takeaway:** to cut the tail, attack the per-message decode **slope**, not
-the queue depth or the message rate.
+Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow by following the orders other participants place.
 
-## Writing
+The method, the measurement corpus and every number below are written up in the technical report [**shadow_pov.pdf**](tech_reports/shadow_pov.pdf) — *Model-Free Passive Execution via Order-Level Shadowing* — also on arXiv: [**arXiv:2609.18019**](https://arxiv.org/abs/2609.18019).
+
+## Deep Dives
 
 Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.substack.com](https://vincentmayeski.substack.com)):
 
@@ -387,11 +370,6 @@ Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.su
 - [**The Lock-Free Illusion: Why CAS Storms Kill Actor Queues Under Contention**](https://vincentmayeski.substack.com/p/the-lock-free-illusion-why-cas-storms) — when a lock-free mailbox wins and when it tails worse than a mutex; the queue-selection matrix. *Code on the experimental [`sharded-mailbox`](https://github.com/vincent212/kaspar-hft/tree/sharded-mailbox) branch, not yet merged.*
 - [**Shadow POV Execution: Trade Where the Market Is Going to Trade**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where) — a percentage-of-volume algorithm that follows passive flow.
 
-## Shadow Execution Algo
-
-Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow by following the orders other participants place.
-
-The method, the measurement corpus and every number below are written up in the technical report [**shadow_pov.pdf**](tech_reports/shadow_pov.pdf) — *Model-Free Passive Execution via Order-Level Shadowing* — also on arXiv: [**arXiv:2609.18019**](https://arxiv.org/abs/2609.18019).
 
 
 ## License
