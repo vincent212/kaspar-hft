@@ -17,17 +17,17 @@
   <a href="tech_reports/kaspar_onepager.pdf">one-pager</a>
 </p>
 
-**Kaspar-hft** is a turn-key CME futures production trading system *and* a queue-position-accurate order-book simulator — the same strategy code runs in backtest, paper trading, and live — built on a high-performance C++20 actor framework designed for nanosecond latency.
+**Kaspar-hft** is a turn-key CME futures production trading system *and* a queue-position-accurate order-book simulator — the same strategy code runs in backtest, paper trading, and live — built on a high-performance C++20 actor framework with nanosecond-scale messaging.
 
 ## Kaspar-hft highlights
 
-- **~30 ns actor round trip actor to actor messaging:** `fast_send` runs the receiver's handler inline on the caller's thread passes the message on the stack.
-- **The actor layer has almost no everhead:** On a live CME tick-to-book path the framework adds nothing measurable to the latency tail — the actor abstraction is effectively free on the hot path.
+- **~30 ns actor-to-actor round trip:** `fast_send` runs the receiver's handler inline on the caller's thread and passes the message on the stack.
+- **The actor layer has almost no overhead:** On a live CME tick-to-book path the framework adds nothing measurable to the latency tail — the actor abstraction is effectively free on the hot path.
 - **Backtest == production:** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live iLink 3; switching is a config change, so a backtest exercises the exact code path that will trade.
 - **CME-certified:** The MDP3 market-data handler and the iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
-- **Shadow execution algorithm:** — Efficient, production-grade turn-key execution algo.
-- **Strategy authoring in C++ or Rust** — Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop.
-- **Two papers to dive deeper, more in the works:** The C++ Actor framework design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
+- **Shadow execution algorithm:** Efficient, production-grade, turn-key execution algorithm.
+- **Strategy authoring in C++ or Rust:** Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop.
+- **Two papers to dive deeper, more in the works:** The C++ actor framework design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
 
 ---
 
@@ -37,9 +37,9 @@ It is a **turn-key production trading system**: MDP3 multicast in, full order bo
 
 It is also a **position-aware order book simulator**: order books rebuilt from packet capture files, with your orders placed in the price-time queue and filled only when the market actually trades through them. Fills are inferred from exact queue accounting.
 
-The same strategy code, the same execution algorithm and the same book run in PCAP replay, in live paper trading, and against the live exchange; moving between them is a configuration change. A backtest exercises the code path that will trade. It is built on a custom C++ actor framework designed for nanosecond-level optimization.
+The same strategy code, the same execution algorithm and the same book run in PCAP replay, in live paper trading, and against the live exchange; moving between them is a configuration change. A backtest exercises the code path that will trade. It is built on a custom C++ actor framework with nanosecond-scale messaging.
 
-You will find a one-page overview here: [**tech_reports/kaspar_onepager.pdf**](tech_reports/kaspar_onepager.pdf) — what the system does.
+You will find a one-page overview here: [**tech_reports/kaspar_onepager.pdf**](tech_reports/kaspar_onepager.pdf).
 
 **Why actors?** Each actor owns its private state and communicates only by messages, so no mutable state is shared between actors — and therefore no memory-level data race, and no locks in your own code; you reason about one message at a time against consistent state. Empirical studies call data races and deadlocks *"two mistakes that are hard to make with actors."*  Actor code is also unusually easy for AI coding agents to write: they know the actor pattern well and generate actors, their message handlers, and self-contained unit tests — send a message in, assert on the reply — with little friction, precisely because there is no shared state or locking to reason about. The usual objection is the messaging overhead; Kaspar answers it with `fast_send`, which runs the receiver's handler inline on the caller's thread and returns the reply as a value (**~10 ns of overhead over a direct call**).
 
@@ -83,8 +83,8 @@ kaspar/
 ├── frame_ref/      Reference data & shared value types — instrument `Asset` defs, `Price`, the `RefData` universe
 ├── light/          Shadow / POV execution algorithm — the per-side `light22` lights
 ├── ilink/          CME iLink 3 order-entry session — SBE, HMAC auth, seq management, primary/secondary failover
-├── ilink3_sbe/       Generated iLink 3 SBE protocol headers
-├── mdp3_sbe/    Generated MDP3 SBE market-data headers
+├── ilink3_sbe/     Generated iLink 3 SBE protocol headers
+├── mdp3_sbe/       Generated MDP3 SBE market-data headers
 ├── chutil/         Core utilities — time, sockets, enums, binary/CSV formats, assert/macros
 ├── interface/      Factory-function headers that create actors (keeps wiring decoupled from impl)
 ├── db/             Database persistence actor (stubbed)
@@ -114,7 +114,7 @@ your message handlers.
 - **Groups** — A `Group` runs multiple actors on a single thread with a single message queue. Enables deterministic simulation.
 - **Zero-copy fast path** — `fast_send()` executes the handler in the caller's thread for synchronous queries — no queue, no thread hop, message passed on the stack.
 - **C++/Rust interop** — Strategies can be coded in C++ or Rust
-- **Sync vs Async send are fungible** - defere actor to thread mapping to deployment stage.
+- **Sync vs Async send are fungible** — defer actor-to-thread mapping to the deployment stage.
 
 The design behind the framework is written up here:
 [**Low-Latency Actor Systems in C++ and Rust**](https://vincentmayeski.substack.com/p/low-latency-actor-systems-in-c-and)
