@@ -71,41 +71,6 @@ Kaspar's market-data and order-entry stacks are complete session implementations
 | **Paper Trading** | Live CME multicast | SOM (simulated) | OB (MBP) | Forward testing with real data |
 | **Live Trading** | Live CME multicast | iLink 3 to CME | TachBook (MBO L3) | Production execution |
 
-## Project Structure
-
-```
-kaspar/
-├── actors/         Custom C++20 actor framework — per-actor mailboxes, O(1) dispatch, groups, lifecycle; + Rust port & C++/Rust FFI interop
-│   └── rust/       Rust port of the actor core (crate `actors`) + a price-time-FIFO `matching_engine` example
-├── kaspr/          Main application — process startup, actor wiring, and config (`config/kaspr.ini`)
-├── mdp3/           CME MDP 3.0 market-data SBE decoder + sequence-gap / snapshot recovery
-├── mcast_recv/     Feed sources — multicast UDP receiver and offline PCAP reader
-├── frame_kaspr/    Trading core — OB (MBP book) & TachBook (MBO L3 book), SOM (Simulated Order Manager), BFA (recorded binary-file replay), Timer
-├── frame_ref/      Reference data & shared value types — instrument `Asset` defs, `Price`, the `RefData` universe
-├── light/          Shadow / POV execution algorithm — the per-side `light22` lights
-├── ilink/          CME iLink 3 order-entry session — SBE, HMAC auth, seq management, primary/secondary failover
-├── ilink3_sbe/     Generated iLink 3 SBE protocol headers
-├── mdp3_sbe/       Generated MDP3 SBE market-data headers
-├── chutil/         Core utilities — time, sockets, enums, binary/CSV formats, assert/macros
-├── interface/      Factory-function headers that create actors (keeps wiring decoupled from impl)
-├── db/             Database persistence actor (stubbed)
-├── mtd/            Monitoring — console command handlers + display tables
-├── mq0/            ZMQ REQ/REP console server (runtime control/monitoring port)
-├── logger/         Asynchronous logging actor
-├── positionman/    Per-instrument position tracking
-├── oogsl/          GSL math wrappers — stats, matrix, RNG
-├── genconfig/      CME config generators (MDP3 + iLink)
-├── setclassid/     Message-ID collision checker
-├── genschema/      Generates the CME SBE codecs from CME's templates (`make schema`)
-├── sim/            The simulator and the experiment around it — SimKaspr wiring, the
-│                   SlippageProbe actor that produces the cost numbers, per-arm configs,
-│                   and `scripts/` (the sweep, the aggregator, the session calendar)
-├── dbento_pcap_parse/  Databento capture -> the binary session files the sim replays
-├── unit_test/      Google Test suite and the mocks it runs against
-├── tech_reports/   Technical reports (LaTeX source + PDFs)
-└── mk_kaspr/       Build-system templates — glob_begin.mk, lib/app templates, path detection
-```
-
 ## Actor Framework
 
 The actor framework provides a uniform concurrency model for the entire system. Coding agents will pick up the documentation and will write actor components for you. All you have to do is fill in
