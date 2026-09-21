@@ -21,7 +21,7 @@
 
 ## Kaspar-hft highlights
 
-- **Low Latency Actor Concurrency Model Framework:** No race conditions, no memory data races, almost no frmework overhad
+- **Low Latency Actor Concurrency Model Framework:** No race conditions, no memory data races, almost no framework overhead.
 - **Backtest == production:** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live iLink 3; switching is a config change, so a backtest exercises the exact code path that will trade.
 - **CME-certified:** The MDP3 market-data handler and the iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
 - **Shadow execution algorithm:** Efficient, production-grade, turn-key execution algorithm.
@@ -246,7 +246,7 @@ kaspr {
 cleanly (one clock-read pair around a tight loop, identical trivial work on a
 stack input):
 
-[perf README](actors/cpp/perf/README.md#d-fast_send-vs-a-bare-function-call) ·
+[perf README](actors/cpp/perf/README.md#d-fast_send-vs-a-bare-function-call)
 
 ## Case study: tick-to-book latency (live CME MDP3)
 
