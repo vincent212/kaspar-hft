@@ -21,13 +21,13 @@
 
 ## Kaspar-hft highlights
 
-- **~30 ns actor round trip.** `fast_send` runs the receiver's handler inline on the caller's thread — ~110× faster than cross-thread async and ~3× faster than same-thread grouping, with no data races and no locks in your code.
+- **~30 ns actor round trip actor to actor messaging.** `fast_send` runs the receiver's handler inline on the caller's thread — ~110× faster than cross-thread async and ~3× faster than same-thread grouping, with no data races and no locks in your code.
 - **The actor layer is under 1% of real work.** On a live CME tick-to-book path the framework adds under 1% of the ~7 µs decode-and-book cost and nothing measurable to the latency tail — the actor abstraction is effectively free on the hot path.
-- **Queue-position-accurate fills.** Your simulated orders sit in the price-time book and fill only when the market trades *through* them — not the instant-fill-at-mid fantasy of toy backtesters.
 - **Backtest == production.** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live iLink 3; switching is a config change, so a backtest exercises the exact code path that will trade.
-- **Not a toy.** Full MDP3 SBE decode, order-by-order (MBO) book reconstruction, iLink 3 sessions with HMAC auth, sequence management, and primary/secondary failover.
 - **CME-certified.** The MDP3 market-data handler and the iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle — sequence gaps, retransmission and recovery, terminate/reconnect, and failover — so you don't hand-roll the edge cases a commercial SDK sells you.
-- **Two papers back it.** The concurrency design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
+- **Shadow execution algorithm** — Production-grade execution logic that piggybacks on real market flow. Places orders only when genuine interest appears at a price level. Zero idle quoting.
+- **Strategy authoring in C++ or Rust** — Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop. Either way there is no socket and no serialisation between the strategy and the book.
+- **Two papers back it.** The C++ Actor framework design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
 
 ---
 
@@ -37,13 +37,11 @@ It is a **turn-key production trading system**: MDP3 multicast in, full order bo
 
 It is also a **position-aware order book simulator**: the same books, rebuilt from recorded packet captures, with your orders placed in the price-time queue and filled only when the market actually trades through them. Fills are inferred from exact queue accounting.
 
-Those are one program. The same strategy code, the same execution algorithm and the same book run in PCAP replay, in live paper trading, and against the live exchange; moving between them is a configuration change. A backtest exercises the code path that will trade. It is built on a custom C++ actor framework designed for microsecond-level performance.
+The same strategy code, the same execution algorithm and the same book run in PCAP replay, in live paper trading, and against the live exchange; moving between them is a configuration change. A backtest exercises the code path that will trade. It is built on a custom C++ actor framework designed for microsecond-level performance.
 
-You will find a one-page overview here: [**tech_reports/kaspar_onepager.pdf**](tech_reports/kaspar_onepager.pdf) — what the system does, what it measures at, and the Shadow-POV execution results on a page.
+You will find a one-page overview here: [**tech_reports/kaspar_onepager.pdf**](tech_reports/kaspar_onepager.pdf) — what the system does.
 
 **Why actors?** Each actor owns its private state and communicates only by messages, so no mutable state is shared between actors — and therefore no memory-level data race, and no locks in your own code; you reason about one message at a time against consistent state. Empirical studies call data races and deadlocks *"two mistakes that are hard to make with actors."*  Actor code is also unusually easy for AI coding agents to write: they know the actor pattern well and generate actors, their message handlers, and self-contained unit tests — send a message in, assert on the reply — with little friction, precisely because there is no shared state or locking to reason about. The usual objection is the messaging overhead; Kaspar answers it with `fast_send`, which runs the receiver's handler inline on the caller's thread and returns the reply as a value (**~10 ns of overhead over a direct call**). The design and measurements are written up in (https://arxiv.org/abs/2609.21173).
-
-Unlike toy backtesting engines that assume instant fills at mid, Kaspar models realistic execution: your simulated orders sit in the book at a specific price level and only fill when the market trades through your position in the queue.
 
 Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) — *"a peak of a long crest in the Western Tatras, one of Poland's main winter ski areas."*
 
@@ -64,17 +62,6 @@ Kaspar's market-data and order-entry stacks are complete session implementations
 
 This is precisely the "you'll code sequence gap fills, session persistence, and failover yourself — and still have to pass autocertification" work that commercial iLink 3 SDKs are sold to cover. In Kaspar it is implemented, certified, and open source.
 
-## Key Features
-
-- **Position-aware order book simulator** — MBP (market-by-price) book with simulated queue position tracking. Orders fill based on price-time priority, not magical instant execution.
-- **CME MDP3 market data** — Full SBE decoder for incremental book updates, trades, order-by-order (MBO), instrument definitions, and snapshot recovery. Handles sequence gaps automatically.
-- **Three operating modes** — PCAP replay (backtest), live multicast (paper trading), and iLink 3 (live execution). Same codebase, same strategy code, switch with config.
-- **Shadow execution algorithm** — Production-grade execution logic that piggybacks on real market flow. Places orders only when genuine interest appears at a price level. Zero idle quoting.
-- **Actor framework** — Custom C++20 actor system with O(1) message dispatch, CPU affinity, and sub-microsecond send latency.
-- **iLink 3 reference implementation** — Full CME iLink session handler with SBE encoding, HMAC authentication, sequence management, and primary/secondary failover.
-- **PCAP reader** — Replay recorded CME multicast captures for deterministic backtesting. Bit-exact reproduction of market conditions.
-- **Strategy authoring in C++ or Rust** — Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop. Either way there is no socket and no serialisation between the strategy and the book.
-
 ## Build
 
 **Quick start:** `./build.sh`:
@@ -85,12 +72,6 @@ This is precisely the "you'll code sequence gap fills, session persistence, and 
 ./build.sh debug         # debug build
 ./build.sh -C actors/cpp # build just one component
 ```
-
-Notes:
-
-- External library paths (`BOOST_PATH`, `GSL_PATH`, `ZMQ_PATH`, …) are
-  environment-overridable `?=` defaults in `mk_kaspr/glob_begin.mk` — set them
-  in your shell or run `detect_paths.sh`. See `mk_kaspr/PATHS.md`.
 
 ## Operating Modes
 
