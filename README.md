@@ -17,17 +17,17 @@
   <a href="tech_reports/kaspar_onepager.pdf">one-pager</a>
 </p>
 
-**Kaspar-hft** is a turn-key CME futures trading system *and* a queue-position-accurate order-book simulator — the same strategy code runs in backtest, paper trading, and live — built on a custom C++20 actor framework designed for microsecond latency.
+**Kaspar-hft** is a turn-key CME futures production trading system *and* a queue-position-accurate order-book simulator — the same strategy code runs in backtest, paper trading, and live — built on a custom C++20 actor framework designed for microsecond latency.
 
 ## Kaspar-hft highlights
 
-- **~30 ns actor round trip.** `fast_send` runs the receiver's handler inline on the caller's thread — ~110× faster than cross-thread async and ~3× faster than same-thread grouping, with no data races and no locks in your code ([paper](tech_reports/fast_send.pdf)).
+- **~30 ns actor round trip.** `fast_send` runs the receiver's handler inline on the caller's thread — ~110× faster than cross-thread async and ~3× faster than same-thread grouping, with no data races and no locks in your code.
 - **The actor layer is under 1% of real work.** On a live CME tick-to-book path the framework adds under 1% of the ~7 µs decode-and-book cost and nothing measurable to the latency tail — the actor abstraction is effectively free on the hot path.
 - **Queue-position-accurate fills.** Your simulated orders sit in the price-time book and fill only when the market trades *through* them — not the instant-fill-at-mid fantasy of toy backtesters.
 - **Backtest == production.** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live iLink 3; switching is a config change, so a backtest exercises the exact code path that will trade.
 - **Not a toy.** Full MDP3 SBE decode, order-by-order (MBO) book reconstruction, iLink 3 sessions with HMAC auth, sequence management, and primary/secondary failover.
 - **CME-certified.** The MDP3 market-data handler and the iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle — sequence gaps, retransmission and recovery, terminate/reconnect, and failover — so you don't hand-roll the edge cases a commercial SDK sells you.
-- **Two papers back it.** The concurrency design ([`fast_send`](tech_reports/fast_send.pdf)) and the execution results ([Shadow-POV, arXiv:2609.18019](https://arxiv.org/abs/2609.18019)).
+- **Two papers back it.** The concurrency design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
 
 ---
 
@@ -41,13 +41,13 @@ Those are one program. The same strategy code, the same execution algorithm and 
 
 You will find a one-page overview here: [**tech_reports/kaspar_onepager.pdf**](tech_reports/kaspar_onepager.pdf) — what the system does, what it measures at, and the Shadow-POV execution results on a page.
 
-**Why actors?** Each actor owns its private state and communicates only by messages, so no mutable state is shared between actors — and therefore no memory-level data race, and no locks in your own code; you reason about one message at a time against consistent state. Empirical studies call data races and deadlocks *"two mistakes that are hard to make with actors."*  Actor code is also unusually easy for AI coding agents to write: they know the actor pattern well and generate actors, their message handlers, and self-contained unit tests — send a message in, assert on the reply — with little friction, precisely because there is no shared state or locking to reason about. The usual objection is the messaging overhead; Kaspar answers it with `fast_send`, which runs the receiver's handler inline on the caller's thread and returns the reply as a value (**~10 ns of overhead over a direct call**, loop-amortized on an Apple M3). The design and measurements are written up in [**tech_reports/fast_send.pdf**](tech_reports/fast_send.pdf) (benches in [`actors/cpp/perf`](actors/cpp/perf)).
+**Why actors?** Each actor owns its private state and communicates only by messages, so no mutable state is shared between actors — and therefore no memory-level data race, and no locks in your own code; you reason about one message at a time against consistent state. Empirical studies call data races and deadlocks *"two mistakes that are hard to make with actors."*  Actor code is also unusually easy for AI coding agents to write: they know the actor pattern well and generate actors, their message handlers, and self-contained unit tests — send a message in, assert on the reply — with little friction, precisely because there is no shared state or locking to reason about. The usual objection is the messaging overhead; Kaspar answers it with `fast_send`, which runs the receiver's handler inline on the caller's thread and returns the reply as a value (**~10 ns of overhead over a direct call**). The design and measurements are written up in (https://arxiv.org/abs/2609.21173).
 
 Unlike toy backtesting engines that assume instant fills at mid, Kaspar models realistic execution: your simulated orders sit in the book at a specific price level and only fill when the market trades through your position in the queue.
 
 Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) — *"a peak of a long crest in the Western Tatras, one of Poland's main winter ski areas."*
 
-**Author:** [Vincent Mayeski](https://www.linkedin.com/in/vmayeski/) — [mayeski@gmail.com](mailto:mayeski@gmail.com) | [GitHub](https://github.com/vincent212)
+**Author:** [Vincent Mayeski](https://www.linkedin.com/in/vmayeski/) — [mayeski@gmail.com](mailto:mayeski@gmail.com)
 
 ## Production-grade session handling — CME-certified
 
@@ -74,30 +74,10 @@ This is precisely the "you'll code sequence gap fills, session persistence, and 
 - **iLink 3 reference implementation** — Full CME iLink session handler with SBE encoding, HMAC authentication, sequence management, and primary/secondary failover.
 - **PCAP reader** — Replay recorded CME multicast captures for deterministic backtesting. Bit-exact reproduction of market conditions.
 - **Strategy authoring in C++ or Rust** — Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop. Either way there is no socket and no serialisation between the strategy and the book.
-- **Execution-cost measurement** — `sim/` runs the shadow lights as a two-sided market maker over recorded sessions and emits one row per window: each leg's VWAP against the arrival mid, the touch it could have crossed, and the market's own VWAP over the same interval, plus participation and realised drift. A parameter sweep (`sim/scripts/run_grid.sh`) runs that across placement rates, parent sizes and simulated latencies, selecting sessions from the exchange calendar so holidays and early closes never enter the corpus.
-- **Rust port of the actor framework** — [`actors/rust`](actors/rust) (crate `actors`): a from-scratch Rust port of the actor core — on-stack `fast_send`, integer-ID O(1) dispatch, the `BQueue` mailbox, and the per-type object pool — shipping a **price-time-FIFO order-book matching engine** as an example. In-process (no remoting/registry/groups yet).
-
-### Requirements
-
-- C++20 compiler (GCC 12+), GNU Make, Git
-- Boost 1.88+
-- ZeroMQ — `libzmq` **and** the C++ bindings `cppzmq` (`zmq.hpp`)
-- nlohmann/json
-- GSL (GNU Scientific Library)
-- libpcap (PCAP replay)
-- Crypto++ (iLink 3 HMAC)
-- zlib
-- Google Test (to build and run the unit tests)
-- Rust toolchain — optional, only for the `actors/rust` port
-- `pandas_market_calendars` — optional, only to regenerate
-  `sim/scripts/market_sessions.tsv` (the exchange calendar the sweep selects
-  sessions from). The sweep itself reads the generated file and needs no Python.
 
 ## Build
 
-**Quick start:** `./build.sh` sets the required `KSPRPROJ` environment variable
-and the external-library paths for you, then runs the build — you don't have to
-export anything. Any argument passes through to `make`:
+**Quick start:** `./build.sh`:
 
 ```bash
 ./build.sh schema        # generate the CME SBE codecs (pinned versions)
@@ -106,119 +86,11 @@ export anything. Any argument passes through to `make`:
 ./build.sh -C actors/cpp # build just one component
 ```
 
-The rest of this section is the manual equivalent, plus the toolchain
-prerequisites.
-
-On Debian/Ubuntu, install the toolchain and dependencies:
-
-```bash
-sudo apt-get update && sudo apt-get install -y \
-    build-essential git pkg-config \
-    libzmq3-dev cppzmq-dev nlohmann-json3-dev libgsl-dev \
-    libpcap-dev libcrypto++-dev zlib1g-dev libgtest-dev
-```
-
-Boost 1.88+ is newer than most distro packages — install a 1.88+ package or
-build it from source, then point the build at it.
-
-Generate the CME SBE codecs. `mdp3_sbe/` (MDP3) and `ilink3_sbe/` (iLink 3) are
-**generated from CME's SBE templates, not committed** — generate them before the
-first build (needs Java and Python `paramiko`, plus network to Maven Central and
-CME SFTP; see `genschema/README.md`). By default this regenerates the pinned,
-tested schema versions:
-
-```bash
-KSPRPROJ=$(pwd) make schema
-```
-
-Build the libraries (optimized):
-
-```bash
-KSPRPROJ=$(pwd) make
-```
-
-The build refuses to compile with a clear message (the `check-schema` guard) if
-the codecs are missing. (Prefer plain `make` over `make -j` for the first build:
-the schema guard is not parallel-safe, so on a fresh, un-generated tree `-j` can
-start a compile before the guard fires.)
-
-Build and run the actor-framework unit tests:
-
-```bash
-make -C actors/cpp test        # requires Google Test
-```
-
-If your libraries live under a home-dir prefix (not `/usr` or `/usr/local`),
-auto-detect and export the paths:
-
-```bash
-eval "$(./mk_kaspr/detect_paths.sh)"     # or: ./mk_kaspr/detect_paths.sh --check
-```
-
 Notes:
 
 - External library paths (`BOOST_PATH`, `GSL_PATH`, `ZMQ_PATH`, …) are
   environment-overridable `?=` defaults in `mk_kaspr/glob_begin.mk` — set them
   in your shell or run `detect_paths.sh`. See `mk_kaspr/PATHS.md`.
-- The Linux build targets x86-64 (`-mcx16`, `-mfpmath=sse`, `-march=native`);
-  build on an x86-64 host (or under emulation).
-
-## Tests
-
-297 Google Test cases over the pieces that decide what the simulator does: the
-shadow light, the order book's delay queue, the coordination objects, reference
-data, the timer, the simulated order manager, position tracking, and the
-slippage probe.
-
-```bash
-export KSPRPROJ=~/kaspar-hft
-eval "$(mk_kaspr/detect_paths.sh)"     # must produce GTEST_PATH
-make test                              # builds the libs, builds the tests, runs them
-```
-
-Or directly, which is what you want while iterating:
-
-```bash
-cd unit_test/src && make && ./run_tests
-./run_tests --gtest_filter='SlippageProbeTest.*'
-./run_tests --gtest_list_tests
-```
-
-`make test` is deliberately **not** part of `make install`: gtest is an extra
-dependency and a fresh checkout should build the system without it. If
-`detect_paths.sh` does not find gtest, `detect_paths.sh --check` prints install
-hints (`apt: libgtest-dev | dnf: gtest-devel | brew: googletest`), or build it
-into a home prefix:
-
-```bash
-git clone --depth 1 -b v1.14.0 https://github.com/google/googletest
-cmake -S googletest -B build -DCMAKE_INSTALL_PREFIX=$HOME/local
-cmake --build build -j8 && cmake --install build
-```
-
-The tests run synchronously through `TestHelper::invoke_handler` — no Manager,
-no threads — so they are deterministic and the whole suite takes about a second.
-Mocks live in `unit_test/include/unit_test/`. See `unit_test/README.md` for the
-per-file inventory and how to add a case.
-
-Three suites are worth knowing about because they cover things that were
-silently broken and are easy to break again:
-
-- **`test_ob_book.cpp`** — book reconstruction and the no-cross invariant. Two
-  death tests encode the whole crossed-book investigation: a genuine inversion
-  surviving to end-of-transaction must kill the run, and a sweep's
-  intra-transaction cross must not.
-- **`test_ob_delay_queue.cpp`** — the latency model. Our orders are held on
-  `del_q` until `ts0 + wire latency` has passed in *market* time; these pin the
-  withholding, the 40 us floor, and that cancels pay it too.
-- **`test_slippage_probe.cpp`** — the probe's control surface and its window
-  rule. No `TARGET_POS` is ever sent: `targetpos` stays 0 and each side is given
-  work by moving its own position book away from flat, so the lights work it
-  back and stop by themselves — the arrangement `PositionManager` uses. A window
-  closes only once its minimum has elapsed **and** both legs have executed the
-  work that window gave them, not on the clock alone, so a leg that is still
-  short keeps the window open. A full session is exercised in microseconds
-  instead of the twenty minutes a replay takes.
 
 ## Operating Modes
 
@@ -267,12 +139,10 @@ kaspar/
 
 The actor framework provides the concurrency model for the entire system:
 
-- **Message passing** — `BQueue` mailbox per actor, O(1) dispatch via `handler_cache[msg_id]`
-- **Groups for deterministic simulation** — A `Group` runs multiple actors on a single thread with a single message queue. In PCAP replay, the entire pipeline (OB, lights, SOM) goes into one Group — market data, order placement, and fill matching execute in strict message order. No race conditions, no timing artifacts. Bit-exact reproducible backtests.
-- **Zero-copy fast path** — `fast_send()` executes the handler in the caller's thread for synchronous queries — no queue, no thread hop. See the technical report [**fast_send.pdf**](tech_reports/fast_send.pdf) for the synchronous-delivery design and its measured cost (~24 ns round trip on Apple M3, ~30 ns on EPYC; see [`actors/cpp/perf`](actors/cpp/perf)).
-- **CPU affinity** — Pin actors to cores for deterministic latency
-- **C++/Rust interop** — C++ and Rust actors can talk in the **same process** over a C-ABI FFI bridge (`send`/`fast_send` work across the language boundary). This is in-process only — there is no remote/cross-process actor transport.
-- **Rust port** — [`actors/rust`](actors/rust) (`actors`) is a from-scratch Rust port of the actor core (on-stack `fast_send`, integer-ID O(1) dispatch, `BQueue`, object pool). It is in-process only (no ZMQ/registry/groups yet) and ships a **matching engine** as an example — see its [README](actors/rust/README.md) and [DEVELOPER_GUIDE](actors/rust/DEVELOPER_GUIDE.md).
+- **Message passing** — `BQueue` mailbox per actor, O(1) dispatch
+- **Groups for deterministic simulation** — A `Group` runs multiple actors on a single thread with a single message queue.
+- **Zero-copy fast path** — `fast_send()` executes the handler in the caller's thread for synchronous queries — no queue, no thread hop.
+- **C++/Rust interop** — C++ and Rust actors can talk in the **same process** over a C-ABI FFI bridge
 
 The design behind the framework is written up here:
 [**Low-Latency Actor Systems in C++ and Rust**](https://vincentmayeski.substack.com/p/low-latency-actor-systems-in-c-and)
@@ -345,44 +215,10 @@ handle_messages!(MyStrategy,
 See [actors/cpp/CLAUDE_AGENT_GUIDE.md](actors/cpp/CLAUDE_AGENT_GUIDE.md) for the complete C++ framework
 reference, and [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) for the Rust API.
 
-### Adding a message type
-
-Inherit `MessageT<Derived>`. That's it — the dispatch ID is auto-assigned and
-collision-free by construction, so there's nothing to hand-pick:
-
-```cpp
-struct MyMessage : public actors::MessageT<MyMessage> { /* ... */ };
-```
-
-Each message carries an integer ID that drives O(1) dispatch
-(`handler_cache[msg_id]`); with `MessageT` it's assigned at first use and
-`get_message_id()` is a non-virtual member read (no vtable on the dispatch path).
-
-(A legacy `Message_N<N>` exists for the rare case that needs the ID as a
-compile-time constant. Its IDs are hand-assigned and *not* uniqueness-checked at
-compile time, so prefer `MessageT` — it removes the whole class of collision
-bugs. See [`setclassid/README.md`](setclassid/README.md) if you must audit
-existing `Message_N` IDs.)
-
 ## Choosing the Right Queue for Your Actor
 
 Every actor has a **mailbox**: a multi-producer/single-consumer (MPSC) queue that
-other threads push messages into and the actor's own thread drains. Kaspar ships
-four mailbox implementations, and each actor picks one **in its constructor,
-before its thread starts**:
-
-```cpp
-enum class MailboxKind { BQueue, BQueueBatched, ShardedBQueue, LockFreeMPSC };
-void set_mailbox(MailboxKind kind, size_t cap = 0);   // cap = 0 -> per-kind default
-```
-
-> **Recommendation: do not call `set_mailbox` unless you are sure you need a
-> specific performance characteristic.** The default `BQueue` is the right
-> choice for almost every actor. Only override it when profiling shows a
-> particular actor's mailbox is a bottleneck *and* you understand the trade-offs
-> — otherwise you are likely to make things slower, not faster. The full
-> cross-regime benchmarks and the reasoning behind each queue are here:
-> [Not All Queues Fit All in Low-Latency Systems](https://vincentmayeski.substack.com/p/not-all-queues-fit-all-in-low-latency).
+other threads push messages into and the actor's own thread drains.
 
 The four implementations:
 
@@ -400,81 +236,6 @@ The four implementations:
   fills, a producer spins briefly then blocks (so size the ring for peak
   backlog).
 
-The second argument is a sizing hint whose meaning depends on the kind: ring
-capacity for `BQueue`/`BQueueBatched`/`LockFreeMPSC`, and **lane count** for
-`ShardedBQueue`. Pass `0` (the default) to get each kind's own sensible default
-(64 for `BQueue`/`BQueueBatched`, 8 lanes for `ShardedBQueue`, 1024 slots for
-`LockFreeMPSC`).
-
-### How to set the mailbox
-
-Call `set_mailbox` **once, in the actor's constructor**, before the actor's
-thread starts (switching a live mailbox is not supported). Pick exactly one kind
-— or call nothing at all to keep the `BQueue` default:
-
-```cpp
-class MyActor : public actors::Actor {
-public:
-  MyActor() {
-    // Choose ONE of the following (or omit to keep the default BQueue):
-    set_mailbox(MailboxKind::BQueue);              // default: FIFO, mutex + condvar, unbounded overflow
-    set_mailbox(MailboxKind::BQueueBatched);       // FIFO; consumer drains the whole mailbox under one lock
-    set_mailbox(MailboxKind::ShardedBQueue, 32);   // 32 lanes for many concurrent producers (NOT FIFO)
-    set_mailbox(MailboxKind::LockFreeMPSC, 4096);  // 4096-slot lock-free ring (bounded)
-
-    MESSAGE_HANDLER(MyMessage, on_my_message);     // register handlers as usual
-  }
-  // ...
-};
-```
-
-Omit the second argument (or pass `0`) to use the kind's default size; pass an
-explicit value to size the ring (or lane count, for `ShardedBQueue`) for your
-expected load.
-
-### When in doubt, use BQueue (the default)
-
-For the large majority of actors, **BQueue is the right choice and needs no
-configuration.** Most actors are low-contention — driven by one timer, one
-upstream stage, or grouped onto a shared thread — and in every one of those cases
-the four mailboxes are within a few percent of each other, while BQueue has the
-most stable latency tail of the four. Reaching for a "faster" queue here buys
-nothing measurable and can hurt: `ShardedBQueue` is actually the *slowest* of the
-four for a single producer or a grouped actor, because its lanes exist to spread
-contention that isn't there. Do not make it a global default.
-
-### Switch to ShardedBQueue for high-fan-in actors
-
-There is one case where the mailbox choice matters a great deal: an actor that
-**many threads write into concurrently** — for example an order book fed by a
-dozen market-data handlers at once. Under that fan-in, a single-mutex mailbox
-serializes every producer and its tail latency explodes; `ShardedBQueue` gives
-each producer its own lane and wins decisively (up to ~10× lower p99 under 32
-producers). Set the lane count to roughly the number of concurrent producers:
-
-```cpp
-class BookBuilder : public actors::Actor {
-public:
-  BookBuilder() {
-    // Many feed handlers push here at once -> shard to avoid lock contention.
-    set_mailbox(MailboxKind::ShardedBQueue, /*lanes=*/32);
-    MESSAGE_HANDLER(MDUpdate, on_update);
-  }
-};
-```
-
-### Quick guide
-
-| Actor's write pattern | Mailbox |
-|---|---|
-| Anything low-contention (one timer/upstream, or grouped) | **BQueue** (default) |
-| Many producer threads writing at once (order book, aggregators) | **ShardedBQueue**, lanes ≈ producers |
-| Unsure | **BQueue** |
-
-`LockFreeMPSC` has the lowest median in the single-thread/grouped case but a
-worse latency tail, and `BQueueBatched` ties `BQueue`; neither is worth switching
-to as a default. The full cross-regime benchmarks and the reasoning behind these
-recommendations are written up here:
 **[Not All Queues Fit All in Low-Latency Systems](https://vincentmayeski.substack.com/p/not-all-queues-fit-all-in-low-latency)**.
 
 ## Monitoring
@@ -484,25 +245,6 @@ A running `kaspr` process exposes a **ZMQ request/reply control console** (the
 positions, place/cancel orders by hand, and pause/resume the order matcher, all
 without restarting. It binds a TCP port set by `mqport` in the config (default
 **7777**; see [Configuration](#configuration)).
-
-### Protocol
-
-Synchronous **REQ/REP**: the client sends a one-line command string and gets a
-single text reply — usually a rendered ASCII table, or a short status line.
-Commands are `verb key=value key=value …` (space-separated). Common keys:
-
-| Key | Meaning | Example |
-|-----|---------|---------|
-| `sym` | instrument name | `ESM6` |
-| `sz` | order size | `1` |
-| `bs` | side | `BUY` / `SELL` |
-| `px` | price | `6000` |
-| `x` | venue / exchange | `CMEMDFUT` |
-| `id` | order id (for cancel) | `123` |
-
-The server enforces 10 s send/recv timeouts and TCP keepalive, and drops idle
-connections after ~45 s — clients should set `RCVTIMEO`/`SNDTIMEO`/`LINGER`.
-Full client notes (reconnect, pooling): [`mq0/MQ0_CLIENT_GUIDE.md`](mq0/MQ0_CLIENT_GUIDE.md).
 
 ### Connecting
 
@@ -519,35 +261,6 @@ sock.connect("tcp://localhost:7777")
 sock.send_string("bbbo")
 print(sock.recv_string())        # prints an ASCII table
 ```
-
-### Commands
-
-| Command | Reply | Description |
-|---------|-------|-------------|
-| `ping` | `OK` | Liveness check. |
-| `prices` | table: `sym, bid, ask` | Best bid/ask (integer price) for every instrument with market data. |
-| `bbbo` | table: `sym, bid32, bid, ask, ask32` | Best bid/offer, both as integer price and in 32nds. |
-| `assets` | table: `id, name, mnem, units, sec_id, exch, maxpx, has_book` | Configured instrument universe. |
-| `get_orders` | table | Current working (live) orders. |
-| `fills` | table | Recent fill history. |
-| `pos fname=<csv>` | table: `sym, pos` | Render a positions CSV file as a table. |
-| `startom` / `stopom` | status line | Start / stop the Simulated Order Manager (SOM) — i.e. enable/disable order matching. |
-| `order sym=ESM6 sz=1 bs=BUY px=6000 x=CMEMDFUT` | ack | Place an order into the simulator. |
-| `cancel id=123 x=CMEMDFUT` | ack | Cancel a working order by id. |
-
-### Example session
-
-Using the REQ client above, each `send_string(...)` returns a text table or
-ack. A typical flow:
-
-```
-send  "bbbo"                                        -> BBBO table (sym/bid/ask + 32nds)
-send  "assets"                                      -> instrument universe
-send  "order sym=ESM6 sz=1 bs=BUY px=600050 x=CMEMDFUT"  -> order acked
-send  "get_orders"                                  -> the working order appears
-send  "stopom"                                      -> "sent stop request to som"
-```
-
 
 ## Configuration
 
@@ -606,55 +319,11 @@ two cores (not fully quiesced — see [second data point](actors/cpp/perf/README
   </picture>
 </p>
 
-| path | macOS p50 | Linux p50 | notes |
-|---|---:|---:|---|
-| `send`, separate threads | ~2250 ns | ~3370 ns | cross-core mailbox wakeup (mutex + condvar), twice |
-| `send`, one `Group` thread | ~125 ns | ~90 ns | no wakeup — queue push/pop + dispatch |
-| `fast_send` (inline) | ~24 ns\* | ~30 ns\* | no queue, no thread hop; handler runs in the caller |
-
-\* `fast_send` p50 sits at the `steady_clock` tick (~40 ns macOS; ~10 ns Linux),
-so read its amortized cost, not p50: ~24 ns (macOS) / ~10 ns (Linux). The grouped
-÷ ungrouped ratio is **18× (macOS), 37× (Linux)** — the shape holds on both.
-
 **How much does the actor machinery cost over a bare function call?** Timed
 cleanly (one clock-read pair around a tight loop, identical trivial work on a
 stack input):
 
-| | macOS | Linux |
-|---|---:|---:|
-| direct function call | ~1 ns | ~1 ns |
-| `fast_send` (dispatch, no reply) | ~8 ns | ~10 ns |
-
-So **`fast_send` adds ~7 ns over a plain call** (macOS; ~9 ns on an x86-64 Linux
-EPYC box) — the uncontended mutex, the message field writes, the
-`handler_cache[id]` pointer-to-member dispatch, and the reply `unique_ptr`. That is
-the entire framework tax on the fast path: single-digit nanoseconds. Put
-differently — a dispatch sweep on the Linux box shows `fast_send` costs **about one
-polymorphic virtual call** (a like-for-like comparison against the thing you'd
-otherwise write). How it's measured (`run_direct_call` vs `fast_send`, section D):
 [perf README](actors/cpp/perf/README.md#d-fast_send-vs-a-bare-function-call) ·
-[`bench_pingpong.cpp`](actors/cpp/perf/bench_pingpong.cpp).
-
-**Allocation** — the MemoryPool is a compile-time switch (`DISABLE_MEMORY_POOL`).
-Same pooled message types, grouped-send round trip (amortized ns):
-
-| | pool ON | pool OFF |
-|---|---:|---:|
-| per round trip (2 msgs) | **~92 ns** | ~128 ns (= plain `new`) |
-| allocator tail (`max`) | ~33 µs | ~5.5 ms |
-
-The pool removes the per-message allocation (a global `new`+`delete` is ~15 ns on
-macOS, ~3.6 ns on glibc/Linux; a pooled alloc is ~2–3 ns on both) and, more
-importantly, cuts the allocator **tail** — the durable win. `fast_send` with a
-**stack** request message and a pooled reply avoids the heap entirely.
-
-**Second data point (x86-64 Linux, EPYC).** The ratios reproduce on a different
-ISA/OS/allocator (grouped ÷ ungrouped is even wider, 37×); the *absolutes* that
-don't travel are the `steady_clock` tick (~40 ns macOS vs ~10 ns Linux) and the
-global allocator (so the pool's median win shrinks to ~7.5 %). The macOS numbers
-above are indicative, not a spec. Full comparison, raw output, and the
-run-on-server runbook in the
-[perf README](actors/cpp/perf/README.md#second-data-point-x86-64-linux).
 
 ## Case study: tick-to-book latency (live CME MDP3)
 
@@ -750,110 +419,6 @@ Most execution algorithms either cross the spread (expensive) or continuously qu
 
 The method, the measurement corpus and every number below are written up in the technical report [**shadow_pov.pdf**](tech_reports/shadow_pov.pdf) — *Model-Free Passive Execution via Order-Level Shadowing* — also on arXiv: [**arXiv:2609.18019**](https://arxiv.org/abs/2609.18019).
 
-### What it costs: relative slippage
-
-Each measurement window opens with 100 contracts to buy and 100 to sell, worked simultaneously. Let `m₀` be the mid at the instant the window opened — the arrival price for both legs, since both start together. Each leg is priced against it:
-
-```
-Slippage_buy = vwap_buy − m₀          Slippage_sel = m₀ − vwap_sel
-```
-
-signed so positive is a loss on either side. The reported figure is the average of the two:
-
-```
-RelativeSlippage = ½(Slippage_buy + Slippage_sel) = ½(vwap_buy − vwap_sel)
-```
-
-The second equality is why the two are averaged: `m₀` cancels, so whatever the market did during the window lands in both legs with opposite signs and drops out. The individual legs carry 95% intervals about four times wider than their own average; the paired form is immune to that drift by construction, which is what makes a full-year average mean anything.
-
-**ES, 246 sessions of calendar 2025, zero simulated latency:**
-
-| | Shadow-PPOV (passive) | Aggressive POV |
-|---|---|---|
-| Completed windows | 9,592 | 9,581 |
-| **Relative slippage** (ticks/contract) | **+0.0955 ± 0.0130** | **+0.0952 ± 0.0135** |
-| Participation | 4.46% | 4.86% |
-| Time to fill 100 | 72.7 s | 62.4 s |
-| Quantity filling on arrival | 1.04% | 51.86% |
-
-Intervals are 95% and clustered by session. One of these rests for 99% of its executed quantity and the other crosses for half of it, at matched participation, and **the round trip costs the same either way** — agreement to the fourth decimal over more than nine thousand windows each. That is what the Glosten–Milgrom account of the spread predicts of a forecast-free method: the half-spread a resting order captures is returned, in expectation, through adverse selection. Post-fill mark-outs computed from different data at a different grain agree with the window-level figure, which makes it a measurement of the thing itself, free of any one definition's quirks.
-
-So shadow execution pays adverse selection in full. What it does is reach the same cost as crossing without an order-book model, a fill-probability forecast, or a routing computation — which is the argument for using it as the benchmark a predictive placement model has to beat.
-
-### What latency costs
-
-The same delay applied to all three paths at once — the outbound order, the outbound cancel, and the inbound market-data feed.
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="tech_reports/sim/latency_slippage_dark.png">
-    <img src="tech_reports/sim/latency_slippage.png" width="660"
-         alt="Relative slippage against round-trip delay: Shadow-PPOV (passive) vs Aggressive POV">
-  </picture>
-</p>
-
-| Delay | Passive | Aggressive |
-|---:|---:|---:|
-| 0 | +0.097 ± 0.013 | +0.087 ± 0.017 |
-| 500 µs | +0.121 ± 0.014 | +0.176 ± 0.017 |
-| 1 ms | +0.132 ± 0.015 | +0.211 ± 0.018 |
-| 2.5 ms | +0.141 ± 0.015 | +0.240 ± 0.018 |
-| 5 ms | +0.150 ± 0.015 | +0.296 ± 0.022 |
-
-Both degrade monotonically, with non-overlapping intervals from end to end, at very different rates. Passive loses about 0.011 ticks per contract per millisecond of delay and aggressive about 0.042, roughly four times as fast, and **the ordering between them reverses inside the first half-millisecond**: aggressive is the cheaper of the two at zero delay and the more expensive by 500 µs.
-
-The asymmetry lives in the fills that fail to happen. A marketable limit always executes at its limit price or better — if the book moves in its favour during the flight it simply fills cheaper — so what latency changes is how often it fills at all. When the level it was priced from has been consumed, the order rests at a price the market has already left, and the quantity it was carrying comes back to be re-sent at whatever the price has become. A resting order fails differently: a quote that arrives late has still arrived, and pays at most the width it crossed.
-
-Everything above is zero-impact replay: the simulator fills against the recorded feed as though your orders were absent from it. A comparison against a VWAP or TWAP *algorithm* remains to be run.
-
-### How it works
-
-```
-Real market participant places order at 6050.00
-    → light22 sees ADD on its side
-    → checks: position < target? price in range? level not crowded?
-    → throttle gate: deterministic (every Nth) or stochastic (3%)
-    → places at 6050.00 — same price, piggybacking on real flow
-    → tracks the real order it attached to
-    → if that order gets hit or pulled → auto-cancel with delay
-```
-
-**Why this works:**
-
-| Property | Traditional MM | Shadow Execution |
-|----------|---------------|-----------------|
-| Adverse selection | High (stale quotes get picked off) | Present, and measured — see above |
-| Idle quoting | Continuous, whether or not anyone is there | Places only where a participant just placed |
-| Queue position | Poor (late to the level) | Enters alongside real flow, behind the order it follows |
-| Complexity | Model-heavy (fair value, skew, Greeks) | Microstructure-only (ADD/CANC signals) |
-| Latency requirement | Ultra-low (race to cancel) | Moderate — 4× more delay-tolerant than crossing, measured above |
-
-The lights coordinate via **shared memory** — `QCoord` tracks aggregate working orders, `PCoord` tracks net position — guarded by fine-grained mutexes rather than passing coordination messages.
-
-**Further reading.** [**shadow_pov.pdf**](tech_reports/shadow_pov.pdf) is the technical report — method, prior art, the full measurement corpus, latency sensitivity, and the case for using a model-free passive method as the benchmark a predictive placement model should have to beat. [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) is the implementation specification. [**"Shadow POV Execution: Trade Where the Market Is Going to Trade"**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where) is the short version.
-
-## Versioning & compatibility
-
-Releases are tagged; `main` tracks ongoing development. Always use the main branch unless there is a reason not to.
-
-| Tag | Actor `Message` ABI | Pin with |
-|---|---|---|
-| **v0.1.0** (current) | id is a non-virtual data-member read; `Message_N<N>` requires `N` in `[0,512)`; `MessageT<Derived>` auto-assigns collision-free ids ≥ 512 | `git checkout v0.1.0` |
-| **v0.0.1** | id via **virtual** `get_message_id()`; original `Message` layout; `Message_N<N>` unconstrained | `git checkout v0.0.1` |
-
-**v0.0.1 → v0.1.0 is a breaking change** to the actor message layer. Code built
-against v0.0.1 must be recompiled, and you must update any message type that:
-
-- used `Message_N<N>` with `N ≥ 512` (now reserved for `MessageT`), or
-- declared its own `get_message_id()` override (the base method is no longer
-  virtual — prefer `MessageT<Derived>` for new messages, or `Message_N<N>` for a
-  fixed compile-time id).
-
-If you built against the old ABI and don't want to migrate yet, **stay on the
-`v0.0.1` tag**. There is no maintenance branch: `release-0.0.1` was deleted once
-every commit on it was in `main`, and the tag preserves that history. See
-[`actors/cpp/include/actors/msg/README.md`](actors/cpp/include/actors/msg/README.md)
-for the current message API.
 
 ## License
 
