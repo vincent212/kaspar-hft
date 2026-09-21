@@ -21,23 +21,23 @@
 
 ## Kaspar-hft highlights
 
-- **~30 ns actor round trip actor to actor messaging** `fast_send` runs the receiver's handler inline on the caller's thread passes the message on the stack.
-- **The actor layer has almost no everhead** On a live CME tick-to-book path the framework adds nothing measurable to the latency tail — the actor abstraction is effectively free on the hot path.
-- **Backtest == production** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live iLink 3; switching is a config change, so a backtest exercises the exact code path that will trade.
-- **CME-certified** The MDP3 market-data handler and the iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
-- **Shadow execution algorithm** — Production-grade execution logic that piggybacks on real market flow.
+- **~30 ns actor round trip actor to actor messaging:** `fast_send` runs the receiver's handler inline on the caller's thread passes the message on the stack.
+- **The actor layer has almost no everhead:** On a live CME tick-to-book path the framework adds nothing measurable to the latency tail — the actor abstraction is effectively free on the hot path.
+- **Backtest == production:** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live iLink 3; switching is a config change, so a backtest exercises the exact code path that will trade.
+- **CME-certified:** The MDP3 market-data handler and the iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
+- **Shadow execution algorithm:** — Efficient, production-grade turn-key execution algo.
 - **Strategy authoring in C++ or Rust** — Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop.
-- **Two papers to dive deeper, more in the works** The C++ Actor framework design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
+- **Two papers to dive deeper, more in the works:** The C++ Actor framework design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
 
 ---
 
 **Kaspar** is two things sharing one codebase.
 
-It is a **turn-key production trading system**: MDP3 multicast in, full order books reconstructed order-by-order, an execution algorithm on top, and iLink 3 sessions out to CME — with SBE encoding, HMAC authentication, sequence management and primary/secondary failover already written.
+It is a **turn-key production trading system**: MDP3 multicast in, full order books reconstructed order-by-order, an execution algorithm on top, and iLink 3 sessions out to CME — with SBE encoding, HMAC authentication, sequence management and primary/secondary failover already certified.
 
-It is also a **position-aware order book simulator**: the same books, rebuilt from recorded packet captures, with your orders placed in the price-time queue and filled only when the market actually trades through them. Fills are inferred from exact queue accounting.
+It is also a **position-aware order book simulator**: order books rebuilt from packet capture files, with your orders placed in the price-time queue and filled only when the market actually trades through them. Fills are inferred from exact queue accounting.
 
-The same strategy code, the same execution algorithm and the same book run in PCAP replay, in live paper trading, and against the live exchange; moving between them is a configuration change. A backtest exercises the code path that will trade. It is built on a custom C++ actor framework designed for microsecond-level performance.
+The same strategy code, the same execution algorithm and the same book run in PCAP replay, in live paper trading, and against the live exchange; moving between them is a configuration change. A backtest exercises the code path that will trade. It is built on a custom C++ actor framework designed for nanosecond-level optimization.
 
 You will find a one-page overview here: [**tech_reports/kaspar_onepager.pdf**](tech_reports/kaspar_onepager.pdf) — what the system does.
 
@@ -183,9 +183,6 @@ handle_messages!(MyStrategy,
     Fill       => on_fill,
 );
 ```
-
-See [actors/cpp/CLAUDE_AGENT_GUIDE.md](actors/cpp/CLAUDE_AGENT_GUIDE.md) for the complete C++ framework
-reference, and [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) for the Rust API.
 
 ## Choosing the Right Queue for Your Actor
 
@@ -352,7 +349,7 @@ not the framework or the queue:
 
 Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow by following the orders other participants place.
 
-The method, the measurement corpus and every number below are written up in the technical report [**shadow_pov.pdf**](tech_reports/shadow_pov.pdf) — *Model-Free Passive Execution via Order-Level Shadowing* — also on arXiv: [**arXiv:2609.18019**](https://arxiv.org/abs/2609.18019).
+For more detail — *Model-Free Passive Execution via Order-Level Shadowing* — on arXiv: [**arXiv:2609.18019**](https://arxiv.org/abs/2609.18019).
 
 ## Deep Dives
 
