@@ -77,7 +77,11 @@ low-latency pipeline is queueing against.
 We give an analytic framework for the mechanism --- a burst-limit throughput identity and
 an exact pathwise reduction of the deterministic-service tandem to a single bottleneck
 server --- and confirm its predictions with simulations driven by a corpus of real CME
-MDP3 packet arrivals.
+MDP3 packet arrivals. We then cross-check the arrival-process result against an
+independent measurement taken on a live production receiver seven months after the corpus
+ends, on instruments the corpus does not contain and on a different arrival clock; the
+clustering statistics agree, and the production decoder's measured service floor lands on
+the service time at which our sweep says the latency tail switches on.
 Companion code contains the message-tape parser, the per-window Hawkes fitter, and the
 tandem queueing simulator.
 \end{abstract}
@@ -1001,7 +1005,10 @@ $F(\tau) = \mathrm{Var}[C_\tau] / \mathrm{E}[C_\tau]$ of packet counts in bins o
 $\tau$ (written $\tau$, not $T$, to keep it clear of the service time) rises from
 $F(0.1\,\mathrm{s}) = 51.7$ to $F(60\,\mathrm{s}) = 1027$ across the corpus median,
 against $F(\tau) \equiv 1$ for Poisson at every $\tau$; the log-log fit gives a Hurst
-exponent $H = 0.74$, against $H = 0.5$ for Poisson. Running the identical estimator over
+exponent $H = 0.74$, against $H = 0.5$ for Poisson. These are within-window figures,
+corpus-median over the 3512 windows; pooling a whole session instead raises the Fano level
+by roughly a factor of four without changing the shuffle ratio, for reasons taken up in
+Section~\ref{sec:crossval-disagree}. Running the identical estimator over
 the paper's own Poisson-null arm returns $F(\tau) = 1.00$ at $\tau = 0.1$ through
 $5\,\mathrm{s}$, $0.94$ at $60\,\mathrm{s}$, and $H = 0.50$, which confirms that the
 estimator is unbiased at every bin width used here and that the Hawkes figures above are
@@ -1787,6 +1794,320 @@ on every message of every window, and its slack is measured rather than assumed:
 1.00, 1.23, 1.48, 1.65, 1.67$ at $T = 2, 4, 8, 16, 32\,\mu\mathrm{s}$.
 
 \clearpage
+% =====================================================================
+
+\section{Cross-validation: the same arrival process, measured live}
+\label{sec:crossval}
+
+Everything in Part~II so far is a measurement on \emph{recorded} data: pcap-derived
+message tapes, replayed offline through the \kasparhft{} simulator. That design buys
+scale and repeatability, and it costs external validity. A replayed tape cannot show
+whether the clustering we fit survives the network path to a receiver, whether it is a
+property of the 2025--2026 sample we happened to hold, or whether the service times the
+sweep assumes bear any relation to what a production decoder actually spends.
+
+We are able to answer all three, because we also instrumented the production system. This
+section compares the two measurements. They were built for different purposes and share
+almost nothing beyond the exchange they observe, which is what makes the agreement between
+them worth reporting.
+
+\subsection{Two measurements, independent where it counts}
+\label{sec:crossval-setup}
+
+The live measurement instruments the \kasparhft{} market-data path in production: a
+timestamp \texttt{t0} when a UDP datagram is handed up from the socket, a timestamp
+\texttt{t1} when the resulting book update is published, and one 16-byte record per
+admitted message carrying the pair together with the ring-buffer depth and the message's
+position inside its datagram. It covers 8.29 million messages on six streams --- ES, NQ
+and ZN futures, book and trade --- over 53 minutes of a single afternoon. Its latency
+results are reported in \citet{mayeski_fastsend}; we draw on them here, and on the
+underlying per-message records, as a control on Part~II.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+ & Part~II corpus & production measurement \\
+\midrule
+source        & pcap tapes, replayed offline  & live multicast, production recorder \\
+period        & 2025-01 to 2026-02            & 2026-09-16 (7 months out of sample) \\
+instruments   & NQ front month                & ES, NQ, ZN $\times$ book, trade \\
+arrival clock & CME gateway \texttt{sendingTime} & receiver \texttt{t0} at socket read \\
+estimator     & per-window, median of 3512 windows & pooled over one 53-min capture \\
+sample        & 3512 windows, 276 sessions    & 8.29 M messages, 6 streams \\
+\bottomrule
+\end{tabular}
+\caption{The two measurements compared in this section. They share the exchange and
+nothing else: different instruments, a period that does not overlap, a different arrival
+clock, and a different estimator.}
+\label{tab:crossval-setup}
+\end{table}
+
+The arrival-clock row carries the most weight. Part~II keys arrivals on
+\texttt{sendingTime}, the timestamp the CME gateway writes into the UDP header as the
+packet leaves the exchange. The live measurement keys them on \texttt{t0}, taken by our
+own process after the packet has crossed the network, the NIC and the kernel. If the
+clustering reported in Section~\ref{sec:setup-hawkes} were an artefact of exchange-side
+emission scheduling, the intervening path --- with its own queueing, coalescing and
+interrupt moderation --- would be expected to smooth it. It does not.
+
+\subsection{What agrees}
+\label{sec:crossval-agree}
+
+Table~\ref{tab:crossval-stats} puts the four statistics that both measurements compute
+side by side. The NQ column is the like-for-like comparison, since Part~II's corpus is NQ
+front month; the third column gives the range across the three live book streams.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+ & Part~II (NQ, 3512 win) & live NQ book & live, three books \\
+\midrule
+$P(\text{gap} < \text{mean}/10)$      & $73.2\%$ & $63.1\%$ & $63.1$--$84.8\%$ \\
+Fano(5\,s) collapse under shuffle     & $14.8\times$ & $12.2\times$ & $12.2$--$18.5\times$ \\
+Hurst exponent $H$                    & $0.740$ & $0.702$ & $0.702$--$0.743$ \\
+branching ratio $n$                   & $0.798$ (MLE) & \multicolumn{2}{c}{$\le 0.850$--$0.972$ (Fano ceiling)} \\
+\bottomrule
+\end{tabular}
+\caption{The same four Poisson-rejection statistics, computed independently on recorded
+and on live data. The Poisson values are $9.52\%$, $1\times$, $0.5$ and $0$ respectively.}
+\label{tab:crossval-stats}
+\end{table}
+
+Three of the four are direct comparisons and agree to within the spread across live
+streams. The fourth is not a comparison of like with like and is the more informative for
+it. Part~II fits the branching ratio by maximum likelihood, per window, using the Ogata
+recursion (Section~\ref{sec:setup-hawkes}); the live measurement never fits a Hawkes
+process at all, and instead bounds $n$ from above by inverting the Fano ceiling, $n \le 1
+- 1/\sqrt{F}$. The two estimators share no machinery. The MLE's $0.798$ sits inside every
+bound the live streams imply, which run from $0.850$ on NQ trade to $0.972$ on NQ book.
+The bound is loose --- it is an inequality derived from a second moment --- and the
+agreement is therefore weak evidence taken alone; its value is that it is evidence of a
+completely different kind, and it does not contradict.
+
+What the section as a whole establishes is that the arrival process Part~II models is not
+an artefact of replay, of the sample period, or of the exchange-side clock. It is present,
+at the same strength, in a live receiver seven months later on instruments the corpus
+never contained.
+
+\subsection{The service floor lands on the switch-on threshold}
+\label{sec:crossval-floor}
+
+The live measurement supplies one quantity Part~II cannot obtain from tapes at all: what a
+real decode of a real message actually costs. Isolating messages that arrive to an empty
+ring and first in their own datagram --- so that neither queueing nor in-packet
+serialisation contributes --- gives the hot path directly. Three estimators constructed
+differently agree:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+method & ES & NQ & ZN \\
+\midrule
+direct median, empty ring and first in packet & $7.01$ & $7.24$ & $6.89$ \\
+fitted intercept of the median position ladder & $6.98$ & $7.23$ & $6.83$ \\
+floor at single-message packets during an FOMC release & $7.1$ & $7.5$ & $7.0$ \\
+\bottomrule
+\end{tabular}
+\caption{Three independent estimates of the \kasparhft{} socket-to-book floor, in
+$\mu$s, on the book streams. The three differ in sample, estimator and load regime. The
+third was taken while the packet rate rose $4.6$ to $9.8\times$ within a second; the floor
+moved by at most $+0.4\,\mu\mathrm{s}$ and fell on two of the three instruments.}
+\label{tab:crossval-floor}
+\end{table}
+
+Across all six streams the fitted floor spans $6.81$ to $7.23\,\mu\mathrm{s}$, a range of
+$0.42\,\mu\mathrm{s}$ from six separate multicast channels sharing nothing but the binary.
+
+Now place that against Section~\ref{sec:results-conditioning}. The service time at which a
+deterministic stage on this feed begins to accumulate a tail is the feed's tight-gap
+floor, its $1$st-percentile interarrival gap, measured at $7.43$ to
+$7.53\,\mu\mathrm{s}$ and invariant across intensity quintiles; the refined sweep of
+Section~\ref{sec:results-threshold} locates the switch-on between $T = 7$ and $T =
+8\,\mu\mathrm{s}$. The production decoder's floor is $6.81$--$7.23\,\mu\mathrm{s}$.
+
+\emph{The system sits on the threshold.} Not near it as an order-of-magnitude
+coincidence --- on it, to within a few hundred nanoseconds, by two measurements that have
+no common term.
+
+It is worth being precise about where the crossing happens, because the live measurement
+is sharp enough to locate it. Per-packet service is the floor plus one slope for each
+message beyond the first (Section~\ref{sec:crossval-span}), so the service time of a
+datagram carrying $\text{span}$ messages is $\text{floor} + (\text{span}-1) \times
+\text{slope}$. Evaluating that on each stream's own fitted pair:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+ & span 1 & span 2 & span 3 \\
+\midrule
+ES book  & 6.98 & 7.55 & 8.11 \\
+NQ book  & 7.23 & 7.54 & 7.85 \\
+ZN book  & 6.83 & 7.80 & 8.76 \\
+ES trade & 6.81 & 7.52 & 8.24 \\
+NQ trade & 7.14 & 7.67 & 8.19 \\
+ZN trade & 6.81 & 7.77 & 8.74 \\
+\midrule
+range    & $6.81$--$7.23$ & $7.52$--$7.80$ & $7.85$--$8.76$ \\
+\bottomrule
+\end{tabular}
+\caption{Per-packet service time in $\mu$s by datagram span, from each stream's measured
+floor and slope, against the feed's tight-gap floor of $7.43$--$7.53\,\mu\mathrm{s}$
+(Section~\ref{sec:results-conditioning}). Every stream is below the threshold at span 1
+and above it at span 2.}
+\label{tab:crossval-crossing}
+\end{table}
+
+All six streams are below the threshold when a datagram carries one message and above it
+when it carries two, with no stream crossing anywhere else. That is six independent
+crossings landing in the same unit interval of span, from floors and slopes fitted
+separately on six multicast channels and a threshold measured on a different corpus
+entirely. The design rule of Section~\ref{sec:recommendations} is therefore not a
+hypothetical for this system: the operating point is the boundary condition, and which
+side of it a given message falls on is decided by whether it arrived alone in its packet
+--- which is decided, in turn, by whether it arrived inside a cluster.
+
+\subsection{Where the two disagree, and what each correction is}
+\label{sec:crossval-disagree}
+
+Two quantities do not match, and in both cases the discrepancy is a measurement artefact
+that one of the two measurements is positioned to diagnose. We report both rather than the
+agreements alone.
+
+\paragraph{The absolute Fano factor: pooling inflates it.} Part~II measures a
+corpus-median Fano at a $5$-second window of $259.7$; the live streams give $1024$ to
+$1260$. The ratio under the gap shuffle agrees closely (Table~\ref{tab:crossval-stats}),
+so the discrepancy is in the level, not in the effect. The cause is the estimator row of
+Table~\ref{tab:crossval-setup}. The live figure is computed over one uncut 53-minute
+capture that spans a quiet stretch and a busy one; a rate that drifts between the two
+inflates the count variance and reads as clustering whether or not the process is
+self-exciting. Part~II computes the Fano factor \emph{within} each 30-minute window and
+then takes the corpus median, which removes between-window rate variation by
+construction. Pooling costs roughly a factor of four here, and the windowed estimate is
+the conservative one; the clustering result does not depend on which is used, but the
+level does, and $259.7$ is the number we stand behind.
+
+\paragraph{The shuffled Hurst null: finite-sample bias, and Part~II bounds it.} A
+Fisher--Yates shuffle of a gap sequence destroys the ordering while preserving the
+marginal exactly, so the shuffled series is a renewal process and its Hurst exponent must
+be $0.5$. The live measurement recovers $0.600$ to $0.660$ instead, and attributes the
+excess to finite-sample bias in the Hurst estimator at the number of windows available in
+a 53-minute capture --- which is why it states its result as the gap between $0.74$ and
+$0.62$ rather than as the distance from $0.5$. That attribution was a reasonable inference
+rather than a demonstration. Part~II can demonstrate it: over 3512 windows the same
+shuffle returns $H = 0.501$, and the uniform-shuffle Poisson null returns $H = 0.496$
+(Section~\ref{sec:setup-hawkes}). The bias is real, it is finite-sample, and it washes out
+with more and shorter series. The live study's caveat was correct and its headline gap is
+the right way to read it.
+
+\subsection{What the live data contradicts, and what survives}
+\label{sec:crossval-span}
+
+One assumption of Part~II's simulator does not survive contact with the production
+measurement, and it should be stated plainly.
+
+The sweep of Section~\ref{sec:setup-sweep} treats each packet as one arrival requiring a
+\emph{constant} service time $T$. The live data shows that per-packet service is nothing
+of the kind. A UDP datagram on this feed carries a variable number of SBE messages ---
+call it the packet's \emph{span} --- which are decoded in order, so a message at position
+$k$ waits for $k$ decodes before its own. Median latency follows
+\[
+\text{median} \;=\; \text{floor} \;+\; \text{slope} \times \text{position},
+\]
+with the floor of Section~\ref{sec:crossval-floor} and a slope of $0.31$ to
+$0.97\,\mu\mathrm{s}$ per message depending on the stream. Span is not close to constant:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lrrrrrrr@{}}
+\toprule
+stream & packets & messages & mean & $p_{50}$ & $p_{90}$ & $p_{99}$ & max \\
+\midrule
+ES book  & 2{,}123{,}042 & 2{,}415{,}610 & 1.19 & 1 & 1 & 7 & 45 \\
+NQ book  & 2{,}506{,}205 & 3{,}010{,}036 & 1.59 & 1 & 2 & 11 & 36 \\
+ZN book  & \phantom{0}824{,}536 & \phantom{0,}965{,}334 & 1.25 & 1 & 1 & 6 & 45 \\
+ES trade & \phantom{0,0}83{,}140 & \phantom{0,}235{,}601 & 4.10 & 3 & 8 & 17 & 83 \\
+NQ trade & \phantom{0,0}50{,}279 & \phantom{0,0}83{,}233 & 3.47 & 2 & 7 & 16 & 85 \\
+ZN trade & \phantom{0,0}22{,}864 & \phantom{0,}100{,}659 & 5.86 & 2 & 11 & 71 & 85 \\
+\bottomrule
+\end{tabular}
+\caption{Messages per UDP datagram. The median book packet carries one message and the
+99th percentile carries $6$ to $11$; on ZN trade the 99th percentile carries $71$. A mean
+of $1.19$ describes neither end of that distribution.}
+\label{tab:crossval-span}
+\end{table}
+
+Because service is charged per message, the large packets carry a share of total
+processing time far out of proportion to their number:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+span $\ge 10$ & \% of packets & \% of messages & \% of decode time \\
+\midrule
+ES book  & 0.52 & 4.55 & 5.34 \\
+NQ book  & 1.68 & 4.87 & 2.57 \\
+ZN book  & 0.47 & 7.29 & 7.29 \\
+NQ trade & 5.34 & 19.31 & 16.16 \\
+ES trade & 6.69 & 26.53 & 40.10 \\
+ZN trade & 11.31 & 66.18 & 85.54 \\
+\bottomrule
+\end{tabular}
+\caption{Concentration of work in large datagrams. On ZN trade, $11.3\%$ of packets carry
+$66\%$ of the messages and consume $86\%$ of decode time.}
+\label{tab:crossval-conc}
+\end{table}
+
+\begin{remark}[Reconciliation pending on Table~\ref{tab:crossval-conc}]
+The message counts in Table~\ref{tab:crossval-span} do not equal the product of the packet
+count and the stated mean span, and they run $12$--$24\%$ below the per-stream message
+counts used elsewhere in the live measurement, which suggests a difference in admission
+rule or weighting between the packet-level and message-level accounting that we have not
+yet traced. The qualitative claim --- that decode time concentrates in a small minority of
+large datagrams, overwhelmingly so on the trade streams --- is robust to any resolution of
+this, since it is visible directly in the span quantiles. The precise shares in
+Table~\ref{tab:crossval-conc} should be treated as provisional until the accounting is
+reconciled. No argument elsewhere in this paper depends on them.
+\end{remark}
+
+So the deterministic-service assumption is violated at the packet level, and Part~II's $T$
+should be read as the per-packet work at a corpus-typical span rather than as a constant
+of the system. Two things nonetheless survive, and the second is a strengthening rather
+than a repair.
+
+First, at the \emph{message} level the assumption is close to right: the slope is fixed
+within a stream to the precision of the fit, and it is the composition of packets, not
+randomness in per-message work, that makes per-packet service vary. Theorem~\ref{thm:reduction}
+is pathwise and arrival-law independent, and Remark~\ref{rem:unequal} already handles
+unequal stages through $s_{\max}$; what the live data adds is a measured magnitude for the
+variability that Section~\ref{sec:theory-summary} lists as an assumption.
+
+Second, and more usefully: span is not an independent nuisance. It is produced by the same
+clustering. When arrivals bunch, more messages fall inside one gateway coalescing
+interval, and the exchange emits them in one larger datagram. Clustering therefore reaches
+the latency tail by two routes --- through arrival timing, which Part~II models, and
+through batch size, which it does not --- and both routes push the same direction. A
+message unlucky enough to arrive during a cluster is both more likely to find a queue
+ahead of it and more likely to sit deep inside a large packet. Part~II's tail estimates
+account for the first mechanism only, and are conservative to the extent that the second
+is also operating.
+
+Quantifying the second channel, and folding span into the service-time model rather than
+treating it as fixed, is the most direct extension of this work; it is taken up in
+Section~\ref{sec:future}.
+
+% =====================================================================
+
 \part{Best practices: implications for HFT systems design}
 
 \section{The reference instance: \kasparhft{} and its \texttt{fast\_send} pipeline}
@@ -2380,6 +2701,12 @@ None of these caveats reverse the two conclusions on the 276-session corpus.
 i.e.\ the exponent $\gamma - 1$ as a function of $(\rho, n, \beta T)$. By the reduction
 this is a single-server question about $M^{[K]}/D/1$ with Borel batches at two service
 levels, which is tractable; the paper measures $\gamma$ instead.
+    \item Span-conditioned service time. Section~\ref{sec:crossval-span} measures
+per-packet service rising linearly in the number of messages the datagram carries, while
+the sweep here holds it constant. Since span is itself generated by the clustering, the
+two tail channels are dependent, and a service-time model of the form $T(\text{span})$
+driven by the same arrival stream would capture both. This is the most direct extension of
+the present work.
     \item Cache-pollution empirical measurement per spinning-receiver stage count.
     \item Power-law-kernel Hawkes fit versus exponential.
     \item Overnight-session regime.
@@ -2432,6 +2759,14 @@ Determinism: the Poisson null's per-window seed is derived from an MD5 of
 randomised per interpreter run, so the cache is byte-reproducible across re-runs; the
 metadata frame is sorted by \texttt{(session, window\_id)} before writing for the same
 reason.
+
+The live measurement of Section~\ref{sec:crossval} is separate instrumentation on the
+production system rather than part of this pipeline: \texttt{MsgRec} / \texttt{msg\_record()}
+in \texttt{frame/perf/act/LatencyProbe.hpp} emits one 16-byte record per admitted message
+carrying $(t_1, \text{latency}, \text{qlen}, \text{idx})$, and the readers
+\texttt{kaspr/perf/kh\_*.py} on the \texttt{perf/live-wire-to-book} branch produce the
+per-message, packet-size and arrival-process tables quoted there. Its latency results are
+published in \citet{mayeski_fastsend}.
 
 Data: 281 per-session message tapes derived from CME MDP3 channel 318 pcaps (NQ front
 month, 2025-01 through 2026-02, holidays and half-days excluded); the tapes are derived
@@ -2565,10 +2900,10 @@ Dean, J., Barroso, L. A. (2013). The tail at scale. \textit{Communications of th
 Zhao, K., Alizadeh, M., Pan, R., Ports, D. R. K., Perry, J., Yang, X., et~al. (2023).
 Parsimon: scalable tail latency estimation for data center networks. NSDI 2023.
 
-\bibitem[Maciejewski(2025)]{mayeski_fastsend}
-Maciejewski, V. (2025). \texttt{fast\_send}: synchronous inline dispatch on the CME MDP3
-hot path. M2 Tech technical report, \kasparhft{} repository.
-\url{https://github.com/vincent212/kaspar-hft/blob/main/tech_reports/fast_send.pdf}
+\bibitem[Maciejewski(2026a)]{mayeski_fastsend}
+Maciejewski, V. (2026). Adapting the actor model of concurrency for high-frequency
+trading: synchronous message delivery (\texttt{fast\_send}) and a tick-to-book latency
+study. arXiv:2609.21173. \url{https://arxiv.org/abs/2609.21173}
 
 \bibitem[Maciejewski(2026b)]{kaspar_repo}
 Maciejewski, V. (2026). \kasparhft: an open-source C++20 actor framework and trading
