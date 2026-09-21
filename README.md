@@ -224,8 +224,7 @@ The four implementations:
 A running `kaspr` process exposes a **ZMQ request/reply control console** (the
 `mq0` server) for live monitoring and manual intervention — inspect books and
 positions, place/cancel orders by hand, and pause/resume the order matcher, all
-without restarting. It binds a TCP port set by `mqport` in the config (default
-**7777**; see [Configuration](#configuration)).
+without restarting.
 
 ### Connecting
 
@@ -285,12 +284,6 @@ kaspr {
 - **Threading**: One thread per actor, CPU affinity pinning, no contention between instruments
 
 ### Measured: actor messaging round-trip latency
-
-From the microbenchmarks in [`actors/cpp/perf`](actors/cpp/perf) (`bench_pingpong`),
-ping → pong → reply, one message in flight. Two machines — **indicative, not a
-spec; the ratios are the point.** macOS: Apple M3 (8-core, arm64), `-O3 -march=native`, no
-pinning. Linux: AMD EPYC 9374F, RHEL 9, g++ 15, `-O3 -march=native`, `taskset` to
-two cores (not fully quiesced — see [second data point](actors/cpp/perf/README.md#second-data-point-x86-64-linux)).
 
 <p align="center">
   <picture>
