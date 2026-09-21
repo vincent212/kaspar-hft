@@ -21,8 +21,7 @@
 
 ## Kaspar-hft highlights
 
-- **~30 ns actor-to-actor round trip:** `fast_send` runs the receiver's handler inline on the caller's thread and passes the message on the stack.
-- **The actor layer has almost no overhead:** On a live CME tick-to-book path the framework adds nothing measurable to the latency tail — the actor abstraction is effectively free on the hot path.
+- **Low Latency Actor Concurrency Model Framework:** No race conditions, no memory data races, almost no frmework overhad
 - **Backtest == production:** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live iLink 3; switching is a config change, so a backtest exercises the exact code path that will trade.
 - **CME-certified:** The MDP3 market-data handler and the iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
 - **Shadow execution algorithm:** Efficient, production-grade, turn-key execution algorithm.
