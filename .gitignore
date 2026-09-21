@@ -129,3 +129,17 @@ tech_reports/*.aux
 tech_reports/*.log
 tech_reports/*.out
 tech_reports/*.toc
+
+# arrival_paper: per-window arrival caches are ~23 GB each (regenerable from the
+# licensed tapes via qsim_prep.py). The small metadata.parquet in each cache IS
+# tracked -- the paper releases it -- as are the grid outputs the tables come from.
+arrival_paper/figs/qsim_cache*/arrivals/
+arrival_paper/figs/qsim_grid_5min/
+arrival_paper/*.aux
+arrival_paper/*.toc
+arrival_paper/*.lof
+arrival_paper/*.lot
+arrival_paper/*.out
+arrival_paper/*.log
+arrival_paper/*.fls
+arrival_paper/*.fdb_latexmk

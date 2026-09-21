@@ -5,7 +5,16 @@
 Reads each session's CSV tape once, extracts per-window packet-arrival streams,
 fits an exponential-kernel Hawkes MLE per window, generates a matched-count
 uniform-shuffle Poisson-null arrival stream (deterministic per (session, window)),
-and writes the results to a compact on-disk cache:
+and writes the results to a compact on-disk cache.
+
+Packet arrival time is `sendingTime` (the CME gateway's per-packet UDP header
+timestamp), NOT `transactTime` (the matching-engine event time in the message
+body). One matching-engine transaction can be split across several UDP packets
+sent microseconds apart, so keying arrivals on transactTime collapses distinct
+packets onto a single instant and manufactures coincident arrivals, inflating
+every clustering and tail statistic downstream.
+
+Cache layout:
 
     <out-dir>/metadata.parquet       one row per (session, window) with
                                      n_messages, n_packets, span_mean, span_max,
@@ -49,21 +58,35 @@ MIN_MESSAGES_PER_WINDOW = 1000
 CHECKPOINT_EVERY        = 25
 
 
-def process_session(msg_tape_csv: str, out_arrivals_dir: str) -> pd.DataFrame:
+def process_session(msg_tape_csv: str, out_arrivals_dir: str,
+                    window_min: int = DEFAULT_WINDOW_MIN) -> pd.DataFrame:
     """Parse one session tape and write its arrivals to <out>/{session}.npz.
     Returns a DataFrame with one row per accepted 30-min RTH window."""
+    # Arrival clock: sendingTime, the CME gateway's UDP packet-header timestamp.
+    #
+    # NOT transactTime. transactTime is the matching-engine event time carried in
+    # the MDP3 message body, and a single matching-engine transaction can be
+    # split across several UDP packets that are sent microseconds apart. Using
+    # min(transactTime) per packet therefore collapses distinct packets onto one
+    # instant and manufactures coincident arrivals that never occurred, which
+    # inflates every clustering and tail-latency statistic downstream.
+    # sendingTime is per-packet (constant across every event in a packet) and
+    # nanosecond-resolution, so it is the correct arrival clock for a queueing
+    # model of the receiving pipeline.
     tt: list[int] = []
     seq: list[int] = []
     with open(msg_tape_csv, "rt", newline="") as f:
         r = csv.reader(f)
         h = next(r)
-        i_tt  = h.index("transactTime")
+        i_tt  = h.index("sendingTime")
         i_seq = h.index("packet_seq")
         for row in r:
             try:
                 v_tt  = int(row[i_tt])
                 v_seq = int(row[i_seq])
             except (IndexError, ValueError):
+                continue
+            if v_tt <= 0:
                 continue
             tt.append(v_tt)
             seq.append(v_seq)
@@ -76,7 +99,7 @@ def process_session(msg_tape_csv: str, out_arrivals_dir: str) -> pd.DataFrame:
     if len(tt_arr) == 0:
         return pd.DataFrame()
 
-    win_ns  = DEFAULT_WINDOW_MIN * 60 * 1_000_000_000
+    win_ns  = window_min * 60 * 1_000_000_000
     first   = tt_arr[0]
     win_idx = (tt_arr - first) // win_ns
 
@@ -92,7 +115,9 @@ def process_session(msg_tape_csv: str, out_arrivals_dir: str) -> pd.DataFrame:
         if n_messages < MIN_MESSAGES_PER_WINDOW:
             continue
 
-        # Packet grouping via packet_seq: arrival = min(transactTime) per packet.
+        # Packet grouping via packet_seq: arrival = min(sendingTime) per packet.
+        # sendingTime is constant within a packet, so the min is just that value;
+        # it is taken defensively in case a tape carries a malformed row.
         seq_to_min = defaultdict(lambda: np.iinfo(np.int64).max)
         seq_to_cnt = defaultdict(int)
         for t, s in zip(tt_w, seq_w):
@@ -169,13 +194,17 @@ def main() -> int:
                     help="cache root; writes metadata.parquet and "
                          "arrivals/{session}.npz here")
     ap.add_argument("--jobs", type=int, default=max(1, mp.cpu_count() // 2))
+    ap.add_argument("--window-min", type=int, default=DEFAULT_WINDOW_MIN,
+                    help="RTH window length in minutes (default 30). Shorter "
+                         "windows resolve more intensity variation, since "
+                         "lambda_bar is averaged over the window.")
     args = ap.parse_args()
 
     out = Path(args.out_dir)
     (out / "arrivals").mkdir(parents=True, exist_ok=True)
 
     tapes = sorted(glob.glob(os.path.join(args.tapes_dir, "*.csv")))
-    print(f"[prep] found {len(tapes)} tapes; jobs={args.jobs}", file=sys.stderr)
+    print(f"[prep] found {len(tapes)} tapes; jobs={args.jobs}; window={args.window_min} min", file=sys.stderr)
 
     parts: list[pd.DataFrame] = []
     arrivals_dir = str(out / "arrivals")
@@ -186,7 +215,7 @@ def main() -> int:
         # per-25-tape checkpoint that gives this pipeline its fault tolerance.)
         results = pool.imap_unordered(
             _process_session_worker,
-            [(t, arrivals_dir) for t in tapes],
+            [(t, arrivals_dir, args.window_min) for t in tapes],
             chunksize=1,
         )
         for i, df in enumerate(results):
@@ -200,10 +229,10 @@ def main() -> int:
     return 0
 
 
-def _process_session_worker(args_tuple: tuple[str, str]) -> pd.DataFrame:
+def _process_session_worker(args_tuple: tuple[str, str, int]) -> pd.DataFrame:
     """Adapter for mp.Pool.imap_unordered which passes a single tuple arg."""
-    tape, out_arrivals_dir = args_tuple
-    return process_session(tape, out_arrivals_dir)
+    tape, out_arrivals_dir, window_min = args_tuple
+    return process_session(tape, out_arrivals_dir, window_min)
 
 
 def _write_metadata(parts: list[pd.DataFrame], out: Path,
@@ -213,7 +242,7 @@ def _write_metadata(parts: list[pd.DataFrame], out: Path,
         if final:
             print("[prep] no valid sessions produced any metadata rows; "
                   "check --tapes-dir and that CSV files have the expected "
-                  "transactTime and packet_seq columns", file=sys.stderr)
+                  "sendingTime and packet_seq columns", file=sys.stderr)
         return
     corpus = pd.concat(filtered, ignore_index=True)
     # imap_unordered yields in worker-completion order, so the concatenated

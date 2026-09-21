@@ -57,11 +57,23 @@ price of adding one hop to the median per stage; above a short-task floor set by
 cost the tail reduction dominates and a multi-actor pipeline beats the single-thread chain
 on the tail.
 
-The effect depends entirely on the arrival law: the multi-actor pipeline's advantage comes
-entirely from compressing the cluster-induced tail, so it wins precisely when arrivals are
-clustered. Replacing the real packet stream with a Poisson process of the same average
-rate removes the clustering, and the advantage disappears with it --- confirming that the
-benefit is a property of clustered arrivals, not a generic consequence of adding threads. 
+The effect is governed by the arrival law, and the comparison against a matched-rate
+Poisson null separates two regimes that are easy to conflate. Over the band of per-message
+service times that an HFT hot path actually occupies --- single-digit to low-tens of
+microseconds --- the Poisson null has no tail at all: its $p_{99}$ sits exactly at the
+service time, there is nothing for a pipeline to compress, and splitting is pure hop cost.
+The clustered feed has a substantial tail over that same band, so the entire win in the
+regime of interest is attributable to clustering rather than to adding threads. A Poisson
+process of the same average rate does eventually develop a tail --- the paper should not
+be read as claiming otherwise --- but only once ordinary utilisation queueing takes over,
+and for a matched-rate Poisson null that crossover is exactly located: by PASTA the
+$q$-quantile of latency equals the service time until the utilisation $\rho = \bar\lambda
+T$ reaches $1 - q$, which the corpus confirms to three significant figures at $q = 0.95$,
+$0.99$ and $0.999$. At the corpus-median rate that puts the Poisson $p_{99}$ crossover at
+$T \approx 22\,\mu\mathrm{s}$, roughly three times the service time at which the clustered
+feed's tail has already switched on, and past the crossover the clustered feed's tail
+excess is still $11$--$47\times$ the Poisson null's. Clustering, not utilisation, is what a
+low-latency pipeline is queueing against. 
 We give an analytic framework for the mechanism --- a burst-limit throughput identity and
 an exact pathwise reduction of the deterministic-service tandem to a single bottleneck
 server --- and confirm its predictions with simulations driven by a corpus of real CME
@@ -252,7 +264,7 @@ tail the tandem then compresses.
 MDP3 packet-arrival streams at a hop cost $h = 1.7\,\mu\mathrm{s}$ (the one-way async
 mailbox cost derived by halving the round-trip figure in Table 4 of
 \citet{mayeski_fastsend}) and a service
-floor swept across $T \in \{2, 4, 8, 16, 32\}\,\mu\mathrm{s}$ to cover the regime from
+floor swept across $T \in \{2, 4, 8, 16, 32, 64, 128\}\,\mu\mathrm{s}$ to cover the regime from
 tasks below the hop cost (where no split helps) through tasks well above it (where the
 tail-win compounds). We sweep $N \in \{1, 2, 4, 8\}$ per scenario on each of the 3512
 thirty-minute RTH windows of the corpus. Each window is also simulated under a
@@ -904,7 +916,7 @@ windows in the 276-session corpus.}
 \State \textbf{input:} session tape $S$, service $T$, hop $h$, stage counts $\mathcal{N}$
 \For{each 30-min RTH window $W$ in $S$ with $[T_0, T_1]$}
     \State $\{m_i\} \gets$ messages in $W$
-    \State $\{(\text{seq}, t)\} \gets \{(\text{packet\_seq}(m_i), \text{transactTime}(m_i))\}$
+    \State $\{(\text{seq}, t)\} \gets \{(\text{packet\_seq}(m_i), \text{sendingTime}(m_i))\}$
     \State $\text{arr}_H \gets \text{sort}\big(\{\min_i t_i : \text{seq}_i = s\}_s\big)$ \Comment{Hawkes arm (real arrivals)}
     \State $n_{\mathrm{pkt}}^{\#} \gets |\text{arr}_H|$
     \State $\text{arr}_P \gets \text{sort}\big(\text{Uniform}(\min \text{arr}_H, \max \text{arr}_H)^{n_{\mathrm{pkt}}^{\#}}\big)$ \Comment{Poisson-null arm (seeded per window)}
@@ -930,10 +942,28 @@ windows in the 276-session corpus.}
 
 The corpus is 281 sessions of CME MDP3 channel 318 (NQ) front-month pcap-derived tapes
 covering 2025-01 through 2026-02, RTH only, holidays and half-days excluded. Each MBO
-record carries a nanosecond \texttt{transactTime} (the CME matching-engine event time in
-the MDP3 message body) and a \texttt{packet\_seq} (the UDP packet sequence number).
-Messages are grouped into packets by \texttt{packet\_seq}; a packet's arrival time is the
-minimum \texttt{transactTime} of its constituent events. Each session tape is chopped into
+record carries a \texttt{packet\_seq} (the UDP packet sequence number) and two
+nanosecond timestamps: \texttt{transactTime}, the CME matching-engine event time carried
+in the MDP3 message body, and \texttt{sendingTime}, the gateway's per-packet UDP header
+timestamp. Messages are grouped into packets by \texttt{packet\_seq}, and a packet's
+arrival time is its \texttt{sendingTime}.
+
+The choice of clock matters, and \texttt{transactTime} is the wrong one. A single
+matching-engine transaction is routinely split across several UDP packets that leave the
+gateway microseconds apart, so all of those packets share one \texttt{transactTime};
+keying arrivals on it collapses distinct packets onto a single instant and manufactures
+coincident arrivals that never occurred. Measured across $178.7$ million packets,
+$3.18\%$ carry a \texttt{transactTime} shared with at least one other packet, in groups of
+up to $66$; the true emission spread within such a group has a median of
+$15.4\,\mu\mathrm{s}$ and reaches $51\,\mathrm{ms}$. Because
+the mechanism under study is precisely how tightly packed arrivals queue behind one
+another, that artefact inflates every clustering and tail statistic downstream.
+\texttt{sendingTime} is emitted once per packet at nanosecond resolution and is the
+receiving pipeline's actual input clock; over the same $178.7$ million packets, ordered by
+\texttt{packet\_seq}, it produces no ties and no sequence inversions whatsoever. All
+results below are keyed on \texttt{sendingTime}.
+
+Each session tape is chopped into
 non-overlapping 30-minute RTH windows; for each window we compute the packet-arrival
 stream and the per-window quantities listed in Section~\ref{sec:notation}. The corpus
 yields 3512 per-window records from the 276 sessions that contain at least one complete
@@ -958,8 +988,8 @@ Hurst exponent $H \approx 0.65$--$0.75$, versus $H = 0.5$ for Poisson. Fitting t
 standard exponential-kernel Hawkes process $\lambda(t) = \mu + \sum_{t_i < t} \alpha\,
 e^{-\beta(t - t_i)}$ to each window by MLE (Ogata log-likelihood with the standard
 recursive intensity, closed-form compensator, Nelder--Mead over $(\mu, \alpha, \beta)$)
-gives a branching ratio $n = \alpha/\beta$ with a corpus median of $0.794$ and a 5th--95th
-percentile range of $0.757$--$0.827$ across the 3512 windows (extremes $0.567$ and
+gives a branching ratio $n = \alpha/\beta$ with a corpus median of $0.798$ and a 5th--95th
+percentile range of $0.761$--$0.832$ across the 3512 windows (extremes $0.566$ and
 $1.000$, the latter a single window pinned at the fit boundary), with every fit converged;
 the same optimum is recovered by a reparameterised L-BFGS-B fit to four decimals on
 spot-checked windows. This is the same near-critical regime that
@@ -1057,7 +1087,7 @@ which despite its low per-call cost does not support pipelining).
 \paragraph{Calibration and cost.} The paper reports numerical results at $h =
 1.7\,\mu\mathrm{s}$ --- the one-way async mailbox cost obtained by halving the round-trip
 figure in Table~4 of \citet{mayeski_fastsend} --- swept across $T \in
-\{2, 4, 8, 16, 32\}\,\mu\mathrm{s}$ to cover the sub-hop regime through the slow-servicing
+\{2, 4, 8, 16, 32, 64, 128\}\,\mu\mathrm{s}$ to cover the sub-hop regime through the slow-servicing
 regime. The simulator is deterministic given the tape and $(T, h, N)$; one $O(n)$ pass per
 stage per window makes its wall-clock cost negligible next to the tape read.
 
@@ -1085,7 +1115,7 @@ overlaid.
 
 The paper's empirical calibration is $h = 1.7\,\mu\mathrm{s}$ (one-way async cross-thread
 mailbox cost, per \citet{mayeski_fastsend}'s Table~4 halved for one-way) swept over $T \in
-\{2, 4, 8, 16, 32\}\,\mu\mathrm{s}$ so the scenarios span from the sub-hop regime through
+\{2, 4, 8, 16, 32, 64, 128\}\,\mu\mathrm{s}$ so the scenarios span from the sub-hop regime through
 the slow-servicing regime. Theorem~\ref{thm:reduction} predicts $p_{99}^{\mathrm{H}}(N) -
 (N-1)h - T \le \big(p_{99}^{\mathrm{H}}(1) - T\big)/N$ on every window, i.e.\ a fitted
 exponent $\gamma \ge 1$ in $\Delta(N) \approx \Delta(1) N^{-\gamma}$;
@@ -1118,30 +1148,40 @@ count per window.
 \cmidrule(lr){3-5} \cmidrule(lr){6-8}
 $T$ & $N$ & $p_{50}$ & $p_{99}$ & $p_{99.9}$ & $p_{50}$ & $p_{99}$ & $p_{99.9}$ \\
 \midrule
- 2 & 1 &  2.00 &   4.00 &   7.38 &  2.00 &  2.00 &  2.00 \\
- 2 & 2 &  3.70 &   4.70 &   5.52 &  3.70 &  3.70 &  3.70 \\
- 2 & 4 &  7.10 &   7.60 &   7.75 &  7.10 &  7.10 &  7.10 \\
- 2 & 8 & 13.90 &  14.15 &  14.15 & 13.90 & 13.90 & 13.90 \\
+ 2 & 1 &   2.00 &   2.00 &   2.00 &   2.00 &   2.00 &   2.00 \\
+ 2 & 2 &   3.70 &   3.70 &   3.70 &   3.70 &   3.70 &   3.70 \\
+ 2 & 4 &   7.10 &   7.10 &   7.10 &   7.10 &   7.10 &   7.10 \\
+ 2 & 8 &  13.90 &  13.90 &  13.90 &  13.90 &  13.90 &  13.90 \\
 \midrule
- 4 & 1 &  4.00 &  10.87 &  20.00 &  4.00 &  4.00 &  5.78 \\
- 4 & 2 &  5.70 &   7.70 &  11.08 &  5.70 &  5.70 &  5.70 \\
- 4 & 4 &  9.10 &  10.10 &  10.92 &  9.10 &  9.10 &  9.10 \\
- 4 & 8 & 15.90 &  16.40 &  16.55 & 15.90 & 15.90 & 15.90 \\
+ 4 & 1 &   4.00 &   4.00 &   4.00 &   4.00 &   4.00 &   5.78 \\
+ 4 & 2 &   5.70 &   5.70 &   5.70 &   5.70 &   5.70 &   5.70 \\
+ 4 & 4 &   9.10 &   9.10 &   9.10 &   9.10 &   9.10 &   9.10 \\
+ 4 & 8 &  15.90 &  15.90 &  15.90 &  15.90 &  15.90 &  15.90 \\
 \midrule
- 8 & 1 &  8.00 &  28.20 &  55.05 &  8.00 &  8.00 & 13.79 \\
- 8 & 2 &  9.70 &  16.57 &  25.70 &  9.70 &  9.70 & 11.48 \\
- 8 & 4 & 13.10 &  15.10 &  18.48 & 13.10 & 13.10 & 13.10 \\
- 8 & 8 & 19.90 &  20.90 &  21.72 & 19.90 & 19.90 & 19.90 \\
+ 8 & 1 &   8.00 &   8.61 &  10.14 &   8.00 &   8.00 &  13.79 \\
+ 8 & 2 &   9.70 &   9.70 &   9.70 &   9.70 &   9.70 &  11.48 \\
+ 8 & 4 &  13.10 &  13.10 &  13.10 &  13.10 &  13.10 &  13.10 \\
+ 8 & 8 &  19.90 &  19.90 &  19.90 &  19.90 &  19.90 &  19.90 \\
 \midrule
-16 & 1 & 16.00 &  79.22 & 157.07 & 16.00 & 16.00 & 29.84 \\
-16 & 2 & 17.70 &  37.90 &  64.75 & 17.70 & 17.70 & 23.49 \\
-16 & 4 & 21.10 &  27.97 &  37.10 & 21.10 & 21.10 & 22.88 \\
-16 & 8 & 27.90 &  29.90 &  33.28 & 27.90 & 27.90 & 27.90 \\
+16 & 1 &  16.00 &  34.59 &  53.97 &  16.00 &  16.00 &  29.84 \\
+16 & 2 &  17.70 &  18.31 &  19.84 &  17.70 &  17.70 &  23.49 \\
+16 & 4 &  21.10 &  21.10 &  21.10 &  21.10 &  21.10 &  22.88 \\
+16 & 8 &  27.90 &  27.90 &  27.90 &  27.90 &  27.90 &  27.90 \\
 \midrule
-32 & 1 & 32.00 & 254.73 & 497.15 & 32.00 & 42.02 & 62.02 \\
-32 & 2 & 33.70 &  96.92 & 174.77 & 33.70 & 33.70 & 47.54 \\
-32 & 4 & 37.10 &  57.30 &  84.15 & 37.10 & 37.10 & 42.89 \\
-32 & 8 & 43.90 &  50.77 &  59.90 & 43.90 & 43.90 & 45.68 \\
+32 & 1 &  32.00 & 146.14 & 259.11 &  32.00 &  42.02 &  62.02 \\
+32 & 2 &  33.70 &  52.29 &  71.67 &  33.70 &  33.70 &  47.54 \\
+32 & 4 &  37.10 &  37.71 &  39.24 &  37.10 &  37.10 &  42.89 \\
+32 & 8 &  43.90 &  43.90 &  43.90 &  43.90 &  43.90 &  45.68 \\
+\midrule
+64 & 1 &  98.88 & 820.70 & 1548.68 &  64.00 & 106.73 & 126.72 \\
+64 & 2 &  65.70 & 179.84 & 292.81 &  65.70 &  75.72 &  95.72 \\
+64 & 4 &  69.10 &  87.69 & 107.07 &  69.10 &  69.10 &  82.94 \\
+64 & 8 &  75.90 &  76.51 &  78.04 &  75.90 &  75.90 &  81.69 \\
+\midrule
+128 & 1 & 364.45 & 5316.85 & 12487.72 & 128.00 & 237.65 & 289.07 \\
+128 & 2 & 164.58 & 886.40 & 1614.38 & 129.70 & 172.43 & 192.42 \\
+128 & 4 & 133.10 & 247.24 & 360.21 & 133.10 & 143.12 & 163.12 \\
+128 & 8 & 139.90 & 158.49 & 177.87 & 139.90 & 139.90 & 153.74 \\
 \bottomrule
 \end{tabular}
 \caption{Corpus-median end-to-end latency quantiles in \si{\micro\second} at $h =
@@ -1165,44 +1205,73 @@ the Poisson $p_{99}$ tracks the median.}
 
 Under the Poisson null the queue is empty when almost every message arrives, so every
 reported quantile equals the service floor, $p_{50} = p_{99} = T + (N-1)h$, in every cell
-with $T \le 16\,\mu\mathrm{s}$. The single exception is $T = 32\,\mu\mathrm{s}$, $N = 1$,
+with $T \le 16\,\mu\mathrm{s}$. The first exception is $T = 32\,\mu\mathrm{s}$, $N = 1$,
 where Poisson $p_{99}$ is $42.0\,\mu\mathrm{s}$ against a floor of $32$: at the
 corpus-median packet rate of $452$ packets per second the utilisation there is $\rho = 452
 \times 32\,\mu\mathrm{s} = 0.0145$, above the $0.01$ at which Corollary~\ref{cor:poisson}
 says the Poisson wait must first appear at $p_{99}$, and it does; at $N = 2$ the per-stage
-utilisation halves to $0.007$ and the wait vanishes again. The $p_{99.9}$ column tells the
-same story one decade down: the Poisson wait is visible at $N = 1$ for every $T \ge
-4\,\mu\mathrm{s}$ (single-stage $\rho > 10^{-3}$) and at $N = 2$ for $T \ge
-8\,\mu\mathrm{s}$, and absent wherever the per-stage $\rho/N$ falls below $10^{-3}$. The
-null arm is not inert; it is a queue with a small, predictable wait, and splitting under
-Poisson loses $(N-1)h$ at every quantile the operator would look at.
+utilisation halves to $0.007$ and the wait vanishes again. Beyond that the null arm is a
+perfectly ordinary queue: at $T = 64$ and $128\,\mu\mathrm{s}$ the single-stage Poisson
+$p_{99}$ reaches $106.7$ and $237.7\,\mu\mathrm{s}$, and splitting reduces it, to $75.7$
+and $172.4\,\mu\mathrm{s}$ at $N = 2$. \emph{Under Poisson, splitting is not useless in
+general --- it is useless in the regime an HFT hot path occupies.} The $p_{99.9}$ column
+tells the same story one decade down: the Poisson wait is visible at $N = 1$ for every $T
+\ge 4\,\mu\mathrm{s}$ (single-stage $\rho > 10^{-3}$) and at $N = 2$ for $T \ge
+8\,\mu\mathrm{s}$, and absent wherever the per-stage $\rho/N$ falls below $10^{-3}$. Every
+one of these switch-on points is the $\rho = 1 - q$ boundary of
+Corollary~\ref{cor:poisson}, which the corpus reproduces to three significant figures at
+$q = 0.95$, $0.99$ and $0.999$ (Section~\ref{sec:results-conditioning}). The null arm is
+therefore not inert; it is a queue with a small, exactly predictable wait, and over $T \le
+16\,\mu\mathrm{s}$ splitting under Poisson loses $(N-1)h$ at every quantile the operator
+would look at.
 
-Under Hawkes the story is different at every service floor above the hop cost.
-Single-stage $p_{99}$ is $2.0$, $2.7$, $3.5$, $5.0$, and $8.0$ times the service floor at
-$T = 2, 4, 8, 16, 32\,\mu\mathrm{s}$, and single-stage $p_{99.9}$ reaches $15.5\,T$ at $T
-= 32$. Splitting into two stages cuts the $p_{99}$ from $10.87$ to $7.70\,\mu\mathrm{s}$
-at $T = 4$, from $28.2$ to $16.6$ at $T = 8$, from $79.2$ to $37.9$ at $T = 16$, and from
-$254.7$ to $96.9$ at $T = 32$, in each case for a median cost of exactly
-$1.7\,\mu\mathrm{s}$; the two-stage $p_{99}$ is below the single-stage $p_{99}$ on $100\%$
-of the 3512 windows at every $T \ge 4\,\mu\mathrm{s}$. The stage count that minimises
-$p_{99}$ rises with $T$: $N = 2$ at $T = 4$, $N = 4$ at $T = 8$ and $16$, $N = 8$ at $T =
-32$. At $T = 2\,\mu\mathrm{s}$, below the $2h$ floor, splitting loses on $p_{99}$ ($4.70$
-against $4.00$) and wins on only $27\%$ of windows; the row is in the sweep to demonstrate
-that floor, and it does.
+Under Hawkes the story is different, but --- and this is the central quantitative
+correction the packet-clock rerun makes to an earlier draft of this work --- only above a
+sharp threshold. At $T = 2$ and $4\,\mu\mathrm{s}$ there is no tail at all: the
+single-stage $p_{99}$ and $p_{99.9}$ both sit exactly on the service floor, the clustered
+feed is indistinguishable from the Poisson null, and splitting buys nothing while costing
+$(N-1)h$. The tail appears between $T = 4$ and $8\,\mu\mathrm{s}$ and then grows
+explosively: single-stage $p_{99}$ is $1.00$, $1.00$, $1.08$, $2.16$, $4.57$, $12.8$ and
+$41.5$ times the service floor at $T = 2, 4, 8, 16, 32, 64, 128\,\mu\mathrm{s}$, and
+single-stage $p_{99.9}$ reaches $97.6\,T$ at $T = 128$. Splitting into two stages cuts the
+$p_{99}$ from $34.59$ to $18.31\,\mu\mathrm{s}$ at $T = 16$, from $146.1$ to $52.3$ at $T
+= 32$, from $820.7$ to $179.8$ at $T = 64$, and from $5316.9$ to $886.4$ at $T = 128$, in
+each case for a median cost of $1.7\,\mu\mathrm{s}$ per hop; the two-stage $p_{99}$ is
+below the single-stage $p_{99}$ on $100\%$ of the 3512 windows at every $T \ge
+16\,\mu\mathrm{s}$. The stage count that minimises $p_{99}$ rises with $T$: $N = 1$ at $T
+\le 8$, $N = 2$ at $T = 16$, $N = 4$ at $T = 32$, $N = 8$ at $T = 64$ and $128$. The $T =
+2$ and $4\,\mu\mathrm{s}$ rows, both below the floor, are in the sweep to
+demonstrate that boundary, and they do: splitting there is strictly dominated under both
+arrival laws. Section~\ref{sec:results-threshold} resolves the $4$--$8\,\mu\mathrm{s}$
+onset to $1\,\mu\mathrm{s}$ and Section~\ref{sec:results-conditioning} explains what sets
+its location.
 
 \subsection{Median cost is linear in $N$, exactly as $(N-1)h$}
 \label{sec:results-median}
 
 The $p_{50}$ columns of Table~\ref{tab:main-corpus} match the single-message formula of
-Proposition~\ref{thm:burst} in every one of the twenty cells, under both arms:
+Proposition~\ref{thm:burst}
 \[
 p_{50}(N) = T + (N-1)\,h \qquad \text{with } h = 1.7\,\mu\mathrm{s},
 \]
-for instance $8.00, 9.70, 13.10, 19.90$ at $T = 8$. Under Poisson the identity holds
-because the queue is empty; under Hawkes it holds because the median message arrives in a
-quiet inter-cluster stretch where the queue is also empty. The hop tax is therefore
-exactly $h$ per boundary on the median, with no hidden component, as
-Theorem~\ref{thm:reduction} says it must be at every quantile.
+in all 28 cells of the Poisson arm and in 25 of the 28 Hawkes cells --- for instance
+$8.00, 9.70, 13.10, 19.90$ at $T = 8$. Under Poisson the identity holds because the queue
+is empty; under Hawkes it holds because the median message arrives in a quiet
+inter-cluster stretch where the queue is also empty. The hop tax is therefore exactly $h$
+per boundary on the median, with no hidden component, as Theorem~\ref{thm:reduction} says
+it must be at every quantile.
+
+The three exceptions are informative and are all at the far end of the sweep: $(T, N) =
+(64, 1)$, $(128, 1)$ and $(128, 2)$, where the Hawkes $p_{50}$ is $98.88$, $364.45$ and
+$164.58\,\mu\mathrm{s}$ against floors of $64.00$, $128.00$ and $129.70$. There the server
+is slow enough that the median message no longer lands in a quiet stretch --- the clusters
+have merged into a persistently backlogged queue and even the typical message waits. This
+is the regime boundary showing up in the median rather than in the tail, and it is a
+boundary the paper's recommendations stay well clear of: an HFT stage with a
+$128\,\mu\mathrm{s}$ service time on this feed is not a stage to pipeline, it is a stage
+to rewrite. Note that splitting repairs the identity as soon as the per-stage service
+drops back under the threshold --- at $T = 128$ the median is back on the floor by $N =
+4$.
 
 \subsection{Design equation}
 \label{sec:results-design}
@@ -1224,11 +1293,13 @@ $\Delta(N)/\Delta(1)$ that Theorem~\ref{thm:reduction} bounds by $1/N$.
 \cmidrule(lr){2-5} \cmidrule(lr){7-9}
 $T$ & $N{=}1$ & $N{=}2$ & $N{=}4$ & $N{=}8$ & & $N{=}2$ & $N{=}4$ & $N{=}8$ & $\gamma$ \\
 \midrule
- 2 &   2.00 &  1.00 &  0.50 & 0.25 & & 0.500 & 0.250 & 0.125 & 1.00 \\
- 4 &   6.87 &  2.00 &  1.00 & 0.50 & & 0.291 & 0.146 & 0.073 & 1.23 \\
- 8 &  20.20 &  6.87 &  2.00 & 1.00 & & 0.340 & 0.099 & 0.050 & 1.48 \\
-16 &  63.22 & 20.20 &  6.87 & 2.00 & & 0.320 & 0.109 & 0.032 & 1.65 \\
-32 & 222.73 & 63.22 & 20.20 & 6.87 & & 0.284 & 0.091 & 0.031 & 1.67 \\
+ 2 &    0.00 &    0.00 &    0.00 &    0.00 & & --- & --- & --- & --- \\
+ 4 &    0.00 &    0.00 &    0.00 &    0.00 & & --- & --- & --- & --- \\
+ 8 &    0.61 &    0.00 &    0.00 &    0.00 & & 0.000 & 0.000 & 0.000 & --- \\
+16 &   18.59 &    0.61 &    0.00 &    0.00 & & 0.033 & 0.000 & 0.000 & --- \\
+32 &  114.14 &   18.59 &    0.61 &    0.00 & & 0.163 & 0.005 & 0.000 & --- \\
+64 &  721.82 &  114.14 &   18.59 &    0.61 & & 0.158 & 0.026 & 0.001 & 3.32 \\
+128 & 4952.41 &  721.82 &  114.14 &   18.59 & & 0.146 & 0.023 & 0.004 & 2.68 \\
 \midrule
 bound & & & & & & 0.500 & 0.250 & 0.125 & $\ge 1$ \\
 \bottomrule
@@ -1242,20 +1313,32 @@ is the Theorem~\ref{thm:reduction} bound.}
 
 Two features of Table~\ref{tab:delta} are the theorems made visible. First, $\Delta$
 depends on $(T, N)$ only through the per-stage service $T/N$: every diagonal of constant
-$T/N$ carries one number ($1.00$ at $T/N = 1\,\mu\mathrm{s}$, $2.00$ at $2$, $6.87$ at
-$4$, $20.20$ at $8$), to the reported precision, across up to four different $(T, N)$
-pairs. That is the reduction identity Equation~\eqref{eq:reduction} on real arrivals: the
-tandem's tail is the single-server tail at $s_{\max}$, and the table is really a table of
-$\Delta_{\mathrm{single}}(s)$ at $s \in \{0.25, 0.5, 1, 2, 4, 8, 16, 32\}\,\mu\mathrm{s}$.
+$T/N$ carries one number --- $0.00$ at $T/N \le 4\,\mu\mathrm{s}$, $0.61$ at $T/N = 8$,
+$18.59$ at $16$, $114.14$ at $32$, $721.82$ at $64$ --- to the reported precision, across
+up to four different $(T, N)$ pairs, with no fitting of any kind. That is the reduction
+identity Equation~\eqref{eq:reduction} on real arrivals: the tandem's tail is the
+single-server tail at $s_{\max}$, and the table is really a table of
+$\Delta_{\mathrm{single}}(s)$ at $s \in \{0.25, 0.5, \ldots, 64, 128\}\,\mu\mathrm{s}$
+read off the diagonals. The reduction is the single most directly verifiable claim in the
+paper and the data confirm it exactly.
+
 Second, every ratio sits at or below the bound $1/N$, and the pathwise check of
-Section~\ref{sec:evaluation} finds no message on any window above it. At $T =
-2\,\mu\mathrm{s}$ the bound is met exactly ($\gamma = 1.00$): the $p_{99}$ message there
-waits behind exactly one predecessor, so $\Delta(1) = T$ and the tandem can do no better
-than divide that one service by $N$. As $T$ grows the queues lengthen, idle gaps between
-clusters drain proportionally more of the tandem's smaller backlog, and $\gamma$ rises to
-$1.67$ at $T = 32$; that slack is the utilisation effect described after
-Theorem~\ref{thm:reduction}, and Appendix~\ref{app:check} reproduces it on synthetic Borel
-clusters.
+Section~\ref{sec:evaluation} finds no message on any window above it --- but the margin is
+now enormous rather than tight, and the reason is the threshold. Because
+$\Delta_{\mathrm{single}}(s)$ is identically zero for $s \lesssim 7.5\,\mu\mathrm{s}$
+(Section~\ref{sec:results-threshold}), a split that pushes the per-stage service below
+that floor does not merely divide the tail excess, it removes it. At $T = 32$, $\Delta$
+falls $114.14 \to 18.59 \to 0.61 \to 0.00$ as $N$ goes $1 \to 2 \to 4 \to 8$: a ratio of
+$0.005$ at $N = 4$ against a bound of $0.25$. The fitted exponent $\gamma$ in
+$\Delta(N) \approx \Delta(1) N^{-\gamma}$ is correspondingly steep, $3.32$ at $T = 64$ and
+$2.68$ at $T = 128$, well above the $\gamma = 1$ that the bound alone would permit; at $T
+\le 32$ the tandem drives $\Delta(8)$ to exactly zero and no power law is fitted, since
+the least-squares slope would be reading the numerical floor rather than the data. The
+excess decay is therefore not a $1/N$ division at all in this corpus --- it is a division
+that terminates in a cliff, and the design consequence is that the operator's goal is not
+to make $N$ large but to make $s_{\max}$ land under the feed's tight-gap floor. The
+utilisation slack described after Theorem~\ref{thm:reduction} contributes as well, and
+Appendix~\ref{app:check} reproduces it on synthetic Borel clusters.
 
 The operator's stage-count optimum is
 \[
@@ -1269,17 +1352,25 @@ will spend to remove one microsecond of $p_{99}$ excess). Over the simulated gri
 \toprule
 $T$ (\si{\micro\second}) & $N^\star = 1$ & $N^\star = 2$ & $N^\star = 4$ & $N^\star = 8$ \\
 \midrule
- 2 & $\kappa < 1.7$   & $1.7 \le \kappa < 6.8$   & $6.8 \le \kappa < 27$  & $\kappa \ge 27$  \\
- 4 & $\kappa < 0.35$  & $0.35 \le \kappa < 3.4$  & $3.4 \le \kappa < 14$  & $\kappa \ge 14$  \\
- 8 & $\kappa < 0.13$  & $0.13 \le \kappa < 0.70$ & $0.70 \le \kappa < 6.8$ & $\kappa \ge 6.8$ \\
-16 & $\kappa < 0.04$  & $0.04 \le \kappa < 0.26$ & $0.26 \le \kappa < 1.4$ & $\kappa \ge 1.4$ \\
-32 & $\kappa < 0.01$  & $0.01 \le \kappa < 0.08$ & $0.08 \le \kappa < 0.51$ & $\kappa \ge 0.51$ \\
+  2 & always             & ---                        & ---                        & ---                 \\
+  4 & always             & ---                        & ---                        & ---                 \\
+  8 & $\kappa < 2.8$     & $\kappa \ge 2.8$           & ---                        & ---                 \\
+ 16 & $\kappa < 0.095$   & $0.095 \le \kappa < 5.6$   & $\kappa \ge 5.6$           & ---                 \\
+ 32 & $\kappa < 0.018$   & $0.018 \le \kappa < 0.19$  & $0.19 \le \kappa < 11$     & $\kappa \ge 11$     \\
+ 64 & $\kappa < 0.0028$  & $0.0028 \le \kappa < 0.036$& $0.036 \le \kappa < 0.38$  & $\kappa \ge 0.38$   \\
+128 & $\kappa < 0.0004$  & $0.0004 \le \kappa < 0.0056$& $0.0056 \le \kappa < 0.071$& $\kappa \ge 0.071$ \\
 \bottomrule
 \end{tabular}
 \end{center}
+A dash means that stage count is never optimal at any $\kappa$: at $T \le 8\,\mu\mathrm{s}$
+the tail excess is already zero by $N = 2$, so further splitting can only add hop cost.
 An operator who values tail and median equally ($\kappa = 1$) lands on $N^\star = 1$ at $T
-= 2$, $2$ at $T = 4$, $4$ at $T = 8$, $4$ at $T = 16$, and $8$ at $T = 32\,\mu\mathrm{s}$,
-which is also the ordering of the raw $p_{99}$ minima in Table~\ref{tab:main-corpus}.
+= 2, 4$ and $8$, $2$ at $T = 16$, $4$ at $T = 32$, and $8$ at $T = 64$ and
+$128\,\mu\mathrm{s}$, which is also the ordering of the raw $p_{99}$ minima in
+Table~\ref{tab:main-corpus}. The practical reading is that over the service times an HFT
+hot path actually occupies, an operator has to weight the tail several times more heavily
+than the median before splitting pays at all --- and once past the threshold, has to
+weight it barely at all.
 
 At real cut points the stages are unequal, and by Remark~\ref{rem:unequal} the tail excess
 depends on the partition $P$ of the servicing chain only through its largest stage,
@@ -1313,33 +1404,51 @@ then the fewest hops that realise it.
 Equations~\eqref{eq:design99}--\eqref{eq:design50} carry an obvious lower bound on the
 tasks the paper's recommendation applies to. Splitting a task of total service $T$ into
 $N$ stages spends $(N-1) h$ at every quantile to compress a tail excess $\Delta(1)$ that
-is itself a small multiple of $T$ ($2$ to $7\,T$ on this corpus, Table~\ref{tab:delta}).
-When $T$ is of order the hop cost $h$, one hop already costs as much as the entire tail
-excess it could remove, and the design equation prescribes $N^\star = 1$ mechanically. The
-sweep shows exactly this: at $T = 2\,\mu\mathrm{s}$, $\Delta(1) = 2.00\,\mu\mathrm{s}$ and
-the best a split can do is remove half of it ($1.00\,\mu\mathrm{s}$) for a cost of
-$1.7\,\mu\mathrm{s}$, so $p_{99}$ rises from $4.00$ to $4.70$; at $T = 4\,\mu\mathrm{s}$,
-$\Delta(1) = 6.87\,\mu\mathrm{s}$, the split removes $4.87$ of it for the same $1.7$, and
-$p_{99}$ falls from $10.87$ to $7.70$ on every window. On this framework's shipping BQueue
-path ($h \approx 1.7\,\mu\mathrm{s}$) the floor is therefore $T \gtrsim 2h \approx
-3.4\,\mu\mathrm{s}$; $T = 4\,\mu\mathrm{s}$ sits just above it and already wins.
-Sub-microsecond tasks, for instance a single SBE integer decode or a small handler that
-fires from a strategy fast path, belong on \texttt{fast\_send} rather than on a
-cross-thread mailbox, regardless of feed statistics.
+is itself a strongly increasing function of $T$ ($0$ at $T \le 4\,\mu\mathrm{s}$, rising
+to $39\,T$ at $T = 128$, Table~\ref{tab:delta}). When $T$ is at or below the feed's
+tight-gap floor there is no tail excess to remove at all, and the design equation
+prescribes $N^\star = 1$ mechanically; a hop there is pure cost. The sweep shows exactly
+this: at $T = 2$ and $4\,\mu\mathrm{s}$, $\Delta(1) = 0$, so a split removes nothing and
+$p_{99}$ rises by the full hop, from $2.00$ to $3.70$ and from $4.00$ to $5.70$. Above the
+floor the arithmetic reverses sharply: at $T = 16\,\mu\mathrm{s}$, $\Delta(1) =
+18.59\,\mu\mathrm{s}$, of which the split removes $17.98$ for the same $1.7$, and $p_{99}$
+falls from $34.59$ to $18.31$ on every window.
+
+Two separate necessary conditions are at work here and it is worth keeping them apart. The
+first is a property of the \emph{framework}: a split cannot pay unless the tail excess it
+removes exceeds the hop cost it adds, which on this framework's shipping BQueue path ($h
+\approx 1.7\,\mu\mathrm{s}$) puts a floor at roughly $T \gtrsim 2h \approx
+3.4\,\mu\mathrm{s}$. The second is a property of the \emph{feed}: there is no tail excess
+to remove at all until $T$ exceeds the arrival stream's tight-gap floor, about
+$7.5\,\mu\mathrm{s}$ on this corpus (Section~\ref{sec:results-conditioning}). The binding
+constraint is whichever is larger, and on CME MDP3 channel 318 with a BQueue mailbox it is
+the feed's, by roughly a factor of two --- which is why $T = 4\,\mu\mathrm{s}$, though
+comfortably above $2h$, still has $\Delta(1) = 0$ and must not be split. A framework with a
+much more expensive mailbox would find its own floor binding instead. Throughout the rest
+of the paper, ``the floor'' means the larger of the two. Sub-microsecond tasks, for
+instance a single SBE integer decode or a small handler that fires from a strategy fast
+path, belong on \texttt{fast\_send} rather than on a cross-thread mailbox, regardless of
+feed statistics.
 
 \subsection{Across windows}
 \label{sec:results-windows}
 
 The corpus medians understate the tail on the busiest windows. Across the 3512 windows the
-single-stage $p_{99}/T$ has a median of $2.0, 2.7, 3.5, 5.0, 8.0$ and a 95th percentile of
-$2.8, 3.3, 4.4, 6.2, 10.7$ at $T = 2, 4, 8, 16, 32\,\mu\mathrm{s}$, so one window in
-twenty at $T = 32$ has a single-stage $p_{99}$ above $340\,\mu\mathrm{s}$. The tandem's
-win is not confined to the median window: $p_{99}(2) < p_{99}(1)$ holds on $100\%$ of
-windows for every $T \ge 4$, and $p_{99}(4) < p_{99}(1)$ on $74.5\%$ of windows at $T = 4$
-and $100\%$ at every $T \ge 8$. The per-window fitted branching ratio has median $0.794$
-and a 5th--95th percentile range of $0.757$--$0.827$ (Section~\ref{sec:setup-hawkes}); the
-tail excess tracks it in the expected direction, with the high-$n$ windows supplying the
-upper tail of the $p_{99}/T$ distribution. The intervening $p_{95}$ quantile is recorded
+single-stage $p_{99}/T$ has a median of $1.0, 1.0, 1.1, 2.2, 4.6, 12.8, 41.5$ and a 95th
+percentile of $1.0, 1.0, 1.1, 2.5, 6.1, 19.9, 81.7$ at $T = 2, 4, 8, 16, 32, 64,
+128\,\mu\mathrm{s}$, so one window in twenty at $T = 32$ has a single-stage $p_{99}$ above
+$195\,\mu\mathrm{s}$ and at $T = 128$ above $10.5\,\mathrm{ms}$. The tandem's win is not
+confined to the median window: $p_{99}(2) < p_{99}(1)$ and $p_{99}(4) < p_{99}(1)$ both
+hold on $100\%$ of windows at every $T \ge 16$, and on no window at all at $T \le 8$,
+where there is no tail to compress and the split pays only hop cost. The crossover is
+sharp and sits just below $T = 10\,\mu\mathrm{s}$: on the refined sweep of
+Section~\ref{sec:results-threshold}, $p_{99}(2) < p_{99}(1)$ on $0\%$ of windows at $T =
+8\,\mu\mathrm{s}$, $67.0\%$ at $T = 9\,\mu\mathrm{s}$ and $99.7\%$ at $T =
+10\,\mu\mathrm{s}$. The per-window fitted branching ratio has median $0.798$ and a
+5th--95th percentile range of $0.761$--$0.832$ (Section~\ref{sec:setup-hawkes}); how the
+tail excess depends on it, and on the window's packet rate, is taken up in
+Section~\ref{sec:results-conditioning}, where the answer turns out to be
+service-time-dependent and not the one we expected. The intervening $p_{95}$ quantile is recorded
 per window in the sweep (Section~\ref{sec:setup-sweep}) and omitted from the tables above
 only for brevity; it lies between the reported $p_{50}$ and $p_{99}$ in every cell by
 construction, and under the Poisson null it equals the service floor wherever $p_{99}$
@@ -1349,16 +1458,211 @@ as evaluation units for the descriptive statistics reported here; they are neste
 would be clustered at the session level rather than treating 3512 as an independent sample
 size.
 
+\subsection{Where the tail switches on}
+\label{sec:results-threshold}
+
+The coarse sweep brackets the onset of the clustering tail between $T = 8$ and $T =
+16\,\mu\mathrm{s}$, which is too wide to turn into a design rule. We therefore reran the
+single- and two-stage arms on the same 3512 windows at $T \in \{5, 6, 7, 8, 9, 10, 12,
+14, 16\}\,\mu\mathrm{s}$. The onset is far sharper than the coarse grid suggests:
+
+\begin{center}
+\begin{tabular}{rrrrr}
+\toprule
+$T$ ($\mu$s) & $p_{99}$ Hawkes & excess over $T$ & windows with a tail & $p_{99}(2) < p_{99}(1)$ \\
+\midrule
+ 5 &  5.00 &  0.00 &   0.0\% &   0.0\% \\
+ 6 &  6.00 &  0.00 &   0.0\% &   0.0\% \\
+ 7 &  7.00 &  0.00 &   4.5\% &   0.0\% \\
+ 8 &  8.61 &  0.61 &  98.6\% &   0.0\% \\
+ 9 & 10.85 &  1.85 & 100.0\% &  67.0\% \\
+10 & 13.52 &  3.52 & 100.0\% &  99.7\% \\
+12 & 19.83 &  7.83 & 100.0\% & 100.0\% \\
+14 & 26.68 & 12.68 & 100.0\% & 100.0\% \\
+16 & 34.59 & 18.59 & 100.0\% & 100.0\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Two distinct thresholds are visible, and conflating them is the easiest mistake to make
+with this data. The first is the \emph{tail} threshold: between $T = 7$ and $T =
+8\,\mu\mathrm{s}$ the fraction of windows with any $p_{99}$ excess jumps from $4.5\%$ to
+$98.6\%$. The second is the \emph{splitting} threshold, about $1.5\,\mu\mathrm{s}$ later,
+between $T = 8$ and $T = 10\,\mu\mathrm{s}$: a tail must exist \emph{and} exceed the hop
+cost before a split repays it. At $T = 8\,\mu\mathrm{s}$ nearly every window has a tail,
+but its median excess is $0.61\,\mu\mathrm{s}$, well under $h = 1.7\,\mu\mathrm{s}$, and
+splitting loses on every window. By $T = 10\,\mu\mathrm{s}$ the excess is
+$3.52\,\mu\mathrm{s}$, comfortably above $h$, and splitting wins on $99.7\%$.
+
+The location of the first threshold is not arbitrary. It is set by the feed's
+\emph{tight-gap} structure rather than by its average rate --- a distinction that the next
+section shows is the key to the whole regime.
+
+% =====================================================================
+
+\subsection{Conditioning on intensity and criticality}
+\label{sec:results-conditioning}
+
+Everything reported so far is conditioned on the service time $T$ alone. That is not
+obviously enough. A Hawkes tail is generated by two things the corpus median hides: how
+busy the window is, measured by the mean packet rate $\bar\lambda$, and how close to
+critical its self-excitation is, measured by the branching ratio $n = \alpha/\beta$. The
+natural expectation --- ours, before measuring --- is that the tail, and therefore the
+case for splitting, strengthens with both, so that a rule stated in $T$ alone would be a
+rule that silently averages over market states and would mislead on the busy ones. We
+report the check because the expectation turns out to be wrong over the range of service
+times an HFT hot path actually occupies, and a rule of thumb that is not conditioned on
+market state is a far more useful rule than one that is.
+
+We sort the 3512 windows into quintiles, first by $\bar\lambda$ and then by the fitted
+$n$, and report the corpus median of the normalised single-stage tail $p_{99}/T$ within
+each quintile. Normalising by $T$ removes the service floor, so a value of $1.0$ means no
+tail at all and the quintile-to-quintile ratio isolates the conditioning effect.
+
+\begin{center}
+\begin{tabular}{lrrrrrr}
+\toprule
+& & \multicolumn{5}{c}{$p_{99}/T$, corpus median} \\
+\cmidrule(l){3-7}
+quintile & median & $T{=}8$ & $T{=}16$ & $T{=}32$ & $T{=}64$ & $T{=}128$ \\
+\midrule
+\multicolumn{7}{l}{\emph{by packet rate $\bar\lambda$ (pkt/s)}} \\
+Q1 & 202  & 1.08 & 2.29 & 4.74 & 12.25 & 31.76 \\
+Q3 & 451  & 1.07 & 2.12 & 4.48 & 12.68 & 42.81 \\
+Q5 & 942  & 1.08 & 2.11 & 4.51 & 13.92 & 55.67 \\
+\addlinespace
+\multicolumn{2}{l}{\textbf{Q5/Q1}} & \textbf{1.00} & \textbf{0.92} & \textbf{0.95} & \textbf{1.14} & \textbf{1.75} \\
+\midrule
+\multicolumn{7}{l}{\emph{by branching ratio $n$}} \\
+Q1 & 0.769 & 1.08 & 2.18 & 4.51 & 11.61 & 30.73 \\
+Q3 & 0.798 & 1.08 & 2.16 & 4.61 & 13.17 & 42.83 \\
+Q5 & 0.825 & 1.07 & 2.15 & 4.61 & 14.65 & 58.73 \\
+\addlinespace
+\multicolumn{2}{l}{\textbf{Q5/Q1}} & \textbf{1.00} & \textbf{0.98} & \textbf{1.02} & \textbf{1.26} & \textbf{1.91} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The result splits cleanly at $T \approx 32$--$64\,\mu\mathrm{s}$. For $T \le
+32\,\mu\mathrm{s}$ the normalised tail is flat in both variables: a $4.66\times$ change in
+packet rate moves it by $0$--$8\%$, and in the wrong direction at $T = 16$ and $T = 32$,
+where the \emph{busiest} quintile has the slightly \emph{smaller} normalised tail. A
+$0.769 \to 0.825$ change in branching ratio moves it by at most $2\%$. For $T \ge
+64\,\mu\mathrm{s}$ both variables bite, and in the expected direction: by $T =
+128\,\mu\mathrm{s}$ the busiest quintile's tail is $1.75\times$ the quietest and the most
+critical quintile's is $1.91\times$ the least. This is the same boundary that separates
+the clustering regime from the utilisation regime elsewhere in this paper, and it should
+be: for $T \ge 64\,\mu\mathrm{s}$ the Poisson null has a tail too
+(Section~\ref{sec:results-tail}), utilisation $\rho = \bar\lambda T$ is the governing
+quantity, and $\rho$ is proportional to $\bar\lambda$ by construction. Intensity
+conditioning matters exactly where classical queueing theory says it should, and nowhere
+earlier.
+
+\paragraph{Why intensity is inert below the crossover.} The null result is not a
+measurement artefact of the quintile split; it has a direct mechanical explanation in the
+arrival stream. Taking the same $\bar\lambda$ quintiles and reporting the corpus median of
+the per-window interarrival-gap quantiles:
+
+\begin{center}
+\begin{tabular}{lrrrrrr}
+\toprule
+quintile & $\bar\lambda$ (pkt/s) & $p_1$ gap & $p_5$ gap & $p_{25}$ gap & $p_{50}$ gap & mean gap \\
+\midrule
+Q1 & 202 & 7.45 & 8.85 & 21.30 & 87.10 & 4944 \\
+Q2 & 320 & 7.52 & 8.75 & 21.87 & 84.52 & 3128 \\
+Q3 & 451 & 7.53 & 8.70 & 22.70 & 82.16 & 2215 \\
+Q4 & 620 & 7.51 & 8.66 & 23.36 & 81.98 & 1612 \\
+Q5 & 942 & 7.43 & 8.58 & 22.55 & 76.52 & 1062 \\
+\addlinespace
+\textbf{Q5/Q1} & \textbf{4.66}$\times$ & \textbf{0.997}$\times$ & \textbf{0.969}$\times$ & \textbf{1.059}$\times$ & \textbf{0.878}$\times$ & \textbf{0.215}$\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All gaps in microseconds. The mean gap falls by exactly the reciprocal of the rate
+increase, $0.215 \approx 1/4.66$, which is definitional. Every other column is
+approximately invariant, and the tightest one is the most invariant of all: the $p_1$ gap
+moves from $7.45$ to $7.43\,\mu\mathrm{s}$, a ratio of $0.997$, while the rate more than
+quadruples.
+
+This is what a Hawkes process does, and it is worth stating plainly because it is the
+crux of the whole regime. Raising the intensity of a self-exciting process raises the
+rate at which \emph{clusters} are born; it does not repack the events \emph{inside} a
+cluster. The intra-cluster spacing is set by the exchange's packet-emission granularity
+--- a property of the CME gateway, not of the market state --- and on this corpus that
+floor sits at roughly $7.5\,\mu\mathrm{s}$. A busy window is a window with more bursts in
+it, not a window with tighter bursts.
+
+The queueing consequence follows immediately. A deterministic server of service time $T$
+begins to build a queue when it is handed two arrivals separated by less than $T$, so the
+service time at which a tail appears is set by the \emph{tight} end of the gap
+distribution, not by its mean. The tight end is invariant to $\bar\lambda$; therefore the
+threshold is invariant to $\bar\lambda$. And the two numbers agree: the measured $p_1$ gap
+of $7.43$--$7.53\,\mu\mathrm{s}$ across every intensity quintile brackets the measured
+tail onset of Section~\ref{sec:results-threshold}, between $T = 7$ and $T =
+8\,\mu\mathrm{s}$, where the fraction of windows carrying any tail jumps from $4.5\%$ to
+$98.6\%$.
+
+\paragraph{Robustness: the null is not an artefact of the window length.} A
+30-minute window averages $\bar\lambda$ over a long stretch, and one could reasonably
+object that the quintile split above is comparing time-averaged rates that have smoothed
+away the intensity variation that matters. We therefore reran the entire pipeline ---
+packet extraction, per-window Hawkes MLE, Poisson null and the full $(T, N)$ grid --- on
+\emph{five}-minute windows, giving 21{,}060 windows in place of 3512. Shorter windows do
+resolve more intensity variation, as expected: the corpus $\bar\lambda$ spread widens from
+$6.8\times$ to $7.3\times$ between the 5th and 95th percentiles, from $26.0\times$ to
+$30.6\times$ between the 1st and 99th, and the observed maximum rises from $2152$ to
+$2692$ packets per second; the 5th--95th range of the fitted branching ratio widens from
+$0.0717$ to $0.0786$. The conditioning result is nevertheless unchanged, to two decimal
+places, across the entire sweep:
+
+\begin{center}
+\begin{tabular}{lrrrrrr}
+\toprule
+& $\bar\lambda$ Q5/Q1 & $T{=}8$ & $T{=}16$ & $T{=}32$ & $T{=}64$ & $T{=}128$ \\
+\midrule
+30-min windows ($n = 3512$)     & $4.66\times$ & 1.00 & 0.92 & 0.95 & 1.14 & 1.75 \\
+\phantom{0}5-min windows ($n = 21{,}060$) & $4.98\times$ & 1.00 & 0.93 & 0.96 & 1.15 & 1.74 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Entries are the Q5/Q1 ratio of the normalised single-stage tail $p_{99}/T$. Resolving
+intensity six times more finely, over a wider realised range of it, moves no entry by more
+than $0.01$. The inertness of intensity below the crossover is a property of the arrival
+process, not of the measurement window.
+
+\paragraph{Consequence for the design rule.} The rule of thumb this paper recommends ---
+split a stage whose service time exceeds the feed's tight-gap floor, leave it alone below
+--- can therefore be stated as a constant of the feed rather than as a function of market
+state. It does not need a runtime intensity estimate, it does not change between a quiet
+morning and a volatile open, and a system tuned on one is tuned for the other. That is a
+stronger and simpler claim than the intensity-conditioned rule we set out to find, and it
+holds only because of the invariance measured above; it should be rechecked on any feed
+whose packet-emission behaviour differs from CME MDP3's, since it is that emission
+granularity, and not anything about the order flow, that sets the constant.
+
+Note also what the tight-gap floor is \emph{not}: it is not the mean interarrival gap. On
+this corpus the mean gap is $2215\,\mu\mathrm{s}$ at the median window, some $300\times$
+the $p_1$ gap. A rule that said ``split stages longer than the average interarrival time''
+would recommend never splitting anything in an HFT hot path, and would be wrong by more
+than two orders of magnitude. The averages are irrelevant to the tail; only the tight end
+of the gap distribution is.
+
+% =====================================================================
+
 \subsection{Sensitivity to $h$}
 \label{sec:results-h}
 
 The design equation is monotone in $h$: at fixed $T$ and fixed corpus $\Delta(N)$, every
 $\kappa$ breakpoint in the table above scales linearly with $h$, so halving $h$ halves
 every breakpoint and moves $N^\star$ up one notch at every $T$ for a fixed $\kappa$. At $h
-= 1.7\,\mu\mathrm{s}$ the $p_{99}$-minimising $N$ is $1, 2, 4, 4, 8$ across the five
-service floors; at a hypothetical sub-microsecond busy-poll mailbox it would be $2, 4, 8,
-8, 8$ and the natural cut-point ceiling of $4$--$5$ stages would bind before the design
-equation did. For any other framework the procedure is the same: measure the one-way
+= 1.7\,\mu\mathrm{s}$ the $p_{99}$-minimising $N$ is $1, 1, 1, 2, 4, 8, 8$ across the
+seven service floors; at a hypothetical $h = 0.5\,\mu\mathrm{s}$ busy-poll mailbox it
+would be $1, 1, 2, 2, 4, 8, 8$ --- the change is a single notch, at $T = 8\,\mu\mathrm{s}$,
+because below the tight-gap floor no reduction in $h$ can make a split worth taking when
+there is no tail to remove. Cheapening the hop widens the band of service times over
+which splitting pays; it does not move the threshold itself, which belongs to the feed. For any other framework the procedure is the same: measure the one-way
 asynchronous hop cost $h$ on its own dispatch path, put it into
 Equation~\eqref{eq:design99} with the corpus $\Delta$ of Table~\ref{tab:delta}, and read
 off $N^\star$; a framework whose $h$ exceeds the tail excess a split could remove gets
@@ -1410,9 +1714,13 @@ the $0.01\,\mu\mathrm{s}$ reporting precision.
 \paragraph{Theorem~\ref{thm:reduction} (reduction and scaling bound).} The prediction is
 $\Delta(N) \le \Delta(1)/N$ on every window, and more strongly $W_j^{(N)} \le W_j^{(1)}/N
 + (N-1)h$ for every individual message. The corpus-median ratios in Table~\ref{tab:delta}
-sit at or below $1/N$ in every cell, with equality at $T = 2\,\mu\mathrm{s}$ and slack
-growing with $T$ ($\gamma$ from $1.00$ to $1.67$). The pathwise form was checked directly
-by the simulator: across all 3512 windows, all five service floors, both arms, and $N \in
+sit at or below $1/N$ in every cell, with substantial slack everywhere: the tightest
+ratio in the sweep is $0.163$ at $T = 32$, $N = 2$, against a bound of $0.5$. The slack is
+largest where a split drives the per-stage service under the tight-gap floor and removes
+the excess outright rather than dividing it, which is why the fitted $\gamma$ is $3.32$
+and $2.68$ at $T = 64$ and $128$ rather than near $1$. The pathwise form was checked
+directly by the simulator: across all 3512 windows, all seven service floors, both arms,
+and $N \in
 \{2, 4, 8\}$, no message violates the bound (the check allows $N$ nanoseconds for the
 rounding of $T/N$; the largest excess over that tolerance is $0$). The reduction identity
 Equation~\eqref{eq:reduction} is visible in Table~\ref{tab:delta} without any fitting:
@@ -1423,10 +1731,12 @@ single-server tail at $s_{\max}$ on real arrivals exactly as on synthetic ones
 \paragraph{Corollary~\ref{cor:poisson} (Poisson null).} The prediction is
 $p_{q}^{\mathrm{P}}(N) = T + (N-1)h$ wherever the per-stage utilisation satisfies $\rho /
 N < 1 - q$, and a visible wait wherever it does not. Table~\ref{tab:main-corpus} matches
-both halves: Poisson $p_{99}$ equals the floor in nineteen of twenty cells and exceeds it
-only at $T = 32\,\mu\mathrm{s}$, $N = 1$ ($\rho = 0.0145 > 0.01$), and Poisson $p_{99.9}$
-exceeds the floor exactly in the cells with $\rho/N > 10^{-3}$ (single stage at $T \ge 4$,
-two stages at $T \ge 8$, four stages at $T \ge 16$) and nowhere else. The null arm is
+both halves: Poisson $p_{99}$ equals the floor in 22 of the 28 cells and exceeds it in
+exactly the six cells whose per-stage utilisation clears $10^{-2}$ --- $(T, N) = (32, 1)$,
+$(64, 1)$, $(64, 2)$, $(128, 1)$, $(128, 2)$ and $(128, 4)$, at $\rho/N = 0.0144$ to
+$0.0578$ --- and in no cell below it. Poisson $p_{99.9}$ likewise exceeds the floor
+exactly in the cells with $\rho/N > 10^{-3}$ (single stage at $T \ge 4$, two stages at $T
+\ge 8$, four stages at $T \ge 16$) and nowhere else. The null arm is
 therefore a working queue whose small wait appears where PASTA says it must, and splitting
 under it costs $(N-1)h$ at every reported quantile.
 
@@ -1649,7 +1959,7 @@ operator's chosen tradeoff.
 Under the arrival law of a CME MDP3 feed the design equation of
 Section~\ref{sec:results-design} predicts what steps 4--5 converge to: async \texttt{send}
 at every boundary whose removal would raise the largest stage, and \texttt{fast\_send}
-everywhere else, in particular between short sub-tasks below the $2h$ floor of
+everywhere else, in particular between short sub-tasks below the floor of
 Section~\ref{sec:results-design} and between sub-tasks downstream of the bottleneck whose
 combined service stays at or below $s_{\max}$ (Remark~\ref{rem:unequal}). The operator
 does not need to trust that prediction to run the discipline; the measurement is the
@@ -1831,7 +2141,7 @@ recommendation to collapse the entire hot path onto one thread
 (Section~\ref{sec:intro-singlethread-priors}). On Hawkes-clustered feeds this is
 empirically wrong: the tail is dominated by cluster-wait, and adding threads between
 actors along the servicing chain compresses that tail by $N^{-\gamma}$ at a small $(N-1)h$
-median cost, provided $T$ sits above the $2h$ floor of Section~\ref{sec:results-design}.
+median cost, provided $T$ sits above the floor of Section~\ref{sec:results-design}.
     \item \textbf{Always-on interventions: pre-spinning receivers and pre-warming
 pipelines.} The Poisson-orthodox recommendation to burn a core-worth of CPU per receiver
 on busy-poll, and a smaller amount of CPU on periodic warmup traffic, to eliminate wake-up
@@ -1854,6 +2164,22 @@ canonical HFT infrastructure workflow on self-exciting exchange feeds:
     \item \textbf{Keep the fast-code craft.} Everything in the first subsection above.
 This is orthogonal to the paper's recommendation and is still what pays the bills on
 absolute latency.
+    \item \textbf{Measure the target feed's tight-gap floor, and use it as the
+split/don't-split test.} Take the corpus of packet arrivals, form the per-window
+interarrival-gap distribution, and read off a low quantile of it --- we use $p_1$. This
+single number is the service time at which a deterministic stage begins to accumulate a
+tail, and on CME MDP3 channel 318 it is $\approx 7.5\,\mu\mathrm{s}$
+(Section~\ref{sec:results-conditioning}). A stage whose service time sits comfortably
+below it will not develop a queue and must not be split: the split buys nothing and costs
+$h$ at every quantile. A stage above it should be split, subject to the tail excess
+exceeding $h$, which on this corpus happens about $1.5\,\mu\mathrm{s}$ further along
+(Section~\ref{sec:results-threshold}). Two cautions. First, use the tight end of the gap
+distribution, never the mean: on this corpus the mean gap is $2215\,\mu\mathrm{s}$, some
+$300\times$ larger, and a rule stated on it would say never to split anything. Second,
+this floor is a property of the exchange's packet-emission granularity and is invariant to
+market intensity --- it does not move between a quiet session and a volatile one
+(Section~\ref{sec:results-conditioning}) --- so it is measured once per feed, not tracked
+at runtime. Re-measure it for any feed whose gateway behaves differently.
     \item \textbf{Draft the pipeline as a chain of actors at natural cut points, then
 balance it.} On a CME MDP3 handler: \texttt{SocketReader}, SBE decoder, order book,
 strategy actor, order manager --- four or five stages, no artificial decomposition
@@ -1876,7 +2202,7 @@ $(p_{50}, p_{99})$ improves. Iterate until no single-boundary flip helps.
 \texttt{send} at every boundary whose removal would raise the largest stage;
 \texttt{fast\_send} at every other boundary, in particular between sub-tasks downstream of
 the bottleneck whose combined service stays at or below $s_{\max}$, and between short
-sub-tasks below the $2h$ floor. A hop that does not lower $s_{\max}$ costs $h$ at every
+sub-tasks below the floor. A hop that does not lower $s_{\max}$ costs $h$ at every
 quantile and compresses nothing.
     \item \textbf{Do not pre-spin or pre-warm by default.} If pre-spinning or pre-warming
 is used, measure the ROI on a Hawkes-representative tape, net of the steady core-burn and
@@ -1906,28 +2232,32 @@ halves of the argument fail.
 \paragraph{Conclusion 1: the thread-hop cost is a wash under real arrivals.} The dominant
 term in end-to-end latency on a Hawkes-clustered feed is not the mailbox handoff --- it is
 the cluster-wait tail. On 3512 windows at $h = 1.7\,\mu\mathrm{s}$ the corpus-median
-single-thread $p_{99}$ is $2.7$, $3.5$, $5.0$, and $8.0$ times the service floor at $T =
-4, 8, 16, 32\,\mu\mathrm{s}$, i.e.\ a tail excess of $4$ to $130$ times the hop cost; the
-$p_{99.9}$ excess is twice that again. Adding a hop is $+1.7\,\mu\mathrm{s}$ at every
-quantile; the tail it lets us compress is one to two orders of magnitude larger whenever
-$T$ sits above the $2h$ floor. The single-thread objection --- ``every hop is a fixed tax
+single-thread $p_{99}$ is $2.2$, $4.6$, $12.8$ and $41.5$ times the service floor at $T =
+16, 32, 64, 128\,\mu\mathrm{s}$, i.e.\ a tail excess of $11$ to $2900$ times the hop cost;
+the $p_{99.9}$ excess is roughly twice that again. Adding a hop is $+1.7\,\mu\mathrm{s}$
+at every quantile; the tail it lets us compress is one to three orders of magnitude larger
+whenever $T$ sits above the feed's tight-gap floor. Below that floor the statement
+reverses and the hop is pure cost, which is why the rule this paper recommends is a
+threshold rule and not a blanket endorsement of splitting. The single-thread objection --- ``every hop is a fixed tax
 that no benefit can overcome'' --- is empirically wrong on this class of feed.
 
 \paragraph{Conclusion 2: two threads beat one on the tail at the cost of one hop on the
 median.} Splitting a service task into two half-length actors on separate threads joined
 by one $1.7\,\mu\mathrm{s}$ mailbox hop lowers $p_{99}$ on $100\%$ of the 3512 windows at
-every service floor from $4$ to $32\,\mu\mathrm{s}$, cutting the corpus-median tail excess
-to between $0.28$ and $0.34$ of its single-thread value for a median cost of exactly $h$;
-the trade favours the split for any tail weight $\kappa \gtrsim 0.35$ at $T =
-4\,\mu\mathrm{s}$ and $\kappa \gtrsim 0.01$ at $T = 32\,\mu\mathrm{s}$. At $T =
-2\,\mu\mathrm{s}$, below the $2h$ floor of Section~\ref{sec:results-design}, the split
-loses on $p_{99}$, as the design equation says it must. The pattern extends to $N > 2$: an
-$N$-stage tandem contracts the tail excess by a factor of $N$ or better on every sample
-path (Theorem~\ref{thm:reduction}) while paying $(N-1)h$ at every quantile, and the
-$p_{99}$-minimising stage count rises with the task length, from $2$ at $4\,\mu\mathrm{s}$
-to $8$ at $32\,\mu\mathrm{s}$, up to the number of natural cut points in the decode chain
-(four or five on CME). The single-thread event loop is dominated on the tail on
-Hawkes-clustered feeds above the $2h$ floor, and holds its advantage only on the median,
+every service floor from $16$ to $128\,\mu\mathrm{s}$, cutting the corpus-median tail
+excess to between $0.03$ and $0.16$ of its single-thread value for a median cost of
+exactly $h$; the trade favours the split for any tail weight $\kappa \gtrsim 0.095$ at $T
+= 16\,\mu\mathrm{s}$ and $\kappa \gtrsim 0.0004$ at $T = 128\,\mu\mathrm{s}$. At $T \le
+8\,\mu\mathrm{s}$, at or below the feed's tight-gap floor, the split loses on $p_{99}$, as
+the design equation says it must. The pattern extends to $N > 2$: an $N$-stage tandem
+contracts the tail excess by a factor of $N$ or better on every sample path
+(Theorem~\ref{thm:reduction}) --- and in practice by far more than $N$, because a split
+that drives the per-stage service under the tight-gap floor removes the excess outright
+rather than dividing it --- while paying $(N-1)h$ at every quantile. The
+$p_{99}$-minimising stage count rises with the task length, from $1$ at $T \le
+8\,\mu\mathrm{s}$ to $2$ at $16$, $4$ at $32$ and $8$ at $64$ and $128\,\mu\mathrm{s}$, up
+to the number of natural cut points in the decode chain (four or five on CME). The single-thread event loop is dominated on the tail on
+Hawkes-clustered feeds above the floor, and holds its advantage only on the median,
 by one hop per stage.
 
 \paragraph{Why the single-thread rule persists.} We think the field arrived at the
@@ -1980,7 +2310,7 @@ supplies the arrival-law-aware default value of that end-of-build measurement: o
 Hawkes-clustered feeds, long tasks should be split into shorter actors joined by
 asynchronous sends as a matter of preference, on the presumption that splitting compresses
 the overall tail more than the added hop cost inflates the median. The rule presupposes
-that the task being split has a service time $T$ comfortably above the $2h$ floor of
+that the task being split has a service time $T$ comfortably above the floor of
 Section~\ref{sec:results-design}; a task of order $h$ or below cannot be usefully split (a
 $1\,\mu\mathrm{s}$ task cannot be turned into two $500$~ns actors when a single hop alone
 costs $1.7\,\mu\mathrm{s}$). Short synchronous chains inside one actor's servicing of one
@@ -2030,14 +2360,32 @@ All code referenced below lives in the \kasparhft{} repository \citep{kaspar_rep
 paper's recommendations are stated for.
 
 Code: \texttt{arrival\_paper/qsim\_prep.py} (stage 1: per-window packet-arrival extraction
-and packet-Hawkes fit, cached to \texttt{metadata.parquet} plus per-window arrival arrays)
-and \texttt{arrival\_paper/qsim\_run.py} (stage 2: the $(T, h, N)$ tandem Lindley grid
-with the Poisson null and the per-window Theorem~\ref{thm:reduction} bound check, seconds
-per full-corpus sweep under \texttt{numba}); \texttt{arrival\_paper/hawkes\_smoke.py}
-holds the Hawkes MLE. Data: 281 per-session message tapes derived from CME MDP3 channel
-318 pcaps (NQ front month, 2025-01 through 2026-02); the tapes are derived from licensed
-exchange data and are not redistributed, but the extraction script and the cached
-per-window metadata are released with the paper.
+keyed on \texttt{sendingTime}, and the packet-Hawkes fit, cached to
+\texttt{metadata.parquet} plus per-window arrival arrays; \texttt{-{}-window-min} selects
+the window length) and \texttt{arrival\_paper/qsim\_run.py} (stage 2: the $(T, h, N)$
+tandem Lindley grid with the Poisson null and the per-window Theorem~\ref{thm:reduction}
+bound check, minutes per full-corpus sweep under \texttt{numba});
+\texttt{arrival\_paper/hawkes\_smoke.py} holds the Hawkes MLE and
+\texttt{arrival\_paper/make\_tables.py} regenerates Tables~\ref{tab:main-corpus}
+and~\ref{tab:delta} and the derived quantities quoted in the text directly from the grid
+output, so every number in Part~II is reproducible from the cache by one command.
+
+The two-stage split is what makes the sweeps in this paper practical: the expensive work
+(tape parsing and 3512 Hawkes MLEs) is done once and cached, after which a new $(T, h, N)$
+grid costs minutes rather than hours. The refined threshold sweep of
+Section~\ref{sec:results-threshold} and the five-minute rerun of
+Section~\ref{sec:results-conditioning} were both produced this way.
+
+Determinism: the Poisson null's per-window seed is derived from an MD5 of
+\texttt{(session, window\_id)} rather than from Python's built-in \texttt{hash}, which is
+randomised per interpreter run, so the cache is byte-reproducible across re-runs; the
+metadata frame is sorted by \texttt{(session, window\_id)} before writing for the same
+reason.
+
+Data: 281 per-session message tapes derived from CME MDP3 channel 318 pcaps (NQ front
+month, 2025-01 through 2026-02, holidays and half-days excluded); the tapes are derived
+from licensed exchange data and are not redistributed, but the extraction script and the
+cached per-window metadata are released with the paper.
 
 % =====================================================================
 \bibliographystyle{plainnat}
