@@ -59,8 +59,8 @@ on the tail.
 
 The effect is governed by the arrival law, and the comparison against a matched-rate
 Poisson null separates two regimes that are easy to conflate. Over the band of per-message
-service times that an HFT hot path actually occupies --- single-digit to low-tens of
-microseconds --- the Poisson null has no tail at all: its $p_{99}$ sits exactly at the
+service times that an HFT hot path actually occupies --- up to roughly $20\,\mu\mathrm{s}$
+on this feed --- the Poisson null has no tail at all: its $p_{99}$ sits exactly at the
 service time, there is nothing for a pipeline to compress, and splitting is pure hop cost.
 The clustered feed has a substantial tail over that same band, so the entire win in the
 regime of interest is attributable to clustering rather than to adding threads. A Poisson
@@ -118,11 +118,12 @@ service rate $1/T$, and cluster-induced queueing accumulates a tail that dwarfs 
 to two orders of magnitude. This paper's central empirical observation, on 276 sessions
 (3512 thirty-minute windows) of NQ front-month packet arrivals, is that this cluster tail
 is what dominates observed end-to-end latency: the $99$th-percentile latency ($p_{99}$) of
-a constant-service queue driven by real packet arrivals is $3.5$ times the service floor
-at the corpus-median window for an $8\,\mu\mathrm{s}$ task and $8$ times for a
-$32\,\mu\mathrm{s}$ task, and $4.4$ and $10.7$ times at the 95th-percentile window. Under
-a rate-matched Poisson null of the same arrival count the $p_{99}$ equals the median; the
-tail is entirely a Hawkes-cluster effect.
+a constant-service queue driven by real packet arrivals is $2.2$ times the service floor
+at the corpus-median window for a $16\,\mu\mathrm{s}$ task and $4.6$ times for a
+$32\,\mu\mathrm{s}$ task, and $2.5$ and $6.1$ times at the 95th-percentile window. Under a
+rate-matched Poisson null of the same arrival count the $p_{99}$ still equals the median
+at $16\,\mu\mathrm{s}$ and is only $1.3$ times it at $32$, against the Hawkes arm's $4.6$;
+over this band the tail is a Hawkes-cluster effect almost in its entirety.
 
 Given that the tail is cluster-driven, the natural question is whether splitting the
 pipeline into $N > 1$ stages --- each running as an independent actor on its own core,
@@ -245,8 +246,10 @@ Theorem~\ref{thm:reduction} shows that a deterministic-service tandem reduces ex
 single server with the largest stage's service, and that the end-to-end wait is bounded
 pathwise by $1/N$ of the single-stage wait plus $(N-1)h$, at every quantile and under
 every arrival sequence. Corollary~\ref{cor:poisson} shows that under a rate-matched
-Poisson null at the feed's utilisation the single-stage wait is already zero, so there is
-nothing to compress and splitting costs exactly $(N-1)h$. The Hawkes--Oakes cluster
+Poisson null the single-stage wait at the $q$-quantile is already zero whenever the
+utilisation satisfies $\rho < 1 - q$ --- which at this feed's rate covers $p_{99}$ for
+every task up to $16\,\mu\mathrm{s}$ --- so over that band there is nothing to compress
+and splitting costs exactly $(N-1)h$. The Hawkes--Oakes cluster
 representation then explains why the single-stage wait on a real feed is large --- one to
 two orders of magnitude above the per-hop cost $h$ that the single-thread argument worries
 about. A self-exciting feed is equivalent to a Poisson stream of background ``parent'' arrivals,
@@ -294,11 +297,15 @@ RPC-pipeline work (ABIDES, ABIDES-MARL, JAX-LOB, Aquilina--Budish--O'Neill, Dean
 Parsimon, and the datacenter tail-latency crowd) confirmed that there is no direct prior
 art on either of the paper's two claims. The first is theoretical: that the choice between
 a single-queue (single-thread) architecture and an $N$-stage tandem (multi-actor pipeline)
-is not fixed but \emph{reverses with the arrival law}. Under Poisson arrivals the single
-queue is the better choice, because there is essentially no cluster-induced wait to
-compress and each additional stage only adds hop latency; under Hawkes-clustered arrivals
-the tandem instead wins on the tail, because the cluster wait it compresses outweighs the
-hops it adds. We have found no prior work stating that the architectural recommendation
+is not fixed but \emph{reverses with the arrival law}. At a given service time --- and we
+mean the ones an HFT hot path actually occupies, single-digit to low-tens of microseconds
+--- Poisson arrivals make the single queue the better choice, because at that utilisation
+there is no wait to compress and each additional stage only adds hop latency, while
+Hawkes-clustered arrivals at the \emph{same mean rate} make the tandem win on the tail,
+because the cluster wait it compresses outweighs the hops it adds. The reversal is between
+arrival laws at fixed rate and service time, not a claim that Poisson queues never build
+tails: push the service time far enough and a Poisson queue tails too, just an order of
+magnitude later and far more mildly. We have found no prior work stating that the architectural recommendation
 itself flips sign between these two arrival laws. The second is empirical: a tandem-queue
 latency sweep --- over a range of service floors and stage counts --- driven by real CME
 MDP3 packet timestamps, controlled against a rate-matched Poisson null, and calibrated with
@@ -407,9 +414,10 @@ every sample path, and that single-server wait is at most $1/N$ of the wait at s
 $T$. Both are elementary and arrival-law independent; Theorem~\ref{thm:reduction} rests on a
 reduction theorem of \citet{friedman1965} and on the monotonicity of the Lindley
 recursion.
-Corollary~\ref{cor:poisson} is the Poisson null: at the utilisation of a CME packet feed
-the single-stage wait is zero at every reported quantile, so splitting costs exactly
-$(N-1)h$. The arrival law enters only through the size of the single-stage wait that the
+Corollary~\ref{cor:poisson} is the Poisson null: it locates exactly where the Poisson wait
+switches on, at $\rho = 1 - q$, and at the utilisation of a CME packet feed that puts the
+single-stage $p_{99}$ wait at zero for every task up to $16\,\mu\mathrm{s}$, so over that
+band splitting costs exactly $(N-1)h$ and buys nothing. The arrival law enters only through the size of the single-stage wait that the
 $1/N$ is applied to, and the Hawkes--Oakes cluster representation explains why that wait
 is large on a real feed. The literature search summarised in
 Section~\ref{sec:intro-priors} found no published statement of the architecture
@@ -675,8 +683,9 @@ with mean $\mathrm{E}[K] = 1/(1-n)$ and variance $\mathrm{Var}[K] = n/(1-n)^3$
 \begin{remark}[Where Hawkes enters: the size of the single-stage wait]
 Under Poisson arrivals at the utilisation of a CME packet feed ($\rho =
 \bar\lambda_{\mathrm{pkt}} T \ll 1$), the single-stage wait is zero for almost every
-message, so $W_q^{(1)} = 0$ at every quantile the paper reports and
-Equation~\eqref{eq:bound} has nothing to compress; that is Corollary~\ref{cor:poisson}.
+message, so $W_q^{(1)} = 0$ for every quantile $q$ with $\rho < 1 - q$ and
+Equation~\eqref{eq:bound} has nothing to compress; that is Corollary~\ref{cor:poisson},
+and at this corpus's rate it holds at $p_{99}$ for all $T \le 16\,\mu\mathrm{s}$.
 Under Hawkes arrivals the cluster representation puts $K$ near-coincident messages behind
 one immigrant, and in the instantaneous-batch picture the last of them waits $(K-1)T$ on a
 single stage. Stirling's formula applied to Equation~\eqref{eq:borel} gives, for large
@@ -718,9 +727,13 @@ At the utilisations of a CME packet feed (corpus-median $452$ packets per second
 16\,\mu\mathrm{s}$ in the paper's sweep: end-to-end latency is $T + (N-1)h$ at $p_{50}$
 and at $p_{99}$ alike, and splitting costs $(N-1)h$ with nothing to compress. Where
 $\rho/N$ does exceed $1 - q$, Equation~\eqref{eq:bound} still holds and the tandem
-compresses the small Poisson wait too; the sweep contains exactly one such $p_{99}$ cell
-($T = 32\,\mu\mathrm{s}$, $N = 1$, $\rho = 0.0145$) and several $p_{99.9}$ cells, and
-Section~\ref{sec:results-tail} shows the wait appearing in precisely those.
+compresses the small Poisson wait too --- splitting then helps under Poisson as well, just
+for the ordinary utilisation reason rather than for the clustering reason this paper is
+about. The sweep contains six such $p_{99}$ cells, all at the long-service end: $(T, N) =
+(32, 1)$, $(64, 1)$, $(64, 2)$, $(128, 1)$, $(128, 2)$ and $(128, 4)$, spanning $\rho/N =
+0.0144$ to $0.0578$. It contains one such $p_{95}$ cell ($T = 128$, $N = 1$, $\rho =
+0.0578 > 0.05$) and many $p_{99.9}$ cells, and Section~\ref{sec:results-tail} shows the
+wait appearing in precisely those and in no others.
 \end{corollary}
 
 \subsection{What the theory says, in plain terms}
@@ -776,11 +789,12 @@ $1.7$ (at $T = 32\,\mu\mathrm{s}$).
 \paragraph{Where the traffic model comes in.} Nowhere in the two theorems. The arrival
 pattern enters only through the size of the single-thread wait that the factor $1/N$ is
 applied to. Under Poisson traffic at the load of a CME packet feed, the single thread is
-idle when almost every message arrives, so its wait is zero at every quantile the paper
-reports; there is nothing to divide by $N$, and the pipeline is simply $(N-1)h$ slower
-(Corollary~\ref{cor:poisson}). Under the real feed, packets arrive in self-exciting
-clusters, the single thread's $p_{99}$ is $2.7$ to $8$ times $T$ in the paper's data for
-tasks of $4$ to $32\,\mu\mathrm{s}$, and the pipeline divides the excess by $N$ or better.
+idle when almost every message arrives, so for tasks up to $16\,\mu\mathrm{s}$ its
+$p_{99}$ wait is zero; there is nothing to divide by $N$, and the pipeline is simply
+$(N-1)h$ slower (Corollary~\ref{cor:poisson}). Under the real feed, packets arrive in
+self-exciting clusters, the single thread's $p_{99}$ is $2.2$ to $41.5$ times $T$ in the
+paper's data for tasks of $16$ to $128\,\mu\mathrm{s}$, and the pipeline divides the excess
+by $N$ or better.
 The Hawkes cluster representation says why the clusters are large: a cluster's size
 follows the Borel distribution, whose typical large cluster has of order $(1-n)^{-2}$
 packets, about $25$ at the corpus's $n \approx 0.8$.
@@ -800,8 +814,8 @@ mailbox.
 regime where the hop tax is hidden.
     \item Whether splitting is worth it comes down to one comparison: the single-thread
 wait at the quantile you care about, times $(1 - s_{\max}/T)$, against $h$ per hop added.
-On a Poisson-like feed the left side is zero; on a clustered feed it is tens of
-microseconds.
+On a Poisson-like feed at HFT service times the left side is zero; on a clustered feed at
+the same rate it is tens to thousands of microseconds.
 \end{itemize}
 
 The guarantees above are exact inside a specific model, and a designer should know what
@@ -978,13 +992,20 @@ holiday or half-day sessions with none.
 The paper's simulator input is the packet-arrival stream, so the first empirical question
 is whether that stream is clustered or Poisson. Three model-free and one model-based
 diagnostic on the 276-session, 3512-window NQ front-month corpus all reject Poisson
-decisively. The fraction of interarrival gaps shorter than one-tenth of the mean gap is
-40--85\% per 30-minute window, versus the Poisson benchmark $1 - e^{-0.1} \approx 9.52\%$
-that would obtain for any exponential-gap process regardless of rate. The Fano factor
-$F(T) = \mathrm{Var}[C_T] / \mathrm{E}[C_T]$ of packet counts in windows of length $T$
-rises from $F(0.1\,\mathrm{s}) \approx 2$ to $F(60\,\mathrm{s}) \approx 40$ across the
-corpus median, versus $F(T) \equiv 1$ for Poisson at every $T$; the log-log fit gives a
-Hurst exponent $H \approx 0.65$--$0.75$, versus $H = 0.5$ for Poisson. Fitting the
+decisively. The fraction of interarrival gaps shorter than one-tenth of the mean gap has a corpus
+median of $73\%$ per 30-minute window, a 5th--95th percentile range of $54$--$78\%$ and a
+full range of $38$--$85\%$, versus the Poisson benchmark $1 - e^{-0.1} \approx 9.52\%$
+that would obtain for any exponential-gap process regardless of rate; not one of the 3512
+windows comes within a factor of three of the Poisson value. The Fano factor
+$F(\tau) = \mathrm{Var}[C_\tau] / \mathrm{E}[C_\tau]$ of packet counts in bins of width
+$\tau$ (written $\tau$, not $T$, to keep it clear of the service time) rises from
+$F(0.1\,\mathrm{s}) = 51.7$ to $F(60\,\mathrm{s}) = 1027$ across the corpus median,
+against $F(\tau) \equiv 1$ for Poisson at every $\tau$; the log-log fit gives a Hurst
+exponent $H = 0.74$, against $H = 0.5$ for Poisson. Running the identical estimator over
+the paper's own Poisson-null arm returns $F(\tau) = 1.00$ at $\tau = 0.1$ through
+$5\,\mathrm{s}$, $0.94$ at $60\,\mathrm{s}$, and $H = 0.50$, which confirms that the
+estimator is unbiased at every bin width used here and that the Hawkes figures above are
+not an artefact of binning or of finite window length. Fitting the
 standard exponential-kernel Hawkes process $\lambda(t) = \mu + \sum_{t_i < t} \alpha\,
 e^{-\beta(t - t_i)}$ to each window by MLE (Ogata log-likelihood with the standard
 recursive intensity, closed-form compensator, Nelder--Mead over $(\mu, \alpha, \beta)$)
@@ -996,11 +1017,21 @@ spot-checked windows. This is the same near-critical regime that
 \citet{filimonovsornette2012} and \citet{hardimanbercotbouchaud2013} document on ES, at a
 somewhat lower level than their $n \approx 0.9$; they fit trade arrivals rather than
 packet arrivals, and a packet aggregates several book events, which is expected to lower
-the fitted self-excitation. Fisher--Yates shuffle of the interarrival gap sequence within
-each window destroys the clustering entirely --- shuffled Fano at $T = 5\,\mathrm{s}$
-collapses to $\approx 1$ --- confirming that the excess variance lives in the ordering,
-not in the marginal gap distribution (i.e., Hawkes rather than a heavy-tailed renewal
-process). The paper's downstream simulator is therefore driven by an arrival process that
+the fitted self-excitation. A Fisher--Yates shuffle of the interarrival gap sequence within each window, which
+preserves the marginal gap distribution exactly and destroys only the ordering, removes
+most but not all of the excess: the corpus-median Fano at $\tau = 5\,\mathrm{s}$ falls
+from $259.7$ to $17.6$, and at $\tau = 1\,\mathrm{s}$ from $108.4$ to $17.5$, i.e.\
+$94\%$ and $85\%$ of the excess over the Poisson value of $1$. What the shuffle removes is
+specifically the \emph{scaling}: the shuffled Fano is flat at $16.1$--$17.6$ across every
+bin width from $0.1$ to $60\,\mathrm{s}$, giving $H = 0.50$ against the unshuffled
+$H = 0.74$. All of the long-range dependence therefore lives in the ordering, which is
+what distinguishes a self-exciting process from a renewal process. The flat residual of
+$\approx 17$ is a scale-free over-dispersion contributed by the gap marginal itself, which
+is heavy-tailed; so the corpus is neither a renewal process nor a pure Hawkes process with
+light-tailed gaps, but a self-exciting process with heavy-tailed gaps. We report the split rather than the headline
+because it bounds what the Hawkes fit can be asked to carry: the fitted $n$ above
+describes the ordering component, and the paper's simulator is in any case driven by the
+recorded arrivals themselves, not by the fitted process. The paper's downstream simulator is therefore driven by an arrival process that
 is empirically far from Poisson, and any tail-latency finding based on a matched-rate
 Poisson null represents a hard counterfactual, not a straw man. We use the Hawkes fit only
 as a parsimonious description of the observed clustering; the tandem reduction of
@@ -1120,16 +1151,20 @@ the slow-servicing regime. Theorem~\ref{thm:reduction} predicts $p_{99}^{\mathrm
 (N-1)h - T \le \big(p_{99}^{\mathrm{H}}(1) - T\big)/N$ on every window, i.e.\ a fitted
 exponent $\gamma \ge 1$ in $\Delta(N) \approx \Delta(1) N^{-\gamma}$;
 Corollary~\ref{cor:poisson} predicts $p_{99}^{\mathrm{P}}(N) = p_{50}^{\mathrm{P}}(N) = T
-+ (N-1)h$ exactly; any of (i) a window on which the Hawkes bound is violated, (ii) Poisson
-$p_{99}(N)$ exceeding $T + (N-1)h$, or (iii) Hawkes $p_{50}(N)$ growing at slope $\gg h$
-per stage falsifies the paper's model of the simulator.
++ (N-1)h$ exactly in every cell whose per-stage utilisation satisfies $\rho/N < 0.01$, and
+a strictly positive Poisson wait in every cell where it does not; the prediction is
+two-sided, so a Poisson $p_{99}$ sitting on the floor at $\rho/N > 0.01$ would falsify it
+just as a Poisson $p_{99}$ above the floor at $\rho/N < 0.01$ would. Any of (i) a window
+on which the Hawkes bound is violated, (ii) a Poisson $p_{99}(N)$ on the wrong side of the
+$\rho/N = 0.01$ boundary, or (iii) Hawkes $p_{50}(N)$ growing at slope $\gg h$ per stage
+falsifies the paper's model of the simulator.
 
 % =====================================================================
 
 \section{Empirical results}
 \label{sec:results}
 
-\subsection{Tail collapse under Hawkes, and its absence under Poisson}
+\subsection{Tail collapse under Hawkes, and its near-absence under Poisson at HFT service times}
 \label{sec:results-tail}
 
 Table~\ref{tab:main-corpus} reports corpus-median end-to-end latency quantiles for every
@@ -1195,11 +1230,17 @@ The Poisson null is the uniform shuffle of the same arrival count per window.}
 \centering
 \includegraphics[width=\textwidth]{figs/tandem_curves.pdf}
 \caption{Corpus-median latency versus stage count $N$ for each service floor $T$ (one
-shade per $T$, labelled at the right). Left: median. Centre: $p_{99}$, Hawkes solid and
-Poisson null dashed. Right: the Hawkes tail excess ratio $\Delta(N)/\Delta(1)$ against the
-Theorem~\ref{thm:reduction} bound $1/N$ (dotted). The median rises by exactly $h$ per hop
-in both arms; the Hawkes $p_{99}$ falls with $N$ at every $T \ge 4\,\mu\mathrm{s}$ while
-the Poisson $p_{99}$ tracks the median.}
+shade per $T$, each curve labelled at its $N = 1$ end). Left: median. Centre: $p_{99}$,
+Hawkes solid and Poisson null dashed. Right: the Hawkes tail excess ratio
+$\Delta(N)/\Delta(1)$ against the Theorem~\ref{thm:reduction} bound $1/N$ (dotted); open
+markers are cells where the tandem drives $\Delta(N)$ to exactly zero, drawn at the panel
+floor because zero cannot be placed on a log axis. The median rises by exactly $h$ per hop
+wherever the queue is empty at the median, which is every cell except the three
+longest-service Hawkes cells. The Hawkes $p_{99}$ falls with $N$ only at $T \ge
+16\,\mu\mathrm{s}$; at $T \le 8\,\mu\mathrm{s}$ there is no tail to compress and it rises
+with the hop count, tracking the median. The Poisson $p_{99}$ likewise tracks the median
+up to $T = 16\,\mu\mathrm{s}$ and separates from it at $T \ge 32\,\mu\mathrm{s}$, where
+utilisation queueing begins.}
 \label{fig:curves}
 \end{figure}
 
@@ -2045,7 +2086,8 @@ arrival can find the receiver asleep, and the wake latency is paid on average;
 pre-spinning eliminates it. On a Hawkes feed with branching ratio $n \approx 0.8$,
 sleep/wake transitions happen only at cluster boundaries. Every $p_{99}$ message is
 intra-cluster (Section~\ref{sec:results-tail}: the $p_{99}$ message waits behind a
-cluster, since under the Poisson null it does not wait at all), so by the time a
+cluster, since at these service times the Poisson null produces no wait at all), so by the
+time a
 tail-setting message arrives, the receiver has been continuously processing for many
 multiples of the per-message service time and is already effectively spinning as a natural
 consequence of the load. Under the model used here, pre-spinning therefore saves little or
@@ -2262,8 +2304,9 @@ by one hop per stage.
 
 \paragraph{Why the single-thread rule persists.} We think the field arrived at the
 single-thread rule under a mental model of Poisson-like arrivals, where clustering does
-not exist and the tail sits near the service floor. On such a feed the rule is
-correct --- our own results give exactly that answer under the Poisson null. What the
+not exist and, at the service times a hot path runs at, the tail sits on the service
+floor. On such a feed the rule is correct --- our own results give exactly that answer
+under the Poisson null, for every task up to $16\,\mu\mathrm{s}$. What the
 field missed is that real exchange feeds have never been Poisson: near-critical branching
 ratios on CME futures ($n \approx 0.9$ on ES trades in the literature, $n \approx 0.8$ on
 NQ packets in this corpus) have been documented for over a decade, and it is precisely
@@ -2368,7 +2411,15 @@ bound check, minutes per full-corpus sweep under \texttt{numba});
 \texttt{arrival\_paper/hawkes\_smoke.py} holds the Hawkes MLE and
 \texttt{arrival\_paper/make\_tables.py} regenerates Tables~\ref{tab:main-corpus}
 and~\ref{tab:delta} and the derived quantities quoted in the text directly from the grid
-output, so every number in Part~II is reproducible from the cache by one command.
+output, \texttt{arrival\_paper/make\_figure.py} regenerates
+Figure~\ref{fig:curves} from the same grid, and
+\texttt{arrival\_paper/make\_diagnostics.py} recomputes the
+Section~\ref{sec:setup-hawkes} Poisson-rejection diagnostics (gap fractions, Fano factors,
+Hurst exponents, and the gap-shuffled surrogate) from the cache. Every number and every
+figure in Part~II is therefore reproducible by one command. We note this because it was
+not previously true: the tandem-curves figure had no generating script in the repository,
+and silently went stale against a rerun of the sweep --- which is exactly the failure mode
+a reproducibility section exists to prevent.
 
 The two-stage split is what makes the sweeps in this paper practical: the expensive work
 (tape parsing and 3512 Hawkes MLEs) is done once and cached, after which a new $(T, h, N)$
@@ -2721,7 +2772,7 @@ $\mathrm{E}[K] \approx 10$; clusters are placed as instantaneous batches, giving
 \bar\lambda T \approx 0.40$ at $T = 10\,\mu\mathrm{s}$. The tandem has $N = 4$ equal
 stages of $2.5\,\mu\mathrm{s}$ and $h = 1.7\,\mu\mathrm{s}$; $2 \times 10^{5}$ messages
 are simulated with an explicit per-stage FIFO recursion (independent of the paper's
-\texttt{qsim\_grid.py}). Over all messages, $\max_j |W_j^{(4)} - (w_j(T/4) + 3h)| <
+\texttt{qsim\_run.py}). Over all messages, $\max_j |W_j^{(4)} - (w_j(T/4) + 3h)| <
 10^{-9}\,\mu\mathrm{s}$ and Equation~\eqref{eq:bound} is violated by no message. The
 quantiles are
 
@@ -2745,8 +2796,10 @@ Under the Poisson null at the same message rate ($\rho = 0.40$, which is far abo
 corpus utilisation and is used here only to make the Poisson wait visible) the
 single-stage wait quantiles at $q = 0.9, 0.99, 0.999$ are $10.3, 24.8,
 38.5\,\mu\mathrm{s}$ and the tandem's are $5.1, 7.5, 9.2\,\mu\mathrm{s}$, again inside the
-bound; at the corpus utilisation both collapse to $0$ and $3h$ respectively, which is
-Corollary~\ref{cor:poisson}.
+bound. At the corpus utilisation ($\rho = 0.0045$ at this appendix's $T =
+10\,\mu\mathrm{s}$) the same two collapse to $0$ and $3h$ at $q = 0.9$ and $q = 0.99$,
+which is Corollary~\ref{cor:poisson}; at $q = 0.999$ they do not, since $\rho$ there
+exceeds $1 - q = 0.001$ and the corollary does not apply.
 
 % =====================================================================
 \section{Numerical check of the unequal-stage claims}
