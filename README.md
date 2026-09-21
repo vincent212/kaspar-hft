@@ -290,7 +290,7 @@ Socket-to-book ("tick-to-book") latency measured on a live CME MDP 3.0 feed for
 ES, NQ, and ZN futures — 8.29 M messages over a 53-minute afternoon session,
 timestamped from the socket read (`t0`) to the book publish (`t1`). This is
 software-timestamped socket-to-book, not wire-to-book. Full analysis in
-[tech_reports/fast_send.pdf](tech_reports/fast_send.pdf).
+[tech_reports/fast_send.pdf](https://arxiv.org/abs/2609.21173).
 
 Each message's latency decomposes as **median ≈ floor + slope × idx**, where
 `idx` is the message's position inside its UDP packet:
@@ -310,10 +310,6 @@ Each message's latency decomposes as **median ≈ floor + slope × idx**, where
 | ES trade | 7.62 | 1,008 |
 | NQ trade | 8.30 | 298 |
 | ZN trade | 7.96 | 474 |
-
-The floor is the most stable number in the study: three independent estimators
-agree within 0.35 µs on the book streams, and it moved ≤ 0.4 µs during an FOMC
-release that raised the packet rate 4.6–9.8× in a second.
 
 **Distribution** (unconditional, every message, µs):
 
