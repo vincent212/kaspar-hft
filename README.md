@@ -11,7 +11,6 @@
 ---
 
 <p align="center">
-  <a href="https://github.com/vincent212/kaspar-hft/stargazers">⭐&nbsp;Star&nbsp;the&nbsp;repo</a> &bull;
   <a href="https://arxiv.org/abs/2609.21173">Actor Framework for HFT&nbsp;paper&nbsp;(arXiv)</a> &bull;
   <a href="https://arxiv.org/abs/2609.18019">Shadow-POV&nbsp;paper&nbsp;(arXiv)</a> &bull;
   <a href="tech_reports/kaspar_onepager.pdf">one-pager</a>
