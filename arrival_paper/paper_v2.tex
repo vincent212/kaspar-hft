@@ -2092,19 +2092,147 @@ is pathwise and arrival-law independent, and Remark~\ref{rem:unequal} already ha
 unequal stages through $s_{\max}$; what the live data adds is a measured magnitude for the
 variability that Section~\ref{sec:theory-summary} lists as an assumption.
 
-Second, and more usefully: span is not an independent nuisance. It is produced by the same
-clustering. When arrivals bunch, more messages fall inside one gateway coalescing
-interval, and the exchange emits them in one larger datagram. Clustering therefore reaches
-the latency tail by two routes --- through arrival timing, which Part~II models, and
-through batch size, which it does not --- and both routes push the same direction. A
-message unlucky enough to arrive during a cluster is both more likely to find a queue
-ahead of it and more likely to sit deep inside a large packet. Part~II's tail estimates
-account for the first mechanism only, and are conservative to the extent that the second
-is also operating.
+Second, span is a genuinely separate tail mechanism operating on the same stream, and it
+is active precisely where the queueing mechanism is not. Rather than leave that as a
+caveat we removed the assumption and re-ran the whole sweep with span-dependent service;
+Section~\ref{sec:crossval-spanrun} reports the comparison. The short version is that the
+serialisation channel supplies the entire tail below the tight-gap floor, where clustering
+supplies none, and is negligible above it, where clustering supplies all of it --- and
+that the two turn out to be close to independent on this corpus rather than compounding,
+contrary to what we expected.
 
-Quantifying the second channel, and folding span into the service-time model rather than
-treating it as fixed, is the most direct extension of this work; it is taken up in
-Section~\ref{sec:future}.
+\subsection{Span-aware service: re-running the sweep with the assumption removed}
+\label{sec:crossval-spanrun}
+
+The objection above is testable rather than merely acknowledgeable, so we tested it. We
+re-extracted the per-packet span for all 3512 windows --- aligned element-wise against the
+cached arrival arrays, with every window's span count checked against the packet count
+already in the cache --- and re-ran the entire sweep with service that depends on it.
+
+Three service models are compared. All three hold the \emph{mean} service per window at
+$T$, so the utilisation $\rho$ is identical across them and only the distribution of work
+across packets differs; any difference in the tail is the span effect and not a slower
+system.
+\begin{align*}
+\text{const} &: \quad S_i = T && \text{(the Part~II assumption)} \\
+\text{span}  &: \quad S_i = A\big(1 + r\,(s_i - 1)\big), \quad r = 0.0432
+  && \text{(measured slope/floor)} \\
+\text{prop}  &: \quad S_i = T\,s_i / \bar{s} && \text{(upper bound)}
+\end{align*}
+with $A$ set so that the window mean of $S_i$ is $T$. The \emph{span} model uses the ratio
+of slope to floor measured on NQ book in Section~\ref{sec:crossval-floor}, $0.312/7.23$.
+The \emph{prop} model removes the per-packet fixed cost entirely, making service
+proportional to the message count; that is physically too strong, since the measured floor
+dominates the slope by more than twenty to one, and it is carried only to bracket the
+effect from above. As a correctness check the \emph{const} arm reproduces the published
+constant-service grid of Table~\ref{tab:main-corpus} to zero difference in all 28 cells.
+
+\paragraph{The unit matters more than the model.} On this corpus $96.1\%$ of packets carry
+exactly one message and the mean span is $1.073$, so a \emph{packet}-weighted quantile is
+almost entirely a statement about singletons and barely moves under any service model. But
+packets are not what a strategy trades on. Weighting by message --- which counts a
+$20$-message datagram twenty times, as the decoder does --- the in-packet position
+distribution is concentrated at zero and has a long upper tail:
+
+\begin{center}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+message quantile & $p_{50}$ & $p_{90}$ & $p_{95}$ & $p_{99}$ & $p_{99.9}$ & max \\
+\midrule
+in-packet position & 0 & 0 & 1 & 4 & 19 & 84 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$93.2\%$ of messages are alone in their packet and pay no serialisation at all; the
+remaining $6.8\%$ constitute the entire tail. This is the same shape the live measurement
+reports, and it is why the comparison below is stated message-weighted.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}r rrr rrr rr rr@{}}
+\toprule
+ & \multicolumn{3}{c}{const} & \multicolumn{3}{c}{span} &
+   \multicolumn{2}{c}{span/const} & \multicolumn{2}{c}{prop/const} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7} \cmidrule(lr){8-9} \cmidrule(lr){10-11}
+$T$ & $p_{50}$ & $p_{99}$ & $p_{99.9}$ & $p_{50}$ & $p_{99}$ & $p_{99.9}$ &
+ $p_{99}$ & $p_{99.9}$ & $p_{99}$ & $p_{99.9}$ \\
+\midrule
+  2 &    2.00 &     2.00 &      2.00 &    1.99 &     2.34 &      3.54 & 1.17 & 1.77 &  4.64 & 23.35 \\
+  4 &    4.00 &     4.00 &      4.00 &    3.99 &     4.67 &      7.08 & 1.17 & 1.77 &  4.69 & 26.73 \\
+  8 &    8.00 &     8.56 &     10.10 &    7.97 &     9.63 &     14.87 & 1.12 & 1.47 &  5.21 & 24.64 \\
+ 16 &   16.00 &    34.00 &     53.55 &   15.95 &    35.08 &     56.62 & 1.03 & 1.06 &  3.36 & 11.53 \\
+ 32 &   32.00 &   143.74 &    256.51 &   31.89 &   144.41 &    260.14 & 1.00 & 1.01 &  2.37 &  5.88 \\
+ 64 &   98.80 &   815.22 &   1557.72 &  100.02 &   820.05 &   1573.97 & 1.01 & 1.01 &  2.37 &  3.94 \\
+128 &  366.78 &  5440.22 &  12844.51 &  371.91 &  5550.42 &  13159.71 & 1.02 & 1.02 &  2.51 &  3.10 \\
+\bottomrule
+\end{tabular}
+\caption{Message-weighted single-stage latency in $\mu$s, corpus median over 3512 windows,
+Hawkes arrivals, under constant and span-aware service at equal mean service. The last two
+columns give the \emph{prop} upper bound as a ratio to const.}
+\label{tab:spancmp}
+\end{table}
+
+\paragraph{The two tail mechanisms occupy disjoint regimes.} Read the span/const ratio
+column down the table. It is largest exactly where the queueing tail is absent and
+smallest exactly where the queueing tail dominates. At $T = 2$ and $4\,\mu\mathrm{s}$ the
+constant-service model has \emph{no tail whatsoever} --- $p_{50} = p_{99} = p_{99.9} = T$,
+the result reported in Section~\ref{sec:results-tail} --- while the span-aware model has
+$p_{99} = 1.17\,T$ and $p_{99.9} = 1.77\,T$. Below the feed's tight-gap floor there is
+still a tail; it is simply not a queueing tail. By $T \ge 32\,\mu\mathrm{s}$, where cluster
+queueing produces a $p_{99}$ of $4.5\,T$ and rising, span contributes $0$--$2\%$ on top.
+
+This completes rather than contradicts Part~II. The claim that survives is the one about
+\emph{queueing}: below roughly $7.5\,\mu\mathrm{s}$ of service, arrival clustering does not
+build a queue, and splitting the servicing chain buys nothing. What the span-aware run adds
+is that a second, unrelated tail mechanism is active in that same regime --- in-packet
+serialisation --- which is deterministic, is not a queue, and cannot be removed by
+pipelining the arrival stream. Indeed $N^\star$, the $p_{99}$-minimising stage count, is
+\emph{unchanged} in every one of the seven service floors when service is made
+span-aware: $1, 1, 1, 2, 4, 8, 8$ under both models. The design rule of
+Section~\ref{sec:recommendations} is unaffected.
+
+\paragraph{The in-packet ladder.} Holding the queue empty and walking the position inside
+the packet reproduces the live measurement's linear ladder. At $T = 8\,\mu\mathrm{s}$ the
+corpus-median latency by position fits
+\[
+\text{median} = 7.98 + 0.344 \times \text{position} \quad (\mu\mathrm{s}),
+\]
+recovering the $0.345\,\mu\mathrm{s}$ per-message cost put into the model to three
+significant figures and confirming that queueing contributes nothing at the median at this
+service time. The live NQ-book ladder is $7.23 + 0.312\times\text{position}$; the shapes
+agree and the levels differ by the difference between a $7\,\mu\mathrm{s}$ measured decode
+path and an $8\,\mu\mathrm{s}$ nominal service floor.
+
+\paragraph{The two channels are additive, not coupled --- correcting an earlier claim.} It
+is natural to suppose, and an earlier draft of this section asserted, that span is itself
+produced by the clustering: arrivals bunch, the gateway coalesces more messages into one
+datagram, and the unlucky message is both queued behind a burst and buried inside a large
+packet. If that held, the two mechanisms would compound and the constant-service estimates
+of Part~II would be conservative. On this corpus it does not hold.
+
+Two tests. First, a control arm in which each window's span sequence is randomly permuted
+across packets, preserving the span marginal and the arrival times exactly and destroying
+only the association between them. If large packets arrived preferentially inside
+clusters, breaking that association would lower the tail. It does not: the ratio of the
+real to the span-shuffled $p_{99}$ is $1.000$ at every $T \le 8\,\mu\mathrm{s}$ and lies
+between $0.99$ and $1.02$ at every larger $T$, with no systematic sign. Second, measuring
+the association directly, the correlation between a packet's span and the logarithm of the
+gap that preceded it has corpus median $-0.014$; packets arriving after the tightest decile
+of gaps have mean span $1.010$ against $1.043$ for those arriving after the loosest decile,
+a ratio of $0.97$. If anything the association runs weakly the other way.
+
+The live measurement reports the same instrument dependence and should have been read more
+carefully: mean span rises steeply with queue depth on ZN, where a quiet book is filled
+only by genuine bursts, but \emph{falls} with queue depth on ES and NQ, whose rings back up
+with many small packets. Part~II's corpus is NQ, and it behaves like the live NQ streams.
+The conclusion is therefore that the queueing channel and the serialisation channel are
+close to independent here, that they add rather than multiply, and that Part~II's
+constant-service tables are neither conservative nor optimistic on that account --- they
+simply measure one of the two. Whether the channels couple on an instrument that behaves
+like ZN is open, and is the case worth checking before transporting these numbers to
+another feed.
 
 % =====================================================================
 
@@ -2701,12 +2829,11 @@ None of these caveats reverse the two conclusions on the 276-session corpus.
 i.e.\ the exponent $\gamma - 1$ as a function of $(\rho, n, \beta T)$. By the reduction
 this is a single-server question about $M^{[K]}/D/1$ with Borel batches at two service
 levels, which is tractable; the paper measures $\gamma$ instead.
-    \item Span-conditioned service time. Section~\ref{sec:crossval-span} measures
-per-packet service rising linearly in the number of messages the datagram carries, while
-the sweep here holds it constant. Since span is itself generated by the clustering, the
-two tail channels are dependent, and a service-time model of the form $T(\text{span})$
-driven by the same arrival stream would capture both. This is the most direct extension of
-the present work.
+    \item Span/clustering coupling on a coalescing-heavy feed. The span-aware rerun of
+Section~\ref{sec:crossval-spanrun} finds the serialisation and queueing channels close to
+independent on NQ, matching the live NQ streams; the live ZN streams show span rising
+steeply with queue depth instead. Whether the two channels compound on an instrument of
+that kind, and what that does to the design rule, is not answered here.
     \item Cache-pollution empirical measurement per spinning-receiver stage count.
     \item Power-law-kernel Hawkes fit versus exponential.
     \item Overnight-session regime.
