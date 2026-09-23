@@ -1531,6 +1531,26 @@ elsewhere in the paper: for $T \ge 64\,\mu\mathrm{s}$ the Poisson null has a tai
 quantity, and $\rho$ is proportional to $\bar\lambda$. Intensity matters where
 utilisation queueing applies and not below it.
 
+\paragraph{The invariance is not a simulator artefact.} The Poisson arm, run on the same
+windows through the same simulator, shows the intensity dependence that utilisation
+queueing requires: at $T = 16$ and $32\,\mu\mathrm{s}$ its normalised $p_{99}$ is
+$1.34\times$ and $1.68\times$ higher in the busiest quintile than in the quietest, because
+$\rho = \bar\lambda T$ crosses the $0.01$ switch-on of Corollary~\ref{cor:poisson} within
+the quintile range. The Hawkes arm on the same windows at the same $T$ gives $0.92\times$
+and $0.95\times$. The simulator therefore resolves intensity; the clustered tail does not
+depend on it at these service times. The result is the same unbinned: the per-window
+Spearman correlation of $p_{99}/T$ with $\bar\lambda$ is $-0.19$ at $T = 16$ and $-0.09$
+at $T = 32\,\mu\mathrm{s}$, and with $n$ is $-0.05$ and $+0.02$; at $T = 128\,\mu\mathrm{s}$
+both are $+0.48$ and $+0.54$. Comparing the top and bottom $2\%$ of windows by rate, a
+$26\times$ range, gives a $p_{99}/T$ ratio of $1.02$ at $T = 32$ and $2.57$ at $T = 128$.
+
+The mechanism is that at $\rho \ll 1$ clusters do not overlap. Raising $\bar\lambda$
+raises the number of clusters per window, each with the same internal spacing and, at
+fixed $n$, the same size distribution, so the position of the $p_{99}$ packet within its
+cluster, and hence $p_{99}/T$, is unchanged. Intensity enters once clusters begin to
+overlap, and $n$ enters once $T$ is long enough for many members of one cluster to fall
+within a single service time; on this corpus both occur at $T \ge 64\,\mu\mathrm{s}$.
+
 \paragraph{Why intensity has no effect below the crossover.} The null result has a
 mechanical explanation in the arrival stream. Taking the same $\bar\lambda$ quintiles and reporting the corpus median of
 the per-window interarrival-gap quantiles:
