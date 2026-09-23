@@ -20,6 +20,8 @@
 #include <vector>
 #include "oogsl/gvector.hpp"
 #include "frame/mda/msg/Data.hpp"
+#include "mdp3/msg/AssetMap.hpp"
+#include "mdp3/msg/ResetMBO.hpp"
 
 #include <boost/unordered/unordered_flat_map.hpp>
 
@@ -45,6 +47,7 @@ struct handler_if : public mdp3::feed_handler_if
   char name[256];
   actor_ptr binrec = 0;
   std::vector<actor_ptr> mbo_order_books;  // Indexed by asset_id for MBO messages (futures - OB.cpp/TachBook)
+  actor_ptr reconstructor = nullptr;       // parallel-decode Reconstructor; notified of securityID->asset_id maps
   std::vector<double> latency, cmelatency;
   std::set<uint32_t> instruments;
   uint32_t max_mbp_level=1000;
@@ -376,6 +379,10 @@ struct handler_if : public mdp3::feed_handler_if
         r.update_sec_id(securityID, &a_);
         std::cerr << "mapped securityID: " << securityID << " to asset id: " << a_.id << " name: " << a_.name << std::endl;
         securityid_to_asset_id[securityID] = a_.id;
+        // Feed the Reconstructor its own copy so it never reads this shared map
+        // across threads (the parallel decode path routes on its own thread).
+        if (reconstructor)
+          reconstructor->send(new mdp3::msg::AssetMap(securityID, a_.id), nullptr);
         //a_.cme_sec_id = securityID;
         a_.cfi_code = __cfiCode;
         a_.security_group = std::string(l3.sec_group);
@@ -528,6 +535,10 @@ struct handler_if : public mdp3::feed_handler_if
         auto &r = const_cast<frame::ref::RefData&>(frame::ref::RefData::inst());
         std::cerr << "adding mapping securityID: " << securityID << " to asset id: " << a_.id << " name: " << a_.name << std::endl;
         securityid_to_asset_id[securityID] = a_.id;
+        // Feed the Reconstructor its own copy so it never reads this shared map
+        // across threads (the parallel decode path routes on its own thread).
+        if (reconstructor)
+          reconstructor->send(new mdp3::msg::AssetMap(securityID, a_.id), nullptr);
 
         if (a_.sec_id != 0)
         {
@@ -1174,6 +1185,11 @@ struct handler_if : public mdp3::feed_handler_if
       recmsg->l3 = l3;
       binrec->send(recmsg, 0);
     }
+
+    // The book is cleared -> tell the Reconstructor to drop its orderID map so a
+    // reused orderID after the reset does not misroute (asset defs persist).
+    if (reconstructor)
+      reconstructor->send(new mdp3::msg::ResetMBO(), nullptr);
   }
 
   virtual void MDIncrementalRefreshVolume(

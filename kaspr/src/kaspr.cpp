@@ -490,8 +490,8 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     // ---- parallel decode subsystem: Reconstructor <- DecodeWorkers <- DataDecoder ----
     // NWORKERS MUST be a power of two (set_workers uses nworkers-1 as a mask).
     const uint32_t NWORKERS = pt_chan.get<uint32_t>("cme_decode_workers", 8);
-    auto* recon = new mdp3::Reconstructor(handler->securityid_to_asset_id,
-                                          handler->mbo_order_books, venue);
+    auto* recon = new mdp3::Reconstructor(handler->mbo_order_books, venue);
+    handler->reconstructor = recon; // handler_if feeds it securityID->asset_id maps (no shared-map race)
     actor_ptr* workers = new actor_ptr[NWORKERS]; // process-lifetime; set_workers keeps this array
     for (uint32_t i = 0; i < NWORKERS; ++i)
         workers[i] = new mdp3::DecodeWorker(recon, venue, i);

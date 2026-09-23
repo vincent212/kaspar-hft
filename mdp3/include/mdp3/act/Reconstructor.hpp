@@ -19,6 +19,8 @@
 #include "enum/e_names.hpp"
 #include "frame/mda/msg/Data.hpp"
 #include "mdp3/msg/ParsedMsg.hpp"
+#include "mdp3/msg/AssetMap.hpp"
+#include "mdp3/msg/ResetMBO.hpp"
 
 namespace mdp3
 {
@@ -46,15 +48,15 @@ namespace mdp3
   class Reconstructor : public actors::Actor
   {
   public:
-    Reconstructor(const boost::unordered_flat_map<int32_t, int32_t> &securityid_to_asset_id,
-                  const std::vector<actor_ptr> &mbo_order_books,
+    Reconstructor(const std::vector<actor_ptr> &mbo_order_books,
                   en::x xchg)
-        : securityid_to_asset_id_(securityid_to_asset_id),
-          mbo_order_books_(mbo_order_books),
+        : mbo_order_books_(mbo_order_books),
           xchg_(xchg)
     {
       snprintf(name_, sizeof(name_), "Reconstructor_%d", (int)xchg);
       MESSAGE_HANDLER(msg::ParsedMsg, on_parsed);
+      MESSAGE_HANDLER(msg::AssetMap, on_asset_map);
+      MESSAGE_HANDLER(msg::ResetMBO, on_reset);
     }
 
     const char *get_name() const override { return name_; }
@@ -121,13 +123,29 @@ namespace mdp3
       // TODO: if (l3.endOfEvent) emit_burstend();
     }
 
+    // A definition mapped securityID -> asset_id (sent by handler_if). Update our
+    // own copy on THIS actor's thread so route() never touches the shared map.
+    void on_asset_map(const msg::AssetMap *m) noexcept
+    {
+      asset_map_[m->securityID] = m->asset_id;
+    }
+
+    // ChannelReset: the exchange cleared the book. Drop the orderID map so a
+    // reused orderID cannot misroute. Leave asset_map_ (definitions persist) and
+    // the resequence state (order_seq/expected_seq/buffer_) untouched -- those
+    // stay in lockstep with DataDecoder, so clearing them would stall the stream.
+    void on_reset(const msg::ResetMBO *) noexcept
+    {
+      orderid_to_securityid_.clear();
+    }
+
     // securityID -> asset_id -> TachBook[asset_id]; send the l3 as a raw Data.
     template <class L3>
     void route(int32_t securityID, const L3 &l3) noexcept
     {
-      auto it = securityid_to_asset_id_.find(securityID);
-      if (it == securityid_to_asset_id_.end()) [[unlikely]]
-        return; // not in universe
+      auto it = asset_map_.find(securityID);
+      if (it == asset_map_.end()) [[unlikely]]
+        return; // not in universe (yet)
       const int32_t asset_id = it->second;
       if (asset_id < 0 || static_cast<size_t>(asset_id) >= mbo_order_books_.size()) [[unlikely]]
         return;
@@ -141,8 +159,10 @@ namespace mdp3
 
     // Owned: mutated only here (single-threaded), so no lock.
     boost::unordered_flat_map<uint64_t, int32_t> orderid_to_securityid_;
-    // Shared read-only (populated at startup by definitions on the inline path).
-    const boost::unordered_flat_map<int32_t, int32_t> &securityid_to_asset_id_;
+    // Owned: fed by handler_if via AssetMap messages and applied on THIS actor's
+    // thread -- no shared-map race with the inline definition path.
+    boost::unordered_flat_map<int32_t, int32_t> asset_map_;
+    // Shared read-only: set once at startup (kaspr), never written afterwards.
     const std::vector<actor_ptr> &mbo_order_books_;
 
     // Resequence buffer: order_seq -> that message's entries. std::map keeps keys
