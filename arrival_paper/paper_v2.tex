@@ -42,24 +42,25 @@ Modelling HFT Pipeline Latency Under Hawkes Arrivals}
 The prevailing view in high-frequency-trading (HFT) system design is that the entire hot
 path --- market-data decode, order-book application, strategy evaluation, order
 construction --- should run on a single-threaded event loop, because each additional
-thread hop adds wall-clock latency. We show that this reasoning assumes a near-Poisson
-arrival process, and that it does not hold on CME MDP3 market data, whose packet arrivals
-are self-exciting (Hawkes-clustered).
+thread hop adds wall-clock latency. We measure this trade-off on CME MDP3 market data,
+whose packet arrivals are self-exciting (Hawkes-clustered), and find that it reverses at
+a service-time threshold: below the threshold the single thread has the lower tail, above
+it the multi-actor pipeline does.
 
 Two consequences follow. First, on a clustered feed the end-to-end latency tail is set
 by cluster-induced queueing, not by the per-hop cost. Second, splitting the servicing
 chain into concurrent actor stages lowers the latency tail, because the queue that forms
 behind a burst is drained by several servers in parallel, at the cost of one hop per
-stage on the median. Above a service-time threshold the tail reduction exceeds the hop
-cost and the multi-actor pipeline has the lower tail latency; below it the single thread
-does.
+stage on the median. Above the threshold the tail reduction exceeds the hop cost; below it the hop cost is
+paid and no tail is removed.
 
-The effect depends on the arrival law. Over the per-message service times an HFT hot
-path occupies, up to about $20\,\mu\mathrm{s}$ on this feed, a matched-rate Poisson null
-has no tail: its $p_{99}$ equals the service time, and splitting adds hop cost only. The
-clustered feed has a tail over the same band, so the tail reduction in that regime is
-attributable to clustering. A Poisson process of the same mean rate develops a tail only
-when utilisation queueing begins; by PASTA the $q$-quantile of latency equals the service
+To isolate the contribution of clustering we simulate each window a second time under a
+matched-rate Poisson null with the same packet count and support, differing only in the
+arrival ordering. Over the per-message service times an HFT hot path occupies, up to
+about $20\,\mu\mathrm{s}$ on this feed, the null has no $p_{99}$ tail, so the tail
+reduction in that regime is attributable to clustering. The null does develop a tail at
+longer service times, when utilisation queueing begins, and it is then smaller than the
+clustered feed's; by PASTA the $q$-quantile of latency equals the service
 time until the utilisation $\rho = \bar\lambda T$ reaches $1 - q$, which the corpus
 reproduces to three significant figures at $q = 0.95$, $0.99$ and $0.999$. At the
 corpus-median rate the Poisson $p_{99}$ crossover is at $T \approx 22\,\mu\mathrm{s}$,
@@ -106,9 +107,8 @@ cost of scheduling or spinning the receiver) and holds that $(N-1) h$ adds to ev
 message's end-to-end latency, so that each additional stage is a fixed cost that no
 throughput or tail benefit recovers.
 
-That argument implicitly assumes an arrival process for which single-server throughput
-$1/T$ is comfortably larger than the peak arrival rate. On CME MDP3 the arrival process is
-strongly self-exciting: packets arrive in Hawkes-clustered bursts
+That argument holds when the single-server throughput $1/T$ exceeds the peak arrival
+rate. On CME MDP3 the arrival process is strongly self-exciting: packets arrive in Hawkes-clustered bursts
 \citep{filimonovsornette2012,hardimanbercotbouchaud2013,bacry2015review}. During such
 bursts the instantaneous arrival rate exceeds the single-thread event loop's service
 rate $1/T$, and cluster-induced queueing produces a tail one to two orders of magnitude
@@ -124,9 +124,11 @@ over this band the tail is almost entirely a clustering effect.
 
 The question is then whether splitting the pipeline into $N > 1$ stages, each an
 independent actor on its own core with per-stage service $T/N$, reduces the tail, and
-whether the additional median cost $(N-1)h$ is small relative to the tail reduction. If
-both hold, the multi-actor architecture is the better choice for an operator who weights
-tail latency over median latency.
+whether the additional median cost $(N-1)h$ is small relative to the tail reduction.
+Neither architecture is better unconditionally. Both conditions hold above a service
+time that depends on the feed's arrival statistics and fail below it; the paper measures
+that threshold on one feed, and its recommendation is that designers measure it on
+theirs.
 
 \subsection{Prior recommendations for single-thread hot paths}
 \label{sec:intro-singlethread-priors}
@@ -256,9 +258,10 @@ mailbox cost derived by halving the round-trip figure in Table 4 of
 \citet{mayeski_fastsend}) and a service
 floor swept across $T \in \{2, 4, 8, 16, 32, 64, 128\}\,\mu\mathrm{s}$, from tasks below
 the hop cost to tasks far above it. We sweep $N \in \{1, 2, 4, 8\}$ per scenario on each of the 3512
-thirty-minute RTH windows of the corpus. Each window is also simulated under a
-uniform-shuffle Poisson null of the same arrival count as an empirical counterfactual
-(Section~\ref{sec:setup-sweep}).
+thirty-minute RTH windows of the corpus. Each window is also simulated under a uniform-shuffle Poisson null with the same
+arrival count and support, differing only in the arrival ordering
+(Section~\ref{sec:setup-sweep}); the null isolates the contribution of clustering, and
+is not a model of what any designer assumes.
     \item \textbf{Design equation for practitioners.} From the empirical result we extract
 design rules for a latency-critical servicing chain
 (Sections~\ref{sec:kaspar} and~\ref{sec:implementation}): split a stage only when its
@@ -2405,10 +2408,10 @@ The design rule depends on this property operationally.
 \label{sec:other-arch}
 
 The paper's central claim is that the single-thread hot-path recommendation does not
-hold above the threshold once the arrival law is Hawkes-clustered rather than Poisson
+hold above a service-time threshold on Hawkes-clustered feeds
 (Section~\ref{sec:intro-singlethread-priors}, Section~\ref{sec:results}). Two adjacent
-conventions, pre-spinning receivers and pre-warming pipelines, rest on the same
-Poisson-load assumption, and this section examines them. Neither intervention is measured
+conventions, pre-spinning receivers and pre-warming pipelines, are also affected by the
+arrival law, and this section examines them. Neither intervention is measured
 here; both are future work. The argument is that the arrival law provides much of the
 benefit these interventions are intended to deliver, on the tail quantile.
 
@@ -2455,9 +2458,8 @@ truly did cool down --- and even there the delivery is bounded by the wake-up co
 at the cost of continuous L1/L2 pollution from the warmup traffic. Under Hawkes the
 tail is unaffected.
 
-\paragraph{Why this needs measurement.} Treating pre-spinning and pre-warming as
-first-order tail-latency techniques rests, like the single-thread rule, on a Poisson-load
-assumption. On self-exciting exchange feeds the arrival law itself provides the
+\paragraph{Why this needs measurement.} Pre-spinning and pre-warming are first-order
+tail-latency techniques when arrivals are uncorrelated. On self-exciting exchange feeds the arrival law itself provides the
 receiver-awake and cache-warm state on the tail quantile, so both interventions are
 second-order there and can be counterproductive once their steady costs are included. Both claims are
 corollaries of the paper's main result rather than separate contributions, but each
@@ -2480,8 +2482,9 @@ candidate follow-ons.
 \section{Recommendations for HFT system designers}
 \label{sec:recommendations}
 
-The paper's results contradict one architectural default (single-thread hot path) and
-question two adjacent ones (busy-poll receivers, pre-warming). They do not contradict
+The paper's results qualify one architectural default (the single-thread hot path as
+an unconditional choice) and question two adjacent ones (busy-poll receivers,
+pre-warming). They do not contradict
 per-message code optimisation. This section separates what the paper leaves unchanged
 from what it argues against, and states the design flow the design equation implies.
 
@@ -2504,7 +2507,7 @@ quantile, and the difference is entirely in the per-message layer.
 \subsection{What the paper argues against}
 
 Two conventions in the layer above per-message optimisation. First, the single-thread
-servicing chain as the topology default (Section~\ref{sec:intro-singlethread-priors}): on
+servicing chain as the unconditional topology default (Section~\ref{sec:intro-singlethread-priors}): on
 Hawkes-clustered feeds with $T$ above the floor of Section~\ref{sec:results-design}, the
 tail is dominated by cluster wait and adding threads along the chain reduces it at a
 median cost of $(N-1)h$. Second, pre-spinning receivers and pre-warming pipelines as
@@ -2533,10 +2536,13 @@ exceeding $h$, which on this corpus happens about $1.5\,\mu\mathrm{s}$ further a
 (Section~\ref{sec:results-threshold}). Two cautions. First, use the tight end of the gap
 distribution, never the mean: on this corpus the mean gap is $2215\,\mu\mathrm{s}$, some
 $300\times$ larger, and a rule stated on it would say never to split anything. Second,
-this floor is a property of the exchange's packet-emission granularity and is invariant to
-market intensity --- it does not move between a quiet session and a volatile one
-(Section~\ref{sec:results-conditioning}) --- so it is measured once per feed, not tracked
-at runtime. Re-measure it for any feed whose gateway behaves differently.
+measure it under representative and peak-load conditions. On this corpus the floor is
+a property of the exchange's packet-emission granularity and did not move between quiet
+and volatile sessions (Section~\ref{sec:results-conditioning}), so it was measured once
+per feed; that invariance is a finding about this feed's gateway, to be verified on
+another feed rather than assumed. At longer service times the tail does depend on
+intensity and branching ratio, and a chain in that regime needs its threshold measured
+under the load it will actually see.
     \item \textbf{Draft the pipeline as a chain of actors at natural cut points, then
 balance it.} On a CME MDP3 handler: \texttt{SocketReader}, SBE decoder, order book,
 strategy actor, order manager --- four or five stages, no artificial decomposition
@@ -2579,10 +2585,11 @@ code.
 \section{Conclusion}
 \label{sec:conclusion}
 
-The paper's two conclusions contradict the prevailing view in HFT system design, which
+The paper's two conclusions qualify the prevailing view in HFT system design, which
 holds that the hot path should run on a single-thread event loop because every thread hop
-adds per-message latency. We show on CME MDP3 packet arrivals that both parts of the
-argument fail above a service-time threshold.
+adds per-message latency. That view is correct below a service-time threshold and
+incorrect above it. On CME MDP3 packet arrivals both parts of the argument fail above the
+threshold, and the threshold depends on the feed.
 
 \paragraph{Conclusion 1: above the threshold, the hop cost is small relative to the
 cluster-wait tail.} The dominant term in end-to-end latency on a Hawkes-clustered feed
@@ -2617,26 +2624,37 @@ chain of $6.8$--$7.2\,\mu\mathrm{s}$, $N^\star = 1$ and the chain should not be 
 (Section~\ref{sec:kaspar}); the recommendation applies to stages above about
 $10\,\mu\mathrm{s}$ on this feed.
 
-\paragraph{Why the single-thread rule persists.} The single-thread rule is consistent
-with a Poisson model of arrivals, under which there is no clustering and, at the service
-times a hot path runs at, the tail equals the service floor. On such a feed the rule is
-correct; the Poisson null gives that result for every task up to $16\,\mu\mathrm{s}$.
-Real exchange feeds are not Poisson: near-critical branching ratios on CME futures ($n
-\approx 0.9$ on ES trades in the literature, $n \approx 0.8$ on NQ packets in this
-corpus) have been documented for over a decade, and those clusters reverse the
-recommendation above the threshold. On a clustered feed the hop cost buys a shorter tail
-at a bounded median cost.
+\paragraph{When one thread is the right design.} The single-thread rule is correct
+whenever the service time of the chain is below the feed's threshold, and on this corpus
+that includes the reference system's socket-to-book path. The rule is a threshold rule
+in both directions: below the floor, splitting adds hop cost and removes no tail; above
+it, the cluster-wait tail exceeds the hop cost and splitting reduces it. The threshold is
+set by the feed's arrival statistics. On this corpus it is set by the tight-gap structure
+of the arrival stream and is invariant to intensity and branching ratio at HFT service
+times; at longer service times both intensity and branching ratio raise the tail
+(Section~\ref{sec:results-conditioning}). Near-critical branching ratios on CME futures
+($n \approx 0.9$ on ES trades in the literature, $n \approx 0.8$ on NQ packets in this
+corpus) have been documented for over a decade, and those clusters are what produce the
+tail. These results are for one feed and one exchange gateway. On another feed the
+threshold, and its dependence on load, must be measured.
 
-\paragraph{What this changes in practice.} Multi-actor pipelines are appropriate for
-HFT feeds above the threshold because those feeds are self-exciting. Framework designers
-should measure busy-poll dequeue on pinned isolated cores against the wait/notify mailbox
-on a Hawkes-representative tape rather than assume it is faster
-(Section~\ref{sec:other-arch}), drive the mailbox mutex uncontended, keep memory-pool
-discipline, and cut the decode pipeline at whichever of its natural boundaries (4--5 on
-CME) minimise the largest stage, with that stage at ingress and everything downstream
-merged up to its service time; the tail factor is $s_{\max}/T$, and a hop that does not
-lower $s_{\max}$ is pure cost. Strategy designers of both POV-style and race-sensitive algorithms benefit for the
-same reason.
+\paragraph{What this changes in practice.} The recommendation is that HFT designers
+measure end-to-end latency of the assembled pipeline under actual market conditions,
+including peak load, and split the servicing chain wherever the measurement shows a tail
+excess larger than the hop cost. Splitting the hot path is a design option of equal
+standing with optimising it. For a chain above the threshold, one cut at a natural
+boundary reduces the $p_{99}$ tail by more than any per-message optimisation is likely to:
+on this corpus a balanced cut of a $16\,\mu\mathrm{s}$ chain reduces the tail excess from
+$18.6$ to $2.3\,\mu\mathrm{s}$ (Section~\ref{sec:kaspar}), whereas per-message work
+moves the floor by tenths of a microsecond. Below the threshold, per-message optimisation
+is the only lever. Framework designers should measure busy-poll dequeue on pinned
+isolated cores against the wait/notify mailbox on a Hawkes-representative tape rather
+than assume it is faster (Section~\ref{sec:other-arch}), drive the mailbox mutex
+uncontended, keep memory-pool discipline, and cut the decode pipeline at whichever of its
+natural boundaries (4--5 on CME) minimise the largest stage, with that stage at ingress
+and everything downstream merged up to its service time; the tail factor is
+$s_{\max}/T$, and a hop that does not lower $s_{\max}$ is pure cost. Strategy designers
+of both POV-style and race-sensitive algorithms benefit for the same reason.
 
 \paragraph{Revision of a prior design context.} An
 earlier paper by the present author \citep{mayeski_fastsend} did not itself argue for the
@@ -2661,9 +2679,9 @@ one-line change on the sender side and requires no code change on the receiver s
 choice therefore lives entirely at each individual call site and can be flipped per
 boundary at end-of-build with minimal engineering cost. The paper's design equation now
 supplies the arrival-law-aware default value of that end-of-build measurement: on
-Hawkes-clustered feeds, long tasks should be split into shorter actors joined by
-asynchronous sends as a matter of preference, on the presumption that splitting compresses
-the overall tail more than the added hop cost inflates the median. The rule presupposes
+Hawkes-clustered feeds, tasks above the threshold should be split into shorter actors
+joined by asynchronous sends, on the measured result that splitting reduces the tail by
+more than the hop cost raises the median. The rule presupposes
 that the task being split has a service time $T$ comfortably above the floor of
 Section~\ref{sec:results-design}; a task of order $h$ or below cannot be usefully split (a
 $1\,\mu\mathrm{s}$ task cannot be turned into two $500$~ns actors when a single hop alone
