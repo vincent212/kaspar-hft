@@ -2510,6 +2510,21 @@ pre-warming). They do not contradict
 per-message code optimisation. This section separates what the paper leaves unchanged
 from what it argues against, and states the design flow the design equation implies.
 
+\begin{center}
+\fbox{\begin{minipage}{0.92\linewidth}
+\textbf{Design principle (measure the crossover on the target feed).} Whether a stage
+should be split is decided by how many packets arrive closer together than its service
+time, not by the packet rate or the branching ratio as such. That fraction is a property
+of the feed and its gateway. On CME MDP3 it is about $1\%$ at a $7.5\,\mu\mathrm{s}$ floor
+and does not vary with rate or with the fitted branching ratio at HFT service times, so a
+$7$--$8\,\mu\mathrm{s}$ stage is not split. On a feed whose packing is set by the arrival
+process it can be tens of percent at the same fitted branching ratio, and the same stage
+is split (Appendix~\ref{app:synthetic}). The crossover cannot be read off fitted
+parameters. Measure the end-to-end latency of the assembled pipeline under the load the
+system will see, and split where the measured tail excess exceeds the hop cost.
+\end{minipage}}
+\end{center}
+
 \subsection{What the paper leaves unchanged}
 
 Per-message hot-path optimisation --- branch-free decoders, cache-line-aligned
@@ -3295,6 +3310,7 @@ utilisation, as a null should. The rule is therefore neither one thread nor two.
 crossover is a property of the feed's packet spacing, it cannot be read off the fitted
 parameters, and it must be measured under the load the system will see. The CME gateway
 places this corpus below the crossover at $7\,\mu\mathrm{s}$; another exchange, or the same
-exchange after a gateway change, may not.
+exchange after a gateway change, may not. Section~\ref{sec:recommendations} states this as
+a design principle.
 
 \end{document}
