@@ -213,6 +213,55 @@ namespace mdp3
             {
                 return;
             }
+
+            // Fast path: in-order, nothing queued, not recovering -> decode
+            // straight from the incoming buffer, skipping the msg_q insert and the
+            // ~1.5KB copy-out the drain loop does. This is the steady-state case;
+            // gap / backlog / recovery still take the buffered slow path below.
+            if (msg_q.empty() && !in_data_recovery && !in_instr_recovery
+                && (m->buf.seqnum == qseq_num + 1 || qseq_num == 0))
+            {
+                bool is_channel_reset = false;
+                // MUST be stamped here as well as in processq(). The fast path
+                // returns before processq() is ever reached, and processq() is
+                // the only other place set_ingress_qlen() is called -- so
+                // without this line handler_if::ingress_qlen_ keeps whatever
+                // value the last slow-path packet left in it, for as long as
+                // the feed stays in order. Since the fast path is the
+                // steady-state case, that is the large majority of book
+                // messages, and the gauge would read as a plausible stale
+                // number rather than as missing.
+                decoder.set_ingress_qlen(m->buf.qlen);
+                // recv_ts here is genuinely this packet's own stamp, because on
+                // the fast path the arriving packet IS the packet being
+                // decoded. The slow path passes the trigger packet's ts to
+                // every packet it drains, which is the bug noted in processq().
+                auto rc = decoder.mbo_data(const_cast<char *>(&m->buf.message[0]),
+                                           m->buf.len, m->buf.recv_ts, is_channel_reset);
+                if (rc) [[likely]]
+                {
+                    qseq_num = m->buf.seqnum;
+                    if (is_channel_reset)
+                        log_err("****** channel reset ****** sn: %d, qseq_num: %d", m->buf.seqnum, qseq_num);
+                    if (waitcnt < maxwaitcnt)
+                        waitcnt = maxwaitcnt;
+#ifdef SENDEOBURST
+                    if (m->last)
+                        decoder.burstend();
+#endif
+                }
+                else
+                {
+                    log_err("could not decode critical data message initiating recovery");
+                    decoder.gap();
+                    do_data_recovery();
+                }
+                last_ts = m->buf.recv_ts;
+                if (m->buf.recv_ts != 0)
+                    last_msg_timestamp = m->buf.recv_ts;
+                return;
+            }
+
             msg_q[m->buf.seqnum] = m->buf;
             processq(m->buf.recv_ts, m->last);
             last_ts = m->buf.recv_ts;
@@ -281,28 +330,30 @@ namespace mdp3
             {
 
                 auto sn = p->first;
-                auto msg = p->second; // Copy needed since p is erased later
 
                 if (sn <= qseq_num)
                 {
                     log_dbg("dropping message sn: %d, qseq_num: %d", sn, qseq_num);
-                    msg_q.erase(p);
-                    p = msg_q.begin();
+                    p = msg_q.erase(p); // returns the next element (== begin here)
                 }
                 else if (sn == qseq_num + 1 || qseq_num == 0)
                 {
                     // process message
                     log_dbg("processing message sn: %d, qseq_num: %d", sn, qseq_num);
                     bool is_channel_reset = false;
-                    // Ingress mailbox depth for THIS packet. Note msg is the
-                    // reorder-map entry (p->second), so msg.qlen belongs to the
-                    // packet actually being decoded -- not to whatever packet
-                    // happened to trigger this drain. Contrast `ts` on the next
-                    // line, which is the arriving packet's recv_ts and is wrong
+                    // Ingress mailbox depth for THIS packet. It is read off the
+                    // reorder-map entry, so it belongs to the packet actually
+                    // being decoded -- not to whatever packet happened to
+                    // trigger this drain. Contrast `ts` two lines down, which
+                    // IS the arriving packet's recv_ts and is therefore wrong
                     // for every packet released out of a gap. Do not copy that
                     // pattern here.
-                    decoder.set_ingress_qlen(msg.qlen);
-                    auto rc = decoder.mbo_data(&msg.message[0], msg.len, ts, is_channel_reset);
+                    decoder.set_ingress_qlen(p->second.qlen);
+                    // Decode straight from the map node (valid until the erase
+                    // below) -- no ~1.5KB copy-out. This used to bind a local
+                    // `msg` copy first, which is where the qlen above was read
+                    // from; reading it through p->second is the same value.
+                    auto rc = decoder.mbo_data(&p->second.message[0], p->second.len, ts, is_channel_reset);
                     if (!rc)
                     {
                         log_err("could not decode critical data message initiating recovery");
@@ -316,8 +367,7 @@ namespace mdp3
                         log_err("****** channel reset ****** sn: %d, qseq_num: %d, is_channel_reset: %d", sn, qseq_num, is_channel_reset);
                     }
 
-                    msg_q.erase(p);
-                    p = msg_q.begin();
+                    p = msg_q.erase(p); // returns the next element (== begin here)
                     qseq_num = sn;
                     if (waitcnt < maxwaitcnt)
                     {
