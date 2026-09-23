@@ -2183,6 +2183,42 @@ $p_{99} = 1.17\,T$ and $p_{99.9} = 1.77\,T$. Below the feed's tight-gap floor th
 still a tail; it is simply not a queueing tail. By $T \ge 32\,\mu\mathrm{s}$, where cluster
 queueing produces a $p_{99}$ of $4.5\,T$ and rising, span contributes $0$--$2\%$ on top.
 
+\paragraph{At the production operating point the two are comparable, and span is the
+larger.} The table above is a sweep over hypothetical service times, and reading the
+$T \ge 32\,\mu\mathrm{s}$ rows as the headline would be misleading, because the live
+system's measured floor is $6.81$--$7.23\,\mu\mathrm{s}$
+(Section~\ref{sec:crossval-floor}). The comparable row is $T = 8\,\mu\mathrm{s}$.
+Decomposing the message-weighted $p_{99}$ excess over the floor into the part the
+constant-service model already produced (queueing) and the remainder introduced by
+span-aware service (serialisation):
+
+\begin{center}
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+$T$ & floor & queueing excess & serialisation excess & serialisation share \\
+\midrule
+  2 &   1.99 &    0.00 &   0.34 & $100\%$ \\
+  4 &   3.99 &    0.00 &   0.69 & $100\%$ \\
+  8 &   7.97 &    0.56 &   1.09 & $66\%$ \\
+ 16 &  15.95 &   18.00 &   1.14 & $6\%$ \\
+ 32 &  31.89 &  111.74 &   0.78 & $1\%$ \\
+ 64 & 100.02 &  716.42 &   3.61 & $1\%$ \\
+128 & 371.91 & 5073.43 & 105.07 & $2\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+At $T = 8\,\mu\mathrm{s}$ serialisation supplies $66\%$ of the $p_{99}$ excess and
+queueing $34\%$. That is the same ordering the live measurement reports independently:
+evaluating the position ladder at each stream's own $p_{99}$ position accounts for
+$71\%$ to $80\%$ of the observed $p_{99}$ on four of its six streams, with the remainder
+left to queueing and to stalls. Applying that definition to the simulator at $T = 8$ gives
+$97\%$, higher than the live figure because the only residual the model contains is
+queueing --- it has no stall population. The agreement to take from this is the
+attribution, not the third digit: at the service time an HFT decode path actually runs at,
+in-packet serialisation is the larger of the two tail mechanisms, and both measurements say
+so.
+
 This completes rather than contradicts Part~II. The claim that survives is the one about
 \emph{queueing}: below roughly $7.5\,\mu\mathrm{s}$ of service, arrival clustering does not
 build a queue, and splitting the servicing chain buys nothing. What the span-aware run adds
