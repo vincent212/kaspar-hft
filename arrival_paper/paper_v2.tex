@@ -34,7 +34,7 @@ A Closed-Form and Empirical Case for Multi-Actor HFT Pipelines}
 \author{Vincent Maciejewski\thanks{M2 Tech (16425640 Canada Inc.), Montreal.
 \texttt{mayeski@gmail.com}. \kasparhft{} is open source at
 \url{https://github.com/vincent212/kaspar-hft}.}}
-\date{Draft v2, September 2026}
+\date{September 2026}
 
 \begin{document}
 \maketitle
@@ -81,7 +81,12 @@ MDP3 packet arrivals. We then cross-check the arrival-process result against an
 independent measurement taken on a live production receiver seven months after the corpus
 ends, on instruments the corpus does not contain and on a different arrival clock; the
 clustering statistics agree, and the production decoder's measured service floor lands on
-the service time at which our sweep says the latency tail switches on.
+the service time at which our sweep says the latency tail switches on. Removing the
+constant-service assumption and re-running the sweep with service that depends on the
+number of messages a datagram carries leaves the design rule unchanged at every service
+time, and isolates a second tail mechanism --- in-packet serialisation --- that supplies
+the whole tail below the switch-on threshold and is the larger of the two at the
+production operating point, where it accounts for two thirds of the $p_{99}$ excess.
 Companion code contains the message-tape parser, the per-window Hawkes fitter, and the
 tandem queueing simulator.
 \end{abstract}
@@ -279,8 +284,9 @@ uniform-shuffle Poisson null of the same arrival count as an empirical counterfa
 (Section~\ref{sec:setup-sweep}).
     \item \textbf{Design equation for practitioners.} From the empirical result we extract
 a concrete set of design rules for a latency-critical servicing chain
-(Sections~\ref{sec:kaspar} and~\ref{sec:implementation}): split a task only when its total
-service exceeds roughly twice the hop cost; choose the partition with the smallest
+(Sections~\ref{sec:kaspar} and~\ref{sec:implementation}): split a stage only when its
+service time exceeds the feed's tight-gap floor, about $7.5\,\mu\mathrm{s}$ on this
+corpus, since below it there is no queueing tail to compress; choose the partition with the smallest
 achievable largest stage $s_{\max}$, since the tail depends only on $s_{\max}$ and a cut
 that does not lower it merely buys a hop; put that largest stage first, at ingress; keep
 sub-tasks below the bottleneck together on one thread via \texttt{fast\_send}, using an
@@ -362,14 +368,16 @@ $\bar\lambda_{\mathrm{pkt}}$ & mean packet-arrival intensity per 30-min window, 
 $n_{\mathrm{pkt}}$ & branching ratio of the packet-arrival Hawkes fit per window \\
 $n_{\mathrm{pkt}}^{\#}$ & per-window packet count \\
 $\rho$ & utilisation, $\rho = \bar\lambda_{\mathrm{pkt}} \cdot T$ \\
-$F(T)$ & Fano factor at window length $T$: $\mathrm{Var}[C_T] / \mathrm{E}[C_T]$ \\
-$H$ & Hurst exponent, from log-log slope of $F(T)$ \\
+$\tau$ & bin width of the Fano factor, in seconds (distinct from the service time $T$) \\
+$F(\tau)$ & Fano factor at bin width $\tau$: $\mathrm{Var}[C_\tau] / \mathrm{E}[C_\tau]$ \\
+$H$ & Hurst exponent, from log-log slope of $F(\tau)$ \\
+$\sigma_i$, $\bar\sigma$ & span of packet $i$ (SBE messages per datagram) and its window mean (\S\ref{sec:crossval-spanrun}) \\
+$S_i$ & span-dependent service time of packet $i$ (\S\ref{sec:crossval-spanrun}) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Symbol $T$ serves double duty as the paper's canonical service floor and as the
-window-length argument of the Fano factor $F(T)$; context disambiguates. The per-window
+The per-window
 packet count and the packet-Hawkes branching ratio would both naturally be written
 $n_{\mathrm{pkt}}$; the paper reserves $n_{\mathrm{pkt}}$ for the branching ratio and
 writes $n_{\mathrm{pkt}}^{\#}$ for the count.
@@ -502,8 +510,9 @@ the wire bytes of a single message and cannot be split. Ten microseconds is a ro
 ballpark chosen for exposition; none of the paper's qualitative results depend on it. The
 relevant knob for the design equation is the ratio $T/h$: doubling $T$ at fixed $h$
 doubles the cluster-wait terms of Equation~\eqref{eq:burst} and leaves the hop tax
-unchanged, which is why the floor below which splitting cannot pay
-(Section~\ref{sec:results-design}) is stated in units of $h$. The paper writes ``per-stage
+unchanged. The floor below which splitting cannot pay
+(Section~\ref{sec:results-design}) turns out to be set by the feed rather than by $h$: it
+is the arrival stream's tight-gap floor, and on this corpus it binds well above $2h$. The paper writes ``per-stage
 service $T/N$'' as a simplifying modelling convention that assumes equal-sized stages; in
 reality the per-stage services $s_i$ sum to $T$ but are unequal, and the achievable
 pipeline throughput is $1/\max_i s_i$ rather than $N/T$. Theorem~\ref{thm:reduction}
@@ -787,8 +796,9 @@ isolated burst that arrives all at once, and beaten whenever arrivals are spread
 because the pipeline's first stage is idle more often than the single thread and uses each
 idle gap to drain more of its backlog. The paper writes the measured compression as
 $N^{-\gamma}$; the theorem guarantees $\gamma \ge 1$, and Section~\ref{sec:results}
-measures $\gamma$ between $1.0$ (at $T = 2\,\mu\mathrm{s}$, where the bound is tight) and
-$1.7$ (at $T = 32\,\mu\mathrm{s}$).
+finds the bound beaten by a wide margin --- $\gamma = 3.3$ and $2.7$ at $T = 64$ and
+$128\,\mu\mathrm{s}$, and at shorter service times the tandem drives the excess to
+exactly zero, where no exponent is defined at all.
 
 \paragraph{Where the traffic model comes in.} Nowhere in the two theorems. The arrival
 pattern enters only through the size of the single-thread wait that the factor $1/N$ is
@@ -1756,8 +1766,10 @@ closed-form predictions of Section~\ref{sec:theory}.
 \paragraph{Proposition~\ref{thm:burst} (burst-limit throughput).} The single-message
 identity $p_{50}(N) = T + (N-1) h$ is predicted exactly by Proposition~\ref{thm:burst} for
 any arrival law when the median message finds the queue empty. Table~\ref{tab:main-corpus}
-confirms it in all twenty $(T, N)$ cells under both arms at $h = 1.7\,\mu\mathrm{s}$, to
-the $0.01\,\mu\mathrm{s}$ reporting precision.
+confirms it in all 28 $(T, N)$ cells of the Poisson arm and in 25 of the 28 Hawkes cells
+at $h = 1.7\,\mu\mathrm{s}$, to the $0.01\,\mu\mathrm{s}$ reporting precision; the
+three Hawkes exceptions are the longest-service cells, where the median message itself
+waits (Section~\ref{sec:results-median}).
 
 \paragraph{Theorem~\ref{thm:reduction} (reduction and scaling bound).} The prediction is
 $\Delta(N) \le \Delta(1)/N$ on every window, and more strongly $W_j^{(N)} \le W_j^{(1)}/N
@@ -1790,8 +1802,9 @@ under it costs $(N-1)h$ at every reported quantile.
 
 \paragraph{Verdict.} All three analytical statements survive the full-corpus test. The
 quantitatively load-bearing one, the pathwise bound of Theorem~\ref{thm:reduction}, holds
-on every message of every window, and its slack is measured rather than assumed: $\gamma =
-1.00, 1.23, 1.48, 1.65, 1.67$ at $T = 2, 4, 8, 16, 32\,\mu\mathrm{s}$.
+on every message of every window, and its slack is measured rather than assumed:
+$\gamma = 3.32$ and $2.68$ at $T = 64$ and $128\,\mu\mathrm{s}$, and at $T \le
+32\,\mu\mathrm{s}$ the tandem removes the excess outright rather than dividing it.
 
 \clearpage
 % =====================================================================
@@ -2115,9 +2128,9 @@ across packets differs; any difference in the tail is the span effect and not a 
 system.
 \begin{align*}
 \text{const} &: \quad S_i = T && \text{(the Part~II assumption)} \\
-\text{span}  &: \quad S_i = A\big(1 + r\,(s_i - 1)\big), \quad r = 0.0432
+\text{span}  &: \quad S_i = A\big(1 + r\,(\sigma_i - 1)\big), \quad r = 0.0432
   && \text{(measured slope/floor)} \\
-\text{prop}  &: \quad S_i = T\,s_i / \bar{s} && \text{(upper bound)}
+\text{prop}  &: \quad S_i = T\,\sigma_i / \bar{\sigma} && \text{(upper bound)}
 \end{align*}
 with $A$ set so that the window mean of $S_i$ is $T$. The \emph{span} model uses the ratio
 of slope to floor measured on NQ book in Section~\ref{sec:crossval-floor}, $0.312/7.23$.
@@ -2325,53 +2338,67 @@ Section~\ref{sec:intro-singlethread-priors} realised with actors: the whole $T$ 
 one thread between two hops that were accepted because the alternative, blocking the
 chain, was worse. The two existing hops show that the design was never opposed to
 asynchronous handoffs as such; it placed them where the cost of not having them was
-obvious. What this paper adds is that the same logic applies inside the chain. On a
-Hawkes-clustered feed the $\sim 7\,\mu\mathrm{s}$ servicing chain sits above the $2h
-\approx 3.4\,\mu\mathrm{s}$ floor of Section~\ref{sec:results-design}, its single-thread
-$p_{99}$ carries a tail excess of several $T$ (Table~\ref{tab:delta}), and cutting it at
-its natural boundaries into stages joined by asynchronous \texttt{send} compresses that
-excess by the factor of Theorem~\ref{thm:reduction} for a median cost of one hop per cut.
-The recommendations that follow are therefore stated as changes to this particular
-pipeline: where to cut it, in what order to place the stages, which boundaries to leave on
-\texttt{fast\_send}, and how to decide each of those by measurement rather than by
-reasoning at a single call site.
+obvious. What this paper adds is that the same logic applies inside the chain, once the
+chain is long enough for the feed to queue behind it. The recommendations that follow are
+therefore stated as changes to this particular pipeline: where to cut it, in what order to
+place the stages, which boundaries to leave on \texttt{fast\_send}, and how to decide each
+of those by measurement rather than by reasoning at a single call site.
 
-\paragraph{The rule applied to this pipeline.} The design equation can be run on the
-reference chain directly, using Table~\ref{tab:delta} as a lookup of the single-server
-tail excess $\Delta_{\mathrm{single}}(s)$ against per-stage service $s$. Take the measured
-$\sim 7\,\mu\mathrm{s}$ servicing chain and the four natural boundaries inside it
-(arbitration, SBE decode, book application, signal), and suppose for the sake of the
-arithmetic that the decode and book stages dominate at roughly $3\,\mu\mathrm{s}$ each
-with arbitration and signal near $0.5\,\mu\mathrm{s}$. The partitions available at those
-cut points, with $h = 1.7\,\mu\mathrm{s}$ and $\Delta_{\mathrm{single}}$ interpolated on
-the power-of-two grid of Table~\ref{tab:delta}, are:
+\paragraph{The rule applied to this pipeline, as measured.} The design equation can be run
+on the reference chain directly, using the diagonals of Table~\ref{tab:delta} as a lookup
+of the single-server tail excess $\Delta_{\mathrm{single}}(s)$ against per-stage service
+$s$. Take the measured $\sim 7\,\mu\mathrm{s}$ socket-to-book chain and the natural
+boundaries inside it (arbitration, SBE decode, book application, signal), and suppose for
+the sake of the arithmetic that decode and book dominate at roughly $3\,\mu\mathrm{s}$
+each with arbitration and signal near $0.5\,\mu\mathrm{s}$. Then every partition available
+at those cut points has $s_{\max} \le 7\,\mu\mathrm{s}$, and Part~II says
+$\Delta_{\mathrm{single}}$ is zero there: $0.00$ at $s \le 4\,\mu\mathrm{s}$, and at $s =
+7\,\mu\mathrm{s}$ a tail on only $4.5\%$ of windows with a median excess of $0.00$
+(Section~\ref{sec:results-threshold}). The single-thread chain has no queueing excess to
+remove, every cut returns exactly its hop tax, and $N^\star = 1$.
+
+That is not a disappointment; it is Section~\ref{sec:crossval-floor} read from the other
+side. The production chain sits on the feed's tight-gap floor, and the paper's own rule
+says a stage on the floor is not to be split. What the live measurement adds
+(Section~\ref{sec:crossval-spanrun}) is that the tail this chain does carry at its
+operating point is mostly in-packet serialisation, which pipelining the arrival stream
+cannot touch, and which the fast-code craft of Section~\ref{sec:recommendations} can.
+
+\paragraph{The rule applied to this pipeline, once it grows.} The rule engages as soon as
+the chain is longer than the floor, which happens the moment a strategy stage of any
+substance is placed on it, or on a feed with a tighter gap floor. Take a
+$16\,\mu\mathrm{s}$ chain with the same four boundaries, decode and book now at
+$6\,\mu\mathrm{s}$ each and the two small stages at $2\,\mu\mathrm{s}$:
 
 \begin{center}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
-partition of the $7\,\mu\mathrm{s}$ chain & $s_{\max}$ (\si{\micro\second}) & hops & $\Delta_{\mathrm{single}}(s_{\max})$ (\si{\micro\second}) & $p_{99}$ excess $+$ hop tax \\
+partition of the $16\,\mu\mathrm{s}$ chain & $s_{\max}$ (\si{\micro\second}) & hops & $\Delta_{\mathrm{single}}(s_{\max})$ (\si{\micro\second}) & $p_{99}$ excess $+$ hop tax \\
 \midrule
-single thread ($7$)                       & 7.0 & 0 & $\approx 17$ & 17.0 \\
-$3.5 + 3.5$ (decode\,$|$\,book)           & 3.5 & 1 & $\approx 5.9$ & 7.6 \\
-$3 + 3 + 1$ (decode\,$|$\,book\,$|$\,rest)& 3.0 & 2 & $\approx 4.6$ & 8.0 \\
-$0.5{+}3{+}3{+}0.5$ (all four split)      & 3.0 & 3 & $\approx 4.6$ & 9.7 \\
+single thread ($16$)                        & 16 & 0 & 18.59 & 18.59 \\
+$8 + 8$ (arb$+$decode\,$|$\,book$+$signal)  &  8 & 1 &  0.61 &  2.31 \\
+$8 + 6 + 2$ (three stages)                  &  8 & 2 &  0.61 &  4.01 \\
+$2 + 6 + 6 + 2$ (all four split)            &  6 & 3 &  0.00 &  5.10 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Three things follow, and each is an instance of a general rule rather than a fact about
-this pipeline. The balanced two-way cut is the best of the four: it more than halves the
-tail excess for one hop. Going to three stages lowers $s_{\max}$ only from $3.5$ to
-$3.0\,\mu\mathrm{s}$, because the book stage is already the bottleneck and the third cut
-merely separates two sub-tasks that were not binding; the $1.3\,\mu\mathrm{s}$ it buys
-does not cover the $1.7\,\mu\mathrm{s}$ hop it costs. Splitting all four is strictly worse
-again: the fourth hop lowers $s_{\max}$ not at all, which is Remark~\ref{rem:unequal}'s
-third consequence in concrete form. So the recommendation for this
-pipeline is one cut, at the decode/book boundary, with the book stage placed at ingress if
-the decode is the smaller of the two --- and the numbers above are a prior for what the
-end-of-build measurement of Section~\ref{sec:fungibility-workflow} should find, not a
-substitute for running it. The per-stage service times are illustrative; the operator's
-own profile of the chain replaces them, and the lookup table does the rest.
+Every entry is read directly off Table~\ref{tab:delta}: $\Delta_{\mathrm{single}}(16) =
+18.59$, $\Delta_{\mathrm{single}}(8) = 0.61$, $\Delta_{\mathrm{single}}(6) = 0$. Three
+things follow, and each is an instance of a general rule rather than a fact about this
+chain. The balanced two-way cut is decisive: it removes $18\,\mu\mathrm{s}$ of $p_{99}$
+excess for $1.7\,\mu\mathrm{s}$ of hop, an eightfold improvement in the tail objective.
+Going to three stages does not lower $s_{\max}$ at all --- the $8\,\mu\mathrm{s}$ stage is
+still the bottleneck --- so the second hop buys nothing and costs $1.7$, which is
+Remark~\ref{rem:unequal}'s third consequence in concrete form. Splitting all four does
+lower $s_{\max}$ to $6$ and removes the last $0.61\,\mu\mathrm{s}$ of excess, but pays
+$1.7$ to do it, and loses. So the recommendation for a chain of this length is one cut,
+placed so that the two halves are as equal as the natural boundaries allow, with the
+larger half at ingress (Remark~\ref{rem:dissipation}) --- and the numbers above are a
+prior for what the end-of-build measurement of Section~\ref{sec:fungibility-workflow}
+should find, not a substitute for running it. The per-stage service times are
+illustrative; the operator's own profile of the chain replaces them, and the lookup table
+does the rest.
 
 \section{Implementation on \kasparhft{}: two dispatch paths, one handler}
 \label{sec:implementation}
@@ -2846,12 +2873,14 @@ message therefore continue to use \texttt{fast\_send} unchanged. The end-of-buil
 measurement remains the authoritative arbiter of any specific boundary.
 
 \paragraph{Main caveats.} The corpus is a single instrument (NQ front-month, chan 318); ES
-and BTC replications are follow-on work. Constant service is a simplification; the true
-per-actor work has state-dependent variability we do not model here. The cache-pollution
+and BTC replications are follow-on work. Constant per-packet service is a simplification; Section~\ref{sec:crossval-spanrun}
+removes it for the one source of variability the live data lets us measure, the message
+count per datagram, and finds the design rule unchanged, but per-message work that varies
+with book state is still not modelled. The cache-pollution
 cost of spinning receivers on many cores is bounded but not measured. And
 Theorem~\ref{thm:reduction} is a bound whose slack depends on the arrival law; the paper
-measures that slack ($\gamma$ between $1.0$ and $1.7$ against the guaranteed $\gamma \ge
-1$) rather than deriving it, and a closed form for the slack on Hawkes input is open.
+measures that slack ($\gamma = 3.3$ and $2.7$ where it is defined, against the
+guaranteed $\gamma \ge 1$) rather than deriving it, and a closed form for the slack on Hawkes input is open.
 
 None of these caveats reverse the two conclusions on the 276-session corpus.
 
@@ -2905,8 +2934,12 @@ output, \texttt{arrival\_paper/make\_figure.py} regenerates
 Figure~\ref{fig:curves} from the same grid, and
 \texttt{arrival\_paper/make\_diagnostics.py} recomputes the
 Section~\ref{sec:setup-hawkes} Poisson-rejection diagnostics (gap fractions, Fano factors,
-Hurst exponents, and the gap-shuffled surrogate) from the cache. Every number and every
-figure in Part~II is therefore reproducible by one command. We note this because it was
+Hurst exponents, and the gap-shuffled surrogate) from the cache. The span-aware rerun of
+Section~\ref{sec:crossval-spanrun} is \texttt{arrival\_paper/make\_spans.py} (per-packet
+span, aligned to the cached arrivals), \texttt{arrival\_paper/qsim\_span.py} (the three
+service models and the span-shuffle arm) and
+\texttt{arrival\_paper/make\_span\_tables.py}. Every number and every figure in Part~II
+is therefore reproducible by one command. We note this because it was
 not previously true: the tandem-curves figure had no generating script in the repository,
 and silently went stale against a rerun of the sweep --- which is exactly the failure mode
 a reproducibility section exists to prevent.
@@ -3253,8 +3286,9 @@ The practical reading is that at the branching ratios fitted on the corpus
 ($n_{\mathrm{pkt}} \approx 0.8$, Section~\ref{sec:setup-hawkes}), $k^\star \approx 25$:
 clusters of order a hundred packets are the largest that occur with non-negligible
 frequency, and the single-stage wait behind the largest clusters has scale $T k^\star
-\approx 25\,T$, against the $1.0$--$7.0\,T$ tail excess observed at the corpus-median
-$p_{99}$ of Section~\ref{sec:results} (rising monotonically with $T$ across the sweep).
+\approx 25\,T$, against the corpus-median $p_{99}$ tail excess of Section~\ref{sec:results}, which is
+zero below the tight-gap floor and rises from $1.2\,T$ at $T = 16\,\mu\mathrm{s}$ to
+$39\,T$ at $T = 128\,\mu\mathrm{s}$.
 This is the object that Theorem~\ref{thm:reduction} divides by $N$, and the reason the $n
 = 0.80$ row of Table~\ref{tab:borel-slope} is the relevant one.
 
