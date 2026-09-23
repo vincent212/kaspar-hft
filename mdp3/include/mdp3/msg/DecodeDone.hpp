@@ -23,7 +23,8 @@ namespace mdp3::msg
                       public actors::MemoryPool<DecodeDone, 32, 32, 4096>
   {
     uint64_t parent_id;
+    bool     ok; // false => this worker's decode_one failed on a hot message
 
-    explicit DecodeDone(uint64_t pid) noexcept : parent_id(pid) {}
+    DecodeDone(uint64_t pid, bool _ok = true) noexcept : parent_id(pid), ok(_ok) {}
   };
 }

@@ -62,9 +62,9 @@ namespace mdp3
       sink_.ingress_qlen_ = req->qlen;
 
       bool is_channel_reset = false; // not expected for hot templates; ignored
-      DataDecoder::decode_one(const_cast<char *>(req->msg), req->len, req->ts,
-                              req->msg_seq, req->sending_time, &sink_,
-                              is_channel_reset, /*debug=*/false);
+      const bool ok = DataDecoder::decode_one(const_cast<char *>(req->msg), req->len, req->ts,
+                                              req->msg_seq, req->sending_time, &sink_,
+                                              is_channel_reset, /*debug=*/false);
 
       // Send this message's entries (one batch, tagged order_seq) to the Reconstructor.
       sink_.flush();
@@ -72,7 +72,7 @@ namespace mdp3
       // Signal the coordinator we are done reading this packet buffer. Sent AFTER
       // all ParsedEntry sends above, so the refcount only drops once the buffer
       // read is complete. reply() routes to the DecodeReq's sender (coordinator).
-      reply(new msg::DecodeDone(req->parent_id));
+      reply(new msg::DecodeDone(req->parent_id, ok));
     }
 
     DecodeSink sink_;

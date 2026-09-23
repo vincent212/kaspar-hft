@@ -23,6 +23,7 @@
 #include "mdp3/msg/DecodePacket.hpp"
 #include "mdp3/msg/DecodeResult.hpp"
 #include "mdp3/msg/DecoderCmd.hpp"
+#include "mdp3/msg/TriggerRecovery.hpp"
 #include "mdp3/msg/DoDataRecovery.hpp"
 #include "mdp3/msg/DoInstrumentRecovery.hpp"
 #include "mdp3/msg/EndDataRecovery.hpp"
@@ -93,6 +94,7 @@ namespace mdp3
             MESSAGE_HANDLER(msg::StartQ, startq_handler); // who sends this?
             MESSAGE_HANDLER(msg::StopQ, stopq_handler);   // who sends this?
             MESSAGE_HANDLER(frame::cons::msg::Get, get_handler);
+            MESSAGE_HANDLER(msg::TriggerRecovery, trigger_recovery_handler);
 
             // if (dorecovery)
             // {
@@ -231,6 +233,22 @@ namespace mdp3
             in_data_recovery = true;
             numdrecoveries++;
             waitcnt = maxwaitcnt;
+        }
+
+        // A parallel decode worker failed (sent by the DataDecoder actor). Respond
+        // exactly as the inline path does to an mbo_data failure: signal the gap
+        // and initiate recovery. Guarded so a burst of failures doesn't restart
+        // recovery repeatedly.
+        void trigger_recovery_handler(const msg::TriggerRecovery *) noexcept
+        {
+            if (in_data_recovery)
+                return;
+            log_err("parallel decode failed -- initiating data recovery");
+            {
+                msg::DecoderCmd c(msg::DecoderCmd::GAP);
+                decoder->fast_send(&c, this);
+            }
+            do_data_recovery();
         }
 
         void do_instr_recovery()

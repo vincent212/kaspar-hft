@@ -17,6 +17,7 @@
 #include "mcast_recv/message_buffer.hpp"
 #include "mdp3/msg/DecodeReq.hpp"
 #include "mdp3/msg/DecodeDone.hpp"
+#include "mdp3/msg/TriggerRecovery.hpp"
 #include "mdp3/msg/DecodePacket.hpp"
 #include "mdp3/msg/DecodeResult.hpp"
 #include "mdp3/msg/DecoderCmd.hpp"
@@ -72,6 +73,10 @@ namespace mdp3
             worker_mask_ = nworkers - 1;
             parallel_decode_ = (workers != nullptr && nworkers > 0);
         }
+
+        // The actor (MessageProcessor) to notify when a parallel decode fails so it
+        // can initiate recovery. Wired in kaspr once both actors exist.
+        void set_recovery_target(actor_ptr mp) noexcept { recovery_target_ = mp; }
 
         // Templates a DecodeWorker can parse in parallel (stateless build). This
         // is the SINGLE source of truth for "hot": it MUST match DecodeWorker's
@@ -651,6 +656,7 @@ namespace mdp3
                 std::memcpy(pp.buf.message.data(), m->data, m->len);
                 pp.buf.len = m->len;
                 pp.outstanding = sr.count;
+                pp.failed = false;
                 // The packet's ingress depth rides each DecodeReq to the worker
                 // that decodes it. It CANNOT go through cb->set_ingress_qlen()
                 // here: that writes one member on the shared handler, which the
@@ -689,8 +695,19 @@ namespace mdp3
             auto it = pending_.find(d->parent_id);
             if (it == pending_.end())
                 return;
+            if (!d->ok)
+                it->second.failed = true; // a worker's decode_one failed on a hot message
             if (--it->second.outstanding == 0)
+            {
+                const bool failed = it->second.failed;
                 pending_.erase(it); // frees the packet-buffer slot
+                // A hot message failed to decode -> the book is now missing
+                // updates. Ask MessageProcessor to initiate recovery -- the same
+                // response the inline path gives an mbo_data failure -- so the book
+                // resyncs instead of silently diverging.
+                if (failed && recovery_target_)
+                    recovery_target_->send(new msg::TriggerRecovery(), this);
+            }
         }
 
         // Low-rate control ops from MessageProcessor (gap / burstend / print_stats).
@@ -721,7 +738,9 @@ namespace mdp3
         {
             mcast_recv::message_buffer buf;
             uint32_t outstanding;
+            bool     failed; // set if any worker reported a decode failure
         };
         std::map<uint64_t, pending_packet> pending_;
+        actor_ptr recovery_target_ = nullptr; // MessageProcessor; asked to recover on decode failure
     };
 }

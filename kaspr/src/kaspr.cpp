@@ -524,6 +524,9 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
         p_cme.get<std::string>("name").c_str()
     );
 
+    // Let the decoder ask the MessageProcessor to recover on a parallel decode failure.
+    decoder->set_recovery_target(mdp3cfsmp[1]); // message_processor
+
     // Manage MDP3 actors.
     //
     // cme_cpus is a comma list of exactly 5 cpu ids, in the order the actors
