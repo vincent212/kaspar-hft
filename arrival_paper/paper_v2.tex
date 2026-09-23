@@ -3278,12 +3278,23 @@ floor, $3.12 \to 1.21$ with the slow kernel and floor. On CME at the same $T$, $
 1$ (Section~\ref{sec:results-threshold}). The service time at which splitting begins to
 pay is not a constant; it is a property of the feed.
 
-The quantity that determines the tail at service time $T$ is the fraction of interarrival
-gaps shorter than $T$, together with the length of the runs in which they occur. On CME
-that fraction is fixed by the gateway at about $1\%$ and does not vary with $\bar\lambda$
-or $n$ over the observed ranges at HFT service times. On a feed whose packing is set by
-the arrival process itself it rises with $n$, and on any feed it rises with $\bar\lambda$
-once $\rho$ is of order $0.1$. Which regime a given feed is in is not derivable from its
-fitted parameters and must be measured, under the load the system will actually see.
+\paragraph{In plain terms.} Whether splitting a stage reduces its tail depends on how
+many packets arrive closer together than the stage's service time, not on the packet rate
+or the branching ratio as such. On CME the gateway does not emit packets closer than about
+$7.5\,\mu\mathrm{s}$ apart, and about $1\%$ of gaps sit at that floor. That fraction does
+not change when the market becomes busier, since a busier market produces more clusters
+with the same spacing inside them, nor when the fitted branching ratio moves within its
+observed range. At the $7$--$8\,\mu\mathrm{s}$ a production decode path runs at there is
+therefore little to queue behind, and one thread is the right design. On a feed on which
+the arrival process itself sets the packing, the result inverts: a Hawkes process at the
+same $n = 0.8$ places $28$--$81\%$ of its gaps at the floor instead of $1\%$, the tail
+depends strongly on the branching ratio, splitting reduces the tail at $T =
+8\,\mu\mathrm{s}$ where on CME it does not, and at high enough load the packet rate
+matters as well. The Poisson null shows only the load effect, and only at high
+utilisation, as a null should. The rule is therefore neither one thread nor two. The
+crossover is a property of the feed's packet spacing, it cannot be read off the fitted
+parameters, and it must be measured under the load the system will see. The CME gateway
+places this corpus below the crossover at $7\,\mu\mathrm{s}$; another exchange, or the same
+exchange after a gateway change, may not.
 
 \end{document}
