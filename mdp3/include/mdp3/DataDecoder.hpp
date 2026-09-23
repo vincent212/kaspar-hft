@@ -83,7 +83,7 @@ namespace mdp3
                 || tid == sbe::MDIncrementalRefreshTradeSummary48::sbeTemplateId(); // MBO trade
         }
 
-        struct scan_result { uint32_t count; bool all_hot; bool has_hot; };
+        struct scan_result { uint32_t count; bool all_hot; bool has_hot; bool corrupt; };
 
         // Walk the packet's SBE messages WITHOUT decoding: count them and report
         // whether EVERY one is hot (all_hot -> parallelizable) and whether ANY is
@@ -96,9 +96,19 @@ namespace mdp3
             uint32_t count = 0;
             bool all_hot = true;
             bool has_hot = false;
+            bool corrupt = false;
             while (p < end)
             {
                 const uint16_t MsgSize    = *reinterpret_cast<const uint16_t *>(p);
+                if (MsgSize == 0)
+                {
+                    // A zero length can never advance the walk; the packet is
+                    // corrupt. Flag it so on_decode_packet routes it to the inline
+                    // path, where mbo_data logs the error and triggers recovery --
+                    // do NOT silently stop and pretend the packet was fine.
+                    corrupt = true;
+                    break;
+                }
                 const uint16_t TemplateID = *reinterpret_cast<const uint16_t *>(p + 4);
                 if (is_hot_template(TemplateID))
                     has_hot = true;
@@ -107,7 +117,7 @@ namespace mdp3
                 p += MsgSize;
                 ++count;
             }
-            return {count, all_hot, has_hot};
+            return {count, all_hot, has_hot, corrupt};
         }
 
         // The dispatch loop: hand each SBE message to a warm worker (round-robin),
@@ -578,6 +588,14 @@ namespace mdp3
             while (std::size_t(databuf - data_start) < len)
             {
                 const uint16_t MsgSize = *(unsigned short *)(databuf);
+                if (MsgSize == 0)
+                {
+                    // Corrupt: a zero length can never advance the walk. Surface it
+                    // and FAIL the packet so the caller initiates recovery -- never
+                    // silently swallow a malformed feed.
+                    log_err("corrupt SBE MsgSize==0 (seq %u) -- aborting packet, initiating recovery", MsgSeqNum);
+                    return false;
+                }
                 if (!decode_one(databuf, MsgSize, ts, MsgSeqNum, SendingTime, cb, is_channel_reset, debug))
                     return false;
                 databuf += MsgSize;
@@ -618,10 +636,13 @@ namespace mdp3
         {
             const auto sr = scan(m->data, m->len);
 
-            // All-hot packet: fan out to the worker fleet. Copy the packet into a
-            // DataDecoder-owned slot (kept alive until every worker reports
-            // DecodeDone), dispatch zero-copy DecodeReqs into that slot, reply now.
-            if (parallel_decode_ && sr.count > 0 && sr.all_hot)
+            // All-hot, well-formed packet: fan out to the worker fleet. Copy the
+            // packet into a DataDecoder-owned slot (kept alive until every worker
+            // reports DecodeDone), dispatch zero-copy DecodeReqs into it, reply now.
+            // A corrupt packet (scan hit MsgSize==0) is NOT parallelized -- it falls
+            // to the inline mbo_data below, which logs the error and fails the
+            // packet so the caller initiates recovery.
+            if (parallel_decode_ && !sr.corrupt && sr.count > 0 && sr.all_hot)
             {
                 const uint64_t pid = next_parent_id_++;
                 const uint64_t base = order_seq_;
@@ -642,14 +663,18 @@ namespace mdp3
 
             // Not all-hot. ASSUME a packet never mixes hot (book/trade) with cold
             // templates; if it did, book/trade would take this inline path and split
-            // the orderid map from the Reconstructor's. Trip if that is violated.
-            ASSERTF(!sr.has_hot, boost::format(
-                "mixed hot+cold packet: book/trade on the inline path splits the "
-                "orderid map -- parallel-decode assumption violated"));
+            // the orderid map from the Reconstructor's. Trip if that is violated --
+            // but NOT for a corrupt packet (that is a malformed feed, not a mixed
+            // one; mbo_data below logs it and triggers recovery).
+            if (!sr.corrupt)
+                ASSERTF(!sr.has_hot, boost::format(
+                    "mixed hot+cold packet: book/trade on the inline path splits the "
+                    "orderid map -- parallel-decode assumption violated"));
 
-            // Cold packet (or parallel off): decode inline. Serial, single
-            // thread, so the handler member is the right place for the depth --
-            // this is the same call main makes from MessageProcessor.
+            // Cold packet, corrupt packet, or parallel off: decode inline.
+            // Serial, single thread, so the handler member is the right place
+            // for the depth -- this is the same call main makes from
+            // MessageProcessor.
             cb->set_ingress_qlen(m->qlen);
             bool is_channel_reset = false;
             bool rc = mbo_data(const_cast<char *>(m->data), m->len, m->ts, is_channel_reset);

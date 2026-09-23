@@ -39,6 +39,7 @@
 //
 #include "mdp3/if/mdp3.hpp"
 #include "mdp3/handler_if.hpp"
+#include "mdp3/DataDecoder.hpp"
 
 //
 // MCAST (for PCAPReader)
@@ -176,17 +177,19 @@ struct dbento_pcap_to_bin : public actors::Manager
         // Setup CME MDP3 handler
         handler_treas.binrec = binrec;
 
+        // Build the decode actor inline-only: no worker fleet is wired here (no
+        // set_workers), so parallel_decode_ stays off and every packet decodes
+        // inline via mbo_data -- exactly as before DataDecoder became an actor.
+        // MBO enabled, max 10 MBP levels.
+        auto *decoder = new mdp3::DataDecoder(&handler_treas, false, 10, false);
+
         // Create persistent MessageProcessor and MsgBuf (shared across all files)
-        // MBO enabled, max 10 MBP levels
         message_processor = create_MessageProcessor(
             chanstr,
             nullptr,  // No recovery in PCAP mode
-            &handler_treas,
+            decoder,
             false,    // no recovery
-            false,    // no recovery on start
-            false,    // MBO enabled
-            10,       // max MBP level
-            false);   // debug decoder
+            false);   // no recovery on start
 
         msg_buf = create_MsgBuf_32(
             chanstr,
@@ -198,6 +201,7 @@ struct dbento_pcap_to_bin : public actors::Manager
         group = new actors::Group("dbento_pcap_group");
         group->add(msg_buf);
         group->add(message_processor);
+        group->add(decoder);
         group->add(binrec);
 
         // Create PcapFileManager (separate actor, NOT in group)
