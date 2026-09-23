@@ -28,6 +28,7 @@ static auto
 create_all_mdp3(
     const std::string _chan_nam,
     mdp3::feed_handler_if *_cb,
+    actor_ptr _decoder, // pre-built DataDecoder actor (workers wired) from kaspr
     in_port_t _port_dr,
     in_port_t _port_ir,
     const char *_group_dr,
@@ -77,12 +78,9 @@ create_all_mdp3(
     auto message_processor = create_MessageProcessor(
         _chan_nam,
         recovery_processor,
-        _cb,
+        _decoder,
         dorecovery,
-        recovery_on_start,
-        disable_mbo,
-        max_mbp_level,
-        debug_decoder);
+        recovery_on_start);
 
     auto msg_buf_a = create_MsgBuf_32(
         _chan_nam,
@@ -129,6 +127,7 @@ static auto
 create_all_mdp3_pcap(
     const std::string &_chan_nam,
     mdp3::feed_handler_if *_cb,
+    actor_ptr _decoder, // pre-built DataDecoder actor (workers wired) from kaspr
     const std::string &_pcap_file_a,
     const std::string &_pcap_file_b,
     bool disable_mbo,
@@ -149,12 +148,9 @@ create_all_mdp3_pcap(
     auto message_processor = create_MessageProcessor(
         _chan_nam,
         recovery_processor,
-        _cb,
+        _decoder,
         false,  // no recovery in PCAP mode
-        false,  // no recovery on start
-        disable_mbo,
-        max_mbp_level,
-        debug_decoder);
+        false); // no recovery on start
 
     auto msg_buf_a = create_MsgBuf_32(
         _chan_nam,
