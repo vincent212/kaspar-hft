@@ -104,6 +104,11 @@ namespace mdp3
             // }
         }
 
+        // Test accessor: how many packets are currently buffered in the reorder
+        // map. In steady state (in-order stream via the fast path) this stays 0;
+        // a gap buffers packets here until it closes.
+        std::size_t reorder_q_size() const noexcept { return msg_q.size(); }
+
     private:
         void get_handler(const frame::cons::msg::Get *m) noexcept
         {
