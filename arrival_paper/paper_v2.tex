@@ -1624,7 +1624,9 @@ constant of the feed rather than as a function of market state. It requires no r
 intensity estimate and does not change between a quiet and a volatile session. This holds
 because of the invariance measured above, and should be rechecked on any feed whose
 packet-emission behaviour differs from CME MDP3's, since the emission granularity sets the
-constant.
+constant. Appendix~\ref{app:synthetic} constructs a feed on which both dependences appear
+at $T = 8\,\mu\mathrm{s}$, and identifies the packed-gap fraction as the quantity that
+separates it from CME.
 
 The tight-gap floor is not the mean interarrival gap. On this corpus the mean gap is
 $2215\,\mu\mathrm{s}$ at the median window, about $300\times$ the $p_1$ gap. A rule
@@ -2655,8 +2657,10 @@ times; at longer service times both intensity and branching ratio raise the tail
 (Section~\ref{sec:results-conditioning}). Near-critical branching ratios on CME futures
 ($n \approx 0.9$ on ES trades in the literature, $n \approx 0.8$ on NQ packets in this
 corpus) have been documented for over a decade, and those clusters are what produce the
-tail. These results are for one feed and one exchange gateway. On another feed the
-threshold, and its dependence on load, must be measured.
+tail. These results are for one feed and one exchange gateway. Appendix~\ref{app:synthetic}
+constructs a feed on which both dependences appear at $T = 8\,\mu\mathrm{s}$ and on
+which splitting pays where on CME it does not. On another feed the threshold, and its
+dependence on load and on clustering, must be measured.
 
 \paragraph{What this changes in practice.} The recommendation is that HFT designers
 measure end-to-end latency of the assembled pipeline under actual market conditions,
@@ -2762,7 +2766,8 @@ per-window bound check; \texttt{make\_spans.py}, \texttt{qsim\_span.py} and
 \texttt{make\_span\_tables.py} produce the span-aware rerun of
 Section~\ref{sec:crossval-spanrun}; \texttt{make\_tables.py}, \texttt{make\_figure.py} and
 \texttt{make\_diagnostics.py} regenerate the tables, Figure~\ref{fig:curves} and the
-Section~\ref{sec:setup-hawkes} diagnostics from the cache. The Poisson null is seeded per
+Section~\ref{sec:setup-hawkes} diagnostics from the cache; \texttt{synthetic\_intensity.py}
+produces Appendix~\ref{app:synthetic}. The Poisson null is seeded per
 window from an MD5 of \texttt{(session, window\_id)}, so the cache is byte-reproducible.
 
 The live measurement of Section~\ref{sec:crossval} uses the \texttt{LatencyProbe} actor in
@@ -3175,5 +3180,110 @@ intra-cluster spread, which is above $s_{\max}$ for the last row, is why the equ
 ratio here ($0.18$) sits slightly below the batch-input value of Appendix~\ref{app:check}
 ($0.21$): a cluster that arrives spread out lets the faster tandem drain part of it before
 the next member lands.
+
+
+% =====================================================================
+\section{A feed on which the tail depends on intensity and criticality}
+\label{app:synthetic}
+
+Section~\ref{sec:results-conditioning} finds the normalised tail on CME MDP3 invariant to
+packet rate and branching ratio at HFT service times. This appendix constructs, with the
+same simulator, a feed on which both dependences appear at $T = 8\,\mu\mathrm{s}$, and
+identifies what distinguishes it from CME.
+
+Arrivals are generated as a Hawkes process through its cluster representation:
+immigrants arrive as a Poisson process of rate $\mu = \bar\lambda(1-n)$, and each spawns a
+Galton--Watson tree with Poisson($n$) offspring at exponential delays of mean $1/\beta$.
+Three conditions are run. In the first the kernel is fast, $1/\beta = 1\,\mu\mathrm{s}$,
+and there is no emission floor. In the second the same fast kernel is followed by a
+$7.5\,\mu\mathrm{s}$ emission floor: each arrival is delayed until at least
+$7.5\,\mu\mathrm{s}$ after its predecessor, modelling a gateway that serialises packet
+emission at the spacing measured on CME. In the third the kernel is slow, $1/\beta =
+80\,\mu\mathrm{s}$, with the same floor; this is the condition closest to the CME gap
+structure. The grid is $n \in \{0.5, 0.7, 0.8, 0.9, 0.95\}$ and $\bar\lambda \in \{500,
+2000, 8000, 32000, 64000\}$ packets per second, so that $\rho = \bar\lambda T$ at $T =
+8\,\mu\mathrm{s}$ runs from $0.004$ to $0.51$; $2 \times 10^5$ events per cell, three
+seeds, median reported. The last column is the fraction of interarrival gaps at or below
+the floor, measured at $\bar\lambda = 8000$; on the CME corpus that fraction is about
+$1\%$ (Section~\ref{sec:results-conditioning}).
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}r rrrrr r@{}}
+\toprule
+ & \multicolumn{5}{c}{$p_{99}/T$ at $T = 8\,\mu\mathrm{s}$, $N = 1$} & gaps $\le 7.5\,\mu$s \\
+\cmidrule(lr){2-6}
+$n$ & $\bar\lambda{=}500$ & $2000$ & $8000$ & $32000$ & $64000$ & at $\bar\lambda{=}8000$ \\
+\midrule
+\multicolumn{7}{l}{\emph{fast kernel, no floor}} \\
+0.50 &   12.2 &   12.5 &   13.2 &   15.5 &   22.6 & $52\%$ \\
+0.70 &   38.9 &   40.7 &   41.2 &   47.3 &   66.6 & $71\%$ \\
+0.80 &   91.4 &  100.0 &   97.1 &  105.0 &  140.7 & $80\%$ \\
+0.90 &  421.3 &  429.4 &  411.3 &  413.7 &  620.4 & $90\%$ \\
+0.95 & 1544.2 & 1482.6 & 1721.3 & 1802.4 & 2487.2 & $95\%$ \\
+\midrule
+\multicolumn{7}{l}{\emph{fast kernel, $7.5\,\mu$s floor}} \\
+0.50 &   1.75 &   1.75 &   1.88 &   2.44 &   4.38 & $53\%$ \\
+0.70 &   3.50 &   3.62 &   3.88 &   5.44 &  11.87 & $72\%$ \\
+0.80 &   6.81 &   7.38 &   7.56 &  10.88 &  23.12 & $81\%$ \\
+0.90 &  28.06 &  28.50 &  30.44 &  41.25 & 100.19 & $91\%$ \\
+0.95 &  98.06 &  94.75 & 116.36 & 193.96 & 382.18 & $95\%$ \\
+\midrule
+\multicolumn{7}{l}{\emph{slow kernel, $7.5\,\mu$s floor}} \\
+0.50 &   1.12 &   1.12 &   1.19 &   1.51 &   3.56 & $13\%$ \\
+0.70 &   1.25 &   1.31 &   1.50 &   3.18 &  10.44 & $20\%$ \\
+0.80 &   2.38 &   2.71 &   3.12 &   8.12 &  19.56 & $28\%$ \\
+0.90 &  23.50 &  22.57 &  26.25 &  37.25 &  95.75 & $47\%$ \\
+0.95 &  90.12 &  86.19 & 112.19 & 188.78 & 364.30 & $67\%$ \\
+\midrule
+\multicolumn{7}{l}{\emph{Poisson, matched rate}} \\
+---  &   1.00 &   1.39 &   1.87 &   2.69 &   4.45 & --- \\
+\midrule
+\multicolumn{2}{l}{$\rho$ at $T = 8$} & $0.016$ & $0.064$ & $0.256$ & $0.512$ & \\
+\bottomrule
+\end{tabular}
+\caption{Synthetic Hawkes feeds at $T = 8\,\mu\mathrm{s}$. The $\rho$ row gives
+$\bar\lambda T$ for the last four columns; the first column is $\rho = 0.004$.}
+\label{tab:synthetic}
+\end{table}
+
+Three observations.
+
+\paragraph{Intensity.} In every condition, including Poisson, the tail is flat in
+$\bar\lambda$ at $\rho \le 0.02$ and rises from $\rho \approx 0.06$, steeply by $\rho =
+0.5$. The CME corpus at $T = 8\,\mu\mathrm{s}$ spans $\rho = 0.002$ to $0.008$ between its
+quietest and busiest quintiles, which is inside the flat region of every synthetic
+condition. The intensity invariance of Section~\ref{sec:results-conditioning} is therefore
+what a Hawkes model predicts at that utilisation, and it ends where utilisation queueing
+begins, as the CME sweep also finds at $T \ge 64\,\mu\mathrm{s}$.
+
+\paragraph{Criticality.} The synthetic feeds depend strongly on $n$ in every condition,
+by a factor of $80$ to $130$ between $n = 0.5$ and $n = 0.95$, and by a factor of $1.9$
+to $2.4$ between $n = 0.7$ and $n = 0.8$ alone. The CME corpus shows no dependence over
+its observed range $n = 0.77$--$0.83$. The last column explains the difference. A Hawkes
+process at $n = 0.8$ places $28\%$ to $81\%$ of its interarrival gaps at the floor,
+depending on the kernel; the CME corpus places $1\%$ there. On the synthetic feeds the
+branching ratio controls how many arrivals are packed at the minimum spacing, and that
+packing is what queues on an $8\,\mu\mathrm{s}$ server. On CME the packed fraction is set
+by the gateway, is about $1\%$, and does not vary with the fitted $n$ over the observed
+range; the fitted $n$ describes the ordering of arrivals at longer timescales, consistent
+with Section~\ref{sec:setup-hawkes}, where the corpus is found to be self-exciting with
+heavy-tailed gaps rather than a pure exponential-kernel Hawkes process.
+
+\paragraph{The design rule is feed-dependent.} At $T = 8\,\mu\mathrm{s}$, $n = 0.8$,
+$\bar\lambda = 8000$, a two-stage tandem has the lower $p_{99}$ on every synthetic
+condition: $97.1 \to 47.4$ without a floor, $7.56 \to 1.21$ with the fast kernel and
+floor, $3.12 \to 1.21$ with the slow kernel and floor. On CME at the same $T$, $N^\star =
+1$ (Section~\ref{sec:results-threshold}). The service time at which splitting begins to
+pay is not a constant; it is a property of the feed.
+
+The quantity that determines the tail at service time $T$ is the fraction of interarrival
+gaps shorter than $T$, together with the length of the runs in which they occur. On CME
+that fraction is fixed by the gateway at about $1\%$ and does not vary with $\bar\lambda$
+or $n$ over the observed ranges at HFT service times. On a feed whose packing is set by
+the arrival process itself it rises with $n$, and on any feed it rises with $\bar\lambda$
+once $\rho$ is of order $0.1$. Which regime a given feed is in is not derivable from its
+fitted parameters and must be measured, under the load the system will actually see.
 
 \end{document}
