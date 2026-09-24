@@ -29,7 +29,6 @@
 #include "mdp3/msg/StartQ.hpp"
 #include "mdp3/mbo_if.hpp"
 #include "logger/act/Logger.hpp"
-#include "oogsl/gvector.hpp"
 #include "actors/act/Timer.hpp"
 #include "actors/msg/Timeout.hpp"
 #include "frame/cons/msg/Get.hpp"
@@ -59,11 +58,8 @@ namespace mdp3
         //bool have_seq_num = false;
         uint32_t qseq_num = 0;
         std::vector<double> read_cnt;
-        //boost::container::flat_map<uint32_t, uint64_t> timestamp_a, timestamp_b;
-        std::map<uint32_t, uint64_t> timestamp_a, timestamp_b;
         uint32_t numdrecoveries = 0;
         uint32_t numwaits = 0;
-        std::set<uint32_t> seqnumnotfound;
         int waitcnt = 3;
         const int maxwaitcnt = 3;
         uint64_t last_ts = 0;
@@ -340,11 +336,7 @@ namespace mdp3
                 }
                 else
                 {
-                    // we have a gap
-
-                    seqnumnotfound.insert(qseq_num + 1);
-
-                    // we hve a gap and its not start
+                    // we have a gap and its not start
                     log_err("have gap sn: %d, expected: %d, tim: %s", sn, qseq_num + 1,
                             chutil::Time::now_utc().to_string());
 
@@ -398,63 +390,6 @@ namespace mdp3
             log_inf("shutdown");
 
             decoder.print_stats();
-
-            if (timestamp_a.empty() || timestamp_b.empty())
-                return;
-
-            // time difference
-            std::vector<double> tdiff;
-            for (auto p : timestamp_a)
-            {
-                auto pb = timestamp_b.find(p.first);
-                if (pb == timestamp_b.end())
-                    continue;
-                int64_t tsa = p.second;
-                int64_t tsb = pb->second;
-                // std::cout << p.first << " " << tsa << " " << tsb << std::endl;
-                tdiff.push_back(tsa - tsb);
-            }
-
-            std::set<uint32_t> missinga, missingb, missingboth;
-            auto pa = timestamp_a.begin();
-            while (pa != timestamp_a.end())
-            {
-                auto pa_current = pa;
-                auto pa_next = ++pa;
-                if (pa_next == timestamp_a.end())
-                    break;
-                if (pa_current->first + 1 != pa_next->first)
-                    missinga.insert(pa_current->first + 1);
-            }
-
-            auto pb = timestamp_b.begin();
-            while (pb != timestamp_b.end())
-            {
-                auto pb_current = pb;
-                auto pb_next = ++pb;
-                if (pb_next == timestamp_b.end())
-                    break;
-                if (pb_current->first + 1 != pb_next->first)
-                    missingb.insert(pb_current->first + 1);
-            }
-
-            for (auto p : missinga)
-            {
-                if (missingb.find(p) == missingb.end())
-                    missingboth.insert(p);
-            }
-
-            oogsl::gvector gv(tdiff);
-            std::cout << "A-B mean: " << gv.mean() << std::endl;
-            std::cout << "A-B std: " << gv.sd() << std::endl;
-            std::cout << "missing a: " << missinga.size() << std::endl;
-            std::cout << "missing b: " << missingb.size() << std::endl;
-            std::cout << "missing a&b: " << missingboth.size() << std::endl;
-            std::cout << "not found: " << seqnumnotfound.size() << std::endl;
-            std::cout << "num wait: " << numwaits << std::endl;
-            std::cout << "num rec : " << numdrecoveries << std::endl;
-
-            std::cout.flush();
         }
     };
 
