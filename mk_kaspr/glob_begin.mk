@@ -133,6 +133,31 @@ else
 endif
 
 DEFINES_COMMON=-fPIC
+
+# ---- dual-path decode verification tee -------------------------------------
+#
+# OFF unless asked for:  export VERIFY_TEE=1  before build.sh (or `make
+# VERIFY_TEE=1` in every directory). Nothing in a default build contains the
+# tee -- not the member, not the branch, not the extra constructor parameter.
+#
+# This MUST be global and cannot be a per-directory define like USE_TACHBOOK.
+# mdp3::MessageProcessor is compiled into libmdp3 (mdp3/src/message_processor.cpp)
+# while the wiring that hands it a shadow decoder lives in kaspr/src/kaspr.cpp.
+# Define it in only one of those two and the class has a different member
+# layout and a different constructor signature in each translation unit. That
+# is an ODR violation which LINKS CLEANLY and corrupts at run time -- the exact
+# failure mode -Werror=odr above cannot see across a static library.
+#
+# Export it, do not pass it on the command line: build.sh recurses into each
+# directory with a fresh make, and a command-line variable is not inherited.
+#
+# NOTE: no .P dependency file tracks glob_begin.mk (see DEFINES_OPT below), so
+# flipping this rebuilds NOTHING. Force a full recompile and md5sum the binary
+# before trusting that the tee is in -- or out -- of what you just built.
+ifdef VERIFY_TEE
+DEFINES_COMMON += -DMDP3_VERIFY_TEE
+endif
+
 # TIMTRACE enables timing logs and assertions - comment out for simulation
 #DEFINES_OPT=-DCONSTR_NO_CHECK_NAN -DPLACES_NO_CHECK_CONSTRAINT -fno-plt -DTIMTRACE
 #

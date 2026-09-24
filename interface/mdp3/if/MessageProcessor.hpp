@@ -15,5 +15,12 @@ actor_ptr create_MessageProcessor(
     actor_ptr _recovery_processor,
     actor_ptr _decoder, // the DataDecoder actor (built in kaspr)
     bool _dorecovery,
-    bool _recoveryonstart,
-    actor_ptr _decoder_shadow = nullptr); // dual-path verification tee; null = off
+    bool _recoveryonstart
+#ifdef MDP3_VERIFY_TEE
+    // Dual-path verification tee; null = off. The parameter itself only exists
+    // under VERIFY_TEE -- see mk_kaspr/glob_begin.mk. The define MUST be global:
+    // this declaration, its definition in libmdp3, and the kaspr call site are
+    // three translation units that have to agree on the signature.
+    , actor_ptr _decoder_shadow = nullptr
+#endif
+    );

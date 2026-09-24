@@ -52,25 +52,39 @@ namespace mdp3
         actors::Actor *recovery_processor;
         actor_ptr decoder; // the DataDecoder actor (created in kaspr, passed in)
 
-        // Dual-path verification tee. When non-null, every DecodePacket handed
-        // to `decoder` is also handed to `decoder_shadow`, which drives its OWN
-        // book set. Used to prove parallel decode == serial decode.
+#ifdef MDP3_VERIFY_TEE
+        // Dual-path verification tee. COMPILED OUT unless VERIFY_TEE=1 -- see
+        // mk_kaspr/glob_begin.mk. Not a runtime null check in production: the
+        // member, the branch and the constructor parameter are all absent.
         //
-        // The shadow's DecodeResult is COUNTED, NEVER ACTED ON. A bug on the
-        // verification path must not be able to trigger a real CME recovery,
-        // and it must not be able to stall the primary's sequence number.
+        // When non-null, every packet handed to `decoder` is ALSO handed to
+        // `decoder_shadow`, which drives its OWN book set. Used to prove
+        // parallel decode == serial decode.
         //
-        // ORDERING BIAS -- read before comparing latency. Both calls are
-        // fast_send, so both run inline on this thread, primary first. The
-        // shadow's recv_ts -> publish latency therefore CONTAINS the primary's
-        // whole decode. The shadow is handicapped by construction. Phase 1 only
-        // asks "do both paths run and agree"; any latency claim has to be made
-        // from a run where the path under test was primary.
+        // The shadow can never trigger a real CME recovery and can never stall
+        // the primary's sequence number. That is now structural rather than a
+        // matter of discipline: the shadow is send()ed, not fast_send()ed, so
+        // there is no reply to be tempted by.
+        //
+        // WHY send() AND A COPY. The first version fast_send()ed the SAME
+        // borrowed DecodePacket to both decoders. fast_send runs the handler
+        // inline on this thread, so the shadow did not start until the primary
+        // had finished -- the shadow's measured latency contained the primary's
+        // entire decode. Pairing the two paths on the same packet put the
+        // median ratio at 2.00x, which was the handicap, not the parallel
+        // decoder. DecodePacketCopy owns its bytes, so the shadow can be queued
+        // and start concurrently. Issued FIRST, for the same reason.
+        //
+        // WHAT THAT COST. The per-packet divergence check. It needed both
+        // decoders to have finished the same packet at one instant, and once
+        // the shadow is asynchronous no such instant exists. The replacement is
+        // DataDecoder's packets_/decode_failures_/worker_failures_, printed by
+        // each decoder at shutdown: a per-RUN comparison. Weaker. Do not quote
+        // it as though it were the per-packet one.
         actor_ptr decoder_shadow = nullptr;
-        uint64_t shadow_packets = 0;
-        uint64_t shadow_decode_failures = 0;
-        uint64_t shadow_divergences = 0;
+        uint64_t shadow_packets = 0;   // packets queued to the shadow
         bool shadow_invalidated = false;
+#endif
 
         //boost::container::flat_map<uint32_t, mcast_recv::message_buffer> msg_q;
         std::map<uint32_t, mcast_recv::message_buffer> msg_q;
@@ -98,10 +112,15 @@ namespace mdp3
             actors::Actor *_recovery_processor,
             actor_ptr _decoder, // the DataDecoder actor (built in kaspr)
             bool _dorecovery,
-            bool _recoveryonstart,
-            actor_ptr _decoder_shadow = nullptr) // verification tee; null = off
+            bool _recoveryonstart
+#ifdef MDP3_VERIFY_TEE
+            , actor_ptr _decoder_shadow = nullptr // verification tee; null = off
+#endif
+            )
             : decoder(_decoder),
+#ifdef MDP3_VERIFY_TEE
               decoder_shadow(_decoder_shadow),
+#endif
               recovery_processor(_recovery_processor),
               dorecovery(_dorecovery),
               data_recoveryonstart(_recoveryonstart),
@@ -255,8 +274,26 @@ namespace mdp3
         void decoder_cmd(msg::DecoderCmd &c) noexcept
         {
             decoder->fast_send(&c, this);
+#ifdef MDP3_VERIFY_TEE
+            // send(), NOT fast_send(), and it is not a stylistic match to the
+            // packet path -- it is required. The shadow's packets are QUEUED in
+            // its mailbox. A fast_send here executes on THIS thread immediately
+            // and would apply GAP (or PRINTSTATS) before the packets already
+            // sitting in that queue are decoded: the command would overtake the
+            // data it is supposed to follow. A gap flag raised early, then
+            // cleared by packets that logically preceded it, is exactly the
+            // kind of state drift that makes the shadow stop being a comparison
+            // of the same thing.
+            //
+            // A heap instance because the caller's DecoderCmd is a stack
+            // temporary that dies at the end of the calling scope; the shadow
+            // reads it later, on another thread. Built field by field rather
+            // than copy-constructed: the actors::Message base carries ownership
+            // bookkeeping (no_delete, sender) that belongs to the stack object,
+            // and this one must be a normal heap message the framework deletes.
             if (decoder_shadow)
-                decoder_shadow->fast_send(&c, this);
+                decoder_shadow->send(new msg::DecoderCmd(c.kind, c.cnt), this);
+#endif
         }
 
         void do_data_recovery()
@@ -267,6 +304,7 @@ namespace mdp3
             // primary's books only. The shadow's books are stale from here on
             // and any book-level diff after this point is meaningless. Say so
             // once, then stop pretending the comparison is still valid.
+#ifdef MDP3_VERIFY_TEE
             if (decoder_shadow && !shadow_invalidated)
             {
                 shadow_invalidated = true;
@@ -274,6 +312,7 @@ namespace mdp3
                         "feeds the primary books only; book diffs past this "
                         "point are not evidence");
             }
+#endif
             recovery_processor->send(new msg::DoDataRecovery(), this);
             in_data_recovery = true;
             numdrecoveries++;
@@ -371,43 +410,47 @@ namespace mdp3
                     // Decode via the DataDecoder actor. fast_send runs its handler
                     // inline (this thread) before we erase msg_q[sn], so no buffer
                     // copy is needed here; the reply carries rc + is_channel_reset.
+#ifdef MDP3_VERIFY_TEE
+                    // Verification tee, issued BEFORE the primary and
+                    // unconditionally. Same packet, same recv_ts, same qlen,
+                    // second independent decoder + book set.
+                    //
+                    // FIRST is the whole point. The shadow's handler runs on
+                    // its own thread, so queueing it here lets it start while
+                    // the primary's inline decode is still running. Issue it
+                    // after and it starts one full decode late, which is the
+                    // measurement error that produced the 2.00x paired median.
+                    //
+                    // The OWNING form is what makes the send legal. The
+                    // borrowing DecodePacket built below points at
+                    // &p->second.message[0], and p->second is erased further
+                    // down this same loop iteration -- a queued message would
+                    // read freed memory. The owning constructor copies the
+                    // bytes into the message. Same type, same handler: it sets
+                    // `async` so the decoder knows not to reply.
+                    //
+                    // No reply is read and none is wanted. The shadow's rc
+                    // cannot reach this code and so cannot trigger recovery or
+                    // move qseq_num. Failures surface in the shadow decoder's
+                    // own print_stats at shutdown.
+                    if CHUNLIKELY (decoder_shadow != nullptr)
+                    {
+                        ++shadow_packets;
+                        decoder_shadow->send(
+                            new msg::DecodePacket(msg::DecodePacket::owning_t{},
+                                                  &p->second.message[0],
+                                                  p->second.len, ts,
+                                                  p->second.qlen),
+                            this);
+                    }
+#endif
+
                     msg::DecodePacket dp(&p->second.message[0], p->second.len, ts,
                                          p->second.qlen);
                     auto decode_reply = decoder->fast_send(&dp, this);
                     const auto *dr = static_cast<const msg::DecodeResult *>(decode_reply.get());
                     auto rc = dr->rc;
                     is_channel_reset = dr->is_channel_reset;
-
-                    // Verification tee. Same packet, same recv_ts, same qlen,
-                    // second independent decoder + book set. Sent AFTER the
-                    // primary and unconditionally -- including when the primary
-                    // failed -- so both paths see an identical input sequence.
-                    // Its rc is counted only; see the decoder_shadow comment.
-                    if CHUNLIKELY (decoder_shadow != nullptr)
-                    {
-                        ++shadow_packets;
-                        auto sreply = decoder_shadow->fast_send(&dp, this);
-                        const auto *sdr =
-                            static_cast<const msg::DecodeResult *>(sreply.get());
-                        if (!sdr->rc)
-                            ++shadow_decode_failures;
-                        // Divergence on THIS packet: one decoder could parse it,
-                        // the other could not. That is exactly the bug the tee
-                        // exists to catch, so it is loud.
-                        if (sdr->rc != rc)
-                        {
-                            ++shadow_divergences;
-                            log_err("VERIFY divergence sn: %d, primary rc: %d, "
-                                    "shadow rc: %d", sn, (int)rc, (int)sdr->rc);
-                        }
-                        if (sdr->is_channel_reset != is_channel_reset)
-                        {
-                            ++shadow_divergences;
-                            log_err("VERIFY divergence sn: %d, primary reset: %d, "
-                                    "shadow reset: %d", sn, (int)is_channel_reset,
-                                    (int)sdr->is_channel_reset);
-                        }
-                    }
 
                     if (!rc)
                     {
@@ -504,15 +547,21 @@ namespace mdp3
         {
             log_inf("shutdown");
 
+#ifdef MDP3_VERIFY_TEE
+            // shadow_packets is the tee's DENOMINATOR: how many packets were
+            // queued to the shadow. It is what the two decoders' own
+            // "decode packets=" lines must both equal. If the shadow's is lower,
+            // its mailbox had not drained at shutdown and the comparison is
+            // incomplete -- not a pass.
             if (decoder_shadow)
             {
-                log_inf("VERIFY tee: shadow_packets: %lu, shadow_decode_failures: "
-                        "%lu, divergences: %lu, invalidated_by_recovery: %d",
+                log_inf("VERIFY tee: shadow_packets: %lu, "
+                        "invalidated_by_recovery: %d -- compare the two "
+                        "DataDecoder 'decode packets=' lines for the verdict",
                         (unsigned long)shadow_packets,
-                        (unsigned long)shadow_decode_failures,
-                        (unsigned long)shadow_divergences,
                         (int)shadow_invalidated);
             }
+#endif
 
             {
                 msg::DecoderCmd c(msg::DecoderCmd::PRINTSTATS);

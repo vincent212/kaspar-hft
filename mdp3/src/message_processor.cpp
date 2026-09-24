@@ -13,14 +13,20 @@ actor_ptr create_MessageProcessor(
     actors::Actor *_recovery_processor,
     actor_ptr _decoder,
     bool _dorecovery,
-    bool _recoveryonstart,
-    actor_ptr _decoder_shadow)
+    bool _recoveryonstart
+#ifdef MDP3_VERIFY_TEE
+    , actor_ptr _decoder_shadow
+#endif
+    )
 {
     return new mdp3::MessageProcessor(
         _chan_nam,
         _recovery_processor,
         _decoder,
         _dorecovery,
-        _recoveryonstart,
-        _decoder_shadow);
+        _recoveryonstart
+#ifdef MDP3_VERIFY_TEE
+        , _decoder_shadow
+#endif
+        );
 }

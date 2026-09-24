@@ -93,6 +93,7 @@ Kaspr::Kaspr(const std::string& config_file, bool reset_positions)
     probe_bin_ms_      = pt_general.get<int>("kaspr.general.perf_bin_ms", 100);
     probe_csv_dir_     = pt_general.get<std::string>("kaspr.general.perf_csv_dir", "");
 
+#ifdef KASPR_VERIFY_TEE
     // Dual-path decode verification tee. Off by default. On, every channel
     // runs its packets through TWO decoders into TWO book sets:
     //   primary = SERIAL  (inline, drives recovery)  -> tach_books   -> _S files
@@ -100,10 +101,16 @@ Kaspr::Kaspr(const std::string& config_file, bool reset_positions)
     // This is a differential test harness. Never set it on the production
     // recorder: it doubles the book work and the shadow path is not
     // production-ready.
+    //
+    // The key is only READ in a VERIFY_TEE build. In the default build the
+    // whole block is gone, so a stray cme_verify_parallel true in an ini is
+    // inert rather than dangerous -- boost's ptree ignores keys nobody asks
+    // for.
     verify_parallel_ = pt_general.get<bool>("kaspr.general.cme_verify_parallel", false);
     if (verify_parallel_)
         std::cerr << "Kaspr: DUAL-PATH VERIFY enabled -- serial primary + "
                      "parallel shadow, two book sets" << std::endl;
+#endif
 #endif
 
     // Comma list of cpu ids for the TachBook threads, assigned round-robin in
@@ -118,7 +125,9 @@ Kaspr::Kaspr(const std::string& config_file, bool reset_positions)
     create_order_books();
 #ifdef USE_TACHBOOK
     create_tach_books();
+#ifdef KASPR_VERIFY_TEE
     create_verify_tach_books();  // no-op unless cme_verify_parallel
+#endif
     create_probes();      // after the books: nothing to subscribe to before
 #endif
     create_support_modules();
@@ -245,6 +254,7 @@ void Kaspr::create_tach_books()
     std::cerr << "Kaspr: Created " << zn_tach_books.size() << " ZN TachBooks" << std::endl;
 }
 
+#ifdef KASPR_VERIFY_TEE
 // SHADOW TachBook set for the verification tee. Same instruments, same asset
 // ids, entirely separate actors. Deliberately a near-copy of
 // create_tach_books() rather than a shared helper: the two sets must be able
@@ -285,7 +295,12 @@ void Kaspr::create_verify_tach_books()
         auto a = frame::ref::RefData::inst().get_asset(j);
         if (a && futures_mnemonics.count(a->mnemonic) && a->get_exchange_md() == en::x::CMEMDFUT)
         {
-            auto tb = new frame::ob::act::TachBook(j);
+            // "_P" suffix. Manager keys actors by name and asserts on a
+            // duplicate (Manager.cpp:224), so the shadow set cannot reuse
+            // TACHOB_<sym> -- the first shadow book aborts the process at
+            // startup. The suffix matches the probe's _P file suffix, so a
+            // shutdown census line names the same path as the csv it produced.
+            auto tb = new frame::ob::act::TachBook(j, "_P");
             std::set<int> aff;
             if (!tb_cpu_vec.empty()) {
                 aff.insert(tb_cpu_vec[tb_i % tb_cpu_vec.size()]);
@@ -304,6 +319,7 @@ void Kaspr::create_verify_tach_books()
                                        + zn_tach_books_v.size())
               << " SHADOW TachBooks" << std::endl;
 }
+#endif // KASPR_VERIFY_TEE
 
 void Kaspr::create_probes()
 {
@@ -345,14 +361,22 @@ void Kaspr::create_probes()
                   << std::endl;
     };
 
-    const char *prim_sfx = verify_parallel_ ? "_S" : "";
+    // In a default build there is no second path, so the suffix is always ""
+    // and lat_<sym>.csv keeps the name every existing analysis script expects.
+    const char *prim_sfx = "";
+#ifdef KASPR_VERIFY_TEE
+    if (verify_parallel_)
+        prim_sfx = "_S";
+#endif
     for (auto tb : es_tach_books) attach(tb, prim_sfx);
     for (auto tb : nq_tach_books) attach(tb, prim_sfx);
     for (auto tb : zn_tach_books) attach(tb, prim_sfx);
 
+#ifdef KASPR_VERIFY_TEE
     for (auto tb : es_tach_books_v) attach(tb, "_P");
     for (auto tb : nq_tach_books_v) attach(tb, "_P");
     for (auto tb : zn_tach_books_v) attach(tb, "_P");
+#endif
 
     std::cerr << "Kaspr: Created " << probes.size() << " LatencyProbes" << std::endl;
 }
@@ -606,8 +630,12 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     // a recovery -- and cme_decode_workers sizes the SHADOW instead. Absent
     // key under verify means 2, which is the smallest count that exercises the
     // fleet at all.
+    //
+    // In a default build `verify` is a compile-time false, so PRIM_WORKERS is
+    // NWORKERS, SHAD_WORKERS is 0, and every branch below that depends on it
+    // folds away.
     bool verify = false;
-#ifdef USE_TACHBOOK
+#ifdef KASPR_VERIFY_TEE
     verify = verify_parallel_;
     if (verify && NWORKERS == 0)
         NWORKERS = 2;
@@ -625,7 +653,7 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
 
     const uint32_t PRIM_WORKERS = verify ? 0u : NWORKERS;
     const uint32_t SHAD_WORKERS = verify ? NWORKERS : 0u;
-    (void)SHAD_WORKERS;  // unused when built without USE_TACHBOOK
+    (void)SHAD_WORKERS;  // unused when built without the tee
 
     mdp3::Reconstructor* recon   = nullptr;
     actor_ptr*           workers = nullptr;
@@ -659,9 +687,9 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     // second Reconstructor, second worker fleet, second book set. Nothing is
     // shared with the primary except the packet bytes, which is the whole
     // point: two paths that share a book cannot be diffed against each other.
+#ifdef KASPR_VERIFY_TEE
     actor_ptr decoder_shadow = nullptr;
 
-#ifdef USE_TACHBOOK
     if (verify)
     {
         if (tach_books_v.empty() || tach_books_v.at(venue).empty())
@@ -695,6 +723,20 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
                                          "P", (uint32_t)chan);
         dv->set_workers(workers_v, SHAD_WORKERS);
 
+        // Told ONCE, here, that it is fed asynchronously -- exactly like its
+        // worker count above, and for the same reason: this is a property of
+        // this decoder INSTANCE, not of each packet.
+        //
+        // The primary is reached by fast_send, so its handler runs inline on
+        // the MessageProcessor thread and reply() hands the DecodeResult
+        // straight back. The shadow is reached by send(), so reply() would
+        // instead queue a DecodeResult into MessageProcessor's mailbox.
+        // MessageProcessor has no handler for it, so it would be dispatched
+        // to nothing and deleted -- but only after occupying a mailbox slot,
+        // inflating the very ingress qlen this whole exercise measures. The
+        // shadow must stay silent.
+        dv->set_async_input(true);
+
         // set_recovery_target is deliberately NOT called. DataDecoder asks its
         // recovery_target_ to recover when a parallel decode fails
         // (DataDecoder.hpp:944). If the shadow could do that, a bug on the
@@ -713,7 +755,7 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
                   << " workers, " << tach_books_v.at(venue).size()
                   << " shadow books (primary forced SERIAL)" << std::endl;
     }
-#endif
+#endif // KASPR_VERIFY_TEE
 
     // Create MDP3 components
     auto mdp3cfsmp = create_all_mdp3(
@@ -738,8 +780,11 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
         p_cme.get<std::string>("group_b").c_str(),
         p_cme.get<std::string>("mdinterface_a").c_str(),
         p_cme.get<std::string>("mdinterface_b").c_str(),
-        p_cme.get<std::string>("name").c_str(),
-        decoder_shadow   // null unless cme_verify_parallel; MessageProcessor tees to it
+        p_cme.get<std::string>("name").c_str()
+#ifdef MDP3_VERIFY_TEE
+        // null unless cme_verify_parallel; MessageProcessor tees to it
+        , decoder_shadow
+#endif
     );
 
     // Let the decoder ask the MessageProcessor to recover on a parallel decode failure.
