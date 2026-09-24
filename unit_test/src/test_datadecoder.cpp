@@ -314,4 +314,186 @@ TEST_F(DataDecoderScanTest, CorruptIsNeverSplittable)
   EXPECT_FALSE(sr.splittable());
 }
 
+// ---------------------------------------------------------------------------
+// split_walk(): the routing decision of the packet split.
+//
+// dispatch_split() cannot be driven from a unit test -- it sends to live worker
+// actors and calls decode_one on real SBE bodies. But everything that can go
+// WRONG about the split is in the routing: which message goes to a worker,
+// which is decoded inline, and what order_seq each hot message is handed.
+// split_walk is exactly that decision, and dispatch_split runs this same
+// function, so these tests exercise the shipping code rather than a replica.
+// ---------------------------------------------------------------------------
+
+// What the walk decided, per message, in wire order.
+struct route
+{
+  size_t   offset;    // byte offset of the message within the packet
+  uint16_t tid;
+  bool     hot;
+  uint32_t hot_index; // order_seq offset / worker selector; only if hot
+};
+
+std::vector<route> plan(const std::vector<char> &pkt)
+{
+  std::vector<route> out;
+  const char *body = pkt.data() + 12;
+  const char *end = pkt.data() + pkt.size();
+  mdp3::DataDecoder::split_walk(
+      body, end,
+      [&](const char *p, uint16_t, uint32_t h) {
+        out.push_back({size_t(p - pkt.data()),
+                       *reinterpret_cast<const uint16_t *>(p + 4), true, h});
+      },
+      [&](const char *p, uint16_t, uint16_t tid) {
+        out.push_back({size_t(p - pkt.data()), tid, false, 0});
+      });
+  return out;
+}
+
+// THE invariant the whole split rests on. Reconstructor::on_parsed advances
+// expected_seq_ by one per ParsedMsg and drain() only releases contiguous
+// keys, so if a cold message ever consumed an order_seq the book stream would
+// stall permanently. Hot indices must be 0,1,2,... with no gaps, whatever the
+// colds interleaved between them.
+TEST(DataDecoderSplitWalkTest, OrderSeqIsDenseOverHotOnly)
+{
+  auto pkt = make_pkt({COLD_VOL37, HOT_BOOK46, COLD_VOL37, COLD_DAILY49,
+                       HOT_TRADE48, HOT_OBOOK47, COLD_VOL37});
+  auto p = plan(pkt);
+  ASSERT_EQ(p.size(), 7u);
+
+  uint32_t expect = 0;
+  for (const auto &r : p)
+    if (r.hot)
+      EXPECT_EQ(r.hot_index, expect++) << "gap in order_seq at tid " << r.tid;
+  EXPECT_EQ(expect, 3u); // three hot messages consumed 0,1,2
+}
+
+// Hot messages keep WIRE order among themselves. The Reconstructor resequences
+// on order_seq, so if the walk handed them out in any other order the book
+// would be rebuilt in the wrong order.
+TEST(DataDecoderSplitWalkTest, HotIndicesFollowWireOrder)
+{
+  auto pkt = make_pkt({HOT_BOOK46, COLD_VOL37, HOT_TRADE48, HOT_OBOOK47});
+  auto p = plan(pkt);
+  std::vector<size_t> hot_offsets;
+  for (const auto &r : p)
+    if (r.hot)
+    {
+      EXPECT_EQ(r.hot_index, hot_offsets.size());
+      hot_offsets.push_back(r.offset);
+    }
+  ASSERT_EQ(hot_offsets.size(), 3u);
+  EXPECT_LT(hot_offsets[0], hot_offsets[1]);
+  EXPECT_LT(hot_offsets[1], hot_offsets[2]);
+}
+
+// Every message is routed exactly once. A message routed twice is decoded
+// twice (a duplicate book update); a message routed zero times is dropped.
+TEST(DataDecoderSplitWalkTest, EveryMessageIsRoutedExactlyOnce)
+{
+  auto pkt = make_pkt({HOT_BOOK46, COLD_VOL37, HOT_TRADE48, COLD_DAILY49});
+  auto p = plan(pkt);
+  ASSERT_EQ(p.size(), 4u);
+  // Offsets are distinct and stride by the 10-byte header-only message size.
+  for (size_t i = 0; i < p.size(); ++i)
+    EXPECT_EQ(p[i].offset, 12u + i * 10u);
+}
+
+// The routing must agree with scan()'s counts -- on_decode_packet sets
+// pp.outstanding = sr.n_hot, and the refcount only reaches zero if exactly
+// that many DecodeDone come back. A disagreement leaks the packet slot
+// forever or frees it while a worker is still reading it.
+TEST_F(DataDecoderScanTest, SplitWalkHotCountMatchesScanNHot)
+{
+  auto pkt = make_pkt({HOT_BOOK46, COLD_VOL37, HOT_TRADE48, COLD_VOL37, HOT_OBOOK47});
+  auto sr = decoder.scan(pkt.data(), pkt.size());
+  ASSERT_TRUE(sr.splittable());
+
+  uint32_t n_hot = 0, n_cold = 0;
+  const uint32_t ret = mdp3::DataDecoder::split_walk(
+      pkt.data() + 12, pkt.data() + pkt.size(),
+      [&](const char *, uint16_t, uint32_t) { ++n_hot; },
+      [&](const char *, uint16_t, uint16_t) { ++n_cold; });
+
+  EXPECT_EQ(ret, sr.n_hot);
+  EXPECT_EQ(n_hot, sr.n_hot);
+  EXPECT_EQ(n_cold, sr.n_cold_independent + sr.n_cold_ordered);
+  EXPECT_EQ(n_hot + n_cold, sr.count);
+}
+
+// The census shape: book/trade plus one Volume37. The Volume37 must be the
+// only message decoded inline, and it must consume no order_seq.
+TEST(DataDecoderSplitWalkTest, Volume37GoesInlineAndConsumesNoOrderSeq)
+{
+  auto pkt = make_pkt({HOT_BOOK46, COLD_VOL37, HOT_BOOK46});
+  auto p = plan(pkt);
+  ASSERT_EQ(p.size(), 3u);
+  EXPECT_TRUE(p[0].hot);
+  EXPECT_FALSE(p[1].hot);
+  EXPECT_EQ(p[1].tid, COLD_VOL37);
+  EXPECT_TRUE(p[2].hot);
+  // The hot message AFTER the cold one gets order_seq 1, not 2 -- the cold
+  // did not take a number.
+  EXPECT_EQ(p[0].hot_index, 0u);
+  EXPECT_EQ(p[2].hot_index, 1u);
+}
+
+// Worker selection is hot_index & mask. With hot messages dense, a power-of-
+// two fleet is hit round-robin; this pins that the mask is applied to the HOT
+// index and not to a message index that colds have perturbed.
+TEST(DataDecoderSplitWalkTest, WorkerSelectionIsRoundRobinOverHot)
+{
+  auto pkt = make_pkt({COLD_VOL37, HOT_BOOK46, COLD_VOL37, HOT_BOOK46,
+                       HOT_BOOK46, COLD_VOL37, HOT_BOOK46});
+  auto p = plan(pkt);
+  const uint32_t mask = 3; // four workers
+  std::vector<uint32_t> picked;
+  for (const auto &r : p)
+    if (r.hot)
+      picked.push_back(r.hot_index & mask);
+  EXPECT_EQ(picked, (std::vector<uint32_t>{0, 1, 2, 3}));
+}
+
+// An all-hot packet routes nothing inline. (on_decode_packet takes the
+// all_hot fast path instead, but the walk must not invent a cold callback.)
+TEST(DataDecoderSplitWalkTest, AllHotRoutesNothingInline)
+{
+  auto pkt = make_pkt({HOT_BOOK46, HOT_TRADE48});
+  auto p = plan(pkt);
+  for (const auto &r : p)
+    EXPECT_TRUE(r.hot);
+}
+
+// An empty packet must not call either callback -- no worker send, no inline
+// decode, and a hot count of zero so pp.outstanding never starts at garbage.
+TEST(DataDecoderSplitWalkTest, EmptyPacketRoutesNothing)
+{
+  auto pkt = make_pkt({});
+  bool touched = false;
+  const uint32_t ret = mdp3::DataDecoder::split_walk(
+      pkt.data() + 12, pkt.data() + pkt.size(),
+      [&](const char *, uint16_t, uint32_t) { touched = true; },
+      [&](const char *, uint16_t, uint16_t) { touched = true; });
+  EXPECT_EQ(ret, 0u);
+  EXPECT_FALSE(touched);
+}
+
+// split_walk routes on classify(), so an ORDERED cold lands in the inline
+// callback just like an independent one. That is why the caller must gate on
+// splittable() -- the walk itself cannot tell the split it is unsafe.
+// This test exists to pin that the gate lives in the caller, not here.
+TEST_F(DataDecoderScanTest, WalkDoesNotItselfRejectOrderedCold)
+{
+  auto pkt = make_pkt({HOT_BOOK46, COLD_RESET4});
+  auto sr = decoder.scan(pkt.data(), pkt.size());
+  EXPECT_FALSE(sr.splittable()); // the caller refuses it
+
+  auto p = plan(pkt); // but the walk would happily route it
+  ASSERT_EQ(p.size(), 2u);
+  EXPECT_FALSE(p[1].hot);
+  EXPECT_EQ(p[1].tid, COLD_RESET4);
+}
+
 } // namespace

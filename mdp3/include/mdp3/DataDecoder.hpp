@@ -246,6 +246,100 @@ namespace mdp3
             return i;
         }
 
+        // The routing walk of the packet split, factored out so it has exactly
+        // ONE implementation. dispatch_split runs it twice (see below) and the
+        // unit tests run it directly; a second copy of this loop in the tests
+        // would test the copy, not the dispatcher.
+        //
+        // Walks the SBE messages between [body, end) and calls
+        //   on_hot(p, MsgSize, hot_index)   for each HOT message, hot_index
+        //                                   counting 0,1,2,... over HOT ONLY
+        //   on_cold(p, MsgSize, tid)        for every other message
+        // and returns the number of hot messages seen.
+        //
+        // hot_index is both the worker selector and the order_seq offset. It
+        // MUST be dense over hot messages -- see the comment on dispatch_split.
+        //
+        // No MsgSize==0 guard: callers reach this only after scan() returned
+        // !corrupt, and scan() is what catches a zero stride. Splitting a
+        // corrupt packet is prevented by scan_result::splittable().
+        template <class HotFn, class ColdFn>
+        static uint32_t split_walk(const char *body, const char *end,
+                                   HotFn &&on_hot, ColdFn &&on_cold) noexcept
+        {
+            uint32_t h = 0;
+            for (const char *p = body; p < end;)
+            {
+                const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
+                const uint16_t tid     = *reinterpret_cast<const uint16_t *>(p + 4);
+                if (classify(tid) == tclass::HOT)
+                    on_hot(p, MsgSize, h++);
+                else
+                    on_cold(p, MsgSize, tid);
+                p += MsgSize;
+            }
+            return h;
+        }
+
+        // Dispatch a MIXED packet: hot messages to the worker fleet, order-
+        // independent cold messages decoded inline on this thread.
+        //
+        // TWO passes, deliberately. Pass 1 sends every hot message so the fleet
+        // starts immediately; pass 2 does the inline cold decode while they run.
+        // A single pass would stall the fleet behind a Volume37 parse. Both
+        // passes are the same split_walk with the other callback a no-op, which
+        // the compiler removes -- one loop, written once.
+        //
+        // order_seq is allocated to HOT MESSAGES ONLY, and densely. That is not a
+        // style choice. Reconstructor::on_parsed advances expected_seq_ by exactly
+        // one per ParsedMsg and drain() only releases contiguous keys, so a number
+        // handed to a message that never produces a ParsedMsg stalls the stream
+        // PERMANENTLY. Cold messages get no number at all.
+        //
+        // Safe against on_decode_done freeing the buffer mid-walk: both run on
+        // this actor's thread, serialized by the framework's fast_send_mutex, so
+        // no worker completion can be processed until this returns.
+        //
+        // Returns false if a cold decode failed -- caller replies rc=false and the
+        // MessageProcessor initiates recovery.
+        bool dispatch_split(const char *databuf, std::size_t len, uint64_t ts,
+                            uint64_t order_seq_base, uint64_t parent_id,
+                            uint32_t qlen, bool &is_channel_reset) noexcept
+        {
+            const uint32_t msgSeqNum   = *reinterpret_cast<const uint32_t *>(databuf);
+            const uint64_t sendingTime = *reinterpret_cast<const uint64_t *>(databuf + 4);
+            const char *const body = databuf + 12;
+            const char *const end  = databuf + len;
+
+            // ---- pass 1: hot -> workers (zero-copy into the pinned slot) ----
+            split_walk(
+                body, end,
+                [&](const char *p, uint16_t MsgSize, uint32_t h) {
+                    workers_[h & worker_mask_]->send(
+                        new msg::DecodeReq(p, MsgSize, msgSeqNum, ts, sendingTime,
+                                           order_seq_base + h, parent_id, qlen),
+                        this);
+                },
+                [](const char *, uint16_t, uint16_t) {});
+
+            // ---- pass 2: order-independent cold -> inline ----
+            // Decode is serial on this thread and the workers drive DecodeSink,
+            // never this handler, so the handler's qlen member is safe to set
+            // here -- same as the all-cold path in on_decode_packet.
+            cb->set_ingress_qlen(qlen);
+            bool ok = true;
+            split_walk(
+                body, end,
+                [](const char *, uint16_t, uint32_t) {},
+                [&](const char *p, uint16_t MsgSize, uint16_t) {
+                    ++split_cold_msgs_;
+                    if (!decode_one(const_cast<char *>(p), MsgSize, ts, msgSeqNum,
+                                    sendingTime, cb, is_channel_reset, debug))
+                        ok = false;
+                });
+            return ok;
+        }
+
         // Decode ONE SBE message at `msg` (points at its 10-byte SBE header) into
         // `cb`. Returns false if a CRITICAL message failed to decode (caller must
         // trigger recovery), true otherwise; sets is_channel_reset on a reset.
@@ -724,6 +818,9 @@ namespace mdp3
 
         void print_stats()
         {
+            if (parallel_decode_)
+                log_inf("split packets=%lu cold_msgs_inline=%lu",
+                        split_packets_, split_cold_msgs_);
             cb->PrintStats();
         }
 
@@ -760,29 +857,61 @@ namespace mdp3
                 return;
             }
 
-            // Not all-hot, and parallel decode is ON. The parallel design ASSUMES a
-            // packet never mixes hot (book/trade) with cold templates; if it did,
-            // book/trade would take this inline path and split the orderid map from
-            // the Reconstructor's. Trip if that is violated -- but NOT for a corrupt
-            // packet (that is a malformed feed, not a mixed one; mbo_data below logs
-            // it and triggers recovery).
+            // SPLIT PATH: hot + cold in one packet, every cold provably order-
+            // independent of the MBO stream. Hot goes to the fleet, cold is decoded
+            // inline. This is the case the census says is 2.79% of live ES chan 310
+            // packets, and it used to abort here.
+            //
+            // Correctness rests on two facts, both verified rather than assumed:
+            //   - classify()'s COLD_INDEPENDENT set touches neither
+            //     orderid_to_securityid nor a book's order state, so decoding it
+            //     out of order against the hot stream changes nothing.
+            //   - kaspr.cpp:513 hands the Reconstructor handler->mbo_order_books,
+            //     the SAME book actors handler_if sends to, so the inline record
+            //     and the worker-decoded records converge on one destination.
+            if (parallel_decode_ && sr.splittable())
+            {
+                const uint64_t pid  = next_parent_id_++;
+                const uint64_t base = order_seq_;
+                order_seq_ += sr.n_hot; // ONLY hot consume order_seq -- see dispatch_split
+                auto &pp = pending_[pid];
+                std::memcpy(pp.buf.message.data(), m->data, m->len);
+                pp.buf.len = m->len;
+                pp.outstanding = sr.n_hot; // only hot messages reply DecodeDone
+                pp.failed = false;
+                ++split_packets_;
+                bool is_channel_reset = false; // COLD_INDEPENDENT excludes ChannelReset4
+                const bool ok = dispatch_split(pp.buf.message.data(), m->len, m->ts,
+                                               base, pid, m->qlen, is_channel_reset);
+                reply(new msg::DecodeResult(ok, is_channel_reset));
+                return;
+            }
+
+            // Parallel is ON and the packet mixes hot with an ORDER-CRITICAL cold
+            // (ChannelReset4, SecurityStatus30, an instrument definition, or an
+            // unknown template that classify() defaults to the safe side). Those
+            // cannot float past queued book messages, and this actor cannot block
+            // waiting for the fleet to drain without deadlocking itself, so there
+            // is no correct thing to do here yet -- trip rather than corrupt a book.
+            //
+            // NOT corrupt packets: that is a malformed feed, not a mixed one, and
+            // mbo_data below logs it and triggers recovery.
+            //
+            // Frequency: 0 of 120,000 packets in the live ES chan 310 census --
+            // every cold message observed was Volume37, which the split above now
+            // handles. Zero observed is not zero possible; the ordered barrier is
+            // the next piece of work.
             //
             // The parallel_decode_ guard is NOT cosmetic. With parallel off there is
             // no Reconstructor and no second orderid map, so a hot message on the
             // inline path is simply the serial decoder doing its job -- the whole
             // feed is hot. Without the guard this asserts on the first book packet
             // and the serial path cannot run at all.
-            //
-            // KNOWN, MEASURED: with parallel ON this still fires. Census on live ES
-            // chan 310, 120,000 packets / 132,094 messages: 3,351 packets (2.79%)
-            // are mixed, carrying 12,436 messages (9.41%), and every cold message
-            // seen -- 3,353 of 3,353 -- was MDIncrementalRefreshVolume37. Splitting
-            // the packet (hot to the workers, cold inline) is the fix, and it is
-            // not done yet.
             if (parallel_decode_ && !sr.corrupt)
                 ASSERTF(!sr.has_hot, boost::format(
-                    "mixed hot+cold packet: book/trade on the inline path splits the "
-                    "orderid map -- parallel-decode assumption violated"));
+                    "hot + order-critical cold in one packet (%u hot, %u ordered cold): "
+                    "no barrier implemented, refusing to split the orderid map")
+                    % sr.n_hot % sr.n_cold_ordered);
 
             // Cold packet, corrupt packet, or parallel off: decode inline.
             // Serial, single thread, so the handler member is the right place
@@ -838,6 +967,12 @@ namespace mdp3
         bool       parallel_decode_ = false;
         uint64_t   order_seq_ = 0;          // global monotonic key stamped per message
         uint64_t   next_parent_id_ = 1;
+
+        // Split-path counters. Published by print_stats so the split's real
+        // frequency is a measurement on every run, not a number quoted from one
+        // census on one channel on one day.
+        uint64_t   split_packets_ = 0;      // packets that took dispatch_split
+        uint64_t   split_cold_msgs_ = 0;    // cold messages decoded inline by it
 
         // A packet handed to workers: its bytes (kept alive for zero-copy reads)
         // plus the count of workers still to report DecodeDone.
