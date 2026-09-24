@@ -13,9 +13,6 @@
 actor_ptr create_MessageProcessor(
     const std::string &_chan_nam,
     actor_ptr _recovery_processor,
-    mdp3::feed_handler_if *_cb,
+    actor_ptr _decoder, // the DataDecoder actor (built in kaspr)
     bool _dorecovery,
-    bool _recoveryonstart,
-    bool _disable_mbo,
-    uint32_t _max_mbp_level,
-    bool _debug);
+    bool _recoveryonstart);

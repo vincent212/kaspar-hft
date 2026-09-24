@@ -487,10 +487,22 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     auto disable_mbo = pt_chan.get<bool>("cme_disable_mbo", false);
     auto maxmpblevel = pt_chan.get<int>("cme_max_mbp_level", 0);
 
+    // ---- parallel decode subsystem: Reconstructor <- DecodeWorkers <- DataDecoder ----
+    // NWORKERS MUST be a power of two (set_workers uses nworkers-1 as a mask).
+    const uint32_t NWORKERS = pt_chan.get<uint32_t>("cme_decode_workers", 8);
+    auto* recon = new mdp3::Reconstructor(handler->mbo_order_books, venue);
+    handler->reconstructor = recon; // handler_if feeds it securityID->asset_id maps (no shared-map race)
+    actor_ptr* workers = new actor_ptr[NWORKERS]; // process-lifetime; set_workers keeps this array
+    for (uint32_t i = 0; i < NWORKERS; ++i)
+        workers[i] = new mdp3::DecodeWorker(recon, venue, i);
+    auto* decoder = new mdp3::DataDecoder(handler, disable_mbo, (uint32_t)maxmpblevel, /*debug=*/false);
+    decoder->set_workers(workers, NWORKERS);
+
     // Create MDP3 components
     auto mdp3cfsmp = create_all_mdp3(
         chanstr,
         handler,
+        decoder,
         p_cme.get<uint16_t>("port_dr"),
         p_cme.get<uint16_t>("port_ir"),
         p_cme.get<std::string>("group_dr").c_str(),
@@ -511,6 +523,9 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
         p_cme.get<std::string>("mdinterface_b").c_str(),
         p_cme.get<std::string>("name").c_str()
     );
+
+    // Let the decoder ask the MessageProcessor to recover on a parallel decode failure.
+    decoder->set_recovery_target(mdp3cfsmp[1]); // message_processor
 
     // Manage MDP3 actors.
     //
@@ -552,6 +567,12 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     add_to_manage_q(mdp3cfsmp[2], pin(2));  // msg_buf_a
     add_to_manage_q(mdp3cfsmp[4], pin(3));  // socket_processor_a
     add_to_manage_q(mdp3cfsmp[5], pin(4));  // socket_processor_b
+
+    // Manage the decode subsystem (Reconstructor + workers + DataDecoder)
+    add_to_manage_q(recon);
+    for (uint32_t i = 0; i < NWORKERS; ++i)
+        add_to_manage_q(workers[i]);
+    add_to_manage_q(decoder);
 
     std::cerr << "Kaspr: MDP3 channel " << chan << " configured" << std::endl;
 }

@@ -20,6 +20,10 @@
 #include <chrono>
 #include "mcast_recv/message_buffer.hpp"
 #include "mdp3/DataDecoder.hpp"
+#include "mdp3/msg/DecodePacket.hpp"
+#include "mdp3/msg/DecodeResult.hpp"
+#include "mdp3/msg/DecoderCmd.hpp"
+#include "mdp3/msg/TriggerRecovery.hpp"
 #include "mdp3/msg/DoDataRecovery.hpp"
 #include "mdp3/msg/DoInstrumentRecovery.hpp"
 #include "mdp3/msg/EndDataRecovery.hpp"
@@ -46,7 +50,7 @@ namespace mdp3
         char cached_name[256];
 
         actors::Actor *recovery_processor;
-        DataDecoder decoder;
+        actor_ptr decoder; // the DataDecoder actor (created in kaspr, passed in)
         //boost::container::flat_map<uint32_t, mcast_recv::message_buffer> msg_q;
         std::map<uint32_t, mcast_recv::message_buffer> msg_q;
         bool dorecovery = false;
@@ -71,13 +75,10 @@ namespace mdp3
         MessageProcessor(
             const std::string _chan_nam,
             actors::Actor *_recovery_processor,
-            mdp3::feed_handler_if *_cb,
+            actor_ptr _decoder, // the DataDecoder actor (built in kaspr)
             bool _dorecovery,
-            bool _recoveryonstart,
-            bool _disable_mbo,
-            uint32_t _max_mbp_level,
-            bool _debug = false)
-            : decoder(_cb, _disable_mbo, _max_mbp_level, _debug),
+            bool _recoveryonstart)
+            : decoder(_decoder),
               recovery_processor(_recovery_processor),
               dorecovery(_dorecovery),
               data_recoveryonstart(_recoveryonstart),
@@ -93,6 +94,7 @@ namespace mdp3
             MESSAGE_HANDLER(msg::StartQ, startq_handler); // who sends this?
             MESSAGE_HANDLER(msg::StopQ, stopq_handler);   // who sends this?
             MESSAGE_HANDLER(frame::cons::msg::Get, get_handler);
+            MESSAGE_HANDLER(msg::TriggerRecovery, trigger_recovery_handler);
 
             // if (dorecovery)
             // {
@@ -233,6 +235,22 @@ namespace mdp3
             waitcnt = maxwaitcnt;
         }
 
+        // A parallel decode worker failed (sent by the DataDecoder actor). Respond
+        // exactly as the inline path does to an mbo_data failure: signal the gap
+        // and initiate recovery. Guarded so a burst of failures doesn't restart
+        // recovery repeatedly.
+        void trigger_recovery_handler(const msg::TriggerRecovery *) noexcept
+        {
+            if (in_data_recovery)
+                return;
+            log_err("parallel decode failed -- initiating data recovery");
+            {
+                msg::DecoderCmd c(msg::DecoderCmd::GAP);
+                decoder->fast_send(&c, this);
+            }
+            do_data_recovery();
+        }
+
         void do_instr_recovery()
         {
             if (recovery_processor)
@@ -297,14 +315,30 @@ namespace mdp3
                     // reorder-map node (p->second) -- the packet actually being
                     // decoded, not whatever packet happened to trigger this
                     // drain. (Contrast `ts` below: the arriving packet's recv_ts,
-                    // which is wrong for a packet released out of a gap.) Decoding
-                    // straight from the node also avoids the ~1.5KB copy-out.
-                    decoder.set_ingress_qlen(p->second.qlen);
-                    auto rc = decoder.mbo_data(&p->second.message[0], p->second.len, ts, is_channel_reset);
+                    // which is wrong for a packet released out of a gap.)
+                    //
+                    // It rides DecodePacket rather than a set_ingress_qlen() call
+                    // because `decoder` is now an actor and the hot path fans out
+                    // to N DecodeWorker threads. A single member on the handler
+                    // would be read by workers decoding a DIFFERENT packet. Per-
+                    // request data is the only race-free way to carry it.
+                    //
+                    // Decode via the DataDecoder actor. fast_send runs its handler
+                    // inline (this thread) before we erase msg_q[sn], so no buffer
+                    // copy is needed here; the reply carries rc + is_channel_reset.
+                    msg::DecodePacket dp(&p->second.message[0], p->second.len, ts,
+                                         p->second.qlen);
+                    auto decode_reply = decoder->fast_send(&dp, this);
+                    const auto *dr = static_cast<const msg::DecodeResult *>(decode_reply.get());
+                    auto rc = dr->rc;
+                    is_channel_reset = dr->is_channel_reset;
                     if (!rc)
                     {
                         log_err("could not decode critical data message initiating recovery");
-                        decoder.gap();
+                        {
+                            msg::DecoderCmd c(msg::DecoderCmd::GAP);
+                            decoder->fast_send(&c, this);
+                        }
                         do_data_recovery();
                         return;
                     }
@@ -363,7 +397,10 @@ namespace mdp3
             }
 #ifdef SENDEOBURST
             if (last)
-                decoder.burstend();
+                {
+                    msg::DecoderCmd c(msg::DecoderCmd::BURSTEND, 1);
+                    decoder->fast_send(&c, this);
+                }
 #endif
         }
 
@@ -390,7 +427,10 @@ namespace mdp3
         {
             log_inf("shutdown");
 
-            decoder.print_stats();
+            {
+                msg::DecoderCmd c(msg::DecoderCmd::PRINTSTATS);
+                decoder->fast_send(&c, this);
+            }
         }
     };
 

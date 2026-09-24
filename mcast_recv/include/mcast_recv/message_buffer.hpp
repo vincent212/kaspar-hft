@@ -13,7 +13,7 @@
 
 namespace mcast_recv
 {
-    constexpr std::size_t msgsz = 2000;
+    constexpr std::size_t msgsz = 1500; // cme mdp3 is 1472 bytes, but allow for some extra room for other feeds
     struct message_buffer
     {
         uint32_t seqnum;

@@ -11,20 +11,14 @@
 actor_ptr create_MessageProcessor(
     const std::string &_chan_nam,
     actors::Actor *_recovery_processor,
-    mdp3::feed_handler_if *_cb,
+    actor_ptr _decoder,
     bool _dorecovery,
-    bool _recoveryonstart,
-    bool _disable_mbo,
-    uint32_t _max_mbp_level,
-    bool _debug)
+    bool _recoveryonstart)
 {
     return new mdp3::MessageProcessor(
         _chan_nam,
         _recovery_processor,
-        _cb,
+        _decoder,
         _dorecovery,
-        _recoveryonstart,
-        _disable_mbo,
-        _max_mbp_level,
-        _debug);
+        _recoveryonstart);
 }
