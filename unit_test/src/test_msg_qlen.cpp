@@ -68,19 +68,16 @@ TEST(MessageQLen, FastSendLeavesQlenZero)
 // The ring was 64 slots. Past that, BQueue::push falls back to a heap
 // allocation into overflow_ on the PRODUCER thread under the mailbox mutex --
 // on the feed-handler thread, during exactly the bursts being measured. The
-// ring is now ACTOR_BQUEUE_SIZE (32000), so a burst of this size stays in the
-// ring and allocates nothing.
+// ring is ACTOR_BQUEUE_SIZE, so a burst up to that depth allocates nothing.
 //
-// This test also pins the reporting limit: circ_buf_len() counts the ring
-// ONLY (std::deque::size() is not safe to read unlocked -- see BQueue.hpp), so
-// if a burst ever did exceed the ring, qlen would saturate instead of growing.
-// A monotonic count well past the old 64 is the evidence that it does not.
+// n is derived from ACTOR_BQUEUE_SIZE rather than hardcoded, so retuning the
+// ring cannot silently turn this into a test of the overflow path.
 TEST(MessageQLen, BurstPastOldRingSizeStillCountsUp)
 {
   ASSERT_GT(ACTOR_BQUEUE_SIZE, 64) << "ring must exceed the old default";
 
   Sink sink;
-  const int n = 1000;   // >> the old 64, << the new 32000
+  const int n = ACTOR_BQUEUE_SIZE;   // fill the ring exactly, do not overflow
   for (int i = 0; i < n; ++i)
   {
     auto *m = new QProbe(i);
@@ -90,6 +87,31 @@ TEST(MessageQLen, BurstPastOldRingSizeStillCountsUp)
   }
   EXPECT_EQ(sink.queue_length(), static_cast<std::size_t>(n));
   EXPECT_EQ(sink.circ_buf_len(), static_cast<std::size_t>(n));
+}
+
+// Past the ring, circ_buf_len() cannot see overflow_ (std::deque::size() is
+// not safe to read unlocked -- see BQueue.hpp), so qlen SATURATES at the ring
+// size instead of continuing to count. Nothing is dropped: length() keeps
+// growing, only the reported number stops.
+//
+// This is the censoring limit of the instrument. A qlen histogram with a spike
+// at exactly ACTOR_BQUEUE_SIZE is not a real mode -- it is every deeper burst
+// piled into the last bin, and any fit through it is wrong.
+TEST(MessageQLen, SaturatesAtRingSizeOnceOverflowStarts)
+{
+  Sink sink;
+  const int n = ACTOR_BQUEUE_SIZE + 50;
+  for (int i = 0; i < n; ++i)
+  {
+    auto *m = new QProbe(i);
+    sink.send(m, nullptr);
+    const uint32_t want = static_cast<uint32_t>(
+        i < ACTOR_BQUEUE_SIZE ? i : ACTOR_BQUEUE_SIZE);
+    ASSERT_EQ(m->qlen, want) << "at i=" << i;
+  }
+  // The ring is pinned at capacity; the true depth is only in length().
+  EXPECT_EQ(sink.circ_buf_len(), static_cast<std::size_t>(ACTOR_BQUEUE_SIZE));
+  EXPECT_EQ(sink.queue_length(), static_cast<std::size_t>(n));
 }
 
 // circ_buf_len() is the unlocked read used by the stamp and by QLen. With no
