@@ -209,7 +209,12 @@ namespace mdp3
             {
                 return;
             }
-            msg_q[m->buf.seqnum] = m->buf;
+            // try_emplace, not operator[]: operator[] would value-initialize a
+            // fresh ~2KB message_buffer node (zero-filling the 2000-byte array)
+            // and then copy-assign over it. try_emplace copy-constructs the node
+            // directly -- no zero-fill -- and does nothing on a duplicate seqnum
+            // (a retransmit carries identical bytes, so first-wins == last-wins).
+            msg_q.try_emplace(m->buf.seqnum, m->buf);
             processq(m->buf.recv_ts, m->last);
             last_ts = m->buf.recv_ts;
             // Update last_msg_timestamp if recv_ts is not 0
