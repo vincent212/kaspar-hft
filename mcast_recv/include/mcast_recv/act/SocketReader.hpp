@@ -51,15 +51,14 @@ namespace mcast_recv
     // seqnumT seq_num = 0;
     const uint8_t seq_num_offset = N; // for cme its 0, for fenics its 10
 
-    std::vector<double> read_cnt;
     char chan;
     bool newloop = false;
-    uint32_t num_gaps = 0;
     bool read_loop = true;
-    bool fastsend;
     uint64_t last_ts = 0;
     bool big_endian;
-    mutable int ts_cnt = 0;
+    // Unsigned so `ts_cnt % 16` lowers to a bitmask; signed modulo has to
+    // handle negative operands and emits a division sequence instead.
+    mutable uint32_t ts_cnt = 0;
 
     void read(message_buffer *m) const noexcept
     {
