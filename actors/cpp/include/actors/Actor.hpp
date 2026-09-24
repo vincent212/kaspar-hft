@@ -26,7 +26,28 @@
 #include "actors/ShardedBQueue.hpp"
 #include "actors/LockFreeMPSC.hpp"
 
-#define ACTOR_BQUEUE_SIZE 64
+// Mailbox ring slots. Past this depth BQueue::push() falls back to
+// overflow_.push_back(), a heap allocation on the PRODUCER thread while the
+// mailbox mutex is held — i.e. inside the feed-handler's send path during
+// exactly the bursts we are trying to measure. Note this does NOT reduce
+// queue depth or queueing latency: overflow_ is unbounded, so nothing was
+// ever dropped. The ring size trades allocation frequency against footprint.
+//
+// 128 slots = 1 KB per actor, and the live recorder runs ~282 actors, so
+// ~282 KB total. The ring stays well inside L1d (32-48 KB), so the producer's
+// store lands on a line the core already owns. A 32000-slot ring is 256 KB
+// per actor: it does not fit in L1d, and the producer walks all 256 KB as the
+// ring advances, paying a miss per push on the hot path this work exists to
+// measure.
+//
+// The cost of 128 is that bursts deeper than 128 packets still reach
+// overflow_. Two consequences, both measurable rather than assumed:
+//   - one allocation under the mailbox mutex per packet past 128,
+//   - Message::qlen saturates at 128, because circ_buf_len() counts the ring
+//     only (see BQueue.hpp). A reported 128 means "at least 128".
+// If the qlen histogram piles up at exactly 128, this number is too small and
+// the tail is censored. Check that before trusting any qlen-vs-latency fit.
+#define ACTOR_BQUEUE_SIZE 128
 #define ACTOR_HANDLER_CACHE_SIZE 2048
 // The handler cache is indexed directly by message id, so its size is the id
 // ceiling enforced in Message.hpp (kMessageIdCap). Keep the two in lockstep.
@@ -122,6 +143,9 @@ namespace actors
 
     virtual const char* get_name() const { return name; }
     std::size_t queue_length() const noexcept;
+    // Unlocked, approximate, ring-only depth. For samplers that must not
+    // contend on the mailbox mutex. See Queue::circ_buf_len.
+    std::size_t circ_buf_len() const noexcept;
     const Message* peek() const;
     bool check_is_part_of_group() const { return is_part_of_group; }
     Actor* get_group_ptr() const { return group; }

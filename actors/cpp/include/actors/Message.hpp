@@ -8,6 +8,7 @@
  */
 
 #include <atomic>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 
@@ -27,8 +28,11 @@ namespace actors
    * `const Message*`). A member read is a single load. The id is set once at
    * construction and is immutable identity thereafter.
    *
-   * `msg_id_` is declared last so it packs into the tail padding after the two
-   * bools; the object size is unchanged.
+   * `msg_id_` is declared last so it packs into the padding after the two
+   * bools, which costs nothing. `qlen` is what took the object from 32 bytes
+   * to 40 -- it did not fit in that padding and opened a new 8-byte row. Four
+   * bytes of that row are still free. See tests/test_message_id.cpp for the
+   * measured layout and the guard on it.
    */
   struct Message
   {
@@ -40,11 +44,38 @@ namespace actors
     mutable bool is_fast = false;
     mutable bool last = false;
 
+    /**
+     * Destination mailbox depth at the moment this message was enqueued.
+     *
+     * This is the PER-MESSAGE queue depth. It is what QLen cannot give you:
+     * QLen is a gauge on a 100 ms grid, so a burst that fills and drains a
+     * mailbox between two ticks is invisible to it. This number rides along
+     * with the message, so every message reports the backlog it personally
+     * queued behind. Join latency against it directly — no time alignment, no
+     * wake jitter, no gauge caveat.
+     *
+     * Written once by Actor::add_message_to_queue, read by the receiving
+     * handler. Zero for fast_send (no queue was involved) and zero until the
+     * message is actually enqueued.
+     *
+     * GROUPED ACTORS: Actor::send routes to group->add_message_to_queue when
+     * is_part_of_group is set, so for those actors this is the depth of the
+     * SHARED GROUP mailbox, with every sibling's traffic mixed in -- not the
+     * addressed actor's own backlog. That is still the queue the message
+     * actually waited in, so it is still the right number to join latency
+     * against; it just is not attributable to one actor.
+     *
+     * Ring-only and approximate: see Queue::circ_buf_len. A value equal to
+     * ACTOR_BQUEUE_SIZE means "at least this deep".
+     */
+    mutable uint32_t qlen = 0;
+
     Message(const Message& other)
       : sender(other.sender)
       , destination(nullptr)
       , is_fast(other.is_fast)
       , last(other.last)
+      , qlen(0)                 // a copy has not been enqueued yet
       , msg_id_(other.msg_id_)  // identity is preserved across a copy
     {}
 
@@ -54,6 +85,7 @@ namespace actors
         destination = nullptr;
         is_fast = other.is_fast;
         last = other.last;
+        qlen = 0;
         // msg_id_ is identity: not reassigned.
       }
       return *this;

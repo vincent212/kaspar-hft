@@ -34,7 +34,7 @@ use crate::queue::BQueue;
 pub const HANDLER_CACHE_SIZE: usize = 1024;
 
 /// Default mailbox ring capacity (matches C++ `ACTOR_BQUEUE_SIZE`).
-pub const ACTOR_BQUEUE_SIZE: usize = 64;
+pub const ACTOR_BQUEUE_SIZE: usize = 128;
 
 /// Type-erased handler slot for the dispatch table of actor type `A`.
 pub type HandlerFn<A> = fn(&mut A, &dyn Message, &mut ActorContext<'_>);

@@ -310,6 +310,16 @@ map<string, size_t> Manager::get_queue_lengths() const noexcept
   return ret;
 }
 
+map<string, size_t> Manager::get_circ_buf_lengths() const noexcept
+{
+  map<string, size_t> ret;
+  for (auto &[name, actor] : managed_name_map)
+  {
+    ret[name] = actor->circ_buf_len();
+  }
+  return ret;
+}
+
 map<string, tuple<pid_t, int>> Manager::get_message_counts() const noexcept
 {
   map<string, tuple<pid_t, int>> ret;

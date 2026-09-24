@@ -248,12 +248,36 @@ void Actor::fast_terminate() noexcept
 
 void Actor::add_message_to_queue(const Message *m)
 {
-  std::visit([m](auto& q) { q.push(m); }, msgq);
+  // Stamp the backlog this message is about to queue behind, then enqueue.
+  //
+  // This is the per-message queue depth. QLen cannot produce it: QLen is a
+  // gauge on a wall-clock grid, so a burst that fills and drains a mailbox
+  // between two ticks never appears in it, and its own sample time carries
+  // the scheduler's wake jitter — which grows under exactly the load being
+  // studied, so depth gets filed against the wrong interval. Carrying the
+  // number on the message removes both problems: the receiving handler reads
+  // m->qlen and knows what THIS message waited behind.
+  //
+  // Cost is one unlocked load (circ_buf_len) and one store. Deliberately read
+  // OUTSIDE the queue lock: taking the lock here to make depth-and-push atomic
+  // would put a second acquisition on the producer's hot path, and the
+  // producer here is the feed-handler thread. The read is therefore stale by
+  // whatever push/pop calls land in between — the same one-message
+  // approximation the gauge already accepts.
+  std::visit([m](auto& q) {
+    m->qlen = static_cast<uint32_t>(q.circ_buf_len());
+    q.push(m);
+  }, msgq);
 }
 
 std::size_t Actor::queue_length() const noexcept
 {
   return std::visit([](const auto& q) { return q.length(); }, msgq);
+}
+
+std::size_t Actor::circ_buf_len() const noexcept
+{
+  return std::visit([](const auto& q) { return q.circ_buf_len(); }, msgq);
 }
 
 const Message* Actor::peek() const
