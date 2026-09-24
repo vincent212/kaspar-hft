@@ -495,9 +495,26 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     // map. This is the path the latency article measured.
     //
     // > 0 selects the PARALLEL path and MUST be a power of two (set_workers uses
-    // nworkers-1 as a mask). It is NOT production-ready: it aborts on the 3.03%
-    // of live ES packets (10.21% of messages) that mix hot templates with
-    // MDIncrementalRefreshVolume37. See DataDecoder::on_decode_packet.
+    // nworkers-1 as a mask). Still NOT production-ready, but the reason has
+    // changed and the old text here was wrong twice over.
+    //
+    // It used to abort on any packet mixing hot templates with
+    // MDIncrementalRefreshVolume37, and this comment put that at "3.03% of live
+    // ES packets (10.21% of messages)". Both figures came from a partial census
+    // and are superseded: over the full 120,000-packet sample on live ES chan
+    // 310 it is 3,351 packets (2.79%) and 12,436 messages (9.41%).
+    //
+    // It no longer aborts on them. DataDecoder::dispatch_split sends the hot
+    // messages to the worker fleet and decodes the order-INDEPENDENT colds
+    // inline; every cold message in all 3,351 mixed packets was Volume37, which
+    // is order-independent. What still aborts is hot mixed with an order-
+    // CRITICAL cold (ChannelReset4, SecurityStatus30, a definition, or an
+    // unknown template): 0 of 120,000 observed, but unobserved is not
+    // impossible, and the ordered barrier is not written yet.
+    //
+    // The remaining blockers are B3 (shadow instrument definitions), B5 (own
+    // book set), B7 (EndOfBurst) and B8 (volume records). Until those land this
+    // is a measurement path, not a recording path.
     //
     // The default used to be 8 and NO ini anywhere set the key, so every channel
     // silently ran the parallel path and died on its first mixed packet.

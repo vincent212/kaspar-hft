@@ -36,15 +36,26 @@ namespace mdp3
   //      threaded IS the synchronization; no locks.
   //
   // Consistency assumptions (see parallel-mbo-decode-arch memory):
-  //   - book/trade NEVER take the inline path (all-hot packets always parallel),
-  //     so this map is the sole owner of orderid_to_securityid.
-  //     Enforced by ONE assert, in DataDecoder::on_decode_packet. An earlier
-  //     version of this comment claimed handler_if's MBO handlers assert it too;
-  //     they do not -- handler_if's only asserts are two "sym mismatch" checks.
-  //     KNOWN VIOLATION, measured on live ES chan 310 over 80,000 packets: 3.03%
-  //     of packets (10.21% of messages) mix hot with MDIncrementalRefreshVolume37
-  //     (1,419 of 1,419 mixed packets). So this assumption is false on the real
-  //     feed and the parallel path cannot run until the packet split lands.
+  //   - book/trade NEVER take the inline path, so this map is the sole owner of
+  //     orderid_to_securityid. Enforced by ONE assert, in
+  //     DataDecoder::on_decode_packet. An earlier version of this comment claimed
+  //     handler_if's MBO handlers assert it too; they do not -- handler_if's only
+  //     asserts are two "sym mismatch" checks.
+  //     A mixed hot+cold packet used to break this and abort. It no longer does:
+  //     DataDecoder::dispatch_split sends the hot messages to the fleet and
+  //     decodes only order-INDEPENDENT colds inline, so book/trade still never
+  //     reach handler_if. Measured on live ES chan 310, 120,000 packets: 3,351
+  //     (2.79%) are mixed and every cold message in them was Volume37, which is
+  //     order-independent.
+  //     STILL ASSERTS: hot mixed with an order-CRITICAL cold (reset, security
+  //     status, a definition, or an unknown template). 0 of 120,000 observed, but
+  //     unobserved is not impossible -- that barrier is the next piece of work.
+  //
+  //   - order_seq is DENSE OVER HOT MESSAGES ONLY. on_parsed below advances
+  //     expected_seq_ by one per ParsedMsg and drain() only releases contiguous
+  //     keys, so if DataDecoder ever allocated a number to a message that
+  //     produces no ParsedMsg -- an inline-decoded cold, say -- this stream would
+  //     stall permanently. dispatch_split is written to that constraint.
   //   - securityid_to_asset_id + mbo_order_books are populated at startup/recovery
   //     and read-only during trading -> shared here by const ref (safe reads).
   //
