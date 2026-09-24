@@ -83,18 +83,65 @@ detect_with_probes() {
 
 # ----- per-library detectors ----------------------------------------
 
-# Boost: home-dir builds often version the prefix (boost190, boost188).
-# Enumerate newest-first (version sort) so a newer local install shadows an
-# older one.
+# BOOST_PATH feeds BOTH -I$(BOOST_PATH)/include and -L$(BOOST_PATH)/lib
+# (glob_begin.mk:97 and :169), so a prefix that satisfies only the header probe
+# is not usable. Probing the header alone produced a prefix that compiled every
+# TU and then failed at the link with
+#
+#     /usr/bin/ld: cannot find -lboost_program_options
+#
+# on a box where /usr/local/include/boost is a symlink into /usr/local/boost188
+# while /usr/local/lib holds no boost libraries at all. The header was found,
+# the libraries were somewhere else, and the error named the library rather
+# than the prefix — so it read as "boost is not installed" when boost was
+# installed and merely elsewhere. Require both halves of the prefix.
+boost_prefix_ok() {
+    local pfx="$1"
+    if [ ! -e "$pfx/include/boost/version.hpp" ]; then
+        log "BOOST_PATH: no include/boost/version.hpp at $pfx"
+        return 1
+    fi
+    # Check lib/ only, because that is literally what -L is built from. A
+    # lib64-only install is rejected here on purpose: a clear "not found" with
+    # an install hint beats a link error that names the wrong thing.
+    #
+    # program_options specifically, not "any boost lib": it is the one the link
+    # needs and the one a partial install is most likely to be missing.
+    local f
+    for f in "$pfx"/lib/libboost_program_options.so* \
+             "$pfx"/lib/libboost_program_options.a; do
+        if [ -e "$f" ]; then
+            log "BOOST_PATH: header and lib both at $pfx"
+            return 0
+        fi
+    done
+    log "BOOST_PATH: header at $pfx but no lib/libboost_program_options"
+    return 1
+}
+
+# Boost: builds often version the prefix (boost190, boost188), under a home
+# dir or under /usr/local. Enumerate newest-first (version sort) so a newer
+# install shadows an older one.
 detect_boost() {
     local -a versioned=()
-    for d in "$HOME"/local/boost*; do
+    for d in "$HOME"/local/boost* /usr/local/boost* /opt/boost*; do
         [ -d "$d" ] && versioned+=("$d")
     done
     if [ ${#versioned[@]} -gt 0 ]; then
         mapfile -t versioned < <(printf '%s\n' "${versioned[@]}" | sort -Vr)
     fi
-    detect_with_probes BOOST_PATH boost "${versioned[@]}" -- include/boost/version.hpp
+
+    local -a candidates=()
+    [ -d "$BREW_ROOT/boost" ] && candidates+=("$BREW_ROOT/boost")
+    candidates+=("${versioned[@]}" "${PREFIXES_GENERIC[@]}")
+
+    local pfx
+    for pfx in "${candidates[@]}"; do
+        if boost_prefix_ok "$pfx"; then
+            echo "$pfx"; return 0
+        fi
+    done
+    return 1
 }
 
 detect_zlib()    { detect_with_probes ZLIB_PATH    zlib          -- include/zlib.h; }
