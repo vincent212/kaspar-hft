@@ -260,7 +260,11 @@ class DecodeWorkerQlenTest : public ::testing::Test
 protected:
   MockActor recon{"MockRecon"};
   MockActor coord{"MockCoord"};
-  TestWorker worker{&recon, en::x::CMEMDFUT, /*worker_id=*/0};
+  // chan is REQUIRED and deliberately has no default. The actor name is built
+  // from it, and "DecodeWorker_%u" was unique only WITHIN a channel -- worker 0
+  // of a second channel collided in Manager. Defaulting it would let a caller
+  // reintroduce that collision silently.
+  TestWorker worker{&recon, en::x::CMEMDFUT, /*worker_id=*/0, /*chan=*/310};
 
   void SetUp() override { worker.set_reply_to(&coord); }
 

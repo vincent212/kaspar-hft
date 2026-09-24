@@ -79,7 +79,11 @@ class ReconstructorTest : public ::testing::Test
 protected:
   MockActor book{"MockBook"};
   std::vector<actor_ptr> books{&book}; // asset_id 0 -> mock book
-  mdp3::Reconstructor recon{books, en::x::CMEMDFUT};
+  // chan is REQUIRED and deliberately has no default. The actor name is built
+  // from it, and Reconstructor used to key its name on the VENUE -- so 310,
+  // 318 and 344, which share one venue, collided in Manager. Defaulting the
+  // parameter would let a caller reintroduce that collision silently.
+  mdp3::Reconstructor recon{books, en::x::CMEMDFUT, /*chan=*/310};
 
   static constexpr int32_t SEC = 100; // a securityID we map to asset_id 0
 
