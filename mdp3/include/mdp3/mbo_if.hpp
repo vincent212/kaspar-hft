@@ -339,6 +339,21 @@ namespace mdp3
 
         virtual void PrintStats() noexcept = 0;
 
+        // Sideband: the ingress mailbox depth for the packet about to be
+        // decoded. MessageProcessor calls this immediately before
+        // decoder.mbo_data(), so every callback fired out of that decode can
+        // stamp the value onto the record it builds.
+        //
+        // Deliberately NOT a parameter on the callbacks above: recv_time is
+        // threaded that way and it costs a signature change on ~20 pure
+        // virtuals plus every implementor. This is one packet-scoped value
+        // read by one implementor.
+        //
+        // Deliberately NOT pure: every other method here is `= 0`, so a pure
+        // virtual would break every implementor for a number most of them do
+        // not want. Default is a no-op, and the depth stays 0 for them.
+        virtual void set_ingress_qlen(uint32_t) noexcept {}
+
         double to_price(int64_t mantissa, int8_t exponent)
         {
             return double(mantissa) * std::pow(10., double(exponent));

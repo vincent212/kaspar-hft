@@ -28,6 +28,12 @@
 #include "boost/intrusive_ptr.hpp"
 #include "boost/smart_ptr/intrusive_ref_counter.hpp"
 
+// Forward declared ONLY to name them as friends of data_pay_load below, so the
+// payload comparators can be private. Declarations, not includes: frame_ref is
+// the lower layer and must not pull in frame_kaspr headers. If the friendship
+// ever goes away, delete these too.
+namespace frame::ob::msg { struct TradeNotify; struct EndOfBurst; }
+
 namespace frame
 {
   namespace mda
@@ -48,6 +54,77 @@ namespace frame
             send_tim;
 
         uint64_t txtim_epoch = 0, sendtim_epoch = 0, hndl_tim_epoch = 0;
+
+        // Wall-clock epoch nanos stamped by the order book at the instant it
+        // hands this payload to its subscribers (TachBook::publish_book, just
+        // before the hiprio fan-out). Zero when nothing stamped it.
+        //
+        // Exists to split the wire-to-book interval in two:
+        //   hndl_tim_epoch -> publish_ts   feed handler exit to book published
+        //                                  (book build: parse, apply, uncross,
+        //                                   create_point, fast_compare)
+        //   publish_ts     -> Time::epoch() at the subscriber
+        //                                  (mailbox hop: allocate, enqueue,
+        //                                   wake, dequeue, dispatch)
+        // Without it you can only measure the sum, and a regression in one
+        // leg is indistinguishable from a regression in the other.
+        //
+        // NOT part of operator== or data_only_equals -- see the note there.
+        uint64_t publish_ts = 0;
+
+        // Depth of the MsgBuf actor's mailbox at the instant the packet this
+        // payload came from was enqueued into it. Carried up from
+        // bfile::l3_mbo_v2_t::ingress_qlen, which handler_if stamps from the
+        // value MessageProcessor handed it for that packet.
+        //
+        // This is the ONE queue in the pipeline where the two feed threads
+        // (socket readers A and B) merge, so it is the only mailbox whose
+        // depth means "the decoder is behind". Zero for anything that never
+        // crossed it -- recovery snapshots, synthetic payloads, replay.
+        //
+        // Same rule as publish_ts above: stamped by this process, not present
+        // in the on-disk record, so NOT part of operator== or
+        // data_only_equals. See the note there.
+        uint32_t ingress_qlen = 0;
+
+        // 0-based position of this record inside the packet it was decoded
+        // from. Carried up from bfile::l3_mbo_v2_t::pkt_entry_idx.
+        //
+        // Two things fall out of it, and neither is obtainable any other way
+        // once the payload reaches a subscriber:
+        //
+        //   idx itself is the within-packet serial-decode cost. Messages in
+        //   one packet share a t0 and are decoded one after another, so leg 1
+        //   grows with position. ingress_qlen counts PACKETS queued, not
+        //   messages, so without this the two effects are not separable.
+        //
+        // Note it survives TachBook's dedup. publish_book drops records on
+        // pb_baddata and pb_same, so a subscriber sees only the ones that
+        // moved the book -- but a survivor stamped 37 still proves 37 records
+        // were decoded ahead of it. sendtim_epoch, which is also constant
+        // across a packet, cannot show that: the dropped records take their
+        // timestamps with them.
+        //
+        // It is NOT a packet-boundary marker -- use pkt_seq_num below. The
+        // same dedup that makes idx informative is what disqualifies it:
+        // a packet whose record 0 was dropped contributes no zero at all.
+        //
+        // Same rule as publish_ts and ingress_qlen: stamped by this process,
+        // not on disk, so NOT part of operator== or data_only_equals.
+        uint32_t pkt_entry_idx = 0;
+
+        // MDP3 MsgSeqNum of the packet this payload was decoded from. Carried
+        // up from bfile::l3_mbo_v2_t::pkt_seq_num.
+        //
+        // This is the packet's identity and the only exact packet boundary
+        // available to a subscriber. Two records share a packet iff they share
+        // this value. sendtim_epoch is very nearly as good and was used first,
+        // but two packets on one channel can carry the same nanosecond
+        // SendingTime, and when they do nothing downstream can tell.
+        //
+        // Same rule as publish_ts and ingress_qlen: stamped by this process,
+        // not on disk, so NOT part of operator== or data_only_equals.
+        uint32_t pkt_seq_num = 0;
 
         en::x mkt;
         //char mkt_str[PAYLOAD_STR_SZ];
@@ -318,6 +395,10 @@ namespace frame
              << ",\"txtim_epoch\":" << x.txtim_epoch
              << ",\"sendtim_epoch\":" << x.sendtim_epoch
              << ",\"hndl_tim_epoch\":" << x.hndl_tim_epoch
+             << ",\"publish_ts\":" << x.publish_ts
+             << ",\"ingress_qlen\":" << x.ingress_qlen
+             << ",\"pkt_entry_idx\":" << x.pkt_entry_idx
+             << ",\"pkt_seq_num\":" << x.pkt_seq_num
              << ",\"mkt\":" << static_cast<int>(x.mkt)
              << ",\"sym\":" << x.sym
              << ",\"px\":" << x.px.to_int()
@@ -336,6 +417,27 @@ namespace frame
              << '}';
           return os;
         }
+
+        // ------------------------------------------------------------------
+        // Payload comparators. PRIVATE ON PURPOSE.
+        //
+        // Neither has a caller. They are reachable only through
+        // TradeNotify::operator== and EndOfBurst::operator==, which are
+        // themselves uncalled -- so the whole chain is dead code, and the two
+        // friend declarations below are the only things keeping it compiling.
+        //
+        // Private rather than deleted because the logic (which fields count as
+        // "the same event", and why) is worth keeping. But a public equality
+        // operator on a payload type invites use, and this one is not ready to
+        // be used: it prints every difference to std::cerr unconditionally
+        // (DEBUG_PAYLOAD_COMPARE is #defined two lines into operator==, not
+        // configurable), so calling it on a hot path would write to the
+        // terminal per message. Settle that, and the field list below, before
+        // making either of these public again.
+        // ------------------------------------------------------------------
+      private:
+        friend struct ::frame::ob::msg::TradeNotify;
+        friend struct ::frame::ob::msg::EndOfBurst;
 
         bool data_only_equals(const data_pay_load& rhs) const noexcept {
           bool result = true;
@@ -364,6 +466,22 @@ namespace frame
             std::cerr << "data_only_equals: hndl_tim_epoch differs: " << hndl_tim_epoch << " vs " << rhs.hndl_tim_epoch << std::endl;
             result = false;
           }
+          // publish_ts is DELIBERATELY not compared.
+          //
+          // Note the line above: hndl_tim_epoch IS compared, and it is also a
+          // local host clock reading (handler_if.hpp sets l3.handlerendtim =
+          // recv_time). So the rule here is NOT "don't compare local clocks".
+          //
+          // The rule is: compare what arrived with the record, not what this
+          // process stamped afterwards. handlerendtim, transactTime and
+          // sendingTime are all members of the on-disk structs in
+          // chutil/include/bfile/r_l3.hpp -- they are written to the file, so
+          // replaying that file reproduces them exactly. publish_ts is stamped
+          // downstream of the record, in TachBook::publish_book, and is not
+          // persisted anywhere. Two runs over the same input cannot produce
+          // the same value, so including it would make these comparators
+          // permanently false in exactly the differential replay-vs-live test
+          // they would otherwise be good for.
           if (mkt != rhs.mkt) {
             std::cerr << "data_only_equals: mkt differs: " << static_cast<int>(mkt) << " vs " << static_cast<int>(rhs.mkt) << std::endl;
             result = false;
@@ -448,6 +566,9 @@ namespace frame
             std::cerr << "hndl_tim_epoch differs: " << hndl_tim_epoch << " vs " << rhs.hndl_tim_epoch << std::endl;
             result = false;
           }
+          // publish_ts DELIBERATELY not compared: unlike hndl_tim_epoch above
+          // it is not persisted in the l3 record, so no replay can reproduce
+          // it. See data_only_equals() above for the full note.
           if (mkt != rhs.mkt) {
             std::cerr << "mkt differs: " << static_cast<int>(mkt) << " vs " << static_cast<int>(rhs.mkt) << std::endl;
             result = false;

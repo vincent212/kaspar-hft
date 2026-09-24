@@ -16,6 +16,12 @@ namespace mcast_recv::msg
   template <typename seqnumT>
   struct ProcessQ : public actors::MessageT<ProcessQ<seqnumT>>, public actors::MemoryPool<ProcessQ<seqnumT>,16,16,4096>
   {
+    // NOTE: handlers receive `const ProcessQ*`, so MsgBuf::processq_handler
+    // const_casts to write buf.qlen. Marking this `mutable` would remove that
+    // cast, matching how actors::Message::qlen is declared. Not done here
+    // because message_buffer is ~2 KB and `mutable` on an aggregate that large
+    // invites writes from other const handlers; the single documented cast in
+    // MsgBuf is the narrower hole. Revisit if a second writer appears.
     message_buffer buf;
   };
 }

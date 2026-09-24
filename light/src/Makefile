@@ -5,9 +5,10 @@
 
 include $(KSPRPROJ)/mk_kaspr/glob_begin.mk
 
-LIBSRC = light22.cpp QCoord.cpp PCoord.cpp TachBook.cpp
+LIBSRC = light22.cpp QCoord.cpp PCoord.cpp
 
-# Enable AVX2 for TachBook fast_compare function (x86 only)
+# Enable AVX2 for point::fast_compare (x86 only). Still required after
+# TachBook.cpp was dropped: light22.cpp pulls point.hpp too.
 ifneq ($(UNAME_S),Darwin)
 DEFINES_COMMON += -mavx2
 endif

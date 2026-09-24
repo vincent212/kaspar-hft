@@ -51,10 +51,33 @@ PREFIXES_GENERIC=(
 
 BREW_ROOT=/opt/homebrew/opt
 
+# A prefix can carry headers but no libraries -- a distro -devel package
+# installed alongside a hand-built versioned prefix, for instance. For the deps
+# we actually LINK against that is not good enough: glob_begin.mk emits
+# -L$(PREFIX)/lib -l<name>, so the shared object has to live under the same
+# prefix as the header. A header-only match there picks a prefix that compiles
+# and then fails at link with "cannot find -lboost_thread".
+#
+# Callers set REQUIRE_LIB to a lib/ glob before calling detect_with_probes; a
+# prefix then only matches if it also holds that library (lib/ or lib64/).
+# Header-only deps (nlohmann/json, cppzmq) leave it empty and are unaffected.
+# detect_with_probes consumes and clears it, so it cannot leak to the next call.
+REQUIRE_LIB=""
+
+has_lib() {
+    local pfx="$1" pat="$2" d
+    [ -z "$pat" ] && return 0
+    for d in lib lib64; do
+        compgen -G "$pfx/$d/$pat" >/dev/null 2>&1 && return 0
+    done
+    return 1
+}
+
 # detect_with_probes <var> <brew-pkg> <extra-prefix...> -- <probe...>
 # Tries each (prefix x probe) combo; first match wins. Prints the prefix.
 detect_with_probes() {
     local var="$1" brew_pkg="$2"
+    local req="$REQUIRE_LIB"; REQUIRE_LIB=""
     shift 2
     local -a extras=()
     while [ $# -gt 0 ] && [ "$1" != "--" ]; do
@@ -72,6 +95,13 @@ detect_with_probes() {
     for pfx in "${candidates[@]}"; do
         for probe in "${probes[@]}"; do
             if [ -e "$pfx/$probe" ]; then
+                # Header is here, but if we link against this dep the library
+                # has to be here too -- otherwise reject the whole prefix and
+                # keep looking. `break` drops to the next candidate.
+                if ! has_lib "$pfx" "$req"; then
+                    log "$var: $probe at $pfx but no $req under lib/ or lib64/ — skipping prefix"
+                    break
+                fi
                 log "$var: matched $probe at $pfx"
                 echo "$pfx"; return 0
             fi
@@ -83,25 +113,41 @@ detect_with_probes() {
 
 # ----- per-library detectors ----------------------------------------
 
-# Boost: home-dir builds often version the prefix (boost190, boost188).
-# Enumerate newest-first (version sort) so a newer local install shadows an
-# older one.
+# Boost: builds often version the prefix (boost190, boost188), and that happens
+# under /usr/local just as much as under ~/local -- so enumerate the versioned
+# dirs under EVERY generic prefix, not just the home one.
+#
+# Ordering: newest version first, and where two prefixes hold the same version,
+# the higher-priority prefix wins. That is a stable sort on the basename
+# version, fed in PREFIXES_GENERIC order -- a plain `sort -Vr` on full paths
+# would compare "/home/..." against "/usr/..." and order by path, not version.
 detect_boost() {
     local -a versioned=()
-    for d in "$HOME"/local/boost*; do
-        [ -d "$d" ] && versioned+=("$d")
+    local base d
+    for base in "${PREFIXES_GENERIC[@]}"; do
+        for d in "$base"/boost*; do
+            [ -d "$d" ] && versioned+=("$d")
+        done
     done
     if [ ${#versioned[@]} -gt 0 ]; then
-        mapfile -t versioned < <(printf '%s\n' "${versioned[@]}" | sort -Vr)
+        mapfile -t versioned < <(
+            for d in "${versioned[@]}"; do printf '%s\t%s\n' "${d##*/}" "$d"; done |
+            sort -s -k1,1Vr | cut -f2-
+        )
     fi
+    REQUIRE_LIB='libboost_thread.*'
     detect_with_probes BOOST_PATH boost "${versioned[@]}" -- include/boost/version.hpp
 }
 
-detect_zlib()    { detect_with_probes ZLIB_PATH    zlib          -- include/zlib.h; }
-detect_gsl()     { detect_with_probes GSL_PATH     gsl "$HOME"/local/gsl /usr/local/gsl \
+detect_zlib()    { REQUIRE_LIB='libz.*'
+                   detect_with_probes ZLIB_PATH    zlib          -- include/zlib.h; }
+detect_gsl()     { REQUIRE_LIB='libgsl.*'
+                   detect_with_probes GSL_PATH     gsl "$HOME"/local/gsl /usr/local/gsl \
                        -- include/gsl/gsl_version.h include/gsl/gsl_math.h; }
+# cppzmq is the header-only C++ binding; the linked library is ZMQ_PATH's.
 detect_cppzmq()  { detect_with_probes CPPZMQ_PATH  cppzmq        -- include/zmq.hpp; }
-detect_zmq()     { detect_with_probes ZMQ_PATH     zeromq        -- include/zmq.h; }
+detect_zmq()     { REQUIRE_LIB='libzmq.*'
+                   detect_with_probes ZMQ_PATH     zeromq        -- include/zmq.h; }
 detect_json()    { detect_with_probes JSON_PATH    nlohmann-json -- include/nlohmann/json.hpp; }
 detect_gtest()   { detect_with_probes GTEST_PATH   googletest    -- include/gtest/gtest.h; }
 

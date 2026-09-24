@@ -56,6 +56,28 @@ namespace mcast_recv
   private:
     void processq_handler(const msg::ProcessQ<seqnumT> *m) noexcept
     {
+      // Move the per-message queue depth off the Message and onto the buffer.
+      //
+      // actors::Actor::add_message_to_queue already stamped m->qlen with this
+      // mailbox's depth at the moment SocketReader send()'d the packet here.
+      // That is the number we want: both feeds A and B send() into this one
+      // MsgBuf (see create_all_mdp3), so it is the depth at the A/B merge
+      // point, and unlike the QLen gauge it cannot miss a burst that fills and
+      // drains inside a 100 ms tick.
+      //
+      // It must be copied onto buf *here*, before the hop below. The next stop,
+      // MessageProcessor::processq_handler, stores the packet in its reorder
+      // map by value -- msg_q[m->buf.seqnum] = m->buf -- so anything still
+      // living on the Message is dropped at that copy and never reaches the
+      // decoder, the book, or the probe.
+      //
+      // const_cast: the handler signature is const, and buf is a plain member
+      // of ProcessQ (Message::qlen gets away with this by being `mutable`).
+      // Safe in practice -- ProcessQ is heap-allocated from the message pool
+      // and never const-qualified at the definition -- but it is a wart. See
+      // the `mutable message_buffer buf` note in ProcessQ.hpp.
+      const_cast<msg::ProcessQ<seqnumT> *>(m)->buf.qlen = m->qlen;
+
       msg_processor->fast_send(m, this);
     }
   };

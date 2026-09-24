@@ -65,7 +65,11 @@
 //
 #include "frame/ob/if/OB.hpp"
 #ifdef USE_TACHBOOK
-#include "light/if/TachBook.hpp"
+// light/if/TachBook.hpp (create_TachBook -> light::tachbook::TachBook) used to
+// be included here. It was never called: kaspr builds its books from
+// frame::ob::act::TachBook, included above. The light copy was a second,
+// separately-maintained implementation of the same class and has been removed.
+#include "interface/frame/perf/if/LatencyProbe.hpp"
 #endif
 #include "frame/mtim/if/Timer.hpp"
 #include "cons/if/Cons.hpp"
@@ -131,7 +135,18 @@ struct Kaspr : public actors::Manager
     std::vector<std::vector<cfsmp>> tach_books;
     std::vector<cfsmp> es_tach_books;
     std::vector<cfsmp> nq_tach_books;
+    std::vector<cfsmp> zn_tach_books;   // treasury futures, channel 344
     bool enable_tachbook_ = false;
+
+    // LatencyProbe - one per measured TachBook. Off unless the config asks
+    // for it, so the production recorder never pays for a subscriber it did
+    // not ask for. Attaching a probe is NOT free of observer effect: it adds
+    // a real subscriber to TachBook's fan-out, so the book does work it would
+    // not otherwise do. That cost lands in leg 2, not leg 1.
+    std::vector<cfsmp> probes;
+    bool enable_perf_probe_ = false;
+    int  probe_bin_ms_ = 100;
+    std::string probe_csv_dir_;
 #endif
 
     // Treasury futures (channel 344, CMEMDFUT venue)
@@ -174,6 +189,44 @@ struct Kaspr : public actors::Manager
     bool reset_positions_ = false;
 
     //
+    // CPU pinning
+    //
+    // Empty by default, everywhere. An empty affinity set makes
+    // Manager::set_thread_affinity return 0 without touching the thread, so a
+    // config that does not mention cpus produces the exact binary behaviour
+    // this system had before pinning existed. The production recorder is
+    // therefore unaffected unless someone edits its ini.
+    //
+    // Only sched_setaffinity is used. SCHED_FIFO is NOT set: this box gives
+    // the account CapEff=0 and `ulimit -r` 0, so pthread_setschedparam would
+    // fail with EPERM and Manager would print "could not set priority" and
+    // carry on unpinned-in-priority. Pinning without priority still leaves a
+    // pinned thread preemptible by anything else scheduled on that cpu, which
+    // is why the cpu list matters more than it would on an isolcpus box.
+    // Nothing is isolated here -- /proc/cmdline has empty isolcpus, nohz_full
+    // and rcu_nocbs.
+    //
+    std::string tachbook_cpus_;
+
+    /**
+     * Parse "16,48,17" into the vector [16,48,17]. Empty or whitespace-only
+     * yields an empty vector, which means "do not pin".
+     *
+     * Returns a vector, NOT a set, on purpose. Callers assign by position --
+     * cme_cpus is read as (recovery, msgproc, msgbuf, sock_a, sock_b) -- so a
+     * set would silently re-sort the list and pin every actor to the wrong
+     * core while the ini looked right. It also would not preserve duplicates,
+     * and deliberately putting two actors on one cpu is a legitimate thing to
+     * want to test.
+     *
+     * Out-of-range ids are NOT dropped here: Manager::add_to_manage_q asserts
+     * on them, and an assert at startup is the correct outcome for a typo in
+     * a cpu list. Discovering the pin never happened by reading a latency
+     * histogram three hours later is not.
+     */
+    static std::vector<int> parse_cpu_list(const std::string& s);
+
+    //
     // Constructor
     //
     Kaspr(const std::string& config_file, bool reset_positions = false);
@@ -197,6 +250,13 @@ private:
 #ifdef USE_TACHBOOK
     /** Create TachBook (MBO L3) books in parallel with OB. */
     void create_tach_books();
+
+    /**
+     * Attach a LatencyProbe to each TachBook, if the config asks for it.
+     * Must run AFTER create_tach_books() -- there is nothing to subscribe to
+     * before that.
+     */
+    void create_probes();
 #endif
 
     /**
