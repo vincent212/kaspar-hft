@@ -41,9 +41,21 @@ struct RecordingHandler : public mdp3::feed_handler_if
 {
   std::vector<uint32_t> decoded; // MsgSeqNums, in decode order
 
+  // Ingress mailbox depth as it stood when each packet was decoded. The real
+  // handler_if holds this in a member that set_ingress_qlen() overwrites and
+  // the l3 emitters later read, so a packet that never calls the setter
+  // silently inherits whatever the previous packet left there. Recording it
+  // per packet is what makes that inheritance visible to a test -- a missing
+  // call shows up as a plausible number, never as an absent one.
+  std::vector<uint32_t> qlen_at_decode;
+  uint32_t ingress_qlen_ = 0;
+
+  void set_ingress_qlen(uint32_t qlen) noexcept override { ingress_qlen_ = qlen; }
+
   void EndOfPacket(uint32_t msgSeqNum, uint64_t) noexcept override
   {
     decoded.push_back(msgSeqNum);
+    qlen_at_decode.push_back(ingress_qlen_);
   }
 
   // ---- everything else: no-ops (signatures copied from mdp3/mbo_if.hpp) ----
@@ -100,12 +112,13 @@ struct RecordingHandler : public mdp3::feed_handler_if
 // Build a ProcessQ carrying a minimal (header-only) MDP3 packet whose internal
 // MsgSeqNum == seqnum, so EndOfPacket records `seqnum`. `buf.seqnum` is the key
 // MessageProcessor sequences on.
-static mcast_recv::msg::ProcessQ<uint32_t> *make_pkt(uint32_t seqnum)
+static mcast_recv::msg::ProcessQ<uint32_t> *make_pkt(uint32_t seqnum, uint32_t qlen = 0)
 {
   auto *pq = new mcast_recv::msg::ProcessQ<uint32_t>();
   auto &b = pq->buf;
   std::memset(&b, 0, sizeof(b));
   b.seqnum = seqnum;
+  b.qlen = qlen;
   b.len = 12; // MsgSeqNum(4) + SendingTime(8), no SBE messages
   b.recv_ts = 1;
   std::memcpy(&b.message[0], &seqnum, sizeof(seqnum)); // packet MsgSeqNum -> EndOfPacket
@@ -123,9 +136,9 @@ protected:
   // is active from the first packet.
   mdp3::MessageProcessor mp{"test", &recovery, &cb, true, false, false, 10, false};
 
-  void feed(uint32_t seqnum)
+  void feed(uint32_t seqnum, uint32_t qlen = 0)
   {
-    auto *pq = make_pkt(seqnum);
+    auto *pq = make_pkt(seqnum, qlen);
     TestHelper::invoke_handler(&mp, pq, nullptr);
     delete pq; // handler copies buf into msg_q (slow path) or decodes it inline
   }
@@ -173,6 +186,49 @@ TEST_F(MessageProcessorTest, ColdStartAcceptsFirstSeqnum)
   feed(100);
   EXPECT_EQ(cb.decoded, (std::vector<uint32_t>{100}));
   EXPECT_EQ(mp.reorder_q_size(), 0u);
+}
+
+// The fast path must stamp the ingress qlen, exactly as processq() does.
+//
+// This is the regression test for a real defect in the first cut of the fast
+// path: set_ingress_qlen() was called only in processq()'s drain loop, and the
+// fast path returns before processq() is ever reached. In steady state -- which
+// is precisely when the fast path is taken -- the gauge therefore froze at
+// whatever the last slow-path packet had left in it.
+//
+// The failure mode is what makes it worth a test. A frozen gauge does not read
+// as missing: it reads as a small, entirely plausible queue depth, on the large
+// majority of book messages. Feeding a DIFFERENT qlen per packet is the point;
+// a constant would pass against the bug.
+TEST_F(MessageProcessorTest, FastPathStampsIngressQlenPerPacket)
+{
+  feed(1, 7);
+  feed(2, 0);   // 0 is a legitimate depth, and the value most likely to be
+                // confused with "never set" -- so it has to round-trip too.
+  feed(3, 42);
+  EXPECT_EQ(cb.decoded, (std::vector<uint32_t>{1, 2, 3}));
+  EXPECT_EQ(mp.reorder_q_size(), 0u); // confirm these really took the fast path
+  EXPECT_EQ(cb.qlen_at_decode, (std::vector<uint32_t>{7, 0, 42}));
+}
+
+// The slow path stamps the qlen of the packet being DECODED, not of the packet
+// that happened to trigger the drain.
+//
+// 4 arrives early and is buffered carrying qlen=99. It is not decoded until 3
+// closes the gap, and 3 carries qlen=5. If the drain loop read the qlen off the
+// arriving packet -- the mistake the `ts` argument next to it actually makes --
+// packet 4 would be recorded at 5 rather than 99.
+TEST_F(MessageProcessorTest, SlowPathStampsTheBufferedPacketsOwnQlen)
+{
+  feed(1, 1);
+  feed(2, 2);
+  feed(4, 99); // gap: buffered with its own qlen
+  EXPECT_EQ(cb.qlen_at_decode, (std::vector<uint32_t>{1, 2}));
+  ASSERT_EQ(mp.reorder_q_size(), 1u);
+
+  feed(3, 5); // closes the gap; drains 3 (qlen 5) then 4 (qlen 99)
+  EXPECT_EQ(cb.decoded, (std::vector<uint32_t>{1, 2, 3, 4}));
+  EXPECT_EQ(cb.qlen_at_decode, (std::vector<uint32_t>{1, 2, 5, 99}));
 }
 
 } // namespace
