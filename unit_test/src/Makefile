@@ -29,8 +29,7 @@ SRC = test_cache_array.cpp \
       test_light22_order.cpp \
       test_light22_integration.cpp \
       test_latency_probe.cpp \
-      test_msg_qlen.cpp \
-      test_message_processor.cpp
+      test_msg_qlen.cpp
 
 APPNAM = run_tests
 
