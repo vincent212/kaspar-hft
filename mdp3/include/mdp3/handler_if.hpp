@@ -48,6 +48,21 @@ struct handler_if : public mdp3::feed_handler_if
   actor_ptr binrec = 0;
   std::vector<actor_ptr> mbo_order_books;  // Indexed by asset_id for MBO messages (futures - OB.cpp/TachBook)
   actor_ptr reconstructor = nullptr;       // parallel-decode Reconstructor; notified of securityID->asset_id maps
+  // Dual-path verification tee: the SHADOW path's Reconstructor. It must see
+  // the same securityID->asset_id maps and the same ResetMBO as the primary,
+  // or its asset_map_ stays empty and route() drops every message -- the
+  // shadow books would sit at zero and the "comparison" would compare
+  // something against nothing. Instrument definitions only ever reach the
+  // PRIMARY handler (RecoveryProcessor is built with that one handler), so
+  // mirroring here is the only place the shadow can learn them.
+  //
+  // Only exists under VERIFY_TEE. The three null checks below are all on cold
+  // paths (two instrument-definition callbacks and ChannelReset), so this is
+  // not removed for speed -- it is removed so the production recorder does not
+  // carry a second routing target it can never use.
+#ifdef MDP3_VERIFY_TEE
+  actor_ptr reconstructor_shadow = nullptr;
+#endif
   std::vector<double> latency, cmelatency;
   std::set<uint32_t> instruments;
   uint32_t max_mbp_level=1000;
@@ -383,6 +398,10 @@ struct handler_if : public mdp3::feed_handler_if
         // across threads (the parallel decode path routes on its own thread).
         if (reconstructor)
           reconstructor->send(new mdp3::msg::AssetMap(securityID, a_.id), nullptr);
+#ifdef MDP3_VERIFY_TEE
+        if (reconstructor_shadow)
+          reconstructor_shadow->send(new mdp3::msg::AssetMap(securityID, a_.id), nullptr);
+#endif
         //a_.cme_sec_id = securityID;
         a_.cfi_code = __cfiCode;
         a_.security_group = std::string(l3.sec_group);
@@ -539,6 +558,10 @@ struct handler_if : public mdp3::feed_handler_if
         // across threads (the parallel decode path routes on its own thread).
         if (reconstructor)
           reconstructor->send(new mdp3::msg::AssetMap(securityID, a_.id), nullptr);
+#ifdef MDP3_VERIFY_TEE
+        if (reconstructor_shadow)
+          reconstructor_shadow->send(new mdp3::msg::AssetMap(securityID, a_.id), nullptr);
+#endif
 
         if (a_.sec_id != 0)
         {
@@ -1190,6 +1213,10 @@ struct handler_if : public mdp3::feed_handler_if
     // reused orderID after the reset does not misroute (asset defs persist).
     if (reconstructor)
       reconstructor->send(new mdp3::msg::ResetMBO(), nullptr);
+#ifdef MDP3_VERIFY_TEE
+    if (reconstructor_shadow)
+      reconstructor_shadow->send(new mdp3::msg::ResetMBO(), nullptr);
+#endif
   }
 
   virtual void MDIncrementalRefreshVolume(

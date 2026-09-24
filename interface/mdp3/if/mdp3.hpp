@@ -48,6 +48,13 @@ create_all_mdp3(
     const char *_interfacea,
     const char *_interfaceb,
     const char *_desc
+#ifdef MDP3_VERIFY_TEE
+    // Dual-path verification tee; null = off. Present only under VERIFY_TEE --
+    // see mk_kaspr/glob_begin.mk. This is a static function in a header, so
+    // every TU that includes it must see the same define; that is why the
+    // define is global and not per-directory.
+    , actor_ptr _decoder_shadow = nullptr
+#endif
     )
 {
 
@@ -80,7 +87,11 @@ create_all_mdp3(
         recovery_processor,
         _decoder,
         dorecovery,
-        recovery_on_start);
+        recovery_on_start
+#ifdef MDP3_VERIFY_TEE
+        , _decoder_shadow
+#endif
+        );
 
     auto msg_buf_a = create_MsgBuf_32(
         _chan_nam,

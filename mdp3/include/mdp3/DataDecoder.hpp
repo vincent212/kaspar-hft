@@ -89,6 +89,24 @@ namespace mdp3
         // can initiate recovery. Wired in kaspr once both actors exist.
         void set_recovery_target(actor_ptr mp) noexcept { recovery_target_ = mp; }
 
+#ifdef MDP3_VERIFY_TEE
+        // "You are fed by send(), not fast_send(): do not reply."
+        //
+        // Per-INSTANCE, set once at wiring time, like set_workers above -- not a
+        // bit on every packet. The verification tee's two decoders are separate
+        // actors with separate configuration, and which one is the shadow is a
+        // property of the wiring, not of a packet.
+        //
+        // What it prevents: Actor::reply on a non-fast_send path does not fill a
+        // reply slot, it send()s the DecodeResult into the SENDER'S MAILBOX. The
+        // sender is MessageProcessor, which has no DecodeResult handler, so the
+        // message would be dispatched to nothing and deleted -- but only after
+        // sitting in that mailbox. That mailbox's depth is the qlen this entire
+        // body of work is measuring. One junk message per packet would inflate
+        // the measured queue depth of the thing under study.
+        void set_async_input(bool a) noexcept { async_input_ = a; }
+#endif
+
         // How a template may be scheduled relative to the hot MBO stream.
         //
         // The parallel path's whole correctness argument is about ONE piece of
@@ -818,6 +836,11 @@ namespace mdp3
 
         void print_stats()
         {
+            // Always printed, both paths, with the denominator. This line IS the
+            // dual-path verdict: run the tee, then diff the _S line against the
+            // _P line. Equal packets_ and equal failures is the pass condition.
+            log_inf("decode packets=%lu decode_failures=%lu worker_failures=%lu",
+                    packets_, decode_failures_, worker_failures_);
             if (parallel_decode_)
                 log_inf("split packets=%lu cold_msgs_inline=%lu",
                         split_packets_, split_cold_msgs_);
@@ -825,11 +848,41 @@ namespace mdp3
         }
 
     private:
-        // Decode one packet fast_sent by MessageProcessor: parallel if all-hot,
-        // else inline. Reply carries rc + is_channel_reset for the caller.
+        // Decode one packet from MessageProcessor: parallel if all-hot, else
+        // inline. Reply carries rc + is_channel_reset for the caller.
+        //
+        // Reached by fast_send on the production path and, under the tee only,
+        // by send on the shadow. The route is not visible from here --
+        // Actor::using_fast_send is private -- which is exactly why the shadow
+        // is told which it is at wiring time; see set_async_input.
         void on_decode_packet(const msg::DecodePacket *m) noexcept
         {
-            const auto sr = scan(m->data, m->len);
+            ++packets_;
+            bool is_channel_reset = false;
+            const bool rc = decode_packet(m->data, m->len, m->ts, m->qlen,
+                                          is_channel_reset);
+            if (!rc)
+                ++decode_failures_;
+#ifdef MDP3_VERIFY_TEE
+            // The shadow decoder is fed by send(); it has no caller holding a
+            // reply slot. See set_async_input. Its rc is not merely unused, it
+            // is unreachable from here by design -- a bug on the verification
+            // path must not be able to trigger a real CME recovery. Failures
+            // surface in print_stats: compare the _S line to the _P line.
+            if (async_input_)
+                return;
+#endif
+            reply(new msg::DecodeResult(rc, is_channel_reset));
+        }
+
+        // The decode itself: returns rc, sets is_channel_reset, replies to
+        // nobody. Split out from the handler ONLY so the reply decision is made
+        // in exactly one place -- the body has three exit points, and three
+        // guarded replies would be three chances to get it wrong.
+        bool decode_packet(const char *data, std::size_t len, uint64_t ts,
+                           uint32_t qlen, bool &is_channel_reset) noexcept
+        {
+            const auto sr = scan(data, len);
 
             // All-hot, well-formed packet: fan out to the worker fleet. Copy the
             // packet into a DataDecoder-owned slot (kept alive until every worker
@@ -843,18 +896,17 @@ namespace mdp3
                 const uint64_t base = order_seq_;
                 order_seq_ += sr.count;
                 auto &pp = pending_[pid];
-                std::memcpy(pp.buf.message.data(), m->data, m->len);
-                pp.buf.len = m->len;
+                std::memcpy(pp.buf.message.data(), data, len);
+                pp.buf.len = len;
                 pp.outstanding = sr.count;
                 pp.failed = false;
                 // The packet's ingress depth rides each DecodeReq to the worker
                 // that decodes it. It CANNOT go through cb->set_ingress_qlen()
                 // here: that writes one member on the shared handler, which the
                 // worker threads read while decoding other packets.
-                dispatch(pp.buf.message.data(), m->len, m->ts, base, pid,
-                         workers_, worker_mask_, this, m->qlen);
-                reply(new msg::DecodeResult(true, false)); // hot packets never channel-reset
-                return;
+                dispatch(pp.buf.message.data(), len, ts, base, pid,
+                         workers_, worker_mask_, this, qlen);
+                return true; // hot packets never channel-reset
             }
 
             // SPLIT PATH: hot + cold in one packet, every cold provably order-
@@ -875,16 +927,18 @@ namespace mdp3
                 const uint64_t base = order_seq_;
                 order_seq_ += sr.n_hot; // ONLY hot consume order_seq -- see dispatch_split
                 auto &pp = pending_[pid];
-                std::memcpy(pp.buf.message.data(), m->data, m->len);
-                pp.buf.len = m->len;
+                std::memcpy(pp.buf.message.data(), data, len);
+                pp.buf.len = len;
                 pp.outstanding = sr.n_hot; // only hot messages reply DecodeDone
                 pp.failed = false;
                 ++split_packets_;
-                bool is_channel_reset = false; // COLD_INDEPENDENT excludes ChannelReset4
-                const bool ok = dispatch_split(pp.buf.message.data(), m->len, m->ts,
-                                               base, pid, m->qlen, is_channel_reset);
-                reply(new msg::DecodeResult(ok, is_channel_reset));
-                return;
+                // is_channel_reset is the caller's, already false. COLD_INDEPENDENT
+                // excludes ChannelReset4, so dispatch_split cannot set it -- but it
+                // takes the flag by reference and this path must not shadow it with
+                // a local, or a reset here would be dropped if the set ever changes.
+                const bool ok = dispatch_split(pp.buf.message.data(), len, ts,
+                                               base, pid, qlen, is_channel_reset);
+                return ok;
             }
 
             // Parallel is ON and the packet mixes hot with an ORDER-CRITICAL cold
@@ -917,10 +971,8 @@ namespace mdp3
             // Serial, single thread, so the handler member is the right place
             // for the depth -- this is the same call main makes from
             // MessageProcessor.
-            cb->set_ingress_qlen(m->qlen);
-            bool is_channel_reset = false;
-            bool rc = mbo_data(const_cast<char *>(m->data), m->len, m->ts, is_channel_reset);
-            reply(new msg::DecodeResult(rc, is_channel_reset));
+            cb->set_ingress_qlen(qlen);
+            return mbo_data(const_cast<char *>(data), len, ts, is_channel_reset);
         }
 
         // A worker finished reading a packet's slot. Drop the refcount; free the
@@ -932,7 +984,10 @@ namespace mdp3
             if (it == pending_.end())
                 return;
             if (!d->ok)
+            {
                 it->second.failed = true; // a worker's decode_one failed on a hot message
+                ++worker_failures_;       // counted per MESSAGE, not per packet
+            }
             if (--it->second.outstanding == 0)
             {
                 const bool failed = it->second.failed;
@@ -968,11 +1023,32 @@ namespace mdp3
         uint64_t   order_seq_ = 0;          // global monotonic key stamped per message
         uint64_t   next_parent_id_ = 1;
 
+#ifdef MDP3_VERIFY_TEE
+        bool       async_input_ = false;    // fed by send(), must not reply
+#endif
+
         // Split-path counters. Published by print_stats so the split's real
         // frequency is a measurement on every run, not a number quoted from one
         // census on one channel on one day.
         uint64_t   split_packets_ = 0;      // packets that took dispatch_split
         uint64_t   split_cold_msgs_ = 0;    // cold messages decoded inline by it
+
+        // ---- decode health, published by print_stats ----
+        //
+        // These are how a dual-path verification run is judged. The fast_send tee
+        // could compare the two decoders packet by packet because both finished
+        // before the call returned; once the shadow is asynchronous that moment
+        // does not exist, so the comparison moves to shutdown: run both decoders,
+        // print both lines, and require packets_ and the two failure counts to
+        // match. A per-RUN check, not a per-PACKET one -- state it that way and do
+        // not let it be quoted as though it were the stronger claim.
+        //
+        // packets_ counts every packet this decoder was handed, whichever route
+        // it arrived by, so it is also the denominator for the failure rates.
+        uint64_t   packets_ = 0;            // packets handed to decode_packet
+        uint64_t   decode_failures_ = 0;    // of those, decode_packet returned false
+        uint64_t   worker_failures_ = 0;    // hot messages a DecodeWorker failed on
+                                            // (async -- NOT included in decode_failures_)
 
         // A packet handed to workers: its bytes (kept alive for zero-copy reads)
         // plus the count of workers still to report DecodeDone.

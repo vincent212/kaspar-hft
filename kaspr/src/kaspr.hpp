@@ -102,6 +102,35 @@
 //
 #include "logger/act/Logger.hpp"
 
+//
+// Dual-path decode verification tee -- the single switch kaspr tests.
+//
+// It needs TWO things that are enabled independently:
+//
+//   MDP3_VERIFY_TEE  (make VERIFY_TEE=1, GLOBAL -- mk_kaspr/glob_begin.mk)
+//       puts the tee into MessageProcessor and the owning ctor into
+//       DecodePacket. Must be global: MessageProcessor's member layout and
+//       constructor signature depend on it, and it is compiled in libmdp3,
+//       in unit_test, and used here -- three TUs that have to agree.
+//
+//   USE_TACHBOOK     (make USE_TACHBOOK=1, kaspr/src/Makefile only)
+//       gives us frame::ob::act::TachBook, which is what the shadow books
+//       and the LatencyProbes are made of.
+//
+// Asking for the first without the second builds a binary that has the tee
+// and can never feed it: tach_books_v does not exist, decoder_shadow stays
+// null, the run looks healthy and writes no _P samples at all. That is the
+// silent half-configured failure this codebase keeps producing, so it is a
+// hard error at compile time rather than an empty csv three hours later.
+//
+#if defined(MDP3_VERIFY_TEE) && !defined(USE_TACHBOOK)
+#error "VERIFY_TEE=1 needs USE_TACHBOOK=1 too: the shadow path is built from TachBooks, so without it the tee has nothing to feed and the run writes no _P samples."
+#endif
+
+#if defined(MDP3_VERIFY_TEE) && defined(USE_TACHBOOK)
+#define KASPR_VERIFY_TEE 1
+#endif
+
 namespace kaspr {
 
 /**
@@ -140,6 +169,30 @@ struct Kaspr : public actors::Manager
     std::vector<cfsmp> nq_tach_books;
     std::vector<cfsmp> zn_tach_books;   // treasury futures, channel 344
     bool enable_tachbook_ = false;
+
+#ifdef KASPR_VERIFY_TEE
+    // SHADOW book set for the dual-path decode verification tee. A SECOND,
+    // fully independent TachBook per measured instrument, fed only by the
+    // shadow decoder. The two paths must never share a book or the comparison
+    // is meaningless -- the point is to diff their output.
+    // Empty unless some channel sets cme_verify_parallel.
+    std::vector<std::vector<cfsmp>> tach_books_v;
+    std::vector<cfsmp> es_tach_books_v;
+    std::vector<cfsmp> nq_tach_books_v;
+    std::vector<cfsmp> zn_tach_books_v;
+    bool verify_books_built_ = false;
+
+    // Dual-path decode verification. General-section, not per-channel: the
+    // shadow TachBooks and their probes are built in create_tach_books() /
+    // create_probes(), which run BEFORE any channel config is read. A
+    // per-channel key could not be honoured at that point.
+    //
+    // This is the RUNTIME switch inside a build that already has the tee.
+    // In a default build neither the flag nor the ini key exists, so the
+    // production recorder cannot be talked into the shadow path by a config
+    // edit -- it would need a different binary.
+    bool verify_parallel_ = false;
+#endif
 
     // LatencyProbe - one per measured TachBook. Off unless the config asks
     // for it, so the production recorder never pays for a subscriber it did
@@ -253,6 +306,14 @@ private:
 #ifdef USE_TACHBOOK
     /** Create TachBook (MBO L3) books in parallel with OB. */
     void create_tach_books();
+
+#ifdef KASPR_VERIFY_TEE
+    /**
+     * Build the SHADOW TachBook set for the verification tee. Idempotent --
+     * several channels may ask for it; only the first call builds.
+     */
+    void create_verify_tach_books();
+#endif
 
     /**
      * Attach a LatencyProbe to each TachBook, if the config asks for it.

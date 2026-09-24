@@ -244,8 +244,13 @@ namespace frame::ob::act
     boost::intrusive_ptr<frame::mda::msg::data_pay_load> prev_pl=0;
 
 
+    // name_sfx exists for the dual-path verify tee, which builds a SECOND
+    // TachBook for every instrument. Manager keys actors by name and asserts
+    // on a duplicate (Manager.cpp:224), so without a distinct suffix the
+    // shadow set aborts the process at startup. Empty for the normal path, so
+    // every existing name is byte-identical to what it was.
     TachBook(
-        int sym) : sym(sym), bid(*this), ask(*this)
+        int sym, const char *name_sfx = "") : sym(sym), bid(*this), ask(*this)
     {
       MESSAGE_HANDLER(actors::msg::Start, start_handler);
       MESSAGE_HANDLER(actors::msg::Shutdown, shutdown_handler);
@@ -260,7 +265,9 @@ namespace frame::ob::act
       ASSERT(a, "no asset");
       maxprice = a->maxpx;
 
-      snprintf(name, sizeof(name), "TACHOB_%s", frame::ref::RefData::inst().get_asset_name(sym).c_str());
+      snprintf(name, sizeof(name), "TACHOB_%s%s",
+               frame::ref::RefData::inst().get_asset_name(sym).c_str(),
+               name_sfx ? name_sfx : "");
 
       // Fail here, not silently at run time. update_sz() bounds on
       // levels.size(), so an asset whose configured maxpx exceeds ARRAY_SIZE
