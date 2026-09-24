@@ -283,12 +283,52 @@ namespace frame
         // results irreproducible. (The gunning timer made exactly that mistake.)
         void publish_delayed(actors::Actor *sub, actors::Message *m, uint64_t now) noexcept
         {
+#ifdef OB_TAIL_DELAY
+          // Lindley recursion: d_i = max(a_i, d_{i-1}) + s. Deterministic
+          // service, single server, FCFS. The scalar s_in is the whole
+          // inbound-side latency model under this build. See paper §4.1 eqs (3)-(4).
+          //
+          // Fan-out semantics: OB emits one publish_delayed call per
+          // subscriber for every MD event, each with a freshly-allocated
+          // message (different pointer). To count ONE queue service per
+          // arrival (not per subscriber), the caller stamps every MD event
+          // with a monotone `inbound_event_counter` at data_handler entry;
+          // publish_delayed advances the recursion when it sees a new
+          // counter value and reuses the current release stamp on
+          // subsequent calls with the same value. Distinct SBE records that
+          // share transactTime (e.g. a single tx that emits a sweep of
+          // deletes plus a trade) each get a distinct counter increment
+          // and therefore each pay one queue service, as required.
+          if (now == 0)
+          {
+            sub->send(m, this);
+            return;
+          }
+          // Release-safe: an assertion compiles to nothing under -DNOASSERT
+          // and uint64_t(-1)*1000 wraps to ~2^64, silently stamping every
+          // publish at effectively infinity so drain_pub_q never fires.
+          // The abort() below runs in every build mode.
+          if (service_us_inbound <= 0) { std::abort(); }
+          ASSERTF(service_us_inbound > 0,
+                  boost::format("OB_TAIL_DELAY: service_us_inbound=%d must be "
+                                "set to a positive value before market data "
+                                "is processed (ob_set_service_us_inbound)")
+                    % service_us_inbound);
+          if (inbound_event_counter != last_advanced_inbound_event_id) {
+            last_release_inbound_ns =
+                std::max(now, last_release_inbound_ns)
+                + uint64_t(service_us_inbound) * 1000;
+            last_advanced_inbound_event_id = inbound_event_counter;
+          }
+          pub_q.emplace_back(last_release_inbound_ns, sub, m);
+#else
           if (feed_delay <= 0 || now == 0)
           {
             sub->send(m, this);
             return;
           }
           pub_q.emplace_back(now + uint64_t(feed_delay) * 1000, sub, m);
+#endif
         }
 
         // Release everything whose stamp has been reached. Called at the TOP of
@@ -319,6 +359,44 @@ namespace frame
                                 "arrive before it happened") % feed_us);
           feed_delay = feed_us;
         }
+
+#ifdef OB_TAIL_DELAY
+        // Two-queue G/D/1 service times, microseconds. See paper §4.1 (3)-(4)
+        // and §5.2. These replace the constant-lag composition under this
+        // build; feed_delay / delay / cancel_delay are bypassed on the two
+        // release rules and only these two scalars remain.
+        void set_service_us_inbound(int s_us)
+        {
+          ASSERTF(s_us > 0,
+                  boost::format("inbound service time %d us must be positive "
+                                "under OB_TAIL_DELAY; 0 or negative disables "
+                                "the Lindley recursion and silently produces "
+                                "zero-latency runs") % s_us);
+          service_us_inbound = s_us;
+        }
+        void set_service_us_outbound(int s_us)
+        {
+          ASSERTF(s_us > 0,
+                  boost::format("outbound service time %d us must be positive "
+                                "under OB_TAIL_DELAY; 0 or negative disables "
+                                "the Lindley recursion and silently produces "
+                                "zero-latency runs") % s_us);
+          service_us_outbound = s_us;
+        }
+        int get_service_us_inbound() const noexcept { return service_us_inbound; }
+        int get_service_us_outbound() const noexcept { return service_us_outbound; }
+        // Test-only: simulate one MD arrival by bumping the event counter.
+        // Production callers reach the counter through data_handler; unit
+        // tests that exercise publish_delayed directly (bypassing the
+        // MDP3 handler) must bump this manually before every distinct
+        // arrival to model the "one queue service per MD event" invariant.
+        void bump_inbound_event_counter_for_test() noexcept { ++inbound_event_counter; }
+        uint64_t get_inbound_event_counter_for_test() const noexcept { return inbound_event_counter; }
+        // d_{i-1} on each side, exposed for unit tests that check the
+        // recursion identity directly. Read-only.
+        uint64_t get_last_release_inbound_ns() const noexcept { return last_release_inbound_ns; }
+        uint64_t get_last_release_outbound_ns() const noexcept { return last_release_outbound_ns; }
+#endif
 
         void
         set_print_stats(const std::string &_stats_fname)
@@ -375,6 +453,31 @@ namespace frame
         // substitute -- that makes the light act later on FRESH data, and it has
         // to act later on STALE data.
         int feed_delay = 0;      // micros -- INBOUND: exchange -> us
+#ifdef OB_TAIL_DELAY
+        // Two-queue G/D/1 service times (paper §5.2). Both sides bypass the
+        // constant-lag arithmetic under this build; these two scalars are the
+        // whole model. Sentinel -1 = unset; the Lindley release rules assert
+        // positive before running, so a build with OB_TAIL_DELAY that forgets
+        // to call ob_set_service_us_* fails loudly at first market data.
+        int service_us_inbound  = -1;
+        int service_us_outbound = -1;
+        // d_{i-1} on each queue: the most recent release stamp produced by
+        // the Lindley recursion (eq. 3). Independent per side; the two queues
+        // do not share service.
+        uint64_t last_release_inbound_ns  = 0;
+        uint64_t last_release_outbound_ns = 0;
+        // Fan-out guard: OB emits one publish_delayed call per subscriber for
+        // the same MD event (each with a freshly-allocated message pointer).
+        // A monotone counter incremented by data_handler at every MD arrival
+        // marks each event; publish_delayed advances the Lindley state the
+        // first time it sees a new counter value and reuses the current
+        // release stamp on subsequent fan-out calls with the same value.
+        // Distinct SBE records sharing transactTime still each bump the
+        // counter and each pay one queue service, as required by the paper's
+        // one-service-per-arrival semantics.
+        uint64_t inbound_event_counter        = 0;
+        uint64_t last_advanced_inbound_event_id = 0;
+#endif
         // Stamp of the market-data record currently being processed. Fills and
         // cancel-acks are generated BY that record, so this is when they
         // happened at the engine; the return-path publisher adds feed_delay.

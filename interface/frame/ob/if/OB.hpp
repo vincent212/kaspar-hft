@@ -31,3 +31,12 @@ void ob_set_delay(cfsmp ob, int order_us, int cancel_us = -1);
 // short outbound hop and still pays the feed's own propagation and handling.
 // 0 (the default) publishes market data immediately, exactly as before.
 void ob_set_feed_delay(cfsmp ob, int feed_us);
+
+#ifdef OB_TAIL_DELAY
+// Two-queue G/D/1 service times, microseconds (paper §4.1 (3)-(4), §5.2). One
+// scalar per side; under OB_TAIL_DELAY these replace the constant-lag
+// composition on each release rule. Only visible under the flag so the
+// constant-delay ABI is unchanged.
+void ob_set_service_us_inbound(cfsmp ob, int s_us);
+void ob_set_service_us_outbound(cfsmp ob, int s_us);
+#endif

@@ -49,3 +49,21 @@ void ob_set_feed_delay(actor_ptr ob, int feed_us)
         ob_ptr->set_feed_delay(feed_us);
     }
 }
+
+#ifdef OB_TAIL_DELAY
+void ob_set_service_us_inbound(actor_ptr ob, int s_us)
+{
+    auto ob_ptr = dynamic_cast<frame::ob::act::OB*>(ob);
+    if (ob_ptr) {
+        ob_ptr->set_service_us_inbound(s_us);
+    }
+}
+
+void ob_set_service_us_outbound(actor_ptr ob, int s_us)
+{
+    auto ob_ptr = dynamic_cast<frame::ob::act::OB*>(ob);
+    if (ob_ptr) {
+        ob_ptr->set_service_us_outbound(s_us);
+    }
+}
+#endif

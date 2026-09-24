@@ -8,6 +8,7 @@
  */
 
 #include "actors/Message.hpp"
+#include "actors/MemoryPool.hpp"
 #include "enum/e_names.hpp"
 #include "chutil/Time.hpp"
 #include "frame/ref/Price.hpp"

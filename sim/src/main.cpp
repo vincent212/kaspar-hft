@@ -188,6 +188,20 @@ int main(int argc, char* argv[])
                     "act later on FRESH data. 0 (the default) publishes "
                     "immediately and is identical to the path that existed "
                     "before. The order round trip becomes feed + order.")
+      ("service-us-inbound", po::value<int>()->default_value(-1),
+                    "Two-queue G/D/1 inbound service time (paper §4.1 eqs "
+                    "(3)-(4), §5.2), microseconds. Under -DOB_TAIL_DELAY this "
+                    "replaces --ob-feed-delay-us on the inbound release rule; "
+                    "the release stamp is max(now, d_prev) + s_in. Ignored on "
+                    "the constant-delay build. -1 = leave OB's default.")
+      ("service-us-outbound", po::value<int>()->default_value(-1),
+                    "Two-queue G/D/1 outbound service time (paper §4.1 eqs "
+                    "(3)-(4), §5.2), microseconds. Under -DOB_TAIL_DELAY this "
+                    "replaces --ob-delay-us / --ob-cancel-delay-us / "
+                    "--ob-feed-delay-us on the outbound release rule; the "
+                    "release stamp is max(ts0, d_prev) + s_out. Cancels share "
+                    "the queue and service time with sends. -1 = leave OB's "
+                    "default.")
       ("probe-size", po::value<int>()->default_value(0),
                     "SlippageProbe size in contracts per leg; 0 = no probe. The "
                     "probe quotes BOTH sides continuously from 09:29 to 16:00 ET "
@@ -280,6 +294,8 @@ int main(int argc, char* argv[])
                             vm["ob-delay-us"].as<int>(),
                             vm["ob-cancel-delay-us"].as<int>(),
                             vm["ob-feed-delay-us"].as<int>(),
+                            vm["service-us-inbound"].as<int>(),
+                            vm["service-us-outbound"].as<int>(),
                             vm["max-dist"].as<int>(),
                             vm["nlights-per-side"].as<int>(),
                             probe_size,
