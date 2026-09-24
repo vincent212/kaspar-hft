@@ -103,8 +103,8 @@ const uint16_t HOT_TRADE48 = sbe::MDIncrementalRefreshTradeSummary48::sbeTemplat
 const uint16_t COLD_SECSTAT30 = sbe::SecurityStatus30::sbeTemplateId();
 const uint16_t COLD_RESET4 = sbe::ChannelReset4::sbeTemplateId();
 // Order-INDEPENDENT colds: none of these reads or writes orderid_to_securityid.
-// VOL37 is the one that matters in practice -- it is the cold template in
-// 1,419 of 1,419 mixed packets in the live ES chan 310 census.
+// VOL37 is the one that matters in practice -- in the live ES chan 310 census
+// it was every cold message seen, 3,353 of 3,353.
 const uint16_t COLD_VOL37 = sbe::MDIncrementalRefreshVolume37::sbeTemplateId();
 const uint16_t COLD_DAILY49 = sbe::MDIncrementalRefreshDailyStatistics49::sbeTemplateId();
 const uint16_t COLD_BANDING50 = sbe::MDIncrementalRefreshLimitsBanding50::sbeTemplateId();
@@ -269,8 +269,8 @@ TEST_F(DataDecoderScanTest, CountsPartitionTheMessages)
   EXPECT_EQ(sr.n_hot + sr.n_cold_independent + sr.n_cold_ordered, sr.count);
 }
 
-// The shape the census says is 3.03% of live ES packets: book/trade plus a
-// Volume37. This is exactly the case the split exists to handle.
+// The shape the census says is 2.79% of live ES chan 310 packets (3,351 of
+// 120,000): book/trade plus a Volume37. Exactly the case the split exists for.
 TEST_F(DataDecoderScanTest, HotPlusVolume37IsSplittable)
 {
   auto pkt = make_pkt({HOT_BOOK46, COLD_VOL37, HOT_BOOK46});

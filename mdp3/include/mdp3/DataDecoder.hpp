@@ -130,8 +130,8 @@ namespace mdp3
             // Each builds a standalone l3 record keyed on securityID and sends it
             // on; none reads or writes orderid_to_securityid, and none mutates a
             // book's order state. MDIncrementalRefreshVolume37 is the one that
-            // matters in practice: it is the cold template in 1,419 of 1,419
-            // mixed packets in the live ES chan 310 census.
+            // matters in practice: in the live ES chan 310 census it was every
+            // cold message seen, 3,353 of 3,353.
             case sbe::MDIncrementalRefreshVolume37::sbeTemplateId():
             case sbe::MDIncrementalRefreshDailyStatistics49::sbeTemplateId():
             case sbe::MDIncrementalRefreshLimitsBanding50::sbeTemplateId():
@@ -774,10 +774,11 @@ namespace mdp3
             // and the serial path cannot run at all.
             //
             // KNOWN, MEASURED: with parallel ON this still fires. Census on live ES
-            // chan 310 over 80,000 packets: 3.03% of packets (10.21% of messages)
-            // are mixed, and the cold template is MDIncrementalRefreshVolume37 in
-            // 1,419 of 1,419 cases. Splitting the packet -- hot to the workers, cold
-            // inline -- is the fix, and it is not done yet.
+            // chan 310, 120,000 packets / 132,094 messages: 3,351 packets (2.79%)
+            // are mixed, carrying 12,436 messages (9.41%), and every cold message
+            // seen -- 3,353 of 3,353 -- was MDIncrementalRefreshVolume37. Splitting
+            // the packet (hot to the workers, cold inline) is the fix, and it is
+            // not done yet.
             if (parallel_decode_ && !sr.corrupt)
                 ASSERTF(!sr.has_hot, boost::format(
                     "mixed hot+cold packet: book/trade on the inline path splits the "
