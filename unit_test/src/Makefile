@@ -33,7 +33,8 @@ SRC = test_cache_array.cpp \
       test_reconstructor.cpp \
       test_datadecoder.cpp \
       test_decode_qlen.cpp \
-      test_processq_qlen.cpp
+      test_processq_qlen.cpp \
+      test_msgbuf_qlen.cpp
 
 APPNAM = run_tests
 
