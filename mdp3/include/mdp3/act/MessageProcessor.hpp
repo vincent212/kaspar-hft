@@ -276,29 +276,26 @@ namespace mdp3
             while (p != msg_q.end())
             {
 
-                auto sn = p->first;
-                auto msg = p->second; // Copy needed since p is erased later
+                auto sn = p->first; // key: used after the erase (qseq_num = sn)
 
                 if (sn <= qseq_num)
                 {
                     log_dbg("dropping message sn: %d, qseq_num: %d", sn, qseq_num);
-                    msg_q.erase(p);
-                    p = msg_q.begin();
+                    p = msg_q.erase(p); // returns the next element (== begin here)
                 }
                 else if (sn == qseq_num + 1 || qseq_num == 0)
                 {
                     // process message
                     log_dbg("processing message sn: %d, qseq_num: %d", sn, qseq_num);
                     bool is_channel_reset = false;
-                    // Ingress mailbox depth for THIS packet. Note msg is the
-                    // reorder-map entry (p->second), so msg.qlen belongs to the
-                    // packet actually being decoded -- not to whatever packet
-                    // happened to trigger this drain. Contrast `ts` on the next
-                    // line, which is the arriving packet's recv_ts and is wrong
-                    // for every packet released out of a gap. Do not copy that
-                    // pattern here.
-                    decoder.set_ingress_qlen(msg.qlen);
-                    auto rc = decoder.mbo_data(&msg.message[0], msg.len, ts, is_channel_reset);
+                    // Ingress mailbox depth for THIS packet, read from the
+                    // reorder-map node (p->second) -- the packet actually being
+                    // decoded, not whatever packet happened to trigger this
+                    // drain. (Contrast `ts` below: the arriving packet's recv_ts,
+                    // which is wrong for a packet released out of a gap.) Decoding
+                    // straight from the node also avoids the ~1.5KB copy-out.
+                    decoder.set_ingress_qlen(p->second.qlen);
+                    auto rc = decoder.mbo_data(&p->second.message[0], p->second.len, ts, is_channel_reset);
                     if (!rc)
                     {
                         log_err("could not decode critical data message initiating recovery");
@@ -312,8 +309,7 @@ namespace mdp3
                         log_err("****** channel reset ****** sn: %d, qseq_num: %d, is_channel_reset: %d", sn, qseq_num, is_channel_reset);
                     }
 
-                    msg_q.erase(p);
-                    p = msg_q.begin();
+                    p = msg_q.erase(p); // returns the next element (== begin here)
                     qseq_num = sn;
                     if (waitcnt < maxwaitcnt)
                     {
