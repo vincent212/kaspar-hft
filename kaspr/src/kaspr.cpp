@@ -92,6 +92,18 @@ Kaspr::Kaspr(const std::string& config_file, bool reset_positions)
     enable_perf_probe_ = pt_general.get<bool>("kaspr.general.perf_probe", false);
     probe_bin_ms_      = pt_general.get<int>("kaspr.general.perf_bin_ms", 100);
     probe_csv_dir_     = pt_general.get<std::string>("kaspr.general.perf_csv_dir", "");
+
+    // Dual-path decode verification tee. Off by default. On, every channel
+    // runs its packets through TWO decoders into TWO book sets:
+    //   primary = SERIAL  (inline, drives recovery)  -> tach_books   -> _S files
+    //   shadow  = PARALLEL(cme_decode_workers)       -> tach_books_v -> _P files
+    // This is a differential test harness. Never set it on the production
+    // recorder: it doubles the book work and the shadow path is not
+    // production-ready.
+    verify_parallel_ = pt_general.get<bool>("kaspr.general.cme_verify_parallel", false);
+    if (verify_parallel_)
+        std::cerr << "Kaspr: DUAL-PATH VERIFY enabled -- serial primary + "
+                     "parallel shadow, two book sets" << std::endl;
 #endif
 
     // Comma list of cpu ids for the TachBook threads, assigned round-robin in
@@ -106,6 +118,7 @@ Kaspr::Kaspr(const std::string& config_file, bool reset_positions)
     create_order_books();
 #ifdef USE_TACHBOOK
     create_tach_books();
+    create_verify_tach_books();  // no-op unless cme_verify_parallel
     create_probes();      // after the books: nothing to subscribe to before
 #endif
     create_support_modules();
@@ -232,6 +245,66 @@ void Kaspr::create_tach_books()
     std::cerr << "Kaspr: Created " << zn_tach_books.size() << " ZN TachBooks" << std::endl;
 }
 
+// SHADOW TachBook set for the verification tee. Same instruments, same asset
+// ids, entirely separate actors. Deliberately a near-copy of
+// create_tach_books() rather than a shared helper: the two sets must be able
+// to drift apart in configuration (pinning above all) without one edit
+// silently changing both.
+void Kaspr::create_verify_tach_books()
+{
+    if (!verify_parallel_)
+        return;
+    if (!enable_tachbook_) {
+        std::cerr << "Kaspr: cme_verify_parallel set but tachbook is OFF -- "
+                     "no shadow books, no shadow samples" << std::endl;
+        return;
+    }
+    if (verify_books_built_)
+        return;
+    verify_books_built_ = true;
+
+    std::cerr << "Kaspr: Creating SHADOW TachBooks (verification path)" << std::endl;
+
+    auto num_venues = en::x_num_syms();
+    auto n = frame::ref::RefData::inst().num_assets();
+    tach_books_v.resize(num_venues);
+    for (size_t i = 0; i < tach_books_v.size(); i++)
+        tach_books_v[i].resize(n, nullptr);
+
+    // Pinned off the SAME list as the primary set, continuing the round robin.
+    // That means shadow books can land on the same cpus as primary books. Said
+    // plainly because it matters: if the list is short the two paths compete,
+    // and the latency comparison is then partly a scheduling artefact. Give
+    // tachbook_cpus at least 2x the books to avoid it.
+    auto tb_cpu_vec = parse_cpu_list(tachbook_cpus_);
+    size_t tb_i = es_tach_books.size() + nq_tach_books.size() + zn_tach_books.size();
+
+    std::set<std::string> futures_mnemonics = {"ES", "NQ", "ZN"};
+    for (size_t j = 1; j < n; j++)
+    {
+        auto a = frame::ref::RefData::inst().get_asset(j);
+        if (a && futures_mnemonics.count(a->mnemonic) && a->get_exchange_md() == en::x::CMEMDFUT)
+        {
+            auto tb = new frame::ob::act::TachBook(j);
+            std::set<int> aff;
+            if (!tb_cpu_vec.empty()) {
+                aff.insert(tb_cpu_vec[tb_i % tb_cpu_vec.size()]);
+                ++tb_i;
+            }
+            add_to_manage_q(tb, aff);
+            tach_books_v[en::x::CMEMDFUT][j] = tb;
+
+            if (a->mnemonic == "ES")      es_tach_books_v.push_back(tb);
+            else if (a->mnemonic == "NQ") nq_tach_books_v.push_back(tb);
+            else if (a->mnemonic == "ZN") zn_tach_books_v.push_back(tb);
+        }
+    }
+
+    std::cerr << "Kaspr: Created " << (es_tach_books_v.size() + nq_tach_books_v.size()
+                                       + zn_tach_books_v.size())
+              << " SHADOW TachBooks" << std::endl;
+}
+
 void Kaspr::create_probes()
 {
     if (!enable_perf_probe_)
@@ -250,15 +323,18 @@ void Kaspr::create_probes()
     // One probe per TachBook. The tag carries "perf" because
     // TachBook::subscribe_handler admits a HI-priority subscriber only on that
     // substring -- rename it and the probe silently receives nothing.
-    auto attach = [&](cfsmp tb) {
+    // suffix: "" in normal runs so existing analysis keeps working unchanged;
+    // "_S" / "_P" only when the tee is on, so the two paths never write to the
+    // same lat_<sym>.csv / .msg and silently interleave.
+    auto attach = [&](cfsmp tb, const char *suffix) {
         auto sym = static_cast<frame::ob::act::TachBook *>(tb)->get_sym();
         auto a   = frame::ref::RefData::inst().get_asset(sym);
         if (!a) return;
 
-        std::string tag = "perf_" + a->name;
+        std::string tag = "perf_" + a->name + suffix;
         std::string csv;
         if (!probe_csv_dir_.empty())
-            csv = probe_csv_dir_ + "/lat_" + a->name + ".csv";
+            csv = probe_csv_dir_ + "/lat_" + a->name + suffix + ".csv";
 
         auto p = create_LatencyProbe(tb, sym, tag.c_str(), probe_bin_ms_, csv);
         add_to_manage_q(p);
@@ -269,9 +345,14 @@ void Kaspr::create_probes()
                   << std::endl;
     };
 
-    for (auto tb : es_tach_books) attach(tb);
-    for (auto tb : nq_tach_books) attach(tb);
-    for (auto tb : zn_tach_books) attach(tb);
+    const char *prim_sfx = verify_parallel_ ? "_S" : "";
+    for (auto tb : es_tach_books) attach(tb, prim_sfx);
+    for (auto tb : nq_tach_books) attach(tb, prim_sfx);
+    for (auto tb : zn_tach_books) attach(tb, prim_sfx);
+
+    for (auto tb : es_tach_books_v) attach(tb, "_P");
+    for (auto tb : nq_tach_books_v) attach(tb, "_P");
+    for (auto tb : zn_tach_books_v) attach(tb, "_P");
 
     std::cerr << "Kaspr: Created " << probes.size() << " LatencyProbes" << std::endl;
 }
@@ -518,18 +599,44 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     //
     // The default used to be 8 and NO ini anywhere set the key, so every channel
     // silently ran the parallel path and died on its first mixed packet.
-    const uint32_t NWORKERS = pt_chan.get<uint32_t>("cme_decode_workers", 0);
+    uint32_t NWORKERS = pt_chan.get<uint32_t>("cme_decode_workers", 0);
+
+    // Dual-path verify. When it is on the PRIMARY is forced SERIAL -- it is the
+    // known-good reference and its DecodeResult is the only one that may drive
+    // a recovery -- and cme_decode_workers sizes the SHADOW instead. Absent
+    // key under verify means 2, which is the smallest count that exercises the
+    // fleet at all.
+    bool verify = false;
+#ifdef USE_TACHBOOK
+    verify = verify_parallel_;
+    if (verify && NWORKERS == 0)
+        NWORKERS = 2;
+#endif
+
+    // set_workers masks with nworkers-1 (DataDecoder.hpp:84), so a count that
+    // is not a power of two is silently rounded DOWN and nothing says so:
+    // cme_decode_workers 12 ran 8 workers and reported 12. Refuse it.
+    if (NWORKERS != 0 && (NWORKERS & (NWORKERS - 1)) != 0)
+        throw std::runtime_error(
+            "chan " + chanstr + ": cme_decode_workers must be a power of two "
+            "(set_workers masks with nworkers-1, so " +
+            std::to_string(NWORKERS) + " would silently run " +
+            std::to_string(1u << (31 - __builtin_clz(NWORKERS))) + ")");
+
+    const uint32_t PRIM_WORKERS = verify ? 0u : NWORKERS;
+    const uint32_t SHAD_WORKERS = verify ? NWORKERS : 0u;
+    (void)SHAD_WORKERS;  // unused when built without USE_TACHBOOK
 
     mdp3::Reconstructor* recon   = nullptr;
     actor_ptr*           workers = nullptr;
 
-    if (NWORKERS > 0)
+    if (PRIM_WORKERS > 0)
     {
         std::cerr << "Kaspr: chan " << chanstr << " PARALLEL decode, "
-                  << NWORKERS << " workers -- NOT production-ready" << std::endl;
+                  << PRIM_WORKERS << " workers -- NOT production-ready" << std::endl;
         recon = new mdp3::Reconstructor(handler->mbo_order_books, venue, (uint32_t)chan, "P");
-        workers = new actor_ptr[NWORKERS]; // process-lifetime; set_workers keeps this array
-        for (uint32_t i = 0; i < NWORKERS; ++i)
+        workers = new actor_ptr[PRIM_WORKERS]; // process-lifetime; set_workers keeps this array
+        for (uint32_t i = 0; i < PRIM_WORKERS; ++i)
             workers[i] = new mdp3::DecodeWorker(recon, venue, i, (uint32_t)chan, "P");
     }
     else
@@ -543,8 +650,70 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     handler->reconstructor = recon;
 
     auto* decoder = new mdp3::DataDecoder(handler, disable_mbo, (uint32_t)maxmpblevel, /*debug=*/false,
-                                          NWORKERS > 0 ? "P" : "S", (uint32_t)chan);
-    decoder->set_workers(workers, NWORKERS); // (nullptr,0) on serial -> parallel_decode_ stays false
+                                          PRIM_WORKERS > 0 ? "P" : "S", (uint32_t)chan);
+    decoder->set_workers(workers, PRIM_WORKERS); // (nullptr,0) on serial -> parallel_decode_ stays false
+
+    // ---- dual-path verification: the SHADOW pipeline ----
+    //
+    // Same packets, fed from MessageProcessor's tee. Second DataDecoder,
+    // second Reconstructor, second worker fleet, second book set. Nothing is
+    // shared with the primary except the packet bytes, which is the whole
+    // point: two paths that share a book cannot be diffed against each other.
+    actor_ptr decoder_shadow = nullptr;
+
+#ifdef USE_TACHBOOK
+    if (verify)
+    {
+        if (tach_books_v.empty() || tach_books_v.at(venue).empty())
+            throw std::runtime_error(
+                "chan " + chanstr + ": cme_verify_parallel is set but the "
+                "shadow TachBook set is empty. It needs tachbook and "
+                "perf_probe both on, and create_verify_tach_books() must run "
+                "before start_channel()");
+
+        auto* handler_v = new handler_if<false, false>(venue, chan);
+        handler_v->mbo_order_books = tach_books_v.at(venue);
+        handler_v->binrec = nullptr;   // one recorder; two would double-write
+
+        auto* recon_v = new mdp3::Reconstructor(handler_v->mbo_order_books,
+                                                venue, (uint32_t)chan, "P");
+        auto* workers_v = new actor_ptr[SHAD_WORKERS];
+        for (uint32_t i = 0; i < SHAD_WORKERS; ++i)
+            workers_v[i] = new mdp3::DecodeWorker(recon_v, venue, i,
+                                                  (uint32_t)chan, "P");
+        handler_v->reconstructor = recon_v;
+
+        // Instrument definitions and ChannelReset only ever reach the PRIMARY
+        // handler -- RecoveryProcessor is built with one feed_handler_if.
+        // Without this line the shadow Reconstructor's asset_map_ stays empty,
+        // route() drops every message, and the shadow books sit at zero while
+        // the run looks healthy.
+        handler->reconstructor_shadow = recon_v;
+
+        auto* dv = new mdp3::DataDecoder(handler_v, disable_mbo,
+                                         (uint32_t)maxmpblevel, /*debug=*/false,
+                                         "P", (uint32_t)chan);
+        dv->set_workers(workers_v, SHAD_WORKERS);
+
+        // set_recovery_target is deliberately NOT called. DataDecoder asks its
+        // recovery_target_ to recover when a parallel decode fails
+        // (DataDecoder.hpp:944). If the shadow could do that, a bug on the
+        // verification path would trigger a real CME recovery and corrupt the
+        // reference run. Left null, a shadow decode failure is counted by
+        // MessageProcessor and otherwise dropped.
+        decoder_shadow = dv;
+
+        add_to_manage_q(recon_v);
+        for (uint32_t i = 0; i < SHAD_WORKERS; ++i)
+            add_to_manage_q(workers_v[i]);
+        add_to_manage_q(dv);
+
+        std::cerr << "Kaspr: chan " << chanstr
+                  << " VERIFY shadow = PARALLEL, " << SHAD_WORKERS
+                  << " workers, " << tach_books_v.at(venue).size()
+                  << " shadow books (primary forced SERIAL)" << std::endl;
+    }
+#endif
 
     // Create MDP3 components
     auto mdp3cfsmp = create_all_mdp3(
@@ -569,7 +738,8 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
         p_cme.get<std::string>("group_b").c_str(),
         p_cme.get<std::string>("mdinterface_a").c_str(),
         p_cme.get<std::string>("mdinterface_b").c_str(),
-        p_cme.get<std::string>("name").c_str()
+        p_cme.get<std::string>("name").c_str(),
+        decoder_shadow   // null unless cme_verify_parallel; MessageProcessor tees to it
     );
 
     // Let the decoder ask the MessageProcessor to recover on a parallel decode failure.
@@ -621,7 +791,7 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     if (recon)
     {
         add_to_manage_q(recon);
-        for (uint32_t i = 0; i < NWORKERS; ++i)
+        for (uint32_t i = 0; i < PRIM_WORKERS; ++i)
             add_to_manage_q(workers[i]);
     }
     add_to_manage_q(decoder);

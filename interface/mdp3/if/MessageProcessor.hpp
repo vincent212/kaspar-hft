@@ -15,4 +15,5 @@ actor_ptr create_MessageProcessor(
     actor_ptr _recovery_processor,
     actor_ptr _decoder, // the DataDecoder actor (built in kaspr)
     bool _dorecovery,
-    bool _recoveryonstart);
+    bool _recoveryonstart,
+    actor_ptr _decoder_shadow = nullptr); // dual-path verification tee; null = off

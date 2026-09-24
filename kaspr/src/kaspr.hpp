@@ -141,6 +141,23 @@ struct Kaspr : public actors::Manager
     std::vector<cfsmp> zn_tach_books;   // treasury futures, channel 344
     bool enable_tachbook_ = false;
 
+    // SHADOW book set for the dual-path decode verification tee. A SECOND,
+    // fully independent TachBook per measured instrument, fed only by the
+    // shadow decoder. The two paths must never share a book or the comparison
+    // is meaningless -- the point is to diff their output.
+    // Empty unless some channel sets cme_verify_parallel.
+    std::vector<std::vector<cfsmp>> tach_books_v;
+    std::vector<cfsmp> es_tach_books_v;
+    std::vector<cfsmp> nq_tach_books_v;
+    std::vector<cfsmp> zn_tach_books_v;
+    bool verify_books_built_ = false;
+
+    // Dual-path decode verification. General-section, not per-channel: the
+    // shadow TachBooks and their probes are built in create_tach_books() /
+    // create_probes(), which run BEFORE any channel config is read. A
+    // per-channel key could not be honoured at that point.
+    bool verify_parallel_ = false;
+
     // LatencyProbe - one per measured TachBook. Off unless the config asks
     // for it, so the production recorder never pays for a subscriber it did
     // not ask for. Attaching a probe is NOT free of observer effect: it adds
@@ -253,6 +270,12 @@ private:
 #ifdef USE_TACHBOOK
     /** Create TachBook (MBO L3) books in parallel with OB. */
     void create_tach_books();
+
+    /**
+     * Build the SHADOW TachBook set for the verification tee. Idempotent --
+     * several channels may ask for it; only the first call builds.
+     */
+    void create_verify_tach_books();
 
     /**
      * Attach a LatencyProbe to each TachBook, if the config asks for it.

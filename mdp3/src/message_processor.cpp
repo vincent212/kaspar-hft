@@ -13,12 +13,14 @@ actor_ptr create_MessageProcessor(
     actors::Actor *_recovery_processor,
     actor_ptr _decoder,
     bool _dorecovery,
-    bool _recoveryonstart)
+    bool _recoveryonstart,
+    actor_ptr _decoder_shadow)
 {
     return new mdp3::MessageProcessor(
         _chan_nam,
         _recovery_processor,
         _decoder,
         _dorecovery,
-        _recoveryonstart);
+        _recoveryonstart,
+        _decoder_shadow);
 }

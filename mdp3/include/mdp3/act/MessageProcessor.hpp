@@ -51,6 +51,27 @@ namespace mdp3
 
         actors::Actor *recovery_processor;
         actor_ptr decoder; // the DataDecoder actor (created in kaspr, passed in)
+
+        // Dual-path verification tee. When non-null, every DecodePacket handed
+        // to `decoder` is also handed to `decoder_shadow`, which drives its OWN
+        // book set. Used to prove parallel decode == serial decode.
+        //
+        // The shadow's DecodeResult is COUNTED, NEVER ACTED ON. A bug on the
+        // verification path must not be able to trigger a real CME recovery,
+        // and it must not be able to stall the primary's sequence number.
+        //
+        // ORDERING BIAS -- read before comparing latency. Both calls are
+        // fast_send, so both run inline on this thread, primary first. The
+        // shadow's recv_ts -> publish latency therefore CONTAINS the primary's
+        // whole decode. The shadow is handicapped by construction. Phase 1 only
+        // asks "do both paths run and agree"; any latency claim has to be made
+        // from a run where the path under test was primary.
+        actor_ptr decoder_shadow = nullptr;
+        uint64_t shadow_packets = 0;
+        uint64_t shadow_decode_failures = 0;
+        uint64_t shadow_divergences = 0;
+        bool shadow_invalidated = false;
+
         //boost::container::flat_map<uint32_t, mcast_recv::message_buffer> msg_q;
         std::map<uint32_t, mcast_recv::message_buffer> msg_q;
         bool dorecovery = false;
@@ -77,8 +98,10 @@ namespace mdp3
             actors::Actor *_recovery_processor,
             actor_ptr _decoder, // the DataDecoder actor (built in kaspr)
             bool _dorecovery,
-            bool _recoveryonstart)
+            bool _recoveryonstart,
+            actor_ptr _decoder_shadow = nullptr) // verification tee; null = off
             : decoder(_decoder),
+              decoder_shadow(_decoder_shadow),
               recovery_processor(_recovery_processor),
               dorecovery(_dorecovery),
               data_recoveryonstart(_recoveryonstart),
@@ -226,9 +249,31 @@ namespace mdp3
             }
         }
 
+        // Every DecoderCmd must reach BOTH decoders or their internal state
+        // (gap flag, order-id map, stats) drifts apart and the tee stops being
+        // a comparison of the same thing.
+        void decoder_cmd(msg::DecoderCmd &c) noexcept
+        {
+            decoder->fast_send(&c, this);
+            if (decoder_shadow)
+                decoder_shadow->fast_send(&c, this);
+        }
+
         void do_data_recovery()
         {
             log_inf("initiating data recovery");
+            // KNOWN PHASE-1 LIMITATION: RecoveryProcessor was built with the
+            // PRIMARY path's feed_handler, so a recovery snapshot lands in the
+            // primary's books only. The shadow's books are stale from here on
+            // and any book-level diff after this point is meaningless. Say so
+            // once, then stop pretending the comparison is still valid.
+            if (decoder_shadow && !shadow_invalidated)
+            {
+                shadow_invalidated = true;
+                log_err("VERIFY shadow INVALIDATED by data recovery -- recovery "
+                        "feeds the primary books only; book diffs past this "
+                        "point are not evidence");
+            }
             recovery_processor->send(new msg::DoDataRecovery(), this);
             in_data_recovery = true;
             numdrecoveries++;
@@ -246,7 +291,7 @@ namespace mdp3
             log_err("parallel decode failed -- initiating data recovery");
             {
                 msg::DecoderCmd c(msg::DecoderCmd::GAP);
-                decoder->fast_send(&c, this);
+                decoder_cmd(c);
             }
             do_data_recovery();
         }
@@ -332,12 +377,44 @@ namespace mdp3
                     const auto *dr = static_cast<const msg::DecodeResult *>(decode_reply.get());
                     auto rc = dr->rc;
                     is_channel_reset = dr->is_channel_reset;
+
+                    // Verification tee. Same packet, same recv_ts, same qlen,
+                    // second independent decoder + book set. Sent AFTER the
+                    // primary and unconditionally -- including when the primary
+                    // failed -- so both paths see an identical input sequence.
+                    // Its rc is counted only; see the decoder_shadow comment.
+                    if CHUNLIKELY (decoder_shadow != nullptr)
+                    {
+                        ++shadow_packets;
+                        auto sreply = decoder_shadow->fast_send(&dp, this);
+                        const auto *sdr =
+                            static_cast<const msg::DecodeResult *>(sreply.get());
+                        if (!sdr->rc)
+                            ++shadow_decode_failures;
+                        // Divergence on THIS packet: one decoder could parse it,
+                        // the other could not. That is exactly the bug the tee
+                        // exists to catch, so it is loud.
+                        if (sdr->rc != rc)
+                        {
+                            ++shadow_divergences;
+                            log_err("VERIFY divergence sn: %d, primary rc: %d, "
+                                    "shadow rc: %d", sn, (int)rc, (int)sdr->rc);
+                        }
+                        if (sdr->is_channel_reset != is_channel_reset)
+                        {
+                            ++shadow_divergences;
+                            log_err("VERIFY divergence sn: %d, primary reset: %d, "
+                                    "shadow reset: %d", sn, (int)is_channel_reset,
+                                    (int)sdr->is_channel_reset);
+                        }
+                    }
+
                     if (!rc)
                     {
                         log_err("could not decode critical data message initiating recovery");
                         {
                             msg::DecoderCmd c(msg::DecoderCmd::GAP);
-                            decoder->fast_send(&c, this);
+                            decoder_cmd(c);
                         }
                         do_data_recovery();
                         return;
@@ -399,7 +476,7 @@ namespace mdp3
             if (last)
                 {
                     msg::DecoderCmd c(msg::DecoderCmd::BURSTEND, 1);
-                    decoder->fast_send(&c, this);
+                    decoder_cmd(c);
                 }
 #endif
         }
@@ -427,9 +504,19 @@ namespace mdp3
         {
             log_inf("shutdown");
 
+            if (decoder_shadow)
+            {
+                log_inf("VERIFY tee: shadow_packets: %lu, shadow_decode_failures: "
+                        "%lu, divergences: %lu, invalidated_by_recovery: %d",
+                        (unsigned long)shadow_packets,
+                        (unsigned long)shadow_decode_failures,
+                        (unsigned long)shadow_divergences,
+                        (int)shadow_invalidated);
+            }
+
             {
                 msg::DecoderCmd c(msg::DecoderCmd::PRINTSTATS);
-                decoder->fast_send(&c, this);
+                decoder_cmd(c);
             }
         }
     };

@@ -47,7 +47,8 @@ create_all_mdp3(
     const char *groupb,
     const char *_interfacea,
     const char *_interfaceb,
-    const char *_desc
+    const char *_desc,
+    actor_ptr _decoder_shadow = nullptr // dual-path verification tee; null = off
     )
 {
 
@@ -80,7 +81,8 @@ create_all_mdp3(
         recovery_processor,
         _decoder,
         dorecovery,
-        recovery_on_start);
+        recovery_on_start,
+        _decoder_shadow);
 
     auto msg_buf_a = create_MsgBuf_32(
         _chan_nam,
