@@ -27,7 +27,8 @@ SRC = test_cache_array.cpp \
       test_position_manager.cpp \
       test_light22.cpp \
       test_light22_order.cpp \
-      test_light22_integration.cpp
+      test_light22_integration.cpp \
+      test_msg_qlen.cpp
 
 APPNAM = run_tests
 
