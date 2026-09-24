@@ -102,6 +102,17 @@ const uint16_t HOT_OBOOK47 = sbe::MDIncrementalRefreshOrderBook47::sbeTemplateId
 const uint16_t HOT_TRADE48 = sbe::MDIncrementalRefreshTradeSummary48::sbeTemplateId();
 const uint16_t COLD_SECSTAT30 = sbe::SecurityStatus30::sbeTemplateId();
 const uint16_t COLD_RESET4 = sbe::ChannelReset4::sbeTemplateId();
+// Order-INDEPENDENT colds: none of these reads or writes orderid_to_securityid.
+// VOL37 is the one that matters in practice -- it is the cold template in
+// 1,419 of 1,419 mixed packets in the live ES chan 310 census.
+const uint16_t COLD_VOL37 = sbe::MDIncrementalRefreshVolume37::sbeTemplateId();
+const uint16_t COLD_DAILY49 = sbe::MDIncrementalRefreshDailyStatistics49::sbeTemplateId();
+const uint16_t COLD_BANDING50 = sbe::MDIncrementalRefreshLimitsBanding50::sbeTemplateId();
+const uint16_t COLD_SESS51 = sbe::MDIncrementalRefreshSessionStatistics51::sbeTemplateId();
+const uint16_t COLD_RFQ39 = sbe::QuoteRequest39::sbeTemplateId();
+// Order-CRITICAL cold: a definition populates the securityID->asset_id map that
+// Reconstructor::route() reads, so it cannot float past queued book messages.
+const uint16_t COLD_DEFFUT54 = sbe::MDInstrumentDefinitionFuture54::sbeTemplateId();
 
 // Build a packet: 12-byte header, then one 10-byte header-only SBE message per
 // template id (MsgSize @ +0 = 10, TemplateID @ +4). If trailing_zero, append a
@@ -184,6 +195,123 @@ TEST(DataDecoderHotTemplateTest, HotTemplatesRecognized)
   EXPECT_TRUE(mdp3::DataDecoder::is_hot_template(HOT_TRADE48));
   EXPECT_FALSE(mdp3::DataDecoder::is_hot_template(COLD_SECSTAT30));
   EXPECT_FALSE(mdp3::DataDecoder::is_hot_template(COLD_RESET4));
+}
+
+// ---------------------------------------------------------------------------
+// classify(): the three-way scheduling decision the packet split is built on.
+// ---------------------------------------------------------------------------
+
+using tclass = mdp3::DataDecoder::tclass;
+
+// is_hot_template() is a wrapper over classify(); they must never disagree,
+// because DecodeWorker asserts on is_hot_template() while the dispatcher will
+// route on classify(). Two sources of truth here means a worker abort.
+TEST(DataDecoderClassifyTest, HotAgreesWithIsHotTemplate)
+{
+  for (uint16_t tid : {HOT_BOOK46, HOT_OBOOK47, HOT_TRADE48, COLD_VOL37,
+                       COLD_DAILY49, COLD_BANDING50, COLD_SESS51, COLD_RFQ39,
+                       COLD_SECSTAT30, COLD_RESET4, COLD_DEFFUT54,
+                       uint16_t(60000)})
+    EXPECT_EQ(mdp3::DataDecoder::is_hot_template(tid),
+              mdp3::DataDecoder::classify(tid) == tclass::HOT)
+        << "disagreement on template " << tid;
+}
+
+TEST(DataDecoderClassifyTest, BookAndTradeAreHot)
+{
+  EXPECT_EQ(mdp3::DataDecoder::classify(HOT_BOOK46), tclass::HOT);
+  EXPECT_EQ(mdp3::DataDecoder::classify(HOT_OBOOK47), tclass::HOT);
+  EXPECT_EQ(mdp3::DataDecoder::classify(HOT_TRADE48), tclass::HOT);
+}
+
+// These touch neither orderid_to_securityid nor a book's order state, so they
+// may be decoded inline while workers are still parsing book messages.
+TEST(DataDecoderClassifyTest, StatisticsAreOrderIndependent)
+{
+  EXPECT_EQ(mdp3::DataDecoder::classify(COLD_VOL37), tclass::COLD_INDEPENDENT);
+  EXPECT_EQ(mdp3::DataDecoder::classify(COLD_DAILY49), tclass::COLD_INDEPENDENT);
+  EXPECT_EQ(mdp3::DataDecoder::classify(COLD_BANDING50), tclass::COLD_INDEPENDENT);
+  EXPECT_EQ(mdp3::DataDecoder::classify(COLD_SESS51), tclass::COLD_INDEPENDENT);
+  EXPECT_EQ(mdp3::DataDecoder::classify(COLD_RFQ39), tclass::COLD_INDEPENDENT);
+}
+
+// ChannelReset clears the book and definitions feed the asset map; letting
+// either overtake queued book messages corrupts state, so both serialize.
+TEST(DataDecoderClassifyTest, ResetStatusAndDefinitionsAreOrdered)
+{
+  EXPECT_EQ(mdp3::DataDecoder::classify(COLD_RESET4), tclass::COLD_ORDERED);
+  EXPECT_EQ(mdp3::DataDecoder::classify(COLD_SECSTAT30), tclass::COLD_ORDERED);
+  EXPECT_EQ(mdp3::DataDecoder::classify(COLD_DEFFUT54), tclass::COLD_ORDERED);
+}
+
+// An unknown template must fall to the SAFE side. If a schema bump adds a
+// template that mutates the orderid map and it defaulted to INDEPENDENT, the
+// split would silently corrupt books.
+TEST(DataDecoderClassifyTest, UnknownTemplateSerializes)
+{
+  EXPECT_EQ(mdp3::DataDecoder::classify(60000), tclass::COLD_ORDERED);
+  EXPECT_EQ(mdp3::DataDecoder::classify(0), tclass::COLD_ORDERED);
+}
+
+// ---------------------------------------------------------------------------
+// scan() per-class counts and splittable().
+// ---------------------------------------------------------------------------
+
+TEST_F(DataDecoderScanTest, CountsPartitionTheMessages)
+{
+  auto pkt = make_pkt({HOT_BOOK46, COLD_VOL37, HOT_TRADE48, COLD_RESET4, COLD_DAILY49});
+  auto sr = decoder.scan(pkt.data(), pkt.size());
+  EXPECT_EQ(sr.n_hot, 2u);
+  EXPECT_EQ(sr.n_cold_independent, 2u);
+  EXPECT_EQ(sr.n_cold_ordered, 1u);
+  // The three classes must account for every message, or the dispatcher would
+  // either drop a message or decode one twice.
+  EXPECT_EQ(sr.n_hot + sr.n_cold_independent + sr.n_cold_ordered, sr.count);
+}
+
+// The shape the census says is 3.03% of live ES packets: book/trade plus a
+// Volume37. This is exactly the case the split exists to handle.
+TEST_F(DataDecoderScanTest, HotPlusVolume37IsSplittable)
+{
+  auto pkt = make_pkt({HOT_BOOK46, COLD_VOL37, HOT_BOOK46});
+  auto sr = decoder.scan(pkt.data(), pkt.size());
+  EXPECT_FALSE(sr.all_hot);   // still blocked from the all-or-nothing fast path
+  EXPECT_TRUE(sr.splittable()); // but the split can take it
+}
+
+TEST_F(DataDecoderScanTest, AllHotIsNotSplittableItIsAlreadyFast)
+{
+  auto pkt = make_pkt({HOT_BOOK46, HOT_TRADE48});
+  auto sr = decoder.scan(pkt.data(), pkt.size());
+  EXPECT_TRUE(sr.all_hot);
+  // No cold message to peel off -- the existing all_hot path handles it.
+  EXPECT_FALSE(sr.splittable());
+}
+
+TEST_F(DataDecoderScanTest, OrderedColdBlocksTheSplit)
+{
+  auto pkt = make_pkt({HOT_BOOK46, COLD_RESET4});
+  auto sr = decoder.scan(pkt.data(), pkt.size());
+  EXPECT_EQ(sr.n_cold_ordered, 1u);
+  EXPECT_FALSE(sr.splittable()); // needs a barrier, not a split
+}
+
+TEST_F(DataDecoderScanTest, AllColdIsNotSplittable)
+{
+  auto pkt = make_pkt({COLD_VOL37, COLD_DAILY49});
+  auto sr = decoder.scan(pkt.data(), pkt.size());
+  EXPECT_EQ(sr.n_hot, 0u);
+  EXPECT_FALSE(sr.splittable()); // nothing to hand a worker; inline is correct
+}
+
+// A corrupt packet must never be split, however clean its prefix looks --
+// it has to reach mbo_data so recovery is triggered.
+TEST_F(DataDecoderScanTest, CorruptIsNeverSplittable)
+{
+  auto pkt = make_pkt({HOT_BOOK46, COLD_VOL37}, /*trailing_zero=*/true);
+  auto sr = decoder.scan(pkt.data(), pkt.size());
+  EXPECT_TRUE(sr.corrupt);
+  EXPECT_FALSE(sr.splittable());
 }
 
 } // namespace
