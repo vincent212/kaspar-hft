@@ -43,13 +43,6 @@ namespace actors
     mutable Actor *destination = nullptr;
     mutable bool is_fast = false;
     mutable bool last = false;
-    // Async analog of fast_send's ownership model: when a handler sets this on
-    // the message it is processing, process_message_internal does NOT delete it
-    // after dispatch — the handler has taken ownership (e.g. to keep a packet
-    // buffer alive across async parallel decode) and frees it itself. Default
-    // off; a copy is a distinct object and resets to false. Packs into the tail
-    // padding before msg_id_, so object size is unchanged.
-    mutable bool no_delete = false;
 
     /**
      * Destination mailbox depth at the moment this message was enqueued.

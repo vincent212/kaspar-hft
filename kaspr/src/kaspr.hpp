@@ -54,9 +54,6 @@
 //
 #include "mdp3/if/mdp3.hpp"
 #include "mdp3/handler_if.hpp"
-#include "mdp3/DataDecoder.hpp"
-#include "mdp3/act/DecodeWorker.hpp"
-#include "mdp3/act/Reconstructor.hpp"
 
 //
 // Frame (kaspr uses frame_kaspr for runtime components)

@@ -109,9 +109,7 @@ void Actor::process_message_internal(const Message *m, bool dontdel) noexcept
   if (!called)
     process_message(m);
 
-  // A handler may set no_delete to take ownership of the message (e.g. to keep
-  // a packet buffer alive across async parallel decode); it frees it itself.
-  if (!dontdel && !m->no_delete) {
+  if (!dontdel) {
     delete m;
   }
 }

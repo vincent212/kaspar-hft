@@ -8,183 +8,89 @@
  */
 
 #include <iostream>
-#include <map>
-#include <cstring>
-#include <boost/format.hpp>
 #include "mdp3/msg_decoder.hpp"
-#include "actors/Actor.hpp"
-#include "chutil/Assert.hpp"
-#include "mcast_recv/message_buffer.hpp"
-#include "mdp3/msg/DecodeReq.hpp"
-#include "mdp3/msg/DecodeDone.hpp"
-#include "mdp3/msg/TriggerRecovery.hpp"
-#include "mdp3/msg/DecodePacket.hpp"
-#include "mdp3/msg/DecodeResult.hpp"
-#include "mdp3/msg/DecoderCmd.hpp"
 
 #include "logger/act/Logger.hpp"
-
-#define TRACEF std::cerr
-
-// decode_one is static (shared by the inline path and the workers), so it cannot
-// call the non-static get_name() that log_err/log_wrn use. Log with a literal
-// component name instead.
-#define SLOG_ERR(...) polonaise::logger::act::log(polonaise::logger::msg::Log::Level::_ERROR_, "DataDecoder", __FILE__, __LINE__, __VA_ARGS__)
-#define SLOG_WRN(...) polonaise::logger::act::log(polonaise::logger::msg::Log::Level::_WARN_, "DataDecoder", __FILE__, __LINE__, __VA_ARGS__)
 
 namespace mdp3
 {
 
-    // The decode ACTOR. MessageProcessor fast_sends a DecodePacket per in-order
-    // packet; this decides parallel (all-hot -> fan out to the DecodeWorker fleet)
-    // vs inline (cold packet -> mbo_data), and replies DecodeResult{rc,is_channel_reset}.
-    // It owns the parallel coordination: packet-buffer slots kept alive until every
-    // worker reports DecodeDone (refcount), and the global order_seq counter.
-    //
-    // Concurrency: MessageProcessor's inline fast_send-decode and this actor's own-
-    // thread DecodeDone handling are serialized by the framework's fast_send_mutex
-    // (both fast_send and process_message_internal take it), so pending_/order_seq_
-    // need no extra lock.
-    class DataDecoder : public actors::Actor
+    struct DataDecoder
     {
-    public:
+
+        const char* get_name() const { return "DataDecoder"; }
+
+        feed_handler_if *cb;
+        bool debug;
+        bool version_warning = false;
+
+
+#define TRACEF std::cerr
+
         DataDecoder(
             feed_handler_if *_cb,
             bool _disable_mbo,
             uint32_t _max_mbp_level,
-            bool _debug)
+            bool _debug) 
             : cb(_cb), debug(_debug)
         {
-            snprintf(name_, sizeof(name_), "DataDecoder");
             cb->set_max_mbp_level(_max_mbp_level);
             cb->disable_mbo(_disable_mbo);
-            MESSAGE_HANDLER(msg::DecodePacket, on_decode_packet);
-            MESSAGE_HANDLER(msg::DecodeDone, on_decode_done);
-            MESSAGE_HANDLER(msg::DecoderCmd, on_cmd);
         }
 
-        const char *get_name() const override { return name_; }
-
-        // Wire the warm decode-worker fleet (nworkers MUST be a power of two).
-        // Until called, decode stays fully inline (parallel_decode_ off).
-        void set_workers(actor_ptr *workers, uint32_t nworkers) noexcept
+        bool mbo_data(char *databuf, std::size_t len, uint64_t ts, bool &is_channel_reset)
         {
-            workers_ = workers;
-            worker_mask_ = nworkers - 1;
-            parallel_decode_ = (workers != nullptr && nworkers > 0);
-        }
+            auto data_start = databuf;
 
-        // The actor (MessageProcessor) to notify when a parallel decode fails so it
-        // can initiate recovery. Wired in kaspr once both actors exist.
-        void set_recovery_target(actor_ptr mp) noexcept { recovery_target_ = mp; }
-
-        // Templates a DecodeWorker can parse in parallel (stateless build). This
-        // is the SINGLE source of truth for "hot": it MUST match DecodeWorker's
-        // switch cases. Widen both together after measuring packet purity.
-        static bool is_hot_template(uint16_t tid) noexcept
-        {
-            return tid == sbe::MDIncrementalRefreshBook46::sbeTemplateId()      // MBP & MBO book
-                || tid == sbe::MDIncrementalRefreshOrderBook47::sbeTemplateId() // MBO book
-                || tid == sbe::MDIncrementalRefreshTradeSummary48::sbeTemplateId(); // MBO trade
-        }
-
-        struct scan_result { uint32_t count; bool all_hot; bool has_hot; bool corrupt; };
-
-        // Walk the packet's SBE messages WITHOUT decoding: count them and report
-        // whether EVERY one is hot (all_hot -> parallelizable) and whether ANY is
-        // hot (has_hot -> used to assert the "no mixed hot+cold packet" assumption).
-        // Cheap -- one u16 read per message.
-        scan_result scan(const char *databuf, std::size_t len) const noexcept
-        {
-            const char *p = databuf + 12; // skip MsgSeqNum(4) + SendingTime(8)
-            const char *const end = databuf + len;
-            uint32_t count = 0;
-            bool all_hot = true;
-            bool has_hot = false;
-            bool corrupt = false;
-            while (p < end)
-            {
-                const uint16_t MsgSize    = *reinterpret_cast<const uint16_t *>(p);
-                if (MsgSize == 0)
-                {
-                    // A zero length can never advance the walk; the packet is
-                    // corrupt. Flag it so on_decode_packet routes it to the inline
-                    // path, where mbo_data logs the error and triggers recovery --
-                    // do NOT silently stop and pretend the packet was fine.
-                    corrupt = true;
-                    break;
-                }
-                const uint16_t TemplateID = *reinterpret_cast<const uint16_t *>(p + 4);
-                if (is_hot_template(TemplateID))
-                    has_hot = true;
-                else
-                    all_hot = false;
-                p += MsgSize;
-                ++count;
-            }
-            return {count, all_hot, has_hot, corrupt};
-        }
-
-        // The dispatch loop: hand each SBE message to a warm worker (round-robin),
-        // zero-copy (DecodeReq points into databuf). Stamps a global-monotonic
-        // order_seq per message and the parent_id for the buffer refcount. Sender
-        // is the coordinator, so workers reply DecodeDone there. Returns the count
-        // dispatched. Caller must have verified scan().all_hot (else a worker asserts).
-        // nworkers must be a power of two; pass worker_mask = nworkers - 1.
-        uint32_t dispatch(const char *databuf, std::size_t len, uint64_t ts,
-                          uint64_t order_seq_base, uint64_t parent_id,
-                          actor_ptr *workers, uint32_t worker_mask,
-                          actor_ptr coordinator, uint32_t qlen) const noexcept
-        {
-            const uint32_t msgSeqNum   = *reinterpret_cast<const uint32_t *>(databuf);
-            const uint64_t sendingTime = *reinterpret_cast<const uint64_t *>(databuf + 4);
-            const char *p = databuf + 12;
-            const char *const end = databuf + len;
-            uint32_t i = 0;
-            while (p < end)
-            {
-                const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
-                workers[i & worker_mask]->send(
-                    new msg::DecodeReq(p, MsgSize, msgSeqNum, ts, sendingTime, order_seq_base + i, parent_id, qlen),
-                    coordinator);
-                p += MsgSize;
-                ++i;
-            }
-            return i;
-        }
-
-        // Decode ONE SBE message at `msg` (points at its 10-byte SBE header) into
-        // `cb`. Returns false if a CRITICAL message failed to decode (caller must
-        // trigger recovery), true otherwise; sets is_channel_reset on a reset.
-        //
-        // This is the SINGLE per-message decode, shared by mbo_data's loop (the
-        // inline serial path, cb = handler_if) and DecodeWorker (the parallel
-        // path, cb = a stateless DecodeSink). Static + cb/debug params so both a
-        // MessageProcessor's DataDecoder and a worker can call it without owning
-        // extra state. Per-PACKET work (EndOfPacket) stays in mbo_data / the
-        // Reconstructor -- this handles exactly one message.
-        static bool decode_one(char *msg, uint16_t MsgSize, uint64_t ts,
-                               uint32_t MsgSeqNum, uint64_t SendingTime,
-                               feed_handler_if *cb, bool &is_channel_reset, bool debug)
-        {
             const std::size_t sbe_message_header_size = 10;
-            char *databuf = msg;
 
-            const uint16_t BlockLength = *(unsigned short *)(msg + 2);
-            const uint16_t TemplateID  = *(unsigned short *)(msg + 4);
-            const uint16_t SchemaID    = *(unsigned short *)(msg + 6);
-            const uint16_t Version     = *(unsigned short *)(msg + 8);
+            auto MsgSeqNum = *(unsigned int *)(databuf);
+            databuf += sizeof(MsgSeqNum);
 
-            ASSERT(SchemaID == 1, "wrong schema id");
+            auto SendingTime = *(unsigned long long *)(databuf);
+            databuf += sizeof(SendingTime);
 
             if (debug)
             {
-                TRACEF << "-----------------------------------------------------------------------------\n";
-                TRACEF << "MsgSize: " << MsgSize << " TemplateID: " << TemplateID << " SchemaID: " << SchemaID << " Version: " << Version << "\n";
+                TRACEF << "DECODING SEQ: " << MsgSeqNum << " len: " << len << std::endl;
             }
 
-            switch (TemplateID)
+            while (std::size_t(databuf - data_start) < len)
             {
+
+                auto MsgSize = *(unsigned short *)(databuf);
+                databuf += sizeof(MsgSize);
+
+                auto BlockLength = *(unsigned short *)(databuf);
+                databuf += sizeof(BlockLength);
+
+                auto TemplateID = *(unsigned short *)(databuf);
+                databuf += sizeof(TemplateID);
+
+                auto SchemaID = *(unsigned short *)(databuf);
+                databuf += sizeof(SchemaID);
+
+                auto Version = *(unsigned short *)(databuf);
+                databuf += sizeof(Version);
+
+                ASSERT(SchemaID == 1, "wrong schema id");
+                //ASSERT(Version <= 12, "wrong version, must be <= 12");
+                if (Version > 12 && !version_warning)
+                {
+                    log_wrn("wrong version, should be <= 12, version: %d", Version);
+                    version_warning = true;
+                }
+
+                databuf -= sbe_message_header_size;
+
+                if (debug)
+                {
+                    TRACEF << "-----------------------------------------------------------------------------\n";
+                    TRACEF << "MsgSize: " << MsgSize << " TemplateID: " << TemplateID << " SchemaID: " << SchemaID << " Version: " << Version << "\n";
+                }
+
+                switch (TemplateID)
+                {
                 case sbe::MDIncrementalRefreshBook46::sbeTemplateId(): // MBP & MBO
                 {
                     sbe::MDIncrementalRefreshBook46 incr;
@@ -206,7 +112,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDIncrementalRefreshBook46 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDIncrementalRefreshBook46 %s", std::string(e.what()));
                         return false;
                     }
 
@@ -234,7 +140,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDIncrementalRefreshTradeSummary48 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDIncrementalRefreshTradeSummary48 %s", std::string(e.what()));
                         return false;
                     }
 
@@ -261,7 +167,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDIncrementalRefreshDailyStatistics49 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDIncrementalRefreshDailyStatistics49 %s", std::string(e.what()));
                     }
 
                     break;
@@ -287,7 +193,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDIncrementalRefreshSessionStatistics51 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDIncrementalRefreshSessionStatistics51 %s", std::string(e.what()));
                     }
 
                     break;
@@ -313,7 +219,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDInstrumentDefinitionSpread56 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDInstrumentDefinitionSpread56 %s", std::string(e.what()));
                     }
 
                     break;
@@ -339,7 +245,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDInstrumentDefinitionOption55 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDInstrumentDefinitionOption55 %s", std::string(e.what()));
                     }
 
                     break;
@@ -365,7 +271,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDInstrumentDefinitionFuture54 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDInstrumentDefinitionFuture54 %s", std::string(e.what()));
                     }
 
                     break;
@@ -391,7 +297,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDInstrumentDefinitionFixedIncome57 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDInstrumentDefinitionFixedIncome57 %s", std::string(e.what()));
                     }
 
                     break;
@@ -401,7 +307,7 @@ namespace mdp3
                     sbe::ChannelReset4 reset;
                     reset.wrapForDecode(databuf, sbe_message_header_size, BlockLength, Version, MsgSize);
 
-                    SLOG_WRN("ChannelReset4");
+                    log_wrn("ChannelReset4");
 
                     is_channel_reset = true;
 
@@ -421,7 +327,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_ChannelReset4 %s", std::string(e.what()));
+                        log_err("caught exception in decode_ChannelReset4 %s", std::string(e.what()));
                         return false;
                     }
 
@@ -448,7 +354,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_ChannelReset4 %s", std::string(e.what()));
+                        log_err("caught exception in decode_ChannelReset4 %s", std::string(e.what()));
                     }
 
                     break;
@@ -474,7 +380,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_SecurityStatus30 %s", std::string(e.what()));
+                        log_err("caught exception in decode_SecurityStatus30 %s", std::string(e.what()));
                     }
 
                     break;
@@ -500,7 +406,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDIncrementalRefreshOrderBook47 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDIncrementalRefreshOrderBook47 %s", std::string(e.what()));
                         return false;
                     }
 
@@ -527,7 +433,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDIncrementalRefreshVolume37 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDIncrementalRefreshVolume37 %s", std::string(e.what()));
                     }
 
                     break;
@@ -558,52 +464,22 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_QuoteRequest39 %s", std::string(e.what()));
+                        log_err("caught exception in decode_QuoteRequest39 %s", std::string(e.what()));
                     }
 
                     break;
                 }
                 default:
                 {
-                    SLOG_ERR("unknown message: %d", TemplateID);
+                    log_err("unknown message: %d", TemplateID);
                     if (debug)
                         TRACEF << "UNKNONWN MESSAGE " << TemplateID << std::endl;
                     break;
                 }
-            }
-
-            return true;
-        }
-
-        bool mbo_data(char *databuf, std::size_t len, uint64_t ts, bool &is_channel_reset)
-        {
-            auto data_start = databuf;
-
-            auto MsgSeqNum = *(unsigned int *)(databuf);
-            databuf += sizeof(MsgSeqNum);
-
-            auto SendingTime = *(unsigned long long *)(databuf);
-            databuf += sizeof(SendingTime);
-
-            if (debug)
-                TRACEF << "DECODING SEQ: " << MsgSeqNum << " len: " << len << std::endl;
-
-            // Inline serial path: decode every message in order via the shared
-            // per-message decode_one (same code the parallel workers run).
-            while (std::size_t(databuf - data_start) < len)
-            {
-                const uint16_t MsgSize = *(unsigned short *)(databuf);
-                if (MsgSize == 0)
-                {
-                    // Corrupt: a zero length can never advance the walk. Surface it
-                    // and FAIL the packet so the caller initiates recovery -- never
-                    // silently swallow a malformed feed.
-                    log_err("corrupt SBE MsgSize==0 (seq %u) -- aborting packet, initiating recovery", MsgSeqNum);
-                    return false;
                 }
-                if (!decode_one(databuf, MsgSize, ts, MsgSeqNum, SendingTime, cb, is_channel_reset, debug))
-                    return false;
+
                 databuf += MsgSize;
+
             }
 
             cb->EndOfPacket(MsgSeqNum, SendingTime);
@@ -633,114 +509,5 @@ namespace mdp3
         {
             cb->PrintStats();
         }
-
-    private:
-        // Decode one packet fast_sent by MessageProcessor: parallel if all-hot,
-        // else inline. Reply carries rc + is_channel_reset for the caller.
-        void on_decode_packet(const msg::DecodePacket *m) noexcept
-        {
-            const auto sr = scan(m->data, m->len);
-
-            // All-hot, well-formed packet: fan out to the worker fleet. Copy the
-            // packet into a DataDecoder-owned slot (kept alive until every worker
-            // reports DecodeDone), dispatch zero-copy DecodeReqs into it, reply now.
-            // A corrupt packet (scan hit MsgSize==0) is NOT parallelized -- it falls
-            // to the inline mbo_data below, which logs the error and fails the
-            // packet so the caller initiates recovery.
-            if (parallel_decode_ && !sr.corrupt && sr.count > 0 && sr.all_hot)
-            {
-                const uint64_t pid = next_parent_id_++;
-                const uint64_t base = order_seq_;
-                order_seq_ += sr.count;
-                auto &pp = pending_[pid];
-                std::memcpy(pp.buf.message.data(), m->data, m->len);
-                pp.buf.len = m->len;
-                pp.outstanding = sr.count;
-                pp.failed = false;
-                // The packet's ingress depth rides each DecodeReq to the worker
-                // that decodes it. It CANNOT go through cb->set_ingress_qlen()
-                // here: that writes one member on the shared handler, which the
-                // worker threads read while decoding other packets.
-                dispatch(pp.buf.message.data(), m->len, m->ts, base, pid,
-                         workers_, worker_mask_, this, m->qlen);
-                reply(new msg::DecodeResult(true, false)); // hot packets never channel-reset
-                return;
-            }
-
-            // Not all-hot. ASSUME a packet never mixes hot (book/trade) with cold
-            // templates; if it did, book/trade would take this inline path and split
-            // the orderid map from the Reconstructor's. Trip if that is violated --
-            // but NOT for a corrupt packet (that is a malformed feed, not a mixed
-            // one; mbo_data below logs it and triggers recovery).
-            if (!sr.corrupt)
-                ASSERTF(!sr.has_hot, boost::format(
-                    "mixed hot+cold packet: book/trade on the inline path splits the "
-                    "orderid map -- parallel-decode assumption violated"));
-
-            // Cold packet, corrupt packet, or parallel off: decode inline.
-            // Serial, single thread, so the handler member is the right place
-            // for the depth -- this is the same call main makes from
-            // MessageProcessor.
-            cb->set_ingress_qlen(m->qlen);
-            bool is_channel_reset = false;
-            bool rc = mbo_data(const_cast<char *>(m->data), m->len, m->ts, is_channel_reset);
-            reply(new msg::DecodeResult(rc, is_channel_reset));
-        }
-
-        // A worker finished reading a packet's slot. Drop the refcount; free the
-        // slot at zero. Runs on THIS actor's thread, serialized against the inline
-        // fast_send-decode above by the framework's fast_send_mutex.
-        void on_decode_done(const msg::DecodeDone *d) noexcept
-        {
-            auto it = pending_.find(d->parent_id);
-            if (it == pending_.end())
-                return;
-            if (!d->ok)
-                it->second.failed = true; // a worker's decode_one failed on a hot message
-            if (--it->second.outstanding == 0)
-            {
-                const bool failed = it->second.failed;
-                pending_.erase(it); // frees the packet-buffer slot
-                // A hot message failed to decode -> the book is now missing
-                // updates. Ask MessageProcessor to initiate recovery -- the same
-                // response the inline path gives an mbo_data failure -- so the book
-                // resyncs instead of silently diverging.
-                if (failed && recovery_target_)
-                    recovery_target_->send(new msg::TriggerRecovery(), this);
-            }
-        }
-
-        // Low-rate control ops from MessageProcessor (gap / burstend / print_stats).
-        void on_cmd(const msg::DecoderCmd *m) noexcept
-        {
-            switch (m->kind)
-            {
-            case msg::DecoderCmd::GAP:        gap();            break;
-            case msg::DecoderCmd::BURSTEND:   burstend(m->cnt); break;
-            case msg::DecoderCmd::PRINTSTATS: print_stats();    break;
-            }
-        }
-
-        feed_handler_if *cb;
-        bool debug;
-        char name_[256];
-
-        // ---- parallel coordination ----
-        actor_ptr *workers_ = nullptr;      // warm decode workers (set via set_workers)
-        uint32_t   worker_mask_ = 0;        // nworkers - 1 (power of two)
-        bool       parallel_decode_ = false;
-        uint64_t   order_seq_ = 0;          // global monotonic key stamped per message
-        uint64_t   next_parent_id_ = 1;
-
-        // A packet handed to workers: its bytes (kept alive for zero-copy reads)
-        // plus the count of workers still to report DecodeDone.
-        struct pending_packet
-        {
-            mcast_recv::message_buffer buf;
-            uint32_t outstanding;
-            bool     failed; // set if any worker reported a decode failure
-        };
-        std::map<uint64_t, pending_packet> pending_;
-        actor_ptr recovery_target_ = nullptr; // MessageProcessor; asked to recover on decode failure
     };
 }
