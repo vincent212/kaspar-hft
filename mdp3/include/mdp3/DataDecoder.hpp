@@ -48,14 +48,22 @@ namespace mdp3
     class DataDecoder : public actors::Actor
     {
     public:
+        // path_tag / chan only name the actor. Actor names must be unique across
+        // the whole process, and the old constant "DataDecoder" was not: a second
+        // channel, or a second decode path on one channel, tripped Manager's
+        // "actor with this name already managed". Convention is "_S" for the
+        // serial (inline) path and "_P" for the parallel (worker-fleet) path,
+        // e.g. DataDecoder_S_310. Defaulted so non-kaspr callers are unchanged.
         DataDecoder(
             feed_handler_if *_cb,
             bool _disable_mbo,
             uint32_t _max_mbp_level,
-            bool _debug)
+            bool _debug,
+            const char *_path_tag = "S",
+            uint32_t _chan = 0)
             : cb(_cb), debug(_debug)
         {
-            snprintf(name_, sizeof(name_), "DataDecoder");
+            snprintf(name_, sizeof(name_), "DataDecoder_%s_%u", _path_tag, _chan);
             cb->set_max_mbp_level(_max_mbp_level);
             cb->disable_mbo(_disable_mbo);
             MESSAGE_HANDLER(msg::DecodePacket, on_decode_packet);
@@ -70,7 +78,10 @@ namespace mdp3
         void set_workers(actor_ptr *workers, uint32_t nworkers) noexcept
         {
             workers_ = workers;
-            worker_mask_ = nworkers - 1;
+            // nworkers==0 is the serial build. `nworkers - 1` would wrap to
+            // UINT32_MAX; harmless only for as long as nothing reads the mask
+            // with parallel off, which is not a property worth relying on.
+            worker_mask_ = nworkers ? (nworkers - 1) : 0;
             parallel_decode_ = (workers != nullptr && nworkers > 0);
         }
 
@@ -667,12 +678,25 @@ namespace mdp3
                 return;
             }
 
-            // Not all-hot. ASSUME a packet never mixes hot (book/trade) with cold
-            // templates; if it did, book/trade would take this inline path and split
-            // the orderid map from the Reconstructor's. Trip if that is violated --
-            // but NOT for a corrupt packet (that is a malformed feed, not a mixed
-            // one; mbo_data below logs it and triggers recovery).
-            if (!sr.corrupt)
+            // Not all-hot, and parallel decode is ON. The parallel design ASSUMES a
+            // packet never mixes hot (book/trade) with cold templates; if it did,
+            // book/trade would take this inline path and split the orderid map from
+            // the Reconstructor's. Trip if that is violated -- but NOT for a corrupt
+            // packet (that is a malformed feed, not a mixed one; mbo_data below logs
+            // it and triggers recovery).
+            //
+            // The parallel_decode_ guard is NOT cosmetic. With parallel off there is
+            // no Reconstructor and no second orderid map, so a hot message on the
+            // inline path is simply the serial decoder doing its job -- the whole
+            // feed is hot. Without the guard this asserts on the first book packet
+            // and the serial path cannot run at all.
+            //
+            // KNOWN, MEASURED: with parallel ON this still fires. Census on live ES
+            // chan 310 over 80,000 packets: 3.03% of packets (10.21% of messages)
+            // are mixed, and the cold template is MDIncrementalRefreshVolume37 in
+            // 1,419 of 1,419 cases. Splitting the packet -- hot to the workers, cold
+            // inline -- is the fix, and it is not done yet.
+            if (parallel_decode_ && !sr.corrupt)
                 ASSERTF(!sr.has_hot, boost::format(
                     "mixed hot+cold packet: book/trade on the inline path splits the "
                     "orderid map -- parallel-decode assumption violated"));
