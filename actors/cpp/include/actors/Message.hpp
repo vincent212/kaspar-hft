@@ -28,8 +28,11 @@ namespace actors
    * `const Message*`). A member read is a single load. The id is set once at
    * construction and is immutable identity thereafter.
    *
-   * `msg_id_` is declared last so it packs into the tail padding after the two
-   * bools; the object size is unchanged.
+   * `msg_id_` is declared last so it packs into the padding after the two
+   * bools, which costs nothing. `qlen` is what took the object from 32 bytes
+   * to 40 -- it did not fit in that padding and opened a new 8-byte row. Four
+   * bytes of that row are still free. See tests/test_message_id.cpp for the
+   * measured layout and the guard on it.
    */
   struct Message
   {
@@ -54,6 +57,13 @@ namespace actors
      * Written once by Actor::add_message_to_queue, read by the receiving
      * handler. Zero for fast_send (no queue was involved) and zero until the
      * message is actually enqueued.
+     *
+     * GROUPED ACTORS: Actor::send routes to group->add_message_to_queue when
+     * is_part_of_group is set, so for those actors this is the depth of the
+     * SHARED GROUP mailbox, with every sibling's traffic mixed in -- not the
+     * addressed actor's own backlog. That is still the queue the message
+     * actually waited in, so it is still the right number to join latency
+     * against; it just is not attributable to one actor.
      *
      * Ring-only and approximate: see Queue::circ_buf_len. A value equal to
      * ACTOR_BQUEUE_SIZE means "at least this deep".

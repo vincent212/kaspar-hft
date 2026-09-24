@@ -24,7 +24,11 @@ using namespace actors;
 
 namespace {
 
-struct FixedMsg : public MessageT<FixedMsg> { int payload = 7; };
+// Message_N, not MessageT: the tests below assert a FIXED id of 123 and read
+// FixedMsg::id, both of which only exist on the compile-time-id path. The
+// MessageT migration (fa85db2) swept this one up by mistake -- a MessageT id
+// is assigned at first use, is >= 512, and is not a constant expression.
+struct FixedMsg : public Message_N<123> { int payload = 7; };
 
 struct AutoA : public MessageT<AutoA> {};
 struct AutoB : public MessageT<AutoB> {};
@@ -43,16 +47,43 @@ static_assert(!std::is_default_constructible_v<Message>,
 
 // Message_N exposes its id as a compile-time constant.
 static_assert(Message_N<42>::id == 42, "Message_N<N>::id must be N");
-// msg::Shutdown is MessageT now: its id is a runtime value, not a constant.
-static_assert(std::is_base_of_v<actors::MessageT<msg::Shutdown>, msg::Shutdown>,
-              "Shutdown should use the auto-assigned id path");
+// msg::Shutdown kept its hand-assigned id: it is Message_N<5>, not MessageT.
+// (The assert here previously claimed the opposite and had not compiled since
+// the MessageT migration.) Shutdown is in the interop range, so its id has to
+// stay a stable constant rather than a first-use allocation.
+static_assert(std::is_base_of_v<actors::Message_N<5>, msg::Shutdown>,
+              "Shutdown must keep its fixed id 5; a MessageT id is not stable");
+static_assert(msg::Shutdown::id == 5, "Shutdown's fixed id must remain 5");
 
-// Layout guard: msg_id_ is declared last so it packs into the tail padding
-// after the two bools. On LP64 that keeps Message at 32 bytes
-// (vptr 8 + 2 ptrs 16 + 2 bools + int 4, padded to 32). Declaring the id first
-// would push it to 40. If this fails, the member was reordered.
-static_assert(sizeof(void*) != 8 || sizeof(Message) == 32,
-              "Message grew: id must pack into tail padding, not lead the layout");
+// Layout guard. On LP64 Message is 40 bytes:
+//
+//   0  vptr        8   (virtual ~Message)
+//   8  sender      8
+//  16  destination 8
+//  24  is_fast     1
+//  25  last        1
+//  26  (pad)       2
+//  28  qlen        4
+//  32  msg_id_     4
+//  36  (pad)       4   -> size 40, align 8
+//
+// It was 32 before qlen was added. msg_id_ still packs into padding, as it
+// always did; qlen is what opened a new 8-byte row. Four bytes of that row are
+// still free, so the NEXT 4-byte member is genuinely free -- checked below so
+// that claim is measured and not assumed.
+//
+// If this fails, either a member was reordered (the id must stay last) or
+// something was added. Neither is automatically wrong, but Message is copied
+// per message on the hot path, so the size is a number to change on purpose.
+static_assert(sizeof(void*) != 8 || sizeof(Message) == 40,
+              "Message changed size: id must stay last, and growth must be deliberate");
+
+namespace {
+// One more 4-byte member must fit in the existing tail padding.
+struct MessagePlus4 : public MessageT<MessagePlus4> { int extra = 0; };
+}
+static_assert(sizeof(void*) != 8 || sizeof(MessagePlus4) == sizeof(Message),
+              "tail padding is gone: the next small member now costs 8 bytes");
 
 // --- runtime behaviour -------------------------------------------------------
 
