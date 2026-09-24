@@ -35,10 +35,16 @@ namespace mdp3
   //      routing (asset lookup -> BOOKSEND to TachBook[sym]). Being single-
   //      threaded IS the synchronization; no locks.
   //
-  // Consistency assumptions (see parallel-mbo-decode-arch memory; enforced by an
-  // assert in handler_if's MBO handlers):
+  // Consistency assumptions (see parallel-mbo-decode-arch memory):
   //   - book/trade NEVER take the inline path (all-hot packets always parallel),
   //     so this map is the sole owner of orderid_to_securityid.
+  //     Enforced by ONE assert, in DataDecoder::on_decode_packet. An earlier
+  //     version of this comment claimed handler_if's MBO handlers assert it too;
+  //     they do not -- handler_if's only asserts are two "sym mismatch" checks.
+  //     KNOWN VIOLATION, measured on live ES chan 310 over 80,000 packets: 3.03%
+  //     of packets (10.21% of messages) mix hot with MDIncrementalRefreshVolume37
+  //     (1,419 of 1,419 mixed packets). So this assumption is false on the real
+  //     feed and the parallel path cannot run until the packet split lands.
   //   - securityid_to_asset_id + mbo_order_books are populated at startup/recovery
   //     and read-only during trading -> shared here by const ref (safe reads).
   //
@@ -48,12 +54,18 @@ namespace mdp3
   class Reconstructor : public actors::Actor
   {
   public:
+    // chan (not venue) keys the name. The old "Reconstructor_%d" was keyed on
+    // the VENUE, and channels 310/318/344 share one venue -- so a second CME
+    // channel collided in Manager. "_P" marks the parallel path, matching
+    // DataDecoder_P_310 / DecodeWorker_P_310_0.
     Reconstructor(const std::vector<actor_ptr> &mbo_order_books,
-                  en::x xchg)
+                  en::x xchg,
+                  uint32_t chan,
+                  const char *path_tag = "P")
         : mbo_order_books_(mbo_order_books),
           xchg_(xchg)
     {
-      snprintf(name_, sizeof(name_), "Reconstructor_%d", (int)xchg);
+      snprintf(name_, sizeof(name_), "Reconstructor_%s_%u", path_tag, chan);
       MESSAGE_HANDLER(msg::ParsedMsg, on_parsed);
       MESSAGE_HANDLER(msg::AssetMap, on_asset_map);
       MESSAGE_HANDLER(msg::ResetMBO, on_reset);

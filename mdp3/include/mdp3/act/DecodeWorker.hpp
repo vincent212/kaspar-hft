@@ -38,10 +38,15 @@ namespace mdp3
   class DecodeWorker : public actors::Actor
   {
   public:
-    DecodeWorker(actor_ptr reconstructor, en::x xchg, uint32_t worker_id)
+    // chan is part of the name: "DecodeWorker_%u" was unique only within one
+    // channel, so worker 0 of a second channel collided in Manager. "_P" marks
+    // the parallel path (there is no serial equivalent of this actor), matching
+    // DataDecoder_P_310 / Reconstructor_P_310.
+    DecodeWorker(actor_ptr reconstructor, en::x xchg, uint32_t worker_id,
+                 uint32_t chan, const char *path_tag = "P")
         : sink_(reconstructor, this, xchg)
     {
-      snprintf(name_, sizeof(name_), "DecodeWorker_%u", worker_id);
+      snprintf(name_, sizeof(name_), "DecodeWorker_%s_%u_%u", path_tag, chan, worker_id);
       MESSAGE_HANDLER(msg::DecodeReq, on_decode);
     }
 

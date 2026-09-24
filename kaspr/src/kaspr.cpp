@@ -487,16 +487,47 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     auto disable_mbo = pt_chan.get<bool>("cme_disable_mbo", false);
     auto maxmpblevel = pt_chan.get<int>("cme_max_mbp_level", 0);
 
-    // ---- parallel decode subsystem: Reconstructor <- DecodeWorkers <- DataDecoder ----
-    // NWORKERS MUST be a power of two (set_workers uses nworkers-1 as a mask).
-    const uint32_t NWORKERS = pt_chan.get<uint32_t>("cme_decode_workers", 8);
-    auto* recon = new mdp3::Reconstructor(handler->mbo_order_books, venue);
-    handler->reconstructor = recon; // handler_if feeds it securityID->asset_id maps (no shared-map race)
-    actor_ptr* workers = new actor_ptr[NWORKERS]; // process-lifetime; set_workers keeps this array
-    for (uint32_t i = 0; i < NWORKERS; ++i)
-        workers[i] = new mdp3::DecodeWorker(recon, venue, i);
-    auto* decoder = new mdp3::DataDecoder(handler, disable_mbo, (uint32_t)maxmpblevel, /*debug=*/false);
-    decoder->set_workers(workers, NWORKERS);
+    // ---- decode subsystem: SERIAL by default, PARALLEL opt-in ----
+    //
+    // cme_decode_workers == 0 (the DEFAULT) selects the SERIAL path: DataDecoder
+    // decodes every packet inline on the MessageProcessor thread via mbo_data,
+    // straight into handler_if. No Reconstructor, no workers, no second orderid
+    // map. This is the path the latency article measured.
+    //
+    // > 0 selects the PARALLEL path and MUST be a power of two (set_workers uses
+    // nworkers-1 as a mask). It is NOT production-ready: it aborts on the 3.03%
+    // of live ES packets (10.21% of messages) that mix hot templates with
+    // MDIncrementalRefreshVolume37. See DataDecoder::on_decode_packet.
+    //
+    // The default used to be 8 and NO ini anywhere set the key, so every channel
+    // silently ran the parallel path and died on its first mixed packet.
+    const uint32_t NWORKERS = pt_chan.get<uint32_t>("cme_decode_workers", 0);
+
+    mdp3::Reconstructor* recon   = nullptr;
+    actor_ptr*           workers = nullptr;
+
+    if (NWORKERS > 0)
+    {
+        std::cerr << "Kaspr: chan " << chanstr << " PARALLEL decode, "
+                  << NWORKERS << " workers -- NOT production-ready" << std::endl;
+        recon = new mdp3::Reconstructor(handler->mbo_order_books, venue, (uint32_t)chan, "P");
+        workers = new actor_ptr[NWORKERS]; // process-lifetime; set_workers keeps this array
+        for (uint32_t i = 0; i < NWORKERS; ++i)
+            workers[i] = new mdp3::DecodeWorker(recon, venue, i, (uint32_t)chan, "P");
+    }
+    else
+    {
+        std::cerr << "Kaspr: chan " << chanstr << " SERIAL decode (inline)" << std::endl;
+    }
+
+    // Null on the serial path. handler_if guards every use of this pointer (the
+    // AssetMap sends in the two definition handlers, and the ResetMBO send), so
+    // null just means "nobody to tell".
+    handler->reconstructor = recon;
+
+    auto* decoder = new mdp3::DataDecoder(handler, disable_mbo, (uint32_t)maxmpblevel, /*debug=*/false,
+                                          NWORKERS > 0 ? "P" : "S", (uint32_t)chan);
+    decoder->set_workers(workers, NWORKERS); // (nullptr,0) on serial -> parallel_decode_ stays false
 
     // Create MDP3 components
     auto mdp3cfsmp = create_all_mdp3(
@@ -568,10 +599,14 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     add_to_manage_q(mdp3cfsmp[4], pin(3));  // socket_processor_a
     add_to_manage_q(mdp3cfsmp[5], pin(4));  // socket_processor_b
 
-    // Manage the decode subsystem (Reconstructor + workers + DataDecoder)
-    add_to_manage_q(recon);
-    for (uint32_t i = 0; i < NWORKERS; ++i)
-        add_to_manage_q(workers[i]);
+    // Manage the decode subsystem. On the serial path recon/workers do not
+    // exist, so there is exactly one actor here: the DataDecoder.
+    if (recon)
+    {
+        add_to_manage_q(recon);
+        for (uint32_t i = 0; i < NWORKERS; ++i)
+            add_to_manage_q(workers[i]);
+    }
     add_to_manage_q(decoder);
 
     std::cerr << "Kaspr: MDP3 channel " << chan << " configured" << std::endl;
