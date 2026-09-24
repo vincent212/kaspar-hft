@@ -20,6 +20,18 @@
 // These drive sample() directly instead of running the actor system. That is
 // deliberate: the arithmetic, the binning and the reject ladder are what can
 // be wrong, and none of them needs a scheduler.
+//
+// NOTE ON THE SHAPE OF THIS FILE. It was written against a four-series probe
+// (BOOK_L1/BOOK_L2/TRADE_L1/TRADE_L2) and a four-argument sample(). Leg 2 was
+// removed because that hop had no queue instrumentation and unpinned threads,
+// so it could not separate queueing from the scheduler -- and the test was not
+// updated with it, so this file had not compiled since. Two consequences are
+// now pinned explicitly rather than left implicit:
+//
+//   - sample() takes (payload, series, t2); series index == population index.
+//   - a REJECTED sample still opens a bin and still increments all_n, because
+//     all_n is taken before the reject ladder. It is a different denominator
+//     from the per-leg n[], and the tests below say so.
 
 #include <gtest/gtest.h>
 
@@ -119,12 +131,11 @@ TEST(LatencyProbe, GapsAreMaterialisedAsEmptyBins)
   const uint64_t k = base_key();
 
   auto pl = make_pl(k + 1000, k + 2000);
-  p.sample(pl.get(), LatencyProbe::BOOK_L1, LatencyProbe::BOOK_L2, k + 3000);
+  p.sample(pl.get(), LatencyProbe::BOOK_L1, k + 3000);
 
   // Next sample lands 5 bins later. The 4 silent bins in between must exist.
   auto pl2 = make_pl(k + 5 * BIN_NS + 1000, k + 5 * BIN_NS + 2000);
-  p.sample(pl2.get(), LatencyProbe::BOOK_L1, LatencyProbe::BOOK_L2,
-           k + 5 * BIN_NS + 3000);
+  p.sample(pl2.get(), LatencyProbe::BOOK_L1, k + 5 * BIN_NS + 3000);
 
   ASSERT_EQ(p.bins.size(), 6u);
   for (std::size_t i = 0; i < p.bins.size(); ++i)
@@ -147,8 +158,7 @@ TEST(LatencyProbe, SamplesInSameBinAccumulate)
   for (uint64_t i = 1; i <= 3; ++i)
   {
     auto pl = make_pl(k + 10000, k + 10000 + i * 1000);
-    p.sample(pl.get(), LatencyProbe::BOOK_L1, LatencyProbe::BOOK_L2,
-             k + 20000 + i * 1000);
+    p.sample(pl.get(), LatencyProbe::BOOK_L1, k + 20000 + i * 1000);
   }
 
   ASSERT_EQ(p.bins.size(), 1u);
@@ -168,19 +178,23 @@ TEST(LatencyProbe, BookAndTradeStaySeparate)
   const uint64_t k = base_key();
 
   auto b1 = make_pl(k + 1000, k + 2000);
-  p.sample(b1.get(), LatencyProbe::BOOK_L1, LatencyProbe::BOOK_L2, k + 4000);
+  p.sample(b1.get(), LatencyProbe::BOOK_L1, k + 4000);
 
   auto t1 = make_pl(k + 1000, k + 3000);
-  p.sample(t1.get(), LatencyProbe::TRADE_L1, LatencyProbe::TRADE_L2, k + 9000);
+  p.sample(t1.get(), LatencyProbe::TRADE_L1, k + 9000);
 
   ASSERT_EQ(p.bins.size(), 1u);
   const auto &b = p.bins[0];
   EXPECT_EQ(b.n[LatencyProbe::BOOK_L1], 1u);
   EXPECT_EQ(b.sum[LatencyProbe::BOOK_L1], 1000u);
-  EXPECT_EQ(b.sum[LatencyProbe::BOOK_L2], 2000u);
   EXPECT_EQ(b.n[LatencyProbe::TRADE_L1], 1u);
   EXPECT_EQ(b.sum[LatencyProbe::TRADE_L1], 2000u);
-  EXPECT_EQ(b.sum[LatencyProbe::TRADE_L2], 6000u);
+
+  // The full-population counters are per-population too, and they are the ones
+  // a rate is computed from, so a leak between them would not show up in the
+  // leg sums above.
+  EXPECT_EQ(b.all_n[LatencyProbe::POP_BOOK], 1u);
+  EXPECT_EQ(b.all_n[LatencyProbe::POP_TRADE], 1u);
 }
 
 // ---------------------------------------------------------------------------
@@ -198,14 +212,20 @@ TEST(LatencyProbe, ZeroHandlerStampIsRejectedNotFolded)
   const uint64_t k = base_key();
 
   auto pl = make_pl(0, k + 2000);
-  p.sample(pl.get(), LatencyProbe::BOOK_L1, LatencyProbe::BOOK_L2, k + 3000);
+  p.sample(pl.get(), LatencyProbe::BOOK_L1, k + 3000);
 
   EXPECT_EQ(p.rej_zero_t0, 1u);
   EXPECT_EQ(p.hist[LatencyProbe::BOOK_L1].n, 0u);
-  // Leg 2 is computable here (it needs only t1 and t2) but is deliberately
-  // dropped too, so both legs always share one denominator.
-  EXPECT_EQ(p.hist[LatencyProbe::BOOK_L2].n, 0u);
-  EXPECT_TRUE(p.bins.empty());
+
+  // THE TWO DENOMINATORS ARE DIFFERENT, and this is the test that pins it.
+  // A bin IS created and all_n IS incremented, because that counter is taken
+  // before the reject ladder on purpose: it counts everything that arrived.
+  // The leg counter n[] is taken after, so it counts only what was measurable.
+  // Dividing an all_n column by l1_n, or vice versa, is therefore wrong, and
+  // it is wrong silently.
+  ASSERT_EQ(p.bins.size(), 1u);
+  EXPECT_EQ(p.bins[0].all_n[LatencyProbe::POP_BOOK], 1u);
+  EXPECT_EQ(p.bins[0].n[LatencyProbe::BOOK_L1], 0u);
 }
 
 TEST(LatencyProbe, ZeroPublishStampIsRejected)
@@ -215,15 +235,25 @@ TEST(LatencyProbe, ZeroPublishStampIsRejected)
 
   const uint64_t k = base_key();
   auto pl = make_pl(k + 1000, 0);
-  p.sample(pl.get(), LatencyProbe::BOOK_L1, LatencyProbe::BOOK_L2, k + 3000);
+  p.sample(pl.get(), LatencyProbe::BOOK_L1, k + 3000);
 
   EXPECT_EQ(p.rej_zero_t1, 1u);
   EXPECT_EQ(p.hist[LatencyProbe::BOOK_L1].n, 0u);
+  // t1 == 0 is checked FIRST, so a payload missing both stamps is counted
+  // here and not in rej_zero_t0. The ladder order is what makes the two
+  // counters add up to the rejected total instead of double-counting.
+  EXPECT_EQ(p.rej_zero_t0, 0u);
 }
 
 // Both stamps are CLOCK_REALTIME, which NTP can step backwards. A negative
-// duration is not a small duration, so it is counted rather than clamped.
-TEST(LatencyProbe, BackwardsStampsAreRejectedPerLeg)
+// duration is not a small duration, so it is counted rather than clamped: on
+// unsigned subtraction t1 - t0 with t1 < t0 wraps to something near 2^64, and
+// one of those in a bin sum destroys the mean.
+//
+// There is only leg 1 left to reject on. The leg-2 half of this test (t2 < t1,
+// counted in rej_back_leg2) went with the leg itself -- see the series enum in
+// LatencyProbe.hpp for why that hop stopped being measurable.
+TEST(LatencyProbe, BackwardsLeg1IsRejected)
 {
   StubBook book;
   LatencyProbe p(&book, 1, "test", BIN_MS, "", 0);
@@ -231,22 +261,26 @@ TEST(LatencyProbe, BackwardsStampsAreRejectedPerLeg)
   const uint64_t k = base_key();
 
   auto a = make_pl(k + 5000, k + 1000); // t1 < t0
-  p.sample(a.get(), LatencyProbe::BOOK_L1, LatencyProbe::BOOK_L2, k + 9000);
+  p.sample(a.get(), LatencyProbe::BOOK_L1, k + 9000);
+
   EXPECT_EQ(p.rej_back_leg1, 1u);
-
-  auto b = make_pl(k + 1000, k + 9000); // t2 < t1
-  p.sample(b.get(), LatencyProbe::BOOK_L1, LatencyProbe::BOOK_L2, k + 5000);
-  EXPECT_EQ(p.rej_back_leg2, 1u);
-
   EXPECT_EQ(p.hist[LatencyProbe::BOOK_L1].n, 0u);
-  EXPECT_TRUE(p.bins.empty());
+
+  // Rejected after the bin was opened and counted -- same split as the
+  // zero-stamp case above.
+  ASSERT_EQ(p.bins.size(), 1u);
+  EXPECT_EQ(p.bins[0].all_n[LatencyProbe::POP_BOOK], 1u);
+  EXPECT_EQ(p.bins[0].n[LatencyProbe::BOOK_L1], 0u);
+  EXPECT_EQ(p.bins[0].sum[LatencyProbe::BOOK_L1], 0u) << "wrapped duration folded in";
 }
 
+// Checked before bin_for(), so unlike the rejects above this one produces no
+// bin at all.
 TEST(LatencyProbe, NullPayloadIsIgnored)
 {
   StubBook book;
   LatencyProbe p(&book, 1, "test", BIN_MS, "", 0);
-  p.sample(nullptr, LatencyProbe::BOOK_L1, LatencyProbe::BOOK_L2, base_key());
+  p.sample(nullptr, LatencyProbe::BOOK_L1, base_key());
   EXPECT_TRUE(p.bins.empty());
 }
 
@@ -302,8 +336,7 @@ TEST(LatencyProbe, CsvWritesOnlyCompletedBinsAndIsJoinable)
     {
       const uint64_t t0 = k + bin * BIN_NS + 1000;
       const uint64_t t1 = t0 + (bin + 1) * 1000;
-      p.sample(make_pl(t0, t1).get(), LatencyProbe::BOOK_L1,
-               LatencyProbe::BOOK_L2, t1 + 500);
+      p.sample(make_pl(t0, t1).get(), LatencyProbe::BOOK_L1, t1 + 500);
     }
   }
 
@@ -351,7 +384,11 @@ TEST(LatencyProbe, ShowWorkedExample)
   // Bin 0: quiet, 3 msgs, leg 1 about 4 us.
   // Bin 1: busy, 40 msgs, leg 1 about 30 us -- the shape a depth-driven
   //        latency would have.
-  const struct { int n; uint64_t leg1; uint64_t leg2; } script[] = {
+  //
+  // `obs_lag` is only the offset from publish to the probe's own observation.
+  // It used to be recorded as leg 2; it is not recorded any more, and it is
+  // kept here solely so t2 lands somewhere plausible rather than on t1.
+  const struct { int n; uint64_t leg1; uint64_t obs_lag; } script[] = {
       {3, 4000, 900}, {40, 30000, 12000}};
 
   for (int bin = 0; bin < 2; ++bin)
@@ -360,18 +397,18 @@ TEST(LatencyProbe, ShowWorkedExample)
       const uint64_t t0 = k + uint64_t(bin) * BIN_NS + 1000 + uint64_t(j);
       const uint64_t t1 = t0 + script[bin].leg1;
       p.sample(make_pl(t0, t1).get(), LatencyProbe::BOOK_L1,
-               LatencyProbe::BOOK_L2, t1 + script[bin].leg2);
+               t1 + script[bin].obs_lag);
     }
 
-  std::printf("\n  bin_key_ns            n   mean_leg1_ns  max_leg1_ns  mean_leg2_ns\n");
+  std::printf("\n  bin_key_ns            n   mean_leg1_ns  max_leg1_ns   all_n\n");
   for (const auto &b : p.bins)
   {
     const uint32_t n = b.n[LatencyProbe::BOOK_L1];
-    std::printf("  %llu  %3u   %10llu   %10u    %10llu\n",
+    std::printf("  %llu  %3u   %10llu   %10u   %5llu\n",
                 (unsigned long long)b.key, n,
                 (unsigned long long)(n ? b.sum[LatencyProbe::BOOK_L1] / n : 0),
                 b.max[LatencyProbe::BOOK_L1],
-                (unsigned long long)(n ? b.sum[LatencyProbe::BOOK_L2] / n : 0));
+                (unsigned long long)b.all_n[LatencyProbe::POP_BOOK]);
   }
   std::printf("  lifetime book_leg1: n=%llu min=%llu max=%llu mean=%llu\n\n",
               (unsigned long long)p.hist[LatencyProbe::BOOK_L1].n,
