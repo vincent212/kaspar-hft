@@ -1,0 +1,114 @@
+diff --git a/mdp3/include/mdp3/DataDecoder.hpp b/mdp3/include/mdp3/DataDecoder.hpp
+index 4a191cd..ad0b27e 100644
+--- a/mdp3/include/mdp3/DataDecoder.hpp
++++ b/mdp3/include/mdp3/DataDecoder.hpp
+@@ -88,7 +88,7 @@ namespace mdp3
+                 || tid == sbe::MDIncrementalRefreshTradeSummary48::sbeTemplateId(); // MBO trade
+         }
+ 
+-        struct scan_result { uint32_t count; bool all_hot; bool has_hot; bool corrupt; };
++        struct scan_result { uint32_t count; bool all_hot; bool has_hot; bool corrupt; uint16_t cold_tid; };
+ 
+         // Walk the packet's SBE messages WITHOUT decoding: count them and report
+         // whether EVERY one is hot (all_hot -> parallelizable) and whether ANY is
+@@ -102,6 +102,7 @@ namespace mdp3
+             bool all_hot = true;
+             bool has_hot = false;
+             bool corrupt = false;
++            uint16_t cold_tid = 0;
+             while (p < end)
+             {
+                 const uint16_t MsgSize    = *reinterpret_cast<const uint16_t *>(p);
+@@ -118,11 +119,15 @@ namespace mdp3
+                 if (is_hot_template(TemplateID))
+                     has_hot = true;
+                 else
++                {
+                     all_hot = false;
++                    if (cold_tid == 0)
++                        cold_tid = TemplateID;
++                }
+                 p += MsgSize;
+                 ++count;
+             }
+-            return {count, all_hot, has_hot, corrupt};
++            return {count, all_hot, has_hot, corrupt, cold_tid};
+         }
+ 
+         // The dispatch loop: hand each SBE message to a warm worker (round-robin),
+@@ -641,6 +646,25 @@ namespace mdp3
+         {
+             const auto sr = scan(m->data, m->len);
+ 
++            // ---- PACKET-PURITY CENSUS (probe tree only, never committed) ----
++            // main ASSERTs here that no packet mixes hot (book/trade) with cold.
++            // Live CME violates that within seconds. Count instead of aborting so
++            // we can publish HOW MUCH of the feed the parallel path can take.
++            // NOTE: with the assert off the books are WRONG (the inline path and
++            // the Reconstructor keep separate orderid maps), so latency numbers
++            // from this build are NOT article-comparable. Census only.
++            ++census_pkts_;
++            census_msgs_ += sr.count;
++            if (sr.corrupt)          ++census_corrupt_;
++            else if (sr.count == 0)  ++census_empty_;
++            else if (sr.all_hot)   { ++census_allhot_; census_allhot_msgs_ += sr.count; }
++            else if (sr.has_hot)   { ++census_mixed_;  census_mixed_msgs_  += sr.count;
++                                     ++census_cold_tid_[sr.cold_tid]; }
++            else                   { ++census_allcold_; census_cold_msgs_  += sr.count;
++                                     ++census_cold_tid_[sr.cold_tid]; }
++            if ((census_pkts_ % 20000) == 0)
++                census_report();
++
+             // All-hot, well-formed packet: fan out to the worker fleet. Copy the
+             // packet into a DataDecoder-owned slot (kept alive until every worker
+             // reports DecodeDone), dispatch zero-copy DecodeReqs into it, reply now.
+@@ -672,10 +696,7 @@ namespace mdp3
+             // the orderid map from the Reconstructor's. Trip if that is violated --
+             // but NOT for a corrupt packet (that is a malformed feed, not a mixed
+             // one; mbo_data below logs it and triggers recovery).
+-            if (!sr.corrupt)
+-                ASSERTF(!sr.has_hot, boost::format(
+-                    "mixed hot+cold packet: book/trade on the inline path splits the "
+-                    "orderid map -- parallel-decode assumption violated"));
++            // CENSUS BUILD: assert disabled, see census block above.
+ 
+             // Cold packet, corrupt packet, or parallel off: decode inline.
+             // Serial, single thread, so the handler member is the right place
+@@ -721,6 +742,37 @@ namespace mdp3
+             }
+         }
+ 
++        // ---- packet-purity census (probe tree only) ----
++        uint64_t census_pkts_ = 0, census_msgs_ = 0;
++        uint64_t census_allhot_ = 0, census_mixed_ = 0, census_allcold_ = 0;
++        uint64_t census_corrupt_ = 0, census_empty_ = 0;
++        uint64_t census_allhot_msgs_ = 0, census_mixed_msgs_ = 0, census_cold_msgs_ = 0;
++        std::map<uint16_t, uint64_t> census_cold_tid_;
++
++    public:
++        void census_report() const
++        {
++            const double p = census_pkts_ ? 100.0 / double(census_pkts_) : 0.0;
++            const double m = census_msgs_ ? 100.0 / double(census_msgs_) : 0.0;
++            fprintf(stderr,
++                    "CENSUS pkts=%lu all_hot=%lu(%.2f%%) mixed=%lu(%.2f%%) "
++                    "all_cold=%lu(%.2f%%) corrupt=%lu empty=%lu | "
++                    "msgs=%lu in_allhot=%lu(%.2f%%) in_mixed=%lu(%.2f%%) in_cold=%lu(%.2f%%)\n",
++                    census_pkts_,
++                    census_allhot_, census_allhot_ * p,
++                    census_mixed_, census_mixed_ * p,
++                    census_allcold_, census_allcold_ * p,
++                    census_corrupt_, census_empty_,
++                    census_msgs_,
++                    census_allhot_msgs_, census_allhot_msgs_ * m,
++                    census_mixed_msgs_, census_mixed_msgs_ * m,
++                    census_cold_msgs_, census_cold_msgs_ * m);
++            for (const auto &kv : census_cold_tid_)
++                fprintf(stderr, "CENSUS   cold_tid %5u : %lu\n", kv.first, kv.second);
++            fflush(stderr);
++        }
++
++    private:
+         feed_handler_if *cb;
+         bool debug;
+         char name_[256];
