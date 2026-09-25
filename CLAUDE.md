@@ -21,6 +21,8 @@ Read these files before making changes:
 3. **Shadow algorithm** — `light/SHADOW_ALGORITHM.md` — how the execution lights work (placement, cancellation, throttling, QCoord/PCoord coordination).
 4. **File structure** — `FILE_STRUCTURE.md` — complete directory and file inventory with descriptions.
 5. **Actor inventory** — `ACTORS_INVENTORY.md` — every actor in the system, its header, library, and purpose.
+6. **Latency measurement** — `kaspr/perf/README.md` — how to measure MD handler performance end to end: pipeline, build flags, `run_probe.sh`, the three output formats, and an index of all 21 `kh_*.py` analysis scripts. Read before quoting any latency number.
+7. **Decode paths** — `tech_reports/serial_vs_parallel_decode.md` — serial vs parallel decode, measured. Parallel is RESEARCH ONLY and slower; production runs `cme_decode_workers 0`.
 
 ## Build
 
@@ -38,8 +40,15 @@ cd ~/m2_kaspar
 # Generate the CME SBE codecs (once, or after they change) — pinned versions
 KSPRPROJ=~/m2_kaspar make schema
 
-# Build all libraries + kaspr executable (optimized)
+# Build all libraries (optimized). NOTE: this does NOT build the kaspr binary --
+# the loop omits kaspr/src and still exits 0, so a missing executable looks like
+# success. Build it with the next command.
 KSPRPROJ=~/m2_kaspar make
+
+# Build the kaspr executable (add USE_TACHBOOK=1 for MBO L3 books or the
+# latency probe -- without that define create_probes() is not compiled in and a
+# probe run records nothing, silently)
+cd kaspr/src && KSPRPROJ=~/m2_kaspar USE_TACHBOOK=1 make
 
 # Rebuild kaspr executable with MBO L3 order book (for live trading)
 cd kaspr/src && KSPRPROJ=~/m2_kaspar USE_TACHBOOK=1 make

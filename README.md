@@ -148,6 +148,10 @@ the binned CSV — a "p99" of bin maxima overstates the true per-message p99 by
 and including them turns a 15 µs mean into an 11 ms one. `drop_startup()` in
 `kh_report.py` is the codified rule.
 
+**Full pipeline, build flags, run flags and an index of all 21 analysis scripts:
+[`kaspr/perf/README.md`](kaspr/perf/README.md).** Start with `kh_sane.py`
+(integrity) then `kh_msg.py` (percentiles).
+
 ## Actor Framework
 
 The actor framework provides a uniform concurrency model for the entire system. Coding agents will pick up the documentation and will write actor components for you. All you have to do is fill in
