@@ -116,7 +116,6 @@ namespace mdp3
             uint32_t i = 0;
             while (p < end)
             {
-                const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
                 // CME packets are well-formed by construction: every frame carries
                 // a non-zero MsgSize (>= the 10-byte length+SBE header) and the
                 // frames tile the packet exactly. A zero or over-long MsgSize is
@@ -124,6 +123,13 @@ namespace mdp3
                 // decode bug -- so fail loud here rather than silently truncate the
                 // packet (matches RecoveryProcessor's ERR on the snapshot feed and
                 // mbo_data's abort-and-recover on the serial path).
+                //
+                // Check the 2-byte length prefix fits BEFORE reading it, so a
+                // truncated tail can never over-read past `end` into the prefix.
+                ASSERTF(p + sizeof(uint16_t) <= end,
+                        boost::format("dispatch: truncated SBE length prefix at offset %ld of %zu (seq %u)")
+                            % (p - databuf) % len % msgSeqNum);
+                const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
                 ASSERTF(MsgSize >= 10 && p + MsgSize <= end,
                         boost::format("dispatch: malformed SBE frame, MsgSize=%u at offset %ld of %zu (seq %u)")
                             % MsgSize % (p - databuf) % len % msgSeqNum);
