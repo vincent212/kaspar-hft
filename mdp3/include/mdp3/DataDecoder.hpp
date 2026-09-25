@@ -121,22 +121,38 @@ namespace mdp3
         // byte what a DecodeWorker would have sent, minus the queue hops. Returns
         // the number of messages decoded, so the caller advances order_seq_ by
         // exactly the same amount dispatch() would have.
+        // `ok` is set false if ANY message in the packet failed a critical decode.
+        // The caller MUST propagate it: decode_one returns false when a book or
+        // trade template throws, which means the book is now missing updates and
+        // only recovery can resync it. Swallowing that diverges the book silently
+        // until the next gap -- the failure mode the serial path's own comment
+        // ("never silently swallow a malformed feed") exists to prevent.
         uint32_t decode_inline(const char *databuf, std::size_t len, uint64_t ts,
-                               uint64_t order_seq_base, uint32_t qlen) noexcept
+                               uint64_t order_seq_base, uint32_t qlen,
+                               bool &ok) noexcept
         {
             const uint32_t msgSeqNum   = *reinterpret_cast<const uint32_t *>(databuf);
             const uint64_t sendingTime = *reinterpret_cast<const uint64_t *>(databuf + 4);
             const char *p = databuf + 12;
             const char *const end = databuf + len;
             uint32_t i = 0;
+            ok = true;
             while (p < end)
             {
-                // Framing already validated by count_messages() on this same packet.
+                // Framing already validated by count_messages()'s ASSERTFs on this
+                // same packet -- which compile out under -DNOASSERT, so under that
+                // flag neither walk validates anything. NOASSERT is defined nowhere
+                // today; if that changes, this walk needs its own bounds check.
                 const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
                 inline_sink_->seed(order_seq_base + i, qlen);
                 bool is_channel_reset = false; // applied via the l3_chr_v2_t entry
-                decode_one(const_cast<char *>(p), MsgSize, ts, msgSeqNum, sendingTime,
-                           inline_sink_, is_channel_reset, /*debug=*/false);
+                if (!decode_one(const_cast<char *>(p), MsgSize, ts, msgSeqNum, sendingTime,
+                                inline_sink_, is_channel_reset, /*debug=*/false))
+                    ok = false;
+                // Flush regardless: entries built before the throw were already
+                // applied, and the Reconstructor's expected_seq_ must advance for
+                // every dispatched message or the stream stalls. Recovery is the
+                // caller's job, via the returned `ok`.
                 inline_sink_->flush();
                 p += MsgSize;
                 ++i;
@@ -728,13 +744,20 @@ namespace mdp3
                                                   : UINT32_MAX;
                 if (nmsg <= INLINE_MAX_MSGS)
                 {
+                    bool ok = true;
                     if (nmsg)
                     {
                         const uint32_t k = decode_inline(m->data, m->len, m->ts,
-                                                         order_seq_, m->qlen);
+                                                         order_seq_, m->qlen, ok);
                         order_seq_ += k;
                     }
-                    reply(new msg::DecodeResult(true, false));
+                    // Propagate a critical decode failure, exactly as the serial
+                    // path does with mbo_data's return: MessageProcessor logs and
+                    // calls do_data_recovery() on rc=false. The fan-out path reaches
+                    // the same outcome the long way round, via DecodeDone.ok ->
+                    // pp.failed -> TriggerRecovery. All three paths must agree; a
+                    // book missing updates cannot be left to the next gap.
+                    reply(new msg::DecodeResult(ok, false));
                     return;
                 }
 

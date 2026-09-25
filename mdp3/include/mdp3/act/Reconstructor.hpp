@@ -179,7 +179,20 @@ namespace mdp3
     {
       if (l3.updateAction != 'A' && l3.updateAction != 'M')
         return;
-      const std::string key = treas_only_ ? std::string(l3.asset) : std::string(l3.sym);
+      // Must mirror handler_if's lookup exactly, or the parallel path resolves a
+      // different asset_id than serial for the same definition.
+      //
+      // On treasury channels that means CONTRACT FIRST, asset as fallback -- not
+      // asset alone. universe.csv registers futures under the contract
+      // (F,ZNZ6,ZN,ZN,...), so get_asset("ZN") returns null and asset_map_ never
+      // receives the futures mapping; route() then drops every ZNZ6/ZFZ6/ZBZ6/
+      // ZTZ6/UBZ6 book message. That is the same silent 0-mappings failure fixed
+      // on the serial side (113,261 packets received, 0 mappings), and keying on
+      // `asset` here would have re-opened it on this path. Cash instruments (UB10)
+      // still resolve through the fallback.
+      std::string key = std::string(l3.sym);
+      if (treas_only_ && !frame::ref::RefData::inst().get_asset(key))
+        key = std::string(l3.asset);
       auto a = frame::ref::RefData::inst().get_asset(key);
       if (a)
         asset_map_[l3.securityID] = a->id;

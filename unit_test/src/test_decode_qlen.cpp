@@ -334,3 +334,64 @@ TEST_F(DecodeWorkerQlenTest, ZeroDepthIsPreservedAsAMeasurement)
 }
 
 } // namespace
+
+// ---------------------------------------------------------------------------
+// the inline bypass: count_messages / decode_inline / INLINE_MAX_MSGS
+// ---------------------------------------------------------------------------
+//
+// This path carries ~99% of production packets (measured: CME packets hold
+// 1.06-1.10 messages, p90 = 1) and shipped with no test at all -- which is how
+// it shipped swallowing critical decode failures while 370/370 passed. The
+// count/dispatch equivalence below is the invariant the bypass rests on: if the
+// two walks ever disagree on the message count, order_seq_ advances by the wrong
+// amount and the Reconstructor's expected_seq_ stalls permanently.
+
+namespace {
+
+// count_messages() must agree with dispatch() on EVERY packet shape, because the
+// bypass decides on the first and order_seq_ is advanced by whichever runs.
+TEST(DataDecoderInlineBypassTest, CountAgreesWithDispatchOnEveryShape)
+{
+  mdp3::DataDecoder decoder{&noop_handler(), false, 10, false};
+  MockActor w0{"W0"}, w1{"W1"};
+  actor_ptr workers[2] = {&w0, &w1};
+  MockActor coord{"Coord"};
+
+  for (int n : {1, 2, 3, 4, 8, 9, 16})
+  {
+    auto pkt = make_hdr_pkt(n);
+    const uint32_t counted = decoder.count_messages(pkt.data(), pkt.size());
+    const uint32_t dispatched = decoder.dispatch(pkt.data(), pkt.size(), /*ts=*/1,
+                                                 /*order_seq_base=*/0, /*parent_id=*/1,
+                                                 workers, /*worker_mask=*/1, &coord,
+                                                 /*qlen=*/0);
+    EXPECT_EQ(counted, static_cast<uint32_t>(n)) << "count_messages n=" << n;
+    EXPECT_EQ(counted, dispatched) << "count/dispatch disagree at n=" << n;
+  }
+}
+
+// An empty packet (header only) must count zero rather than walk off the end.
+TEST(DataDecoderInlineBypassTest, HeaderOnlyPacketCountsZero)
+{
+  mdp3::DataDecoder decoder{&noop_handler(), false, 10, false};
+  auto pkt = make_hdr_pkt(0);
+  EXPECT_EQ(decoder.count_messages(pkt.data(), pkt.size()), 0u);
+}
+
+// The threshold is a property the measurement depends on: at or below it the
+// packet must take the inline path, above it the fan-out. Pinned so a later
+// tweak to INLINE_MAX_MSGS cannot silently change which path production uses.
+TEST(DataDecoderInlineBypassTest, ThresholdSplitsAtInlineMaxMsgs)
+{
+  EXPECT_EQ(mdp3::DataDecoder::INLINE_MAX_MSGS, 8u);
+
+  mdp3::DataDecoder decoder{&noop_handler(), false, 10, false};
+  for (int n : {1, 2, 8})
+    EXPECT_LE(decoder.count_messages(make_hdr_pkt(n).data(), make_hdr_pkt(n).size()),
+              mdp3::DataDecoder::INLINE_MAX_MSGS) << "n=" << n << " should bypass";
+  for (int n : {9, 16, 34})
+    EXPECT_GT(decoder.count_messages(make_hdr_pkt(n).data(), make_hdr_pkt(n).size()),
+              mdp3::DataDecoder::INLINE_MAX_MSGS) << "n=" << n << " should fan out";
+}
+
+} // namespace
