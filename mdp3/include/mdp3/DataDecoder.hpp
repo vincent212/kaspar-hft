@@ -652,13 +652,14 @@ namespace mdp3
         {
             const auto sr = scan(m->data, m->len);
 
-            // All-hot, well-formed packet: fan out to the worker fleet. Copy the
-            // packet into a DataDecoder-owned slot (kept alive until every worker
-            // reports DecodeDone), dispatch zero-copy DecodeReqs into it, reply now.
-            // A corrupt packet (scan hit MsgSize==0) is NOT parallelized -- it falls
-            // to the inline mbo_data below, which logs the error and fails the
-            // packet so the caller initiates recovery.
-            if (parallel_decode_ && !sr.corrupt && sr.count > 0 && sr.all_hot)
+            // Parallel ON and well-formed: fan EVERY message out to the worker
+            // fleet with a dense order_seq. The Reconstructor resequences and
+            // applies them all in exact wire order -- book, trade, definition,
+            // reset alike -- so there is no hot/cold split, no second orderid map,
+            // and no mixed-packet abort. Messages the workers do not turn into
+            // entries (stats/volume) flush an empty batch, which still advances
+            // the Reconstructor's expected order_seq, so the stream never stalls.
+            if (parallel_decode_ && !sr.corrupt && sr.count > 0)
             {
                 const uint64_t pid = next_parent_id_++;
                 const uint64_t base = order_seq_;
@@ -674,34 +675,14 @@ namespace mdp3
                 // worker threads read while decoding other packets.
                 dispatch(pp.buf.message.data(), m->len, m->ts, base, pid,
                          workers_, worker_mask_, this, m->qlen);
-                reply(new msg::DecodeResult(true, false)); // hot packets never channel-reset
+                // is_channel_reset stays false in the reply: a ChannelReset in the
+                // packet is applied by the Reconstructor (l3_chr_v2_t -> clear the
+                // orderid map) in wire order, not signalled back through here.
+                reply(new msg::DecodeResult(true, false));
                 return;
             }
 
-            // Not all-hot, and parallel decode is ON. The parallel design ASSUMES a
-            // packet never mixes hot (book/trade) with cold templates; if it did,
-            // book/trade would take this inline path and split the orderid map from
-            // the Reconstructor's. Trip if that is violated -- but NOT for a corrupt
-            // packet (that is a malformed feed, not a mixed one; mbo_data below logs
-            // it and triggers recovery).
-            //
-            // The parallel_decode_ guard is NOT cosmetic. With parallel off there is
-            // no Reconstructor and no second orderid map, so a hot message on the
-            // inline path is simply the serial decoder doing its job -- the whole
-            // feed is hot. Without the guard this asserts on the first book packet
-            // and the serial path cannot run at all.
-            //
-            // KNOWN, MEASURED: with parallel ON this still fires. Census on live ES
-            // chan 310 over 80,000 packets: 3.03% of packets (10.21% of messages)
-            // are mixed, and the cold template is MDIncrementalRefreshVolume37 in
-            // 1,419 of 1,419 cases. Splitting the packet -- hot to the workers, cold
-            // inline -- is the fix, and it is not done yet.
-            if (parallel_decode_ && !sr.corrupt)
-                ASSERTF(!sr.has_hot, boost::format(
-                    "mixed hot+cold packet: book/trade on the inline path splits the "
-                    "orderid map -- parallel-decode assumption violated"));
-
-            // Cold packet, corrupt packet, or parallel off: decode inline.
+            // Corrupt packet, or parallel off (serial default): decode inline.
             // Serial, single thread, so the handler member is the right place
             // for the depth -- this is the same call main makes from
             // MessageProcessor.

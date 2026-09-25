@@ -18,6 +18,7 @@
 #include "bfile/r_l3.hpp"
 #include "enum/e_names.hpp"
 #include "frame/mda/msg/Data.hpp"
+#include "frame/ref/RefData.hpp"
 #include "mdp3/msg/ParsedMsg.hpp"
 #include "mdp3/msg/AssetMap.hpp"
 #include "mdp3/msg/ResetMBO.hpp"
@@ -108,6 +109,10 @@ namespace mdp3
           apply_book(std::get<bfile::l3_mbo_v2_t>(e));
         else if (std::holds_alternative<bfile::l3_mbo_trd_v2_t>(e))
           apply_trade(std::get<bfile::l3_mbo_trd_v2_t>(e));
+        else if (std::holds_alternative<bfile::l3_fdf_t>(e))
+          apply_def(std::get<bfile::l3_fdf_t>(e));
+        else if (std::holds_alternative<bfile::l3_chr_v2_t>(e))
+          orderid_to_securityid_.clear(); // ChannelReset, applied in wire order
       }
     }
 
@@ -135,8 +140,29 @@ namespace mdp3
       // TODO: if (l3.endOfEvent) emit_burstend();
     }
 
-    // A definition mapped securityID -> asset_id (sent by handler_if). Update our
-    // own copy on THIS actor's thread so route() never touches the shared map.
+    // Instrument definition in the ordered stream: resolve the asset off the
+    // RefData singleton (same lookup handler_if does) and update THIS actor's
+    // asset_map_, in wire order with the book stream. This replaces the
+    // out-of-band AssetMap message for the parallel path.
+    //
+    // Minimal by design: it establishes securityID -> asset_id for routing. It
+    // does NOT re-run handler_if's full RefData configuration (price units, cfi,
+    // security group). On the live incremental feed definitions do not appear
+    // (census: 2 all-cold of 120,000 packets; every mixed cold was Volume37) --
+    // they arrive during instrument recovery, which still runs through handler_if
+    // and configures RefData there. So this only has to keep routing correct.
+    void apply_def(const bfile::l3_fdf_t &l3) noexcept
+    {
+      if (l3.updateAction != 'A' && l3.updateAction != 'M')
+        return;
+      auto a = frame::ref::RefData::inst().get_asset(std::string(l3.sym));
+      if (a)
+        asset_map_[l3.securityID] = a->id;
+    }
+
+    // A definition mapped securityID -> asset_id (sent by handler_if, e.g. during
+    // instrument recovery). Update our own copy on THIS actor's thread so route()
+    // never touches the shared map.
     void on_asset_map(const msg::AssetMap *m) noexcept
     {
       asset_map_[m->securityID] = m->asset_id;

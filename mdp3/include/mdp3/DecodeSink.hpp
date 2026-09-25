@@ -131,11 +131,27 @@ namespace mdp3
         uint8_t, int64_t, int64_t, uint8_t, char) noexcept override {}
     void MDIncrementalRefreshDailyStatistics(uint32_t, uint64_t, uint64_t, uint32_t,
         int64_t, int8_t, int32_t, char, bool, bool, uint8_t, uint16_t) noexcept override {}
-    void MDInstrumentDefinitionFuture(uint32_t, uint64_t, char*, char*, char*, int64_t,
-        int8_t, int64_t, int8_t, int64_t, int8_t, int32_t, char, uint8_t, uint64_t,
+    // Instrument definition (future): carries the securityID->asset mapping that
+    // route() needs. Emit a minimal l3_fdf_t (sym/asset/securityID/action); the
+    // Reconstructor resolves the asset_id off RefData and updates ITS map, IN
+    // order_seq order with the book stream -- so a definition and the book
+    // messages that depend on it can never race.
+    void MDInstrumentDefinitionFuture(uint32_t, uint64_t, char* sym, char* asset, char*, int64_t,
+        int8_t, int64_t, int8_t, int64_t, int8_t, int32_t securityID, char updateAction, uint8_t, uint64_t,
         uint64_t, char*, uint8_t, char, uint8_t, int64_t, uint8_t, uint8_t, char,
         int64_t, int8_t, uint8_t, char*, uint8_t, uint16_t, uint16_t, uint16_t, int32_t,
-        int32_t, uint16_t, char*, int64_t, uint8_t) noexcept override {}
+        int32_t, uint16_t, char*, int64_t, uint8_t) noexcept override
+    {
+      bfile::l3_fdf_t l3;
+      memset(&l3, 0, sizeof(l3));
+      l3.typ = en::l3::FDF;
+      l3.venue = xchg_;
+      strncpy(l3.sym, sym, sizeof(l3.sym));
+      strncpy(l3.asset, asset, sizeof(l3.asset));
+      l3.securityID = securityID;
+      l3.updateAction = updateAction;
+      batch_.emplace_back(l3);
+    }
     void MDInstrumentDefinitionOption(uint32_t, uint64_t, char*, char*, char*, int64_t,
         int8_t, int64_t, int8_t, int32_t, char, uint64_t, uint64_t, char*, uint8_t,
         uint8_t, char, uint8_t, int64_t, uint8_t, uint8_t, int64_t, uint8_t, uint8_t,
@@ -148,7 +164,17 @@ namespace mdp3
         int32_t*, int8_t*, int64_t*, int8_t*, int8_t*, int32_t*, uint8_t*, int64_t,
         int8_t, uint8_t, char*, uint8_t, uint16_t, int32_t, int32_t, uint16_t,
         char*) noexcept override {}
-    void ChannelReset(uint32_t, uint64_t, uint64_t, const char*) noexcept override {}
+    // ChannelReset: emit an l3_chr_v2_t so the Reconstructor drops its orderID
+    // map IN order_seq order (not via the out-of-band ResetMBO), so a reset and
+    // the book messages around it stay correctly sequenced.
+    void ChannelReset(uint32_t, uint64_t, uint64_t, const char*) noexcept override
+    {
+      bfile::l3_chr_v2_t l3;
+      memset(&l3, 0, sizeof(l3));
+      l3.typ = en::l3::CHR_V2;
+      l3.venue = xchg_;
+      batch_.emplace_back(l3);
+    }
     void SnapshotFullRefreshOrderBook_NR(uint32_t, uint32_t, uint32_t, uint64_t,
         uint64_t, uint32_t, uint32_t, int32_t, int32_t, int64_t, int64_t, char,
         uint64_t, uint64_t) noexcept override {}
