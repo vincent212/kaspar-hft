@@ -56,10 +56,27 @@ Kaspar's market-data and order-entry stacks are complete session implementations
 
 ```bash
 ./build.sh schema        # generate the CME SBE codecs (pinned versions)
-./build.sh               # full build (== make all)
+./build.sh               # libraries (== make all)
+./build.sh -C kaspr/src  # the kaspr binary -- see note below
 ./build.sh debug         # debug build
 ./build.sh -C actors/cpp # build just one component
 ```
+
+Two things the quick start does not do:
+
+- **`./build.sh` alone does not build the `kaspr` binary.** The default target
+  builds the libraries and exits 0, so a missing executable looks like success.
+  Build it explicitly with `./build.sh -C kaspr/src`, and add
+  `USE_TACHBOOK=1` if you need TachBook MBO L3 books or the latency probe
+  (without that define `create_probes()` is not compiled in at all and a probe
+  run writes no samples).
+- **`./build.sh schema` needs network access to CME** (`sftpng.cmegroup.com`,
+  plus Java and Python `paramiko`). Without it the codecs cannot be generated
+  and the build stops before compiling anything. The codecs are pinned — MDP3
+  v12, iLink 3 v8 — and are not committed; if you already have a generated set,
+  copying it into `mdp3_sbe/` and `ilink3_sbe/` is enough. Verify
+  `SBE_SCHEMA_VERSION = 12` before trusting the result: CME's current templates
+  are v13 and regenerating against "latest" breaks the pin.
 
 ## Operating Modes
 
@@ -68,6 +85,68 @@ Kaspar's market-data and order-entry stacks are complete session implementations
 | **PCAP Replay** | `.pcap` files | SOM (simulated) | OB (MBP) | Backtesting, strategy development |
 | **Paper Trading** | Live CME multicast | SOM (simulated) | OB (MBP) | Forward testing with real data |
 | **Live Trading** | Live CME multicast | iLink 3 to CME | TachBook (MBO L3) | Production execution |
+
+## Decode Paths — serial vs parallel
+
+MDP3 packet decode has two implementations, selected per channel by
+`cme_decode_workers` in `cme.ini` (`kaspr.cpp`, `start_channel()`).
+
+| | `cme_decode_workers 0` (default) | `cme_decode_workers N` (N a power of two) |
+|---|---|---|
+| decode | inline via `mbo_data()` on the MessageProcessor thread | fanned out to a warm `DecodeWorker` fleet |
+| routing | straight into `handler_if` | `ParsedMsg` → `Reconstructor`, resequenced by `order_seq` |
+| copies / allocs | none | packet memcpy + `pending_` map slot per packet |
+| status | **the supported path** | **RESEARCH ONLY — not for production** |
+
+> **The parallel decoder is a research path. Do not run it in production.**
+> It is slower than serial at every book percentile measured (below), and it is
+> not validated for correctness: no dual-path replay has confirmed that its
+> output matches serial, and some message types are not routed on it yet
+> (stats/volume flush empty batches, option and spread definitions are not
+> handled). It exists to answer whether fanning decode across cores pays on this
+> feed. The measured answer is no. Keep `cme_decode_workers 0`.
+
+**Use the serial path.** Measured against live CME production over three 900 s
+windows, serial is faster on every book series at every percentile — 2.1–2.2× at
+the median and 2.4–3.2× at p99 — and its medians match the published
+`qlen==0 AND idx==0` intercept:
+
+| | serial p50 | parallel p50 | serial p99 | parallel p99 |
+|---|---|---|---|---|
+| ES book | 6.65 µs | 13.71 µs | 19.10 µs | 49.18 µs |
+| NQ book | 6.36 µs | 14.09 µs | 12.35 µs | 39.45 µs |
+| ZN book | 7.11 µs | 14.25 µs | 63.30 µs | 91.80 µs |
+
+The reason is the feed shape, not the implementation: CME packets carry **1.06–1.10
+messages** (p50 = 1, p90 = 1), so a fan-out dispatches one message to one worker
+and pays the full coordination cost — a 1500-byte packet copy, two `std::map`
+operations, and two extra actor hops — to parallelize work that takes well under
+a microsecond. Raising the worker count does not help: 64 workers (192 threads)
+measured within 4% of 8 at the median.
+
+Full method, results and reproduction steps:
+[`tech_reports/serial_vs_parallel_decode.md`](tech_reports/serial_vs_parallel_decode.md).
+
+### Latency probe
+
+The same binary runs as a wire-to-book latency probe with `perf_probe true`
+(plus `tachbook true` and `USE_TACHBOOK=1` at build time). `kaspr/run_probe.sh`
+drives it; it stops the live recorder for the window unless run with `-a`, and
+`--no-restart` leaves it down.
+
+Each probed instrument writes three files to `perf_csv_dir`:
+
+| file | contents |
+|---|---|
+| `lat_<sym>.csv` | 100 ms bins, 40 columns |
+| `lat_<sym>_<pop>.msg` | **per message**: `t1`, `l1_ns`, `qlen`, `idx` (16 B) |
+| `lat_<sym>_<pop>.arr` | **per packet**: `t0`, `seq`, `batch`, `span` (16 B) — serial path only |
+
+Analyse with `kaspr/perf/kh_msg.py` (per-message, exact qlen/latency pairs), not
+the binned CSV — a "p99" of bin maxima overstates the true per-message p99 by
+~1.7×. Always exclude instrument recovery first: its latencies are milliseconds,
+and including them turns a 15 µs mean into an 11 ms one. `drop_startup()` in
+`kh_report.py` is the codified rule.
 
 ## Actor Framework
 
