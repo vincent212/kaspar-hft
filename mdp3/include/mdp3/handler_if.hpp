@@ -1186,8 +1186,14 @@ struct handler_if : public mdp3::feed_handler_if
       binrec->send(recmsg, 0);
     }
 
-    // The book is cleared -> tell the Reconstructor to drop its orderID map so a
-    // reused orderID after the reset does not misroute (asset defs persist).
+    // The book is cleared -> drop OUR orderID map so a reused orderID after the
+    // reset cannot misroute. handler_if owns this map on the serial/inline decode
+    // path (New writes it, Trade reads it), and nothing else clears it -- without
+    // this a post-reset trade for a recycled orderID resolves to the stale
+    // securityID. (Fixes #122.)
+    orderid_to_securityid.clear();
+
+    // Same drop for the parallel path's Reconstructor, which owns its own copy.
     if (reconstructor)
       reconstructor->send(new mdp3::msg::ResetMBO(), nullptr);
   }
