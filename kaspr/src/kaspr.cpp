@@ -438,6 +438,7 @@ void Kaspr::create_mtd()
     add_to_manage_q(mtd);
 }
 
+template <bool TreasOnly>
 void Kaspr::start_channel(const std::string& config_name, en::x venue)
 {
     boost::property_tree::ptree pt_cme;
@@ -457,8 +458,9 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     auto p_cme = pt_mdp3.get_child("chan" + chanstr);
 
     // Create feed handler
-    // UseFastSend=false, TreasOnly=false
-    auto handler = new handler_if<false, false>(venue, chan);
+    // UseFastSend=false; TreasOnly from the template flag (treasury channels
+    // key RefData by asset). The Reconstructor below gets the SAME flag.
+    auto handler = new handler_if<false, TreasOnly>(venue, chan);
     handler->mbo_order_books = order_books.at(venue);
     handler->binrec = nullptr;
 
@@ -513,7 +515,7 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     {
         std::cerr << "Kaspr: chan " << chanstr << " PARALLEL decode, "
                   << NWORKERS << " workers -- experimental, not yet validated vs serial" << std::endl;
-        recon = new mdp3::Reconstructor(handler->mbo_order_books, venue, (uint32_t)chan, "P");
+        recon = new mdp3::Reconstructor(handler->mbo_order_books, venue, (uint32_t)chan, "P", TreasOnly);
         workers = new actor_ptr[NWORKERS]; // process-lifetime; set_workers keeps this array
         for (uint32_t i = 0; i < NWORKERS; ++i)
             workers[i] = new mdp3::DecodeWorker(recon, venue, i, (uint32_t)chan, "P");
@@ -642,7 +644,9 @@ void Kaspr::start_market_data()
     // failure as the TachBook ladder: the system reported normal operation
     // while producing nothing.
     if (pt_general.get<bool>("kaspr.channels.chan_344", false)) {
-        start_channel("prod_treasury_futures", en::x::CMEMDFUT);
+        // Treasury futures: TreasOnly=true -> handler_if and Reconstructor both
+        // key RefData by asset (not symbol), the treasury-specific lookup.
+        start_channel<true>("prod_treasury_futures", en::x::CMEMDFUT);
     }
 }
 

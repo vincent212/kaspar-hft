@@ -61,12 +61,18 @@ namespace mdp3
     // the VENUE, and channels 310/318/344 share one venue -- so a second CME
     // channel collided in Manager. "_P" marks the parallel path, matching
     // DataDecoder_P_310 / DecodeWorker_P_310_0.
+    // treas_only MUST match the handler_if<_, TreasOnly> for this channel: it
+    // selects the RefData lookup key in apply_def exactly as handler_if does
+    // (asset for treasury futures, symbol otherwise). Wired from the same flag in
+    // kaspr so the two can never disagree.
     Reconstructor(const std::vector<actor_ptr> &mbo_order_books,
                   en::x xchg,
                   uint32_t chan,
-                  const char *path_tag = "P")
+                  const char *path_tag = "P",
+                  bool treas_only = false)
         : mbo_order_books_(mbo_order_books),
-          xchg_(xchg)
+          xchg_(xchg),
+          treas_only_(treas_only)
     {
       snprintf(name_, sizeof(name_), "Reconstructor_%s_%u", path_tag, chan);
       MESSAGE_HANDLER(msg::ParsedMsg, on_parsed);
@@ -154,11 +160,17 @@ namespace mdp3
     // runs through handler_if and configures RefData there; on the live
     // incremental feed they are essentially absent. So this only has to keep
     // routing correct.
+    //
+    // Key selection mirrors handler_if::MDInstrumentDefinitionFuture EXACTLY:
+    // treasury futures key RefData by asset, everything else by symbol. Driven by
+    // treas_only_ (== the channel's handler_if<_, TreasOnly>), so the parallel
+    // path resolves to the same asset_id the serial/recovery path would.
     void apply_def(const bfile::l3_fdf_t &l3) noexcept
     {
       if (l3.updateAction != 'A' && l3.updateAction != 'M')
         return;
-      auto a = frame::ref::RefData::inst().get_asset(std::string(l3.sym));
+      const std::string key = treas_only_ ? std::string(l3.asset) : std::string(l3.sym);
+      auto a = frame::ref::RefData::inst().get_asset(key);
       if (a)
         asset_map_[l3.securityID] = a->id;
     }
@@ -223,6 +235,8 @@ namespace mdp3
     uint64_t expected_seq_ = 0;
 
     en::x xchg_;
+    // Matches handler_if<_, TreasOnly>; picks the apply_def RefData lookup key.
+    bool  treas_only_ = false;
     char  name_[256];
   };
 }

@@ -117,8 +117,16 @@ namespace mdp3
             while (p < end)
             {
                 const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
-                if (MsgSize == 0)
-                    break; // a zero can never advance the walk -- stop
+                // CME packets are well-formed by construction: every frame carries
+                // a non-zero MsgSize (>= the 10-byte length+SBE header) and the
+                // frames tile the packet exactly. A zero or over-long MsgSize is
+                // impossible on the wire -- it can only mean memory corruption or a
+                // decode bug -- so fail loud here rather than silently truncate the
+                // packet (matches RecoveryProcessor's ERR on the snapshot feed and
+                // mbo_data's abort-and-recover on the serial path).
+                ASSERTF(MsgSize >= 10 && p + MsgSize <= end,
+                        boost::format("dispatch: malformed SBE frame, MsgSize=%u at offset %ld of %zu (seq %u)")
+                            % MsgSize % (p - databuf) % len % msgSeqNum);
                 workers[i & worker_mask]->send(
                     new msg::DecodeReq(p, MsgSize, msgSeqNum, ts, sendingTime, order_seq_base + i, parent_id, qlen),
                     coordinator);
