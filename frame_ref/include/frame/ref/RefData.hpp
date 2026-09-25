@@ -478,6 +478,12 @@ namespace frame::ref
 #ifdef DEBUG
       ASSERTF(id < id_to_asset.size(), boost::format("request for bad asset id %d") % id);
 #endif
+      // Same shared_lock as the string/sec_id lookups: the id_to_asset slot is a
+      // pointer that the dynamic add_*_asset writers (unique_lock) can be storing
+      // into concurrently. Aligned pointer load/store is atomic on x86, but the
+      // formal data race is closed here so the parallel decode path (Reconstructor
+      // thread) and recovery (writer thread) cannot tear.
+      std::shared_lock<std::shared_mutex> lock(mtx);
       return id_to_asset[id];
     }
     inline const Asset *asset_from_sec_id(uint32_t id) const

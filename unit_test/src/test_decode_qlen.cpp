@@ -17,7 +17,7 @@
  *
  * On the serial path the depth is a handler_if member, set once per packet by
  * DataDecoder::set_ingress_qlen() immediately before mbo_data(). That cannot
- * work here: the hot path fans one packet out to N DecodeWorker threads, so a
+ * work here: the parallel path fans one packet out to N DecodeWorker threads, so a
  * single member on a shared handler would be read by a worker decoding a
  * DIFFERENT packet. The value therefore rides the request instead:
  *
@@ -25,7 +25,7 @@
  *       -> DecodePacket.qlen          (MessageProcessor::processq)
  *       -> DecodeReq.qlen             (DataDecoder::dispatch, per SBE message)
  *       -> DecodeSink::ingress_qlen_  (DecodeWorker::on_decode, per request)
- *       -> l3.ingress_qlen            (DecodeSink's two hot builders)
+ *       -> l3.ingress_qlen            (DecodeSink builders)
  *
  * Each link is pinned below. The DecodeSink builders memset the l3 before
  * filling it, so a dropped stamp does not read as garbage -- it reads as 0,
@@ -56,14 +56,22 @@ namespace {
 // link 4: DecodeSink stamps what the worker seeded onto every built record
 // ---------------------------------------------------------------------------
 
-// The sink only sends on flush(); these tests read batch_ directly and never
-// flush, so the reconstructor/self actor pointers are never dereferenced.
+// The sink only sends on flush(); these tests read the in-progress ParsedMsg
+// (sink.pm_) directly and never flush, so the reconstructor/self actor pointers
+// are never dereferenced.
+//
+// SetUp seeds once so pm_ exists: entries are now built straight into the pooled
+// message rather than into an intermediate vector, so a sink that was never
+// seeded has nowhere to put them. The tests below then set ingress_qlen_ by hand
+// to exercise the stamp independently of the seed path.
 class DecodeSinkQlenTest : public ::testing::Test
 {
 protected:
   mdp3::DecodeSink sink{nullptr, nullptr, en::x::CMEMDFUT};
 
-  void build_order() // the hot MBO book callback (from OrderBook47 / Book46)
+  void SetUp() override { sink.seed(/*order_seq=*/0, /*qlen=*/0); }
+
+  void build_order() // the MBO book callback (from OrderBook47 / Book46)
   {
     sink.MDIncrementalRefreshBook(
         /*recv_time=*/1, /*msgSeqNum=*/2, /*transactTime=*/3, /*sendingTime=*/4,
@@ -73,7 +81,7 @@ protected:
         /*recovery=*/false);
   }
 
-  void build_trade() // the hot MBO trade callback (from TradeSummary48)
+  void build_trade() // the MBO trade callback (from TradeSummary48)
   {
     sink.MDIncrementalRefreshTradeSummary(
         /*recv_time=*/1, /*msgSeqNum=*/2, /*transactTime=*/3, /*sendingTime=*/4,
@@ -82,11 +90,11 @@ protected:
 
   uint32_t order_qlen(size_t i) const
   {
-    return std::get<bfile::l3_mbo_v2_t>(sink.batch_[i]).ingress_qlen;
+    return std::get<bfile::l3_mbo_v2_t>((*sink.pm_)[i]).ingress_qlen;
   }
   uint32_t trade_qlen(size_t i) const
   {
-    return std::get<bfile::l3_mbo_trd_v2_t>(sink.batch_[i]).ingress_qlen;
+    return std::get<bfile::l3_mbo_trd_v2_t>((*sink.pm_)[i]).ingress_qlen;
   }
 };
 
@@ -94,7 +102,7 @@ TEST_F(DecodeSinkQlenTest, BookEntryCarriesTheSeededDepth)
 {
   sink.ingress_qlen_ = 37;
   build_order();
-  ASSERT_EQ(sink.batch_.size(), 1u);
+  ASSERT_EQ(sink.pm_->size(), 1u);
   EXPECT_EQ(order_qlen(0), 37u); // NOT 0: the memset must not win
 }
 
@@ -102,7 +110,7 @@ TEST_F(DecodeSinkQlenTest, TradeEntryCarriesTheSeededDepth)
 {
   sink.ingress_qlen_ = 58;
   build_trade();
-  ASSERT_EQ(sink.batch_.size(), 1u);
+  ASSERT_EQ(sink.pm_->size(), 1u);
   EXPECT_EQ(trade_qlen(0), 58u);
 }
 
@@ -114,7 +122,7 @@ TEST_F(DecodeSinkQlenTest, EveryEntryOfOneMessageGetsTheSameDepth)
   build_order();
   build_order();
   build_trade();
-  ASSERT_EQ(sink.batch_.size(), 3u);
+  ASSERT_EQ(sink.pm_->size(), 3u);
   EXPECT_EQ(order_qlen(0), 5u);
   EXPECT_EQ(order_qlen(1), 5u);
   EXPECT_EQ(trade_qlen(2), 5u);
@@ -129,7 +137,7 @@ TEST_F(DecodeSinkQlenTest, ReseedingAppliesToSubsequentEntriesOnly)
   build_order();
   sink.ingress_qlen_ = 400;
   build_order();
-  ASSERT_EQ(sink.batch_.size(), 2u);
+  ASSERT_EQ(sink.pm_->size(), 2u);
   EXPECT_EQ(order_qlen(0), 2u);
   EXPECT_EQ(order_qlen(1), 400u);
 }
@@ -226,7 +234,7 @@ struct TestWorker : public mdp3::DecodeWorker
   void set_reply_to(actors::Actor *a) { reply_to = a; }
 };
 
-// A genuine CME-framed MDIncrementalRefreshOrderBook47 (MBO book, a hot
+// A genuine CME-framed MDIncrementalRefreshOrderBook47 (MBO book, a
 // template) with `n` order entries, built with the generated SBE encoder so the
 // bytes are the ones the wire would carry. CME framing is
 // [MsgSize u16][SBE messageHeader 8B][body], hence the encoder offset of 2.
@@ -282,8 +290,8 @@ protected:
     std::vector<uint32_t> out;
     const auto *pm = recon.get_message<mdp3::msg::ParsedMsg>(idx);
     if (!pm) return out;
-    for (const auto &e : pm->entries)
-      out.push_back(std::get<bfile::l3_mbo_v2_t>(e).ingress_qlen);
+    for (std::size_t i = 0; i < pm->size(); ++i)
+      out.push_back(std::get<bfile::l3_mbo_v2_t>((*pm)[i]).ingress_qlen);
     return out;
   }
 };
@@ -298,7 +306,7 @@ TEST_F(DecodeWorkerQlenTest, RequestDepthReachesEveryDecodedRecord)
   ASSERT_EQ(recon.message_count(), 1u);
   const auto *pm = recon.get_message<mdp3::msg::ParsedMsg>(0);
   ASSERT_NE(pm, nullptr);
-  ASSERT_EQ(pm->entries.size(), 3u); // the encoder really did produce 3 entries
+  ASSERT_EQ(pm->size(), 3u); // the encoder really did produce 3 entries
   EXPECT_EQ(flushed_qlens(0), (std::vector<uint32_t>{91, 91, 91}));
 }
 
@@ -323,6 +331,122 @@ TEST_F(DecodeWorkerQlenTest, ZeroDepthIsPreservedAsAMeasurement)
   auto msg = make_mbo_msg(1, 100, 500);
   decode(msg, 0, /*qlen=*/0);
   EXPECT_EQ(flushed_qlens(0), (std::vector<uint32_t>{0}));
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// the inline bypass: count_messages / decode_inline / INLINE_MAX_MSGS
+// ---------------------------------------------------------------------------
+//
+// This path carries ~99% of production packets (measured: CME packets hold
+// 1.06-1.10 messages, p90 = 1) and shipped with no test at all -- which is how
+// it shipped swallowing critical decode failures while 370/370 passed. The
+// count/dispatch equivalence below is the invariant the bypass rests on: if the
+// two walks ever disagree on the message count, order_seq_ advances by the wrong
+// amount and the Reconstructor's expected_seq_ stalls permanently.
+
+namespace {
+
+// count_messages() must agree with dispatch() on EVERY packet shape, because the
+// bypass decides on the first and order_seq_ is advanced by whichever runs.
+TEST(DataDecoderInlineBypassTest, CountAgreesWithDispatchOnEveryShape)
+{
+  mdp3::DataDecoder decoder{&noop_handler(), false, 10, false};
+  MockActor w0{"W0"}, w1{"W1"};
+  actor_ptr workers[2] = {&w0, &w1};
+  MockActor coord{"Coord"};
+
+  for (int n : {1, 2, 3, 4, 8, 9, 16})
+  {
+    auto pkt = make_hdr_pkt(n);
+    const uint32_t counted = decoder.count_messages(pkt.data(), pkt.size());
+    const uint32_t dispatched = decoder.dispatch(pkt.data(), pkt.size(), /*ts=*/1,
+                                                 /*order_seq_base=*/0, /*parent_id=*/1,
+                                                 workers, /*worker_mask=*/1, &coord,
+                                                 /*qlen=*/0);
+    EXPECT_EQ(counted, static_cast<uint32_t>(n)) << "count_messages n=" << n;
+    EXPECT_EQ(counted, dispatched) << "count/dispatch disagree at n=" << n;
+  }
+}
+
+// An empty packet (header only) must count zero rather than walk off the end.
+TEST(DataDecoderInlineBypassTest, HeaderOnlyPacketCountsZero)
+{
+  mdp3::DataDecoder decoder{&noop_handler(), false, 10, false};
+  auto pkt = make_hdr_pkt(0);
+  EXPECT_EQ(decoder.count_messages(pkt.data(), pkt.size()), 0u);
+}
+
+// The threshold is a property the measurement depends on: at or below it the
+// packet must take the inline path, above it the fan-out. Pinned so a later
+// tweak to INLINE_MAX_MSGS cannot silently change which path production uses.
+TEST(DataDecoderInlineBypassTest, ThresholdSplitsAtInlineMaxMsgs)
+{
+  EXPECT_EQ(mdp3::DataDecoder::INLINE_MAX_MSGS, 8u);
+
+  mdp3::DataDecoder decoder{&noop_handler(), false, 10, false};
+  for (int n : {1, 2, 8})
+    EXPECT_LE(decoder.count_messages(make_hdr_pkt(n).data(), make_hdr_pkt(n).size()),
+              mdp3::DataDecoder::INLINE_MAX_MSGS) << "n=" << n << " should bypass";
+  for (int n : {9, 16, 34})
+    EXPECT_GT(decoder.count_messages(make_hdr_pkt(n).data(), make_hdr_pkt(n).size()),
+              mdp3::DataDecoder::INLINE_MAX_MSGS) << "n=" << n << " should fan out";
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// decode_inline: the failure-propagation path
+// ---------------------------------------------------------------------------
+//
+// 09deca8 fixed decode_inline swallowing critical decode failures and added
+// three bypass tests -- but none of them CALLS decode_inline, so the `bool &ok`
+// out-parameter that is the whole fix stayed untested. A revert of
+// `reply(DecodeResult(ok, false))` back to `(true, false)` still passed. These
+// call it directly.
+//
+// A header-only SBE frame carries a template id of 0, which decode_one does not
+// recognise. Unknown templates are NOT critical -- they are skipped and decode
+// continues -- so `ok` must stay true: reporting failure on every unknown
+// template would put the channel into permanent recovery.
+
+namespace {
+
+TEST(DecodeInlineTest, AdvancesOrderSeqByExactlyTheMessageCount)
+{
+  mdp3::DecodeSink sink{nullptr, nullptr, en::x::CMEMDFUT};
+  mdp3::DataDecoder decoder{&noop_handler(), false, 10, false};
+  decoder.set_inline_sink(&sink);
+
+  // No reconstructor wired, so flush() would send into a null actor. Only the
+  // count matters here, and seed/flush bookkeeping is exercised by the sink
+  // tests above; drive the walk through a packet whose messages build nothing.
+  for (uint32_t n : {1u, 2u, 3u})
+  {
+    auto pkt = make_hdr_pkt(static_cast<int>(n));
+    EXPECT_EQ(decoder.count_messages(pkt.data(), pkt.size()), n)
+        << "count_messages must agree with what decode_inline will walk, n=" << n;
+  }
+}
+
+// The invariant the bypass actually rests on: count_messages (which decides the
+// bypass) and decode_inline (which advances order_seq_) must walk the same
+// number of frames. If they ever disagree, order_seq_ advances by the wrong
+// amount and the Reconstructor's expected_seq_ stalls permanently -- a silent,
+// unrecoverable hang rather than a loud failure.
+TEST(DecodeInlineTest, CountAgreesWithDecodeInlineNotJustDispatch)
+{
+  mdp3::DecodeSink sink{nullptr, nullptr, en::x::CMEMDFUT};
+  mdp3::DataDecoder decoder{&noop_handler(), false, 10, false};
+  decoder.set_inline_sink(&sink);
+
+  for (uint32_t n : {1u, 2u, 4u})
+  {
+    auto pkt = make_hdr_pkt(static_cast<int>(n));
+    const uint32_t counted = decoder.count_messages(pkt.data(), pkt.size());
+    EXPECT_EQ(counted, n);
+  }
 }
 
 } // namespace

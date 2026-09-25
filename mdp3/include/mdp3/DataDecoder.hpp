@@ -24,6 +24,10 @@
 
 #include "logger/act/Logger.hpp"
 
+// The inline-bypass sink. Safe to include: DecodeSink.hpp pulls mbo_if.hpp and
+// ParsedMsg.hpp, never this header, so there is no cycle.
+#include "mdp3/DecodeSink.hpp"
+
 #define TRACEF std::cerr
 
 // decode_one is static (shared by the inline path and the workers), so it cannot
@@ -36,8 +40,8 @@ namespace mdp3
 {
 
     // The decode ACTOR. MessageProcessor fast_sends a DecodePacket per in-order
-    // packet; this decides parallel (all-hot -> fan out to the DecodeWorker fleet)
-    // vs inline (cold packet -> mbo_data), and replies DecodeResult{rc,is_channel_reset}.
+    // packet; this decides parallel (worker fleet on -> fan out every message) vs
+    // inline (fleet off -> mbo_data), and replies DecodeResult{rc,is_channel_reset}.
     // It owns the parallel coordination: packet-buffer slots kept alive until every
     // worker reports DecodeDone (refcount), and the global order_seq counter.
     //
@@ -77,6 +81,13 @@ namespace mdp3
         // Until called, decode stays fully inline (parallel_decode_ off).
         void set_workers(actor_ptr *workers, uint32_t nworkers) noexcept
         {
+            // dispatch() round-robins with `i & worker_mask_`, which visits every
+            // worker ONLY when nworkers is a power of two. A non-pow2 count routes
+            // to a subset, so order_seq values reserved for the unreachable workers
+            // are never produced -- the Reconstructor's expected_seq_ then stalls
+            // permanently. Fail loudly at wiring time rather than hang at runtime.
+            ASSERTF(nworkers == 0 || (nworkers & (nworkers - 1)) == 0,
+                    boost::format("cme_decode_workers must be a power of two, got %u") % nworkers);
             workers_ = workers;
             // nworkers==0 is the serial build. `nworkers - 1` would wrap to
             // UINT32_MAX; harmless only for as long as nothing reads the mask
@@ -89,58 +100,98 @@ namespace mdp3
         // can initiate recovery. Wired in kaspr once both actors exist.
         void set_recovery_target(actor_ptr mp) noexcept { recovery_target_ = mp; }
 
-        // Templates a DecodeWorker can parse in parallel (stateless build). This
-        // is the SINGLE source of truth for "hot": it MUST match DecodeWorker's
-        // switch cases. Widen both together after measuring packet purity.
-        static bool is_hot_template(uint16_t tid) noexcept
-        {
-            return tid == sbe::MDIncrementalRefreshBook46::sbeTemplateId()      // MBP & MBO book
-                || tid == sbe::MDIncrementalRefreshOrderBook47::sbeTemplateId() // MBO book
-                || tid == sbe::MDIncrementalRefreshTradeSummary48::sbeTemplateId(); // MBO trade
-        }
+        // Wire the inline-bypass sink. Needed only on the parallel path: small
+        // packets are decoded on this thread and their entries sent straight to the
+        // Reconstructor, so this decoder needs its own sink (one, not per worker --
+        // the bypass runs on the coordinator thread and is serialized with itself
+        // by the framework's fast_send_mutex, the same guarantee on_decode_done
+        // relies on). Without it the bypass is disabled and every packet fans out,
+        // which is the pre-bypass behaviour.
+        void set_inline_sink(DecodeSink *s) noexcept { inline_sink_ = s; }
 
-        struct scan_result { uint32_t count; bool all_hot; bool has_hot; bool corrupt; };
 
-        // Walk the packet's SBE messages WITHOUT decoding: count them and report
-        // whether EVERY one is hot (all_hot -> parallelizable) and whether ANY is
-        // hot (has_hot -> used to assert the "no mixed hot+cold packet" assumption).
-        // Cheap -- one u16 read per message.
-        scan_result scan(const char *databuf, std::size_t len) const noexcept
+        // Packets with at most this many SBE messages skip the worker fan-out and
+        // are decoded inline. Sized from the feed: messages per packet are p99 2-4
+        // and max 34 (1.31M CME packets, ES/NQ/ZN), so 8 takes essentially all
+        // ordinary traffic inline while genuinely fat packets still parallelize.
+        static constexpr uint32_t INLINE_MAX_MSGS = 8;
+
+        // Decode every message of a packet on THIS thread, sending each message's
+        // entries to the Reconstructor tagged with a dense order_seq -- byte for
+        // byte what a DecodeWorker would have sent, minus the queue hops. Returns
+        // the number of messages decoded, so the caller advances order_seq_ by
+        // exactly the same amount dispatch() would have.
+        // `ok` is set false if ANY message in the packet failed a critical decode.
+        // The caller MUST propagate it: decode_one returns false when a book or
+        // trade template throws, which means the book is now missing updates and
+        // only recovery can resync it. Swallowing that diverges the book silently
+        // until the next gap -- the failure mode the serial path's own comment
+        // ("never silently swallow a malformed feed") exists to prevent.
+        uint32_t decode_inline(const char *databuf, std::size_t len, uint64_t ts,
+                               uint64_t order_seq_base, uint32_t qlen,
+                               bool &ok) noexcept
         {
-            const char *p = databuf + 12; // skip MsgSeqNum(4) + SendingTime(8)
+            const uint32_t msgSeqNum   = *reinterpret_cast<const uint32_t *>(databuf);
+            const uint64_t sendingTime = *reinterpret_cast<const uint64_t *>(databuf + 4);
+            const char *p = databuf + 12;
             const char *const end = databuf + len;
-            uint32_t count = 0;
-            bool all_hot = true;
-            bool has_hot = false;
-            bool corrupt = false;
+            uint32_t i = 0;
+            ok = true;
             while (p < end)
             {
-                const uint16_t MsgSize    = *reinterpret_cast<const uint16_t *>(p);
-                if (MsgSize == 0)
-                {
-                    // A zero length can never advance the walk; the packet is
-                    // corrupt. Flag it so on_decode_packet routes it to the inline
-                    // path, where mbo_data logs the error and triggers recovery --
-                    // do NOT silently stop and pretend the packet was fine.
-                    corrupt = true;
-                    break;
-                }
-                const uint16_t TemplateID = *reinterpret_cast<const uint16_t *>(p + 4);
-                if (is_hot_template(TemplateID))
-                    has_hot = true;
-                else
-                    all_hot = false;
+                // Framing already validated by count_messages()'s ASSERTFs on this
+                // same packet -- which compile out under -DNOASSERT, so under that
+                // flag neither walk validates anything. NOASSERT is defined nowhere
+                // today; if that changes, this walk needs its own bounds check.
+                const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
+                inline_sink_->seed(order_seq_base + i, qlen);
+                bool is_channel_reset = false; // applied via the l3_chr_v2_t entry
+                if (!decode_one(const_cast<char *>(p), MsgSize, ts, msgSeqNum, sendingTime,
+                                inline_sink_, is_channel_reset, /*debug=*/false))
+                    ok = false;
+                // Flush regardless: entries built before the throw were already
+                // applied, and the Reconstructor's expected_seq_ must advance for
+                // every dispatched message or the stream stalls. Recovery is the
+                // caller's job, via the returned `ok`.
+                inline_sink_->flush();
                 p += MsgSize;
-                ++count;
+                ++i;
             }
-            return {count, all_hot, has_hot, corrupt};
+            return i;
+        }
+
+        // Count the SBE messages in a packet without decoding or sending any.
+        // Same framing walk and the same asserts as dispatch(), so a packet that
+        // would abort there aborts here, at the same offset, with the same text.
+        // Used by the inline-bypass decision below: the fan-out is only worth its
+        // coordination cost when there is real fan-out to be had.
+        uint32_t count_messages(const char *databuf, std::size_t len) const noexcept
+        {
+            const uint32_t msgSeqNum = *reinterpret_cast<const uint32_t *>(databuf);
+            const char *p = databuf + 12;
+            const char *const end = databuf + len;
+            uint32_t i = 0;
+            while (p < end)
+            {
+                ASSERTF(p + sizeof(uint16_t) <= end,
+                        boost::format("count_messages: truncated SBE length prefix at offset %ld of %zu (seq %u)")
+                            % (p - databuf) % len % msgSeqNum);
+                const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
+                ASSERTF(MsgSize >= 10 && p + MsgSize <= end,
+                        boost::format("count_messages: malformed SBE frame, MsgSize=%u at offset %ld of %zu (seq %u)")
+                            % MsgSize % (p - databuf) % len % msgSeqNum);
+                p += MsgSize;
+                ++i;
+            }
+            return i;
         }
 
         // The dispatch loop: hand each SBE message to a warm worker (round-robin),
         // zero-copy (DecodeReq points into databuf). Stamps a global-monotonic
         // order_seq per message and the parent_id for the buffer refcount. Sender
         // is the coordinator, so workers reply DecodeDone there. Returns the count
-        // dispatched. Caller must have verified scan().all_hot (else a worker asserts).
+        // dispatched. Every message is dispatched regardless of template; the worker
+        // decodes it and the Reconstructor applies whatever entries it produces.
         // nworkers must be a power of two; pass worker_mask = nworkers - 1.
         uint32_t dispatch(const char *databuf, std::size_t len, uint64_t ts,
                           uint64_t order_seq_base, uint64_t parent_id,
@@ -154,7 +205,23 @@ namespace mdp3
             uint32_t i = 0;
             while (p < end)
             {
+                // CME packets are well-formed by construction: every frame carries
+                // a non-zero MsgSize (>= the 10-byte length+SBE header) and the
+                // frames tile the packet exactly. A zero or over-long MsgSize is
+                // impossible on the wire -- it can only mean memory corruption or a
+                // decode bug -- so fail loud here rather than silently truncate the
+                // packet (matches RecoveryProcessor's ERR on the snapshot feed and
+                // mbo_data's abort-and-recover on the serial path).
+                //
+                // Check the 2-byte length prefix fits BEFORE reading it, so a
+                // truncated tail can never over-read past `end` into the prefix.
+                ASSERTF(p + sizeof(uint16_t) <= end,
+                        boost::format("dispatch: truncated SBE length prefix at offset %ld of %zu (seq %u)")
+                            % (p - databuf) % len % msgSeqNum);
                 const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
+                ASSERTF(MsgSize >= 10 && p + MsgSize <= end,
+                        boost::format("dispatch: malformed SBE frame, MsgSize=%u at offset %ld of %zu (seq %u)")
+                            % MsgSize % (p - databuf) % len % msgSeqNum);
                 workers[i & worker_mask]->send(
                     new msg::DecodeReq(p, MsgSize, msgSeqNum, ts, sendingTime, order_seq_base + i, parent_id, qlen),
                     coordinator);
@@ -646,65 +713,82 @@ namespace mdp3
         }
 
     private:
-        // Decode one packet fast_sent by MessageProcessor: parallel if all-hot,
-        // else inline. Reply carries rc + is_channel_reset for the caller.
+        // Decode one packet fast_sent by MessageProcessor: parallel if the worker
+        // fleet is on, else inline. Reply carries rc + is_channel_reset.
         void on_decode_packet(const msg::DecodePacket *m) noexcept
         {
-            const auto sr = scan(m->data, m->len);
-
-            // All-hot, well-formed packet: fan out to the worker fleet. Copy the
-            // packet into a DataDecoder-owned slot (kept alive until every worker
-            // reports DecodeDone), dispatch zero-copy DecodeReqs into it, reply now.
-            // A corrupt packet (scan hit MsgSize==0) is NOT parallelized -- it falls
-            // to the inline mbo_data below, which logs the error and fails the
-            // packet so the caller initiates recovery.
-            if (parallel_decode_ && !sr.corrupt && sr.count > 0 && sr.all_hot)
+            // Parallel path: fan EVERY message out to the worker fleet with a dense
+            // order_seq; the Reconstructor resequences and applies them all in wire
+            // order (book, trade, definition, reset). A message a worker produces no
+            // entries for (e.g. stats/volume) flushes an empty batch, which still
+            // advances the Reconstructor's expected order_seq, so it never stalls.
+            if (parallel_decode_)
             {
-                const uint64_t pid = next_parent_id_++;
+                // INLINE BYPASS. Fan-out only pays when there is something to fan
+                // out. Measured over 1.31M CME packets (ES/NQ/ZN, 900s): messages
+                // per packet mean 1.06-1.10, p50 1, p90 1, p99 2-4. So the common
+                // packet dispatches ONE message to ONE worker and still pays the
+                // full coordination bill -- a 1500-byte packet memcpy, a pending_
+                // map insert/erase, a ParsedMsg send, a DecodeDone reply, and two
+                // actor hops. That overhead is the ~7us gap measured between the
+                // serial and parallel paths (NQ book p50 6.45us vs 13.78us).
+                //
+                // For a packet at or under INLINE_MAX_MSGS, decode it right here on
+                // this thread -- no copy, no pending_ slot, no worker, no reply --
+                // and hand the entries to the Reconstructor exactly as a worker
+                // would, tagged with the same dense order_seq. Ordering is
+                // therefore unchanged: the Reconstructor still applies strictly by
+                // order_seq, so an inline packet and a fanned-out packet around it
+                // cannot overtake each other.
+                const uint32_t nmsg = inline_sink_ ? count_messages(m->data, m->len)
+                                                  : UINT32_MAX;
+                if (nmsg <= INLINE_MAX_MSGS)
+                {
+                    bool ok = true;
+                    if (nmsg)
+                    {
+                        const uint32_t k = decode_inline(m->data, m->len, m->ts,
+                                                         order_seq_, m->qlen, ok);
+                        order_seq_ += k;
+                    }
+                    // Propagate a critical decode failure, exactly as the serial
+                    // path does with mbo_data's return: MessageProcessor logs and
+                    // calls do_data_recovery() on rc=false. The fan-out path reaches
+                    // the same outcome the long way round, via DecodeDone.ok ->
+                    // pp.failed -> TriggerRecovery. All three paths must agree; a
+                    // book missing updates cannot be left to the next gap.
+                    reply(new msg::DecodeResult(ok, false));
+                    return;
+                }
+
+                const uint64_t pid  = next_parent_id_++;
                 const uint64_t base = order_seq_;
-                order_seq_ += sr.count;
                 auto &pp = pending_[pid];
                 std::memcpy(pp.buf.message.data(), m->data, m->len);
                 pp.buf.len = m->len;
-                pp.outstanding = sr.count;
                 pp.failed = false;
-                // The packet's ingress depth rides each DecodeReq to the worker
-                // that decodes it. It CANNOT go through cb->set_ingress_qlen()
-                // here: that writes one member on the shared handler, which the
-                // worker threads read while decoding other packets.
-                dispatch(pp.buf.message.data(), m->len, m->ts, base, pid,
-                         workers_, worker_mask_, this, m->qlen);
-                reply(new msg::DecodeResult(true, false)); // hot packets never channel-reset
+                // dispatch walks the packet, sends one DecodeReq per message
+                // (order_seq = base + i, ingress depth riding each req), and returns
+                // the count. Reserving order_seq_/outstanding AFTER is safe:
+                // on_decode_done is serialized against this handler by the
+                // framework's fast_send_mutex, so no worker completion is processed
+                // until we return.
+                const uint32_t n = dispatch(pp.buf.message.data(), m->len, m->ts, base, pid,
+                                            workers_, worker_mask_, this, m->qlen);
+                order_seq_ += n;
+                pp.outstanding = n;
+                if (n == 0)
+                    pending_.erase(pid); // empty packet -> no worker -> no DecodeDone to free the slot
+                // is_channel_reset stays false in the reply: a ChannelReset in the
+                // packet is applied by the Reconstructor (l3_chr_v2_t -> clear the
+                // orderid map) in wire order, not signalled back through here.
+                reply(new msg::DecodeResult(true, false));
                 return;
             }
 
-            // Not all-hot, and parallel decode is ON. The parallel design ASSUMES a
-            // packet never mixes hot (book/trade) with cold templates; if it did,
-            // book/trade would take this inline path and split the orderid map from
-            // the Reconstructor's. Trip if that is violated -- but NOT for a corrupt
-            // packet (that is a malformed feed, not a mixed one; mbo_data below logs
-            // it and triggers recovery).
-            //
-            // The parallel_decode_ guard is NOT cosmetic. With parallel off there is
-            // no Reconstructor and no second orderid map, so a hot message on the
-            // inline path is simply the serial decoder doing its job -- the whole
-            // feed is hot. Without the guard this asserts on the first book packet
-            // and the serial path cannot run at all.
-            //
-            // KNOWN, MEASURED: with parallel ON this still fires. Census on live ES
-            // chan 310 over 80,000 packets: 3.03% of packets (10.21% of messages)
-            // are mixed, and the cold template is MDIncrementalRefreshVolume37 in
-            // 1,419 of 1,419 cases. Splitting the packet -- hot to the workers, cold
-            // inline -- is the fix, and it is not done yet.
-            if (parallel_decode_ && !sr.corrupt)
-                ASSERTF(!sr.has_hot, boost::format(
-                    "mixed hot+cold packet: book/trade on the inline path splits the "
-                    "orderid map -- parallel-decode assumption violated"));
-
-            // Cold packet, corrupt packet, or parallel off: decode inline.
-            // Serial, single thread, so the handler member is the right place
-            // for the depth -- this is the same call main makes from
-            // MessageProcessor.
+            // Parallel off (serial default): decode inline. Serial, single thread,
+            // so the handler member is the right place for the depth -- this is the
+            // same call main makes from MessageProcessor.
             cb->set_ingress_qlen(m->qlen);
             bool is_channel_reset = false;
             bool rc = mbo_data(const_cast<char *>(m->data), m->len, m->ts, is_channel_reset);
@@ -720,12 +804,12 @@ namespace mdp3
             if (it == pending_.end())
                 return;
             if (!d->ok)
-                it->second.failed = true; // a worker's decode_one failed on a hot message
+                it->second.failed = true; // a worker's decode_one failed on a message
             if (--it->second.outstanding == 0)
             {
                 const bool failed = it->second.failed;
                 pending_.erase(it); // frees the packet-buffer slot
-                // A hot message failed to decode -> the book is now missing
+                // A message failed to decode -> the book is now missing
                 // updates. Ask MessageProcessor to initiate recovery -- the same
                 // response the inline path gives an mbo_data failure -- so the book
                 // resyncs instead of silently diverging.
@@ -766,5 +850,8 @@ namespace mdp3
         };
         std::map<uint64_t, pending_packet> pending_;
         actor_ptr recovery_target_ = nullptr; // MessageProcessor; asked to recover on decode failure
+        // Inline-bypass sink (parallel path only). Null => bypass disabled, every
+        // packet fans out exactly as before.
+        DecodeSink *inline_sink_ = nullptr;
     };
 }

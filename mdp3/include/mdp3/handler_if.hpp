@@ -21,6 +21,7 @@
 #include "oogsl/gvector.hpp"
 #include "frame/mda/msg/Data.hpp"
 #include "mdp3/msg/AssetMap.hpp"
+#include "mdp3/msg/OrderMap.hpp"
 #include "mdp3/msg/ResetMBO.hpp"
 
 #include <boost/unordered/unordered_flat_map.hpp>
@@ -47,7 +48,7 @@ struct handler_if : public mdp3::feed_handler_if
   char name[256];
   actor_ptr binrec = 0;
   std::vector<actor_ptr> mbo_order_books;  // Indexed by asset_id for MBO messages (futures - OB.cpp/TachBook)
-  actor_ptr reconstructor = nullptr;       // parallel-decode Reconstructor; notified of securityID->asset_id maps
+  actor_ptr reconstructor = nullptr;       // parallel-decode Reconstructor; notified of securityID->asset_id (defs), orderID->securityID (snapshots) and channel resets
   std::vector<double> latency, cmelatency;
   std::set<uint32_t> instruments;
   uint32_t max_mbp_level=1000;
@@ -479,7 +480,18 @@ struct handler_if : public mdp3::feed_handler_if
 
     if constexpr (TreasOnly)
     {
-      sym_to_lookup = std::string(asset);
+      // Treasury channels carry BOTH shapes on the same feed:
+      //   cash/on-the-run instruments resolve on the generic asset ("UB10"),
+      //   futures resolve on the contract symbol ("ZNZ6").
+      // universe.csv registers futures under the CONTRACT (F,ZNZ6,ZN,ZN,...),
+      // so looking up `asset` alone finds nothing for ZN/ZF/ZB/ZT/UB futures:
+      // no securityid_to_asset_id entry is made and every book message for the
+      // contract is silently dropped. Measured on chan 344: 113,261 packets
+      // received, 0 mappings, 0 rows.
+      // Prefer the contract symbol, fall back to the asset.
+      sym_to_lookup = std::string(sym);
+      if (!frame::ref::RefData::inst().get_asset(sym_to_lookup))
+        sym_to_lookup = std::string(asset);
     }
     else
     {
@@ -954,6 +966,12 @@ struct handler_if : public mdp3::feed_handler_if
 
     // Update orderID to securityID mapping (snapshot orders are always added)
     orderid_to_securityid[orderID] = securityID;
+    // Parallel path: the live feed resolves trades against the Reconstructor's
+    // own orderid map, not this one. Seed it with the recovered order so a live
+    // trade referencing a snapshot-resting order still routes. Same guard/pattern
+    // as the AssetMap and ResetMBO sends; null (serial) means nobody to tell.
+    if (reconstructor)
+      reconstructor->send(new mdp3::msg::OrderMap(orderID, securityID), nullptr);
 
     // Record to binrec BEFORE routing to books
     if (binrec)

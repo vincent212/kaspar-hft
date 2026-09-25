@@ -303,7 +303,13 @@ private:
      * Start a single MDP3 channel
      * @param config_name Config section name in cme.ini (e.g., "prod_equity")
      * @param venue Exchange venue (CMEMDFUT or CMEMD)
+     *
+     * TreasOnly selects the treasury-futures handler_if variant (asset-keyed
+     * RefData lookup) AND the matching Reconstructor key from one flag, so the
+     * serial and parallel paths cannot disagree. The definition and every call
+     * site live in kaspr.cpp, so the template body need not be in this header.
      */
+    template <bool TreasOnly = false>
     void start_channel(const std::string& config_name, en::x venue);
 };
 

@@ -22,15 +22,17 @@ namespace mdp3
 {
   // Worker-side feed_handler_if callback -- the stateless half of decode.
   //
-  // For each decoded MBO order or trade it builds the l3 record (mirroring
-  // handler_if's field build, but WITHOUT the orderid_to_securityid map and
-  // WITHOUT BOOKSEND) and APPENDS it to a per-message batch. After the worker
-  // finishes decoding one SBE message it calls flush(), which sends the whole
-  // batch as one ParsedMsg (tagged order_seq) to the single Reconstructor. The
-  // Reconstructor owns the map + routing and applies batches in order_seq order.
+  // For each decoded message it builds the l3 record (mirroring handler_if's
+  // field build, but WITHOUT the maps and WITHOUT BOOKSEND) and APPENDS it to a
+  // per-message batch. After the worker finishes decoding one SBE message it
+  // calls flush(), which sends the whole batch as one ParsedMsg (tagged
+  // order_seq) to the single Reconstructor, which owns the maps + routing and
+  // applies batches in order_seq order.
   //
-  // Only hot MBO-incremental templates reach a worker, so every non-hot callback
-  // is a no-op.
+  // Every template reaches a worker. This builds entries for the ones that carry
+  // order-book or routing state (book, trade, definition, reset); the rest
+  // (stats/volume/snapshots/...) are no-ops -- but an empty batch still flushes,
+  // so the Reconstructor's order_seq advances and the stream never stalls.
   //
   // Not an actor: a plain callback owned by a DecodeWorker, touched only by that
   // worker's thread -- no synchronization. `order_seq_` is set by the worker
@@ -48,12 +50,30 @@ namespace mdp3
     // different packets cannot cross-contaminate. handler_if keeps the same
     // number in a member (ingress_qlen_) because its decode is serial.
     uint32_t  ingress_qlen_ = 0;
-    std::vector<bfile::l3_t> batch_;     // entries built for the current message
+    // The message being built. Allocated from ParsedMsg's pool by seed() at the
+    // start of each decode and handed to the Reconstructor by flush(). Entries go
+    // straight into it, so there is no intermediate vector and no per-message
+    // malloc: the old code kept a reserve(64)'d batch_ and swap()'d it into the
+    // ParsedMsg, which gave the storage away and left batch_ empty, forcing a
+    // realloc on the next message's first entry.
+    msg::ParsedMsg *pm_ = nullptr;
 
     DecodeSink(actor_ptr reconstructor, actor_ptr self, en::x xchg)
         : reconstructor_(reconstructor), self_(self), xchg_(xchg)
     {
-      batch_.reserve(64); // typical worst-case entries per message; avoids regrowth
+    }
+
+    // Start a new message. MUST be called before each decode_one; flush() then
+    // sends whatever was built, empty or not, so the Reconstructor's expected
+    // order_seq always advances.
+    void seed(uint64_t order_seq, uint32_t qlen) noexcept
+    {
+      order_seq_ = order_seq;
+      ingress_qlen_ = qlen;
+      if (!pm_)
+        pm_ = new msg::ParsedMsg(order_seq);
+      else
+        pm_->clear();
     }
 
     // Send the current message's accumulated entries to the Reconstructor and
@@ -61,14 +81,20 @@ namespace mdp3
     // ALWAYS sends -- even an empty batch -- so the Reconstructor advances its
     // expected order_seq for every dispatched message (else it stalls waiting for
     // a message that produced no entries).
+    // Entries are built straight into the pooled ParsedMsg, so there is no
+    // intermediate vector and no per-message malloc. The message is created at
+    // the START of each decode (seed()) rather than here, because the builders
+    // below append into it as the SBE record is walked.
     void flush()
     {
-      auto *pm = new msg::ParsedMsg(order_seq_);
-      pm->entries.swap(batch_); // hand off entries; batch_ becomes empty
-      reconstructor_->send(pm, self_);
+      if (!pm_) // nothing decoded (seed not called) -- nothing to advance
+        return;
+      pm_->order_seq = order_seq_;
+      reconstructor_->send(pm_, self_);
+      pm_ = nullptr;
     }
 
-    // ---- HOT: MBO incremental book (order add / modify / delete) ----
+    // ---- MBO incremental book (order add / modify / delete) ----
     void MDIncrementalRefreshBook(
         uint64_t recv_time, uint32_t /*msgSeqNum*/, uint64_t transactTime,
         uint64_t sendingTime, int32_t securityID, int64_t px_mantissa,
@@ -94,10 +120,10 @@ namespace mdp3
       l3.endOfEvent = endOfEvent;
       l3.recovery = recovery;
       l3.ingress_qlen = ingress_qlen_;
-      batch_.emplace_back(l3);
+      if (pm_) pm_->push(l3);
     }
 
-    // ---- HOT: MBO trade (carries only orderID; securityID resolved downstream) ----
+    // ---- MBO trade (carries only orderID; securityID resolved downstream) ----
     void MDIncrementalRefreshTradeSummary(
         uint64_t recv_time, uint32_t /*msgSeqNum*/, uint64_t transactTime,
         uint64_t sendingTime, int32_t lastQty, uint64_t orderID,
@@ -115,7 +141,7 @@ namespace mdp3
       l3.endOfEvent = endOfEvent;
       l3.lastTrade = lastTrade;
       l3.ingress_qlen = ingress_qlen_;
-      batch_.emplace_back(l3);
+      if (pm_) pm_->push(l3);
     }
 
     // ---- MBP variants: options MBP not traded (handler_if filters them) ----
@@ -124,18 +150,36 @@ namespace mdp3
     void MDIncrementalRefreshTradeSummary(uint64_t, uint32_t, uint64_t, uint64_t,
         int32_t, int64_t, int8_t, char, uint8_t, int32_t, int32_t, bool, bool) noexcept override {}
 
-    // ---- COLD: never fanned out to a worker (inline serial path handles them) ----
+    // ---- Definitions and reset (above/below) build entries; the templates the
+    // ---- Reconstructor needs nothing from are no-ops (an empty batch still
+    // ---- flushes, so order_seq still advances). ----
     void disable_mbo(bool) noexcept override {}
     void set_max_mbp_level(uint32_t) noexcept override {}
     void MDIncrementalRefreshSessionStatistics(uint32_t, uint64_t, uint64_t, uint32_t,
         uint8_t, int64_t, int64_t, uint8_t, char) noexcept override {}
     void MDIncrementalRefreshDailyStatistics(uint32_t, uint64_t, uint64_t, uint32_t,
         int64_t, int8_t, int32_t, char, bool, bool, uint8_t, uint16_t) noexcept override {}
-    void MDInstrumentDefinitionFuture(uint32_t, uint64_t, char*, char*, char*, int64_t,
-        int8_t, int64_t, int8_t, int64_t, int8_t, int32_t, char, uint8_t, uint64_t,
+    // Instrument definition (future): carries the securityID->asset mapping that
+    // route() needs. Emit a minimal l3_fdf_t (sym/asset/securityID/action); the
+    // Reconstructor resolves the asset_id off RefData and updates ITS map, IN
+    // order_seq order with the book stream -- so a definition and the book
+    // messages that depend on it can never race.
+    void MDInstrumentDefinitionFuture(uint32_t, uint64_t, char* sym, char* asset, char*, int64_t,
+        int8_t, int64_t, int8_t, int64_t, int8_t, int32_t securityID, char updateAction, uint8_t, uint64_t,
         uint64_t, char*, uint8_t, char, uint8_t, int64_t, uint8_t, uint8_t, char,
         int64_t, int8_t, uint8_t, char*, uint8_t, uint16_t, uint16_t, uint16_t, int32_t,
-        int32_t, uint16_t, char*, int64_t, uint8_t) noexcept override {}
+        int32_t, uint16_t, char*, int64_t, uint8_t) noexcept override
+    {
+      bfile::l3_fdf_t l3;
+      memset(&l3, 0, sizeof(l3));
+      l3.typ = en::l3::FDF;
+      l3.venue = xchg_;
+      strncpy(l3.sym, sym, sizeof(l3.sym));
+      strncpy(l3.asset, asset, sizeof(l3.asset));
+      l3.securityID = securityID;
+      l3.updateAction = updateAction;
+      if (pm_) pm_->push(l3);
+    }
     void MDInstrumentDefinitionOption(uint32_t, uint64_t, char*, char*, char*, int64_t,
         int8_t, int64_t, int8_t, int32_t, char, uint64_t, uint64_t, char*, uint8_t,
         uint8_t, char, uint8_t, int64_t, uint8_t, uint8_t, int64_t, uint8_t, uint8_t,
@@ -148,7 +192,17 @@ namespace mdp3
         int32_t*, int8_t*, int64_t*, int8_t*, int8_t*, int32_t*, uint8_t*, int64_t,
         int8_t, uint8_t, char*, uint8_t, uint16_t, int32_t, int32_t, uint16_t,
         char*) noexcept override {}
-    void ChannelReset(uint32_t, uint64_t, uint64_t, const char*) noexcept override {}
+    // ChannelReset: emit an l3_chr_v2_t so the Reconstructor drops its orderID
+    // map IN order_seq order (not via the out-of-band ResetMBO), so a reset and
+    // the book messages around it stay correctly sequenced.
+    void ChannelReset(uint32_t, uint64_t, uint64_t, const char*) noexcept override
+    {
+      bfile::l3_chr_v2_t l3;
+      memset(&l3, 0, sizeof(l3));
+      l3.typ = en::l3::CHR_V2;
+      l3.venue = xchg_;
+      if (pm_) pm_->push(l3);
+    }
     void SnapshotFullRefreshOrderBook_NR(uint32_t, uint32_t, uint32_t, uint64_t,
         uint64_t, uint32_t, uint32_t, int32_t, int32_t, int64_t, int64_t, char,
         uint64_t, uint64_t) noexcept override {}

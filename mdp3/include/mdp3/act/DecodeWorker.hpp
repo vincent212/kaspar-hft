@@ -14,7 +14,7 @@
 #include "chutil/Macros.hpp"
 #include "chutil/Assert.hpp"
 #include "actors/Actor.hpp"
-#include "mdp3/DataDecoder.hpp"     // DataDecoder::decode_one + is_hot_template
+#include "mdp3/DataDecoder.hpp"     // DataDecoder::decode_one
 #include "mdp3/DecodeSink.hpp"
 #include "mdp3/msg/DecodeReq.hpp"
 #include "mdp3/msg/DecodeDone.hpp"
@@ -28,9 +28,9 @@ namespace mdp3
   // Reconstructor instead of touching maps or books. (One decode_one, shared by
   // the inline loop and the workers -- no duplicated switch.)
   //
-  // Only hot MBO templates (46/47 book, 48 trade) are ever dispatched here; the
-  // coordinator keeps everything else on the inline serial path. We assert that
-  // contract on entry.
+  // Every message in a packet is dispatched here (the coordinator does not
+  // classify). decode_one dispatches on template; the DecodeSink builds an entry
+  // for the ones that carry book/routing state and no-ops the rest.
   //
   // After decoding, it replies DecodeDone{parent_id} to the coordinator (the
   // DecodeReq's sender) so the coordinator can drop the packet buffer's refcount
@@ -55,18 +55,15 @@ namespace mdp3
   private:
     void on_decode(const msg::DecodeReq *req) noexcept
     {
-      // Contract: only hot templates reach a worker (coordinator's scan filters).
-      // A non-hot template here is a dispatch bug -> abort in debug.
-      const uint16_t TemplateID = *reinterpret_cast<const uint16_t *>(req->msg + 4);
-      ASSERTF(DataDecoder::is_hot_template(TemplateID),
-              boost::format("non-hot template %d dispatched to DecodeWorker") % TemplateID);
+      // decode_one dispatches on template; the sink builds entries for the ones it
+      // handles (book/trade/definition/reset) and no-ops the rest -- an empty batch
+      // still flushes so the Reconstructor's order_seq advances.
 
-      // Seed the sink for this message: its entries are accumulated into a batch
-      // and flushed below as one ParsedMsg tagged with this order_seq.
-      sink_.order_seq_ = req->order_seq;
-      sink_.ingress_qlen_ = req->qlen;
+      // Seed the sink for this message: entries are built straight into a pooled
+      // ParsedMsg tagged with this order_seq, and flushed below.
+      sink_.seed(req->order_seq, req->qlen);
 
-      bool is_channel_reset = false; // not expected for hot templates; ignored
+      bool is_channel_reset = false; // reset is applied via the l3_chr_v2_t entry
       const bool ok = DataDecoder::decode_one(const_cast<char *>(req->msg), req->len, req->ts,
                                               req->msg_seq, req->sending_time, &sink_,
                                               is_channel_reset, /*debug=*/false);

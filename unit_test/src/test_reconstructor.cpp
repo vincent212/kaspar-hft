@@ -48,7 +48,7 @@ static mdp3::msg::ParsedMsg *make_order(uint64_t order_seq, uint64_t orderID,
   l3.orderUpdateAction = action;
   l3.orderID = orderID;
   l3.securityID = securityID;
-  pm->entries.push_back(l3);
+  pm->push(l3);
   return pm;
 }
 
@@ -60,7 +60,7 @@ static mdp3::msg::ParsedMsg *make_trade(uint64_t order_seq, uint64_t orderID)
   std::memset(&l3, 0, sizeof(l3));
   l3.typ = en::l3::MBOT_V2;
   l3.orderID = orderID;
-  pm->entries.push_back(l3);
+  pm->push(l3);
   return pm;
 }
 
