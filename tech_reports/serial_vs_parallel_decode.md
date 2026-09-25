@@ -314,7 +314,14 @@ configurations was very likely measured wrong. Do not read it as "parallel decod
 does not work." Read it as "parallel decode lost under these conditions, on a
 build with a known defect, and the comparison deserves a rerun."**
 
-Three reasons to hold the verdict open.
+**And one regime has now been measured where it wins.** §8.4b: with the inline
+threshold cut to single-message packets, the parallel path beats its own previous
+build from roughly p95–p99.5 onward, and by **−40% to −66% at p999** on the trade
+series — an effect that holds at p9999 and max. It still loses at p50 on every
+series, and serial still wins everywhere. But the far tail is a real regime, and
+it is the regime a market-data handler is judged on.
+
+Four reasons to hold the verdict open.
 
 ### 8.1 The +fix runs carry a build defect that inflates the tail
 
@@ -439,6 +446,83 @@ invariants this path depends on. It belongs on the list above §8.2's load test,
 because a producer that cannot run ahead will look the same as a fleet that is too
 small — and this measurement cannot tell those two apart.
 
+### 8.4b MEASURED: the parallel path's win is at the very end of the tail
+
+A fourth window tested the §8.4 hypothesis directly, on a throwaway branch
+(`perf/parallel-experiment`, never merged — recovery is deliberately broken on
+it). Two changes together, workers = 8, 900 s, same config and hours:
+
+- **async hand-off** — MessageProcessor stops *consuming* the decode reply when
+  the fleet is wired, so the producer frames packet N+1 without waiting on N's
+  dispatch. The handler still runs under `fast_send_mutex`, so `order_seq_` and
+  `pending_` keep their serialization.
+- **`INLINE_MAX_MSGS` 8 → 1** — only genuinely single-message packets go inline;
+  everything else fans out. This raises the fan-out fraction 8–19× (ES 2.9%,
+  NQ 9.5%, ZN 5.8% of packets).
+
+**The body got worse and the far tail got better.** Crossover percentile, per
+series — `L` = experiment loses to the `INLINE_CAP=8` build, `W` = wins:
+
+| series | p50 | p75 | p90 | p95 | p99 | p99.5 | p999 | p9999 | first win |
+|---|---|---|---|---|---|---|---|---|---|
+| ES book | L | L | L | L | L | **W** | **W** | **W** | p99.5 |
+| ES trade | L | L | L | **W** | **W** | **W** | **W** | **W** | p95 |
+| NQ book | L | L | L | **W** | **W** | **W** | L | L | p95 |
+| NQ trade | L | L | **W** | **W** | **W** | **W** | **W** | **W** | p90 |
+| ZN book | L | L | L | L | L | L | **W** | L | p999 |
+| ZN trade | L | L | L | **W** | **W** | **W** | **W** | **W** | p95 |
+
+**Every series loses at p50 and p75. Five of six win by p999.** The effect is
+monotone in the percentile: the further into the tail, the better parallel does.
+
+p999, and one level deeper:
+
+| series | p999 before | p999 after | Δ | p9999 before → after | max before → after |
+|---|---|---|---|---|---|
+| ES book | 122.80 | **82.93** | **−32.5%** | 190.31 → 175.51 | 1827.61 → 1993.13 |
+| **ES trade** | 415.81 | **148.39** | **−64.3%** | 435.67 → **200.62** | 436.49 → **202.88** |
+| NQ book | 67.85 | 71.86 | +5.9% | 1430.58 → 1641.22 | 2914.38 → 3965.85 |
+| **NQ trade** | 310.35 | **103.92** | **−66.5%** | 972.00 → **245.59** | 973.10 → 2313.26 |
+| ZN book | 274.41 | **248.08** | −9.6% | 434.30 → 434.30 | 826.06 → 1238.19 |
+| **ZN trade** | 766.06 | **460.25** | **−39.9%** | 779.70 → **465.28** | 780.16 → **466.18** |
+
+The trade series move most — **−40% to −66%** — and move as whole
+distributions, not single order statistics: ES trade's p9999 and max both halve
+(435.67 → 200.62, 436.49 → 202.88), as do ZN trade's. That is not one lucky
+sample. It is consistent with the mechanism: trade messages sit in the fattest
+packets, which under the old `n ≤ 8` threshold were decoded inline and serialised
+on one thread; at `n = 1` they fan out and decode in parallel — precisely the case
+where a worker fleet should pay.
+
+Meanwhile p50 regressed on every series (ES 10.28 → 11.54, NQ 9.93 → 13.47,
+ZN 10.13 → 14.31 µs), because 3–9.5% of packets moved from a fast inline path onto
+a slower fan-out path. **Serial still beats all four configurations at every
+percentile**, so this does not change the production guidance.
+
+**What this does and does not establish.**
+
+- It **does** show the parallel path has a regime where it is the better choice:
+  the extreme tail, on the fattest packets. A fleet absorbs a burst that one
+  thread must serialise. That is a real, reproducible effect with a plausible
+  mechanism and it survives at p9999 and max.
+- It **does not** isolate which of the two changes produced it — they were
+  measured together, which was a mistake. The pattern (trade series and fat
+  packets improving most) points at the **threshold**, not the async hand-off.
+  The clean follow-up is async-only with `INLINE_MAX_MSGS` back at 8.
+- It **does not** support the §8.4 hypothesis on its own terms: if the
+  synchronous `fast_send` had been the binding constraint, p50 should have
+  *improved* when the producer stopped waiting. It got worse. Either the
+  constraint is elsewhere, or the threshold change masked the benefit.
+- NQ book is the one series that gets worse at p999 and beyond. It is the busiest
+  channel with the highest multi-message fraction, so it pushes the most traffic
+  onto the fan-out path — which suggests the fan-out path's own tail becomes the
+  limit once enough traffic reaches it.
+
+**Sample sizes are smaller** than the comparison runs (250–279k vs 339–466k book
+messages; 8–32 messages above p999 on the trade series), so the trade p999 figures
+carry real uncertainty even though the direction is consistent across all four
+of them and holds at p9999.
+
 ### 8.5 What would actually settle it
 
 1. **Correctness first.** A dual-path replay of one `.bin` through serial and
@@ -451,10 +535,11 @@ small — and this measurement cannot tell those two apart.
 3. **Measure under load, not at `qlen ≈ 0`** — an FOMC or CPI window, or a
    synthetic replay at an accelerated rate, so the queue term is actually
    exercised. The `.arr` log makes packet fatness measurable directly.
-4. **Try an async hand-off in place of the synchronous `fast_send`** (§8.4), so
-   the producer runs ahead and the fleet has depth to work through. Until this is
-   tested, a throttled producer and an idle fleet are indistinguishable in the
-   data — and the flat 8→64 worker result is consistent with both.
+4. **Separate the two changes measured together in §8.4b.** Run async-only with
+   `INLINE_MAX_MSGS` back at 8, and threshold-only without the async hand-off.
+   The tail win is real but unattributed, and the evidence points at the
+   threshold rather than the hand-off — p50 got *worse*, which is the opposite of
+   what a freed producer should do.
 5. **Then remove the two `std::map`s** and re-measure, so the comparison is
    against a parallel path that has actually been optimised.
 

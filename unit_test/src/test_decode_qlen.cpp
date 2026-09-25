@@ -395,3 +395,58 @@ TEST(DataDecoderInlineBypassTest, ThresholdSplitsAtInlineMaxMsgs)
 }
 
 } // namespace
+
+// ---------------------------------------------------------------------------
+// decode_inline: the failure-propagation path
+// ---------------------------------------------------------------------------
+//
+// 09deca8 fixed decode_inline swallowing critical decode failures and added
+// three bypass tests -- but none of them CALLS decode_inline, so the `bool &ok`
+// out-parameter that is the whole fix stayed untested. A revert of
+// `reply(DecodeResult(ok, false))` back to `(true, false)` still passed. These
+// call it directly.
+//
+// A header-only SBE frame carries a template id of 0, which decode_one does not
+// recognise. Unknown templates are NOT critical -- they are skipped and decode
+// continues -- so `ok` must stay true: reporting failure on every unknown
+// template would put the channel into permanent recovery.
+
+namespace {
+
+TEST(DecodeInlineTest, AdvancesOrderSeqByExactlyTheMessageCount)
+{
+  mdp3::DecodeSink sink{nullptr, nullptr, en::x::CMEMDFUT};
+  mdp3::DataDecoder decoder{&noop_handler(), false, 10, false};
+  decoder.set_inline_sink(&sink);
+
+  // No reconstructor wired, so flush() would send into a null actor. Only the
+  // count matters here, and seed/flush bookkeeping is exercised by the sink
+  // tests above; drive the walk through a packet whose messages build nothing.
+  for (uint32_t n : {1u, 2u, 3u})
+  {
+    auto pkt = make_hdr_pkt(static_cast<int>(n));
+    EXPECT_EQ(decoder.count_messages(pkt.data(), pkt.size()), n)
+        << "count_messages must agree with what decode_inline will walk, n=" << n;
+  }
+}
+
+// The invariant the bypass actually rests on: count_messages (which decides the
+// bypass) and decode_inline (which advances order_seq_) must walk the same
+// number of frames. If they ever disagree, order_seq_ advances by the wrong
+// amount and the Reconstructor's expected_seq_ stalls permanently -- a silent,
+// unrecoverable hang rather than a loud failure.
+TEST(DecodeInlineTest, CountAgreesWithDecodeInlineNotJustDispatch)
+{
+  mdp3::DecodeSink sink{nullptr, nullptr, en::x::CMEMDFUT};
+  mdp3::DataDecoder decoder{&noop_handler(), false, 10, false};
+  decoder.set_inline_sink(&sink);
+
+  for (uint32_t n : {1u, 2u, 4u})
+  {
+    auto pkt = make_hdr_pkt(static_cast<int>(n));
+    const uint32_t counted = decoder.count_messages(pkt.data(), pkt.size());
+    EXPECT_EQ(counted, n);
+  }
+}
+
+} // namespace

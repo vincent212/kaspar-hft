@@ -63,8 +63,8 @@ namespace mdp3
     // DataDecoder_P_310 / DecodeWorker_P_310_0.
     // treas_only MUST match the handler_if<_, TreasOnly> for this channel: it
     // selects the RefData lookup key in apply_def exactly as handler_if does
-    // (asset for treasury futures, symbol otherwise). Wired from the same flag in
-    // kaspr so the two can never disagree.
+    // (contract symbol first, falling back to the generic asset on treasury
+    // channels). Wired from the same flag in kaspr so the two can never disagree.
     Reconstructor(const std::vector<actor_ptr> &mbo_order_books,
                   en::x xchg,
                   uint32_t chan,
@@ -172,7 +172,11 @@ namespace mdp3
     // routing correct.
     //
     // Key selection mirrors handler_if::MDInstrumentDefinitionFuture EXACTLY:
-    // treasury futures key RefData by asset, everything else by symbol. Driven by
+    // CONTRACT SYMBOL FIRST, with the generic asset as a fallback on treasury
+    // channels only. (It used to say "treasury futures key RefData by asset" --
+    // that formulation is the bug: get_asset("ZN") returns null because
+    // universe.csv registers the contract, so every treasury future was dropped.
+    // See the note in apply_def.) Driven by
     // treas_only_ (== the channel's handler_if<_, TreasOnly>), so the parallel
     // path resolves to the same asset_id the serial/recovery path would.
     void apply_def(const bfile::l3_fdf_t &l3) noexcept
