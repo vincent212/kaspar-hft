@@ -6,16 +6,14 @@
  */
 
 /**
- * Unit tests for mdp3::DataDecoder's packet classifier -- scan() and
- * is_hot_template(). scan() is the gate that decides, per packet, whether the
- * hot parallel path is taken (all messages hot), the inline path (any cold), or
- * recovery (a corrupt zero-length SBE message). Getting this wrong either
- * mis-parallelizes a cold message or, worse, silently drops a corrupt packet --
- * so it is worth pinning down directly.
+ * Unit tests for mdp3::DataDecoder::scan() -- the packet pre-pass. scan() counts
+ * the SBE messages in a packet (so on_decode_packet can reserve that many
+ * order_seqs) and flags a corrupt packet (a zero-length SBE message). It no
+ * longer classifies hot/cold -- every message is dispatched.
  *
- * scan() reads only the SBE framing (MsgSize @ +0, TemplateID @ +4, stride =
- * MsgSize) after the 12-byte packet header, so we can drive it with header-only
- * messages and never touch the feed_handler_if body.
+ * scan() reads only the SBE framing (MsgSize @ +0, stride = MsgSize) after the
+ * 12-byte packet header, so we can drive it with header-only messages and never
+ * touch the feed_handler_if body.
  */
 
 #include <gtest/gtest.h>
@@ -129,39 +127,19 @@ protected:
   mdp3::DataDecoder decoder{&cb, /*disable_mbo=*/false, /*max_mbp_level=*/10, /*debug=*/false};
 };
 
-TEST_F(DataDecoderScanTest, AllHotPacketIsParallelizable)
+// scan() counts every message regardless of template -- there is no hot/cold
+// classification anymore; on_decode_packet dispatches them all.
+TEST_F(DataDecoderScanTest, CountsEveryMessage)
 {
-  auto pkt = make_pkt({HOT_BOOK46, HOT_OBOOK47, HOT_TRADE48});
+  auto pkt = make_pkt({HOT_BOOK46, HOT_OBOOK47, HOT_TRADE48, COLD_SECSTAT30, COLD_RESET4});
   auto sr = decoder.scan(pkt.data(), pkt.size());
-  EXPECT_EQ(sr.count, 3u);
-  EXPECT_TRUE(sr.all_hot);
-  EXPECT_TRUE(sr.has_hot);
-  EXPECT_FALSE(sr.corrupt);
-}
-
-TEST_F(DataDecoderScanTest, MixedHotAndColdIsNotAllHot)
-{
-  auto pkt = make_pkt({HOT_BOOK46, COLD_SECSTAT30});
-  auto sr = decoder.scan(pkt.data(), pkt.size());
-  EXPECT_EQ(sr.count, 2u);
-  EXPECT_FALSE(sr.all_hot); // the cold message forces the inline path
-  EXPECT_TRUE(sr.has_hot);
-  EXPECT_FALSE(sr.corrupt);
-}
-
-TEST_F(DataDecoderScanTest, AllColdPacketHasNoHot)
-{
-  auto pkt = make_pkt({COLD_SECSTAT30, COLD_RESET4});
-  auto sr = decoder.scan(pkt.data(), pkt.size());
-  EXPECT_EQ(sr.count, 2u);
-  EXPECT_FALSE(sr.all_hot);
-  EXPECT_FALSE(sr.has_hot);
+  EXPECT_EQ(sr.count, 5u);
   EXPECT_FALSE(sr.corrupt);
 }
 
 TEST_F(DataDecoderScanTest, ZeroMsgSizeIsFlaggedCorrupt)
 {
-  // one good hot message, then a MsgSize==0 message that can never advance.
+  // one good message, then a MsgSize==0 message that can never advance.
   auto pkt = make_pkt({HOT_BOOK46}, /*trailing_zero=*/true);
   auto sr = decoder.scan(pkt.data(), pkt.size());
   EXPECT_TRUE(sr.corrupt);  // must be caught, not silently stop
@@ -174,16 +152,6 @@ TEST_F(DataDecoderScanTest, EmptyPacketIsNotCorrupt)
   auto sr = decoder.scan(pkt.data(), pkt.size());
   EXPECT_EQ(sr.count, 0u);
   EXPECT_FALSE(sr.corrupt);
-  EXPECT_FALSE(sr.has_hot);
-}
-
-TEST(DataDecoderHotTemplateTest, HotTemplatesRecognized)
-{
-  EXPECT_TRUE(mdp3::DataDecoder::is_hot_template(HOT_BOOK46));
-  EXPECT_TRUE(mdp3::DataDecoder::is_hot_template(HOT_OBOOK47));
-  EXPECT_TRUE(mdp3::DataDecoder::is_hot_template(HOT_TRADE48));
-  EXPECT_FALSE(mdp3::DataDecoder::is_hot_template(COLD_SECSTAT30));
-  EXPECT_FALSE(mdp3::DataDecoder::is_hot_template(COLD_RESET4));
 }
 
 } // namespace

@@ -89,33 +89,22 @@ namespace mdp3
         // can initiate recovery. Wired in kaspr once both actors exist.
         void set_recovery_target(actor_ptr mp) noexcept { recovery_target_ = mp; }
 
-        // Templates a DecodeWorker can parse in parallel (stateless build). This
-        // is the SINGLE source of truth for "hot": it MUST match DecodeWorker's
-        // switch cases. Widen both together after measuring packet purity.
-        static bool is_hot_template(uint16_t tid) noexcept
-        {
-            return tid == sbe::MDIncrementalRefreshBook46::sbeTemplateId()      // MBP & MBO book
-                || tid == sbe::MDIncrementalRefreshOrderBook47::sbeTemplateId() // MBO book
-                || tid == sbe::MDIncrementalRefreshTradeSummary48::sbeTemplateId(); // MBO trade
-        }
+        struct scan_result { uint32_t count; bool corrupt; };
 
-        struct scan_result { uint32_t count; bool all_hot; bool has_hot; bool corrupt; };
-
-        // Walk the packet's SBE messages WITHOUT decoding: count them and report
-        // whether EVERY one is hot (all_hot -> parallelizable) and whether ANY is
-        // hot (has_hot -> used to assert the "no mixed hot+cold packet" assumption).
-        // Cheap -- one u16 read per message.
+        // Walk the packet's SBE messages WITHOUT decoding: count them and flag a
+        // corrupt packet (a zero MsgSize that can never advance the walk). Cheap --
+        // one u16 read per message. `count` sizes the order_seq block reserved for
+        // this packet; `corrupt` routes it to the inline recovery path. There is no
+        // hot/cold classification here anymore -- every message is dispatched.
         scan_result scan(const char *databuf, std::size_t len) const noexcept
         {
             const char *p = databuf + 12; // skip MsgSeqNum(4) + SendingTime(8)
             const char *const end = databuf + len;
             uint32_t count = 0;
-            bool all_hot = true;
-            bool has_hot = false;
             bool corrupt = false;
             while (p < end)
             {
-                const uint16_t MsgSize    = *reinterpret_cast<const uint16_t *>(p);
+                const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
                 if (MsgSize == 0)
                 {
                     // A zero length can never advance the walk; the packet is
@@ -125,22 +114,18 @@ namespace mdp3
                     corrupt = true;
                     break;
                 }
-                const uint16_t TemplateID = *reinterpret_cast<const uint16_t *>(p + 4);
-                if (is_hot_template(TemplateID))
-                    has_hot = true;
-                else
-                    all_hot = false;
                 p += MsgSize;
                 ++count;
             }
-            return {count, all_hot, has_hot, corrupt};
+            return {count, corrupt};
         }
 
         // The dispatch loop: hand each SBE message to a warm worker (round-robin),
         // zero-copy (DecodeReq points into databuf). Stamps a global-monotonic
         // order_seq per message and the parent_id for the buffer refcount. Sender
         // is the coordinator, so workers reply DecodeDone there. Returns the count
-        // dispatched. Caller must have verified scan().all_hot (else a worker asserts).
+        // dispatched. Every message is dispatched regardless of template; the worker
+        // decodes it and the Reconstructor applies whatever entries it produces.
         // nworkers must be a power of two; pass worker_mask = nworkers - 1.
         uint32_t dispatch(const char *databuf, std::size_t len, uint64_t ts,
                           uint64_t order_seq_base, uint64_t parent_id,
