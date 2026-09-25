@@ -495,12 +495,15 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     // map. This is the path the latency article measured.
     //
     // > 0 selects the PARALLEL path and MUST be a power of two (set_workers uses
-    // nworkers-1 as a mask). It is NOT production-ready: it aborts on the 3.03%
-    // of live ES packets (10.21% of messages) that mix hot templates with
-    // MDIncrementalRefreshVolume37. See DataDecoder::on_decode_packet.
+    // nworkers-1 as a mask, and asserts it). Every message is fanned out to a
+    // worker uniformly -- no hot/cold split and no mixed-packet abort (both
+    // removed when the decode path was unified). It is not yet validated: a
+    // dual-path replay has not confirmed the parallel output matches serial, and
+    // some message types are not routed on this path yet (see the open mdp3
+    // parallel-decode issues). So it stays opt-in and off by default.
     //
     // The default used to be 8 and NO ini anywhere set the key, so every channel
-    // silently ran the parallel path and died on its first mixed packet.
+    // silently ran the parallel path; it is 0 (serial) now.
     const uint32_t NWORKERS = pt_chan.get<uint32_t>("cme_decode_workers", 0);
 
     mdp3::Reconstructor* recon   = nullptr;
@@ -509,7 +512,7 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     if (NWORKERS > 0)
     {
         std::cerr << "Kaspr: chan " << chanstr << " PARALLEL decode, "
-                  << NWORKERS << " workers -- NOT production-ready" << std::endl;
+                  << NWORKERS << " workers -- experimental, not yet validated vs serial" << std::endl;
         recon = new mdp3::Reconstructor(handler->mbo_order_books, venue, (uint32_t)chan, "P");
         workers = new actor_ptr[NWORKERS]; // process-lifetime; set_workers keeps this array
         for (uint32_t i = 0; i < NWORKERS; ++i)

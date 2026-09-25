@@ -77,6 +77,13 @@ namespace mdp3
         // Until called, decode stays fully inline (parallel_decode_ off).
         void set_workers(actor_ptr *workers, uint32_t nworkers) noexcept
         {
+            // dispatch() round-robins with `i & worker_mask_`, which visits every
+            // worker ONLY when nworkers is a power of two. A non-pow2 count routes
+            // to a subset, so order_seq values reserved for the unreachable workers
+            // are never produced -- the Reconstructor's expected_seq_ then stalls
+            // permanently. Fail loudly at wiring time rather than hang at runtime.
+            ASSERTF(nworkers == 0 || (nworkers & (nworkers - 1)) == 0,
+                    boost::format("cme_decode_workers must be a power of two, got %u") % nworkers);
             workers_ = workers;
             // nworkers==0 is the serial build. `nworkers - 1` would wrap to
             // UINT32_MAX; harmless only for as long as nothing reads the mask

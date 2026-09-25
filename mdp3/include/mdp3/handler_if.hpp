@@ -21,6 +21,7 @@
 #include "oogsl/gvector.hpp"
 #include "frame/mda/msg/Data.hpp"
 #include "mdp3/msg/AssetMap.hpp"
+#include "mdp3/msg/OrderMap.hpp"
 #include "mdp3/msg/ResetMBO.hpp"
 
 #include <boost/unordered/unordered_flat_map.hpp>
@@ -47,7 +48,7 @@ struct handler_if : public mdp3::feed_handler_if
   char name[256];
   actor_ptr binrec = 0;
   std::vector<actor_ptr> mbo_order_books;  // Indexed by asset_id for MBO messages (futures - OB.cpp/TachBook)
-  actor_ptr reconstructor = nullptr;       // parallel-decode Reconstructor; notified of securityID->asset_id maps
+  actor_ptr reconstructor = nullptr;       // parallel-decode Reconstructor; notified of securityID->asset_id (defs), orderID->securityID (snapshots) and channel resets
   std::vector<double> latency, cmelatency;
   std::set<uint32_t> instruments;
   uint32_t max_mbp_level=1000;
@@ -954,6 +955,12 @@ struct handler_if : public mdp3::feed_handler_if
 
     // Update orderID to securityID mapping (snapshot orders are always added)
     orderid_to_securityid[orderID] = securityID;
+    // Parallel path: the live feed resolves trades against the Reconstructor's
+    // own orderid map, not this one. Seed it with the recovered order so a live
+    // trade referencing a snapshot-resting order still routes. Same guard/pattern
+    // as the AssetMap and ResetMBO sends; null (serial) means nobody to tell.
+    if (reconstructor)
+      reconstructor->send(new mdp3::msg::OrderMap(orderID, securityID), nullptr);
 
     // Record to binrec BEFORE routing to books
     if (binrec)
