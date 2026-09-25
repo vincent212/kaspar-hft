@@ -268,3 +268,71 @@ not on latency.
 - Language: British spellings in 8.5, trade-off, p99.9 notation, possessives on
   citations, step 6→7, subject–verb, the Appendix E sentence, Part I retitled
   "Theory", duplicated preamble/opener paragraphs in 4.6/6.3/6.4/6.5/6.6 removed.
+
+## 8. Requests added by the author, 2026-09-25 (after the server run started)
+
+### 8.1 Parallel servicing (dispatch) as a full design alternative, with its costs charged
+
+The M/D/N arm of §4.3 is currently a lower bound: N servers taking whole packets, no hops, ordering
+ignored. Servicing packets in parallel gives a real speed-up (same capacity N/T as the tandem, and the
+median stays T instead of T + (N−1)h), but a real implementation pays two costs the arm does not
+charge, and the paper should model and report both:
+
+- **Split (dispatch) phase:** an ingress stage that assigns each packet to a server (round-robin or
+  least-loaded). This is a hop h_d on every packet, plus the ingress stage's own service time, which is
+  a serial stage in front of the servers and caps throughput at 1/s_ingress.
+- **Reconstruction (resequencing) phase:** the order book needs packets applied in sequence, so each
+  server's output goes to a resequencer that holds packet k until k−1 has been released. That is a
+  second hop h_r plus a head-of-line wait: a fast packet waits for a slower predecessor on another
+  server. Resequencing delay is exactly zero only when service is constant and servers are
+  round-robin; with span-dependent service (§6.6) it is not zero, and on large packets it is the term
+  that matters.
+
+Requested: extend `qsim_run.py` (or `qsim_span.py`) with an `MDN_full` arm = ingress stage (service
+s_in, hop h_d) → N parallel servers (service S_i, constant or span) → resequencer (hop h_r, releases
+in sequence order), reported beside the tandem and the lower-bound M/D/N in `tab:equal-core`, under both
+constant and span service. Write §4.3 as three arrangements of N cores (tandem, sharding, dispatch)
+with dispatch's cost stated as h_d + h_r + resequencing wait, and state where it beats the tandem at
+p50 and p99. Present dispatch as a design option of equal standing, not only as a lower bound.
+
+### 8.2 The joint size × time process (transactions) — no experiment exists yet; required before the
+### attribution in §0-A is written
+
+The author's view: long queues are caused by transactions, meaning a trade produces large packets and
+the large packets arrive clustered. This is a marked point process, where size and time are clustered
+*together*. The current design cannot test it:
+
+- the main sweep (`qsim_run.py`, including the new G/B nulls) charges constant service, so it is blind
+  to packet size. A gap-shuffle result that "keeps the tail" would be misread as "clustering does not
+  matter" when the relevant clustering (big packets in bursts) was never in the model;
+- `qsim_span.py` holds the per-window mean service at T, which redistributes work instead of adding
+  it, and it uses the NQ slope ratio r = 0.0432, a third of ZN's (0.97/6.89 ≈ 0.14);
+- its only size/time arm, HS (real times, spans permuted), removes size–time coupling but keeps temporal
+  clustering. No arm keeps the size structure while destroying the timing, and none shuffles gap and
+  size jointly.
+
+Requested experiment (span service, and also an un-normalised variant in which S_i = floor +
+slope·(σ_i − 1) is charged at the measured absolute costs, so large packets ADD work; run with the NQ,
+ES and ZN slopes):
+
+| arm | arrival times | spans | isolates |
+|---|---|---|---|
+| H | real | real, in real order | the joint marked process (the real feed) |
+| HS | real | permuted across packets | temporal clustering only (exists) |
+| GS | gaps shuffled | each span kept with its packet index (size sequence intact) | size clustering in sequence, no temporal runs |
+| GP | (gap, span) pairs shuffled jointly | carried with their gap | instantaneous gap–size association, no ordering |
+| GI | gaps and spans shuffled independently | independent | marked renewal null (nothing) |
+| B | 1 s-binned | spans permuted within bin | second-scale load only |
+
+Read: H − HS = what size clustering and size–time coupling add on top of temporal clustering;
+H − GS = what temporal runs add given the size sequence; GP − GI = whether big packets sit after tight
+gaps; H − GP = whether it is the *ordering* of the joint marks (transaction trains) that builds the
+queue. Report the share of the p99 excess that survives each arm at T = 4, 8, 16, 32 µs and at the
+live operating point (~7 µs), message-weighted. Also report it on the transaction subset: packets
+containing a trade-summary message, if the tapes carry template IDs, which `make_spans.py` re-parses and
+could keep.
+
+Wording rule for §0-A: do not write "clustering does not matter" from the constant-service gap shuffle
+alone. The clustering answer in the abstract, introduction and conclusions must come from this marked
+experiment. If H ≫ HS and H ≫ GS but GP ≈ H, the answer is "transaction trains: large packets arriving
+in runs"; that is still Hawkes (marked), and the title can stand.
