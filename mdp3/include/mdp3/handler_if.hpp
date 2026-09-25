@@ -480,7 +480,18 @@ struct handler_if : public mdp3::feed_handler_if
 
     if constexpr (TreasOnly)
     {
-      sym_to_lookup = std::string(asset);
+      // Treasury channels carry BOTH shapes on the same feed:
+      //   cash/on-the-run instruments resolve on the generic asset ("UB10"),
+      //   futures resolve on the contract symbol ("ZNZ6").
+      // universe.csv registers futures under the CONTRACT (F,ZNZ6,ZN,ZN,...),
+      // so looking up `asset` alone finds nothing for ZN/ZF/ZB/ZT/UB futures:
+      // no securityid_to_asset_id entry is made and every book message for the
+      // contract is silently dropped. Measured on chan 344: 113,261 packets
+      // received, 0 mappings, 0 rows.
+      // Prefer the contract symbol, fall back to the asset.
+      sym_to_lookup = std::string(sym);
+      if (!frame::ref::RefData::inst().get_asset(sym_to_lookup))
+        sym_to_lookup = std::string(asset);
     }
     else
     {
