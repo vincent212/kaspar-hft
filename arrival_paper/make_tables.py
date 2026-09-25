@@ -60,7 +60,7 @@ def gather(df: pd.DataFrame) -> dict:
     out = {}
     for label, T in SCEN:
         for n in NS:
-            for regime in ("H", "P"):
+            for regime in ("H", "P", "G", "B"):
                 vals = []
                 for q in ("p50", "p99", "p999"):
                     c = col(label, regime, n, q)
@@ -130,6 +130,44 @@ def main() -> int:
         print(f"{T:2d} & " + " & ".join(f"{v:7.2f}" for v in d) + " & & " +
               " & ".join(f"{v:.3f}" for v in r) +
               f" & {gam}" + r" \\")
+
+
+    # ---- Table (tab:nulls): p99 under the four arrival regimes -------------
+    print("\n% ===== Table (tab:nulls): single-stage and tandem p99 under H / P / G / B =====")
+    print(r"$T$ & $N$ & real (H) & uniform (P) & gap shuffle (G) & 1\,s-binned (B) \\")
+    for label, T in SCEN:
+        print(r"\midrule")
+        for n in NS:
+            vals = [g[(T, n, r)][1] for r in ("H", "P", "G", "B")]
+            print(f"{T:2d} & {n} & " + " & ".join(f"{v:7.2f}" for v in vals) + r" \\")
+
+    print("\n[prose] share of the single-stage Hawkes p99 EXCESS that survives each null "
+          "(excess = p99 - T; corpus medians):", file=sys.stderr)
+    for label, T in SCEN:
+        eH = g[(T, 1, "H")][1] - T
+        if eH <= 0:
+            continue
+        eG = g[(T, 1, "G")][1] - T
+        eB = g[(T, 1, "B")][1] - T
+        eP = g[(T, 1, "P")][1] - T
+        print(f"   T={T:3d}: H {eH:8.2f}  G {eG:8.2f} ({100*eG/eH:5.1f}%)  "
+              f"B {eB:8.2f} ({100*eB/eH:5.1f}%)  P {eP:8.2f} ({100*eP/eH:5.1f}%)",
+              file=sys.stderr)
+
+    # ---- Table (tab:equal-core): tandem vs M/D/N at the same core count ----
+    def mdn(label, n, q):
+        c = f"{label}_H_MDN{n}_{q}_us"
+        return float(df[c].median()) if c in df.columns else float("nan")
+    print("\n% ===== Table (tab:equal-core): Hawkes arrivals, N cores as tandem vs as M/D/N dispatch =====")
+    print(r"$T$ & $N$ & tandem $p_{50}$ & tandem $p_{99}$ & M/D/N $p_{50}$ & M/D/N $p_{99}$ \\")
+    for label, T in SCEN:
+        print(r"\midrule")
+        h1 = g[(T, 1, "H")]
+        print(f"{T:2d} & 1 & {h1[0]:7.2f} & {h1[1]:7.2f} & {h1[0]:7.2f} & {h1[1]:7.2f} \\\\")
+        for n in (2, 4, 8):
+            ht = g[(T, n, "H")]
+            print(f"{T:2d} & {n} & {ht[0]:7.2f} & {ht[1]:7.2f} & "
+                  f"{mdn(label, n, 'p50'):7.2f} & {mdn(label, n, 'p99'):7.2f} \\\\")
 
     # ---- bound check -------------------------------------------------------
     print("\n[check] Delta(N)/Delta(1) <= 1/N :", file=sys.stderr)

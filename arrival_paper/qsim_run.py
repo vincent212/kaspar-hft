@@ -4,6 +4,10 @@
 
 Consumes the cache produced by `qsim_prep.py` (metadata.parquet + arrivals/*.npz)
 and runs the (T, N, regime) tandem Lindley grid using numba-njit'd recursions.
+
+Regimes: H = real arrivals, P = whole-window uniform shuffle (Poisson null),
+G = gap shuffle (renewal null, same gap marginal), B = 1 s-binned Poisson null.
+Plus an equal-core M/D/N dispatch arm (columns *_H_MDN{N}_*) on real arrivals.
 Full-corpus scenario sweeps take seconds instead of hours, so re-runs across
 new (T, h, N) grids or sensitivity variants are essentially free.
 
@@ -21,9 +25,15 @@ import sys
 import time
 from pathlib import Path
 
+import hashlib
 import numpy as np
 import pandas as pd
-from numba import njit
+try:
+    from numba import njit
+except ImportError:  # pure-python fallback: identical results, slower (fine for tests)
+    def njit(*a, **k):
+        def deco(f): return f
+        return deco if not (a and callable(a[0])) else a[0]
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +91,80 @@ def tandem_lindley(arr_ns: np.ndarray, N: int, total_service_ns: int,
     return dep - arr_ns
 
 
+
+@njit(cache=True)
+def mdn_latency(arr_ns: np.ndarray, N: int, service_ns: int) -> np.ndarray:
+    """Single FIFO queue, N identical servers, deterministic service on WHOLE
+    packets (the dispatch / M/D/N alternative to the tandem). No hops. Each
+    arrival takes the earliest-free server. Returns per-event latency in ns.
+    Same capacity N/T as the N-stage tandem, but per-packet service stays T
+    and ordering is not preserved (see paper, equal-core subsection)."""
+    n = arr_ns.shape[0]
+    out = np.empty(n, dtype=np.int64)
+    free = np.zeros(N, dtype=np.int64)
+    for i in range(n):
+        a = arr_ns[i]
+        j = 0
+        fmin = free[0]
+        for k in range(1, N):
+            if free[k] < fmin:
+                fmin = free[k]
+                j = k
+        start = a if a > fmin else fmin
+        dep = start + service_ns
+        free[j] = dep
+        out[i] = dep - a
+    return out
+
+
+def _seed(session: str, wid: int, salt: str) -> int:
+    """Stable per-(session, window, arm) seed: MD5 of the key, as in qsim_prep."""
+    key = f"{session}|{int(wid)}|{salt}".encode()
+    return int.from_bytes(hashlib.md5(key).digest()[:4], "big")
+
+
+def gap_shuffle_null(arr_H: np.ndarray, session: str, wid: int) -> np.ndarray:
+    """Renewal null: Fisher-Yates shuffle of the interarrival-gap sequence.
+    Keeps the gap MARGINAL exactly (same count, same tight-gap fraction, same
+    p1 gap), destroys the ORDERING (clustering / self-excitation). Same
+    construction as the Fano diagnostic in qsim_prep / Section 3.2."""
+    if arr_H.shape[0] < 2:
+        return arr_H.copy()
+    rng = np.random.default_rng(_seed(session, wid, "gap"))
+    gaps = np.diff(arr_H).astype(np.int64)
+    rng.shuffle(gaps)
+    out = np.empty_like(arr_H)
+    out[0] = arr_H[0]
+    out[1:] = arr_H[0] + np.cumsum(gaps)
+    return out
+
+
+def binned_poisson_null(arr_H: np.ndarray, session: str, wid: int,
+                        bin_ns: int = 1_000_000_000) -> np.ndarray:
+    """Piecewise-homogeneous Poisson null: the window is cut into bins of
+    bin_ns (default 1 s); each bin keeps ITS OWN real packet count and those
+    arrivals are redrawn uniformly inside the bin. Keeps slow (second-scale)
+    rate variation, destroys microsecond-scale clustering. Sits between the
+    whole-window uniform shuffle (regime P) and the real stream (H)."""
+    n = arr_H.shape[0]
+    if n < 2:
+        return arr_H.copy()
+    rng = np.random.default_rng(_seed(session, wid, "bin1s"))
+    t0, t1 = int(arr_H[0]), int(arr_H[-1]) + 1
+    edges = np.arange(t0, t1 + bin_ns, bin_ns, dtype=np.int64)
+    edges[-1] = max(edges[-1], t1)
+    counts, _ = np.histogram(arr_H, bins=edges)
+    parts = []
+    for i in range(len(counts)):
+        c = int(counts[i])
+        if c == 0:
+            continue
+        lo, hi = int(edges[i]), int(min(edges[i + 1], t1))
+        parts.append(rng.integers(low=lo, high=max(hi, lo + 1), size=c))
+    out = np.sort(np.concatenate(parts)).astype(np.int64)
+    return out
+
+
 def quantiles_us(lat_ns: np.ndarray) -> tuple[float, float, float, float, float]:
     """Return (p50, p95, p99, p999, max) in microseconds."""
     return (
@@ -109,6 +193,10 @@ def run_session(task: tuple[str, str, list[dict]]) -> list[dict]:
                 continue
             arr_H = npz[key_H]
             arr_P = npz[key_P]
+            # Two further nulls, derived from the real arrivals at run time
+            # (no cache change): renewal (gap shuffle) and 1 s-binned Poisson.
+            arr_G = gap_shuffle_null(arr_H, session, wid)
+            arr_B = binned_poisson_null(arr_H, session, wid)
 
             row = dict(wrow)
             # Utilisation is service-time dependent, so it is derived per
@@ -116,7 +204,7 @@ def run_session(task: tuple[str, str, list[dict]]) -> list[dict]:
             lam = float(row.get("lambda_bar_obs", float("nan")))
             for label, T_ns, h_ns, Ns in SCENARIOS:
                 row[f"{label}_rho"] = lam * T_ns / 1e9
-                for regime, arrivals in (("H", arr_H), ("P", arr_P)):
+                for regime, arrivals in (("H", arr_H), ("P", arr_P), ("G", arr_G), ("B", arr_B)):
                     wait1 = None
                     for N in sorted(set(Ns) | {1}):
                         lat = tandem_lindley(
@@ -138,6 +226,16 @@ def run_session(task: tuple[str, str, list[dict]]) -> list[dict]:
                         row[f"{label}_{regime}_N{N}_p99_us"]  = p99
                         row[f"{label}_{regime}_N{N}_p999_us"] = p999
                         row[f"{label}_{regime}_N{N}_max_us"]  = mx
+                # Equal-core comparator: one queue, N servers at full service T
+                # (M/D/N dispatch), on the real arrivals. No hops.
+                for N in (2, 4, 8):
+                    lat = mdn_latency(arr_H, N, T_ns)
+                    p50, p95, p99, p999, mx = quantiles_us(lat)
+                    row[f"{label}_H_MDN{N}_p50_us"]  = p50
+                    row[f"{label}_H_MDN{N}_p95_us"]  = p95
+                    row[f"{label}_H_MDN{N}_p99_us"]  = p99
+                    row[f"{label}_H_MDN{N}_p999_us"] = p999
+                    row[f"{label}_H_MDN{N}_max_us"]  = mx
             rows.append(row)
     return rows
 
@@ -168,6 +266,7 @@ def main() -> int:
     # Warm up numba JIT on a tiny array so timing reflects steady-state.
     _ = tandem_lindley(np.array([0, 100, 200], dtype=np.int64),
                        2, 100, 10)
+    _ = mdn_latency(np.array([0, 100, 200], dtype=np.int64), 2, 100)
 
     rows: list[dict] = []
     sessions = list(meta["session"].unique())
