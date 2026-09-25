@@ -1,5 +1,29 @@
 # Serial vs parallel decode — wire-to-book latency
 
+## STATUS: UNDER DEVELOPMENT — this branch is not merged
+
+**Where the code lives.** This report and the code it measures are on
+**`mdp3/uniform-decode`** (PR **#127**, open, unmerged). `main` is at `4b6d889`
+("restore serial decode as the default, parallel behind a switch", PR #120) and
+does **not** contain: the uniform decode path, the treasury asset-lookup fix,
+pooled `ParsedMsg` entries, the inline fan-out bypass, or the correctness fixes
+from two review rounds. Every file path and line number below refers to this
+branch, not `main`.
+
+One set of numbers comes from somewhere else again: **§8.4b** was measured on a
+local throwaway branch (`perf/parallel-experiment`, never pushed, now deleted)
+carrying an async decode hand-off and `INLINE_MAX_MSGS = 1`. **Recovery was
+deliberately broken on it** — a critical decode failure did not trigger recovery,
+so the book would diverge silently. Those numbers are a latency measurement only,
+and that code is not in PR #127.
+
+**The verdict is not final, and this is not a finished evaluation.** §8 records a
+measurement defect affecting two of the four windows, a regime where the parallel
+path does win (§8.4b), a hypothesis about `fast_send` that the data did not
+support, and five things that would have to happen before any of it settles. The
+only conclusion stable enough to act on is the production guidance:
+`cme_decode_workers 0`.
+
 > **The parallel decoder is RESEARCH ONLY and must not be used in production.**
 > It is slower than serial at every book percentile measured here, and it is not
 > correctness-validated: no dual-path replay has confirmed its output matches
@@ -290,7 +314,10 @@ instead of 15.2 / 37.6 µs. Three methods, best first:
 
 ---
 
-## 7. Conclusion
+## 7. Conclusion (provisional — see §8)
+
+**This section states what the four windows showed. It is not a finished
+evaluation, and §8.4b partly contradicts the last paragraph — read both.**
 
 **Keep `cme_decode_workers 0` in production. The parallel path is for research
 only.** Beyond being slower, it is not correctness-validated against serial, so a
@@ -301,11 +328,18 @@ every percentile, by 2.1–2.2× at the median and 2.4–3.2× at p99, and its m
 match the published article intercept. The single crossover (ZN trade p99) does
 not survive to p999 and sits in the noisiest series measured.
 
-Parallel decode's cost is structural on THIS feed, not incidental: at 1.06–1.10
-messages per packet there is no fan-out to amortise the coordination over. The two
-optimisations here recovered half the median gap but widened the tail, which is
-the opposite of what was wanted. Closing the rest would mean removing the two
-`std::map`s and the two actor hops.
+Parallel decode's cost is structural on THIS feed **at the median**, not
+incidental: at 1.06–1.10 messages per packet there is no fan-out to amortise the
+coordination over. The two optimisations here recovered half the median gap.
+
+**They also appeared to widen the tail — and that turned out to be wrong.** A
+later window (§8.4b) that pushed *more* traffic onto the fan-out path improved
+p999 by 32–66% on five of six series, and the improvement held at p9999 and max.
+The earlier "widened the tail" reading came from a build carrying a 2,880-byte
+inline block per message (§8.1), which is a defect, not a property of fan-out.
+So the honest summary is: **parallel loses the body and can win the far tail.**
+Whether that is worth having depends on which one you are optimising, and the
+correctness question (§8.5, item 1) has to be settled either way.
 
 ## 8. THE JURY IS STILL OUT — read this before citing section 2
 
