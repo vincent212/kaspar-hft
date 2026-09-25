@@ -56,12 +56,20 @@ namespace {
 // link 4: DecodeSink stamps what the worker seeded onto every built record
 // ---------------------------------------------------------------------------
 
-// The sink only sends on flush(); these tests read batch_ directly and never
-// flush, so the reconstructor/self actor pointers are never dereferenced.
+// The sink only sends on flush(); these tests read the in-progress ParsedMsg
+// (sink.pm_) directly and never flush, so the reconstructor/self actor pointers
+// are never dereferenced.
+//
+// SetUp seeds once so pm_ exists: entries are now built straight into the pooled
+// message rather than into an intermediate vector, so a sink that was never
+// seeded has nowhere to put them. The tests below then set ingress_qlen_ by hand
+// to exercise the stamp independently of the seed path.
 class DecodeSinkQlenTest : public ::testing::Test
 {
 protected:
   mdp3::DecodeSink sink{nullptr, nullptr, en::x::CMEMDFUT};
+
+  void SetUp() override { sink.seed(/*order_seq=*/0, /*qlen=*/0); }
 
   void build_order() // the MBO book callback (from OrderBook47 / Book46)
   {
@@ -82,11 +90,11 @@ protected:
 
   uint32_t order_qlen(size_t i) const
   {
-    return std::get<bfile::l3_mbo_v2_t>(sink.batch_[i]).ingress_qlen;
+    return std::get<bfile::l3_mbo_v2_t>((*sink.pm_)[i]).ingress_qlen;
   }
   uint32_t trade_qlen(size_t i) const
   {
-    return std::get<bfile::l3_mbo_trd_v2_t>(sink.batch_[i]).ingress_qlen;
+    return std::get<bfile::l3_mbo_trd_v2_t>((*sink.pm_)[i]).ingress_qlen;
   }
 };
 
@@ -94,7 +102,7 @@ TEST_F(DecodeSinkQlenTest, BookEntryCarriesTheSeededDepth)
 {
   sink.ingress_qlen_ = 37;
   build_order();
-  ASSERT_EQ(sink.batch_.size(), 1u);
+  ASSERT_EQ(sink.pm_->size(), 1u);
   EXPECT_EQ(order_qlen(0), 37u); // NOT 0: the memset must not win
 }
 
@@ -102,7 +110,7 @@ TEST_F(DecodeSinkQlenTest, TradeEntryCarriesTheSeededDepth)
 {
   sink.ingress_qlen_ = 58;
   build_trade();
-  ASSERT_EQ(sink.batch_.size(), 1u);
+  ASSERT_EQ(sink.pm_->size(), 1u);
   EXPECT_EQ(trade_qlen(0), 58u);
 }
 
@@ -114,7 +122,7 @@ TEST_F(DecodeSinkQlenTest, EveryEntryOfOneMessageGetsTheSameDepth)
   build_order();
   build_order();
   build_trade();
-  ASSERT_EQ(sink.batch_.size(), 3u);
+  ASSERT_EQ(sink.pm_->size(), 3u);
   EXPECT_EQ(order_qlen(0), 5u);
   EXPECT_EQ(order_qlen(1), 5u);
   EXPECT_EQ(trade_qlen(2), 5u);
@@ -129,7 +137,7 @@ TEST_F(DecodeSinkQlenTest, ReseedingAppliesToSubsequentEntriesOnly)
   build_order();
   sink.ingress_qlen_ = 400;
   build_order();
-  ASSERT_EQ(sink.batch_.size(), 2u);
+  ASSERT_EQ(sink.pm_->size(), 2u);
   EXPECT_EQ(order_qlen(0), 2u);
   EXPECT_EQ(order_qlen(1), 400u);
 }
@@ -282,8 +290,8 @@ protected:
     std::vector<uint32_t> out;
     const auto *pm = recon.get_message<mdp3::msg::ParsedMsg>(idx);
     if (!pm) return out;
-    for (const auto &e : pm->entries)
-      out.push_back(std::get<bfile::l3_mbo_v2_t>(e).ingress_qlen);
+    for (std::size_t i = 0; i < pm->size(); ++i)
+      out.push_back(std::get<bfile::l3_mbo_v2_t>((*pm)[i]).ingress_qlen);
     return out;
   }
 };
@@ -298,7 +306,7 @@ TEST_F(DecodeWorkerQlenTest, RequestDepthReachesEveryDecodedRecord)
   ASSERT_EQ(recon.message_count(), 1u);
   const auto *pm = recon.get_message<mdp3::msg::ParsedMsg>(0);
   ASSERT_NE(pm, nullptr);
-  ASSERT_EQ(pm->entries.size(), 3u); // the encoder really did produce 3 entries
+  ASSERT_EQ(pm->size(), 3u); // the encoder really did produce 3 entries
   EXPECT_EQ(flushed_qlens(0), (std::vector<uint32_t>{91, 91, 91}));
 }
 

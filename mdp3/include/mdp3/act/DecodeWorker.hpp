@@ -59,10 +59,9 @@ namespace mdp3
       // handles (book/trade/definition/reset) and no-ops the rest -- an empty batch
       // still flushes so the Reconstructor's order_seq advances.
 
-      // Seed the sink for this message: its entries are accumulated into a batch
-      // and flushed below as one ParsedMsg tagged with this order_seq.
-      sink_.order_seq_ = req->order_seq;
-      sink_.ingress_qlen_ = req->qlen;
+      // Seed the sink for this message: entries are built straight into a pooled
+      // ParsedMsg tagged with this order_seq, and flushed below.
+      sink_.seed(req->order_seq, req->qlen);
 
       bool is_channel_reset = false; // reset is applied via the l3_chr_v2_t entry
       const bool ok = DataDecoder::decode_one(const_cast<char *>(req->msg), req->len, req->ts,

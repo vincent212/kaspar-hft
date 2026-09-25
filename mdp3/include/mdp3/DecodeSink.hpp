@@ -50,12 +50,30 @@ namespace mdp3
     // different packets cannot cross-contaminate. handler_if keeps the same
     // number in a member (ingress_qlen_) because its decode is serial.
     uint32_t  ingress_qlen_ = 0;
-    std::vector<bfile::l3_t> batch_;     // entries built for the current message
+    // The message being built. Allocated from ParsedMsg's pool by seed() at the
+    // start of each decode and handed to the Reconstructor by flush(). Entries go
+    // straight into it, so there is no intermediate vector and no per-message
+    // malloc: the old code kept a reserve(64)'d batch_ and swap()'d it into the
+    // ParsedMsg, which gave the storage away and left batch_ empty, forcing a
+    // realloc on the next message's first entry.
+    msg::ParsedMsg *pm_ = nullptr;
 
     DecodeSink(actor_ptr reconstructor, actor_ptr self, en::x xchg)
         : reconstructor_(reconstructor), self_(self), xchg_(xchg)
     {
-      batch_.reserve(64); // typical worst-case entries per message; avoids regrowth
+    }
+
+    // Start a new message. MUST be called before each decode_one; flush() then
+    // sends whatever was built, empty or not, so the Reconstructor's expected
+    // order_seq always advances.
+    void seed(uint64_t order_seq, uint32_t qlen) noexcept
+    {
+      order_seq_ = order_seq;
+      ingress_qlen_ = qlen;
+      if (!pm_)
+        pm_ = new msg::ParsedMsg(order_seq);
+      else
+        pm_->clear();
     }
 
     // Send the current message's accumulated entries to the Reconstructor and
@@ -63,11 +81,17 @@ namespace mdp3
     // ALWAYS sends -- even an empty batch -- so the Reconstructor advances its
     // expected order_seq for every dispatched message (else it stalls waiting for
     // a message that produced no entries).
+    // Entries are built straight into the pooled ParsedMsg, so there is no
+    // intermediate vector and no per-message malloc. The message is created at
+    // the START of each decode (seed()) rather than here, because the builders
+    // below append into it as the SBE record is walked.
     void flush()
     {
-      auto *pm = new msg::ParsedMsg(order_seq_);
-      pm->entries.swap(batch_); // hand off entries; batch_ becomes empty
-      reconstructor_->send(pm, self_);
+      if (!pm_) // nothing decoded (seed not called) -- nothing to advance
+        return;
+      pm_->order_seq = order_seq_;
+      reconstructor_->send(pm_, self_);
+      pm_ = nullptr;
     }
 
     // ---- MBO incremental book (order add / modify / delete) ----
@@ -96,7 +120,7 @@ namespace mdp3
       l3.endOfEvent = endOfEvent;
       l3.recovery = recovery;
       l3.ingress_qlen = ingress_qlen_;
-      batch_.emplace_back(l3);
+      if (pm_) pm_->push(l3);
     }
 
     // ---- MBO trade (carries only orderID; securityID resolved downstream) ----
@@ -117,7 +141,7 @@ namespace mdp3
       l3.endOfEvent = endOfEvent;
       l3.lastTrade = lastTrade;
       l3.ingress_qlen = ingress_qlen_;
-      batch_.emplace_back(l3);
+      if (pm_) pm_->push(l3);
     }
 
     // ---- MBP variants: options MBP not traded (handler_if filters them) ----
@@ -154,7 +178,7 @@ namespace mdp3
       strncpy(l3.asset, asset, sizeof(l3.asset));
       l3.securityID = securityID;
       l3.updateAction = updateAction;
-      batch_.emplace_back(l3);
+      if (pm_) pm_->push(l3);
     }
     void MDInstrumentDefinitionOption(uint32_t, uint64_t, char*, char*, char*, int64_t,
         int8_t, int64_t, int8_t, int32_t, char, uint64_t, uint64_t, char*, uint8_t,
@@ -177,7 +201,7 @@ namespace mdp3
       memset(&l3, 0, sizeof(l3));
       l3.typ = en::l3::CHR_V2;
       l3.venue = xchg_;
-      batch_.emplace_back(l3);
+      if (pm_) pm_->push(l3);
     }
     void SnapshotFullRefreshOrderBook_NR(uint32_t, uint32_t, uint32_t, uint64_t,
         uint64_t, uint32_t, uint32_t, int32_t, int32_t, int64_t, int64_t, char,

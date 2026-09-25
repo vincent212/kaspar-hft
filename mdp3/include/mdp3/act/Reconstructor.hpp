@@ -88,14 +88,19 @@ namespace mdp3
     {
       if (pm->order_seq == expected_seq_)
       {
-        apply(pm->entries);
+        // In-order: apply straight out of the pooled message's inline storage.
+        // No copy, no allocation -- this is the common case (measured: CME packets
+        // carry 1.06-1.10 messages, so most arrive already in sequence).
+        apply(*pm);
         ++expected_seq_;
         drain();
       }
       else
       {
         // out of order -> buffer (copy: the message is freed after this handler)
-        buffer_[pm->order_seq] = pm->entries;
+        auto &slot = buffer_[pm->order_seq];
+        slot.clear();
+        pm->copy_to(slot);
       }
     }
 
@@ -110,10 +115,15 @@ namespace mdp3
       }
     }
 
-    void apply(const std::vector<bfile::l3_t> &entries) noexcept
+    // Templated so the in-order path can apply straight out of a pooled
+    // ParsedMsg's inline block (no copy) while the resequence path still applies
+    // out of a buffered std::vector. Both expose size() and operator[].
+    template <typename Batch>
+    void apply(const Batch &batch) noexcept
     {
-      for (const auto &e : entries)
+      for (std::size_t bi = 0; bi < batch.size(); ++bi)
       {
+        const bfile::l3_t &e = batch[bi];
         if (std::holds_alternative<bfile::l3_mbo_v2_t>(e))
           apply_book(std::get<bfile::l3_mbo_v2_t>(e));
         else if (std::holds_alternative<bfile::l3_mbo_trd_v2_t>(e))

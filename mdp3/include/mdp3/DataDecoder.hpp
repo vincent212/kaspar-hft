@@ -24,6 +24,10 @@
 
 #include "logger/act/Logger.hpp"
 
+// The inline-bypass sink. Safe to include: DecodeSink.hpp pulls mbo_if.hpp and
+// ParsedMsg.hpp, never this header, so there is no cycle.
+#include "mdp3/DecodeSink.hpp"
+
 #define TRACEF std::cerr
 
 // decode_one is static (shared by the inline path and the workers), so it cannot
@@ -96,6 +100,75 @@ namespace mdp3
         // can initiate recovery. Wired in kaspr once both actors exist.
         void set_recovery_target(actor_ptr mp) noexcept { recovery_target_ = mp; }
 
+        // Wire the inline-bypass sink. Needed only on the parallel path: small
+        // packets are decoded on this thread and their entries sent straight to the
+        // Reconstructor, so this decoder needs its own sink (one, not per worker --
+        // the bypass runs on the coordinator thread and is serialized with itself
+        // by the framework's fast_send_mutex, the same guarantee on_decode_done
+        // relies on). Without it the bypass is disabled and every packet fans out,
+        // which is the pre-bypass behaviour.
+        void set_inline_sink(DecodeSink *s) noexcept { inline_sink_ = s; }
+
+
+        // Packets with at most this many SBE messages skip the worker fan-out and
+        // are decoded inline. Sized from the feed: messages per packet are p99 2-4
+        // and max 34 (1.31M CME packets, ES/NQ/ZN), so 8 takes essentially all
+        // ordinary traffic inline while genuinely fat packets still parallelize.
+        static constexpr uint32_t INLINE_MAX_MSGS = 8;
+
+        // Decode every message of a packet on THIS thread, sending each message's
+        // entries to the Reconstructor tagged with a dense order_seq -- byte for
+        // byte what a DecodeWorker would have sent, minus the queue hops. Returns
+        // the number of messages decoded, so the caller advances order_seq_ by
+        // exactly the same amount dispatch() would have.
+        uint32_t decode_inline(const char *databuf, std::size_t len, uint64_t ts,
+                               uint64_t order_seq_base, uint32_t qlen) noexcept
+        {
+            const uint32_t msgSeqNum   = *reinterpret_cast<const uint32_t *>(databuf);
+            const uint64_t sendingTime = *reinterpret_cast<const uint64_t *>(databuf + 4);
+            const char *p = databuf + 12;
+            const char *const end = databuf + len;
+            uint32_t i = 0;
+            while (p < end)
+            {
+                // Framing already validated by count_messages() on this same packet.
+                const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
+                inline_sink_->seed(order_seq_base + i, qlen);
+                bool is_channel_reset = false; // applied via the l3_chr_v2_t entry
+                decode_one(const_cast<char *>(p), MsgSize, ts, msgSeqNum, sendingTime,
+                           inline_sink_, is_channel_reset, /*debug=*/false);
+                inline_sink_->flush();
+                p += MsgSize;
+                ++i;
+            }
+            return i;
+        }
+
+        // Count the SBE messages in a packet without decoding or sending any.
+        // Same framing walk and the same asserts as dispatch(), so a packet that
+        // would abort there aborts here, at the same offset, with the same text.
+        // Used by the inline-bypass decision below: the fan-out is only worth its
+        // coordination cost when there is real fan-out to be had.
+        uint32_t count_messages(const char *databuf, std::size_t len) const noexcept
+        {
+            const uint32_t msgSeqNum = *reinterpret_cast<const uint32_t *>(databuf);
+            const char *p = databuf + 12;
+            const char *const end = databuf + len;
+            uint32_t i = 0;
+            while (p < end)
+            {
+                ASSERTF(p + sizeof(uint16_t) <= end,
+                        boost::format("count_messages: truncated SBE length prefix at offset %ld of %zu (seq %u)")
+                            % (p - databuf) % len % msgSeqNum);
+                const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
+                ASSERTF(MsgSize >= 10 && p + MsgSize <= end,
+                        boost::format("count_messages: malformed SBE frame, MsgSize=%u at offset %ld of %zu (seq %u)")
+                            % MsgSize % (p - databuf) % len % msgSeqNum);
+                p += MsgSize;
+                ++i;
+            }
+            return i;
+        }
 
         // The dispatch loop: hand each SBE message to a warm worker (round-robin),
         // zero-copy (DecodeReq points into databuf). Stamps a global-monotonic
@@ -635,6 +708,36 @@ namespace mdp3
             // advances the Reconstructor's expected order_seq, so it never stalls.
             if (parallel_decode_)
             {
+                // INLINE BYPASS. Fan-out only pays when there is something to fan
+                // out. Measured over 1.31M CME packets (ES/NQ/ZN, 900s): messages
+                // per packet mean 1.06-1.10, p50 1, p90 1, p99 2-4. So the common
+                // packet dispatches ONE message to ONE worker and still pays the
+                // full coordination bill -- a 1500-byte packet memcpy, a pending_
+                // map insert/erase, a ParsedMsg send, a DecodeDone reply, and two
+                // actor hops. That overhead is the ~7us gap measured between the
+                // serial and parallel paths (NQ book p50 6.45us vs 13.78us).
+                //
+                // For a packet at or under INLINE_MAX_MSGS, decode it right here on
+                // this thread -- no copy, no pending_ slot, no worker, no reply --
+                // and hand the entries to the Reconstructor exactly as a worker
+                // would, tagged with the same dense order_seq. Ordering is
+                // therefore unchanged: the Reconstructor still applies strictly by
+                // order_seq, so an inline packet and a fanned-out packet around it
+                // cannot overtake each other.
+                const uint32_t nmsg = inline_sink_ ? count_messages(m->data, m->len)
+                                                  : UINT32_MAX;
+                if (nmsg <= INLINE_MAX_MSGS)
+                {
+                    if (nmsg)
+                    {
+                        const uint32_t k = decode_inline(m->data, m->len, m->ts,
+                                                         order_seq_, m->qlen);
+                        order_seq_ += k;
+                    }
+                    reply(new msg::DecodeResult(true, false));
+                    return;
+                }
+
                 const uint64_t pid  = next_parent_id_++;
                 const uint64_t base = order_seq_;
                 auto &pp = pending_[pid];
@@ -724,5 +827,8 @@ namespace mdp3
         };
         std::map<uint64_t, pending_packet> pending_;
         actor_ptr recovery_target_ = nullptr; // MessageProcessor; asked to recover on decode failure
+        // Inline-bypass sink (parallel path only). Null => bypass disabled, every
+        // packet fans out exactly as before.
+        DecodeSink *inline_sink_ = nullptr;
     };
 }
