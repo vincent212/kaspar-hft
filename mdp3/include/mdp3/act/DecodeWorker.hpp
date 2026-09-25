@@ -28,9 +28,9 @@ namespace mdp3
   // Reconstructor instead of touching maps or books. (One decode_one, shared by
   // the inline loop and the workers -- no duplicated switch.)
   //
-  // Only hot MBO templates (46/47 book, 48 trade) are ever dispatched here; the
-  // coordinator keeps everything else on the inline serial path. We assert that
-  // contract on entry.
+  // Every message in a packet is dispatched here (the coordinator does not
+  // classify). decode_one dispatches on template; the DecodeSink builds an entry
+  // for the ones that carry book/routing state and no-ops the rest.
   //
   // After decoding, it replies DecodeDone{parent_id} to the coordinator (the
   // DecodeReq's sender) so the coordinator can drop the packet buffer's refcount
@@ -55,10 +55,9 @@ namespace mdp3
   private:
     void on_decode(const msg::DecodeReq *req) noexcept
     {
-      // Every message is dispatched here now (no hot/cold filter). decode_one
-      // dispatches on template; the sink builds entries for the ones it handles
-      // (book/trade/definition/reset) and no-ops the rest -- an empty batch still
-      // flushes so the Reconstructor's order_seq advances.
+      // decode_one dispatches on template; the sink builds entries for the ones it
+      // handles (book/trade/definition/reset) and no-ops the rest -- an empty batch
+      // still flushes so the Reconstructor's order_seq advances.
 
       // Seed the sink for this message: its entries are accumulated into a batch
       // and flushed below as one ParsedMsg tagged with this order_seq.

@@ -17,7 +17,7 @@
  *
  * On the serial path the depth is a handler_if member, set once per packet by
  * DataDecoder::set_ingress_qlen() immediately before mbo_data(). That cannot
- * work here: the hot path fans one packet out to N DecodeWorker threads, so a
+ * work here: the parallel path fans one packet out to N DecodeWorker threads, so a
  * single member on a shared handler would be read by a worker decoding a
  * DIFFERENT packet. The value therefore rides the request instead:
  *
@@ -25,7 +25,7 @@
  *       -> DecodePacket.qlen          (MessageProcessor::processq)
  *       -> DecodeReq.qlen             (DataDecoder::dispatch, per SBE message)
  *       -> DecodeSink::ingress_qlen_  (DecodeWorker::on_decode, per request)
- *       -> l3.ingress_qlen            (DecodeSink's two hot builders)
+ *       -> l3.ingress_qlen            (DecodeSink builders)
  *
  * Each link is pinned below. The DecodeSink builders memset the l3 before
  * filling it, so a dropped stamp does not read as garbage -- it reads as 0,
@@ -63,7 +63,7 @@ class DecodeSinkQlenTest : public ::testing::Test
 protected:
   mdp3::DecodeSink sink{nullptr, nullptr, en::x::CMEMDFUT};
 
-  void build_order() // the hot MBO book callback (from OrderBook47 / Book46)
+  void build_order() // the MBO book callback (from OrderBook47 / Book46)
   {
     sink.MDIncrementalRefreshBook(
         /*recv_time=*/1, /*msgSeqNum=*/2, /*transactTime=*/3, /*sendingTime=*/4,
@@ -73,7 +73,7 @@ protected:
         /*recovery=*/false);
   }
 
-  void build_trade() // the hot MBO trade callback (from TradeSummary48)
+  void build_trade() // the MBO trade callback (from TradeSummary48)
   {
     sink.MDIncrementalRefreshTradeSummary(
         /*recv_time=*/1, /*msgSeqNum=*/2, /*transactTime=*/3, /*sendingTime=*/4,
@@ -226,7 +226,7 @@ struct TestWorker : public mdp3::DecodeWorker
   void set_reply_to(actors::Actor *a) { reply_to = a; }
 };
 
-// A genuine CME-framed MDIncrementalRefreshOrderBook47 (MBO book, a hot
+// A genuine CME-framed MDIncrementalRefreshOrderBook47 (MBO book, a
 // template) with `n` order entries, built with the generated SBE encoder so the
 // bytes are the ones the wire would carry. CME framing is
 // [MsgSize u16][SBE messageHeader 8B][body], hence the encoder offset of 2.

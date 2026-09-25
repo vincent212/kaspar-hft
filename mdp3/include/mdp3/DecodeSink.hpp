@@ -22,15 +22,17 @@ namespace mdp3
 {
   // Worker-side feed_handler_if callback -- the stateless half of decode.
   //
-  // For each decoded MBO order or trade it builds the l3 record (mirroring
-  // handler_if's field build, but WITHOUT the orderid_to_securityid map and
-  // WITHOUT BOOKSEND) and APPENDS it to a per-message batch. After the worker
-  // finishes decoding one SBE message it calls flush(), which sends the whole
-  // batch as one ParsedMsg (tagged order_seq) to the single Reconstructor. The
-  // Reconstructor owns the map + routing and applies batches in order_seq order.
+  // For each decoded message it builds the l3 record (mirroring handler_if's
+  // field build, but WITHOUT the maps and WITHOUT BOOKSEND) and APPENDS it to a
+  // per-message batch. After the worker finishes decoding one SBE message it
+  // calls flush(), which sends the whole batch as one ParsedMsg (tagged
+  // order_seq) to the single Reconstructor, which owns the maps + routing and
+  // applies batches in order_seq order.
   //
-  // Only hot MBO-incremental templates reach a worker, so every non-hot callback
-  // is a no-op.
+  // Every template reaches a worker. This builds entries for the ones that carry
+  // order-book or routing state (book, trade, definition, reset); the rest
+  // (stats/volume/snapshots/...) are no-ops -- but an empty batch still flushes,
+  // so the Reconstructor's order_seq advances and the stream never stalls.
   //
   // Not an actor: a plain callback owned by a DecodeWorker, touched only by that
   // worker's thread -- no synchronization. `order_seq_` is set by the worker
@@ -68,7 +70,7 @@ namespace mdp3
       reconstructor_->send(pm, self_);
     }
 
-    // ---- HOT: MBO incremental book (order add / modify / delete) ----
+    // ---- MBO incremental book (order add / modify / delete) ----
     void MDIncrementalRefreshBook(
         uint64_t recv_time, uint32_t /*msgSeqNum*/, uint64_t transactTime,
         uint64_t sendingTime, int32_t securityID, int64_t px_mantissa,
@@ -97,7 +99,7 @@ namespace mdp3
       batch_.emplace_back(l3);
     }
 
-    // ---- HOT: MBO trade (carries only orderID; securityID resolved downstream) ----
+    // ---- MBO trade (carries only orderID; securityID resolved downstream) ----
     void MDIncrementalRefreshTradeSummary(
         uint64_t recv_time, uint32_t /*msgSeqNum*/, uint64_t transactTime,
         uint64_t sendingTime, int32_t lastQty, uint64_t orderID,
@@ -124,7 +126,9 @@ namespace mdp3
     void MDIncrementalRefreshTradeSummary(uint64_t, uint32_t, uint64_t, uint64_t,
         int32_t, int64_t, int8_t, char, uint8_t, int32_t, int32_t, bool, bool) noexcept override {}
 
-    // ---- COLD: never fanned out to a worker (inline serial path handles them) ----
+    // ---- Definitions and reset (above/below) build entries; the templates the
+    // ---- Reconstructor needs nothing from are no-ops (an empty batch still
+    // ---- flushes, so order_seq still advances). ----
     void disable_mbo(bool) noexcept override {}
     void set_max_mbp_level(uint32_t) noexcept override {}
     void MDIncrementalRefreshSessionStatistics(uint32_t, uint64_t, uint64_t, uint32_t,

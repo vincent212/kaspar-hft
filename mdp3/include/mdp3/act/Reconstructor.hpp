@@ -27,27 +27,21 @@ namespace mdp3
 {
   // The single serialization point for the parallel decode path.
   //
-  // Warm DecodeWorkers parse hot MBO messages in parallel and send their entries
-  // here as ParsedMsg batches, tagged with a dense per-message order_seq. The
+  // The DecodeWorkers parse messages in parallel and send their entries here as
+  // ParsedMsg batches, tagged with a dense per-message order_seq. The
   // Reconstructor:
   //   1. RESEQUENCES: drains order_seq = expected, expected+1, ... (buffering
   //      out-of-order batches) so entries apply in exact wire order.
-  //   2. OWNS the order-dependent state -- orderid_to_securityid -- and does all
-  //      routing (asset lookup -> BOOKSEND to TachBook[sym]). Being single-
-  //      threaded IS the synchronization; no locks.
+  //   2. OWNS all order-dependent state -- orderid_to_securityid (from book/trade)
+  //      and asset_map_ (from definitions) -- and does the routing (asset lookup
+  //      -> send to TachBook[asset]). Being single-threaded IS the
+  //      synchronization; no locks.
   //
-  // Consistency assumptions (see parallel-mbo-decode-arch memory):
-  //   - book/trade NEVER take the inline path (all-hot packets always parallel),
-  //     so this map is the sole owner of orderid_to_securityid.
-  //     Enforced by ONE assert, in DataDecoder::on_decode_packet. An earlier
-  //     version of this comment claimed handler_if's MBO handlers assert it too;
-  //     they do not -- handler_if's only asserts are two "sym mismatch" checks.
-  //     KNOWN VIOLATION, measured on live ES chan 310 over 80,000 packets: 3.03%
-  //     of packets (10.21% of messages) mix hot with MDIncrementalRefreshVolume37
-  //     (1,419 of 1,419 mixed packets). So this assumption is false on the real
-  //     feed and the parallel path cannot run until the packet split lands.
-  //   - securityid_to_asset_id + mbo_order_books are populated at startup/recovery
-  //     and read-only during trading -> shared here by const ref (safe reads).
+  // EVERY message flows through here (book, trade, definition, reset, ...), so
+  // this actor is the sole owner of those maps -- there is no second, inline copy
+  // to fork against. asset_map_ is additionally seeded by AssetMap messages from
+  // handler_if during instrument recovery (before live trading). mbo_order_books
+  // is set once at startup and read-only during trading (shared by const ref).
   //
   // TODO (required before live): EndOfBurst. handler_if emits BurstEnd to the
   // books at end-of-event; this path must do the same on l3.endOfEvent, else
@@ -147,10 +141,10 @@ namespace mdp3
     //
     // Minimal by design: it establishes securityID -> asset_id for routing. It
     // does NOT re-run handler_if's full RefData configuration (price units, cfi,
-    // security group). On the live incremental feed definitions do not appear
-    // (census: 2 all-cold of 120,000 packets; every mixed cold was Volume37) --
-    // they arrive during instrument recovery, which still runs through handler_if
-    // and configures RefData there. So this only has to keep routing correct.
+    // security group). Definitions arrive during instrument recovery, which still
+    // runs through handler_if and configures RefData there; on the live
+    // incremental feed they are essentially absent. So this only has to keep
+    // routing correct.
     void apply_def(const bfile::l3_fdf_t &l3) noexcept
     {
       if (l3.updateAction != 'A' && l3.updateAction != 'M')

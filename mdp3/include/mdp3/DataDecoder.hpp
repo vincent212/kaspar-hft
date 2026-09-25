@@ -36,8 +36,8 @@ namespace mdp3
 {
 
     // The decode ACTOR. MessageProcessor fast_sends a DecodePacket per in-order
-    // packet; this decides parallel (all-hot -> fan out to the DecodeWorker fleet)
-    // vs inline (cold packet -> mbo_data), and replies DecodeResult{rc,is_channel_reset}.
+    // packet; this decides parallel (worker fleet on -> fan out every message) vs
+    // inline (fleet off -> mbo_data), and replies DecodeResult{rc,is_channel_reset}.
     // It owns the parallel coordination: packet-buffer slots kept alive until every
     // worker reports DecodeDone (refcount), and the global order_seq counter.
     //
@@ -89,36 +89,6 @@ namespace mdp3
         // can initiate recovery. Wired in kaspr once both actors exist.
         void set_recovery_target(actor_ptr mp) noexcept { recovery_target_ = mp; }
 
-        struct scan_result { uint32_t count; bool corrupt; };
-
-        // Walk the packet's SBE messages WITHOUT decoding: count them and flag a
-        // corrupt packet (a zero MsgSize that can never advance the walk). Cheap --
-        // one u16 read per message. `count` sizes the order_seq block reserved for
-        // this packet; `corrupt` routes it to the inline recovery path. There is no
-        // hot/cold classification here anymore -- every message is dispatched.
-        scan_result scan(const char *databuf, std::size_t len) const noexcept
-        {
-            const char *p = databuf + 12; // skip MsgSeqNum(4) + SendingTime(8)
-            const char *const end = databuf + len;
-            uint32_t count = 0;
-            bool corrupt = false;
-            while (p < end)
-            {
-                const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
-                if (MsgSize == 0)
-                {
-                    // A zero length can never advance the walk; the packet is
-                    // corrupt. Flag it so on_decode_packet routes it to the inline
-                    // path, where mbo_data logs the error and triggers recovery --
-                    // do NOT silently stop and pretend the packet was fine.
-                    corrupt = true;
-                    break;
-                }
-                p += MsgSize;
-                ++count;
-            }
-            return {count, corrupt};
-        }
 
         // The dispatch loop: hand each SBE message to a warm worker (round-robin),
         // zero-copy (DecodeReq points into databuf). Stamps a global-monotonic
@@ -140,6 +110,8 @@ namespace mdp3
             while (p < end)
             {
                 const uint16_t MsgSize = *reinterpret_cast<const uint16_t *>(p);
+                if (MsgSize == 0)
+                    break; // a zero can never advance the walk -- stop
                 workers[i & worker_mask]->send(
                     new msg::DecodeReq(p, MsgSize, msgSeqNum, ts, sendingTime, order_seq_base + i, parent_id, qlen),
                     coordinator);
@@ -631,35 +603,35 @@ namespace mdp3
         }
 
     private:
-        // Decode one packet fast_sent by MessageProcessor: parallel if all-hot,
-        // else inline. Reply carries rc + is_channel_reset for the caller.
+        // Decode one packet fast_sent by MessageProcessor: parallel if the worker
+        // fleet is on, else inline. Reply carries rc + is_channel_reset.
         void on_decode_packet(const msg::DecodePacket *m) noexcept
         {
-            const auto sr = scan(m->data, m->len);
-
-            // Parallel ON and well-formed: fan EVERY message out to the worker
-            // fleet with a dense order_seq. The Reconstructor resequences and
-            // applies them all in exact wire order -- book, trade, definition,
-            // reset alike -- so there is no hot/cold split, no second orderid map,
-            // and no mixed-packet abort. Messages the workers do not turn into
-            // entries (stats/volume) flush an empty batch, which still advances
-            // the Reconstructor's expected order_seq, so the stream never stalls.
-            if (parallel_decode_ && !sr.corrupt && sr.count > 0)
+            // Parallel path: fan EVERY message out to the worker fleet with a dense
+            // order_seq; the Reconstructor resequences and applies them all in wire
+            // order (book, trade, definition, reset). A message a worker produces no
+            // entries for (e.g. stats/volume) flushes an empty batch, which still
+            // advances the Reconstructor's expected order_seq, so it never stalls.
+            if (parallel_decode_)
             {
-                const uint64_t pid = next_parent_id_++;
+                const uint64_t pid  = next_parent_id_++;
                 const uint64_t base = order_seq_;
-                order_seq_ += sr.count;
                 auto &pp = pending_[pid];
                 std::memcpy(pp.buf.message.data(), m->data, m->len);
                 pp.buf.len = m->len;
-                pp.outstanding = sr.count;
                 pp.failed = false;
-                // The packet's ingress depth rides each DecodeReq to the worker
-                // that decodes it. It CANNOT go through cb->set_ingress_qlen()
-                // here: that writes one member on the shared handler, which the
-                // worker threads read while decoding other packets.
-                dispatch(pp.buf.message.data(), m->len, m->ts, base, pid,
-                         workers_, worker_mask_, this, m->qlen);
+                // dispatch walks the packet, sends one DecodeReq per message
+                // (order_seq = base + i, ingress depth riding each req), and returns
+                // the count. Reserving order_seq_/outstanding AFTER is safe:
+                // on_decode_done is serialized against this handler by the
+                // framework's fast_send_mutex, so no worker completion is processed
+                // until we return.
+                const uint32_t n = dispatch(pp.buf.message.data(), m->len, m->ts, base, pid,
+                                            workers_, worker_mask_, this, m->qlen);
+                order_seq_ += n;
+                pp.outstanding = n;
+                if (n == 0)
+                    pending_.erase(pid); // empty packet -> no worker -> no DecodeDone to free the slot
                 // is_channel_reset stays false in the reply: a ChannelReset in the
                 // packet is applied by the Reconstructor (l3_chr_v2_t -> clear the
                 // orderid map) in wire order, not signalled back through here.
@@ -667,10 +639,9 @@ namespace mdp3
                 return;
             }
 
-            // Corrupt packet, or parallel off (serial default): decode inline.
-            // Serial, single thread, so the handler member is the right place
-            // for the depth -- this is the same call main makes from
-            // MessageProcessor.
+            // Parallel off (serial default): decode inline. Serial, single thread,
+            // so the handler member is the right place for the depth -- this is the
+            // same call main makes from MessageProcessor.
             cb->set_ingress_qlen(m->qlen);
             bool is_channel_reset = false;
             bool rc = mbo_data(const_cast<char *>(m->data), m->len, m->ts, is_channel_reset);
@@ -686,12 +657,12 @@ namespace mdp3
             if (it == pending_.end())
                 return;
             if (!d->ok)
-                it->second.failed = true; // a worker's decode_one failed on a hot message
+                it->second.failed = true; // a worker's decode_one failed on a message
             if (--it->second.outstanding == 0)
             {
                 const bool failed = it->second.failed;
                 pending_.erase(it); // frees the packet-buffer slot
-                // A hot message failed to decode -> the book is now missing
+                // A message failed to decode -> the book is now missing
                 // updates. Ask MessageProcessor to initiate recovery -- the same
                 // response the inline path gives an mbo_data failure -- so the book
                 // resyncs instead of silently diverging.

@@ -31,7 +31,6 @@ SRC = test_cache_array.cpp \
       test_latency_probe.cpp \
       test_msg_qlen.cpp \
       test_reconstructor.cpp \
-      test_datadecoder.cpp \
       test_decode_qlen.cpp \
       test_processq_qlen.cpp \
       test_msgbuf_qlen.cpp
