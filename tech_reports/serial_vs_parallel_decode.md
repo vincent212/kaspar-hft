@@ -149,10 +149,14 @@ stayed busy, matching its 0.872% of >8-message packets.
 five of six.** The fixes recovered roughly half the median gap to serial
 (14.1 → 9.9 against a 6.4 target) and moved the tail the wrong way.
 
-The mechanism is bimodality: ~99.2% of packets now take a fast inline path and
-~0.8% still fan out, so the tail is drawn from a different population than the
-body. Before, every packet paid the same ~14 µs. Trade series suffer most —
-their fat packets are the ones that exceed the threshold.
+Two candidate mechanisms, never separated — see §8.1. **Bimodality:** ~99.2% of
+packets now take a fast inline path and ~0.8% still fan out, so the tail is drawn
+from a different population than the body, where before every packet paid the
+same ~14 µs. **Footprint:** this build carried `INLINE_CAP = 8`, a 2,880-byte
+inline block on every message, since cut to 2. Trade series suffer most, which
+fits bimodality (their fat packets are the ones exceeding the threshold) but does
+not distinguish the two. **The cause was not established; an earlier draft of
+this section wrongly asserted bimodality alone.**
 
 **Neither fix makes parallel competitive.** Serial still wins every book
 percentile by 1.5–2.3×.
@@ -297,9 +301,164 @@ every percentile, by 2.1–2.2× at the median and 2.4–3.2× at p99, and its m
 match the published article intercept. The single crossover (ZN trade p99) does
 not survive to p999 and sits in the noisiest series measured.
 
-Parallel decode's cost is structural, not incidental: at 1.06–1.10 messages per
-packet there is no fan-out to amortise the coordination over. The two
+Parallel decode's cost is structural on THIS feed, not incidental: at 1.06–1.10
+messages per packet there is no fan-out to amortise the coordination over. The two
 optimisations here recovered half the median gap but widened the tail, which is
 the opposite of what was wanted. Closing the rest would mean removing the two
-`std::map`s and the two actor hops — and even then the arithmetic only works on
-a feed with materially fatter packets than CME MDP3 delivers.
+`std::map`s and the two actor hops.
+
+## 8. THE JURY IS STILL OUT — read this before citing section 2
+
+**This report measures a quiet market, and at least one of its parallel
+configurations was very likely measured wrong. Do not read it as "parallel decode
+does not work." Read it as "parallel decode lost under these conditions, on a
+build with a known defect, and the comparison deserves a rerun."**
+
+Three reasons to hold the verdict open.
+
+### 8.1 The +fix runs carry a build defect that inflates the tail
+
+Both "PAR +fix" windows ran with `ParsedMsg::INLINE_CAP = 8`. `sizeof(bfile::l3_t)`
+is **360 bytes** — it is a variant over ~30 record types, sized by its largest
+member — so the inline block was **2,880 bytes on every message**, including the
+p50 single-entry case, replacing a 24-byte vector handle. Against the
+`MemoryPool<ParsedMsg,32,32,4096>` that is roughly **11.8 MB resident, well past
+L2**, on the hot path. A second effect compounds it: the inline bypass allocates
+and frees `ParsedMsg` on the DataDecoder thread, making it a new contender on
+`MemoryPool`'s static per-instantiation mutex, where previously only worker
+threads touched it.
+
+Cache footprint and lock contention hit the **tail**, not the median — which is
+exactly the shape measured (p50 improved 25–30%, p99/p999 worsened on five of six
+series). `INLINE_CAP` has since been cut to **2** (720 bytes, still covering
+p90 = 1). **That change is unmeasured.** Every p99/p999 figure for a "+fix" run in
+section 4 should therefore be treated as an upper bound on a build that no longer
+exists.
+
+Correcting an overclaim in section 4: it attributed the tail regression to
+bimodality between the inline and fan-out populations. Bimodality is real, but
+footprint is a second credible mechanism and the two were never separated. The
+honest statement is that the cause was not established.
+
+### 8.2 The windows were quiet, and the thesis is about load
+
+Across every window, **88–94% of messages saw `qlen == 0`**, mean depth
+0.07–0.34, per-message fit r² = 0.008, and the queue term contributed 0.14 µs of
+a 15.56 µs mean. This is an **idle-queue measurement**. It says almost nothing
+about the regime where fan-out would be expected to pay:
+
+- Coordination cost is roughly **fixed per packet**; decode work scales with
+  message count. The measured 1.06–1.10 messages/packet is a *quiet-market*
+  figure. Under a burst — an economic print, a Fed decision, an option-expiry
+  sweep — packets get fatter and the ratio moves toward fan-out. The `.arr`
+  census already shows 0.4–0.9% of packets carrying more than 8 messages, up to
+  **40–42**; a regime where that fraction is materially larger is a different
+  measurement, not an extrapolation of this one.
+- Serial decode is a **single thread**. It cannot exceed one core, so it has a
+  hard ceiling that parallel does not. Nothing here probed that ceiling: at
+  `qlen ≈ 0` serial was never close to saturated. **The interesting question is
+  what happens when it is** — and that is precisely when a market-data handler
+  matters.
+- The tail is where queueing lives, and the tail is the part of this measurement
+  the 8.1 defect most plausibly distorted.
+
+**Plausible, untested hypothesis: under sustained high message rates — deep
+queues, fat packets, serial pinned at one core — parallel decode could beat
+serial.** This report neither demonstrates nor refutes that. It was not designed
+to.
+
+### 8.3 Known optimisations were deliberately not done
+
+The per-packet coordination cost still includes work that is removable, and was
+left in scope-limited:
+
+| cost | site | status |
+|---|---|---|
+| `pending_` `std::map` — malloc + rebalance per packet, node embeds a 1.5 KB `message_buffer` | `DataDecoder.hpp` | **not done** — dense monotonic key, a fixed ring indexed by `pid & mask` is a drop-in |
+| resequence `std::map` | `Reconstructor.hpp` | **not done** — same shape, `order_seq & mask` |
+| 1,500-byte packet memcpy | `DataDecoder.hpp` | **not done** (the inline bypass sidesteps it for ≤99% of packets rather than removing it) |
+| `MemoryPool` static mutex now shared with the DataDecoder thread | `MemoryPool.hpp` | **not done** |
+| two extra actor hops per message | — | inherent to the design |
+
+Both `std::map`s have dense, monotonic keys, so both are mechanical replacements
+with the house circular-buffer-plus-overflow pattern (`BQueue`, `HybridBuffer`).
+Neither was attempted here.
+
+### 8.4 `fast_send` may be throttling the fan-out by design
+
+`MessageProcessor::processq` hands each packet to the decoder with
+**`decoder->fast_send(&dp, this)`** (`MessageProcessor.hpp:332`) and then blocks
+on the reply to read `rc` and `is_channel_reset`. `Actor::fast_send` takes
+`fast_send_mutex` as a `lock_guard` and **holds it across the entire handler**
+(`actors/cpp/src/Actor.cpp:121`). On the parallel path that handler is
+`on_decode_packet`, so the packet copy, the `pending_` map insert, the whole
+`dispatch()` loop and every `DecodeReq` send all run **inside that lock**, on the
+MessageProcessor's own thread, while it waits.
+
+Two consequences, and they cut against the whole point of a worker fleet:
+
+1. **The producer stalls instead of running ahead.** MessageProcessor cannot
+   start framing packet N+1 until packet N's dispatch has finished and replied.
+   Fan-out is supposed to decouple arrival from decode; a synchronous
+   `fast_send` re-couples them at the front. The workers can only ever be as far
+   ahead as one packet, so there is no depth for them to work through — which is
+   also why an 8→ 64 worker change measured flat (§4): the fleet was never the
+   constraint.
+2. **`on_decode_done` contends for the same mutex.** Worker completions arrive
+   through `process_message_internal`, which takes `fast_send_mutex` too
+   (`Actor.cpp:101`). So every completion must wait for any in-flight dispatch,
+   and every dispatch waits behind any completion being processed. With N workers
+   reporting per packet, that is N acquisitions of a lock the producer also needs.
+
+This is *correct* — it is exactly the serialization that makes `order_seq_` and
+`pending_` safe without their own lock, and the review confirmed the inline
+bypass relies on it. But correctness here was bought with throughput, and on the
+serial path the cost is invisible because the decode genuinely is inline work
+that has to happen on that thread anyway.
+
+**Hypothesis worth testing: replace the synchronous `fast_send` with an
+asynchronous hand-off on the parallel path, so MessageProcessor keeps framing and
+the workers stay busy.** It is not a small change and it is not free:
+
+- `rc` and `is_channel_reset` are consumed **synchronously** at
+  `MessageProcessor.hpp:333-345` to drive `do_data_recovery()`. An async hand-off
+  has to deliver failure out of band — the fan-out path already has the machinery
+  (`DecodeDone.ok` → `pp.failed` → `TriggerRecovery`), so the reply value may be
+  redundant there, but that needs proving before it is removed.
+- The comment at `MessageProcessor.hpp:327` notes `fast_send` runs the handler
+  **before `msg_q[sn]` is erased**, which is what makes the zero-copy
+  `DecodePacket` borrow safe. Async means the packet must be owned — either
+  copied (which the parallel path already does into `pending_`) or reference
+  counted.
+- Dropping the lock means `order_seq_` and `pending_` need their own
+  synchronisation, and the inline bypass loses the guarantee it currently rests
+  on.
+
+So: plausible, possibly significant, and interacts with both correctness
+invariants this path depends on. It belongs on the list above §8.2's load test,
+because a producer that cannot run ahead will look the same as a fleet that is too
+small — and this measurement cannot tell those two apart.
+
+### 8.5 What would actually settle it
+
+1. **Correctness first.** A dual-path replay of one `.bin` through serial and
+   parallel, diffing final book state. This has never been run, and the
+   correctness caveat in `kaspr.cpp` still stands. Two silent-divergence bugs were
+   found by review in this path — one of them reintroduced by a commit written
+   specifically to keep the two paths consistent. **No performance number from
+   this path means anything until that replay passes.**
+2. **Rerun the +fix windows with `INLINE_CAP = 2`**, matched duration, same hours.
+3. **Measure under load, not at `qlen ≈ 0`** — an FOMC or CPI window, or a
+   synthetic replay at an accelerated rate, so the queue term is actually
+   exercised. The `.arr` log makes packet fatness measurable directly.
+4. **Try an async hand-off in place of the synchronous `fast_send`** (§8.4), so
+   the producer runs ahead and the fleet has depth to work through. Until this is
+   tested, a throttled producer and an idle fleet are indistinguishable in the
+   data — and the flat 8→64 worker result is consistent with both.
+5. **Then remove the two `std::map`s** and re-measure, so the comparison is
+   against a parallel path that has actually been optimised.
+
+Until these are done, the defensible claim is narrow: **on a quiet CME session, at
+idle queue depth, serial decode is 2.1–2.2× faster at the median and parallel is
+not correctness-validated — so production stays on serial.** Whether parallel wins
+under load is **open**, and this report should not be cited as having closed it.
