@@ -74,7 +74,7 @@ Kaspar's market-data and order-entry stacks are complete session implementations
 The actor framework provides a uniform concurrency model for the entire system. Coding agents will pick up the documentation and will write actor components for you. All you have to do is fill in
 your message handlers.
 
-- **Message passing** — `BQueue` mailbox per actor, O(1) dispatch
+- **Message passing** — `BQueue` mailbox per actor
 - **Groups** — A `Group` runs multiple actors on a single thread with a single message queue. Enables deterministic simulation.
 - **Zero-copy fast path** — `fast_send()` executes the handler in the caller's thread for synchronous queries — no queue, no thread hop, message passed on the stack.
 - **C++/Rust interop** — Strategies can be coded in C++ or Rust
