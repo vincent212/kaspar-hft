@@ -3210,7 +3210,7 @@ in the matching engine's event stream.
 \clearpage
 % =====================================================================
 
-\section{Cross-validation against a live production measurement seven months later}
+\section{Cross-validation against a live production receiver}
 \label{sec:crossval}
 
 The results of Part~II so far are measurements on recorded data: pcap-derived message
@@ -3221,6 +3221,8 @@ service times the sweep assumes correspond to production decode times.
 
 This section addresses all three with instrumentation of the \kasparhft{} production system. The two
 measurements were built for different purposes and share only the exchange they observe.
+(The live measurement was taken seven months after the corpus ends, so it also tests
+whether the clustering is specific to the period the corpus covers.)
 One limit is stated at the outset: the live per-message record carries the receive and
 publish timestamps, the ring depth and the position in the datagram, but not the
 message's \texttt{transactTime}, so the transaction-level identification of
