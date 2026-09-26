@@ -4872,18 +4872,17 @@ carry most of its tail. The first is long packets. Decode cost grows linearly wi
 number of messages, so a packet with two or more messages takes longer than
 $7.5\,\mu\mathrm{s}$; its later messages wait for the earlier ones, and the packets
 arriving behind it queue while it holds the thread. In the simulation at
-$8\,\mu\mathrm{s}$ the decode inside packets supplies two thirds of the $p_{99}$ excess,
-and on the live receiver the decode floor plus the decode cost of the messages ahead in the
-same packet reproduces $71$--$80\%$ of the observed $p_{99}$ on
-four of six streams (Section~\ref{sec:crossval-spanrun}); on ZN, where each extra message
+$8\,\mu\mathrm{s}$ the decode inside packets supplies about two thirds of the tail, and on
+the live receiver the decode cost of a message's position in its packet reproduces about
+three quarters of the observed $p_{99}$ on most streams (Section~\ref{sec:crossval-spanrun}); on ZN, where each extra message
 costs three times as much as on NQ, a few long packets set the far tail
 (Section~\ref{sec:fungibility-measured}). The second is service time that varies from
 packet to packet: on the live ZN receiver, messages with nothing queued ahead of them and
-first in their packet still take $15.5\,\mu\mathrm{s}$ at $p_{99}$ against a
-$7\,\mu\mathrm{s}$ decode floor, and any such service in a train can start a queue. The simulation
+first in their packet still take about twice the decode floor at $p_{99}$, and any such
+service in a train can start a queue. The simulation
 models the first mechanism only through NQ's per-message cost and the second not at all,
 so its tails at the production service time are lower than a real receiver's. The packet rate does not cause the tail at HFT
-service times: utilisation is below $0.02$ there (Section~\ref{sec:results-conditioning}).
+service times: utilisation there is tiny (Section~\ref{sec:results-conditioning}).
 Why orders reach the engine within a microsecond of each other is a question about the
 market and is left open (Section~\ref{sec:concl-cannot}).
 
@@ -4894,17 +4893,16 @@ queueing excess shrinks by a factor of $N$ or more, because only the slowest sta
 queues: the tail is set by $s_{\max}$, the service time of the largest stage
 (Theorem~\ref{thm:reduction}). A stage whose service time is below the publisher's
 spacing does not queue at all. On NQ, one cut into two halves lowers $p_{99}$ in every
-window at every service time from $16$ to $128\,\mu\mathrm{s}$ and cuts the tail excess to
-$3$--$16\%$ of its single-thread value; the best number of stages is $1$ at
-$T \le 8\,\mu\mathrm{s}$, $2$ at $16$, $4$ at $32$ and $8$ at $64$ and
-$128\,\mu\mathrm{s}$, limited by the natural cut points in the chain
+window at every service time from $16\,\mu\mathrm{s}$ up and removes most of the tail; the
+best number of stages grows with the service time, from one at $8\,\mu\mathrm{s}$ and below
+to eight at $64\,\mu\mathrm{s}$ and above, limited by the natural cut points in the chain
 (Section~\ref{sec:concl-mitigate}). Serial splitting is the only option for a stage that
 carries state from one message to the next, such as the order book.
 
 \paragraph{How to reduce it: split in parallel.} Give whole packets to a pool of $N$
 cores, each running the full stage, and put them back in order on the way out. With the
 hop in, the hop out and the resequencing all charged, the median is $T + 2h$ for any $N$,
-and at most $0.14\%$ of packets wait for resequencing (Table~\ref{tab:dispatch-costed}).
+and almost no packet waits to be put back in order (Table~\ref{tab:dispatch-costed}).
 With two cores the pool is level with a two-stage serial cut; with four or more it is
 better than a serial cut into the same number of stages (three cores were not simulated). It works only for a stage without
 state, such as SBE decode. A design that decodes in a pool and feeds one order-book
@@ -4945,64 +4943,57 @@ property's contribution. The following hold on NQ.
 
 \begin{enumerate}
     \item \emph{The tail is produced by the timing of matching-engine transactions and, at
-production service times, by the number of messages per packet.} Redrawing transaction
-times uniformly removes $75$--$98\%$ of the tail (Table~\ref{tab:tx-arms}); the message
-count is claim~5.
-    \item \emph{Not by the rate.} Utilisation is below $0.02$ at every service time an HFT
-hot path occupies, and a window with four to five times the corpus-median packet rate has
-the same tail relative to $T$ (Section~\ref{sec:results-conditioning}); rate matters only
-from $64\,\mu\mathrm{s}$, where ordinary utilisation queueing begins. A stream that keeps
-every one-second packet count and randomises within the second has no tail at
-$8$--$16\,\mu\mathrm{s}$ (Table~\ref{tab:nulls}).
-    \item \emph{Not by the exchange's packetisation.} $98.3\%$ of transactions occupy one
-packet; the packets of a split transaction arrive $15\,\mu\mathrm{s}$ apart, above the
-publisher spacing; $99.9\%$ of the gaps below it separate different transactions; merging each
-transaction into one packet or spreading its packets leaves the tail within $\pm 15\%$
-(Section~\ref{sec:results-transactions}).
-    \item \emph{Not by how sizes are ordered in time.} Decoupling transaction sizes from
-their timing leaves the tail within $\pm 15\%$ from $16\,\mu\mathrm{s}$ up
-(Table~\ref{tab:tx-arms}), and permuting packet spans across packets changes it by at most
-$2\%$ (Section~\ref{sec:crossval-spanrun}). This says the order in which long packets
-arrive does not matter; it does not say their length does not matter, which is
+production service times, by the number of messages per packet.} Putting transactions at
+random moments removes most of the tail (Table~\ref{tab:tx-arms}); the message count is
 claim~5.
+    \item \emph{Not by the rate.} Utilisation is tiny at every service time an HFT hot path
+occupies, and the busiest windows have the same tail relative to $T$ as the quietest
+(Section~\ref{sec:results-conditioning}); the rate matters only from about
+$64\,\mu\mathrm{s}$, where ordinary utilisation queueing begins. A stream that keeps every
+second's packet count and places packets at random within the second has no tail at
+HFT service times (Table~\ref{tab:nulls}).
+    \item \emph{Not by the exchange's packetisation.} Almost every transaction fits in one
+packet, the pieces of a split one arrive well apart, and the short gaps lie between
+different transactions; merging each transaction into one packet or spreading its
+packets leaves the tail about as it was (Section~\ref{sec:results-transactions}).
+    \item \emph{Not by how sizes are ordered in time.} Decoupling transaction sizes from
+their timing, or shuffling packet sizes across packets, leaves the tail about as it was
+from $16\,\mu\mathrm{s}$ up (Table~\ref{tab:tx-arms}, Section~\ref{sec:crossval-spanrun}).
+This says the order in which long packets arrive does not matter; it does not say their
+length does not matter, which is claim~5.
     \item \emph{At the service time production receivers run at, long packets carry most
-of the tail.} Decode time grows linearly with the number of messages, $0.3$ to
-$1\,\mu\mathrm{s}$ per extra message depending on the stream, so a long packet delays its
+of the tail.} Decode time grows with the number of messages, so a long packet delays its
 own later messages and holds the thread while the packets behind it queue. At
-$8\,\mu\mathrm{s}$ this supplies two thirds of the simulated $p_{99}$ excess and, on the
-live receiver, the decode floor plus the decode cost of the messages ahead in the same packet
-reproduces $71$--$80\%$ of the observed $p_{99}$ on four of six
-streams; it sets the live ZN far tail (Sections~\ref{sec:crossval-spanrun}
-and~\ref{sec:fungibility-measured}). From $16\,\mu\mathrm{s}$ up it adds a few percent.
-$77\%$ of multi-message packets hold more than one transaction packed together by the
-publisher (Section~\ref{sec:crossval-span}).
+$8\,\mu\mathrm{s}$ this is about two thirds of the simulated tail, and on the live
+receiver the decode cost of a message's position in its packet reproduces about three
+quarters of the observed $p_{99}$ on most streams; it sets the live ZN far tail
+(Sections~\ref{sec:crossval-spanrun} and~\ref{sec:fungibility-measured}). From
+$16\,\mu\mathrm{s}$ up it adds a few percent. Most multi-message packets hold several
+transactions packed together by the publisher (Section~\ref{sec:crossval-span}).
     \item \emph{The timing acts through two channels whose weight depends on the service
-time.} Consecutive transactions sent back to back at the publisher's spacing, most of which
-the engine processed less than $7.5\,\mu\mathrm{s}$ apart (Table~\ref{tab:two-clocks}): a
-stream with the real gaps in random order
-keeps $79\%$ of the tail at $16\,\mu\mathrm{s}$ and $59\%$ at $32$. Runs of transactions:
-the same permutation keeps only $37\%$ at $64$ and $23\%$ at $128\,\mu\mathrm{s}$
+time.} At short service times it acts through consecutive transactions sent back to back
+at the publisher spacing, most of which the engine processed less than
+$7.5\,\mu\mathrm{s}$ apart (Table~\ref{tab:two-clocks}): a stream with the real gaps in
+random order keeps most of the tail there. At long service times it acts through runs of
+transactions, which the same shuffle breaks up, keeping little of the tail
 (Table~\ref{tab:nulls}). The runs are the self-exciting component of the transaction
-stream, which a Hawkes fit measures (branching ratio $0.795$ on transaction starts,
-$0.798$ on packets, count variance $105$ times Poisson at one second;
-Table~\ref{tab:tx-fano}).
-    \item \emph{The shortest gap the receiver sees, and the pile-up of gaps just above it, are the exchange
-publisher's output.} On the matching engine's clock $17.1\%$ of consecutive transactions
-are under $7.5\,\mu\mathrm{s}$ apart, against $1.04\%$ on the publisher's clock
-(Table~\ref{tab:engine-clock}); the delay from engine to packet grows about tenfold with
-engine burst intensity and coalescing grows with it (Table~\ref{tab:publisher}). The
-publisher is a queue with a service time of about $7.5\,\mu\mathrm{s}$ per packet, and the
-receiver is the second stage of a tandem that begins at the exchange
+stream, which a Hawkes fit measures (Table~\ref{tab:tx-fano}).
+    \item \emph{The shortest gap the receiver sees, and the pile-up of gaps just above it,
+are the exchange publisher's output.} On the matching engine's clock one consecutive
+transaction in six is under $7.5\,\mu\mathrm{s}$ after the previous one, against about one
+in a hundred on the publisher's clock (Table~\ref{tab:engine-clock}), and the delay from
+engine to packet grows about tenfold during engine bursts (Table~\ref{tab:publisher}). The
+publisher is a queue sending about one packet per $7.5\,\mu\mathrm{s}$, and the receiver is
+the second stage of a tandem that begins at the exchange
 (Section~\ref{sec:exchange-tandem}).
     \item \emph{The results do not depend on the transaction grouping.} Regrouping by exact
-\texttt{transactTime}, checked against the end-of-event flag, leaves them unchanged at the
-reported precision (Section~\ref{sec:exchange-events}), and the survival shares carry
-session-bootstrap intervals of a few points (Tables~\ref{tab:nulls}
-and~\ref{tab:tx-arms}).
+\texttt{transactTime}, checked against the end-of-event flag, leaves them unchanged
+(Section~\ref{sec:exchange-events}), and session-bootstrap intervals on the key shares are
+a few points wide (Tables~\ref{tab:nulls} and~\ref{tab:tx-arms}).
     \item \emph{The arrival statistics are not an artefact of replay.} A live production
-receiver seven months later, on three instruments and a different clock, gives the same
-clustering statistics, and its decode floor coincides with the service time
-at which the simulated tail appears (Section~\ref{sec:crossval}).
+receiver, on three instruments and a different clock, gives the same clustering
+statistics, and its decode floor coincides with the service time at which the simulated
+tail appears (Section~\ref{sec:crossval}).
 \end{enumerate}
 
 \subsection{What causes the tail: what the paper does not establish}
@@ -5089,29 +5080,23 @@ a candidate cause of ZN's large packets that the paper does not test
 
 The second question was whether a servicing chain cut into two or more stages on separate
 threads is better than one thread. Above a service-time threshold, yes; below it, no; and
-the threshold is a property of the feed, measured here on NQ. On 3512 windows at
-$h = 1.7\,\mu\mathrm{s}$ the corpus-median single-thread $p_{99}$ is $2.2$, $4.6$, $12.8$
-and $41.5$ times the service time at $T = 16, 32, 64, 128\,\mu\mathrm{s}$, a tail excess
-of $11$ to $2900$ times the hop cost, so above the publisher spacing the hop is small against what it
-lets the pipeline compress; below it the hop is cost only. Splitting a task into
-two half-length actors on separate threads joined by one hop lowers $p_{99}$ on $100\%$ of
-the windows (nested in 276 sessions) at every service time from $16$ to
-$128\,\mu\mathrm{s}$, cutting the corpus-median tail excess to between $0.03$ and $0.16$
-of its single-thread value for a median cost of exactly $h$; the trade favours the split
-for any tail weight $\kappa \gtrsim 0.095$ at $T = 16\,\mu\mathrm{s}$ and
-$\kappa \gtrsim 0.0004$ at $T = 128\,\mu\mathrm{s}$, and at $T \le 8\,\mu\mathrm{s}$ the
-split loses on $p_{99}$. An $N$-stage tandem contracts the excess by a factor of $N$ or
-better on every sample path (Theorem~\ref{thm:reduction}), in practice by far more where a
-split drives the per-stage service under the publisher spacing, while paying $(N-1)h$ at every
-quantile; only its largest stage matters. The $p_{99}$-minimising stage count rises from
-$1$ at $T \le 8\,\mu\mathrm{s}$ to $2$ at $16$, $4$ at $32$ and $8$ at $64$ and
-$128\,\mu\mathrm{s}$, up to the number of natural cut points in the decode chain. These
-results do not depend on what places transactions close together: the design rule needs
-the gap distribution the receiver sees, not its cause.
+the threshold is a property of the feed, measured here on NQ. Above the publisher spacing
+the single-thread tail is many times the hop cost, so the hop is small against what it
+lets the pipeline remove; below it the hop is cost only. Cutting a task into two halves
+lowers $p_{99}$ on every window at every service time from $16\,\mu\mathrm{s}$ up and removes
+most of the tail for one hop on the median, and it loses at $8\,\mu\mathrm{s}$ and below
+(Table~\ref{tab:main-corpus}). An $N$-stage tandem divides the tail by $N$ or better on
+every sample path (Theorem~\ref{thm:reduction}), in practice by far more where a cut takes
+each stage below the publisher spacing, while paying $(N-1)h$ at every quantile; only its
+largest stage matters. The best stage count rises with the service time, from one at
+$8\,\mu\mathrm{s}$ and below to eight at $64\,\mu\mathrm{s}$ and above, up to the number of
+natural cut points in the decode chain. These results do not depend on what places
+transactions close together: the design rule needs the gaps the receiver sees, not their
+cause.
 
 The single-thread rule is correct whenever the service time of the chain is below the
 feed's threshold, and on this corpus that includes the reference system's socket-to-book
-path, $6.8$--$7.2\,\mu\mathrm{s}$, for which $N^\star = 1$ (Section~\ref{sec:kaspar}).
+path, about $7\,\mu\mathrm{s}$, for which $N^\star = 1$ (Section~\ref{sec:kaspar}).
 The threshold is the service time of the exchange's publisher upstream of the
 receiver, which is the tight end of the gap distribution the receiver sees, and is
 invariant to packet rate and fitted branching ratio at HFT service times; at longer service times both raise
@@ -5197,9 +5182,8 @@ first replication needed, for the reason given in Section~\ref{sec:concl-cannot}
 ES and BTC. Transactions are grouped by exact \texttt{transactTime}, checked against the
 end-of-event flag (Section~\ref{sec:exchange-events}). The live measurements of
 Sections~\ref{sec:crossval} and~\ref{sec:fungibility-measured} come from one host on one
-afternoon, a 53-minute capture and one \SI{900}{\second} window, without replication, and
-the 3512 windows are nested in 276 sessions, so uncertainty on the aggregates is
-session-clustered; the headline survival shares carry session-bootstrap intervals.
+afternoon, without replication, and the corpus windows are nested in sessions, so
+uncertainty on the aggregates is session-clustered; the headline survival shares carry session-bootstrap intervals.
 Constant per-packet service is a simplification, and at the production service time it is
 the one that matters most. Section~\ref{sec:crossval-spanrun} removes it for message count,
 at NQ's per-message cost, a third of ZN's, and finds the stage count unchanged; service
