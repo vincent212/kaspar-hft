@@ -1716,15 +1716,34 @@ whole-session values of Section~\ref{sec:setup-hawkes} for the reason given ther
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figs/tx/tx_starts.pdf}
-\caption{Left: gaps between consecutive transaction starts, pooled over the corpus
-($n = 3.24 \times 10^9$), for the real stream, for the stream with the idle gaps between
-transactions shuffled, and for a Poisson stream with the same transaction count. Right:
-duration of a multi-packet transaction from its first to its last packet
-($n = 5.5 \times 10^7$). Axes as in Figure~\ref{fig:tx-gaps}: logarithmic gap axis,
+\caption{Gaps between consecutive \emph{transaction starts}, to be read against
+Figure~\ref{fig:tx-gaps}, whose gaps are between consecutive \emph{packets}. Left: each
+transaction is collapsed to one event at the time of its first packet, and the gaps
+between successive events are shown for the real stream (black; $n = 3.24 \times 10^9$),
+for the same events with the idle gaps between transactions shuffled into random order
+(orange), and for a Poisson stream with the same transaction count over the same window
+(red, dashed). What it shows: the black curve here is, to the eye, the black curve of
+Figure~\ref{fig:tx-gaps} (left) --- the same edge at the $7.5\,\mu\mathrm{s}$ floor, the
+same plateau to $30\,\mu\mathrm{s}$, the same mode near $100\,\mu\mathrm{s}$, the same
+tail --- because $98.3\%$ of transactions are one packet and the pieces of the remaining
+$1.7\%$ are paced at $15\,\mu\mathrm{s}$, inside the plateau, so removing the packet
+structure changes almost nothing. The orange curve lies exactly on the black one:
+permuting the order of the idle gaps leaves their distribution unchanged, by
+construction. The Poisson curve is a different shape, one hump near $1\,\mathrm{ms}$ with
+no mass below $100\,\mu\mathrm{s}$. What follows: the packet stream follows the
+transaction stream. The clustering that Figure~\ref{fig:tx-gaps} shows at the packet
+level is present, unchanged, at the level of matching-engine events, and it is those
+events, not the exchange's delivery of them, that arrive in tight groups; the same
+conclusion is reached numerically in Table~\ref{tab:tx-fano}, where transaction starts
+and packets have the same Fano factor at every scale and the same branching ratio
+($0.795$ against $0.798$), and by the simulator in Table~\ref{tab:tx-arms}, where merging
+each transaction into one packet leaves the tail unchanged. Right: duration of a
+multi-packet transaction from its first to its last packet ($n = 5.5 \times 10^7$),
+median $15\,\mu\mathrm{s}$, $p_{99}$ $110\,\mu\mathrm{s}$: the time the exchange takes to
+deliver a split event, and the spacing that the blue curve of Figure~\ref{fig:tx-gaps}
+shows between its pieces. Axes as in Figure~\ref{fig:tx-gaps}: logarithmic gap axis,
 fraction of gaps per decade of gap length; dotted lines at $7.5$, $16$ and
-$32\,\mu\mathrm{s}$. The real and shuffled curves coincide, which is the statement that
-permuting the order of the idle gaps does not change their distribution; the Poisson
-curve is a different shape, with no mass below $100\,\mu\mathrm{s}$.}
+$32\,\mu\mathrm{s}$.}
 \label{fig:tx-starts}
 \end{figure}
 
