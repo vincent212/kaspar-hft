@@ -52,26 +52,25 @@ matching-engine transaction through the two exchange timestamps the feed carries
 the matching engine, through the exchange's market-data publisher, to a receiver, and we
 check the characterisation against a live production receiver on other instruments.
 
-The feed looks like this. Packets arrive in near-critical self-exciting clusters, and
+We find that packets arrive in near-critical self-exciting clusters, and
 the clustering belongs to the matching engine's transactions, not to how the exchange
 packs them: almost every transaction fits in one packet. The matching engine often
 processes consecutive transactions within a fraction of a microsecond of each other. The
-market-data publisher cannot send that fast: it is a queue that sends at most one packet
-per \emph{publisher period}, about $7.5\,\mu\mathrm{s}$, its delay grows about tenfold
-when the engine bursts, and it drains a backlog with more packets rather than bigger
-ones. A burst at the engine therefore reaches a receiver as a train of packets one
+market-data publisher behaves as a queue that sends at most one packet per
+\emph{publisher period}, about $7.5\,\mu\mathrm{s}$; its delay grows about tenfold when
+the engine bursts, and it drains a backlog with more packets rather than larger ones. A burst at the engine therefore reaches a receiver as a train of packets one
 publisher period apart, most of them one message long. The short gaps that make a
 receiver queue are gaps between different transactions, and what sits on either side of
 them is ordinary quote traffic, with the signature of a race after trades. Why orders
-reach the engine so close together is a question about the market and is left open.
+reach the engine so close together is a question about the market and is not addressed here.
 
-For HFT system design this means the following. A receiver that handles every packet
-within one publisher period never queues on packet arrivals, however bursty the market;
-that is the design goal, and the paper's production receiver meets it. Above the
+For system design, a receiver that handles every packet within one publisher period
+does not queue on packet arrivals, however bursty the market; this is the design target,
+and the production receiver studied here meets it. Above the
 publisher period a queueing tail appears and grows much faster than the service time. It
-is produced by the timing of transactions, not by the packet rate, whose effect is tiny
-at HFT service times, and not by packet size or packetisation. There the prevailing
-single-thread rule reverses: cutting the servicing chain into stages on separate threads
+is produced by the timing of transactions, not by the packet rate, whose effect is
+negligible at HFT service times, and not by packet size or packetisation. In this regime
+the prevailing single-thread rule reverses: cutting the servicing chain into stages on separate threads
 removes most of the tail for one hop on the median, only the slowest stage matters, and
 for a stateless stage a pool of cores that each take whole packets does at least as
 well. At a production receiver, just under the publisher period, the tail that remains
@@ -242,8 +241,9 @@ None of the pro-pipelining sources above ties the design recommendation to Hawke
 self-exciting / near-critical arrival dynamics. The closest theoretical hooks are the
 MMPP-input tandem work of \citet{kimchydzinski2002mmpp}, discussed further in
 Section~\ref{sec:intro-priors}, and the batch-arrival tandem phase-transition analysis of
-\citet{tandembatch2014}. The present paper's mechanism, that the recommendation reverses when arrivals are
-near-critically self-exciting, is one we have not found in prior work.
+\citet{tandembatch2014}. The present paper's mechanism, that over a band of service times the recommendation
+reverses when arrivals are near-critically self-exciting, is one we have not found in
+prior work.
 
 The present author's earlier work belongs on this list with a qualification.\footnote{The tail compression reported here had been observed in production before its mechanism was understood. Splitting a long task into shorter asynchronously connected stages was known to reduce the tail on a per-strategy basis. The working assumption at the time was that single-thread implementations were simply faster in the inner loop, not that the recommendation depended on the arrival law. The present paper is the explanation of that
 observation.} An earlier paper by the present author
@@ -267,6 +267,11 @@ the chain should be. The design rule is stated in Section~\ref{sec:conclusion}.
 
 \subsection{Plan of the paper}
 \label{sec:intro-plan}
+
+Readers not familiar with point processes --- the Poisson, renewal and Hawkes processes,
+the branching ratio, the Fano factor and the Hurst exponent --- should read
+Appendix~\ref{app:pp-background} before Section~\ref{sec:setup-hawkes}; it defines every
+term the paper uses for arrival streams from first principles.
 
 The paper asks three groups of questions and answers each in a named place.
 
@@ -384,11 +389,15 @@ in the same mix as across long gaps, with the signature of a race after trades
 (Section~\ref{sec:exchange-bursts}).
 \end{enumerate}
 
-\paragraph{Theory and identification.} The choice between a single-thread receiver and
-an $N$-stage tandem \emph{reverses with the arrival law}: at HFT service times Poisson
+\paragraph{Theory and identification.} Over part of the range of HFT service times, the
+choice between a single-thread receiver and an $N$-stage tandem \emph{reverses with the
+arrival law}. Between the publisher period and the service time at which a Poisson stream
+at the same rate begins to queue, about $10$ to $20\,\mu\mathrm{s}$ on this feed, Poisson
 arrivals make the single thread the better choice, since there is no wait to compress,
-while clustered arrivals at the same rate make the tandem better on the tail, because
-the cluster wait it removes exceeds the hop cost it adds. Two closed-form results
+while clustered arrivals make the tandem better on the tail, because the cluster wait it
+removes exceeds the hop cost it adds. Outside that band there is no reversal: below it the
+single thread is better under both arrival laws, and above it the tandem is better under
+both, by a margin that the clustering multiplies. Two closed-form results
 (Section~\ref{sec:theory}) and a tandem sweep driven by the real packet timestamps
 (Section~\ref{sec:results}) establish it. Seven null streams, each removing one
 ingredient of the clustering, identify what the receiver queues on at service times above the publisher period: the
@@ -1129,6 +1138,10 @@ holiday or half-day sessions with none.
 \subsection{Hawkes clustering of packet arrivals (empirical prerequisite)}
 \label{sec:setup-hawkes}
 
+Readers not familiar with point processes will find the Poisson, renewal and Hawkes
+processes, the branching ratio, the Fano factor and the Hurst exponent defined in
+Appendix~\ref{app:pp-background}.
+
 The paper's simulator input is the packet-arrival stream, so the first empirical question
 is whether that stream is clustered or Poisson. Three model-free diagnostics and one
 model-based fit, on every window of the corpus, reject Poisson; Table~\ref{tab:hawkes-diag}
@@ -1180,7 +1193,15 @@ $n = \alpha/\beta$ of about $0.8$, varying little between windows, with every fi
 converged; a reparameterised L-BFGS-B fit finds the same optimum on spot-checked windows.
 The kernel decays over about $160\,\mu\mathrm{s}$, so the fitted process triggers at lags of
 order a hundred microseconds and places only a few percent of its triggering within the
-publisher period. This is the near-critical regime that \citet{filimonovsornette2012} and
+publisher period. In plain terms, each transaction makes further transactions more
+likely, as traders and algorithms react to it, and that effect fades like an echo: about a
+third of it remains after $160\,\mu\mathrm{s}$ and almost none after half a millisecond. A
+branching ratio of $0.8$ means that each transaction triggers on average $0.8$ further
+transactions directly. The reactions are therefore spread over the next few hundred
+microseconds; only about $4\%$ of them arrive within the $7.5\,\mu\mathrm{s}$ publisher
+period and about $9\%$ within $16\,\mu\mathrm{s}$. The self-excitation is what builds runs
+of transactions over hundreds of microseconds, not what places two transactions a few
+microseconds apart. This is the near-critical regime that \citet{filimonovsornette2012} and
 \citet{hardimanbercotbouchaud2013} document on ES, at a somewhat lower level than their
 $n \approx 0.9$; they fit trade arrivals rather than packet arrivals, and on this corpus
 the fit on matching-engine transactions gives the same value as on packets
@@ -5593,6 +5614,9 @@ a protected dataplane operating system for high throughput and low latency. \tex
 \part*{Appendices}
 \addcontentsline{toc}{part}{Appendices}
 \appendix
+
+% =====================================================================
+\input{appendix_point_process_v2}
 
 % =====================================================================
 \section{The Borel batch-size tail at fixed branching ratio}
