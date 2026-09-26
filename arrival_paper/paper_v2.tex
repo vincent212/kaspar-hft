@@ -956,7 +956,9 @@ $7.5$--$16\,\mu\mathrm{s}$ earlier,
 and only from about $64\,\mu\mathrm{s}$ does a run of cluster members fall within one
 service time (Sections~\ref{sec:results-nulls} and~\ref{sec:evaluation}).
 
-\paragraph{Design rules.}
+\begin{center}
+\fbox{\begin{minipage}{0.92\linewidth}
+\textbf{Design rules (from Proposition~\ref{thm:burst} and Theorem~\ref{thm:reduction}).}
 \begin{itemize}
     \item The tail improvement is set by the slowest stage, $s_{\max}/T$, and by nothing
 else about the decomposition. Balanced stages are the best case for a given number of
@@ -976,6 +978,8 @@ same cores, a stateless stage on a stream that tolerates reordering can instead 
 whole packets to $N$ servers; Section~\ref{sec:results-equal-core} compares the two
 without charging dispatch its ingress, hop or resequencing cost.
 \end{itemize}
+\end{minipage}}
+\end{center}
 
 The guarantees above are exact within a specific model. Its assumptions follow.
 
