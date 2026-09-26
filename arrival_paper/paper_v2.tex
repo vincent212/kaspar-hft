@@ -288,7 +288,9 @@ the hop cost to tasks far above it. We sweep $N \in \{1, 2, 4, 8\}$ per scenario
 thirty-minute RTH windows of the corpus. Each window is also simulated under a uniform-shuffle Poisson null with the same
 arrival count and support, differing only in the arrival ordering
 (Section~\ref{sec:setup-sweep}); the null isolates the contribution of clustering, and
-is not a model of what any designer assumes.
+is not a model of what any designer assumes. Section~\ref{sec:setup-nulls} adds seven
+further streams that remove the ingredients of the clustering one at a time, at the
+packet level and at the level of matching-engine transactions.
     \item \textbf{Design equation for practitioners.} From the empirical result we extract
 design rules for a latency-critical servicing chain
 (Sections~\ref{sec:kaspar} and~\ref{sec:implementation}): split a stage only when its
@@ -1135,7 +1137,9 @@ packet arrivals and whether the same architecture achieves the same compression 
 rate-matched Poisson null. For each 30-minute window we run the tandem Lindley of
 Section~\ref{sec:setup-simulator} at $N \in \{1, 2, 4, 8\}$ under two arrival regimes: the
 real packet-arrival timestamps from the tape (Hawkes arm) and a uniform-shuffle of the
-same $n_{\mathrm{pkt}}^{\#}$ arrivals over the same support (Poisson-null arm). The
+same $n_{\mathrm{pkt}}^{\#}$ arrivals over the same support (Poisson-null arm); the
+further null streams that separate the ingredients of the clustering are defined in
+Section~\ref{sec:setup-nulls}. The
 support is the observed packet span $[\min \text{arr}_H, \max \text{arr}_H]$ rather than
 the nominal window $[T_0, T_1]$, so the null is rate-matched to the arrivals it replaces
 rather than to wall-clock; the two coincide on busy windows and the former is the stricter
@@ -1161,6 +1165,104 @@ just as a Poisson $p_{99}$ above the floor at $\rho/N < 0.01$ would. Any of (i) 
 on which the Hawkes bound is violated, (ii) a Poisson $p_{99}(N)$ on the wrong side of the
 $\rho/N = 0.01$ boundary, or (iii) Hawkes $p_{50}(N)$ growing at slope $\gg h$ per stage
 falsifies the paper's model of the simulator.
+
+\subsection{Null streams and what each removes}
+\label{sec:setup-nulls}
+
+The claim under test is causal: the clustering of arrivals produces the queueing tail.
+A tail in the Lindley recursion can be built by four distinct properties of an arrival
+stream, and the real stream has all four at once:
+\begin{enumerate}
+    \item the \emph{rate}, the number of packets per second;
+    \item the \emph{gap distribution}: how often two consecutive packets land closer
+together than the service time $T$, regardless of the order in which those tight gaps
+occur;
+    \item the \emph{ordering}: whether the tight gaps come in runs (a burst of ten packets
+$5\,\mu\mathrm{s}$ apart) or lie singly among long gaps;
+    \item \emph{slow rate variation}: busy and quiet stretches at the scale of seconds
+within a window.
+\end{enumerate}
+A null stream is a synthetic stream that keeps some of these and destroys the rest.
+Running the identical simulator on the real stream and on the null, and comparing the
+tails, measures the share of the tail that the destroyed property was carrying. Each
+null is a controlled subtraction of one ingredient, and the design is factorial in the
+sense that the four properties are removed in different combinations by different nulls.
+The reference quantity throughout is the single-stage $p_{99}$ excess, $p_{99} - T$, and
+the statistic reported is the fraction of the real stream's excess that survives on the
+null, corpus-median over the 3512 windows. All nulls are built per window from that
+window's own real stream, with seeds derived from the session and window identifiers so
+that every run is reproducible.
+
+\paragraph{Packet-level nulls.} The uniform Poisson null $P$ of
+Section~\ref{sec:setup-sweep} redraws every packet time uniformly over the window: it
+keeps (1) and destroys (2), (3) and (4) together, so a tail that vanishes under it is
+attributable to clustering in some form but not to any particular form. The \emph{gap
+shuffle} $G$ takes the window's sequence of interarrival gaps, permutes it at random
+(Fisher--Yates, the renewal null already used for the Fano diagnostic of
+Section~\ref{sec:setup-hawkes}), and re-accumulates arrival times: the same packet count,
+the same multiset of gaps and therefore the same tight-gap fraction and the same
+$7.5\,\mu\mathrm{s}$ floor, with the ordering destroyed. $G$ keeps (1) and (2) and removes
+(3) and (4). A tail that survives $G$ is set by how many tight gaps the stream contains; a
+tail that $G$ removes needs the runs. The \emph{1\,s-binned Poisson} $B$ cuts the window
+into one-second bins, keeps each bin's real packet count, and redraws the arrivals
+uniformly inside the bin: it keeps (1) and (4) and removes (2) and (3). A tail that
+survives $B$ is a busy-second load effect, not a microsecond one. Section~\ref{sec:results-nulls}
+reports all three.
+
+\paragraph{Transaction-level nulls.} The packet nulls cannot distinguish two accounts
+of the tight-gap surplus: that the exchange splits one matching-engine event across
+back-to-back packets, or that the events themselves arrive clustered and the packets
+relay them. Section~\ref{sec:results-transactions} therefore groups every message by its
+\texttt{transactTime}, the identifier of one matching-engine event (a
+\emph{transaction}), and builds five further streams in which each transaction is a
+block --- its packets, their message counts and their internal spacing --- and exactly
+one ingredient is removed. Service in these runs is charged per packet at its measured
+cost, $S_i = T\,(1 + r(\sigma_i - 1))$ with $\sigma_i$ the message count and $r$ the
+live decoder's slope-to-floor ratio, so that a large packet adds work rather than
+redistributing it, and the size of a transaction can matter if it does.
+Table~\ref{tab:null-design} lists all eight streams.
+
+\begin{table}[tbp]
+\centering
+\small
+\begin{tabular}{@{}l p{5.2cm} p{4.3cm} p{4.6cm}@{}}
+\toprule
+stream & kept & destroyed & question answered \\
+\midrule
+H  & the real stream & --- & reference \\
+\midrule
+P  & packet count, support & gap distribution, ordering, slow rate variation & is the tail due to clustering in any form? \\
+G  & count; the multiset of gaps, hence the tight-gap fraction and the floor & ordering of gaps into runs; slow rate variation & is the tail set by how many tight gaps there are, or by their arrangement? \\
+B  & count per one-second bin & microsecond gap structure and ordering & is the tail busy-second load? \\
+\midrule
+TG & every transaction intact, in its original order & the idle gaps between transactions, permuted & does the clustering of transactions into runs build the tail? \\
+TP & every transaction intact & transaction start times, redrawn uniformly & does transaction timing matter at all? \\
+TS & real start times & which transaction shape sits at which start (shapes permuted across starts) & do large transactions arriving at particular moments matter? \\
+TM & real start times & the split of a transaction into packets (each transaction becomes one packet) & does the exchange's packetisation matter? \\
+TW & real start times, the split into packets & the tight spacing inside a split transaction (packets spread by the median idle gap) & does back-to-back spacing inside a transaction matter? \\
+\bottomrule
+\end{tabular}
+\caption{The eight arrival streams. $P$, $G$ and $B$ act on packet times with constant
+service and are reported in Table~\ref{tab:nulls}; $TG$--$TW$ act on transaction blocks
+with span-dependent service and are reported in Table~\ref{tab:tx-arms}. Reading the
+results together: $P \approx 0$ and $TP \approx 0$ say the tail is the timing of the
+transaction process; $TS$, $TM$, $TW \approx 1$ say sizes, packetisation and
+intra-transaction spacing are not the mechanism; $G$ and $TG$, which remove the same
+thing at two levels of description, give the same profile across $T$ and split the
+clustering into the two channels named in Section~\ref{sec:results-transactions}.}
+\label{tab:null-design}
+\end{table}
+
+The logic of the two families is the same and they are read together. If $P$ and $TP$
+remove the tail, the tail is the timing of the transaction process. If $TS$, $TM$ and
+$TW$ leave it, the size of transactions, their division into packets, and the spacing of
+those packets are not the mechanism, and the exchange is relaying events rather than
+creating bursts. $G$ and $TG$ remove the same ingredient --- the arrangement of events
+into runs --- at the packet and at the transaction level respectively; agreement between
+them identifies the packet-level ordering channel with the clustering of transactions.
+What survives $G$ is the surplus of near-simultaneous events over a rate-matched Poisson
+stream, which Table~\ref{tab:tx-gaps} measures directly and which is itself a product of
+the self-excitation, since a renewal stream at the same rate carries a fraction of it.
 
 % =====================================================================
 
