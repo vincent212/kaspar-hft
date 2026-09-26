@@ -4349,11 +4349,76 @@ code.
 
 This paper is about queueing in the software that receives market data: what makes a
 single-threaded receiver's latency tail, and how to reduce it. It is not about why the
-market behaves as it does. The conclusions are grouped accordingly. Section~\ref{sec:concl-can}
+market behaves as it does. Section~\ref{sec:concl-summary} summarises the answer in one
+place: what causes the receiver's tail and how splitting the code serially or in parallel
+reduces it. The remaining subsections give the detail. Section~\ref{sec:concl-can}
 states what the paper establishes about the cause of the tail, Section~\ref{sec:concl-cannot}
 what it does not, Section~\ref{sec:concl-mitigate} how to reduce the tail, and the two
 remaining subsections revise a prior design context and list the caveats. All empirical
 results are for one instrument, NQ front-month on CME channel 318.
+
+\subsection{Summary: what causes the receiver's tail and how to reduce it}
+\label{sec:concl-summary}
+
+\paragraph{What causes the tail.} The chain starts at the exchange. The matching engine
+often processes one transaction less than a microsecond after the previous one: on NQ,
+$17\%$ of consecutive transactions are less than $7.5\,\mu\mathrm{s}$ apart on the
+engine's clock (Table~\ref{tab:engine-clock}). The market-data publisher cannot send that
+fast. It is a queue that sends about one packet every $7.5\,\mu\mathrm{s}$, so a burst at
+the engine leaves it as a train of packets at that spacing, mostly one message each, with
+an occasional larger packet after a longer gap (Tables~\ref{tab:two-clocks}
+and~\ref{tab:drain-gap}). The receiver is the next queue in line. If it handles a packet
+in less than $7.5\,\mu\mathrm{s}$, it keeps up with any train the publisher can send and
+has no queueing tail. If it needs longer, it falls behind by the difference on every
+packet of the train, and the messages at the end of the train wait. At service times of
+$16$--$32\,\mu\mathrm{s}$ the wait is mostly behind the packet or two just ahead; from
+$64\,\mu\mathrm{s}$ it is behind runs of transactions spread over a few hundred
+microseconds, which is the self-excitation a Hawkes fit measures
+(Table~\ref{tab:nulls}, Section~\ref{sec:exchange-bursts}). Packets carrying several
+messages add decode time on top, which matters most at or below the floor
+(Section~\ref{sec:crossval-spanrun}). The packet rate does not cause the tail at HFT
+service times: utilisation is below $0.02$ there (Section~\ref{sec:results-conditioning}).
+Why orders reach the engine within a microsecond of each other is a question about the
+market and is left open (Section~\ref{sec:concl-cannot}).
+
+\paragraph{How to reduce it: split serially.} Cut the servicing chain into $N$ stages on
+separate threads, each passing its output to the next through a hop of cost
+$h \approx 1.7\,\mu\mathrm{s}$. Every message pays $(N-1)h$ more at the median, and the
+queueing excess shrinks by a factor of $N$ or more, because only the slowest stage
+queues: the tail is set by $s_{\max}$, the service time of the largest stage
+(Theorem~\ref{thm:reduction}). A stage whose service time is below the publisher's
+spacing does not queue at all. On NQ, one cut into two halves lowers $p_{99}$ in every
+window at every service time from $16$ to $128\,\mu\mathrm{s}$ and cuts the tail excess to
+$3$--$16\%$ of its single-thread value; the best number of stages is $1$ at
+$T \le 8\,\mu\mathrm{s}$, $2$ at $16$, $4$ at $32$ and $8$ at $64$ and
+$128\,\mu\mathrm{s}$, limited by the natural cut points in the chain
+(Section~\ref{sec:concl-mitigate}). Serial splitting is the only option for a stage that
+carries state from one message to the next, such as the order book.
+
+\paragraph{How to reduce it: split in parallel.} Give whole packets to a pool of $N$
+cores, each running the full stage, and put them back in order on the way out. With the
+hop in, the hop out and the resequencing all charged, the median is $T + 2h$ for any $N$,
+and at most $0.14\%$ of packets wait for resequencing (Table~\ref{tab:dispatch-costed}).
+With two cores the pool is level with a two-stage serial cut; with three or more it is
+better than a serial cut into the same number of stages. It works only for a stage without
+state, such as SBE decode. A design that decodes in a pool and feeds one order-book
+thread combines the two and has not been costed here (Section~\ref{sec:future}).
+
+\begin{center}
+\fbox{\begin{minipage}{0.92\linewidth}
+\textbf{Design rule (NQ, CME channel 318).} Measure the service time $T$ of the servicing
+chain under real market load.
+\begin{itemize}
+    \item $T$ below the publisher's spacing (about $7.5\,\mu\mathrm{s}$): keep one thread
+and make each message cheaper. Splitting only adds hop cost.
+    \item $T$ above it, stage carries state: split serially, at the natural boundary
+that minimises the largest stage, with the number of stages set by $T$.
+    \item $T$ above it, stage carries no state, three or more cores available: dispatch
+whole packets to a pool and resequence.
+\end{itemize}
+On another feed, measure its publisher's spacing first; the threshold is that spacing.
+\end{minipage}}
+\end{center}
 
 \subsection{What causes the tail: what the paper establishes}
 \label{sec:concl-can}
