@@ -4962,7 +4962,18 @@ reaction to the previous transaction, common reaction of many participants to th
 signal, or pacing by the gateway or matching engine (Section~\ref{sec:concl-cannot}).
 Separating them needs order-entry times for all participants, the data
 \citet{aquilina2022arms} had for the London Stock Exchange. Races of the kind they found
-are the leading hypothesis.
+are the leading hypothesis. Their data were exchange message data, which, unlike the
+order-book data of a public feed, include the attempts to trade or cancel that failed, so
+both the winner and the losers of a race can be seen. On FTSE 100 stocks they found that
+latency-arbitrage races, in which several firms react to the same public signal and try
+to take or cancel the same stale quote, are frequent (about one per minute per symbol),
+extremely fast (the modal race lasts five to ten microseconds) and account for about a
+fifth of trading volume; that the top six firms account for over $80\%$ of race wins and
+losses; that races make up roughly a third of the cost of liquidity as measured by price
+impact and the effective spread; and that a market design removing them would lower that
+cost by about $17\%$. The timescale of their races is the timescale of the engine-clock
+gaps of Table~\ref{tab:engine-clock}, and the failed attempts that reveal a race are what
+the CME public feed does not carry (Section~\ref{sec:exchange-bursts}).
     \item Which instruments' transactions sit on either side of a tight gap on the engine
 clock, across the whole channel. Table~\ref{tab:tight-pairs} gives message type, side and price level for NQ
 front-month; which other instruments' transactions sit within microseconds of an NQ
