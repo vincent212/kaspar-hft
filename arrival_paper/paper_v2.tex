@@ -1648,42 +1648,32 @@ mean rate can produce.}
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figs/tx/tx_gaps.pdf}
-\caption{Packet interarrival gaps, pooled over the corpus. The gap axis is
-logarithmic and the vertical axis is the fraction of gaps per decade of gap length
-(twenty bins per factor of ten; the area under a curve between, say, $10$ and
-$100\,\mu\mathrm{s}$ is the fraction of that curve's gaps in that range, and the total
-area is one). Dotted lines at $7.5$, $16$ and $32\,\mu\mathrm{s}$. Left: gaps between
-two packets of the same transaction ($n = 5.6 \times 10^7$ gaps) against gaps between
-packets of different transactions ($n = 3.24 \times 10^9$ gaps). Each curve is normalised to its own
-total, so heights compare shapes, not counts (the blue gaps are $1.7\%$ of all gaps,
-the black $98.3\%$). What it shows: the intra-transaction distribution is a single
-narrow peak at $12$--$16\,\mu\mathrm{s}$ with almost no mass below $10\,\mu\mathrm{s}$
-and none below the floor --- the pieces of one event are paced by the exchange at about
-$15\,\mu\mathrm{s}$, slower than the closest that two packets of different events
-arrive, so the tightest gaps on the feed are never between pieces of the same event; the
-inter-transaction distribution has a sharp edge at the $7.5\,\mu\mathrm{s}$ floor, a
-broad plateau from the floor to about $30\,\mu\mathrm{s}$, a second mode near
-$100\,\mu\mathrm{s}$, and a long tail to seconds. Right: all packet gaps of the real stream (black; since $98.3\%$ of gaps are between
-transactions this curve is the left panel's black curve with the blue one folded in)
-against the gaps of a Poisson stream with the same packet count over the same window
-(red, dashed), the distribution a receiver would face if the market's events were
-independent of one another at the observed rate. What it shows: the Poisson density is a
-single hump centred near $1\,\mathrm{ms}$ with negligible mass below
-$100\,\mu\mathrm{s}$; the real density puts a third of its mass below
-$32\,\mu\mathrm{s}$, with the floor edge and the $100\,\mu\mathrm{s}$ mode absent from
-the null. The two curves are not two versions of the same shape: the real feed is not a
-Poisson stream, and the region in which it differs is exactly the region of gaps shorter
-than an HFT service time. What follows: the edge at
-$7.5\,\mu\mathrm{s}$ is a property of the gateway --- no two packets of any origin are
-published closer than that --- and it sets where a queue first forms; everything between
-the floor and $32\,\mu\mathrm{s}$ is gaps between different transactions, so the
-queueing regime of an HFT receiver is populated by distinct matching events arriving
-within one service time of each other, not by fragments of one event; and the whole of
-that region is absent from a Poisson stream at the same rate, which is why the uniform
-null in Table~\ref{tab:main-corpus} has no tail below $32\,\mu\mathrm{s}$. The
-$100\,\mu\mathrm{s}$ mode is the characteristic spacing of successive transactions
-within a burst, the time scale on which the self-excitation of Table~\ref{tab:tx-fano}
-acts.}
+\caption{Packet interarrival gaps, pooled over the corpus. Left: the two packets of a
+split transaction arrive about $15\,\mu\mathrm{s}$ apart (blue: median $15\,\mu\mathrm{s}$,
+$54\%$ under $16\,\mu\mathrm{s}$, $96\%$ under $64\,\mu\mathrm{s}$; $n = 5.6 \times 10^7$
+gaps), closer than a typical pair of packets from different transactions (black: median
+about $80\,\mu\mathrm{s}$, spread from the $7.5\,\mu\mathrm{s}$ floor to seconds;
+$n = 3.24 \times 10^9$ gaps, $98.3\%$ of all gaps) --- but never as close as the floor.
+Below $10\,\mu\mathrm{s}$ the blue curve holds $1.6\%$ of its gaps and below
+$7.5\,\mu\mathrm{s}$ $0.1\%$; the region from the floor to $12\,\mu\mathrm{s}$ is filled
+by the black curve alone. So the exchange paces the pieces of one event at a steady
+$15\,\mu\mathrm{s}$, and the tightest gaps on the feed, the ones that make a receiver
+queue, are between packets of different events. Right: the gap distribution of the real
+stream (black; the left panel's black curve with the blue folded in) against that of a
+Poisson stream with the same packet count over the same window (red, dashed) --- the same
+null as in Table~\ref{tab:main-corpus}, drawn in gap space. The Poisson density is one
+hump near $1\,\mathrm{ms}$ with negligible mass below $100\,\mu\mathrm{s}$; the real
+density puts a third of its mass below $32\,\mu\mathrm{s}$, with the edge at the floor and
+the mode near $100\,\mu\mathrm{s}$ absent from the null. The panel is the visual form of
+Table~\ref{tab:tx-gaps}: the whole region of gaps shorter than an HFT service time is
+present in the real stream and absent from an independent-events stream at the same rate,
+which is why the uniform null carries no tail below $32\,\mu\mathrm{s}$, and the
+$100\,\mu\mathrm{s}$ mode is the characteristic spacing of successive transactions within
+a burst, the scale on which the self-excitation of Table~\ref{tab:tx-fano} acts. Axes:
+logarithmic gap axis; vertical axis the fraction of gaps per decade of gap length (twenty
+bins per factor of ten; the area under a curve over a range is the fraction of that
+curve's gaps in the range, total area one, so heights compare shapes, not counts). Dotted
+lines at $7.5$, $16$ and $32\,\mu\mathrm{s}$.}
 \label{fig:tx-gaps}
 \end{figure}
 
