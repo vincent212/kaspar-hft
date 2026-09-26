@@ -1320,7 +1320,7 @@ are dropped). Figure~\ref{fig:curves} plots the same numbers. The Poisson-null c
 the uniform-shuffle counterfactual of Section~\ref{sec:setup-sweep} with the same packet
 count per window.
 
-\begin{table}[H]
+\begin{table}[tbp]
 \centering
 \small
 \begin{tabular}{@{}rr rrr rrr@{}}
@@ -1366,9 +1366,32 @@ $T$ & $N$ & $p_{50}$ & $p_{99}$ & $p_{99.9}$ & $p_{50}$ & $p_{99}$ & $p_{99.9}$ 
 \bottomrule
 \end{tabular}
 \caption{Corpus-median end-to-end latency quantiles in \si{\micro\second} at $h =
-1.7\,\mu\mathrm{s}$, for each service floor $T$ (\si{\micro\second}) and stage count $N$.
+1.7\,\mu\mathrm{s}$, for each service floor $T$ (\si{\micro\second}) and stage count $N$;
 276 sessions, 3512 thirty-minute RTH windows of CME MDP3 NQ front-month packet arrivals.
-The Poisson null is the uniform shuffle of the same arrival count per window.}
+The Poisson null is the uniform shuffle of the same arrival count per window. What the
+table shows: the median column equals $T + (N-1)h$ in every cell but three (Hawkes
+$N = 1$ at $64$ and $128\,\mu\mathrm{s}$ and $N = 2$ at $128$), so each stage costs
+exactly one hop at the median. Under real arrivals the single-stage $p_{99}$ sits on the
+floor at $T \le 4\,\mu\mathrm{s}$, is $1.08\,T$ at $8\,\mu\mathrm{s}$, and then grows
+faster than the service time: $2.2\,T$, $4.6\,T$, $12.8\,T$ and $41.5\,T$ at $T = 16$,
+$32$, $64$ and $128\,\mu\mathrm{s}$, with $p_{99.9}$ roughly twice the $p_{99}$ excess
+again. Under the Poisson null the single-stage $p_{99}$ equals the median up to
+$16\,\mu\mathrm{s}$ and is $1.3\,T$, $1.7\,T$ and $1.9\,T$ at $32$, $64$ and $128$. One
+cut ($N = 2$) takes the Hawkes $p_{99}$ from $34.6$ to $18.3$ at $16\,\mu\mathrm{s}$,
+from $146$ to $52$ at $32$, from $821$ to $180$ at $64$ and from $5317$ to $886$ at
+$128$, for a median cost of $1.7\,\mu\mathrm{s}$; further cuts continue to lower the
+tail until the per-stage service falls below the floor, after which every quantile rises
+by $h$ per stage. What follows: below about $8\,\mu\mathrm{s}$ there is no queue to
+shorten and splitting is cost only, under either arrival law; from $16\,\mu\mathrm{s}$
+the real stream carries a tail that the Poisson stream at the same rate does not, and
+splitting removes most of it for one hop; the Poisson tail that appears from
+$32\,\mu\mathrm{s}$ is ordinary utilisation queueing ($\rho = \bar\lambda T$ reaching
+$0.01$--$0.05$) and is $11$ to $47$ times smaller than the real one. The reason is the
+arrival process: a deterministic server queues only when consecutive gaps are shorter than
+its service time, the real stream has four to seventeen times the Poisson share of such
+gaps (Table~\ref{tab:tx-gaps}) and arranges them in runs, and a cut halves the service
+each stage must fit into a gap, so the number of gaps that queue, and the length of the
+runs that compound, both fall with $N$ (Theorem~\ref{thm:reduction}).}
 \label{tab:main-corpus}
 \end{table}
 
@@ -1444,7 +1467,7 @@ distribution, same tight-gap floor, no ordering. The \emph{1\,s-binned Poisson} 
 each one-second bin's own packet count and redraws the arrivals uniformly inside the bin:
 same second-scale rate variation, no microsecond clustering.
 
-\begin{table}[H]
+\begin{table}[tbp]
 \centering
 \small
 \begin{tabular}{@{}rr rrrr@{}}

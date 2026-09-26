@@ -61,6 +61,10 @@ def main() -> int:
     # Magnitude data gets one hue, never a categorical rainbow.
     shades = plt.cm.viridis(np.linspace(0.85, 0.08, len(TS)))
 
+    # The figure prints at \textwidth (~6.3 in) from a 13.5 in canvas, a 0.47x
+    # reduction, so source sizes are ~2x the intended printed size (7-8 pt).
+    plt.rcParams.update({"font.size": 15, "axes.labelsize": 15, "xtick.labelsize": 14,
+                         "ytick.labelsize": 14})
     fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.3))
     x = np.array(NS, dtype=float)
 
@@ -91,7 +95,7 @@ def main() -> int:
         for ax, ys in ((axes[0], p50), (axes[1], h99)):
             ax.annotate(f"{T}", (x[0], ys[0]), textcoords="offset points",
                         xytext=(-7, 0), ha="right", va="center",
-                        fontsize=8, color=col)
+                        fontsize=13, color=col)
 
     axes[2].plot(x, 1.0 / x, ":", color="0.35", lw=1.8, label=r"bound $1/N$")
 
@@ -107,26 +111,26 @@ def main() -> int:
 
     axes[0].set_yscale("log")
     axes[0].set_ylabel(r"median latency ($\mu$s)")
-    axes[0].set_title(r"$p_{50}$: hop tax $(N-1)h$", fontsize=10)
+    axes[0].set_title(r"$p_{50}$: hop tax $(N-1)h$", fontsize=15)
 
     axes[1].set_yscale("log")
     axes[1].set_ylabel(r"$p_{99}$ latency ($\mu$s)")
     axes[1].set_title(r"$p_{99}$: Hawkes (solid) vs Poisson null (dashed)",
-                      fontsize=10)
+                      fontsize=15)
 
     axes[2].set_yscale("log")
     axes[2].set_ylim(FLOOR / 1.6, 1.5)
     axes[2].set_ylabel(r"$\Delta(N)\,/\,\Delta(1)$")
-    axes[2].set_title(r"Hawkes tail excess vs the $1/N$ bound", fontsize=10)
-    axes[2].legend(frameon=False, fontsize=9, loc="lower left")
+    axes[2].set_title(r"Hawkes tail excess vs the $1/N$ bound", fontsize=15)
+    axes[2].legend(frameon=False, fontsize=13, loc="lower left")
 
     # One shared note for the T labelling, rather than a colour-only legend.
     fig.text(0.5, 0.005,
              r"curves labelled by service floor $T$ in $\mu$s; "
              r"$h = 1.7\,\mu$s; corpus medians over 3512 windows",
-             ha="center", fontsize=9, color="0.3")
+             ha="center", fontsize=14, color="0.3")
 
-    fig.tight_layout(rect=(0, 0.045, 1, 1))
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, bbox_inches="tight")
