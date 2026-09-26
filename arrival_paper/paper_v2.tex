@@ -381,8 +381,8 @@ transaction stream is self-exciting with the same branching ratio as the packets
 through seven null streams that remove one ingredient of the clustering at a time
 (Section~\ref{sec:setup-nulls}) --- that the receiver's tail is produced by the timing of
 transactions and not by their size, their division into packets, the packet rate, or
-second-scale load, acting through a surplus of near-simultaneous transactions at short
-service times and through runs of them at long ones. We have found no published
+second-scale load, acting through transactions sent back to back at the publisher's
+spacing at short service times and through runs of them at long ones. We have found no published
 measurement of the packet process of an exchange feed at this level, and no prior test
 of whether an exchange's packetisation or the market's self-excitation is what a
 receiver queues on. The full reference list appears in Section~\ref{sec:refs}.
@@ -4134,7 +4134,7 @@ sleep/wake transitions happen only at cluster boundaries. Every $p_{99}$ message
 intra-cluster (Section~\ref{sec:results-tail}: the $p_{99}$ message waits behind a
 cluster, since at these service times the Poisson null produces no wait at all), so by the
 time a tail-setting message arrives the receiver is busy: at $8$--$16\,\mu\mathrm{s}$ it
-is still serving the message's near-simultaneous predecessor, and from
+is still serving the predecessor the publisher sent one spacing earlier, and from
 $64\,\mu\mathrm{s}$ it has been processing a run for many multiples of the per-message
 service time (Section~\ref{sec:results-nulls}). In either case it is effectively spinning
 as a natural consequence of the load. Under the model used here, pre-spinning therefore saves little or
