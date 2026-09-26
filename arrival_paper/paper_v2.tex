@@ -1985,9 +1985,11 @@ $T$ & $N$ & $p_{50}$ & $p_{99}$ & $p_{50}$ & $p_{99}$ \\
 128 & 8 &  139.90 &  158.49 &  128.00 &  128.00 \\
 \bottomrule
 \end{tabular}
-\caption{Real (Hawkes) arrivals, corpus medians in \si{\micro\second}: $N$ cores as an
-$N$-stage tandem against the same $N$ cores as one queue feeding $N$ whole-packet
-servers, with no resequencing charged to the latter.}
+\caption{Real arrivals, corpus medians in \si{\micro\second}: $N$ cores as an $N$-stage tandem
+against the same $N$ cores as one queue feeding $N$ whole-packet servers, with no hop and
+no resequencing charged to the latter. What the table shows: uncharged, the pool is at or
+below the tandem everywhere, because it adds no hops. This is the most dispatch could
+achieve; Table~\ref{tab:dispatch-costed} charges its costs.}
 \label{tab:equal-core}
 \end{table}
 
@@ -2002,10 +2004,9 @@ Figure~\ref{fig:bars-dispatch} charges its costs.}
 \label{fig:bars-equal-core}
 \end{figure}
 
-Without its costs, dispatch's $p_{99}$ is at or below the tandem's in every cell at
-$T = 16$--$128\,\mu\mathrm{s}$ ($N = 2$: $16.0$ against $18.3\,\mu\mathrm{s}$ at $T = 16$,
-$48.0$ against $52.3$ at $32$, $171$ against $180$ at $64$, $869$ against $886$ at
-$128\,\mu\mathrm{s}$), and its median is $T$ against the tandem's $T + (N-1)h$.
+Without its costs, dispatch's $p_{99}$ is at or below the tandem's in every cell from
+$16\,\mu\mathrm{s}$ (Table~\ref{tab:equal-core}), and its median is $T$ against the
+tandem's $T + (N-1)h$.
 
 \begin{table}[tbp]
 \centering
@@ -2033,24 +2034,20 @@ $T$ & $N$ & $p_{50}$ & $p_{99}$ & $p_{50}$ & $p_{99}$ & packets \\
 128 & 8 & 139.90 & 162.28 & 131.40 & 142.45 & $0.14\%$ \\
 \bottomrule
 \end{tabular}
-\caption{The same $N$ cores as a tandem and as a dispatch pool with every cost charged:
-an ingress hop to the servers, an egress hop from them, and an in-order resequencer that
-holds each packet until its predecessors have left. Span-dependent service at the NQ
-slope; corpus medians over 3512 windows, in \si{\micro\second}, $h = 1.7\,\mu\mathrm{s}$;
-last column the share of packets that finish before a predecessor and wait in the
-resequencer (its $p_{99}$ wait is $0.00\,\mu\mathrm{s}$ in every cell). Constant service
-gives the same picture. What the table shows: dispatch's median is $T + 2h$ at every
-$N$, against the tandem's $T + (N-1)h$, so dispatch is one hop slower at $N = 2$ and
-faster from $N = 3$; at $N = 2$ the two are within $1.2\,\mu\mathrm{s}$ at $p_{99}$ for
-$T \le 32\,\mu\mathrm{s}$ and dispatch is lower above; at $N \ge 4$ dispatch is lower on
-both quantiles in every cell. Resequencing costs almost nothing, because a packet that
-waited in the shared queue behind a burst leaves in the order it arrived. What follows: for
-a stage that carries no state, dispatching whole packets to four or more cores is at
-least as good as cutting it into the same number of stages (three cores were not
-simulated); at two cores the two are
-level, with the tandem one hop cheaper on the median. For a stage that carries state, the
-order book above all, dispatch is not available and the tandem is the arrangement that
-spends extra cores on it.}
+\caption{The same $N$ cores as a tandem and as a dispatch pool with every cost charged: a hop
+into the servers, a hop out of them, and an in-order resequencer that holds each packet
+until its predecessors have left. Corpus medians in \si{\micro\second} at
+$h = 1.7\,\mu\mathrm{s}$, service growing with message count at NQ's cost per message;
+the last column is the share of packets that wait in the resequencer. What the table
+shows: dispatch's median is $T + 2h$ at every $N$, against the tandem's $T + (N-1)h$, so
+dispatch is one hop slower at $N = 2$, level at three stages and faster from four. At
+$N = 2$ the two have about the same $p_{99}$; from $N = 4$ dispatch is lower on both
+quantiles in every cell. Resequencing costs almost nothing. Constant service gives the
+same picture. What follows: for a stage that carries no state, a pool of four or more
+cores is at least as good as cutting it into as many stages (three cores were not
+simulated); at two cores the two are level. For a stage that carries state, the order
+book above all, dispatch is not available and cutting the chain is how extra cores are
+spent.}
 \label{tab:dispatch-costed}
 \end{table}
 
@@ -2066,20 +2063,20 @@ does.}
 \end{figure}
 
 With every cost charged (Table~\ref{tab:dispatch-costed}), dispatch pays two hops on
-every packet --- in and out --- and nothing else measurable: the resequencer holds at
-most $0.14\%$ of packets, for a $p_{99}$ wait of zero. Its median is therefore $T + 2h$
-whatever $N$ is, one hop more than a two-stage tandem and less than any tandem of three or
-more stages, and its tail is lower than the tandem's from $N = 4$ in every cell. The
-design consequence is a division by state. A stateless stage above the publisher spacing --- decode is
-the natural candidate --- is best served by a dispatch pool of four or more cores (three
-were not simulated); at two
-cores a cut and a pool are level. A stateful stage above the publisher spacing is served by cutting the
-chain, which is the case the rest of the paper analyses.
+every packet, in and out, and nothing else measurable: the resequencer holds almost no
+packets, because a packet that waited behind a burst in the shared queue leaves in the
+order it arrived. Its median is therefore $T + 2h$ whatever $N$ is: one hop more than a
+two-stage tandem, the same as three stages, and less than four or more. Its tail is lower
+than the tandem's from $N = 4$ in every cell. The design consequence is a division by
+state. A stateless stage above the publisher spacing, decode being the natural candidate,
+is best served by a dispatch pool of four or more cores (three were not simulated); at two
+cores a cut and a pool are level. A stateful stage above the publisher spacing is served
+by cutting the chain, which is the case the rest of the paper analyses.
 
 \findings{
     \item \emph{Sharding by instrument does not help here}: a burst is one instrument's order flow and lands on one shard.
-    \item \emph{Dispatch with every cost charged} (hop in, hop out, resequencing) has median $T + 2h$ at any $N$ and resequences at most $0.14\%$ of packets.
-    \item \emph{Against a serial cut on the same cores} the pool is level at $N = 2$ and has the lower $p_{99}$ at $N = 4$ and $8$ in every cell; $N = 3$ was not simulated.
+    \item \emph{Dispatch with every cost charged} (hop in, hop out, resequencing) has median $T + 2h$ at any $N$, and almost no packet waits to be put back in order.
+    \item \emph{Against a serial cut on the same cores} the pool is level at two cores and has the lower $p_{99}$ from four; three was not simulated.
     \item \emph{Only a stage without state can be dispatched.} Decode can; the order book cannot.
 }
 
@@ -2096,30 +2093,27 @@ almost every cell of the sweep. The few exceptions are at the longest service ti
 the queue never empties and even the typical message waits; those sit outside the range
 the paper recommends, and splitting cures them anyway.
 
-The $p_{50}$ columns of Table~\ref{tab:main-corpus} match the single-message formula of
+The median columns of Table~\ref{tab:main-corpus} match the single-message formula of
 Proposition~\ref{thm:burst}
 \[
 p_{50}(N) = T + (N-1)\,h \qquad \text{with } h = 1.7\,\mu\mathrm{s},
 \]
-in all 28 cells of the Poisson arm and in 25 of the 28 Hawkes cells --- for instance
-$8.00, 9.70, 13.10, 19.90$ at $T = 8$. Under Poisson the identity holds because the queue
-is empty; under Hawkes it holds because the median message arrives in a quiet
-inter-cluster stretch where the queue is also empty. The hop tax is therefore exactly $h$
-per boundary on the median, with no hidden component, as Theorem~\ref{thm:reduction} says
-it must be at every quantile.
+in every cell of the Poisson stream and in all but three cells of the real stream. Under
+Poisson the identity holds because the queue is empty; on the real stream it holds because
+the median message arrives in a quiet stretch between clusters, where the queue is also
+empty. Each boundary therefore costs exactly one hop on the median, with no hidden
+component, as Theorem~\ref{thm:reduction} says it must at every quantile.
 
-The three exceptions are at the long-service end of the sweep: $(T, N) =
-(64, 1)$, $(128, 1)$ and $(128, 2)$, where the Hawkes $p_{50}$ is $98.88$, $364.45$ and
-$164.58\,\mu\mathrm{s}$ against no-queue latencies of $64.00$, $128.00$ and $129.70$. There the service time is long enough that the median message no longer arrives in a
-quiet stretch: clusters merge into a persistent backlog and the typical message waits.
-This is the regime boundary appearing in the median rather than in the tail, and it lies
-outside the range the paper's recommendations address. Splitting restores the identity
-once the per-stage service is below the threshold; at $T = 128$ the median is at the no-queue latency
-by $N = 4$.
+The three exceptions are the longest service times: one stage at $64$ and
+$128\,\mu\mathrm{s}$, and two stages at $128\,\mu\mathrm{s}$. There clusters merge into a
+persistent backlog and even the typical message waits. This is the regime boundary showing
+in the median rather than in the tail, and it lies outside the range the paper's
+recommendations address. Splitting restores the identity once each stage is short enough;
+at $128\,\mu\mathrm{s}$ the median is back at the no-queue latency by four stages.
 
 \findings{
-    \item \emph{Each stage costs exactly one hop at the median}: $p_{50} = T + (N-1)h$ in all $28$ Poisson cells and $25$ of $28$ real-stream cells.
-    \item \emph{The three exceptions} are the longest service times ($T = 64$, $128\,\mu\mathrm{s}$), where even the typical message waits; splitting restores the identity.
+    \item \emph{Each stage costs exactly one hop at the median}: $p_{50} = T + (N-1)h$ in almost every cell, on real and Poisson arrivals.
+    \item \emph{The three exceptions} are the longest service times, where even the typical message waits; splitting restores the identity.
 }
 
 
@@ -2170,10 +2164,13 @@ $T$ & $N{=}1$ & $N{=}2$ & $N{=}4$ & $N{=}8$ & & $N{=}2$ & $N{=}4$ & $N{=}8$ & $\
 bound & & & & & & 0.500 & 0.250 & 0.125 & $\ge 1$ \\
 \bottomrule
 \end{tabular}
-\caption{Corpus-median clustering tail excess $\Delta(N) = p_{99}(N) - p_{50}(N)$ under
-Hawkes arrivals at $h = 1.7\,\mu\mathrm{s}$, its ratio to the single-stage value, and the
-least-squares exponent $\gamma$ in $\Delta(N) \approx \Delta(1) N^{-\gamma}$. The last row
-is the Theorem~\ref{thm:reduction} bound.}
+\caption{Corpus-median tail excess $\Delta(N) = p_{99}(N) - p_{50}(N)$ on the real arrivals at
+$h = 1.7\,\mu\mathrm{s}$, its ratio to the single-stage value, and the fitted exponent
+$\gamma$ in $\Delta(N) \approx \Delta(1) N^{-\gamma}$; the last row is the
+Theorem~\ref{thm:reduction} bound. What the table shows: each extra halving of the stage
+length moves the excess to the single-thread value at half the service time, so the
+values repeat along the diagonals; once each stage is below the publisher spacing the
+excess is zero. Every ratio is far below the bound.}
 \label{tab:delta}
 \end{table}
 
@@ -2189,32 +2186,27 @@ zero (bars marked $0$).}
 \label{fig:bars-delta}
 \end{figure}
 
-Two features of Table~\ref{tab:delta} follow from the theorems. First, $\Delta$
-depends on $(T, N)$ only through the per-stage service $T/N$: every diagonal of constant
-$T/N$ carries one number --- $0.00$ at $T/N \le 4\,\mu\mathrm{s}$, $0.61$ at $T/N = 8$,
-$18.59$ at $16$, $114.14$ at $32$, $721.82$ at $64$ --- to the reported precision, across
-up to four different $(T, N)$ pairs, without fitting. This is the reduction identity
-Equation~\eqref{eq:reduction} on real arrivals: the tandem's tail is the single-server
-tail at $s_{\max}$, and the table is a table of $\Delta_{\mathrm{single}}(s)$ at $s \in
-\{0.25, 0.5, \ldots, 64, 128\}\,\mu\mathrm{s}$, read off the diagonals.
+Two features of Table~\ref{tab:delta} follow from the theorems. First, $\Delta$ depends on
+$(T, N)$ only through the per-stage service $T/N$: every diagonal of constant $T/N$
+carries one value, to the reported precision, without fitting. This is the reduction
+identity, Equation~\eqref{eq:reduction}, on real arrivals: the tandem's tail is the
+single-server tail at $s_{\max}$, and the diagonals of the table are
+$\Delta_{\mathrm{single}}(s)$ on a power-of-two grid of $s$.
 
 Second, every ratio is at or below the bound $1/N$, and the pathwise check of
-Section~\ref{sec:evaluation} finds no message on any window above it. The margin is
-large, because of the threshold. Because
-$\Delta_{\mathrm{single}}(s)$ is identically zero for $s \lesssim 7.5\,\mu\mathrm{s}$
-(Section~\ref{sec:results-threshold}), a split that pushes the per-stage service below
-the publisher spacing does not merely divide the tail excess, it removes it. At $T = 32$, $\Delta$
-falls $114.14 \to 18.59 \to 0.61 \to 0.00$ as $N$ goes $1 \to 2 \to 4 \to 8$: a ratio of
-$0.005$ at $N = 4$ against a bound of $0.25$. The fitted exponent $\gamma$ in
-$\Delta(N) \approx \Delta(1) N^{-\gamma}$ is correspondingly steep, $3.32$ at $T = 64$ and
-$2.68$ at $T = 128$, well above the $\gamma = 1$ that the bound alone would permit; at $T
-\le 32$ the tandem drives $\Delta(8)$ to exactly zero and no power law is fitted, since
-the least-squares slope would be reading numerical noise near zero rather than the data. The decay of the excess is therefore not a $1/N$ division on this corpus; it
-terminates at zero once the per-stage service is below the publisher spacing. The design consequence
-is that the objective is not a large $N$ but an $s_{\max}$ below the publisher
-spacing. The
-utilisation slack described after Theorem~\ref{thm:reduction} contributes as well, and
-Appendix~\ref{app:check} reproduces it on synthetic Borel clusters.
+Section~\ref{sec:evaluation} finds no message on any window above it. The margin is large,
+because of the threshold. Since $\Delta_{\mathrm{single}}(s)$ is zero for $s$ below the
+publisher spacing (Section~\ref{sec:results-threshold}), a split that pushes the per-stage
+service below that spacing does not merely divide the tail, it removes it. At
+$32\,\mu\mathrm{s}$, for example, four stages leave about half a percent of the
+single-thread excess, where the bound allows a quarter, and eight leave none. Where a
+power law $\Delta(N) \approx \Delta(1) N^{-\gamma}$ can be fitted, its exponent is about
+three, far steeper than the $\gamma = 1$ the bound alone would permit. The decay of the
+excess is therefore not a $1/N$ division on this corpus; it ends at zero once each stage is
+below the publisher spacing. The design consequence is that the objective is not a large
+$N$ but an $s_{\max}$ below the publisher spacing. The utilisation slack described after
+Theorem~\ref{thm:reduction} contributes as well, and Appendix~\ref{app:check} reproduces it
+on synthetic clusters.
 
 The operator's stage-count optimum is
 \[
@@ -2239,13 +2231,12 @@ $T$ (\si{\micro\second}) & $N^\star = 1$ & $N^\star = 2$ & $N^\star = 4$ & $N^\s
 \end{tabular}
 \end{center}
 A dash means that stage count is never optimal at any $\kappa$: at $T \le 8\,\mu\mathrm{s}$
-the tail excess is already zero by $N = 2$, so further splitting can only add hop cost.
-An operator who values tail and median equally ($\kappa = 1$) lands on $N^\star = 1$ at $T
-= 2, 4$ and $8$, $2$ at $T = 16$, $4$ at $T = 32$, and $8$ at $T = 64$ and
-$128\,\mu\mathrm{s}$, which is also the ordering of the raw $p_{99}$ minima in
-Table~\ref{tab:main-corpus}. Over the service times an HFT hot path occupies, an operator must weight the tail
-several times more than the median before splitting pays; above the threshold the
-required weight is small.
+the tail excess is already zero by $N = 2$, so further splitting only adds hop cost. An
+operator who weights tail and median equally ($\kappa = 1$) keeps one stage up to
+$8\,\mu\mathrm{s}$ and uses more stages as $T$ grows, which is also the ordering of the raw
+$p_{99}$ minima in Table~\ref{tab:main-corpus}. Over the service times an HFT hot path
+occupies, an operator must weight the tail several times more than the median before
+splitting pays; above the threshold the required weight is small.
 
 At real cut points the stages are unequal, and by Remark~\ref{rem:unequal} the tail excess
 depends on the partition $P$ of the servicing chain only through its largest stage,
@@ -2277,15 +2268,13 @@ then the fewest hops that realise it.
 
 \paragraph{Minimum service time for splitting.}
 Equations~\eqref{eq:design99}--\eqref{eq:design50} imply a lower bound on the tasks the
-recommendation applies to. Splitting a task of total service $T$ into
-$N$ stages spends $(N-1) h$ at every quantile to compress a tail excess $\Delta(1)$ that
-is itself a strongly increasing function of $T$ ($0$ at $T \le 4\,\mu\mathrm{s}$, rising
-to $39\,T$ at $T = 128$, Table~\ref{tab:delta}). When $T$ is at or below the feed's
-publisher spacing there is no tail excess to remove at all, and the design equation
-prescribes $N^\star = 1$; a hop there adds cost only. The sweep confirms this: at $T = 2$ and $4\,\mu\mathrm{s}$, $\Delta(1) = 0$, so a split removes nothing and
-$p_{99}$ rises by the full hop, from $2.00$ to $3.70$ and from $4.00$ to $5.70$. Above the publisher spacing: at $T = 16\,\mu\mathrm{s}$, $\Delta(1) =
-18.59\,\mu\mathrm{s}$, of which the split removes $17.98$ for the same $1.7$, and $p_{99}$
-falls from $34.59$ to $18.31$ on every window.
+recommendation applies to. Splitting a task of total service $T$ into $N$ stages spends
+$(N-1)h$ at every quantile to compress a tail excess $\Delta(1)$ that is zero at
+$4\,\mu\mathrm{s}$ and below and grows fast above (Table~\ref{tab:delta}). When $T$ is
+below the publisher spacing there is nothing to remove, and the design equation
+prescribes one stage; a hop there adds cost only. The sweep confirms this: at $2$ and
+$4\,\mu\mathrm{s}$ a split removes nothing and raises every quantile by the full hop, and at
+$16\,\mu\mathrm{s}$ it removes almost the entire excess for one hop, on every window.
 
 Two separate necessary conditions apply. The first is a property of the
 \emph{framework}: a split cannot pay unless the tail excess it
@@ -2305,9 +2294,9 @@ feed statistics.
 
 \findings{
     \item \emph{Only the largest stage matters.} The tail excess depends on $(T, N)$ only through $T/N$, as Theorem~\ref{thm:reduction} predicts.
-    \item \emph{A cut that takes every stage below the publisher spacing removes the tail rather than dividing it}: at $T = 32$ the excess falls $114 \to 18.6 \to 0.61 \to 0$ for $N = 1, 2, 4, 8$.
-    \item \emph{Weighting tail and median equally} gives $1$ stage at $T \le 8$, $2$ at $16$, $4$ at $32$, $8$ at $64$ and $128\,\mu\mathrm{s}$.
-    \item \emph{The binding minimum is the publisher spacing} (about $7.5\,\mu\mathrm{s}$), not the framework's ($2h \approx 3.4\,\mu\mathrm{s}$).
+    \item \emph{A cut that takes every stage below the publisher spacing removes the tail rather than dividing it}; the decay is far steeper than the $1/N$ bound.
+    \item \emph{Weighting tail and median equally} gives one stage up to $8\,\mu\mathrm{s}$ and more as $T$ grows, up to eight at $64\,\mu\mathrm{s}$ and above.
+    \item \emph{The binding minimum is the publisher spacing} (about $7.5\,\mu\mathrm{s}$), not the framework's $2h$.
 }
 
 
@@ -2323,33 +2312,44 @@ microseconds or below, where there is no tail to remove and the split only adds 
 cost, with a sharp crossover between. The
 recommendation is therefore not an artefact of averaging.
 
-The corpus medians understate the tail on the busiest windows. Across the 3512 windows the
-single-stage $p_{99}/T$ has a median of $1.0, 1.0, 1.1, 2.2, 4.6, 12.8, 41.5$ and a 95th
-percentile of $1.0, 1.0, 1.1, 2.5, 6.1, 19.9, 81.7$ at $T = 2, 4, 8, 16, 32, 64,
-128\,\mu\mathrm{s}$, so one window in twenty at $T = 32$ has a single-stage $p_{99}$ above
-$195\,\mu\mathrm{s}$ and at $T = 128$ above $10.5\,\mathrm{ms}$. The tandem's win is not
-confined to the median window: $p_{99}(2) < p_{99}(1)$ and $p_{99}(4) < p_{99}(1)$ both
-hold on $100\%$ of windows at every $T \ge 16$, and on no window at all at $T \le 8$,
-where there is no tail to compress and the split pays only hop cost. The crossover is
-sharp and sits just below $T = 10\,\mu\mathrm{s}$: on the refined sweep of
-Section~\ref{sec:results-threshold}, $p_{99}(2) < p_{99}(1)$ on $0\%$ of windows at $T =
-8\,\mu\mathrm{s}$, $67.0\%$ at $T = 9\,\mu\mathrm{s}$ and $99.7\%$ at $T =
-10\,\mu\mathrm{s}$. The per-window fitted branching ratio has median $0.798$ and a
-5th--95th percentile range of $0.761$--$0.832$ (Section~\ref{sec:setup-hawkes}); how the
-tail excess depends on it, and on the window's packet rate, is examined in Section~\ref{sec:results-conditioning}. The intervening $p_{95}$ quantile is recorded
-per window in the sweep (Section~\ref{sec:setup-sweep}) and omitted from the tables above
-only for brevity; it lies between the reported $p_{50}$ and $p_{99}$ in every cell by
-construction, and under the Poisson null it equals the no-queue latency wherever $p_{99}$
-does, since $\rho/N < 1 - 0.99$ implies $\rho/N < 1 - 0.95$. The 3512 windows are treated
-as evaluation units for the descriptive statistics reported here; they are nested within
-276 sessions and are not independent, so any statistical uncertainty on the aggregates
-would be clustered at the session level rather than treating 3512 as an independent sample
-size.
+The corpus medians understate the tail on the busiest windows. Table~\ref{tab:windows}
+gives the median and the $95$th percentile over windows of the single-thread $p_{99}/T$.
+At short service times the busiest windows are close to the median one; at long service
+times one window in twenty has a tail up to twice the median window's. The tandem's win is
+not confined to the median window: two stages and four stages both beat one on every
+window from $16\,\mu\mathrm{s}$, and on no window at $8\,\mu\mathrm{s}$ or below, where there
+is no tail to compress and the split pays only hop cost. The crossover is sharp and lies
+between $8$ and $10\,\mu\mathrm{s}$ (Section~\ref{sec:results-threshold}). The fitted
+branching ratio is about $0.8$ in every window (Section~\ref{sec:setup-hawkes}); how the
+tail depends on it, and on the window's packet rate, is examined in
+Section~\ref{sec:results-conditioning}. The $p_{95}$ is recorded per window and omitted
+from the tables only for brevity; it lies between $p_{50}$ and $p_{99}$ by construction.
+The windows are nested in 276 sessions and are not independent, so uncertainty on the
+aggregates is clustered at the session level.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lrrrrrrr@{}}
+\toprule
+$T$ (\si{\micro\second}) & 2 & 4 & 8 & 16 & 32 & 64 & 128 \\
+\midrule
+$p_{99}/T$, median window        & 1.0 & 1.0 & 1.1 & 2.2 & 4.6 & 12.8 & 41.5 \\
+$p_{99}/T$, 95th-percentile window & 1.0 & 1.0 & 1.1 & 2.5 & 6.1 & 19.9 & 81.7 \\
+\bottomrule
+\end{tabular}
+\caption{Single-thread $p_{99}$ relative to the service time, in the median window and in
+the window at the $95$th percentile, over the corpus. What the table shows: below the
+publisher spacing no window has a tail; above it the busiest windows are worse than the
+median one, by up to a factor of two at long service times. What follows: a pipeline sized
+from the median window underestimates the tail it will meet in a busy one.}
+\label{tab:windows}
+\end{table}
 
 \findings{
     \item \emph{The split wins on every window from $16\,\mu\mathrm{s}$ and on none at $8\,\mu\mathrm{s}$ or below.}
-    \item \emph{The crossover is sharp}: $0\%$ of windows at $8\,\mu\mathrm{s}$, $67\%$ at $9$, $99.7\%$ at $10\,\mu\mathrm{s}$.
-    \item \emph{Busy windows are much worse than the median}: one window in twenty at $T = 128\,\mu\mathrm{s}$ has a single-thread $p_{99}$ above $10.5\,\mathrm{ms}$.
+    \item \emph{The crossover is sharp}, between $8$ and $10\,\mu\mathrm{s}$.
+    \item \emph{Busy windows are worse than the median one}, by up to a factor of two at long service times (Table~\ref{tab:windows}).
 }
 
 
@@ -2381,32 +2381,31 @@ $T$ ($\mu$s) & $p_{99}$ Hawkes & excess over $T$ & windows with a tail & $p_{99}
 \begin{figure}[H]
 \centering
 \includegraphics[width=1.0\textwidth]{figs/bars/onset.pdf}
-\caption{The table above as bars; the dotted line marks the publisher's spacing of about
+\caption{The table above as bars; the dotted line marks the publisher spacing of about
 $7.5\,\mu\mathrm{s}$. Left: how far the single-thread $p_{99}$ sits above the service time.
-Below the spacing there is no tail at all; above it the tail grows fast, and it passes the
-hop cost of one split ($1.7\,\mu\mathrm{s}$, dashed) between $T = 8$ and
-$9\,\mu\mathrm{s}$. Right: the share of windows that have any tail (blue) jumps from
-$4.5\%$ to $98.6\%$ between $7$ and $8\,\mu\mathrm{s}$; the share where two stages beat one
-(orange) follows about $1.5\,\mu\mathrm{s}$ later, once the tail is larger than the hop
-cost: none at $8\,\mu\mathrm{s}$, two thirds at $9$, all from $10\,\mu\mathrm{s}$.}
+Below the spacing there is no tail at all; above it the tail grows fast and passes the
+hop cost of one split (dashed) between $8$ and $9\,\mu\mathrm{s}$. Right: the share of
+windows that have any tail (blue) jumps from almost none to almost all between $7$ and
+$8\,\mu\mathrm{s}$; the share where two stages beat one (orange) follows about
+$1.5\,\mu\mathrm{s}$ later, once the tail is larger than the hop cost.}
 \label{fig:bars-onset}
 \end{figure}
 
-Two distinct thresholds are visible. The first is the \emph{tail} threshold: between $T = 7$ and $T =
-8\,\mu\mathrm{s}$ the fraction of windows with any $p_{99}$ excess jumps from $4.5\%$ to
-$98.6\%$. The second is the \emph{splitting} threshold, about $1.5\,\mu\mathrm{s}$ later,
-between $T = 8$ and $T = 10\,\mu\mathrm{s}$: a tail must exist \emph{and} exceed the hop
-cost before a split repays it. At $T = 8\,\mu\mathrm{s}$ nearly every window has a tail,
-but its median excess is $0.61\,\mu\mathrm{s}$, well under $h = 1.7\,\mu\mathrm{s}$, and
-splitting loses on every window. By $T = 10\,\mu\mathrm{s}$ the excess is $3.52\,\mu\mathrm{s}$, above $h$, and
-splitting wins on $99.7\%$.
+Two distinct thresholds are visible. The first is the \emph{tail} threshold: between $T =
+7$ and $8\,\mu\mathrm{s}$ the share of windows with any tail jumps from almost none to
+almost all. The second is the \emph{split} threshold, about $1.5\,\mu\mathrm{s}$ later,
+between $8$ and $10\,\mu\mathrm{s}$: a tail must exist \emph{and} exceed the hop cost before
+a split repays it. At $8\,\mu\mathrm{s}$ nearly every window has a tail, but it is well
+under the $1.7\,\mu\mathrm{s}$ hop, and splitting loses on every window. By
+$10\,\mu\mathrm{s}$ the tail is about twice the hop, and splitting wins almost
+everywhere.
 
 The first threshold is set by the feed's tight-gap structure rather than by its mean
 rate; the next section establishes this.
 
 \findings{
-    \item \emph{The tail appears between $7$ and $8\,\mu\mathrm{s}$}: the share of windows with any tail jumps from $4.5\%$ to $98.6\%$.
-    \item \emph{Splitting starts to pay about $1.5\,\mu\mathrm{s}$ later}, once the tail exceeds the $1.7\,\mu\mathrm{s}$ hop: none at $8$, $67\%$ of windows at $9$, all from $10\,\mu\mathrm{s}$.
+    \item \emph{The tail appears between $7$ and $8\,\mu\mathrm{s}$}: the share of windows with any tail jumps from almost none to almost all.
+    \item \emph{Splitting starts to pay about $1.5\,\mu\mathrm{s}$ later}, once the tail exceeds the hop cost, and pays on almost every window from $10\,\mu\mathrm{s}$.
 }
 
 
@@ -2481,31 +2480,34 @@ windows; the two agree to $0.01$.}
 \label{fig:bars-conditioning}
 \end{figure}
 
-The result divides at $T \approx 32$--$64\,\mu\mathrm{s}$. For $T \le
-32\,\mu\mathrm{s}$ the normalised tail is flat in both variables: a $4.66\times$ change in
-packet rate moves it by $0$--$8\%$, and in the wrong direction at $T = 16$ and $T = 32$,
-where the \emph{busiest} quintile has the slightly \emph{smaller} normalised tail. A
-$0.769 \to 0.825$ change in branching ratio moves it by at most $2\%$. For $T \ge 64\,\mu\mathrm{s}$ both variables have an effect, in the expected
-direction: by $T =
-128\,\mu\mathrm{s}$ the busiest quintile's tail is $1.75\times$ the quietest and the most
-critical quintile's is $1.91\times$ the least. This is the boundary between the clustering regime and the utilisation regime found
-elsewhere in the paper: for $T \ge 64\,\mu\mathrm{s}$ the Poisson null has a tail too
+The result divides between $32$ and $64\,\mu\mathrm{s}$ (Figure~\ref{fig:bars-conditioning}).
+Up to $32\,\mu\mathrm{s}$ the normalised tail is flat in both variables: a more than
+fourfold range of packet rate moves it by less than a tenth, and at $16$ and
+$32\,\mu\mathrm{s}$ the busiest fifth of windows even has the slightly smaller tail; the
+range of branching ratios moves it by at most a few percent. From $64\,\mu\mathrm{s}$ both
+variables matter in the expected direction, and at $128\,\mu\mathrm{s}$ the busiest and the
+most self-exciting fifths have roughly twice the tail of the quietest. This is the
+boundary between the clustering regime and the utilisation regime found elsewhere in the
+paper: from $64\,\mu\mathrm{s}$ the Poisson stream has a tail too
 (Section~\ref{sec:results-tail}), utilisation $\rho = \bar\lambda T$ is the governing
-quantity, and $\rho$ is proportional to $\bar\lambda$. Intensity matters where
+quantity, and $\rho$ is proportional to the packet rate. The rate matters where
 utilisation queueing applies and not below it.
 
-\paragraph{Simulator check of the invariance.} The Poisson arm, run on the same
-windows through the same simulator, shows the intensity dependence that utilisation
-queueing requires: at $T = 16$ and $32\,\mu\mathrm{s}$ its normalised $p_{99}$ is
-$1.34\times$ and $1.68\times$ higher in the busiest quintile than in the quietest, because
-$\rho = \bar\lambda T$ crosses the $0.01$ switch-on of Corollary~\ref{cor:poisson} within
-the quintile range. The Hawkes arm on the same windows at the same $T$ gives $0.92\times$
-and $0.95\times$. The simulator therefore resolves intensity; the clustered tail does not
-depend on it at these service times. The result is the same unbinned: the per-window
-Spearman correlation of $p_{99}/T$ with $\bar\lambda$ is $-0.19$ at $T = 16$ and $-0.09$
-at $T = 32\,\mu\mathrm{s}$, and with $n$ is $-0.05$ and $+0.02$; at $T = 128\,\mu\mathrm{s}$
-both are $+0.48$ and $+0.54$. Comparing the top and bottom $2\%$ of windows by rate, a
-$26\times$ range, gives a $p_{99}/T$ ratio of $1.02$ at $T = 32$ and $2.57$ at $T = 128$.
+\paragraph{Simulator check of the invariance.} The Poisson stream, run on the same windows
+through the same simulator, does show the dependence on rate that utilisation queueing
+requires: at $16$ and $32\,\mu\mathrm{s}$ its normalised tail is clearly larger in the
+busiest fifth of windows than in the quietest, because utilisation crosses the $1\%$
+switch-on of Corollary~\ref{cor:poisson} within the range. The real stream on the same
+windows shows none. The simulator therefore resolves the rate; the clustered tail does not
+depend on it at these service times. The result is the same without binning into fifths,
+by rank correlation over all windows, and between the top and bottom $2\%$ of windows by
+rate, a range of more than twentyfold. The mechanism is that at low utilisation clusters do
+not overlap. Raising the rate raises the number of clusters per window, each with the same
+internal spacing and, at a fixed branching ratio, the same size distribution, so where the
+$p_{99}$ packet sits within its cluster, and hence $p_{99}/T$, is unchanged. The rate
+enters once clusters begin to overlap, and the branching ratio once $T$ is long enough for
+many members of one cluster to fall within one service time; on this corpus both happen
+from $64\,\mu\mathrm{s}$.
 
 The mechanism is that at $\rho \ll 1$ clusters do not overlap. Raising $\bar\lambda$
 raises the number of clusters per window, each with the same internal spacing and, at
@@ -2544,10 +2546,10 @@ bursts, not tighter ones, and the tightest gap is what starts a queue.}
 \label{fig:bars-gap-quantiles}
 \end{figure}
 
-All gaps in microseconds. The mean gap falls by exactly the reciprocal of the rate
-increase, $0.215 \approx 1/4.66$, which is definitional. Every other column is approximately invariant, and the tightest is the most
-invariant: the $p_1$ gap moves from $7.45$ to $7.43\,\mu\mathrm{s}$, a ratio of $0.997$,
-while the rate more than quadruples.
+All gaps in microseconds. The mean gap falls in proportion to the rate, which is
+definitional. Every other column is nearly constant, and the tightest gap is the most
+constant of all: it stays at the publisher spacing while the rate more than quadruples
+(Figure~\ref{fig:bars-gap-quantiles}).
 
 Raising the intensity of a self-exciting process raises the rate at which clusters are
 generated; it does not change the spacing of events inside a cluster. The tight end of
@@ -2563,32 +2565,24 @@ The gap statistics on the publisher's clock are censored at the publisher spacin
 closer together than about $7.5\,\mu\mathrm{s}$ reach the receiver in one packet
 (Section~\ref{sec:exchange-publisher}). A faster self-excitation would therefore show in
 the packets rather than the gaps. It does not scale with the branching ratio: from the
-lowest to the highest branching-ratio quintile the share of packets carrying two or more
-messages falls by a factor of $0.89$, the mean message count per packet by $0.99$ and the
-share of packets carrying more than one transaction by $0.97$ (per-window Spearman
-correlations with $n$ of $-0.18$, $-0.28$ and $+0.00$); across packet-rate quintiles the
-three move by $1.02$, $0.99$ and $1.13$.
+lowest to the highest branching-ratio fifth, the share of multi-message packets, the mean
+message count per packet and the share of packets carrying more than one transaction do
+not rise, and across packet-rate fifths they barely move.
 
 The queueing consequence: a deterministic server of service time $T$
 begins to build a queue when it is handed two arrivals separated by less than $T$, so the
 service time at which a tail appears is set by the \emph{tight} end of the gap
 distribution, not by its mean. The tight end is invariant to $\bar\lambda$; therefore the threshold is invariant to
-$\bar\lambda$. The two numbers agree: the measured $p_1$ gap
-of $7.43$--$7.53\,\mu\mathrm{s}$ across every intensity quintile brackets the measured
-tail onset of Section~\ref{sec:results-threshold}, between $T = 7$ and $T =
-8\,\mu\mathrm{s}$, where the fraction of windows carrying any tail jumps from $4.5\%$ to
-$98.6\%$.
+$\bar\lambda$. The two numbers agree: the tightest gap, about $7.5\,\mu\mathrm{s}$ in every
+rate fifth, matches the tail onset of Section~\ref{sec:results-threshold}, between $7$ and
+$8\,\mu\mathrm{s}$.
 
-\paragraph{Robustness to window length.} A 30-minute window averages $\bar\lambda$
-over a long interval, and the quintile split above may be comparing time-averaged rates
-that have smoothed away the relevant intensity variation. We therefore reran the entire pipeline ---
-packet extraction, per-window Hawkes MLE, Poisson null and the full $(T, N)$ grid --- on
-\emph{five}-minute windows, giving 21{,}060 windows in place of 3512. Shorter windows do
-resolve more intensity variation, as expected: the corpus $\bar\lambda$ spread widens from
-$6.8\times$ to $7.3\times$ between the 5th and 95th percentiles, from $26.0\times$ to
-$30.6\times$ between the 1st and 99th, and the observed maximum rises from $2152$ to
-$2692$ packets per second; the 5th--95th range of the fitted branching ratio widens from
-$0.0717$ to $0.0786$. The conditioning result is unchanged to two decimal places across the sweep:
+\paragraph{Robustness to window length.} A 30-minute window averages the rate over a long
+interval, and the comparison above may have smoothed away the variation that matters. We
+therefore reran the whole pipeline, from packet extraction and Hawkes fits to the Poisson
+null and the full $(T, N)$ grid, on five-minute windows, six times as many. Shorter windows
+do resolve more variation in rate and branching ratio, as expected. The conditioning
+result is unchanged to two decimal places:
 
 \begin{center}
 \begin{tabular}{lrrrrrr}
@@ -2601,8 +2595,9 @@ $0.0717$ to $0.0786$. The conditioning result is unchanged to two decimal places
 \end{tabular}
 \end{center}
 
-Entries are the Q5/Q1 ratio of the normalised single-stage tail $p_{99}/T$. Resolving intensity six times more finely, over a wider realised range, moves no entry
-by more than $0.01$. The result is a property of the arrival process, not of the window
+Entries are the ratio of the normalised single-thread tail $p_{99}/T$ in the top fifth of
+windows to that in the bottom fifth. Resolving the rate six times more finely moves no
+entry by more than $0.01$. The result is a property of the arrival process, not of the window
 length.
 
 \paragraph{Consequence for the design rule.} On NQ the rule can therefore be stated as a
@@ -2616,9 +2611,8 @@ publisher spacing with the upper quantiles of the stage's per-packet service und
 median (Section~\ref{sec:concl-summary}). The publisher spacing is
 the tight end of the feed's interarrival-gap distribution (the $p_1$ gap, about
 $7.5\,\mu\mathrm{s}$ on CME channel 318), not its mean, which is two orders of magnitude
-larger. It is measured once per feed: on this corpus it is $7.43$--$7.53\,\mu\mathrm{s}$
-in every packet-rate quintile across a $4.7\times$ range of rates and in every
-branching-ratio quintile, so the rule requires no runtime estimate of market intensity or
+larger. It is measured once per feed: on this corpus it is about $7.5\,\mu\mathrm{s}$ in every
+packet-rate fifth and every branching-ratio fifth, so the rule requires no runtime estimate of market intensity or
 clustering and does not change between a quiet and a volatile session. Both the publisher spacing and
 the spacing of transactions inside a burst were measured on one instrument, NQ
 front-month on CME channel 318; recheck them on any other instrument or feed rather than
@@ -2629,16 +2623,17 @@ at $T = 8\,\mu\mathrm{s}$, and identifies the packed-gap fraction as the quantit
 separates it from CME.
 
 The publisher spacing is not the mean interarrival gap. On this corpus the mean gap is
-$2215\,\mu\mathrm{s}$ at the median window, about $300\times$ the $p_1$ gap. A rule
+about $2\,\mathrm{ms}$ in the median window, some three hundred times the publisher
+spacing. A rule
 stated on the mean gap would recommend never splitting an HFT stage, and would be wrong
 by two orders of magnitude.
 
 \findings{
-    \item \emph{Up to $32\,\mu\mathrm{s}$ market conditions do not change the tail relative to $T$}: a $4.7\times$ range of packet rate moves it by $0$--$8\%$, the branching-ratio range by at most $2\%$.
-    \item \emph{From $64\,\mu\mathrm{s}$ both matter}, as utilisation queueing sets in: at $128\,\mu\mathrm{s}$ the busiest quintile's tail is $1.75\times$ the quietest's.
-    \item \emph{A busy market has more bursts, not tighter ones}: the $1$st-percentile gap stays at $7.43$--$7.53\,\mu\mathrm{s}$ while the rate more than quadruples.
+    \item \emph{Up to $32\,\mu\mathrm{s}$ market conditions do not change the tail relative to $T$}: a more than fourfold range of packet rate moves it by less than a tenth, the range of branching ratios by a few percent.
+    \item \emph{From $64\,\mu\mathrm{s}$ both matter}, as utilisation queueing sets in: at $128\,\mu\mathrm{s}$ the busiest windows have about twice the tail of the quietest.
+    \item \emph{A busy market has more bursts, not tighter ones}: the tightest gap stays at the publisher spacing while the rate more than quadruples.
     \item \emph{The same holds on five-minute windows}, and packet size does not rise with the branching ratio.
-    \item \emph{A rule based on the mean gap} ($2215\,\mu\mathrm{s}$) instead of the tightest would be wrong by two orders of magnitude.
+    \item \emph{A rule based on the mean gap} instead of the tightest would be wrong by two orders of magnitude.
 }
 
 
@@ -2660,45 +2655,20 @@ cost there is a few hundred nanoseconds rather than nearly two microseconds. The
 of splitting during a burst is therefore, if anything, understated.
 
 The design equation is monotone in $h$: at fixed $T$ and fixed corpus $\Delta(N)$, every
-$\kappa$ breakpoint in the table above scales linearly with $h$, so a smaller $h$ lowers
-every breakpoint and can only raise $N^\star$ at a fixed $\kappa$. At $h
-= 1.7\,\mu\mathrm{s}$ the $p_{99}$-minimising $N$ is $1, 1, 1, 2, 4, 8, 8$ across the
-seven service times; at a hypothetical $h = 0.5\,\mu\mathrm{s}$ busy-poll mailbox it
-would be $1, 1, 2, 2, 4, 8, 8$ --- the change is a single notch, at $T = 8\,\mu\mathrm{s}$,
-because below the publisher spacing no reduction in $h$ can make a split worth taking when
-there is no tail to remove. Reducing the hop cost widens the band of service times over which splitting pays; it
-does not move the threshold, which is set by the feed. For any other framework the procedure is the same: measure the one-way
-asynchronous hop cost $h$ on its own dispatch path, put it into
-Equation~\eqref{eq:design99} with the corpus $\Delta$ of Table~\ref{tab:delta}, and read
-off $N^\star$; a framework whose $h$ exceeds the tail excess a split could remove gets
-$N^\star = 1$, and the recommendation reverses.
-\paragraph{$h$ is load-dependent; $1.7\,\mu\mathrm{s}$ is a conservative upper bound.} The
-$h = 1.7\,\mu\mathrm{s}$ figure is the one-way cost of the shipping \kasparhft{} BQueue
-mailbox measured at low load, where the receiver is sleeping on a condition variable and
-the send path must pay the kernel wake latency to bring it back onto CPU. That wake
-latency is the dominant term in the $\sim\!3.4\,\mu\mathrm{s}$ round-trip of Table~4 in
-\citet{mayeski_fastsend}, and the general fact that a spinning receiver delivers a message
-an order of magnitude faster than a wake-from-condvar receiver is standard in the
-microsecond-latency systems literature: \citet{david2013synch} measure the primitive costs
-directly on commodity Linux hardware, \citet{belay2014ix} exploit this in the IX data
-plane by pinning busy-polling network threads, and Rigtorp's operational guide
-\citep{rigtorp_lowlatency} formalises the ``run one thread per core and busy-wait'' rule
-that flows from it; the \texttt{fast\_send} paper's own grouped-\texttt{send} row (Table~4,
-$\sim\!90$ ns) is the same effect on the same framework --- when the receiver never
-actually sleeps, the send path collapses. Under sustained load, and specifically inside a
-Hawkes cluster where the receiver's queue is never empty, the receiver never sleeps:
-successive messages arrive faster than the receiver's per-message service time, so it
-stays awake in a tight run-loop and the enqueue path reduces to a mutex acquire, a queue
-push, and a condition-variable notify against a receiver that is not waiting (a
-near-no-op). The effective $h$ in that regime is dominated by the mutex $+$
-cache-line-transfer cost, typically a few hundred nanoseconds rather than
-$1.7\,\mu\mathrm{s}$. This is the regime in which the tail reduction is largest, so the reported effect
-underestimates the benefit whenever the pipeline is inside a burst. Characterising the
-load-conditioned hop cost $h(\rho)$ is left to future work.
+$\kappa$ breakpoint in the table above scales linearly with $h$, so a smaller $h$ can only
+raise $N^\star$. At a hypothetical $0.5\,\mu\mathrm{s}$ busy-poll mailbox the best stage
+count changes at one service time only, $8\,\mu\mathrm{s}$, where it rises from one to
+two; below the publisher spacing no reduction in $h$ can make a split worth taking when
+there is no tail to remove. A cheaper hop widens the band of service times over which
+splitting pays; it does not move the threshold, which is set by the feed. For any other
+framework the procedure is the same: measure the one-way asynchronous hop cost $h$ on its
+own dispatch path, put it into Equation~\eqref{eq:design99} with the corpus $\Delta$ of
+Table~\ref{tab:delta}, and read off $N^\star$; a framework whose $h$ exceeds the tail excess
+a split could remove gets $N^\star = 1$, and the recommendation reverses.
 
 \findings{
-    \item \emph{A cheaper hop widens the range where splitting pays but does not move the threshold}: at $h = 0.5\,\mu\mathrm{s}$ the best stage count changes only at $T = 8\,\mu\mathrm{s}$.
-    \item \emph{$1.7\,\mu\mathrm{s}$ is an upper bound}: inside a burst the receiver never sleeps and the hop costs a few hundred nanoseconds.
+    \item \emph{A cheaper hop widens the range where splitting pays but does not move the threshold}: at a third of the hop cost the best stage count changes only at $8\,\mu\mathrm{s}$.
+    \item \emph{The measured hop cost is an upper bound}: inside a burst the receiver never sleeps and a hop costs a few hundred nanoseconds.
 }
 
 
