@@ -1651,10 +1651,13 @@ mean rate can produce.}
 \caption{Packet interarrival gaps, pooled over the corpus, density per decade on a
 logarithmic gap axis; dotted lines at $7.5$, $16$ and $32\,\mu\mathrm{s}$. Left: gaps
 between two packets of the same transaction ($5.6 \times 10^7$) against gaps between
-packets of different transactions ($3.24 \times 10^9$). What it shows: the
-intra-transaction distribution is a single narrow peak at $12$--$16\,\mu\mathrm{s}$
-with almost no mass below $10\,\mu\mathrm{s}$ and none below the floor, which is the
-time the exchange takes to emit the next datagram of the same event; the
+packets of different transactions ($3.24 \times 10^9$). Each curve is normalised to its own
+total, so heights compare shapes, not counts (the blue gaps are $1.7\%$ of all gaps,
+the black $98.3\%$). What it shows: the intra-transaction distribution is a single
+narrow peak at $12$--$16\,\mu\mathrm{s}$ with almost no mass below $10\,\mu\mathrm{s}$
+and none below the floor --- the pieces of one event are paced by the exchange at about
+$15\,\mu\mathrm{s}$, slower than the closest that two packets of different events
+arrive, so the tightest gaps on the feed are never between pieces of the same event; the
 inter-transaction distribution has a sharp edge at the $7.5\,\mu\mathrm{s}$ floor, a
 broad plateau from the floor to about $30\,\mu\mathrm{s}$, a second mode near
 $100\,\mu\mathrm{s}$, and a long tail to seconds. Right: all packet gaps of the real stream (black; since $98.3\%$ of gaps are between
