@@ -1764,6 +1764,19 @@ mean rate carries.}
 
 \begin{figure}[H]
 \centering
+\includegraphics[width=0.72\textwidth]{figs/bars/tx_gaps_bars.pdf}
+\caption{Table~\ref{tab:tx-gaps} as bars: the share of gaps between consecutive packets shorter
+than the floor, than about $16\,\mu\mathrm{s}$ and than about $32\,\mu\mathrm{s}$, on the real
+stream (black) and on a Poisson stream with the same packet count (vermillion). The real
+stream has $4$ to $17$ times as many short gaps as the Poisson stream; below
+$16\,\mu\mathrm{s}$ it is one gap in five against about one in a hundred. A server with a
+service time in this range queues on each of these gaps, which is why the real stream has
+a tail and the Poisson stream does not.}
+\label{fig:bars-tx-gaps}
+\end{figure}
+
+\begin{figure}[H]
+\centering
 \includegraphics[width=\textwidth]{figs/tx/tx_gaps.pdf}
 \caption{Packet interarrival gaps, pooled over the corpus. Left: the two packets of a
 split transaction arrive about $15\,\mu\mathrm{s}$ apart (blue: median $15\,\mu\mathrm{s}$,
@@ -1830,6 +1843,18 @@ median, all fits converged. The within-window Fano values agree with those of
 Section~\ref{sec:setup-hawkes} at the same bin width.}
 \label{tab:tx-fano}
 \end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{figs/bars/tx_fano.pdf}
+\caption{Table~\ref{tab:tx-fano} as bars, log scale: how much more variable the counts are than
+Poisson (Fano factor, $1$ for Poisson, dashed) in counting windows from $1\,\mathrm{ms}$ to
+$1\,\mathrm{s}$. Transactions (blue) and packets (black) are almost identical and grow from
+about $8$ to over $100$: the packet stream inherits its clustering from the transactions.
+Shuffling the idle gaps between transactions (green) removes most of the growth: what is
+left is the over-dispersion of the gap lengths themselves.}
+\label{fig:bars-tx-fano}
+\end{figure}
 
 \begin{figure}[H]
 \centering
@@ -2083,6 +2108,17 @@ servers, with no resequencing charged to the latter.}
 \label{tab:equal-core}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=1.0\textwidth]{figs/bars/equal_core.pdf}
+\caption{Table~\ref{tab:equal-core} as bars: $p_{99}$ of a serial cut into $N$ stages (dark blue)
+against a pool of $N$ cores that each take a whole packet, with no hop and no resequencing
+charged (light blue). Uncharged, the pool is at or below the tandem everywhere, and at
+$16\,\mu\mathrm{s}$ it has no tail at all. This is the most dispatch could achieve;
+Figure~\ref{fig:bars-dispatch} charges its costs.}
+\label{fig:bars-equal-core}
+\end{figure}
+
 Without its costs, dispatch's $p_{99}$ is at or below the tandem's in every cell at
 $T = 16$--$128\,\mu\mathrm{s}$ ($N = 2$: $16.0$ against $18.3\,\mu\mathrm{s}$ at $T = 16$,
 $48.0$ against $52.3$ at $32$, $171$ against $180$ at $64$, $869$ against $886$ at
@@ -2257,6 +2293,18 @@ least-squares exponent $\gamma$ in $\Delta(N) \approx \Delta(1) N^{-\gamma}$. Th
 is the Theorem~\ref{thm:reduction} bound.}
 \label{tab:delta}
 \end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figs/bars/delta.pdf}
+\caption{Table~\ref{tab:delta} as bars, log scale: the tail excess $\Delta = p_{99} - p_{50}$ for
+$N = 1$, $2$, $4$ and $8$ stages at each service time. Each extra split moves the excess
+down to the value of the next shorter service time: at $T = 128\,\mu\mathrm{s}$, $N = 2$
+has the excess of a single thread at $64$, $N = 4$ that at $32$, and so on, because only
+the largest stage matters. Once the per-stage service is below the floor the excess is
+zero (bars marked $0$).}
+\label{fig:bars-delta}
+\end{figure}
 
 Two features of Table~\ref{tab:delta} follow from the theorems. First, $\Delta$
 depends on $(T, N)$ only through the per-stage service $T/N$: every diagonal of constant
@@ -2537,6 +2585,19 @@ Q5 & 0.825 & 1.07 & 2.15 & 4.61 & 14.65 & 58.73 \\
 \end{tabular}
 \end{center}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=1.0\textwidth]{figs/bars/conditioning.pdf}
+\caption{The quintile table above and the five-minute table below as bars: how much larger the
+normalised tail $p_{99}/T$ is in the top fifth of windows than in the bottom fifth. Left: by
+packet rate (orange) and by branching ratio (pink). Up to $32\,\mu\mathrm{s}$ every bar is
+within $8\%$ of $1$ (dashed): a busier or more self-exciting market does not change the tail
+relative to the service time. From $64\,\mu\mathrm{s}$ both matter, as ordinary
+utilisation queueing sets in. Right: the packet-rate ratio on 30-minute and on five-minute
+windows; the two agree to $0.01$.}
+\label{fig:bars-conditioning}
+\end{figure}
+
 The result divides at $T \approx 32$--$64\,\mu\mathrm{s}$. For $T \le
 32\,\mu\mathrm{s}$ the normalised tail is flat in both variables: a $4.66\times$ change in
 packet rate moves it by $0$--$8\%$, and in the wrong direction at $T = 16$ and $T = 32$,
@@ -2570,7 +2631,7 @@ cluster, and hence $p_{99}/T$, is unchanged. Intensity enters once clusters begi
 overlap, and $n$ enters once $T$ is long enough for many members of one cluster to fall
 within a single service time; on this corpus both occur at $T \ge 64\,\mu\mathrm{s}$.
 
-\paragraph{Intensity below the crossover.} The null result has a
+\paragraph{Packet rate and the tight gaps below $64\,\mu\mathrm{s}$.} The null result has a
 mechanical explanation in the arrival stream. Taking the same $\bar\lambda$ quintiles and reporting the corpus median of
 the per-window interarrival-gap quantiles:
 
@@ -2589,6 +2650,16 @@ Q5 & 942 & 7.43 & 8.58 & 22.55 & 76.52 & 1062 \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{figs/bars/gap_quantiles.pdf}
+\caption{The gap-quantile table above as bars, by packet-rate fifth. Left: the tightest gaps
+($1$st percentile) stay at $7.43$--$7.53\,\mu\mathrm{s}$ while the rate more than
+quadruples. Right: the mean gap falls in proportion to the rate. A busy market has more
+bursts, not tighter ones, and the tightest gap is what starts a queue.}
+\label{fig:bars-gap-quantiles}
+\end{figure}
 
 All gaps in microseconds. The mean gap falls by exactly the reciprocal of the rate
 increase, $0.215 \approx 1/4.66$, which is definitional. Every other column is approximately invariant, and the tightest is the most
@@ -3505,6 +3576,17 @@ and on live data. The Poisson values are $9.52\%$, $1\times$, $0.5$ and $0$ resp
 \label{tab:crossval-stats}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=1.0\textwidth]{figs/bars/crossval_stats.pdf}
+\caption{Table~\ref{tab:crossval-stats} as bars: the clustering statistics on the recorded corpus
+(blue) and on the live receiver's NQ book stream (orange; whiskers span the three live book
+streams). The share of tiny gaps, the collapse of the Fano factor under shuffling and the
+Hurst exponent agree within the spread of the live streams. The corpus branching ratio
+lies below every upper bound the live streams give (shaded).}
+\label{fig:bars-crossval-stats}
+\end{figure}
+
 Three of the four are direct comparisons and agree to within the spread across live
 streams. The fourth compares different estimators. Part~II fits the branching ratio by
 maximum likelihood, per window, using the Ogata recursion
@@ -3563,6 +3645,16 @@ rose by at most $0.27\,\mu\mathrm{s}$ against either other estimator.}
 \label{tab:crossval-floor}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{figs/bars/crossval_floor.pdf}
+\caption{Table~\ref{tab:crossval-floor} as bars: the production decoder's floor by three
+independent estimates on each instrument, against the tail threshold measured on the
+corpus (shaded band). All nine estimates lie in or just below the band: the production
+receiver runs right at the edge of the tail.}
+\label{fig:bars-crossval-floor}
+\end{figure}
+
 Across all six streams the fitted floor spans $6.81$ to $7.23\,\mu\mathrm{s}$, a range of
 $0.42\,\mu\mathrm{s}$ across six multicast channels on one host and one afternoon.
 
@@ -3610,6 +3702,17 @@ and at or above it at span 2; ES trade, at $7.52$, sits inside the $7.43$--$7.53
 band.}
 \label{tab:crossval-crossing}
 \end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1.0\textwidth]{figs/bars/crossval_crossing.pdf}
+\caption{Table~\ref{tab:crossval-crossing} as bars: per-packet service for one, two and three
+messages on each live stream, against the tail threshold (shaded band). A one-message
+packet is served below the threshold on every stream; a two-message packet is at or above
+it on every stream. Whether a packet can start a queue is decided by whether it carries
+more than one message.}
+\label{fig:bars-crossval-crossing}
+\end{figure}
 
 All six streams are below the threshold when a datagram carries one message and at or
 above it when it carries two (Table~\ref{tab:crossval-crossing}). All six crossings fall in the same unit interval of span,
@@ -3736,6 +3839,16 @@ and $71$ on ZN trade.}
 \label{tab:crossval-span}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=1.0\textwidth]{figs/bars/crossval_span.pdf}
+\caption{Table~\ref{tab:crossval-span} as bars, log scale: messages per packet at the median,
+$90$th and $99$th percentile and the maximum, per live stream. Book streams carry one
+message in most packets and up to $45$; trade streams carry more, and ZN trade reaches $71$
+at $p_{99}$.}
+\label{fig:bars-crossval-span}
+\end{figure}
+
 Because service is charged per message, large packets account for a disproportionate
 share of processing time:
 
@@ -3758,6 +3871,16 @@ ZN trade & 11.31 & 66.18 & 85.54 \\
 $66\%$ of the messages and consume $86\%$ of decode time.}
 \label{tab:crossval-conc}
 \end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1.0\textwidth]{figs/bars/crossval_conc.pdf}
+\caption{Table~\ref{tab:crossval-conc} as bars: the share of packets, of messages and of decode
+time held by packets of ten or more messages. On ZN trade $11\%$ of packets hold $66\%$ of
+the messages and $86\%$ of the decode time; on the book streams long packets are under
+$2\%$ of packets but several times that share of messages.}
+\label{fig:bars-crossval-conc}
+\end{figure}
 
 The constant-service assumption is therefore violated at the packet level, and Part~II's
 $T$ is the per-packet work at a typical span rather than a constant of the system. Two
@@ -3909,6 +4032,17 @@ as an upper bound. Read across: message count inflates the tail only at $T \le
 or no queue, and is negligible above it.}
 \label{tab:spancmp}
 \end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figs/bars/spancmp.pdf}
+\caption{Table~\ref{tab:spancmp} as bars: $p_{99}$ under service that grows with the message count,
+relative to constant service with the same mean. With the measured cost per message
+(vermillion) the tail is $12$--$17\%$ larger at $8\,\mu\mathrm{s}$ and below and within
+$3\%$ from $16\,\mu\mathrm{s}$. The exaggerated model in which service is proportional to
+message count (light) bounds the effect from above.}
+\label{fig:bars-spancmp}
+\end{figure}
 
 \paragraph{Regimes of the two tail mechanisms.} The span/const ratio of Table~\ref{tab:spancmp} is
 largest where the queueing tail is absent and smallest where the queueing tail dominates.
@@ -4613,14 +4747,19 @@ from what it argues against, and states the design flow the design equation impl
 
 \begin{center}
 \fbox{\begin{minipage}{0.92\linewidth}
-\textbf{Design principle (measure the crossover on the target feed).} Whether a stage
-should be split is decided by how many packets arrive closer together than its service
-time, not by the packet rate or the branching ratio as such. That fraction is a property
+\textbf{Design principle (measure the split threshold on the target feed).} The split
+threshold is the service time above which cutting a stage into two lowers its $p_{99}$.
+On NQ it lies between $9$ and $10\,\mu\mathrm{s}$ (splitting wins on $67\%$ of windows at
+$9\,\mu\mathrm{s}$ and $99.7\%$ at $10$, Section~\ref{sec:results-threshold}): just above
+the tail threshold of $7$--$8\,\mu\mathrm{s}$, where a tail first appears, by the amount the
+tail needs to exceed the hop cost. Both are decided by how many packets arrive closer
+together than the stage's service time, not by the packet rate or the branching ratio as
+such. That fraction is a property
 of the transaction stream's gap distribution and of the publisher's packet spacing. On CME MDP3 it is about $1\%$ at a $7.5\,\mu\mathrm{s}$ floor
 and does not vary with rate or with the fitted branching ratio at HFT service times, so a
 $7$--$8\,\mu\mathrm{s}$ stage is not split. On a feed that places tens of percent of its
 gaps at the floor at the same fitted branching ratio, the same stage
-is split (Appendix~\ref{app:synthetic}). The crossover cannot be read off fitted
+is split (Appendix~\ref{app:synthetic}). The split threshold cannot be read off fitted
 parameters. Measure the end-to-end latency of the assembled pipeline under the load the
 system will see, and split where the measured tail excess exceeds the hop cost.
 \end{minipage}}
@@ -5583,6 +5722,16 @@ successive cluster sizes $k$. The critical slope $-1.5$ holds while $k \ll k^\st
 \label{tab:borel-slope}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{figs/bars/borel.pdf}
+\caption{Table~\ref{tab:borel-slope} as bars, log scale: how steeply the cluster-size distribution
+falls over successive size ranges, for four branching ratios. Near criticality ($n = 0.99$)
+it keeps the power-law slope of $3/2$ (dashed) over the whole range; at $n = 0.8$ it falls
+off exponentially beyond about $25$, so very large clusters are rare.}
+\label{fig:bars-borel}
+\end{figure}
+
 The practical reading is that at the branching ratios fitted on the corpus
 ($n_{\mathrm{pkt}} \approx 0.8$, Section~\ref{sec:setup-hawkes}), $k^\star \approx 25$:
 clusters of order a hundred packets are the largest that occur with non-negligible
@@ -5739,6 +5888,19 @@ $\bar\lambda T$ for the last four columns; the first column is $\rho = 0.004$.}
 \label{tab:synthetic}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{figs/bars/synthetic.pdf}
+\caption{Table~\ref{tab:synthetic} as bars, log scale, for branching ratio $0.8$: the normalised
+tail $p_{99}/T$ at $T = 8\,\mu\mathrm{s}$ on synthetic feeds, by packet rate. A fast kernel
+with no floor (pink) has a tail of about $100$ times $T$; adding a $7.5\,\mu\mathrm{s}$
+floor (vermillion) cuts it more than tenfold; a slow kernel with the floor (green) is lower still, $2$ to
+$3$ times $T$ at low rates against $1$ to $2$ for the Poisson stream (black). What sets the tail at $8\,\mu\mathrm{s}$ is how
+many gaps sit at or below the floor, which the kernel and the floor control and the
+branching ratio alone does not.}
+\label{fig:bars-synthetic}
+\end{figure}
+
 Three observations.
 
 \paragraph{Intensity.} In every Hawkes condition the tail is flat in
@@ -5784,9 +5946,10 @@ depends strongly on the branching ratio, splitting reduces the tail at $T =
 8\,\mu\mathrm{s}$ where on CME it does not, and at high enough load the packet rate
 matters as well. The Poisson null shows only the load effect, and only at high
 utilisation, as a null should. The rule is therefore neither one thread nor two. The
-crossover is a property of the feed's packet spacing, it cannot be read off the fitted
-parameters, and it must be measured under the load the system will see. The CME feed
-places this corpus below the crossover at $7\,\mu\mathrm{s}$; another exchange, or the same
+split threshold, the service time above which cutting a stage lowers its $p_{99}$, is a
+property of the feed's packet spacing; it cannot be read off the fitted parameters, and
+it must be measured under the load the system will see. On the CME feed a
+$7\,\mu\mathrm{s}$ stage sits below the split threshold of $9$--$10\,\mu\mathrm{s}$; another exchange, or the same
 exchange after a change to its publisher, may not. Section~\ref{sec:recommendations} states this as
 a design principle.
 
