@@ -2362,13 +2362,23 @@ Entries are the Q5/Q1 ratio of the normalised single-stage tail $p_{99}/T$. Reso
 by more than $0.01$. The result is a property of the arrival process, not of the window
 length.
 
-\paragraph{Consequence for the design rule.} The rule (split a stage whose service time
-exceeds the feed's tight-gap floor; do not split below it) can therefore be stated as a
-constant of the feed rather than as a function of market state. It requires no runtime
-intensity estimate and does not change between a quiet and a volatile session. This holds
-because of the invariance measured above, and should be rechecked on any feed whose
-gateway floor or whose intra-burst transaction spacing differs from CME MDP3's, since
-those set the constant. Appendix~\ref{app:synthetic} constructs a feed on which both dependences appear
+\paragraph{Consequence for the design rule.} The rule can therefore be stated as a
+constant of the feed rather than as a function of market state.
+
+\begin{center}
+\fbox{\begin{minipage}{0.92\linewidth}
+\textbf{Design principle (the threshold is a constant of the feed).} Split a stage whose
+service time exceeds the feed's tight-gap floor; do not split one below it. The floor is
+the tight end of the feed's interarrival-gap distribution (the $p_1$ gap, about
+$7.5\,\mu\mathrm{s}$ on CME channel 318), not its mean, which is two orders of magnitude
+larger. The floor is measured once per feed: on this corpus it is $7.43$--$7.53\,\mu\mathrm{s}$
+in every packet-rate quintile across a $4.7\times$ range of rates and in every
+branching-ratio quintile, so the rule requires no runtime estimate of market intensity or
+clustering and does not change between a quiet and a volatile session. Both the floor and
+the spacing of transactions inside a burst are properties of the feed; recheck them on any
+other feed rather than assume them.
+\end{minipage}}
+\end{center} Appendix~\ref{app:synthetic} constructs a feed on which both dependences appear
 at $T = 8\,\mu\mathrm{s}$, and identifies the packed-gap fraction as the quantity that
 separates it from CME.
 
