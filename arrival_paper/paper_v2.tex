@@ -2180,12 +2180,11 @@ excess is zero. Every ratio is far below the bound.}
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.85\textwidth]{figs/bars/delta.pdf}
-\caption{Table~\ref{tab:delta} as bars, log scale: the tail excess $\Delta = p_{99} - p_{50}$ for
-$N = 1$, $2$, $4$ and $8$ stages at each service time. Each extra split moves the excess
-down to the value of the next shorter service time: at $T = 128\,\mu\mathrm{s}$, $N = 2$
-has the excess of a single thread at $64$, $N = 4$ that at $32$, and so on, because only
-the largest stage matters. Once the per-stage service is below the publisher spacing the excess is
-zero (bars marked $0$).}
+\caption{Table~\ref{tab:delta} as bars, log scale: the tail excess $\Delta = p_{99} - p_{50}$
+for one, two, four and eight stages at each service time. Each extra halving of the stage
+length moves the excess down to the single-thread value at half the service time, because
+only the largest stage matters. Once each stage is below the publisher spacing the excess
+is zero (bars marked $0$).}
 \label{fig:bars-delta}
 \end{figure}
 
@@ -2808,23 +2807,20 @@ all gaps                        & $100\%$  & $4.6$  & $1.0$ & $9.5$  & $5.7$  & 
 \quad of which engine gap $< 7.5\,\mu\mathrm{s}$ & & $43.3$ & $66.2$ & $64.0$ & $56.4$ & $12.2$ & $1.4$ \\
 \bottomrule
 \end{tabular}
-\caption{The gap between consecutive NQ transactions, measured on two clocks for the same
-two transactions; 20 sessions, $2.52 \times 10^8$ gaps. Rows: the gap on the matching
-engine's clock. Columns: the gap between the packets that carry the two transactions, on
-the publisher's clock, as a percentage of the row; ``same packet'' means both were sent in
-one packet. The last row gives, for each publisher gap, the share of cases in which the
-engine processed the two transactions less than $7.5\,\mu\mathrm{s}$ apart. What the table
-shows: when the engine processes a transaction less than $1\,\mu\mathrm{s}$ after the
-previous one, $16\%$ reach the receiver in one packet and $84\%$ in
-separate packets, $43\%$ of them $7.5$ to $10\,\mu\mathrm{s}$ apart and $22\%$ more than
-$16\,\mu\mathrm{s}$ apart. Read the other way, $64\%$ of the gaps of $7.5$ to
-$10\,\mu\mathrm{s}$ that the receiver sees separate transactions the engine processed
-less than $7.5\,\mu\mathrm{s}$ apart. What follows: transactions do not reach the receiver together.
-The publisher spaces them out to its own interval of about $7.5\,\mu\mathrm{s}$ and packs
-only a sixth of the transactions that follow their predecessor within
-$1\,\mu\mathrm{s}$ into the same packet as that predecessor. The tight gaps that load the receiver
-are, for the most part, near-simultaneous engine events delivered back to back at the
-publisher's spacing.}
+\caption{The gap between consecutive NQ transactions, measured on two clocks for the same two
+transactions, over 20 sessions. Rows: the gap on the matching engine's clock. Columns: the
+gap between the packets that carry the two transactions, on the publisher's clock, as a
+percentage of the row; ``same packet'' means both were sent in one packet. The last row
+gives, for each publisher gap, the share of cases in which the engine processed the two
+transactions less than $7.5\,\mu\mathrm{s}$ apart. What the table shows: when the engine
+processes a transaction less than $1\,\mu\mathrm{s}$ after the previous one, the two are
+sent in separate packets $84\%$ of the time, most often $7.5$ to $10\,\mu\mathrm{s}$ apart.
+Read the other way, most of the short gaps the receiver sees separate transactions that
+the engine processed almost together. What follows: transactions do not reach the
+receiver together. The publisher spaces them out to its own interval of about
+$7.5\,\mu\mathrm{s}$ and packs only a few into one packet, so the short gaps that load the
+receiver are, for the most part, near-simultaneous engine events delivered back to back at
+the publisher's spacing.}
 \label{tab:two-clocks}
 \end{table}
 
@@ -2880,17 +2876,15 @@ previous $50\,\mu\mathrm{s}$ (engine clock) & transactions & $p_{50}$ & $p_{99}$
 \end{tabular}
 \caption{Delay from engine processing to packet send, $\texttt{sendingTime} -
 \texttt{transactTime}$, by how busy the engine was in the $50\,\mu\mathrm{s}$ before each
-transaction; 20 sessions, $2.52 \times 10^8$ NQ transactions. What the table shows: the
-median delay is $86\,\mu\mathrm{s}$ for a transaction that follows none within
-$50\,\mu\mathrm{s}$ and $912\,\mu\mathrm{s}$ for one that follows eight to fifteen; the
-$p_{99}$ rises from $2.9$ to $15\,\mathrm{ms}$; the share of transactions sent in a packet
-with another transaction rises from $4\%$ to $27\%$. What follows: a fixed publishing
-schedule would keep the delay flat. It grows about tenfold with engine burst intensity,
-and coalescing grows with it, which is the signature of a queue: the publisher has a
-service time of about $7.5\,\mu\mathrm{s}$ per packet, events the engine produces faster
-than that wait, and the publisher packs the backlog into fuller packets. The burst measure
-counts NQ front-month transactions only, while the publisher serves the whole channel, so
-the table understates the load on the publisher.}
+transaction, over 20 sessions. What the table shows: the median delay grows about tenfold
+from a transaction that follows no other to one that follows eight to fifteen, the
+$p_{99}$ grows with it, and the share of transactions sent in a packet with another rises
+several times over. What follows: a fixed publishing schedule would keep the delay flat.
+Delay and packing growing together is the signature of a queue: the publisher sends about
+one packet every $7.5\,\mu\mathrm{s}$, events the engine produces faster than that wait,
+and the backlog is packed into fuller packets. The burst measure counts NQ front-month
+transactions only, while the publisher serves the whole channel, so the table understates
+the load on the publisher.}
 \label{tab:publisher}
 \end{table}
 
@@ -3631,16 +3625,14 @@ numerator and the denominator alike, which is why the ratio agrees between the t
 measurements and why the paper uses the ratio, not the level. The windowed estimate is
 the conservative one and is the value reported.
 
-\paragraph{The shuffled Hurst null and finite-sample bias.} A
-Fisher--Yates shuffle of a gap sequence destroys the ordering while preserving the
-marginal exactly, so the shuffled series is a renewal process and its Hurst exponent must
-be $0.5$. The live measurement recovers $0.600$ to $0.660$ instead, and attributes the
-excess to finite-sample bias in the Hurst estimator at the number of windows available in
-a 53-minute capture and states its result as the gap between $0.74$ and $0.62$ rather than the distance
-from $0.5$. Part~II confirms the attribution: over 3512 windows the same shuffle returns
-$H = 0.501$, and the uniform Poisson null $P$ returns $H = 0.496$
-(Section~\ref{sec:setup-hawkes}). The bias is finite-sample and vanishes with more,
-shorter series.
+\paragraph{The shuffled Hurst null and finite-sample bias.} A shuffle of a gap sequence
+destroys the ordering while keeping every gap, so the shuffled series is a renewal process
+and its Hurst exponent must be $0.5$. The live measurement recovers somewhat more,
+attributes the excess to finite-sample bias in the Hurst estimator on a short capture, and
+states its result as a difference from the unshuffled value rather than a distance from
+$0.5$. Part~II confirms the attribution: over the whole corpus the same shuffle, and the
+Poisson null, both return $0.50$ (Section~\ref{sec:setup-hawkes}). The bias vanishes with
+more, shorter series.
 
 \findings{
     \item \emph{The live Fano level reads four times higher} because it is computed over one long stretch whose rate drifts; the shuffle ratio the paper relies on agrees.
@@ -3959,8 +3951,7 @@ the servicing chain removes nothing. The span-dependent run adds that a second m
 in-packet serialisation, is active in the same regime; it is deterministic within the
 packet and a stage cut does not shorten it, while the queue that a large packet opens
 behind itself is taken up in Section~\ref{sec:fungibility-measured}. $N^\star$, the $p_{99}$-minimising stage count, is
-unchanged at all seven service times when service is made span-dependent: $1, 1, 1, 2,
-4, 8, 8$ under both models. The design rule of Section~\ref{sec:recommendations} is
+unchanged at all seven service times when service is made span-dependent. The design rule of Section~\ref{sec:recommendations} is
 unaffected.
 
 \paragraph{The in-packet ladder.} Median latency by in-packet position at $N = 1$
@@ -3991,13 +3982,12 @@ cannot see the coalescing itself, which removes a gap rather than tightening one
 The first is a control arm in which each window's span sequence is randomly permuted
 across packets, preserving the span marginal and the arrival times exactly and destroying
 only the association between them. If large packets arrived preferentially inside
-clusters, breaking that association would lower the tail. It does not: the ratio of the
-real to the span-shuffled $p_{99}$ is $1.000$ at every $T \le 8\,\mu\mathrm{s}$ and lies
-between $0.99$ and $1.02$ at every larger $T$, with no systematic sign. Second, measuring
-the association directly, the correlation between a packet's span and the logarithm of the
-gap that preceded it has corpus median $-0.014$; packets arriving after the tightest decile
-of gaps have mean span $1.010$ against $1.043$ for those arriving after the loosest decile,
-a ratio of $0.97$. The association is weakly negative.
+clusters, breaking that association would lower the tail. It does not: the real and the
+shuffled $p_{99}$ agree within a couple of percent at every service time, with no
+systematic sign. Second, measuring the association directly, a packet's size is almost
+uncorrelated with the gap before it, and packets arriving after the shortest gaps are, if
+anything, slightly smaller than those after the longest. The association is weakly
+negative.
 
 The live measurement reports the same instrument dependence: mean span rises with queue
 depth on ZN, where a quiet book is filled
@@ -4398,18 +4388,16 @@ input: the tail excess that a single stage of a given length $s$ would carry,
 $\Delta_{\mathrm{single}}(s)$. Table~\ref{tab:delta} supplies it. Section~\ref{sec:results-design}
 showed that the excess depends only on the per-stage service $T/N$, so every entry of that
 table is the excess of one stage of length $T/N$, and read that way the table is a lookup:
-zero at $s \le 4\,\mu\mathrm{s}$, $0.61$ at $8$, $18.59$ at $16$, $114.14$ at $32$ and
-$721.82$ at $64\,\mu\mathrm{s}$.
+zero for a stage shorter than the publisher spacing, and growing fast above it.
 
 Whatever the split of the $\sim 7\,\mu\mathrm{s}$ chain across its natural boundaries
-(arbitration, SBE decode, book application, signal), every partition has $s_{\max} \le
-7\,\mu\mathrm{s}$, where Part~II finds $\Delta_{\mathrm{single}} = 0$: $0.00$ at $s \le
-4\,\mu\mathrm{s}$, and at $s = 7\,\mu\mathrm{s}$ a tail on only $4.5\%$ of windows with a
-median excess of $0.00$ (Section~\ref{sec:results-threshold}). The chain has no queueing
-excess to remove, every cut returns exactly its hop tax, and $N^\star = 1$. The tail it
-does carry comes from the few packets that carry many messages: their in-packet
-serialisation, which a stage cut does not shorten, and the queue their long service
-opens behind them (Section~\ref{sec:fungibility-measured}).
+(arbitration, SBE decode, book application, signal), every partition has its slowest stage
+at $7\,\mu\mathrm{s}$ or less, just under the publisher spacing, where Part~II finds no
+queueing tail in almost every window (Section~\ref{sec:results-threshold}). The chain has
+no queueing excess to remove, every cut returns exactly its hop tax, and $N^\star = 1$.
+The tail it does carry comes from the few packets that carry many messages: their decode
+one message after another, which a stage cut does not shorten, and the queue their long
+service opens behind them (Section~\ref{sec:fungibility-measured}).
 
 \paragraph{The design rule applied to a longer chain.} The rule applies once the chain
 exceeds the publisher spacing, for instance when a strategy stage is added, or on a feed with a shorter
@@ -4431,15 +4419,12 @@ $2 + 6 + 6 + 2$ (all four split)            &  6 & 3 &  0.00 &  5.10 \\
 \end{center}
 
 Every entry is read off Table~\ref{tab:delta} and the refined sweep of
-Section~\ref{sec:results-threshold}: $\Delta_{\mathrm{single}}(16) =
-18.59$, $\Delta_{\mathrm{single}}(8) = 0.61$, $\Delta_{\mathrm{single}}(6) = 0$. Three
-points follow. The balanced two-way cut is the best option: it removes $18\,\mu\mathrm{s}$
-of $p_{99}$ excess for $1.7\,\mu\mathrm{s}$ of hop cost, an eightfold improvement in the
-tail objective on these illustrative stage times. Three stages do not lower $s_{\max}$, since the $8\,\mu\mathrm{s}$ stage
+Section~\ref{sec:results-threshold}. Three points follow. The balanced two-way cut is the
+best option: it removes almost all of the tail excess for one hop, about an eightfold
+improvement in the objective on these illustrative stage times. Three stages do not lower $s_{\max}$, since the $8\,\mu\mathrm{s}$ stage
 remains the bottleneck, so the second hop costs $1.7\,\mu\mathrm{s}$ and removes nothing
 (Remark~\ref{rem:unequal}, third consequence). Splitting all four lowers $s_{\max}$ to $6$
-and removes the remaining $0.61\,\mu\mathrm{s}$ of excess at a cost of $3.4$, and is
-worse. The recommendation for a chain of this length is one cut, placed so that the two
+and removes the small remaining excess at the cost of two more hops, and is worse. The recommendation for a chain of this length is one cut, placed so that the two
 halves are as equal as the natural boundaries allow, with the larger half at ingress
 (Remark~\ref{rem:dissipation}). The numbers are a prior for the end-of-build measurement
 of Section~\ref{sec:fungibility-workflow}, not a substitute for it. The per-stage service
@@ -5824,11 +5809,11 @@ $\bar\lambda T$ for the last four columns; the first column is $\rho = 0.004$.}
 \includegraphics[width=0.95\textwidth]{figs/bars/synthetic.pdf}
 \caption{Table~\ref{tab:synthetic} as bars, log scale, for branching ratio $0.8$: the normalised
 tail $p_{99}/T$ at $T = 8\,\mu\mathrm{s}$ on synthetic feeds, by packet rate. A fast kernel
-with no minimum spacing (pink) has a tail of about $100$ times $T$; adding a $7.5\,\mu\mathrm{s}$
-minimum spacing (vermillion) cuts it more than tenfold; a slow kernel with the spacing (green) is lower still, $2$ to
-$3$ times $T$ at low rates against $1$ to $2$ for the Poisson stream (black). What sets the tail at $8\,\mu\mathrm{s}$ is how
-many gaps sit at the minimum spacing, which the kernel and the spacing control and the
-branching ratio alone does not.}
+with no minimum spacing (pink) has a tail of about a hundred times $T$; adding a
+$7.5\,\mu\mathrm{s}$ minimum spacing (vermillion) cuts it more than tenfold; a slow kernel
+with the spacing (green) is lower still, closer to the Poisson stream (black). What sets
+the tail at $8\,\mu\mathrm{s}$ is how many gaps sit at the minimum spacing, which the kernel
+and the spacing control and the branching ratio alone does not.}
 \label{fig:bars-synthetic}
 \end{figure}
 
