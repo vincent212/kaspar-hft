@@ -1570,7 +1570,9 @@ would see none of it; or the transactions themselves arrive clustered and the pa
 them. The corpus decides between the two. Every message in the 3512 windows was grouped by
 \texttt{transactTime} and every packet labelled with the transactions it carries:
 $3.30 \times 10^9$ packets, $3.55 \times 10^9$ messages, $3.24 \times 10^9$ transactions;
-$3.0\%$ of packets (median window) carry parts of two transactions.
+$3.0\%$ of packets (median window) carry parts of two transactions --- the gateway
+coalesces transactions that arrive within its emission interval into one datagram, which
+Section~\ref{sec:crossval-span} takes up.
 
 \begin{table}[H]
 \centering
@@ -2548,6 +2550,12 @@ service times the sweep assumes correspond to production decode times.
 
 This section addresses all three with instrumentation of the \kasparhft{} production system. The two
 measurements were built for different purposes and share only the exchange they observe.
+One limit is stated at the outset: the live per-message record carries the receive and
+publish timestamps, the ring depth and the position in the datagram, but not the
+message's \texttt{transactTime}, so the transaction-level identification of
+Section~\ref{sec:results-transactions} is a corpus result that the live data cannot
+repeat; what the live data cross-validate is the packet process, and the transaction
+result rests on the corpus alone.
 
 \subsection{Two measurements}
 \label{sec:crossval-setup}
@@ -2587,7 +2595,10 @@ packet leaves the exchange. The live measurement keys them on \texttt{t0}, taken
 own process after the packet has crossed the network, the NIC and the kernel. If the
 clustering reported in Section~\ref{sec:setup-hawkes} were an artefact of exchange-side
 emission scheduling, the intervening path, with its own queueing, coalescing and
-interrupt moderation, would be expected to attenuate it. It does not.
+interrupt moderation, would be expected to attenuate it. It does not; and
+Section~\ref{sec:results-transactions} rules out the exchange's packetisation as the
+source from the other side, by showing that the clustering is already present in the
+matching engine's transaction stream.
 
 \subsection{Statistics that agree}
 \label{sec:crossval-agree}
@@ -2598,14 +2609,16 @@ how far packet arrivals are from evenly spread. The first is the share of gaps b
 packets that are tiny, under a tenth of the average gap. The second is how much the
 variability of packet counts drops when the order of the packets is scrambled, which
 removes any bunching. The third is a measure of whether busy stretches persist rather
-than fading at once. The fourth is how strongly one packet tends to trigger the next.
+than fading at once. The fourth is how strongly one event tends to trigger the next.
 Each of the four is computed twice, independently: once on the recorded corpus that the
 rest of the paper uses, and once on the live production receiver, seven months later,
 on different instruments, with a different clock. Three of the four match directly, to
 within the spread seen across the live streams. The fourth is measured in two different
 ways, one an estimate and one an upper bound, and the estimate falls inside the bound.
-The conclusion is that the bursts are a property of the exchange feed itself: they show
-up at the same strength whether one looks at a recording or at the live wire.
+The conclusion is that the bursts are a property of the feed as received, not of
+replay: they show up at the same strength whether one looks at a recording or at the
+live wire. Where they come from is the question Section~\ref{sec:results-transactions}
+answers on the corpus: the matching engine's transaction stream.
 
 Table~\ref{tab:crossval-stats} puts the four statistics that both measurements compute
 side by side. The NQ column is the like-for-like comparison, since Part~II's corpus is NQ
@@ -2879,6 +2892,26 @@ span-dependent service. The serialisation channel supplies the tail below the ti
 floor, where clustering supplies none, and is negligible above it, where clustering
 supplies all of it; the two channels are close to independent on this corpus.
 
+\paragraph{Spans and transactions.} On the corpus, where every message carries its
+\texttt{transactTime}, a multi-message packet is usually not one large transaction but
+several transactions delivered together. On 20 sessions ($2.45 \times 10^8$ packets)
+$4.0\%$ of packets carry two or more messages and $3.1\%$ carry parts of two or more
+transactions; of the packets with two or more messages, $77\%$ carry more than one
+transaction, and of those with five or more, $62\%$. The gateway, that is, coalesces
+transactions that arrive within its emission interval into one datagram. This is
+consistent with the packet gap floor of Section~\ref{sec:results-conditioning}: two
+transactions closer together than about $7.5\,\mu\mathrm{s}$ do not appear as two
+packets with a sub-floor gap but as one packet with a larger span, which is why no
+packet gap on the feed is shorter than the floor. Two consequences follow for the rest
+of this section. The serialisation tail that a large packet produces is, for the most
+part, the same clustering of transactions as the queueing tail, delivered inside a
+datagram instead of across datagrams; and the message count per packet is set by how
+closely transactions follow one another, not by how large individual transactions are
+(only $4.6\%$ of transactions carry more than one message, Table~\ref{tab:tx-counts}).
+The two-mechanism description below --- queueing across packets, serialisation within
+them --- stands as a description of where the wait is paid; both are paid to the
+transaction stream.
+
 \subsection{Span-dependent service}
 \label{sec:crossval-spanrun}
 
@@ -3070,9 +3103,16 @@ The live measurement reports the same instrument dependence: mean span rises wit
 depth on ZN, where a quiet book is filled
 only by genuine bursts, but \emph{falls} with queue depth on ES and NQ, whose rings back up
 with many small packets. Part~II's corpus is NQ, and it behaves like the live NQ streams.
-The queueing and serialisation channels are therefore close to independent on this
-corpus, and the constant-service tables of Part~II measure one of the two. Whether the
-channels couple on an instrument like ZN is open.
+The transaction-level arms of Section~\ref{sec:results-transactions} give the same
+answer a third way: decoupling transaction sizes from their timing (TS) and merging each
+transaction into one packet (TM) leave the tail within $15\%$ at every service time from
+$16\,\mu\mathrm{s}$ up (Table~\ref{tab:tx-arms}). The queueing and serialisation
+channels are therefore close to independent on this corpus at those service times, and
+the constant-service tables of Part~II measure one of the two; at the floor, where
+serialisation carries most of the excess, the coalescing of transactions into one
+datagram described in Section~\ref{sec:crossval-span} means the two channels are two
+deliveries of the same clustering. Whether the channels couple on an instrument like ZN
+is open.
 
 % =====================================================================
 
