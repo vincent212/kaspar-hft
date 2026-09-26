@@ -2469,9 +2469,9 @@ ratio in the sweep is $0.163$ at $T = 32$, $N = 2$, against a bound of $0.5$. Th
 largest where a split drives the per-stage service under the tight-gap floor and removes
 the excess outright rather than dividing it, which is why the fitted $\gamma$ is $3.32$
 and $2.68$ at $T = 64$ and $128$ rather than near $1$. The pathwise form was checked
-directly by the simulator: across all 3512 windows, all seven service floors, both arms,
-and $N \in
-\{2, 4, 8\}$, no message violates the bound (the check allows $N$ nanoseconds for the
+directly by the simulator: across all 3512 windows, all seven service floors, all four
+packet-level arrival arms of Section~\ref{sec:setup-nulls} (real, uniform, gap shuffle,
+1\,s-binned), and $N \in \{2, 4, 8\}$, no message violates the bound (the check allows $N$ nanoseconds for the
 rounding of $T/N$; the largest excess over that tolerance is $0$). The reduction identity
 Equation~\eqref{eq:reduction} is visible in Table~\ref{tab:delta} without any fitting:
 $\Delta$ is constant along every diagonal of constant $T/N$, so the tandem's tail is the
@@ -2490,11 +2490,49 @@ exactly in the cells with $\rho/N > 10^{-3}$ (single stage at $T \ge 4$, two sta
 therefore a working queue whose small wait appears where PASTA says it must, and splitting
 under it costs $(N-1)h$ at every reported quantile.
 
+\paragraph{The renewal null against the cluster picture.} The gap shuffle of
+Section~\ref{sec:results-nulls} is a renewal stream with the real gap distribution, so
+under it the probability that $k$ consecutive gaps are all shorter than $T$ is
+$F(T)^k$, with $F(T)$ the tight-gap fraction, and the mean run of tight gaps is
+$1/(1 - F(T))$. The cluster picture of Section~\ref{sec:theory} predicts that the real
+stream exceeds both, and by more where the service time is long enough for many members
+of one cluster to fall within it. On 254 windows from 20 sessions the per-window median
+of the probability that a tight gap is followed by another is $0.120$, $0.209$, $0.363$,
+$0.534$ and $0.725$ at $T = 8, 16, 32, 64, 128\,\mu\mathrm{s}$, against $F(T) = 0.020$,
+$0.183$, $0.325$, $0.456$ and $0.655$ for the renewal stream, and the mean run of tight
+gaps is $1.14$, $1.26$, $1.57$, $2.14$ and $3.63$ against $1.02$, $1.22$, $1.48$, $1.84$
+and $2.90$. The excess over renewal grows with $T$ ($1.02$, $1.03$, $1.06$, $1.16$ and
+$1.25\times$ on the run length), which is the direction of Table~\ref{tab:nulls}: the
+renewal stream keeps $79\%$ of the tail at $16\,\mu\mathrm{s}$, where its runs are
+within $3\%$ of the real ones and the tail is a one-gap wait, and $23\%$ at
+$128\,\mu\mathrm{s}$, where the real runs are a quarter longer and the backlog compounds
+over them. At $T = 8\,\mu\mathrm{s}$ the conditional probability is six times the
+renewal value ($0.120$ against $0.020$) --- gaps near the floor are strongly bunched ---
+yet the renewal stream keeps $88\%$ of the tail there, because at the floor the tail is
+$0.6\,\mu\mathrm{s}$ and consists of single waits that no run is needed to produce.
+
+\paragraph{The cluster representation against Section~\ref{sec:results-transactions}.}
+The Hawkes--Oakes picture of Section~\ref{sec:theory-cluster} is one of immigrant events
+each generating a cluster of offspring; Section~\ref{sec:results-transactions} identifies
+the events as matching-engine transactions. Two of its findings are what the picture
+predicts if the feed relays events one packet each: the branching ratio fitted on
+transaction starts equals the one fitted on packets ($0.795$ against $0.798$), and
+merging each transaction into one packet or decoupling transaction sizes from their
+timing leaves the tail unchanged (Table~\ref{tab:tx-arms}). The corpus also shows that
+the exchange does not add clustering of its own, since the pieces of a split transaction
+are paced at $15\,\mu\mathrm{s}$, above the floor. What the corpus does not test is the
+cluster-size law itself: the Borel distribution of Appendix~\ref{app:borel} is a
+statement about offspring counts, which the data do not label, and its check in
+Appendix~\ref{app:borel} remains indirect.
+
 \paragraph{Summary.} All three analytical statements hold on the full corpus. The
-pathwise bound of Theorem~\ref{thm:reduction} holds on every message of every window, and
-its slack is measured:
-$\gamma = 3.32$ and $2.68$ at $T = 64$ and $128\,\mu\mathrm{s}$, and at $T \le
-32\,\mu\mathrm{s}$ the tandem removes the excess outright rather than dividing it.
+pathwise bound of Theorem~\ref{thm:reduction} holds on every message of every window under
+all four packet-level arrival arms, and its slack is measured: $\gamma = 3.32$ and $2.68$
+at $T = 64$ and $128\,\mu\mathrm{s}$, and at $T \le 32\,\mu\mathrm{s}$ the tandem removes
+the excess outright rather than dividing it. The renewal null behaves as the cluster
+picture says a renewal stream should, keeping the one-gap tail at short service times and
+losing the run-driven tail at long ones, and the transaction analysis places the clusters
+in the matching engine's event stream.
 
 \clearpage
 % =====================================================================
