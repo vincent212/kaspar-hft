@@ -31,7 +31,7 @@
 \newcommand{\kasparhft}{\textsc{Kaspar-HFT}}
 
 \title{When Two Threads Are Better Than One:\\
-Modelling HFT Pipeline Latency Under Hawkes Arrivals}
+How Matching-Engine Transactions Cause Long Tails in Market-Data Handlers}
 \author{Vincent Maciejewski\thanks{M2 Tech (16425640 Canada Inc.), Montreal.
 \texttt{mayeski@gmail.com}. \kasparhft{} is open source at
 \url{https://github.com/vincent212/kaspar-hft}.}}
@@ -3334,7 +3334,9 @@ thread decoding every packet inline; it flips no boundary. It asks one question 
 terms. On the live feed, why is the slowest message in a thousand so much slower than the
 typical one, and what is the mechanism? The answer, on the ZN channel, argued from the
 fitted floor and slope rather than measured message by message, is that the tail is made
-by a very small number of packets that carry many messages. Such a packet is decoded one message after another on
+by a very small number of packets that carry many messages; on the corpus, such a packet
+is most often several matching-engine transactions the gateway coalesced into one
+datagram (Section~\ref{sec:results-transactions}). Such a packet is decoded one message after another on
 the one thread, so its last message waits for every message ahead of it, and every packet
 that lands behind it waits for the whole of it. The typical message, alone in its packet
 with nothing queued in front of it, sits on the floor.
