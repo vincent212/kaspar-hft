@@ -1924,6 +1924,32 @@ leaves it near $100\%$ from $16\,\mu\mathrm{s}$ up.}
 \label{fig:bars-tx-arms}
 \end{figure}
 
+\paragraph{Summary in plain terms.} Each rebuilt stream changes one thing about the real
+transactions and keeps everything else. What removes the tail, and at which service time
+$T$:
+\begin{itemize}
+    \item \emph{Putting each transaction at a random moment (TP) removes the tail at every
+$T$.} Three quarters of it goes at $16\,\mu\mathrm{s}$, and almost all of it at
+$64$ and $128\,\mu\mathrm{s}$ ($7\%$ and $2\%$ remain). When transactions happen is what
+builds the queue.
+    \item \emph{Keeping every gap between transactions but shuffling their order (TG)
+removes little at short $T$ and most at long $T$.} At $16\,\mu\mathrm{s}$ $80\%$ of the tail
+remains, at $32\,\mu\mathrm{s}$ $60\%$, at $64\,\mu\mathrm{s}$ $37\%$, at $128\,\mu\mathrm{s}$
+$22\%$. A fast server is hurt by each short gap on its own, and the shuffle keeps every
+short gap. A slow server is hurt by long runs of transactions close together, and the
+shuffle breaks the runs up.
+    \item \emph{Nothing about what the transactions contain or how the exchange packs them
+removes the tail from $16\,\mu\mathrm{s}$ up.} Swapping big and small transactions around
+(TS), sending each transaction as one packet (TM), or spreading a transaction's packets
+apart (TW) leaves $92$ to $114\%$ of the tail at every $T$ from $16$ to
+$128\,\mu\mathrm{s}$.
+    \item \emph{At $8\,\mu\mathrm{s}$ and below these rebuilt streams say nothing.} The real
+stream's tail there is under $1\,\mu\mathrm{s}$ above $T$, too small to split into shares.
+At the $7\,\mu\mathrm{s}$ of a production receiver the tail comes mostly from decoding long
+packets one message after another (Section~\ref{sec:crossval-spanrun}), which these
+streams were not built to test.
+\end{itemize}
+
 Three things follow. The tail is the transaction process: randomising transaction times
 removes $75$--$98\%$ of it. Sizes and packetisation do not enter: decoupling transaction
 sizes from timing, merging each transaction into one packet, or removing the spacing
