@@ -1598,6 +1598,18 @@ null at $32$--$128$: $12.5$--$14.2\%$, $6.2$--$6.6\%$, $2.2$--$2.4\%$.}
 \label{tab:nulls}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{figs/bars/nulls.pdf}
+\caption{Table~\ref{tab:nulls} as bars: the share of the single-thread $p_{99}$ excess
+($p_{99} - T$) that survives each null stream, the real stream being $100\%$. The gap
+shuffle (green), which keeps every gap and destroys their order, keeps most of the tail at
+$8$--$16\,\mu\mathrm{s}$ and less as $T$ grows: at short service times the tight gaps carry
+the tail, at long ones their arrangement into runs. The uniform and 1\,s-binned streams
+keep almost none at any $T$.}
+\label{fig:bars-nulls}
+\end{figure}
+
 Table~\ref{tab:nulls} gives the corpus-median $p_{99}$ under all four arrival arms. The
 share of the single-stage $p_{99}$ excess over $T$ that survives the gap shuffle is $88\%$
 at $T = 8\,\mu\mathrm{s}$, $79\%$ at $16$ and $59\%$ at $32\,\mu\mathrm{s}$, falling to
@@ -1901,6 +1913,17 @@ reported values in every cell.}
 \label{tab:tx-arms}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{figs/bars/tx_arms.pdf}
+\caption{Table~\ref{tab:tx-arms} as bars: each transaction-level arm's $p_{99}$ as a percentage of
+the real stream's. Redrawing transaction times uniformly (TP, vermillion) removes the tail;
+shuffling idle gaps (TG, green) removes more of it the longer the service time. Decoupling
+sizes (TS), merging each transaction into one packet (TM) or spreading its packets (TW)
+leaves it near $100\%$ from $16\,\mu\mathrm{s}$ up.}
+\label{fig:bars-tx-arms}
+\end{figure}
+
 Three things follow. The tail is the transaction process: randomising transaction times
 removes $75$--$98\%$ of it. Sizes and packetisation do not enter: decoupling transaction
 sizes from timing, merging each transaction into one packet, or removing the spacing
@@ -2049,6 +2072,17 @@ order book above all, dispatch is not available and the tandem is the arrangemen
 spends extra cores on it.}
 \label{tab:dispatch-costed}
 \end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1.0\textwidth]{figs/bars/dispatch.pdf}
+\caption{Table~\ref{tab:dispatch-costed} as bars: $p_{99}$ of a serial cut into $N$ stages (blue)
+against a pool of $N$ cores with the ingress hop, egress hop and resequencing charged
+(orange). At $N = 2$ the two are level; from $N = 4$ the pool is lower at every service
+time, and at $16\,\mu\mathrm{s}$ its $p_{99}$ does not grow with $N$ while the tandem's
+does.}
+\label{fig:bars-dispatch}
+\end{figure}
 
 With every cost charged (Table~\ref{tab:dispatch-costed}), dispatch pays two hops on
 every packet --- in and out --- and nothing else measurable: the resequencer holds at
@@ -2663,6 +2697,17 @@ either held back or packed into one packet.}
 \label{tab:engine-clock}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.72\textwidth]{figs/bars/engine_clock.pdf}
+\caption{Table~\ref{tab:engine-clock} as bars: share of consecutive NQ transactions closer than
+$7.5$, $16$ and $32\,\mu\mathrm{s}$, on the engine's clock (blue) and the publisher's
+(orange); whiskers span the 40 sessions. Below $7.5\,\mu\mathrm{s}$ the engine has one
+gap in six and the publisher almost none: the publisher does not send faster than its
+spacing. By $32\,\mu\mathrm{s}$ the two clocks nearly agree.}
+\label{fig:bars-engine-clock}
+\end{figure}
+
 \begin{center}
 \fbox{\begin{minipage}{0.92\linewidth}
 \textbf{Finding.} On NQ, one consecutive transaction in six ($17.1\%$) is processed by the
@@ -2721,6 +2766,19 @@ publisher's spacing.}
 \label{tab:two-clocks}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{figs/bars/two_clocks.pdf}
+\caption{Table~\ref{tab:two-clocks} as bars. Each bar is the set of consecutive transactions with
+the engine gap on the left, split by the gap between the packets that carry them; the
+numbers are percent of the bar. The top bar reads: when the engine processes a
+transaction less than $1\,\mu\mathrm{s}$ after the previous one, the two share a packet
+$16\%$ of the time (pink) and otherwise arrive in separate packets, most often
+$7.5$--$10\,\mu\mathrm{s}$ apart ($43\%$). Near-simultaneous at the engine becomes back to
+back at the publisher's spacing at the receiver.}
+\label{fig:bars-two-clocks}
+\end{figure}
+
 \begin{center}
 \fbox{\begin{minipage}{0.92\linewidth}
 \textbf{Finding.} Transactions the engine processes a fraction of a microsecond apart do
@@ -2774,6 +2832,16 @@ counts NQ front-month transactions only, while the publisher serves the whole ch
 the table understates the load on the publisher.}
 \label{tab:publisher}
 \end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{figs/bars/publisher.pdf}
+\caption{Table~\ref{tab:publisher} as bars. Left: median delay from engine to packet grows
+tenfold as the engine gets busier. Right: the share of transactions sent in a packet with
+another transaction grows from $4\%$ to $27\%$. Both rising together is what a queue at
+the publisher looks like.}
+\label{fig:bars-publisher}
+\end{figure}
 
 A fixed publishing policy would keep the delay flat. Here it grows roughly tenfold with
 engine burst intensity, and coalescing grows with it. That is a queue: the publisher has a
@@ -2886,6 +2954,20 @@ switch to fuller packets at the same rate.}
 \label{tab:drain-floor}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=1.0\textwidth]{figs/bars/drain.pdf}
+\caption{Tables~\ref{tab:drain-delay}--\ref{tab:drain-floor} as bars: mean NQ messages per
+packet. Left: packets get bigger as the publisher falls further behind. Middle: packets
+sent at the floor, $7.5$--$10\,\mu\mathrm{s}$ after the previous NQ packet (dark blue),
+are single-message packets; the grey ``adj.'' figures are the share with no other order or
+trade packet of the channel between the two NQ packets, $100\%$ at the floor. Right:
+floor packets stay single-message even when the publisher is more than
+$5\,\mathrm{ms}$ behind. The publisher drains a backlog with more packets, not bigger
+ones.}
+\label{fig:bars-drain}
+\end{figure}
+
 Three things follow. First, pacing holds under load: even when the publisher is
 milliseconds behind, the packets it sends back-to-back are single-message packets at about
 $7.5\,\mu\mathrm{s}$ spacing (Table~\ref{tab:drain-floor}), and that spacing holds across
@@ -2981,6 +3063,17 @@ does not measure the share of racing.}
 \label{tab:tight-pairs}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=1.0\textwidth]{figs/bars/tight_gaps.pdf}
+\caption{Table~\ref{tab:tight-pairs} as bars: the kind of transaction on either side of a tight
+gap (blue, under $16\,\mu\mathrm{s}$) and of a loose gap (grey, $0.1$--$1\,\mathrm{ms}$).
+Left of the dotted line the two mixes are alike: tight gaps are ordinary quote traffic.
+Right of it, after a trade the next transaction is far more often another trade or a
+delete across a tight gap, the pattern a race would leave.}
+\label{fig:bars-tight}
+\end{figure}
+
 The fitted self-excitation is a different phenomenon at a different scale. The
 exponential-kernel Hawkes fit on the engine clock gives a branching ratio of $0.803$ and a
 decay time $1/\beta$ of $155\,\mu\mathrm{s}$ (5th--95th percentile $126$--$192$; on the
@@ -3025,11 +3118,13 @@ information leaving the exchange, not on orders entering it.
 
 % =====================================================================
 
-\section{Evaluation against the analytical predictions}
+\section{The analytical framework checked against the simulations}
 \label{sec:evaluation}
 
-This section compares the empirical numbers of Section~\ref{sec:results} against the
-closed-form predictions of Section~\ref{sec:theory}.
+This section checks the closed-form predictions of the analytical framework
+(Section~\ref{sec:theory}) against the results of the simulations on the recorded corpus
+(Section~\ref{sec:results}): each proposition or theorem is stated with the prediction it
+makes and the simulated numbers that test it.
 
 \paragraph{Proposition~\ref{thm:burst} (burst-limit throughput).} The single-message
 identity $p_{50}(N) = T + (N-1) h$ is predicted exactly by Proposition~\ref{thm:burst} for
@@ -3634,6 +3729,19 @@ left to queueing and to stalls. Applying that definition to the simulator at $T 
 $97\%$, higher than the live figure because the only residual the model contains is
 queueing; it has no stall population. Both measurements attribute the larger share of
 the tail at the production service time to in-packet serialisation.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.78\textwidth]{figs/bars/span_share.pdf}
+\caption{The decomposition above as bars: of the simulated $p_{99}$ excess at each service time,
+the part due to decoding the messages ahead in the same packet (vermillion) and the part
+due to queueing behind earlier packets (blue). At and below the floor the decode of long
+packets is the tail; the shaded bar, $T = 8\,\mu\mathrm{s}$, is the nearest simulated
+service time to a production receiver's $7\,\mu\mathrm{s}$, and there it is two thirds.
+From $16\,\mu\mathrm{s}$ queueing is almost all of it.}
+\label{fig:bars-span-share}
+\end{figure}
+
 
 This is consistent with Part~II. The queueing claim stands: below about
 $7.5\,\mu\mathrm{s}$ of service, arrival clustering does not build a queue and splitting
