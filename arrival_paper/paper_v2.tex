@@ -46,7 +46,7 @@ How Matching-Engine Transactions Cause Long Tails in Market-Data Handlers}
 
 \begin{abstract}
 This paper is a measurement study of a real exchange feed and of what its structure
-implies for the design of the software that receives it. Over more than a year of CME
+implies for the design of the HFT trading system that consumes it. Over more than a year of CME
 market data for the NQ front-month contract, we follow every packet and every
 matching-engine transaction through the two exchange timestamps the feed carries, from
 the matching engine, through the exchange's market-data publisher, to a receiver, and we
@@ -65,7 +65,7 @@ receiver queue are gaps between different transactions, and what sits on either 
 them is ordinary quote traffic, with the signature of a race after trades. Why orders
 reach the engine so close together is a question about the market and is left open.
 
-For receiver design this means the following. A receiver that handles every packet
+For HFT system design this means the following. A receiver that handles every packet
 within one publisher period never queues on packet arrivals, however bursty the market;
 that is the design goal, and the paper's production receiver meets it. Above the
 publisher period a queueing tail appears and grows much faster than the service time. It
@@ -92,7 +92,7 @@ repository; the packet captures are not redistributable.
 \section{Introduction}
 \label{sec:intro}
 
-\subsection{A measurement study of a real feed, and what it implies for receiver design}
+\subsection{A measurement study of a real feed, and what it implies for HFT system design}
 \label{sec:intro-study}
 
 The object of study is a real exchange feed as it arrives on the wire: CME MDP3 market
@@ -108,7 +108,7 @@ and how often they come, and what a receiver of a given speed then pays in queue
 Part~II reports the measurements; Section~\ref{sec:exchange} is the exchange side of
 them.
 
-The best practices for HFT receiver design that Part~III states are derived from these
+The best practices for HFT system design that Part~III states are derived from these
 measured characteristics, not from a model of the market. The oldest of those practices,
 the single-threaded hot path, is the design question the measurements settle first, and
 the next subsection sets it out. It is one consequence of the study, not its subject.
@@ -290,7 +290,7 @@ message by message and the queue that packet opens behind it; from $16\,\mu\math
 it adds a few percent (Sections~\ref{sec:crossval-spanrun}
 and~\ref{sec:fungibility-measured}). Service times that vary from packet to packet, which
 the simulation does not model, add a tail of their own on the live receiver.
-    \item \emph{How should a receiver be designed?} Stay under the publisher period if
+    \item \emph{How should the trading system be designed?} Stay under the publisher period if
 the chain allows it. Above it, are two queues better than one? Yes above a service-time
 threshold set by the feed and no below it (Sections~\ref{sec:results-tail}
 and~\ref{sec:results-design}), and only the slowest stage matters
@@ -4316,7 +4316,7 @@ Part II recorded the packet arrivals of NQ front-month on CME, ran a simulated r
 over them at a range of service times and stage counts, followed the same transactions
 upstream through the exchange's matching engine and publisher, and checked the results
 against a live production receiver. This section collects what it found and states, for
-each finding, what it means for the design of an HFT receiver. Part III turns these
+each finding, what it means for the design of an HFT trading system. Part III turns these
 consequences into a design procedure for a concrete system. All results are for one
 instrument.
 
@@ -4753,7 +4753,7 @@ candidate follow-ons.
 \label{sec:recommendations}
 
 Section~\ref{sec:part2-summary} states, finding by finding, what Part~II means for the
-design of a receiver. This section puts those consequences in the form of recommendations.
+design of an HFT trading system. This section puts those consequences in the form of recommendations.
 The paper's results qualify one architectural default (the single-thread hot path as an
 unconditional choice) and question two adjacent ones (busy-poll receivers,
 pre-warming). They do not contradict
@@ -4893,7 +4893,7 @@ code.
 
 This paper measured a real exchange feed, over a year of NQ packets and matching-engine
 transactions, from the matching engine through the publisher to a receiver, and derived
-from what it found how the receiving software should be designed: what makes a
+from what it found how the trading system that consumes it should be designed: what makes a
 receiver's latency tail, and how to reduce it. It is not about why the market behaves as
 it does. Section~\ref{sec:concl-summary} gives the answer in one place;
 the remaining subsections state what the paper establishes about the cause of the tail,
