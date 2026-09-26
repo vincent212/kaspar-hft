@@ -628,3 +628,26 @@ scoped; 4.9's box, 6.6 and Appendix E still say "the feed" in places.
 
 **Still running / open:** TODO 3 (tight-pair composition) — running; ZN (TODO 10) blocked on data;
 order-entry times (races vs reaction) need data the public feed does not carry.
+
+## Status after the tight-pair and packet-size runs (2026-09-26, latest)
+
+- TODO 3 — `tight_pairs.py`, 40 sessions, 5.12e8 consecutive transaction pairs on the engine clock:
+  tight pairs (< 16 us) have the same mix of new orders and deletes as loose pairs (0.1–1 ms); only
+  2.0% start with a trade. After a trade, the next is a trade in 11.7% of tight pairs vs 2.2% of
+  loose, a delete in 37.4% vs 23.5% — the race signature. Rejected race orders never reach the public
+  feed, so the share of racing is not measured. `tab:tight-pairs`, Section 5.6. Security of the
+  paired transaction across the channel not measured (open question).
+- New `drain_span.py`, 20 sessions, 2.43e8 packets: packets get bigger as the publisher falls behind
+  (mean NQ span 1.000 at < 100 us delay, 1.603 at > 5 ms), but packets sent at the 7.5 us floor stay
+  single-message even > 5 ms behind (1.114); the floor packets are always adjacent in the channel's
+  order/trade packet index. Section 5.5, three tables.
+- NQ-filter objection (packet statistics count NQ front-month only; a channel receiver sees every
+  packet): stated as open question 1 in the new Future-work subsection "Open questions this paper
+  raises", with the measurement (pcap bytes/messages per packet joined on sendingTime; sweep rerun
+  with every channel packet as an arrival). Author's decision: leave to a shorter follow-up paper.
+- ZN cross-excitation along the yield curve: open question 2, footnote in 5.5, Conclusion "Anything
+  beyond NQ".
+
+**Not run (by decision or data):** TODO 4 (tight-gap share vs market variables), TODO 5 at
+transaction level (autocorrelation of size), TODO 8 fallback/zero-transactTime counts, TODO 9
+(pre-spinning measured), TODO 10 (ZN, no data).
