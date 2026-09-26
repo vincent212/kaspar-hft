@@ -51,23 +51,28 @@ queueing tail behind a single-threaded receiver: the packet rate, the clustering
 arrivals, or the number of messages per packet? Second, is a servicing chain cut into two
 or more stages on separate threads better than one thread, and when?
 
-On the first question: not the rate and not the message count. Utilisation is below
-$0.02$ at the service times an HFT hot path occupies, and a window with several times the
-packet rate has the same tail relative to the service time. The clustering is the cause,
-and it belongs to the market, not to the feed. Grouping messages by matching-engine
+On the first question: the tail is produced by the self-excitation of the matching
+engine's transaction stream, and by nothing else that was tested. Not the rate:
+utilisation is below $0.02$ at the service times an HFT hot path occupies, and a window
+with several times the packet rate has the same tail relative to the service time. Not
+the message count, which is a separate and smaller mechanism confined to the shortest
+service times. Not the exchange's packetisation: grouping messages by matching-engine
 transaction shows that $98.3\%$ of transactions occupy one packet, that the packets of a
-split transaction arrive $15\,\mu\mathrm{s}$ apart, and that $99.9\%$ of the gaps shorter
-than the feed's $7.5\,\mu\mathrm{s}$ tight-gap floor separate different transactions.
+split transaction arrive $15\,\mu\mathrm{s}$ apart, and that $99.9\%$ of the gaps
+shorter than the feed's $7.5\,\mu\mathrm{s}$ tight-gap floor separate different
+transactions; the packet stream is the transaction stream relayed one packet per event.
 Transaction starts are self-exciting with a branching ratio of $0.795$, equal to the
-packets' $0.798$. Redrawing transaction times uniformly removes $75$--$98\%$ of the tail;
+packets' $0.798$, and their count variance exceeds Poisson by a factor of $105$ at one
+second. Redrawing transaction times uniformly removes $75$--$98\%$ of the tail;
 decoupling transaction sizes from their timing, merging each transaction into one packet,
-or spreading its packets leaves the tail within $15\%$. At service times of
-$8$--$16\,\mu\mathrm{s}$ the clustering acts through the surplus of near-simultaneous
-transactions it produces, which a random permutation of the gap sequence preserves
-($79$--$88\%$ of the tail survives it); at $64\,\mu\mathrm{s}$ and above it acts through
-runs of transactions, which the permutation destroys ($37\%$ and $23\%$ survive). A null
-that keeps every one-second packet count and randomises within the second has no tail
-where the real stream has one.
+or spreading its packets leaves the tail within $15\%$. The self-excitation reaches the
+receiver through two channels whose weight depends on the service time: at
+$8$--$16\,\mu\mathrm{s}$ through the surplus of near-simultaneous transactions it
+produces, four to seventeen times the Poisson share, which a random permutation of the
+gap sequence preserves ($79$--$88\%$ of the tail survives it); at $64\,\mu\mathrm{s}$ and
+above through runs of transactions, which the permutation destroys ($37\%$ and $23\%$
+survive). A null that keeps every one-second packet count and randomises within the
+second has no tail where the real stream has one.
 
 On the second question: yes above a threshold and no below it, and the threshold is a
 property of the feed. Below the tight-gap floor there is no queue to shorten and a cut
@@ -116,8 +121,12 @@ throughput or tail benefit recovers.
 
 That argument holds when the single-server throughput $1/T$ exceeds the peak arrival
 rate. On CME MDP3 the arrival process is strongly self-exciting: packets arrive in Hawkes-clustered bursts
-\citep{filimonovsornette2012,hardimanbercotbouchaud2013,bacry2015review}. During such
-bursts the instantaneous arrival rate exceeds the single-thread event loop's service
+\citep{filimonovsornette2012,hardimanbercotbouchaud2013,bacry2015review}, and the
+clustering is the market's, not the feed's. The exchange publishes each matching-engine
+event --- a transaction --- as, almost always, one packet, and the transaction stream is
+itself self-exciting with the same branching ratio as the packet stream
+(Section~\ref{sec:results-transactions}); the feed relays the clustering of trading
+activity without adding to it. During such bursts the instantaneous arrival rate exceeds the single-thread event loop's service
 rate $1/T$, and cluster-induced queueing produces a tail one to two orders of magnitude
 larger than $h$. The paper's central empirical observation, on 276 sessions (3512
 thirty-minute windows) of NQ front-month packet arrivals, is that this cluster tail
@@ -325,10 +334,14 @@ Hawkes single-queue and adjacent work
 and empirical and applied HFT and RPC-pipeline work
 \citep{byrd2020abides,frey2023jaxlob,aquilina2022arms,deanbarroso2013tailatscale,zhao2023parsimon}
 together with the datacenter tail-latency literature found no direct prior art on
-either of the paper's two claims. The nearest neighbour on the exchange side is
+any of the paper's three claims. The nearest neighbour on the exchange side is
 \citet{yoon2026matching}, who reports that a matching engine's tail latency under load is
 set by queueing at the serialised match loop during bursts; the present paper is the
-receiver-side counterpart, with the arrival process measured rather than assumed. The first is theoretical: that the choice between
+receiver-side counterpart, with the arrival process measured rather than assumed. The
+nearest on the arrival-process side is the Hawkes literature on order flow
+\citep{filimonovsornette2012,filimonovsornette2015,hardimanbercotbouchaud2013,achab2018branching,bacry2015review},
+which models order-book events for microstructure and forecasting and does not connect
+them to a receiver's service queue or to the packet process that carries them. The first claim is theoretical: that the choice between
 a single-queue (single-thread) architecture and an $N$-stage tandem (multi-actor pipeline)
 is not fixed but \emph{reverses with the arrival law}. At the service times an HFT hot path occupies, single-digit to low-tens of
 microseconds, Poisson arrivals make the single queue the better choice, because at that
@@ -342,7 +355,18 @@ counts, driven by CME MDP3 packet timestamps, controlled against a rate-matched 
 a hop cost calibrated from the low-load round trip measured on a production HFT actor
 framework. We have found no prior study that
 combines a real exchange-calibrated tandem sweep with both that Poisson counterfactual and
-a measured framework hop cost. The full reference list appears in Section~\ref{sec:refs}.
+a measured framework hop cost. The third is the identification of the clustered
+process. Grouping $3.55 \times 10^9$ messages by matching-engine transaction shows that
+the packet stream is the transaction stream relayed one packet per event, that the
+transaction stream is self-exciting with the same branching ratio as the packets, and ---
+through eight null streams that remove one ingredient of the clustering at a time
+(Section~\ref{sec:setup-nulls}) --- that the receiver's tail is produced by the timing of
+transactions and not by their size, their division into packets, the packet rate, or
+second-scale load, acting through a surplus of near-simultaneous transactions at short
+service times and through runs of them at long ones. We have found no published
+measurement of the packet process of an exchange feed at this level, and no prior test
+of whether an exchange's packetisation or the market's self-excitation is what a
+receiver queues on. The full reference list appears in Section~\ref{sec:refs}.
 
 \subsection{Note on the use of AI in this paper}
 \label{sec:intro-ai-use}
@@ -386,6 +410,7 @@ $n = \alpha/\beta$ & Hawkes branching ratio \\
 $K$ & Borel-distributed offspring cluster size (\S\ref{sec:theory-cluster}) \\
 $\bar\lambda_{\mathrm{pkt}}$ & mean packet-arrival intensity per 30-min window, packets per second \\
 $n_{\mathrm{pkt}}$ & branching ratio of the packet-arrival Hawkes fit per window \\
+$n_{\mathrm{tx}}$ & branching ratio of the transaction-start Hawkes fit per window (\S\ref{sec:results-transactions}) \\
 $n_{\mathrm{pkt}}^{\#}$ & per-window packet count \\
 $\rho$ & utilisation, $\rho = \bar\lambda_{\mathrm{pkt}} \cdot T$ \\
 $\tau$ & bin width of the Fano factor, in seconds (distinct from the service time $T$) \\
@@ -3505,8 +3530,10 @@ per-message latency. The answers qualify that view: it is correct below a servic
 threshold and incorrect above it, and the threshold is set by the arrival process of the
 feed, which on CME is the self-exciting stream of matching-engine transactions.
 
-\paragraph{Question 1: what produces the queueing tail.} The candidates were the packet
-rate, the clustering of arrivals and the number of messages per packet. The rate does not:
+\paragraph{Question 1: what produces the queueing tail.} The self-excitation of the
+matching engine's transaction stream, and nothing else that was tested. The candidates
+were the packet rate, the clustering of arrivals and the number of messages per packet.
+The rate does not:
 utilisation is below $0.02$ at every service time an HFT hot path occupies, and a window
 with four to five times the corpus-median packet rate has the same tail relative to $T$
 (Section~\ref{sec:results-conditioning}); rate matters only from $64\,\mu\mathrm{s}$,
@@ -3624,7 +3651,11 @@ costs $1.7\,\mu\mathrm{s}$). Short synchronous chains inside one actor's servici
 message therefore continue to use \texttt{fast\_send} unchanged. The end-of-build measurement decides any specific boundary.
 
 \paragraph{Main caveats.} The corpus is a single instrument (NQ front-month, channel
-318); ES and BTC replications are follow-on work. The live measurements of
+318); ES and BTC replications are follow-on work. A transaction is identified by equality
+of \texttt{transactTime}; whether the matching engine can publish one economic event under
+more than one \texttt{transactTime} is not known to the paper, and if it can, the
+transaction-level clustering reported in Section~\ref{sec:results-transactions} includes
+that effect and the packetisation result is unaffected. The live measurements of
 Sections~\ref{sec:crossval} and~\ref{sec:fungibility-measured} come from one host on one
 afternoon, a 53-minute capture and one \SI{900}{\second} window, without replication, and
 the 3512 windows are nested in 276 sessions, so uncertainty on the aggregates is
