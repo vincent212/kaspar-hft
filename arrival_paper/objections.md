@@ -558,3 +558,39 @@ From 64 µs it is carried by runs of transactions, which is the self-excitation
 the Hawkes fit measures (n = 0.795, kernel timescale 1/β = [TODO 2]). The
 message count per packet is the same clustering delivered inside a datagram.
 The subtitle stands under every outcome.
+
+## Status after the Conclusion restructure (2026-09-26, server)
+
+**Scope decision (author).** The paper is about queueing and tails in the receiving
+software, not about why the market behaves as it does. Why transactions land within
+microseconds of each other is stated as an open question and moved to Future work; the
+Aquilina–Budish–O'Neill races are named as the leading hypothesis (mechanism (b), common
+reaction), without a test.
+
+**Applied, no data needed:**
+- Objection 1: the inference "the surplus of tight gaps is itself a product of the
+  self-excitation, since Poisson has fewer" is removed from 3.6, 4.2, 4.3 and the
+  abstract. The abstract, 1.1, 1.3 and 4.3 now say: the tail is produced by the timing of
+  transactions; near-simultaneous pairs carry it at 16–32 µs, runs (the self-exciting
+  component) from 64 µs; what places two transactions microseconds apart is not
+  identified. "Belongs to the market" wording removed.
+- Objection 3: abstract, 1.3, 4.4 and the Conclusion call the dispatch arm an optimistic
+  bound with no ingress, egress or resequencing charged; "lower bound" and "settles"
+  removed; the ordering argument is replaced by the state argument (FIFO earliest-free
+  with constant service releases in order; the order-book stage cannot be dispatched,
+  decode could).
+- Conclusion split into 11.1 what the paper establishes about the cause (seven numbered
+  claims), 11.2 what it does not establish (why transactions land together, with
+  mechanisms (a)–(c) and the entry-time data that would separate them; self-excitation at
+  HFT service times; censoring below the floor; block grouping vs EndOfEvent; beyond NQ),
+  11.3 how to reduce the tail (the split rule, the threshold rule, dispatch with its state
+  limit, practical consequences), 11.4 revision of the prior design context, 11.5 caveats.
+- Future work split into "why transactions land together" (market questions: entry-time
+  data, tight-pair composition, 1/β and power-law kernel, sub-floor excitation in span)
+  and "the queue in the receiver" (EndOfEvent regrouping, ZN recording first, costed
+  dispatch, bootstrap, closed-form slack, h(ρ), cache pollution, overnight, own pcap).
+
+**Still open (data):** TODO 1 (EndOfEvent regroup), 2 (1/β), 3 (tight-pair composition),
+6 (bootstrap), 7 (costed dispatch), 8, 11, 12 above. TODO 13 (scope every general
+statement to NQ) is partly applied: the abstract, the Conclusion and Future work are
+scoped; 4.9's box, 6.6 and Appendix E still say "the feed" in places.
