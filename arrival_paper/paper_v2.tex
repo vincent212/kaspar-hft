@@ -409,14 +409,15 @@ while clustered arrivals at the same rate make the tandem better on the tail, be
 the cluster wait it removes exceeds the hop cost it adds. Two closed-form results
 (Section~\ref{sec:theory}) and a tandem sweep driven by the real packet timestamps
 (Section~\ref{sec:results}) establish it. Seven null streams, each removing one
-ingredient of the clustering, identify what the receiver queues on: the timing of
-transactions, not their size, their packetisation, the packet rate or second-scale load
-(Section~\ref{sec:setup-nulls}). We have found no prior statement of the reversal and no
+ingredient of the clustering, identify what the receiver queues on at service times above the publisher period: the
+timing of transactions, not their size, their packetisation, the packet rate or
+second-scale load (Section~\ref{sec:setup-nulls}). At the production operating point, just
+under the period, long packets carry most of the tail instead
+(Section~\ref{sec:crossval-spanrun}). We have found no prior statement of the reversal and no
 prior test of whether an exchange's packetisation or the market's clustering is what a
 receiver queues on.
 
-\paragraph{Design.} The measurements give a receiver a threshold to measure once per
-feed, the publisher period; a rule for where to cut a chain above it and how to spend
+\paragraph{Design.} The measurements give a system designer a threshold to measure once per feed, the publisher period; a rule for where to cut a chain above it and how to spend
 cores on stateless and stateful stages; and, at the production operating point just
 under the period, the finding that the remaining tail is in long packets and variable
 service, not in the thread count (Part~III).
@@ -433,15 +434,14 @@ the datacenter tail-latency literature, and the empirical market-microstructure 
 exchange timing found no characterisation of an exchange's outbound packet stream at
 this level. The nearest neighbours measure adjacent things. Deutsche B\"orse
 characterises its own T7 system from the inside \citep{deutscheboerse2026t7}: up to six
-timestamps per message, a micro-burst in which inbound traffic falls from millions of
-messages per second at the gateway to a few hundred thousand at matching, and three
+timestamps per message, a micro-burst in which inbound throughput is millions of messages per second at the gateway against a few hundred thousand at matching, and three
 network timestamps per market-data packet through a timestamp file; it is the inbound
 side, one example burst, and self-reported, and it does not characterise the outbound
 packet spacing, packet size under backlog or transactions per packet over time.
 \citet{noble2026realitygap}, on Nasdaq equities, find a sharp mode in inter-event times
 at the exchange round trip, about $29\,\mu\mathrm{s}$, and about a quarter of events too
 fast to be reactions to the previous one, which they read as correlated responses to a
-shared signal; that is the same observation as the sub-microsecond engine gaps of
+shared signal; that is the same kind of observation as the sub-microsecond engine gaps of
 Section~\ref{sec:exchange-engine}, made on event times alone, without the publisher or
 the packets. \citet{bartlettmccrary2019} and \citet{dinghannahendershott2014} measure the
 dissemination latency of the US equity consolidated feeds against direct feeds from
@@ -451,11 +451,7 @@ data; \citet{hasbrouck2013lowlatency} document millisecond runs of linked messag
 Nasdaq. None measures a direct feed packet by packet. Industry monitoring reports message
 and packet rates of US feeds at one-millisecond resolution,\footnote{Exegy and the
 Financial Information Forum, \emph{MarketDataPeaks},
-\url{https://www.exegy.com/resources/marketdatapeaks/}.} which is rates, not spacing. On
-the exchange side, \citet{yoon2026matching} reports that a matching engine's tail latency
-under load is set by queueing at the serialised match loop during bursts; the present
-paper is the receiver-side counterpart, with the arrival process measured rather than
-assumed. On the arrival-process side, the Hawkes literature on order flow
+\url{https://www.exegy.com/resources/marketdatapeaks/}.} which is rates, not spacing. On the exchange side, \citet{yoon2026matching} reports for his own matching engine that tail latency under load is set by queueing at the serialised match loop during bursts; the present paper studies the other end of the feed, with the arrival process measured rather than assumed. On the arrival-process side, the Hawkes literature on order flow
 \citep{filimonovsornette2012,filimonovsornette2015,hardimanbercotbouchaud2013,achab2018branching,bacry2015review}
 models order-book events for microstructure and forecasting and does not connect them to
 a receiver's service queue or to the packet process that carries them. We have found no
@@ -1117,7 +1113,7 @@ windows in the 276-session corpus.}
 \subsection{Data corpus}
 \label{sec:setup-data}
 
-The corpus is 281 sessions of CME MDP3 channel 318 (NQ) front-month pcap-derived tapes
+The corpus is 281 sessions of CME MDP3 NQ front-month pcap-derived tapes
 covering 2025-01 through 2026-02, RTH only, holidays and half-days excluded. Each MBO
 record carries a \texttt{packet\_seq} (the UDP packet sequence number) and two
 nanosecond timestamps: \texttt{transactTime}, the CME matching-engine event time carried
@@ -1364,11 +1360,10 @@ A tail in the Lindley recursion can be built by four distinct properties of an a
 stream, and the real stream has all four at once:
 \begin{enumerate}
     \item the \emph{rate}, the number of packets per second;
-    \item the \emph{gap distribution}: how often two consecutive packets land closer
-together than the service time $T$, regardless of the order in which those tight gaps
-occur;
-    \item the \emph{ordering}: whether the tight gaps come in runs (a burst of ten packets
-$5\,\mu\mathrm{s}$ apart) or lie singly among long gaps;
+    \item the \emph{gap distribution}: how often two consecutive packets land closer together than the service time $T$
+(a \emph{tight} gap), regardless of the order in which those gaps occur;
+    \item the \emph{ordering}: whether the tight gaps come in runs (a burst of ten packets one publisher period apart)
+or lie singly among long gaps;
     \item \emph{slow rate variation}: busy and quiet stretches at the scale of seconds
 within a window.
 \end{enumerate}
@@ -1583,7 +1578,7 @@ Section~\ref{sec:results-threshold} locates the onset more precisely and
 Section~\ref{sec:results-conditioning} explains what sets it.
 
 \findings{
-    \item \emph{No tail below the publisher period.} At $T \le 4\,\mu\mathrm{s}$ the $p_{99}$ equals $T$ on real and Poisson arrivals alike.
+    \item \emph{No tail below the publisher period.} At $T \le 4\,\mu\mathrm{s}$ the $p_{99}$ equals $T$ on real and Poisson arrivals alike; only the $p_{99.9}$ of the Poisson stream shows the small utilisation wait Corollary~\ref{cor:poisson} predicts.
     \item \emph{Above it, the real stream's tail grows much faster than $T$}, to about forty times $T$ at $128\,\mu\mathrm{s}$.
     \item \emph{The Poisson stream at the same rate has no tail up to $16\,\mu\mathrm{s}$}, and above that only a much smaller utilisation tail.
     \item \emph{One cut removes most of the tail for one hop} and wins on every window from $16\,\mu\mathrm{s}$.
@@ -1595,11 +1590,11 @@ Section~\ref{sec:results-conditioning} explains what sets it.
 \label{sec:results-nulls}
 
 The Poisson null of Table~\ref{tab:main-corpus} redraws every arrival uniformly over the
-whole window. That removes three things at once: the microsecond-scale self-excitation,
-the slower rate variation across the window, and the shape of the gap distribution,
-including the publisher period of Section~\ref{sec:results-conditioning}. The tail
-difference in Table~\ref{tab:main-corpus} is credited to the first of these, but the
-mechanism of Section~\ref{sec:results-conditioning} runs on the third: a queue forms when
+whole window. That removes three things at once: the ordering of gaps into runs, the slower rate
+variation across the window, and the shape of the gap distribution, including its
+shortest gap, the publisher period. The tail difference in Table~\ref{tab:main-corpus}
+could come from any of the three. The mechanism of Section~\ref{sec:results-conditioning}
+runs on the third: a queue forms when
 consecutive gaps are shorter than the service time, and that is a property of the gap
 distribution, which a reordering of the same gaps leaves untouched. Two further nulls
 separate the three. The \emph{gap shuffle} permutes each window's interarrival gaps at
@@ -1655,8 +1650,7 @@ $T$ & $N$ & real & uniform & gap shuffle & 1\,s-binned \\
 packet-level null streams of Section~\ref{sec:setup-nulls}, for every service time $T$
 and stage count $N$. Uniform is the Poisson null; the gap shuffle keeps every gap and
 destroys their order; the 1\,s-binned stream keeps each second's packet count and destroys
-the microsecond structure. What the table shows: at $T \le 4\,\mu\mathrm{s}$ every stream
-sits at the no-queue latency, because no gap is that short. For a single thread above
+the microsecond structure. What the table shows: at $T \le 4\,\mu\mathrm{s}$ every stream's $p_{99}$ sits at the no-queue latency, because no gap between packets is that short. For a single thread above
 that, the uniform and binned streams lose almost all of the real stream's tail, while the
 gap shuffle keeps most of it at short service times and less as $T$ grows
 (Figure~\ref{fig:bars-nulls}). Once a cut takes each stage below the publisher period,
@@ -1777,14 +1771,13 @@ transactions (Table~\ref{tab:tx-gaps}).
 \toprule
 gap shorter than & share of all packet gaps & of which inside one transaction & Poisson at the same rate \\
 \midrule
-$7.9\,\mu\mathrm{s}$ (spacing) & $2.15\%$ & $0.1\%$ & $0.56\%$ \\
+$7.9\,\mu\mathrm{s}$ (period) & $2.15\%$ & $0.1\%$ & $0.56\%$ \\
 $17.8\,\mu\mathrm{s}$  & $20.6\%$ & $5.0\%$ & $1.24\%$ \\
 $35.5\,\mu\mathrm{s}$  & $34.1\%$ & $4.6\%$ & $2.46\%$ \\
 \bottomrule
 \end{tabular}
 \caption{Short packet gaps, pooled over the corpus. The rows are the bin edges of the
-logarithmic grid of Figure~\ref{fig:tx-gaps} nearest to the publisher
-spacing and to the $16$ and $32\,\mu\mathrm{s}$ service times. What the table shows: the
+logarithmic grid of Figure~\ref{fig:tx-gaps} nearest to the publisher period and to the $16$ and $32\,\mu\mathrm{s}$ service times. What the table shows: the
 real stream has several times the Poisson share of gaps below each of these service
 times, about one gap in five below $16\,\mu\mathrm{s}$ against about one in a hundred, and
 almost none of these short gaps lie inside a single transaction. What follows: the short
@@ -1792,7 +1785,7 @@ gaps that make a server queue are gaps between different matching-engine events,
 exchange's division of one event into several packets, so a receiver that reassembled
 transactions before decoding would remove almost none of them. Section~\ref{sec:exchange}
 shows where they come from: the engine processes many transactions within a microsecond
-of each other, and the publisher sends them back to back at its spacing
+of each other, and the publisher sends them one publisher period apart
 (Table~\ref{tab:two-clocks}).}
 \label{tab:tx-gaps}
 \end{table}
@@ -1989,7 +1982,7 @@ which TG destroys, carries a small part of the tail at $16\,\mu\mathrm{s}$ and m
 at $128\,\mu\mathrm{s}$, the same profile the packet-level gap shuffle gave. The rest,
 dominant at HFT service times, is the surplus of short gaps between transactions over a
 Poisson stream at the same rate (Table~\ref{tab:tx-gaps}), which on the publisher's clock
-sit at its spacing (Table~\ref{tab:two-clocks}). That surplus says the gap distribution is
+sit at its period (Table~\ref{tab:two-clocks}). That surplus says the gap distribution is
 far from exponential; it does not say what put the mass there, and a stream with the same
 gaps and no self-excitation (the gap shuffle) reproduces it and most of the tail at
 $16\,\mu\mathrm{s}$. The attribution is therefore the following. The queueing tail behind a
@@ -2290,7 +2283,7 @@ Second, every ratio is at or below the bound $1/N$, and the pathwise check of
 Section~\ref{sec:evaluation} finds no message on any window above it. The margin is large,
 because of the threshold. Since $\Delta_{\mathrm{single}}(s)$ is zero for $s$ below the
 publisher period (Section~\ref{sec:results-threshold}), a split that pushes the per-stage
-service below that spacing does not merely divide the tail, it removes it. At
+service below the publisher period does not merely divide the tail, it removes it. At
 $32\,\mu\mathrm{s}$, for example, four stages leave about half a percent of the
 single-thread excess, where the bound allows a quarter, and eight leave none. Where a
 power law $\Delta(N) \approx \Delta(1) N^{-\gamma}$ can be fitted, its exponent is about
@@ -2376,7 +2369,7 @@ removes exceeds the hop cost it adds, which on this framework's shipping BQueue 
 3.4\,\mu\mathrm{s}$. The second is a property of the \emph{feed}: there is no tail excess
 to remove at all until $T$ exceeds the publisher period, about
 $\spub$ on this corpus (Section~\ref{sec:results-conditioning}). The binding
-constraint is whichever is larger, and on CME MDP3 channel 318 with a BQueue mailbox it is
+constraint is whichever is larger, and on NQ with a BQueue mailbox it is
 the feed's, by roughly a factor of two; this is why $T = 4\,\mu\mathrm{s}$, although
 above $2h$, has $\Delta(1) = 0$ and should not be split. A framework with a
 much more expensive mailbox would find its own minimum binding instead. On CME the binding minimum is
@@ -2475,7 +2468,7 @@ $T$ ($\mu$s) & $p_{99}$ Hawkes & excess over $T$ & windows with a tail & $p_{99}
 \centering
 \includegraphics[width=1.0\textwidth]{figs/bars/onset.pdf}
 \caption{The table above as bars; the dotted line marks the publisher period $\spub$. Left: how far the single-thread $p_{99}$ sits above the service time.
-Below the spacing there is no tail at all; above it the tail grows fast and passes the
+Below the publisher period there is no tail at all; above it the tail grows fast and passes the
 hop cost of one split (dashed) between $8$ and $9\,\mu\mathrm{s}$. Right: the share of
 windows that have any tail (blue) jumps from almost none to almost all between $7$ and
 $8\,\mu\mathrm{s}$; the share where two stages beat one (orange) follows about
@@ -2601,13 +2594,6 @@ enters once clusters begin to overlap, and the branching ratio once $T$ is long 
 many members of one cluster to fall within one service time; on this corpus both happen
 from $64\,\mu\mathrm{s}$.
 
-The mechanism is that at $\rho \ll 1$ clusters do not overlap. Raising $\bar\lambda$
-raises the number of clusters per window, each with the same internal spacing and, at
-fixed $n$, the same size distribution, so the position of the $p_{99}$ packet within its
-cluster, and hence $p_{99}/T$, is unchanged. Intensity enters once clusters begin to
-overlap, and $n$ enters once $T$ is long enough for many members of one cluster to fall
-within a single service time; on this corpus both occur at $T \ge 64\,\mu\mathrm{s}$.
-
 \paragraph{Packet rate and the tight gaps below $64\,\mu\mathrm{s}$.} The null result has a
 mechanical explanation in the arrival stream. Taking the same $\bar\lambda$ quintiles and reporting the corpus median of
 the per-window interarrival-gap quantiles:
@@ -2651,9 +2637,9 @@ distinct transactions (Section~\ref{sec:results-transactions}, Table~\ref{tab:tx
 and how closely successive transactions within a burst follow one another is likewise
 invariant to the window's rate. A busy window contains more bursts, not tighter bursts.
 
-The gap statistics on the publisher's clock are censored at the publisher period: two transactions
-closer together than $\spub$ reach the receiver in one packet
-(Section~\ref{sec:exchange-publisher}). A faster self-excitation would therefore show in
+The gap statistics on the publisher's clock are censored at the publisher period: two
+transactions that the engine processes closer together than $\spub$ reach the receiver one
+period apart or, less often, in one packet (Section~\ref{sec:exchange-engine}). A faster self-excitation would therefore show in
 the packets rather than the gaps. It does not scale with the branching ratio: from the
 lowest to the highest branching-ratio fifth, the share of multi-message packets, the mean
 message count per packet and the share of packets carrying more than one transaction do
@@ -2704,8 +2690,7 @@ $\spub$), not its mean, which is two orders of magnitude
 larger. It is measured once per feed: on this corpus it is the same in every
 packet-rate fifth and every branching-ratio fifth, so the rule requires no runtime estimate of market intensity or
 clustering and does not change between a quiet and a volatile session. Both the publisher period and
-the spacing of transactions inside a burst were measured on one instrument, NQ
-front-month on CME channel 318; recheck them on any other instrument or feed rather than
+the spacing of transactions inside a burst were measured on one instrument, NQ front-month on CME; recheck them on any other instrument or feed rather than
 assume them.
 \end{minipage}}
 \end{center} Appendix~\ref{app:synthetic} constructs a feed on which both dependences appear
@@ -2713,8 +2698,7 @@ at $T = 8\,\mu\mathrm{s}$, and identifies the packed-gap fraction as the quantit
 separates it from CME.
 
 The publisher period is not the mean interarrival gap. On this corpus the mean gap is
-about $2\,\mathrm{ms}$ in the median window, some three hundred times the publisher
-spacing. A rule
+about $2\,\mathrm{ms}$ in the median window, some three hundred times the publisher period. A rule
 stated on the mean gap would recommend never splitting an HFT stage, and would be wrong
 by two orders of magnitude.
 
@@ -2774,7 +2758,7 @@ The receiver's arrivals are the output of the exchange. This section looks one s
 upstream, at the two CME systems that produce them, through the only window the public feed
 opens on them: the timestamps it carries. It treats the exchange as a queueing system
 observed from outside and makes no claim about CME's internal design beyond what the MDP3
-specification states. All figures are for NQ front-month on channel 318.
+specification states. All figures are for NQ front-month.
 
 \subsection{Three timestamps}
 \label{sec:exchange-clocks}
@@ -2851,8 +2835,7 @@ either held back or packed into one packet.}
 \caption{Table~\ref{tab:engine-clock} as bars: share of consecutive NQ transactions closer than
 $7.5$, $16$ and $32\,\mu\mathrm{s}$, on the engine's clock (blue) and the publisher's
 (orange); whiskers span the 40 sessions. Below the publisher period the engine has one
-gap in six and the publisher almost none: the publisher does not send faster than its
-spacing. By $32\,\mu\mathrm{s}$ the two clocks nearly agree.}
+gap in six and the publisher almost none: the publisher does not send faster than its period. By $32\,\mu\mathrm{s}$ the two clocks nearly agree.}
 \label{fig:bars-engine-clock}
 \end{figure}
 
@@ -2929,7 +2912,7 @@ back at the publisher period at the receiver.}
 \textbf{Finding.} Transactions the engine processes a fraction of a microsecond apart do
 not reach the receiver together: $84\%$ of them arrive in separate packets, most of them
 $7.5$ to $16\,\mu\mathrm{s}$ apart. What the receiver sees is a train of packets at the
-publisher period. Its queue grows when its service time exceeds that spacing, which is
+publisher period. Its queue grows when its service time exceeds the publisher period, which is
 why the threshold of Section~\ref{sec:results-threshold} sits at about
 $\spub$. The open market question is why orders reach the engine within a
 microsecond of each other; what reaches the receiver is set by the publisher.
@@ -3020,7 +3003,7 @@ mass of gaps just above it are the publisher draining its backlog.
 \label{sec:exchange-drain}
 
 If the publisher's service time is fixed per packet, a backlog can be drained in two ways:
-by keeping the spacing and sending many packets, or by packing more into each packet. The
+by keeping the period and sending many packets, or by packing more into each packet. The
 end-of-event tapes separate the two. On 20 sessions we take four things for each packet: the NQ front-month messages it
 carries (its span), the number of distinct transactions in it, the gap to the previous NQ
 packet on the publisher's clock, and the publisher delay of its first transaction,
@@ -3073,7 +3056,7 @@ gap to previous & share of & mean span & packets with $\ge 2$ & adjacent on & me
 NQ packet & packets & (NQ messages) & transactions & the channel & packets between \\
 \midrule
 $< 7.5\,\mu\mathrm{s}$             & $1.0\%$  & $1.006$ & $0.08\%$ & $100\%$  & 0 \\
-$7.5$--$10\,\mu\mathrm{s}$ (spacing) & $9.9\%$  & $1.007$ & $0.40\%$ & $100\%$  & 0 \\
+$7.5$--$10\,\mu\mathrm{s}$ (period) & $9.9\%$  & $1.007$ & $0.40\%$ & $100\%$  & 0 \\
 $10$--$16\,\mu\mathrm{s}$          & $6.8\%$  & $1.096$ & $2.8\%$  & $95.7\%$ & 0 \\
 $16$--$32\,\mu\mathrm{s}$          & $14.2\%$ & $1.141$ & $6.7\%$  & $36.2\%$ & 1 \\
 $32$--$100\,\mu\mathrm{s}$         & $25.2\%$ & $1.073$ & $3.4\%$  & $20.6\%$ & 2 \\
@@ -3099,7 +3082,7 @@ publisher period.}
 \small
 \begin{tabular}{@{}l r r@{}}
 \toprule
-publisher delay (packets at the spacing only, & mean span & packets with $\ge 2$ \\
+publisher delay (packets at the period only, & mean span & packets with $\ge 2$ \\
 gap $7.5$--$10\,\mu\mathrm{s}$) & (NQ messages) & transactions \\
 \midrule
 $< 100\,\mu\mathrm{s}$          & $1.000$ & $0.04\%$ \\
@@ -3111,7 +3094,7 @@ $> 5\,\mathrm{ms}$              & $1.114$ & $2.0\%$ \\
 \caption{Packets sent at the publisher period, by the publisher's backlog. What the table shows: even
 more than $5\,\mathrm{ms}$ behind, packets sent back-to-back at the publisher period carry $1.1$ NQ
 messages on average and $98\%$ of them hold a single transaction. What follows: pacing
-holds under load. The publisher keeps its spacing when it is far behind and does not
+holds under load. The publisher keeps its period when it is far behind and does not
 switch to fuller packets at the same rate.}
 \label{tab:drain-floor}
 \end{table}
@@ -3123,8 +3106,7 @@ switch to fuller packets at the same rate.}
 packet. Left: packets get bigger as the publisher falls further behind. Middle: packets
 sent at the publisher period, $7.5$--$10\,\mu\mathrm{s}$ after the previous NQ packet (dark blue),
 are single-message packets; the grey ``adj.'' figures are the share with no other order or
-trade packet of the channel between the two NQ packets, $100\%$ at the spacing. Right:
-packets at the spacing stay single-message even when the publisher is more than
+trade packet of the channel between the two NQ packets, $100\%$ at the period. Right: packets at the period stay single-message even when the publisher is more than
 $5\,\mathrm{ms}$ behind. The publisher drains a backlog with more packets, not bigger
 ones.}
 \label{fig:bars-drain}
@@ -3279,8 +3261,8 @@ than one triggering the next.
 \fbox{\begin{minipage}{0.92\linewidth}
 \textbf{Conjecture.} Because the publisher sends at most one packet per
 $\spub$ and queues whatever the engine produces faster than that, it bounds
-the rate at which market information reaches participants, and during bursts it delivers
-that information $0.4$ to $15\,\mathrm{ms}$ late (Table~\ref{tab:publisher}). Any feedback
+the rate at which market information reaches participants, and during bursts it delivers that information late: typically by hundreds of
+microseconds, and by milliseconds in the tail (Table~\ref{tab:publisher}). Any feedback
 loop in which participants react to published data therefore cannot run faster than the
 publisher, and a cascade driven by public information unfolds more slowly than the
 engine could process it. In this sense the publisher acts as a speed limit on the
@@ -3311,7 +3293,7 @@ the receiver. What it finds, in order:
 \findings{
     \item \emph{The matching engine processes transactions far closer together than the receiver sees them.} On the engine's clock one consecutive transaction in six is under $\spub$ apart, the tightest a fraction of a microsecond; on the publisher's clock $1\%$ are (Table~\ref{tab:engine-clock}).
     \item \emph{The publisher is a queue with service time $\spub$ per packet.} Its delay grows about tenfold with engine load (Table~\ref{tab:publisher}).
-    \item \emph{Near-simultaneous transactions reach the receiver as a train of packets at that spacing, not together.} Of transactions processed within $1\,\mu\mathrm{s}$ of the previous one, $84\%$ are sent in a separate packet, most $7.5$--$16\,\mu\mathrm{s}$ later (Table~\ref{tab:two-clocks}).
+    \item \emph{Near-simultaneous transactions reach the receiver as a train of packets one period apart, not together.} Of transactions processed within $1\,\mu\mathrm{s}$ of the previous one, $84\%$ are sent in a separate packet, most $7.5$--$16\,\mu\mathrm{s}$ later (Table~\ref{tab:two-clocks}).
     \item \emph{Under backlog the publisher sends more packets, not bigger ones.} Packets grow when it is far behind, but those sent at the publisher period stay single-message (Tables~\ref{tab:drain-delay}--\ref{tab:drain-floor}).
     \item \emph{The receiver is the second queue in a tandem that starts at the exchange.} Its tail threshold is the publisher period, which is why the threshold sits at $\spub$ and does not move with market load.
     \item \emph{Transactions across a tight engine gap are ordinary quote traffic; after a trade, the race pattern shows} (Table~\ref{tab:tight-pairs}). Why orders reach the engine within a microsecond of each other is left open.
@@ -3472,9 +3454,9 @@ underlying per-message records, as a control on Part~II.
  & Part~II corpus & production measurement \\
 \midrule
 source        & pcap tapes, replayed offline  & live multicast, production recorder \\
-period        & 2025-01 to 2026-02            & 2026-09-16 (7 months out of sample) \\
+period        & 2025-01 to 2026-02            & 2026-09-16 \\
 instruments   & NQ front month                & ES, NQ, ZN $\times$ book, trade \\
-arrival clock & CME gateway \texttt{sendingTime} & receiver \texttt{t0} at socket read \\
+arrival clock & CME publisher \texttt{sendingTime} & receiver \texttt{t0} at socket read \\
 estimator     & per-window, median of 3512 windows & pooled over one 53-min capture \\
 sample        & 3512 windows, 276 sessions    & 6.81 M messages, 6 streams \\
 \bottomrule
@@ -3506,8 +3488,7 @@ variability of packet counts drops when the order of the packets is scrambled, w
 removes any bunching. The third is a measure of whether busy stretches persist rather
 than fading at once. The fourth is how strongly one event tends to trigger the next.
 Each of the four is computed twice, independently: once on the recorded corpus that the
-rest of the paper uses, and once on the live production receiver, seven months later,
-on different instruments, with a different clock. Three of the four match directly, to
+rest of the paper uses, and once on the live production receiver, on different instruments, with a different clock. Three of the four match directly, to
 within the spread seen across the live streams. The fourth is measured in two different
 ways, one an estimate and one an upper bound, and the estimate falls inside the bound.
 The conclusion is that the bursts are a property of the feed as received, not of
@@ -3556,8 +3537,7 @@ bounds $n$ from above by inverting the Fano ceiling, $n \le 1 - 1/\sqrt{F}$. The
 its own; its value is that it is independent evidence and is consistent.
 
 The arrival process modelled in Part~II is therefore not an artefact of replay, of the
-sample period, or of the exchange-side clock; it is present at the same strength in a
-live receiver seven months later on other instruments.
+sample period, or of the exchange-side clock; it is present at the same strength in a live receiver on other instruments.
 
 \findings{
     \item \emph{The clustering is not an artefact of replay}: the share of tiny gaps, the collapse under shuffling and the Hurst exponent agree between the corpus and the live receiver, on other instruments and a different clock.
@@ -3582,8 +3562,8 @@ Whether a packet's service crosses the threshold is decided by whether it carrie
 message or more.
 
 Isolating messages that arrive to an empty ring and first in their datagram,
-so that neither queueing nor in-packet serialisation contributes, gives the hot path
-directly. Three estimators agree (Table~\ref{tab:crossval-floor}):
+so that neither queueing nor in-packet decode contributes, gives the decode floor
+directly; the paper calls these the \emph{empty-queue messages}. Three estimators agree (Table~\ref{tab:crossval-floor}):
 
 \begin{table}[H]
 \centering
@@ -3850,7 +3830,7 @@ variability that Section~\ref{sec:theory-summary} lists as an assumption.
 
 Second, span is a second channel for the same clustering on the same stream, active
 where the queueing channel is not. Section~\ref{sec:crossval-spanrun} reruns the sweep
-with span-dependent service. The serialisation channel supplies the tail below the
+with span-dependent service. The in-packet decode supplies the tail below the
 publisher period, where queueing across packets supplies none, and adds a few percent
 above $16\,\mu\mathrm{s}$, where queueing across packets supplies nearly all of it.
 
@@ -3863,8 +3843,7 @@ that is, packs transactions that reach it while it is busy into one packet
 transactions that the engine processes closer together than $\spub$
 never appear as two packets closer together than that; they appear either as one packet
 with more messages or, more often, as two packets at the publisher period
-(Table~\ref{tab:two-clocks}), which is why so few packet gaps fall below the publisher
-spacing (Table~\ref{tab:tx-gaps}). Two consequences follow for the rest of this section.
+(Table~\ref{tab:two-clocks}), which is why so few packet gaps fall below the publisher period (Table~\ref{tab:tx-gaps}). Two consequences follow for the rest of this section.
 The in-packet tail that a large packet produces is, for the most part, the same clustering
 of transactions as the queueing tail, delivered inside a packet instead of across packets;
 and the message count per packet is set by how closely transactions follow one another,
@@ -3943,7 +3922,7 @@ in-packet position & 0 & 0 & 1 & 4 & 19 & 84 \\
 \end{tabular}
 \end{center}
 
-$89.0\%$ of messages are alone in their packet and pay no serialisation; the remaining
+$89.0\%$ of messages are alone in their packet and pay no in-packet decode; the remaining
 $11.0\%$ constitute the tail. The live measurement reports the same shape. The comparison
 below is message-weighted.
 
@@ -4005,13 +3984,12 @@ makes the $p_{99}$ several times $T$, span adds at most a few percent.
 \paragraph{Decomposition at the production operating point.} The live system's measured
 decode floor is $6.81$--$7.23\,\mu\mathrm{s}$ (Section~\ref{sec:crossval-floor}), so the
 comparable row is $T = 8\,\mu\mathrm{s}$. Decomposing the message-weighted $p_{99}$ excess over the median ($p_{50}$) into the part the
-constant-service model already produced (queueing) and the remainder introduced by
-span-aware service (serialisation):
+constant-service model already produced (queueing) and the remainder introduced by span-aware service (in-packet decode):
 
 \begin{center}
 \begin{tabular}{@{}rrrrr@{}}
 \toprule
-$T$ & $p_{50}$ & queueing excess & serialisation excess & serialisation share \\
+$T$ & $p_{50}$ & queueing excess & in-packet decode excess & its share \\
 \midrule
   2 &   1.99 &    0.00 &   0.34 & $100\%$ \\
   4 &   3.99 &    0.00 &   0.69 & $100\%$ \\
@@ -4069,7 +4047,7 @@ the $8\,\mu\mathrm{s}$ nominal service time.
 
 \paragraph{Compounding of the two channels on NQ.} There are two places
 a message can be made slow. One is queueing: it waits behind a run of earlier packets.
-The other is serialisation: it sits deep inside a large packet and waits for the
+The other is in-packet decode: it sits deep inside a large packet and waits for the
 messages ahead of it in that same packet to be decoded first. Section~\ref{sec:crossval-span}
 showed that a large packet is usually several transactions packed together by the publisher, so
 both are deliveries of the same clustering. The question here is narrower: whether a
@@ -4137,21 +4115,21 @@ dominates the far tail. What follows is argued from the fitted decode floor and 
 Section~\ref{sec:crossval-floor} and the reported percentiles, not from a
 message-by-message decomposition of the window.
 
-\paragraph{Setup.} Channel 344 (ZN), book stream, one \SI{900}{\second} window, recovery
+\paragraph{Setup.} ZN, book stream, one \SI{900}{\second} window, recovery
 windows excluded, the shipping serial configuration (\texttt{cme\_decode\_workers 0}).
 Latency is the leg-1 socket-read-to-book-publish time of Section~\ref{sec:crossval-floor},
 per message. ZN is the instrument on which Section~\ref{sec:crossval-spanrun} left the
 coupling of span and bursts open. Two populations are reported: every message, and the
-\emph{hot path}, the messages that arrived to an empty queue and were first in their
-packet, which is the decode with neither queueing nor in-packet serialisation in it.
+empty-queue messages of Section~\ref{sec:crossval-floor}, which arrived to an empty queue
+and were first in their packet, so that neither queueing nor in-packet decode is in their
+latency.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.72\textwidth]{figs/zn_serial_tail.pdf}
-\caption{Wire-to-book latency by percentile on the ZN book stream, serial decode, for
-every message and for the hot path alone (empty queue, first in packet; its $p_{90}$ was
+\caption{Wire-to-book latency by percentile on the ZN book stream, serial decode, for every message and for the empty-queue messages alone (empty queue, first in packet; its $p_{90}$ was
 not reported). Log latency axis. The two populations share a minimum near
-$5$--$7\,\mu\mathrm{s}$ and separate only in the tail: the hot path reaches
+$5$--$7\,\mu\mathrm{s}$ and separate only in the tail: the empty-queue messages reach
 $26\,\mu\mathrm{s}$ at $p_{99.9}$, all messages $274\,\mu\mathrm{s}$.}
 \label{fig:zn-serial-tail}
 \end{figure}
@@ -4167,8 +4145,7 @@ all messages                    & 157{,}699 & 5.04 & 7.11 & 11.81 & 63.30 & 273.
 empty queue, first in packet    & 122{,}500 & 5.09 & 6.99 & ---   & 15.46 &  26.37 & --- \\
 \bottomrule
 \end{tabular}
-\caption{The data behind Figure~\ref{fig:zn-serial-tail}, in \si{\micro\second}. The
-hot path is $78\%$ of all messages. The window maximum for all messages was
+\caption{The data behind Figure~\ref{fig:zn-serial-tail}, in \si{\micro\second}. The empty-queue messages are $78\%$ of all messages. The window maximum for all messages was
 $3046\,\mu\mathrm{s}$; the report that records this measurement
 (\texttt{tech\_reports/\allowbreak serial\_vs\_parallel\_decode.md} in the \kasparhft{} repository)
 flags a few such isolated spikes as possibly residual recovery, so it is not used here.}
@@ -4188,9 +4165,8 @@ resolved by these records (Section~\ref{sec:open-questions}).
 \paragraph{How the live tail forms.} The three findings of this paper meet here. Packets
 reach the handler as trains one publisher period apart
 (Section~\ref{sec:exchange-drain}). The handler's median service, about $7\,\mu\mathrm{s}$
-on the book streams (Table~\ref{tab:tails-six}), is just under that spacing, so a train of single-message packets served at the median builds no queue; this
-is why its $p_{10}$ and $p_{50}$ sit at the decode floor. Two things push a service over the
-spacing. A packet with two or more messages costs the decode floor plus one per-message slope for
+on the book streams (Table~\ref{tab:tails-six}), is just under the publisher period, so a train of single-message packets served at the median builds no queue; this
+is why its $p_{10}$ and $p_{50}$ sit at the decode floor. Two things push a service over the period. A packet with two or more messages costs the decode floor plus one per-message slope for
 each further message, which crosses $\spub$ on every stream
 (Section~\ref{sec:crossval-floor}). And a single-message packet sometimes takes far longer
 than the median for reasons these records do not show: on ZN, messages with nothing queued
@@ -4216,8 +4192,7 @@ each further message. The largest packet seen, forty-five messages
 seven times the decode floor. That is the first cost: the last message of that packet waits
 over $40\,\mu\mathrm{s}$ before its own decode. Yet the in-packet decode accounts for only a
 fifth of the $p_{99.9}$. The rest is the queue the packet opens behind it, the second cost.
-At one message per packet the service is about $7\,\mu\mathrm{s}$, just under the publisher
-spacing measured on NQ (ZN's own spacing was not measured), and a queue almost never forms;
+At one message per packet the service is about $7\,\mu\mathrm{s}$, just under the publisher period measured on NQ (ZN's own period was not measured), and a queue almost never forms;
 that is the empty-queue population of Table~\ref{tab:zn-serial-tail}. While a forty-five-message packet holds the thread, every packet that arrives waits
 behind it, and each adds its own service to the wait of the ones behind it. The wait of
 the $k$-th packet in the queue is the sum of the service times ahead of it, so it grows
@@ -4338,7 +4313,7 @@ $\spub$, so a burst at the engine reaches the receiver as a train of packets one
 period apart, mostly one message each (Section~\ref{sec:exchange}).
 \emph{For design:} a receiver cannot be sized from the average packet rate, which is
 hundreds of times too slow to matter. What it must survive is a train of packets at the
-publisher period, and that spacing, not the rate, is the number to measure on a feed.
+publisher period, and that period, not the rate, is the number to measure on a feed.
 
 \paragraph{What makes the receiver's tail.} A single-threaded receiver queues only when
 two packets arrive closer together than its service time. Below the publisher period it
@@ -4358,7 +4333,7 @@ $7\,\mu\mathrm{s}$, just under the publisher period. There the queue across pack
 small, and most of the tail comes instead from long packets, whose messages are decoded one
 after another while the packets behind them queue, and from service times that vary for
 reasons the records do not show (Sections~\ref{sec:crossval-spanrun}
-and~\ref{sec:fungibility-measured}). A one-message packet is served below the spacing and a
+and~\ref{sec:fungibility-measured}). A one-message packet is served below the period and a
 packet of two or more messages above it (Section~\ref{sec:crossval-floor}).
 \emph{For design:} at this operating point the levers are the cost of each extra message
 and the spread of service times, not the number of threads. A stage cut does not shorten
@@ -4386,8 +4361,7 @@ every message of every window, and the Poisson stream behaves exactly as the the
 predicts (Section~\ref{sec:evaluation}). A live production receiver, on three instruments
 and a different clock, shows the same clustering (Section~\ref{sec:crossval-agree}).
 \emph{For design:} the design equation of Section~\ref{sec:results-design} can be applied
-with confidence to a real pipeline: its terms are exact, and its inputs, the publisher
-spacing and the service time of each stage, can be measured directly.
+with confidence to a real pipeline: its terms are exact, and its inputs, the publisher period and the service time of each stage, can be measured directly.
 
 \findings{
     \item \emph{The receiver's tail threshold is the publisher period $\spub$.} \emph{Design:} measure it once per feed and compare every stage with it.
@@ -4914,7 +4888,7 @@ the caveats. All empirical results are for one instrument, NQ front-month on CME
 often processes one transaction less than a microsecond after the previous one
 (Table~\ref{tab:engine-clock}). The market-data publisher cannot send that fast. It is a
 queue with service time $\spub$ per packet, so a burst at the engine
-leaves it as a train of packets at that spacing, mostly one message each, with an
+leaves it as a train of packets one period apart, mostly one message each, with an
 occasional larger packet after a longer gap (Tables~\ref{tab:two-clocks}
 and~\ref{tab:drain-gap}). The receiver is the next queue in line. If it handles a packet
 faster than the publisher sends them, it keeps up with any train and builds no queue from
@@ -4948,9 +4922,8 @@ of each other is a question about the market and is left open
 separate threads, each passing its output to the next through a mailbox hop. Every message
 pays one hop per boundary at the median, and the queueing excess shrinks by at least the
 number of stages, because only the slowest stage queues: the tail is set by the service
-time of the largest stage (Theorem~\ref{thm:reduction}). A stage below the publisher
-spacing does not queue at all. On NQ, one cut into two halves removes most of the tail in
-every window at every service time well above the spacing; the best number of stages grows
+time of the largest stage (Theorem~\ref{thm:reduction}). A stage below the publisher period does not queue at all. On NQ, one cut into two halves removes most of the tail in
+every window at every service time well above the publisher period; the best number of stages grows
 with the service time, limited by the natural cut points in the chain
 (Section~\ref{sec:concl-mitigate}). Serial splitting is the only option for a stage that
 carries state from one message to the next, such as the order book.
@@ -4972,19 +4945,19 @@ chain per packet under real market load, including multi-message packets and bur
 compare its upper quantiles, not its median, with the publisher period (about
 $7.5\,\mu\mathrm{s}$).
 \begin{itemize}
-    \item Upper quantiles below the spacing: keep one thread. Splitting only adds hop
+    \item Upper quantiles below the period: keep one thread. Splitting only adds hop
 cost.
-    \item Median below the spacing but upper quantiles above it, the regime of a
+    \item Median below the period but upper quantiles above it, the regime of a
 production receiver: the tail comes from long packets and slow services. Reduce the
 per-message decode cost and the spread of service times; a stage cut does not shorten
 the decode of a long packet.
-    \item Typical service above the spacing, stage carries state: split serially, at the
+    \item Typical service above the period, stage carries state: split serially, at the
 natural boundary that minimises the largest stage, with more stages the longer the
 service time.
-    \item Typical service above the spacing, stage carries no state, four or more cores
+    \item Typical service above the period, stage carries no state, four or more cores
 available: dispatch whole packets to a pool and resequence.
 \end{itemize}
-On another feed, measure its publisher period first; the threshold is that spacing.
+On another feed, measure its publisher period first; the threshold is that period.
 \end{minipage}}
 \end{center}
 
@@ -5015,7 +4988,7 @@ different transactions; merging each transaction into one packet or spreading it
 packets leaves the tail about as it was (Section~\ref{sec:results-transactions}).
     \item \emph{Not by how sizes are ordered in time.} Decoupling transaction sizes from
 their timing, or shuffling packet sizes across packets, leaves the tail about as it was
-at service times above the spacing (Table~\ref{tab:tx-arms},
+at service times above the publisher period (Table~\ref{tab:tx-arms},
 Section~\ref{sec:crossval-spanrun}). This says the order in which long packets arrive does
 not matter; it does not say their length does not matter, which is claim~5.
     \item \emph{At the service time production receivers run at, long packets carry most
@@ -5024,7 +4997,7 @@ own later messages and holds the thread while the packets behind it queue. At th
 service time this is about two thirds of the simulated tail, and on the live receiver the
 decode cost of a message's position in its packet reproduces most of the observed
 $p_{99}$; it sets the live ZN far tail (Sections~\ref{sec:crossval-spanrun}
-and~\ref{sec:fungibility-measured}). At service times well above the spacing it adds a few
+and~\ref{sec:fungibility-measured}). At service times well above the publisher period it adds a few
 percent. Most multi-message packets hold several transactions packed together by the
 publisher (Section~\ref{sec:crossval-span}).
     \item \emph{The timing acts through two channels whose weight depends on the service
@@ -5061,7 +5034,7 @@ to the exchange's publisher draining a backlog, and the backlog to the matching 
 processing events a fraction of a microsecond apart (Section~\ref{sec:exchange}). It does
 not show why orders reach the engine so close together. They do not reach the receiver
 together: when the engine processes two transactions almost at once, the publisher nearly
-always sends them in separate packets at its own spacing (Table~\ref{tab:two-clocks}). The
+always sends them in separate packets one period apart (Table~\ref{tab:two-clocks}). The
 open question is about the engine's input. Three mechanisms remain open. (a)~Reaction:
 a transaction causes other participants to cancel, replace or trade within microseconds,
 each as a separate transaction. (b)~Common reaction: many participants respond to the
@@ -5091,15 +5064,14 @@ Section~\ref{sec:exchange-conjecture}, with its qualifications.
 
 \paragraph{Self-excitation at HFT service times.} It is not the cause there, and this is
 now shown rather than argued. The fitted self-excitation acts over about
-$160\,\mu\mathrm{s}$ and places only a few percent of its triggering within the publisher
-spacing (Section~\ref{sec:exchange-bursts}); it is the cause of the runs, which carry the
-tail at long service times. At short service times the carrier is the publisher draining,
-at its own spacing, backlogs built by orders reaching the engine within a microsecond of
+$160\,\mu\mathrm{s}$ and places only a few percent of its triggering within the publisher period (Section~\ref{sec:exchange-bursts}); it is the cause of the runs, which carry the
+tail at long service times. At short service times the carrier is the publisher draining, at its own period, backlogs built by orders reaching the engine within a microsecond of
 each other, whose origin is the open question above.
 
-\paragraph{Events below the publisher period.} Two transactions closer together than the
-publisher's service interval reach the receiver in one packet, so every gap statistic on
-the publisher's clock is censored there. On the engine's clock they are visible
+\paragraph{Events below the publisher period.} Two transactions that the engine processes
+closer together than the publisher period reach the receiver one period apart or, less
+often, in one packet (Table~\ref{tab:two-clocks}), so every gap statistic on the
+publisher's clock is censored there. On the engine's clock they are visible
 (Table~\ref{tab:engine-clock}), and on the publisher's clock neither the message count per
 packet nor the share of packets carrying several transactions rises with the fitted
 branching ratio (Section~\ref{sec:results-conditioning}), so no faster self-excitation
@@ -5138,8 +5110,7 @@ threads is better than one thread. Above a service-time threshold, yes; below it
 the threshold is a property of the feed, measured here on NQ. Above the publisher period
 the single-thread tail is many times the hop cost, so the hop is small against what it
 lets the pipeline remove; below it the hop is cost only. Cutting a task into two halves
-removes most of the tail for one hop on the median, on every window, at every service
-time well above the spacing, and it loses at service times at or below the spacing
+removes most of the tail for one hop on the median, on every window, at every service time well above the publisher period, and it loses at service times at or below it
 (Table~\ref{tab:main-corpus}). A tandem of $N$ stages divides the tail by $N$ or better on
 every sample path (Theorem~\ref{thm:reduction}), in practice by far more where a cut takes
 each stage below the publisher period, while paying one hop per boundary at every
@@ -5297,7 +5268,7 @@ the public feed.
     \item \textbf{Is the publisher's capacity a design choice, and does it act as a speed
 limit on information?} The conjecture of Section~\ref{sec:exchange-conjecture}.
     \item \textbf{Where does the spread in a receiver's service time come from?} On the
-live ZN receiver the hot path reaches twice the decode floor at $p_{99}$ with nothing queued and
+live ZN receiver the empty-queue messages reach twice the decode floor at $p_{99}$ with nothing queued and
 nothing ahead in the packet. The measurement is the full distribution of per-packet
 service for single-message packets, with the candidate causes (cache misses, interrupts,
 rare message templates, book state) recorded alongside.
@@ -5325,7 +5296,7 @@ The lists below give the remaining work in two groups.
 \begin{itemize}
     \item What places two distinct transactions within a few microseconds of each other:
 reaction to the previous transaction, common reaction of many participants to the same
-signal, or pacing by the gateway or matching engine (Section~\ref{sec:concl-cannot}).
+signal, or pacing or batching inside the exchange's order entry (Section~\ref{sec:concl-cannot}).
 Separating them needs order-entry times for all participants, the data
 \citet{aquilina2022arms} had for the London Stock Exchange. Races of the kind they found
 are the leading hypothesis. Their data were exchange message data, which, unlike the
@@ -5355,7 +5326,7 @@ serves.
 \begin{itemize}
     \item A ZN recording (pcap and per-message records) and the full sweep on it, with
 span-dependent service. On ZN the live data suggest that large packets arrive during
-queues, so the queueing and serialisation channels may compound, which would add a span
+queues, so queueing across packets and in-packet decode may compound, which would add a span
 term to the design rule. This is the first replication; ES and BTC follow.
     \item Dispatch under state: a design that dispatches the stateless decode stage and
 feeds a single order-book stage, costed end to end.
@@ -5858,7 +5829,7 @@ and there is no minimum period. In the second the same fast kernel is followed b
 minimum period equal to the publisher period, $\spub = 7.5\,\mu\mathrm{s}$: each arrival is
 delayed until at least $\spub$ after its predecessor, modelling the exchange's publisher
 (Section~\ref{sec:exchange-publisher}). In the third the kernel is slow, $1/\beta =
-80\,\mu\mathrm{s}$, with the same spacing; this is the condition closest to the CME gap
+80\,\mu\mathrm{s}$, with the same minimum period; this is the condition closest to the CME gap
 structure, though the kernel fitted on the corpus is slower still, about $160\,\mu\mathrm{s}$
 (Section~\ref{sec:setup-hawkes}). The grid is $n \in \{0.5, 0.7, 0.8, 0.9, 0.95\}$ and $\bar\lambda \in \{500,
 2000, 8000, 32000, 64000\}$ packets per second, so that $\rho = \bar\lambda T$ at $T =
@@ -5914,10 +5885,8 @@ $\bar\lambda T$ for the last four columns; the first column is $\rho = 0.004$.}
 \caption{Table~\ref{tab:synthetic} as bars, log scale, for branching ratio $0.8$: the normalised
 tail $p_{99}/T$ at $T = 8\,\mu\mathrm{s}$ on synthetic feeds, by packet rate. A fast kernel
 with no minimum period (pink) has a tail of about a hundred times $T$; adding a
-minimum period equal to the publisher period (vermillion) cuts it more than tenfold; a slow kernel
-with the spacing (green) is lower still, closer to the Poisson stream (black). What sets
-the tail at $8\,\mu\mathrm{s}$ is how many gaps sit at the minimum period, which the kernel
-and the spacing control and the branching ratio alone does not.}
+minimum period equal to the publisher period (vermillion) cuts it more than tenfold; a slow kernel with the minimum period (green) is lower still, closer to the Poisson stream (black). What sets
+the tail at $8\,\mu\mathrm{s}$ is how many gaps sit at the minimum period, which the kernel and the minimum period control and the branching ratio alone does not.}
 \label{fig:bars-synthetic}
 \end{figure}
 
@@ -5971,7 +5940,7 @@ depends strongly on the branching ratio, splitting reduces the tail at $T =
 matters as well. The Poisson null shows only the load effect, and only at high
 utilisation, as a null should. The rule is therefore neither one thread nor two. The
 split threshold, the service time above which cutting a stage lowers its $p_{99}$, is a
-property of the feed's packet spacing; it cannot be read off the fitted parameters, and
+property of the feed's publisher period; it cannot be read off the fitted parameters, and
 it must be measured under the load the system will see. On the CME feed a
 $7\,\mu\mathrm{s}$ stage sits below the split threshold of $9$--$10\,\mu\mathrm{s}$; another exchange, or the same
 exchange after a change to its publisher, may not. Section~\ref{sec:recommendations} states this as
