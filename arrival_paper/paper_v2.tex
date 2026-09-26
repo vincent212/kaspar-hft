@@ -45,49 +45,42 @@ How Matching-Engine Transactions Cause Long Tails in Market-Data Handlers}
 \maketitle
 
 \begin{abstract}
-The prevailing view in high-frequency-trading (HFT) system design is that the entire hot
-path --- market-data decode, order-book application, strategy evaluation, order
-construction --- should run on a single-threaded event loop, because each additional
-thread hop adds wall-clock latency. This paper puts two questions to that view, on more
-than a year of CME market data for the NQ front-month contract. First, what produces the
-queueing tail behind a single-threaded receiver: the packet rate, the clustering of
-arrivals, or the number of messages per packet? Second, is a servicing chain cut into
-stages on separate threads better than one thread, and when?
+This paper is a measurement study of a real exchange feed and of what its structure
+implies for the design of the software that receives it. Over more than a year of CME
+market data for the NQ front-month contract, we follow every packet and every
+matching-engine transaction through the two exchange timestamps the feed carries, from
+the matching engine, through the exchange's market-data publisher, to a receiver, and we
+check the characterisation against a live production receiver on other instruments.
 
-On the first question: the tail is produced by the timing of the matching engine's
-transactions and, at the service times production receivers run at, by the number of
-messages each packet carries. It is not produced by the rate: utilisation is tiny at
-HFT service times, and the busiest windows have the same tail, relative to the service
-time, as the quietest. Nor is it produced by how the exchange packs transactions into
-packets: almost every transaction fits in one packet, and the short gaps that make a
-receiver queue lie between different transactions. Putting transactions at random moments
-removes most of the tail; changing their sizes or their packing does not. The exchange's
-own timestamps show where the short gaps come from. The matching engine often processes
-consecutive transactions within a fraction of a microsecond of each other; the exchange's
-market-data publisher is a queue that sends about one packet every $7.5\,\mu\mathrm{s}$,
-so a burst at the engine reaches the receiver as a train of packets at that spacing. A
-receiver is therefore the second stage of a tandem that starts at the exchange, and its
-tail threshold is the publisher period. Why orders reach the engine within a
-microsecond of each other, which fits many participants racing on the same signal, is a
-question about the market rather than the receiving software, and is left open.
+The feed looks like this. Packets arrive in near-critical self-exciting clusters, and
+the clustering belongs to the matching engine's transactions, not to how the exchange
+packs them: almost every transaction fits in one packet. The matching engine often
+processes consecutive transactions within a fraction of a microsecond of each other. The
+market-data publisher cannot send that fast: it is a queue that sends at most one packet
+per \emph{publisher period}, about $7.5\,\mu\mathrm{s}$, its delay grows about tenfold
+when the engine bursts, and it drains a backlog with more packets rather than bigger
+ones. A burst at the engine therefore reaches a receiver as a train of packets one
+publisher period apart, most of them one message long. The short gaps that make a
+receiver queue are gaps between different transactions, and what sits on either side of
+them is ordinary quote traffic, with the signature of a race after trades. Why orders
+reach the engine so close together is a question about the market and is left open.
 
-On the second question: yes above a threshold and no below it, and the threshold is the
-publisher period. Below it there is no queue to shorten and a cut only adds a hop to
-every message; above it, one balanced cut removes most of the tail for one hop on the
-median, and only the slowest stage matters, so a cut that does not shorten the largest
-stage gains nothing. For a stage without state, such as decode, a pool of cores that each
-take whole packets does as well as a cut and better once the pool is large enough, with
-every cost charged; the order book carries state and can only be cut. A production
-receiver runs just under the publisher period, at about $7\,\mu\mathrm{s}$, and should
-not be split. There, most of the tail comes from long packets, whose messages are decoded
-one after another while the packets behind them queue, and from service times that vary
-from packet to packet; the levers are the cost per message and the spread of service, not
-the number of threads. We give the analytic framework, a burst-limit throughput identity and an exact pathwise
-reduction of the deterministic-service tandem to a single bottleneck server, and test it
-on the corpus. We check the arrival statistics against a live production receiver on
-other instruments: they agree, and the production decode floor coincides with the service
-time at which the simulated tail appears. Code is in the
-\kasparhft{} repository; the packet captures are not redistributable.
+For receiver design this means the following. A receiver that handles every packet
+within one publisher period never queues on packet arrivals, however bursty the market;
+that is the design goal, and the paper's production receiver meets it. Above the
+publisher period a queueing tail appears and grows much faster than the service time. It
+is produced by the timing of transactions, not by the packet rate, whose effect is tiny
+at HFT service times, and not by packet size or packetisation. There the prevailing
+single-thread rule reverses: cutting the servicing chain into stages on separate threads
+removes most of the tail for one hop on the median, only the slowest stage matters, and
+for a stateless stage a pool of cores that each take whole packets does at least as
+well. At a production receiver, just under the publisher period, the tail that remains
+comes from packets of several messages, decoded one after another, and from service
+times that vary from packet to packet; the levers there are the cost per message and the
+spread of service, not the thread count. We give the analytic framework, a burst-limit
+throughput identity and an exact pathwise reduction of the deterministic-service tandem
+to a single bottleneck server, and test it on the corpus. Code is in the \kasparhft{}
+repository; the packet captures are not redistributable.
 \end{abstract}
 
 \clearpage
@@ -98,6 +91,27 @@ time at which the simulated tail appears. Code is in the
 
 \section{Introduction}
 \label{sec:intro}
+
+\subsection{A measurement study of a real feed, and what it implies for receiver design}
+\label{sec:intro-study}
+
+The object of study is a real exchange feed as it arrives on the wire: CME MDP3 market
+data for the NQ front-month contract, over a year of trading sessions, several billion
+packets and as many matching-engine transactions. Three systems produce and consume that
+stream. The exchange's matching engine processes orders into transactions; the exchange's
+market-data publisher packs the resulting messages into packets and sends them; a
+receiver decodes the packets and applies them to its order book. The feed carries a
+timestamp from each of the first two, and the receiver adds its own, so each transaction
+can be followed through all three. The paper measures each stage: how the transactions
+are timed at the engine, how the publisher paces and packs them, how big the packets are
+and how often they come, and what a receiver of a given speed then pays in queueing.
+Part~II reports the measurements; Section~\ref{sec:exchange} is the exchange side of
+them.
+
+The best practices for HFT receiver design that Part~III states are derived from these
+measured characteristics, not from a model of the market. The oldest of those practices,
+the single-threaded hot path, is the design question the measurements settle first, and
+the next subsection sets it out. It is one consequence of the study, not its subject.
 
 \subsection{The single-thread event loop against the multi-actor tandem}
 \label{sec:intro-debate}
@@ -250,41 +264,55 @@ the chain should be. The design rule is stated in Section~\ref{sec:conclusion}.
 \subsection{Plan of the paper}
 \label{sec:intro-plan}
 
-The paper asks two questions and answers each in a named place.
+The paper asks three groups of questions and answers each in a named place.
 
 \begin{enumerate}
+    \item \emph{What does the feed look like, on the wire and behind it?} Packet arrivals
+are self-exciting clusters (Section~\ref{sec:setup-hawkes}); the clustering belongs to the
+matching engine's transactions, almost every one of which fits in one packet
+(Section~\ref{sec:results-transactions}); the engine processes consecutive transactions
+within a fraction of a microsecond while the publisher, a queue with a period of about
+$7.5\,\mu\mathrm{s}$, delivers them one period apart and packs few of them together
+(Section~\ref{sec:exchange}); a live receiver on other instruments sees the same
+statistics (Sections~\ref{sec:crossval-agree} and~\ref{sec:crossval-span}).
     \item \emph{What produces the queueing tail behind a single-threaded receiver?} Three
 candidates are tested. The packet rate: no, at HFT service times
 (Section~\ref{sec:results-conditioning}). The clustering of arrivals: yes
-(Section~\ref{sec:results-nulls}), and Section~\ref{sec:results-transactions} identifies
-the clustered process as the stream of matching-engine transactions, acting through
-consecutive transactions sent back to back at the publisher period at short service times
-and through runs of transactions, the self-exciting component, at long ones. Why the
-matching engine processes transactions within a microsecond of each other, which is what
-backs up the publisher, is a question about the market, outside the scope of this
-paper; Section~\ref{sec:concl-cannot} states what can and cannot be claimed about it. The
-number of messages per packet: at the service time a production receiver runs at, about
+(Section~\ref{sec:results-nulls}), acting through consecutive transactions sent back to
+back at the publisher period at short service times and through runs of transactions,
+the self-exciting component, at long ones. Why the matching engine processes
+transactions within a microsecond of each other, which is what backs up the publisher,
+is a question about the market, outside the scope of this paper;
+Section~\ref{sec:concl-cannot} states what can and cannot be claimed about it. The number
+of messages per packet: at the service time a production receiver runs at, about
 $7\,\mu\mathrm{s}$, it carries most of the tail, through the decode of a long packet
 message by message and the queue that packet opens behind it; from $16\,\mu\mathrm{s}$ up
 it adds a few percent (Sections~\ref{sec:crossval-spanrun}
 and~\ref{sec:fungibility-measured}). Service times that vary from packet to packet, which
 the simulation does not model, add a tail of their own on the live receiver.
-    \item \emph{Are two queues better than one?} Yes above a service-time threshold set by
-the feed and no below it (Sections~\ref{sec:results-tail} and~\ref{sec:results-design}),
-and only the slowest stage matters (Theorem~\ref{thm:reduction}). For a stateless stage,
-with equal cores and every cost charged, a dispatch pool is level with a two-stage cut and
-better than a cut into four or more; the stateful order-book stage cannot be dispatched
+    \item \emph{How should a receiver be designed?} Stay under the publisher period if
+the chain allows it. Above it, are two queues better than one? Yes above a service-time
+threshold set by the feed and no below it (Sections~\ref{sec:results-tail}
+and~\ref{sec:results-design}), and only the slowest stage matters
+(Theorem~\ref{thm:reduction}). For a stateless stage, with equal cores and every cost
+charged, a dispatch pool is level with a two-stage cut and better than a cut into four
+or more; the stateful order-book stage cannot be dispatched
 (Section~\ref{sec:results-equal-core}). At the production operating point the answer is
-no (Section~\ref{sec:kaspar}).
+no, and the levers are the cost per message and the spread of service
+(Section~\ref{sec:kaspar}). Part~III turns these into a design procedure.
 \end{enumerate}
-Section~\ref{sec:exchange} looks one stage upstream, at the exchange's matching engine
-and market-data publisher through the timestamps the feed carries, and shows that the
-publisher is a queue whose output spacing, the publisher period, is the shortest gap the
-receiver sees.
 
-The paper proceeds in four parts.
+The paper proceeds in five parts.
 
 \begin{itemize}
+    \item \textbf{Measurement of the feed.} The corpus is over a year of NQ front-month
+packet captures with the exchange's engine and publisher timestamps
+(Section~\ref{sec:setup-data}). Its clustering is characterised model-free and with a
+Hawkes fit (Section~\ref{sec:setup-hawkes}); every message is grouped into its
+matching-engine transaction (Section~\ref{sec:results-transactions}); and the same
+transactions are followed through the engine's clock and the publisher's, giving the
+publisher period, the publisher's delay under load, packet size under backlog, and what
+sits on either side of a short gap (Section~\ref{sec:exchange}).
     \item \textbf{Theory.} Two closed-form results (Section~\ref{sec:theory}) predict the
 pipeline behaviour. Proposition~\ref{thm:burst} shows that under any arrival process an
 $N$-stage tandem has an $N$-fold throughput speedup on isolated bursts.
@@ -345,50 +373,92 @@ message count of a few large packets (Section~\ref{sec:fungibility-measured}).
 \subsection{Contribution and prior-art positioning}
 \label{sec:intro-priors}
 
-A literature search covering foundational tandem theory
+The paper makes three kinds of contribution: a measurement of an exchange feed at the
+packet and transaction level, a theory of what a receiver pays for it, and design rules
+that follow.
+
+\paragraph{Measurement.} Four findings about CME's NQ feed that, to our knowledge, have
+not been published for any exchange.
+\begin{enumerate}
+    \item \emph{The publisher is a queue, and its period is the receiver's threshold.} The
+exchange's market-data publisher sends at most one packet every $7.5\,\mu\mathrm{s}$; its
+delay from engine to packet grows about tenfold when the engine bursts; and it drains a
+backlog with more packets, not bigger ones (Section~\ref{sec:exchange-publisher},
+Section~\ref{sec:exchange-drain}).
+    \item \emph{Two clocks.} On the matching engine's clock one consecutive transaction in
+six follows the previous one within the publisher period, often within a fraction of a
+microsecond; on the publisher's clock almost none do. Most of the short gaps a receiver
+sees are engine events processed almost together and delivered one period apart
+(Section~\ref{sec:exchange-engine}).
+    \item \emph{The transaction structure of the packet stream.} Almost every transaction
+fits in one packet, a long packet is several transactions packed together, and the
+packet stream inherits the clustering of the transaction stream, with the same branching
+ratio (Section~\ref{sec:results-transactions}, Section~\ref{sec:crossval-span}).
+    \item \emph{What sits on either side of a short engine gap.} Ordinary quote traffic,
+in the same mix as across long gaps, with the signature of a race after trades
+(Section~\ref{sec:exchange-bursts}).
+\end{enumerate}
+
+\paragraph{Theory and identification.} The choice between a single-thread receiver and
+an $N$-stage tandem \emph{reverses with the arrival law}: at HFT service times Poisson
+arrivals make the single thread the better choice, since there is no wait to compress,
+while clustered arrivals at the same rate make the tandem better on the tail, because
+the cluster wait it removes exceeds the hop cost it adds. Two closed-form results
+(Section~\ref{sec:theory}) and a tandem sweep driven by the real packet timestamps
+(Section~\ref{sec:results}) establish it. Seven null streams, each removing one
+ingredient of the clustering, identify what the receiver queues on: the timing of
+transactions, not their size, their packetisation, the packet rate or second-scale load
+(Section~\ref{sec:setup-nulls}). We have found no prior statement of the reversal and no
+prior test of whether an exchange's packetisation or the market's clustering is what a
+receiver queues on.
+
+\paragraph{Design.} The measurements give a receiver a threshold to measure once per
+feed, the publisher period; a rule for where to cut a chain above it and how to spend
+cores on stateless and stateful stages; and, at the production operating point just
+under the period, the finding that the remaining tail is in long packets and variable
+service, not in the thread count (Part~III).
+
+\paragraph{Prior work.} A literature search covering foundational tandem theory
 \citep{jackson1957,kelly1979,burke1956,kleinrock1976,whitt1983}, tandem theory under
 bursty arrivals
 \citep{fosskorshunov2000,baccellifosslelarge2005,heindl2001mmpp,kimchydzinski2002mmpp,debickimandjes2015},
 Hawkes single-queue and adjacent work
 \citep{dawpender2018queues,chenblanchet2021,koopsboxmamandjes2018,sheldon2023,gaozhu2018jumps,gaozhu2024statedep},
-and empirical and applied HFT and RPC-pipeline work
-\citep{byrd2020abides,frey2023jaxlob,aquilina2022arms,deanbarroso2013tailatscale,zhao2023parsimon}
-together with the datacenter tail-latency literature found no direct prior art on
-any of the paper's three claims. The nearest neighbour on the exchange side is
-\citet{yoon2026matching}, who reports that a matching engine's tail latency under load is
-set by queueing at the serialised match loop during bursts; the present paper is the
-receiver-side counterpart, with the arrival process measured rather than assumed. The
-nearest on the arrival-process side is the Hawkes literature on order flow
-\citep{filimonovsornette2012,filimonovsornette2015,hardimanbercotbouchaud2013,achab2018branching,bacry2015review},
-which models order-book events for microstructure and forecasting and does not connect
-them to a receiver's service queue or to the packet process that carries them. The first claim is theoretical: that the choice between
-a single-queue (single-thread) architecture and an $N$-stage tandem (multi-actor pipeline)
-is not fixed but \emph{reverses with the arrival law}. At the service times an HFT hot path occupies, single-digit to low-tens of
-microseconds, Poisson arrivals make the single queue the better choice: at that
-utilisation there is no wait to compress, and each additional stage adds hop latency only.
-Hawkes-clustered arrivals at the same mean rate make the tandem better on the tail,
-because the cluster wait it removes exceeds the hop cost it adds. The reversal is between
-arrival laws at fixed rate and service time. A Poisson queue also develops a tail at
-sufficiently long service times, but later and more mildly. We have found no prior work
-stating that the architectural recommendation reverses between these two arrival laws. The second is empirical: a tandem-queue latency sweep over service times and stage
-counts, driven by CME MDP3 packet timestamps, controlled against a rate-matched Poisson null, with
-a hop cost calibrated from the low-load round trip measured on a production HFT actor
-framework. We have found no prior study that
-combines a real exchange-calibrated tandem sweep with both that Poisson counterfactual and
-a measured framework hop cost. The third is the identification of the clustered
-process. Grouping every message in the corpus by matching-engine transaction shows that the
-packet stream is the transaction stream relayed one packet per event, and that the
-transaction stream is self-exciting with the same branching ratio as the packets. Seven
-null streams, each removing one ingredient of the clustering
-(Section~\ref{sec:setup-nulls}), then show that at service times well above the publisher
-period the receiver's tail is produced by the timing of transactions and not by their
-size, their division into packets, the packet rate, or second-scale load. The timing acts
-through transactions sent back to back at the publisher period at short service times and
-through runs of them at long ones. At the decode floor of a production receiver the decode
-of long packets message by message carries most of the tail. We have found no published
-measurement of the packet process of an exchange feed at this level, and no prior test
-of whether an exchange's packetisation or the market's self-excitation is what a
-receiver queues on. The full reference list appears in Section~\ref{sec:refs}.
+empirical and applied HFT and RPC-pipeline work
+\citep{byrd2020abides,frey2023jaxlob,aquilina2022arms,deanbarroso2013tailatscale,zhao2023parsimon},
+the datacenter tail-latency literature, and the empirical market-microstructure work on
+exchange timing found no characterisation of an exchange's outbound packet stream at
+this level. The nearest neighbours measure adjacent things. Deutsche B\"orse
+characterises its own T7 system from the inside \citep{deutscheboerse2026t7}: up to six
+timestamps per message, a micro-burst in which inbound traffic falls from millions of
+messages per second at the gateway to a few hundred thousand at matching, and three
+network timestamps per market-data packet through a timestamp file; it is the inbound
+side, one example burst, and self-reported, and it does not characterise the outbound
+packet spacing, packet size under backlog or transactions per packet over time.
+\citet{noble2026realitygap}, on Nasdaq equities, find a sharp mode in inter-event times
+at the exchange round trip, about $29\,\mu\mathrm{s}$, and about a quarter of events too
+fast to be reactions to the previous one, which they read as correlated responses to a
+shared signal; that is the same observation as the sub-microsecond engine gaps of
+Section~\ref{sec:exchange-engine}, made on event times alone, without the publisher or
+the packets. \citet{bartlettmccrary2019} and \citet{dinghannahendershott2014} measure the
+dissemination latency of the US equity consolidated feeds against direct feeds from
+exchange timestamps, at microsecond to millisecond scale; \citet{fishehaynesonur2016}
+measure message latency on CME Treasury and e-mini futures from account-level audit-trail
+data; \citet{hasbrouck2013lowlatency} document millisecond runs of linked messages on
+Nasdaq. None measures a direct feed packet by packet. Industry monitoring reports message
+and packet rates of US feeds at one-millisecond resolution,\footnote{Exegy and the
+Financial Information Forum, \emph{MarketDataPeaks},
+\url{https://www.exegy.com/resources/marketdatapeaks/}.} which is rates, not spacing. On
+the exchange side, \citet{yoon2026matching} reports that a matching engine's tail latency
+under load is set by queueing at the serialised match loop during bursts; the present
+paper is the receiver-side counterpart, with the arrival process measured rather than
+assumed. On the arrival-process side, the Hawkes literature on order flow
+\citep{filimonovsornette2012,filimonovsornette2015,hardimanbercotbouchaud2013,achab2018branching,bacry2015review}
+models order-book events for microstructure and forecasting and does not connect them to
+a receiver's service queue or to the packet process that carries them. We have found no
+prior study that combines a real exchange-calibrated tandem sweep with a Poisson
+counterfactual and a measured framework hop cost. The full reference list appears in
+Section~\ref{sec:refs}.
 
 \subsection{Note on the use of AI in this paper}
 \label{sec:intro-ai-use}
@@ -952,7 +1022,7 @@ single-thread wait plus the hop cost, on any arrival sequence.
 % =====================================================================
 
 \clearpage
-\part{Empirical experiment}
+\part{Measurement of the feed and simulation of the receiver}
 
 \section{Experiment setup}
 \label{sec:experiment-setup}
@@ -2690,7 +2760,7 @@ a split could remove gets $N^\star = 1$, and the recommendation reverses.
 
 % =====================================================================
 
-\section{The exchange side: matching engine, publisher and bursts}
+\section{The feed behind the packets: matching engine and publisher}
 \label{sec:exchange}
 
 The receiver's arrivals are the output of the exchange. This section looks one step
@@ -3110,7 +3180,11 @@ spacing fits many participants sending orders in response to the same public sig
 \emph{races} that \citet{aquilina2022arms} measured on the London Stock Exchange with
 order-entry times the CME public feed does not carry. It is consistent with that
 mechanism and does not prove it: a reaction to the previous transaction that is faster than
-the engine's backlog would look the same from here.
+the engine's backlog would look the same from here. The same observation has been made on
+Nasdaq equities from event times alone: \citet{noble2026realitygap} find a sharp mode in
+inter-event times at the exchange round trip and about a quarter of events too fast to be
+reactions to the previous one, which they read as correlated responses to a shared
+signal.
 
 Table~\ref{tab:tight-pairs} tests what transactions separated by a tight gap are. It
 takes every gap between consecutive transactions on the engine clock in 40 sessions
@@ -4743,7 +4817,10 @@ The design flow that follows from the paper's results, and that we recommend as 
 canonical HFT infrastructure workflow on self-exciting exchange feeds:
 \begin{enumerate}
     \item \textbf{Retain per-message optimisation.} This is orthogonal to the paper's
-recommendation and determines absolute latency.
+recommendation and determines absolute latency. Basis: at a production receiver, just
+under the publisher period, the tail that remains is in packets of several messages
+and in variable service, so the cost per message and the spread of service are the
+levers there (Sections~\ref{sec:crossval-spanrun} and~\ref{sec:fungibility-measured}).
     \item \textbf{Measure the target publisher period, and use it as the
 split/don't-split test.} Take the corpus of packet arrivals, form the per-window
 interarrival-gap distribution, and read off a low quantile of it --- we use $p_1$. This
@@ -4771,7 +4848,8 @@ strategy actor, order manager --- four or five stages, no artificial decompositi
 (Section~\ref{sec:implementation}). The tail factor is $s_{\max}/T$
 (Remark~\ref{rem:unequal}), so the goal of the decomposition is the smallest largest
 stage, and the largest stage belongs at ingress so that all queueing sits in one mailbox
-(Remark~\ref{rem:dissipation}).
+(Remark~\ref{rem:dissipation}). Basis: the tail excess on the corpus depends on the
+service time only through the largest stage (Table~\ref{tab:delta}).
     \item \textbf{Divide the stages above the publisher period by state.} A stage that carries no
 state from one packet to the next, such as SBE decode, can be served by a dispatch pool of
 whole-packet servers; with four or more cores for it, a pool is better than cutting it
@@ -4813,9 +4891,11 @@ code.
 \section{Conclusion}
 \label{sec:conclusion}
 
-This paper is about queueing in the software that receives market data: what makes a
-single-threaded receiver's latency tail, and how to reduce it. It is not about why the
-market behaves as it does. Section~\ref{sec:concl-summary} gives the answer in one place;
+This paper measured a real exchange feed, over a year of NQ packets and matching-engine
+transactions, from the matching engine through the publisher to a receiver, and derived
+from what it found how the receiving software should be designed: what makes a
+receiver's latency tail, and how to reduce it. It is not about why the market behaves as
+it does. Section~\ref{sec:concl-summary} gives the answer in one place;
 the remaining subsections state what the paper establishes about the cause of the tail,
 what it does not, how to reduce the tail, what it revises in a prior design context, and
 the caveats. All empirical results are for one instrument, NQ front-month on CME.
@@ -4992,8 +5072,9 @@ from the London Stock Exchange with participants' order-entry times and found th
 \emph{races} --- several participants sending messages at the same price level in response
 to the same public signal, within microseconds of each other --- are frequent and account
 for a material share of trading volume. That is mechanism~(b). The sub-microsecond
-engine-clock gaps are what (b) would produce, and it is likely that the same mechanism is
-at play on CME; the paper has no data that test it, and states it as a hypothesis.
+engine-clock gaps are what (b) would produce, and \citet{noble2026realitygap} see the same
+too-fast events on Nasdaq; it is likely that the same mechanism is at play on CME. The
+paper has no data that test it, and states it as a hypothesis.
 
 \paragraph{Whether the publisher's capacity is designed.} The publisher behaves as a queue
 with a capacity of one packet per publisher period; whether that capacity is a
@@ -5417,6 +5498,32 @@ Bacry, E., Mastromatteo, I., Muzy, J.-F. (2015). Hawkes processes in finance.
 Budish, E., Cramton, P., Shim, J. (2015). The high-frequency trading arms race: frequent
 batch auctions as a market design response. \textit{Quarterly Journal of Economics}
 130(4), 1547--1621.
+
+\bibitem[Deutsche B\"orse Group(2026)]{deutscheboerse2026t7}
+Deutsche B\"orse Group (2026). Insights into trading system dynamics: Deutsche B\"orse's
+T7. Presentation, edition reporting measurements of 19 August 2026.
+\url{https://www.eurex.com/resource/blob/48918/e8d4df56f75c9a96fb0f6fff6b18a14f/data/presentation_insights-into-trading-system-dynamics_en.pdf}
+
+\bibitem[Noble et al.(2026)]{noble2026realitygap}
+Noble, P., Rosenbaum, M., Souilmi, S. (2026). Bridging the reality gap in limit order
+book simulation. arXiv 2603.24137.
+
+\bibitem[Bartlett and McCrary(2019)]{bartlettmccrary2019}
+Bartlett, R. P., McCrary, J. (2019). How rigged are stock markets? Evidence from
+microsecond timestamps. \textit{Journal of Financial Markets} 45, 37--60.
+
+\bibitem[Ding et al.(2014)]{dinghannahendershott2014}
+Ding, S., Hanna, J., Hendershott, T. (2014). How slow is the NBBO? A comparison with
+direct exchange feeds. \textit{Financial Review} 49(2), 313--332.
+
+\bibitem[Fishe et al.(2016)]{fishehaynesonur2016}
+Fishe, R. P. H., Haynes, R., Onur, E. (2016). Speed and latency in Treasury and e-mini
+futures contracts, Part 2. U.S. Commodity Futures Trading Commission, Office of the Chief
+Economist, working paper.
+
+\bibitem[Hasbrouck and Saar(2013)]{hasbrouck2013lowlatency}
+Hasbrouck, J., Saar, G. (2013). Low-latency trading. \textit{Journal of Financial
+Markets} 16(4), 646--679.
 
 \bibitem[Yoon(2026)]{yoon2026matching}
 Yoon, J. (2026). The world's fastest matching engine algorithm. arXiv 2606.01183.
