@@ -123,8 +123,9 @@ evaluation and order construction, all under one call chain, taking a total serv
 we denote $T$. The second is the multi-actor pipeline, a \emph{tandem} of $N$ servers in
 series. There the steps are split across $N$ actors, each on its own thread with its own
 mailbox; each does its part of the work and hands the message to the next across one of
-$N-1$ explicit hops, whose per-hop wall-clock cost we denote $h$. The low-latency HFT
-community is predominantly in the single-thread camp, and single-threaded is generally
+$N-1$ explicit hops, whose per-hop wall-clock cost we denote $h$. Throughout, \emph{HFT service times} means a few microseconds to a few tens of
+microseconds per packet, the range a hot path occupies. The low-latency HFT community is
+predominantly in the single-thread camp, and single-threaded is generally
 regarded as the safe choice. The argument cites the cost of a mailbox hop: a mailbox enqueue, a cache-line transfer
 between the sender's core and the receiver's core, and the cost of scheduling or spinning
 the receiver. It holds that $(N-1) h$ adds to every message's end-to-end latency, so that
@@ -630,8 +631,9 @@ atomic sub-tasks: SBE decode, order-book application, strategy touch and order
 construction (Section~\ref{sec:implementation}). The $N$ stages of the tandem are placed at
 the existing boundaries between those sub-tasks. The paper does not subdivide any single
 sub-task, and in particular not the SBE decode, which is a linear pass over the wire bytes
-of one message and cannot be split. Ten microseconds is chosen for exposition; none of the paper's qualitative results
-depend on it. The
+of one message and cannot be split. Ten microseconds is chosen for exposition: it is a round value just above both the
+production decode floor and the publisher period, and none of the paper's qualitative
+results depend on it. The
 relevant knob for the design equation is the ratio $T/h$: doubling $T$ at fixed $h$
 doubles the cluster-wait terms of Equation~\eqref{eq:burst} and leaves the hop tax
 unchanged. The service time below which splitting cannot pay
@@ -678,9 +680,10 @@ w_j(s') &\le \frac{s'}{s}\; w_j(s) \qquad \text{for all } 0 < s' \le s, \label{e
 \end{align}
 and consequently
 \begin{equation}
-W_j^{(N)} \;\le\; \frac{s_{\max}}{T}\, W_j^{(1)} + (N-1)\,h \;=\; \frac{W_j^{(1)}}{N} + (N-1)\,h \quad\text{under equal stages } s_i = T/N.
+W_j^{(N)} \;\le\; \frac{s_{\max}}{T}\, W_j^{(1)} + (N-1)\,h ,
 \label{eq:bound}
 \end{equation}
+which under equal stages, $s_i = T/N$, reads $W_j^{(N)} \le W_j^{(1)}/N + (N-1)\,h$.
 Since Equation~\eqref{eq:bound} holds pathwise, it holds for every quantile of the
 stationary distribution whenever one exists: $W_q^{(N)} \le W_q^{(1)}/N + (N-1)h$ for all
 $q$. The same inequality holds for the empirical (sample) quantiles computed over any
@@ -840,7 +843,7 @@ characteristic scale of $T\,k^\star$. At the corpus's branching ratio of about $
 is some twenty-five service times, and at $0.9$ it would be a hundred: one to two orders
 of magnitude above the service time and the hop cost.
     \item Heavy-tail results built on subexponential batch sizes, such as the
-single-big-batch principle for $M^{[K]}/G/1$ \citep{asmussenfoss2003} and the
+single-big-batch principle for $M^{[K]}/G/1$ \citep{asmussen2003} and the
 monotone-separable tail asymptotics of \citet{baccellifosslelarge2005}, do not apply to
 this batch distribution at any fixed $n < 1$, so no closed-form power-law exponent for the
 tail probability should be expected.
@@ -1034,7 +1037,7 @@ states the full per-window procedure in pseudocode.
 \node[box, right=of tape, minimum width=32mm] (window) {30-min window\\ $[T_0, T_1]$};
 \node[box, right=of window, minimum width=38mm] (packets) {group by \texttt{packet\_seq}\\ $\Rightarrow$ packet arrivals};
 
-\node[arm, below=8mm of packets, xshift=-30mm] (hawkes) {Hawkes arm\\ real arrivals};
+\node[arm, below=8mm of packets, xshift=-30mm] (hawkes) {real arrivals};
 \node[arm, below=8mm of packets, xshift=+30mm] (poisson) {Poisson-null arm\\ uniform shuffle};
 
 \node[sim, below=8mm of hawkes] (simH) {Tandem Lindley\\ $N \in \{1,2,4,8\}$};
@@ -1384,9 +1387,9 @@ relay them. Section~\ref{sec:results-transactions} therefore groups every messag
 \emph{transaction}), and builds five further streams in which each transaction is a
 block --- its packets, their message counts and their internal spacing --- and exactly
 one ingredient is removed. Service in these runs is charged per packet at its measured
-cost, $S_i = T\,(1 + r(\sigma_i - 1))$ with $\sigma_i$ the message count and $r$ the
-live decoder's ratio of per-message slope to decode floor, so that a large packet adds work rather than
-redistributing it; if the size of a transaction matters to the tail, these runs can show
+cost, $S_i = T\,(1 + r(\sigma_i - 1))$ with $\sigma_i$ the message count and $r$ the live decoder's ratio of per-message cost to its decode floor (its time for a
+one-message packet, Section~\ref{sec:crossval-floor}), so that a large packet adds work
+rather than redistributing it; if the size of a transaction matters to the tail, these runs can show
 it. Table~\ref{tab:null-design} lists all nine streams.
 
 \begin{table}[tbp]
@@ -1466,7 +1469,7 @@ packet count per window.
 \small
 \begin{tabular}{@{}rr rrr rrr@{}}
 \toprule
- & & \multicolumn{3}{c}{Hawkes (real arrivals)} & \multicolumn{3}{c}{Poisson null} \\
+ & & \multicolumn{3}{c}{real arrivals} & \multicolumn{3}{c}{Poisson null} \\
 \cmidrule(lr){3-5} \cmidrule(lr){6-8}
 $T$ & $N$ & $p_{50}$ & $p_{99}$ & $p_{99.9}$ & $p_{50}$ & $p_{99}$ & $p_{99.9}$ \\
 \midrule
@@ -1767,7 +1770,7 @@ exchange's division of one event into several packets, so a receiver that reasse
 transactions before decoding would remove almost none of them. Section~\ref{sec:exchange}
 shows where they come from: the engine processes many transactions within a microsecond
 of each other, and the publisher sends them one publisher period apart
-(Table~\ref{tab:two-clocks}).}
+(Table~\ref{tab:two-clocks}). Figure~\ref{fig:bars-tx-gaps} shows the same numbers as bars.}
 \label{tab:tx-gaps}
 \end{table}
 
@@ -1836,7 +1839,7 @@ median over 3512 windows, for transaction starts, for the same starts with the i
 between transactions randomly permuted (transactions kept intact), and for packets; Poisson
 gives $1$ at every $\tau$. Last row: exponential-kernel Hawkes branching ratio, corpus
 median, all fits converged. The within-window Fano values agree with those of
-Section~\ref{sec:setup-hawkes} at the same bin width.}
+Section~\ref{sec:setup-hawkes} at the same bin width. Figure~\ref{fig:bars-tx-fano} shows the same numbers as bars.}
 \label{tab:tx-fano}
 \end{table}
 
@@ -1919,7 +1922,7 @@ only by sustained runs, and runs are what TG breaks up. This is the profile the 
 shuffle gave at the packet level (Table~\ref{tab:nulls}). At $T \le 8\,\mu\mathrm{s}$ the
 real tail is under $1\,\mu\mathrm{s}$ and the shares are not meaningful. Using ZN's cost per
 message instead of NQ's moves every cell by at most a few points, and session-bootstrap
-intervals are within about two points.}
+intervals are within about two points. Figure~\ref{fig:bars-tx-arms} shows the same numbers as bars.}
 \label{tab:tx-arms}
 \end{table}
 
@@ -2057,7 +2060,7 @@ $T$ & $N$ & $p_{50}$ & $p_{99}$ & $p_{50}$ & $p_{99}$ \\
 against the same $N$ cores as one queue feeding $N$ whole-packet servers, with no hop and
 no resequencing charged to the latter. What the table shows: uncharged, the pool is at or
 below the tandem everywhere, because it adds no hops. This is the most dispatch could
-achieve; Table~\ref{tab:dispatch-costed} charges its costs.}
+achieve; Table~\ref{tab:dispatch-costed} charges its costs. Figure~\ref{fig:bars-equal-core} shows the same numbers as bars.}
 \label{tab:equal-core}
 \end{table}
 
@@ -2238,7 +2241,7 @@ $\gamma$ in $\Delta(N) \approx \Delta(1) N^{-\gamma}$; the last row is the
 Theorem~\ref{thm:reduction} bound. What the table shows: each extra halving of the stage
 length moves the excess to the single-thread value at half the service time, so the
 values repeat along the diagonals; once each stage is below the publisher period the
-excess is zero. Every ratio is far below the bound.}
+excess is zero. Every ratio is far below the bound. Figure~\ref{fig:bars-delta} shows the same numbers as bars.}
 \label{tab:delta}
 \end{table}
 
@@ -2457,7 +2460,7 @@ $1.5\,\mu\mathrm{s}$ later, once the tail is larger than the hop cost.}
 \label{fig:bars-onset}
 \end{figure}
 
-Two distinct thresholds are visible. The first is the \emph{tail} threshold: between $T =
+Two distinct thresholds are visible (Figure~\ref{fig:bars-onset}). The first is the \emph{tail} threshold: between $T =
 7$ and $8\,\mu\mathrm{s}$ the share of windows with any tail jumps from almost none to
 almost all. The second is the \emph{split} threshold, about $1.5\,\mu\mathrm{s}$ later,
 between $8$ and $10\,\mu\mathrm{s}$: a tail must exist \emph{and} exceed the hop cost before
@@ -2674,7 +2677,9 @@ clustering and does not change between a quiet and a volatile session. Both the 
 the spacing of transactions inside a burst were measured on one instrument, NQ front-month on CME; recheck them on any other instrument or feed rather than
 assume them.
 \end{minipage}}
-\end{center} Appendix~\ref{app:synthetic} constructs a feed on which both dependences appear
+\end{center}
+
+Appendix~\ref{app:synthetic} constructs a feed on which both dependences appear
 at $T = 8\,\mu\mathrm{s}$, and identifies the packed-gap fraction as the quantity that
 separates it from CME.
 
@@ -2806,7 +2811,7 @@ publisher that close, and the publisher's tightest one percent are $7.46\,\mu\ma
 apart. The difference holds in every session. What follows: the
 shortest gap the receiver sees is the publisher period, not a
 property of the market's event process; events the engine produces faster than that are
-either held back or packed into one packet.}
+either held back or packed into one packet. Figure~\ref{fig:bars-engine-clock} shows the same numbers as bars.}
 \label{tab:engine-clock}
 \end{table}
 
@@ -2871,7 +2876,7 @@ the engine processed almost together. What follows: transactions do not reach th
 receiver together. The publisher spaces them out to its own interval of about
 $\spub$ and packs only a few into one packet, so the short gaps that load the
 receiver are, for the most part, near-simultaneous engine events delivered back to back at
-the publisher period.}
+the publisher period. Figure~\ref{fig:bars-two-clocks} shows the same numbers as bars.}
 \label{tab:two-clocks}
 \end{table}
 
@@ -2948,7 +2953,7 @@ Delay and packing growing together is the signature of a queue: the publisher se
 one packet every $7.5\,\mu\mathrm{s}$, events the engine produces faster than that wait,
 and the backlog is packed into fuller packets. The burst measure counts NQ front-month
 transactions only, while the publisher serves the whole channel, so the table understates
-the load on the publisher.}
+the load on the publisher. Figure~\ref{fig:bars-publisher} shows the same numbers as bars.}
 \label{tab:publisher}
 \end{table}
 
@@ -3022,7 +3027,7 @@ packets. What the table shows: when the publisher is less than $100\,\mu\mathrm{
 packets carry exactly one NQ message; when it is more than $5\,\mathrm{ms}$ behind, they
 carry $1.6$ on average and one in five holds two or more transactions. What follows:
 packets get bigger when the publisher falls behind. Table~\ref{tab:drain-gap} shows which
-packets.}
+packets. Figure~\ref{fig:bars-drain} shows the same numbers as bars.}
 \label{tab:drain-delay}
 \end{table}
 
@@ -3200,7 +3205,7 @@ placements and cancellations, in about the same mix as across a loose gap; only 
 tight gaps follow a trade. After a trade, a tight follow-up
 is five times as likely to be another trade and more likely to be a cancellation, the
 signature of a race. Rejected race orders do not appear on the public feed, so the table
-does not measure the share of racing.}
+does not measure the share of racing. Figure~\ref{fig:bars-tight} shows the same numbers as bars.}
 \label{tab:tight-pairs}
 \end{table}
 
@@ -3493,7 +3498,7 @@ branching ratio $n$                   & $0.798$ (MLE) & \multicolumn{2}{c}{$\le 
 \bottomrule
 \end{tabular}
 \caption{The same four Poisson-rejection statistics, computed independently on recorded
-and on live data. The Poisson values are $9.52\%$, $1\times$, $0.5$ and $0$ respectively.}
+and on live data. The Poisson values are $9.52\%$, $1\times$, $0.5$ and $0$ respectively. Figure~\ref{fig:bars-crossval-stats} shows the same numbers as bars.}
 \label{tab:crossval-stats}
 \end{table}
 
@@ -3559,7 +3564,7 @@ single-message packets during an FOMC release & $7.1$ & $7.5$ & $7.0$ \\
 \caption{Three independent estimates of the \kasparhft{} decode floor (socket to book), in
 $\mu$s, on the book streams. The three differ in sample, estimator and load regime. The
 third was taken while the packet rate rose $4.6$ to $9.8\times$ within a second; the decode floor
-rose by at most $0.27\,\mu\mathrm{s}$ against either other estimator.}
+rose by at most $0.27\,\mu\mathrm{s}$ against either other estimator. Figure~\ref{fig:bars-crossval-floor} shows the same numbers as bars.}
 \label{tab:crossval-floor}
 \end{table}
 
@@ -3616,7 +3621,7 @@ range    & $6.81$--$7.23$ & $7.52$--$7.80$ & $7.85$--$8.76$ \\
 \caption{Per-packet service time in $\mu$s by datagram span, from each stream's measured
 decode floor and slope, against the publisher period $\spub$
 (Section~\ref{sec:results-conditioning}). Every stream is below the threshold at one message per packet and at or above it at
-two; one stream, ES trade, sits just inside the measured band at two.}
+two; one stream, ES trade, sits just inside the measured band at two. Figure~\ref{fig:bars-crossval-crossing} shows the same numbers as bars.}
 \label{tab:crossval-crossing}
 \end{table}
 
@@ -3624,9 +3629,8 @@ two; one stream, ES trade, sits just inside the measured band at two.}
 \centering
 \includegraphics[width=1.0\textwidth]{figs/bars/crossval_crossing.pdf}
 \caption{Table~\ref{tab:crossval-crossing} as bars: per-packet service for one, two and three
-messages on each live stream, against the tail threshold (shaded band). A one-message
-packet is served below the threshold on every stream; a two-message packet is at or above
-it on every stream. Whether a packet can start a queue is decided by whether it carries
+messages on each live stream, against the tail threshold (shaded band). A one-message packet is served below the threshold on every stream; a two-message packet
+is at or above it on every stream, one of them just inside the band. Whether a packet can start a queue is decided by whether it carries
 more than one message.}
 \label{fig:bars-crossval-crossing}
 \end{figure}
@@ -3749,7 +3753,7 @@ ZN trade & \phantom{0,0}22{,}864 & \phantom{0,}100{,}659 & 2 & 11 & 71 & 85 \\
 \end{tabular}
 \caption{Messages per UDP datagram (span), packet-weighted quantiles. The median book packet
 carries one message; one packet in a hundred carries about ten on the book streams and
-many times that on ZN trade.}
+many times that on ZN trade. Figure~\ref{fig:bars-crossval-span} shows the same numbers as bars.}
 \label{tab:crossval-span}
 \end{table}
 
@@ -3782,7 +3786,7 @@ ZN trade & 11.31 & 66.18 & 85.54 \\
 \bottomrule
 \end{tabular}
 \caption{Concentration of work in large datagrams. On ZN trade, $11.3\%$ of packets carry
-$66\%$ of the messages and consume $86\%$ of decode time.}
+$66\%$ of the messages and consume $86\%$ of decode time. Figure~\ref{fig:bars-crossval-conc} shows the same numbers as bars.}
 \label{tab:crossval-conc}
 \end{table}
 
@@ -3862,8 +3866,8 @@ dependence.
   && \text{(measured slope / decode floor)} \\
 \text{prop}  &: \quad S_i = T\,\sigma_i / \bar{\sigma} && \text{(upper bound)}
 \end{align*}
-with $A$ set so that the window mean of $S_i$ is $T$. The \emph{span} model uses the ratio
-of slope to decode floor measured on NQ book in Section~\ref{sec:crossval-floor}, $0.312/7.23$.
+with $A$ set so that the window mean of $S_i$ is $T$. The \emph{span} model uses the ratio of the cost per extra message to the decode floor,
+measured on NQ book in Section~\ref{sec:crossval-floor}.
 The \emph{prop} model removes the per-packet fixed cost, making service proportional
 to the message count; this overstates the dependence, since the measured decode floor exceeds
 the slope by more than twenty to one, and it is included as an upper bound. As a correctness check the \emph{const} arm reproduces the published
@@ -3885,8 +3889,8 @@ in-packet position & 0 & 0 & 1 & 4 & 19 & 84 \\
 \end{tabular}
 \end{center}
 
-$89.0\%$ of messages are alone in their packet and pay no in-packet decode; the remaining
-$11.0\%$ constitute the tail. The live measurement reports the same shape. The comparison
+Most messages, nearly nine in ten, are alone in their packet and pay no in-packet decode;
+the rest make up the tail. The live measurement reports the same shape. The comparison
 below is message-weighted.
 
 \begin{table}[H]
@@ -3922,7 +3926,7 @@ means message count adds nothing. The \emph{prop/const} columns repeat the ratio
 deliberately exaggerated model in which service is fully proportional to message count,
 as an upper bound. Read across: message count inflates the tail only at $T \le
 8\,\mu\mathrm{s}$, at or just above the publisher period, where clustering builds little
-or no queue, and is negligible above it.}
+or no queue, and is negligible above it. Figure~\ref{fig:bars-spancmp} shows the same numbers as bars.}
 \label{tab:spancmp}
 \end{table}
 
@@ -3944,9 +3948,7 @@ while the span-dependent model has a small one: below the publisher period there
 tail, but it is not a queueing tail. From $32\,\mu\mathrm{s}$, where queueing across packets
 makes the $p_{99}$ several times $T$, span adds at most a few percent.
 
-\paragraph{Decomposition at the production operating point.} The live system's measured
-decode floor is $6.81$--$7.23\,\mu\mathrm{s}$ (Section~\ref{sec:crossval-floor}), so the
-comparable row is $T = 8\,\mu\mathrm{s}$. Decomposing the message-weighted $p_{99}$ excess over the median ($p_{50}$) into the part the
+\paragraph{Decomposition at the production operating point.} The live system's decode floor is about $7\,\mu\mathrm{s}$ (Section~\ref{sec:crossval-floor}), so the comparable row is the sweep point just above the publisher period, $T = 8\,\mu\mathrm{s}$. Decomposing the message-weighted $p_{99}$ excess over the median ($p_{50}$) into the part the
 constant-service model already produced (queueing) and the remainder introduced by span-aware service (in-packet decode):
 
 \begin{center}
@@ -3972,7 +3974,7 @@ of the messages ahead in the packet reproduces about three quarters of the obser
 $p_{99}$ on most streams, with the remainder left to queueing and to stalls. Applying that
 definition to the simulator gives a higher share, because the only residual the model
 contains is queueing; it has no stall population. Both measurements attribute the larger
-share of the tail at the production service time to in-packet decode.
+share of the tail at the production service time to in-packet decode. Figure~\ref{fig:bars-span-share} shows the split at every service time.
 
 \begin{figure}[H]
 \centering
@@ -3997,16 +3999,12 @@ unchanged at all seven service times when service is made span-dependent. The de
 unaffected.
 
 \paragraph{The in-packet ladder.} Median latency by in-packet position at $N = 1$
-reproduces the linear form of the live measurement. At $T = 8\,\mu\mathrm{s}$ the
-corpus-median latency by position fits
-\[
-\text{median} = 7.98 + 0.344 \times \text{position} \quad (\mu\mathrm{s}),
-\]
-recovering the $0.345\,\mu\mathrm{s}$ per-message cost that was input to the model,
-which confirms that queueing contributes nothing at the median at this service time. The
-live NQ-book ladder is $7.23 + 0.312\times\text{position}$; the forms agree and the
-levels differ by the difference between the measured decode floor and
-the $8\,\mu\mathrm{s}$ nominal service time.
+reproduces the linear form of the live measurement. At the sweep point just above the publisher period the corpus-median latency grows
+linearly with position in the packet, and the fitted cost per position is the cost per
+message that was put into the model, which confirms that queueing contributes nothing at
+the median at this service time. The live NQ-book ladder has the same form; the levels
+differ only by the difference between the measured decode floor and the simulated service
+time.
 
 \paragraph{Compounding of the two channels on NQ.} There are two places
 a message can be made slow. One is queueing: it waits behind a run of earlier packets.
@@ -4037,8 +4035,7 @@ only by genuine bursts, but \emph{falls} with queue depth on ES and NQ, whose ri
 with many small packets. Part~II's corpus is NQ, and it behaves like the live NQ streams.
 The transaction-level arms of Section~\ref{sec:results-transactions} give the same
 answer a third way: decoupling transaction sizes from their timing (TS) and merging each
-transaction into one packet (TM) leave the tail within $\pm 15\%$ at every service time from
-$16\,\mu\mathrm{s}$ up (Table~\ref{tab:tx-arms}). Above the publisher period, then, in-packet decode adds a few percent to a tail that
+transaction into one packet (TM) leave the tail about as it was at every service time from $16\,\mu\mathrm{s}$ up (Table~\ref{tab:tx-arms}). Above the publisher period, then, in-packet decode adds a few percent to a tail that
 queueing across packets produces, and the constant-service tables of Part~II measure that
 queueing. At the publisher period, where the production receiver runs, in-packet decode
 carries most of the tail. Since a long packet is several transactions packed together
@@ -4225,9 +4222,8 @@ rises; span $p_{99}$ and cost per message, taken together, track the tail.}
 \paragraph{Consequences for the design rule.} The live handler's tail is the mechanism of
 Sections~\ref{sec:results-transactions} and~\ref{sec:crossval-span}, seen from the
 receiver's side. Section~\ref{sec:crossval-span} measured that a packet's decode time is
-the decode floor plus one slope for each message beyond the first, with packets of up to $45$
-messages on the book streams and $85$ on the trade streams, and that such packets are
-coalesced transactions. Section~\ref{sec:crossval-spanrun} re-ran the sweep with that span-dependent service.
+the decode floor plus one slope for each message beyond the first, with packets of dozens of messages on both book and trade streams, and that such packets
+are usually several transactions packed together. Section~\ref{sec:crossval-spanrun} re-ran the sweep with that span-dependent service.
 At service times at or just above the publisher period the message count supplies about
 two thirds of the $p_{99}$ excess; well above it, where the queue across packets takes
 over, it adds a few percent; and the best stage count is unchanged. The two are one
@@ -4533,7 +4529,7 @@ exist and where they are cut, (ii)~which pairs of adjacent stages are joined by
 Proposition~\ref{thm:burst} and Theorem~\ref{thm:reduction} both fold across multiple
 boundaries: the throughput speedup is $N$-fold and the tail contraction is $N^{-\gamma}$
 with $\gamma \ge 1$, so the joint optimum is not deducible from local reasoning at a
-single boundary. A designer who reasons one boundary at a time underestimates the
+single boundary. A designer who reasons one boundary at a time may underestimate the
 aggregate tail benefit of adding hops; this is the reasoning behind the single-thread
 convention of Section~\ref{sec:intro-singlethread-priors}.
 
@@ -4646,10 +4642,7 @@ as a natural consequence of the load. Under the model used here, pre-spinning th
 no wake latency at the tail; this is a prediction of the queueing model, not a measurement
 of a production receiver's state, and should be evaluated directly. It saves wake latency
 for the median and for the minimum latency (inter-cluster arrivals which do find the
-receiver asleep after seconds-scale gaps), but the saving is bounded by
-$\sim\!1.4\,\mu\mathrm{s}$ per hop (the $1.7\,\mu\mathrm{s}$ wake-path cost less the
-few-hundred-nanosecond mutex and cache-line cost of Section~\ref{sec:results-h}) and is
-much smaller than the tail win from splitting. There is also an operational cost. In the present author's production experience,
+receiver asleep after seconds-scale gaps), but the saving is at most the wake-path part of one hop per boundary (Section~\ref{sec:results-h}), and is much smaller than the tail win from splitting. There is also an operational cost. In the present author's production experience,
 pinning spinning threads across the servicing chain has degraded the system as a whole:
 steady core burn, cache thrash between the spin loop and the actor's own working set, and
 pressure on shared resources such as the last-level cache and memory bandwidth, which
@@ -5175,7 +5168,7 @@ hand.
 \subsection{Open questions this paper raises}
 \label{sec:open-questions}
 
-The paper answers its two questions on NQ front-month. Measuring it raised others that
+The paper answers its questions on NQ front-month. Measuring it raised others that
 need data or scope beyond this paper, and each is better answered in a shorter, focused
 study.
 
@@ -5316,7 +5309,7 @@ process. \textit{Journal of Applied Probability} 11(3), 493--503.
 Tanner, J. C. (1961). A derivation of the Borel distribution. \textit{Biometrika}
 48(1--2), 222--224.
 
-\bibitem[Asmussen(2003)]{asmussenfoss2003}
+\bibitem[Asmussen(2003)]{asmussen2003}
 Asmussen, S. (2003). \textit{Applied Probability and Queues}, 2nd ed. Springer. Chapter X
 (heavy-tailed and subexponential asymptotics for single-server queues).
 
@@ -5382,13 +5375,13 @@ arrivals. \textit{Queueing Systems} 92, 27--52.
 Chen, X., Blanchet, J. (2021). Perfect sampling of Hawkes processes and queues with Hawkes
 arrivals. \textit{Stochastic Systems} 11(3), 264--283.
 
-\bibitem[Sheldon et al.(2023)]{sheldon2023}
-Sheldon, D., et al. (2023). Steady-state analysis and online learning for queues with
+\bibitem[Chen and Hong(2023)]{sheldon2023}
+Chen, X., Hong, G. (2023). Steady-state analysis and online learning for queues with
 Hawkes arrivals. arXiv 2311.02577.
 
-\bibitem[Gao and Zhu(2024)]{gaozhu2024statedep}
-Gao, X., Zhu, L. (2024). Single-server queues with state-dependent Hawkes arrivals.
-\textit{Mathematics of Operations Research}.
+\bibitem[Gao and Li(2026)]{gaozhu2024statedep}
+Gao, X., Li, B. (2026). Single-server queues with state-dependent Hawkes arrivals.
+\textit{Mathematics of Operations Research}, forthcoming. doi:10.1287/moor.2024.0855.
 
 \bibitem[Ozaki(1979)]{ozaki1979}
 Ozaki, T. (1979). Maximum likelihood estimation of Hawkes' self-exciting point processes.
@@ -5424,7 +5417,7 @@ batch auctions as a market design response. \textit{Quarterly Journal of Economi
 
 \bibitem[Deutsche B\"orse Group(2026)]{deutscheboerse2026t7}
 Deutsche B\"orse Group (2026). Insights into trading system dynamics: Deutsche B\"orse's
-T7. Presentation, edition reporting measurements of 19 August 2026.
+T7. Presentation, September 2026 edition.
 \url{https://www.eurex.com/resource/blob/48918/e8d4df56f75c9a96fb0f6fff6b18a14f/data/presentation_insights-into-trading-system-dynamics_en.pdf}
 
 \bibitem[Noble et al.(2026)]{noble2026realitygap}
@@ -5451,9 +5444,9 @@ Markets} 16(4), 646--679.
 \bibitem[Yoon(2026)]{yoon2026matching}
 Yoon, J. (2026). The world's fastest matching engine algorithm. arXiv 2606.01183.
 
-\bibitem[Byrd et al.(2020)]{byrd2020abides}
-Byrd, D., Hybinette, M., Balch, T. H. (2020). ABIDES: Towards high-fidelity market
-simulation for AI research.
+\bibitem[Byrd et al.(2019)]{byrd2020abides}
+Byrd, D., Hybinette, M., Balch, T. H. (2019). ABIDES: Towards high-fidelity market
+simulation for AI research. arXiv 1904.12066.
 
 \bibitem[Frey et al.(2023)]{frey2023jaxlob}
 Frey, S., Li, K., Nagy, P., Sapora, S., Lu, C., Zohren, S., Foerster, J., Calinescu, A.
@@ -5585,11 +5578,6 @@ Chinese patent CN105654383A.
 Vinnikov, A. (2014). Batch latency analysis and phase transitions for a tandem of queues.
 arXiv 1403.2400.
 
-\bibitem[David et al.(2013)]{david2013synch}
-David, T., Guerraoui, R., Trigonakis, V. (2013). Everything you always wanted to know
-about synchronization but were afraid to ask. \textit{Proc. 24th ACM Symposium on
-Operating Systems Principles (SOSP)}, 33--48.
-
 \bibitem[Belay et al.(2014)]{belay2014ix}
 Belay, A., Prekas, G., Klimovic, A., Grossman, S., Kozyrakis, C., Bugnion, E. (2014). IX:
 a protected dataplane operating system for high throughput and low latency. \textit{Proc.
@@ -5653,7 +5641,7 @@ $n$ & $k^\star$ & $10 \to 30$ & $30 \to 100$ & $100 \to 300$ & $300 \to 1000$ & 
 \end{tabular}
 \caption{Local log-log slope of the Borel pmf, Equation~\eqref{eq:borel}, between
 successive cluster sizes $k$. The critical slope $-1.5$ holds while $k \ll k^\star =
-(1-n)^{-2}$ and steepens geometrically beyond.}
+(1-n)^{-2}$ and steepens geometrically beyond. Figure~\ref{fig:bars-borel} shows the same numbers as bars.}
 \label{tab:borel-slope}
 \end{table}
 
@@ -5669,11 +5657,11 @@ off exponentially beyond about $25$, so very large clusters are rare.}
 
 The practical reading is that at the branching ratios fitted on the corpus
 ($n_{\mathrm{pkt}} \approx 0.8$, Section~\ref{sec:setup-hawkes}), $k^\star \approx 25$:
-clusters of order a hundred packets are the largest that occur with non-negligible
-frequency, and the single-stage wait behind the largest clusters has scale $T k^\star
-\approx 25\,T$, against the corpus-median $p_{99}$ tail excess of Section~\ref{sec:results}, which is
-zero below the publisher period and rises from $1.2\,T$ at $T = 16\,\mu\mathrm{s}$ to
-$39\,T$ at $T = 128\,\mu\mathrm{s}$.
+clusters of a few times that size are the largest that occur with non-negligible
+frequency, and the single-stage wait behind the largest clusters has a scale of about
+twenty-five service times. The corpus-median $p_{99}$ tail excess of
+Section~\ref{sec:results} is zero below the publisher period and grows to tens of service
+times at the longest service times.
 This is the object that Theorem~\ref{thm:reduction} divides by $N$, and the reason the $n
 = 0.80$ row of Table~\ref{tab:borel-slope} is the relevant one.
 
@@ -5819,8 +5807,14 @@ $n$ & $\bar\lambda{=}500$ & $2000$ & $8000$ & $32000$ & $64000$ & at $\bar\lambd
 \multicolumn{2}{l}{$\rho$ at $T = 8$} & $0.016$ & $0.064$ & $0.256$ & $0.512$ & \\
 \bottomrule
 \end{tabular}
-\caption{Synthetic Hawkes feeds at $T = 8\,\mu\mathrm{s}$. The $\rho$ row gives
-$\bar\lambda T$ for the last four columns; the first column is $\rho = 0.004$.}
+\caption{Synthetic Hawkes feeds at the sweep point just above the publisher period,
+$T = 8\,\mu\mathrm{s}$: $p_{99}/T$ by branching ratio and packet rate, for three kernel and
+minimum-period conditions and a Poisson stream; the last column is the share of gaps at
+the minimum period. The $\rho$ row gives the utilisation. What the table shows: on every
+synthetic feed the tail grows steeply with the branching ratio, and the share of gaps at
+the minimum period grows with it; the Poisson stream has a tail only at high utilisation.
+What follows: on these feeds the branching ratio matters because it controls how many
+arrivals are packed at the minimum period, which on CME the publisher fixes. Figure~\ref{fig:bars-synthetic} shows the same numbers as bars.}
 \label{tab:synthetic}
 \end{table}
 
@@ -5879,7 +5873,7 @@ therefore little to queue behind across packets, and one thread is the right des
 that queue goes; the tail from long packets and variable service at that service time is
 separate (Sections~\ref{sec:crossval-spanrun} and~\ref{sec:fungibility-measured}). On a feed that
 places a large share of its gaps at the minimum period, the result inverts: a Hawkes process at the
-same $n = 0.8$ places $28$--$81\%$ of its gaps at the minimum period instead of about $2\%$, the tail
+same $n = 0.8$ places between a quarter and four fifths of its gaps at the minimum period instead of about $2\%$, the tail
 depends strongly on the branching ratio, splitting reduces the tail at $T =
 8\,\mu\mathrm{s}$ where on CME it does not, and at high enough load the packet rate
 matters as well. The Poisson null shows only the load effect, and only at high
