@@ -4742,7 +4742,9 @@ always-on interventions (Section~\ref{sec:other-arch}): on Hawkes-clustered feed
 receiver is already busy and warm at the arrival of every $p_{99}$ message, so these
 interventions affect the median and minimum, not the tail, at a steady CPU and cache cost.
 The claim that a faster inner loop implies a single thread is preferable conflates two
-claims; the paper contradicts only the second.
+claims: that a faster inner loop lowers latency, which the paper does not dispute, and
+that a single thread is therefore the best topology, which the paper contradicts above
+the publisher period.
 
 \subsection{Recommended design flow}
 
