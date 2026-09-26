@@ -1385,12 +1385,10 @@ longer the task, the more stages pay off. In short, it is the bursts, not the av
 load, that create the tail, and that is why splitting helps on real data and not on the
 random control.
 
-Table~\ref{tab:main-corpus} reports corpus-median end-to-end latency quantiles for every
-$(T, N)$ cell of the sweep at $h = 1.7\,\mu\mathrm{s}$, on 276 sessions and 3512
-thirty-minute windows (five of the 281 session tapes contain no complete RTH window and
-are dropped). Figure~\ref{fig:curves} plots the same numbers. The Poisson-null columns are
-the uniform Poisson null $P$ of Section~\ref{sec:setup-sweep} with the same packet
-count per window.
+Table~\ref{tab:main-corpus} gives the corpus-median latency for every service time $T$
+and stage count $N$ at $h = 1.7\,\mu\mathrm{s}$, and Figure~\ref{fig:curves} plots it. The
+Poisson columns are the uniform null $P$ of Section~\ref{sec:setup-sweep}, with the same
+packet count per window.
 
 \begin{table}[tbp]
 \centering
@@ -1437,33 +1435,18 @@ $T$ & $N$ & $p_{50}$ & $p_{99}$ & $p_{99.9}$ & $p_{50}$ & $p_{99}$ & $p_{99.9}$ 
 128 & 8 & 139.90 & 158.49 & 177.87 & 139.90 & 139.90 & 153.74 \\
 \bottomrule
 \end{tabular}
-\caption{Corpus-median end-to-end latency quantiles in \si{\micro\second} at $h =
-1.7\,\mu\mathrm{s}$, for each service time $T$ (\si{\micro\second}) and stage count $N$;
-276 sessions, 3512 thirty-minute RTH windows of CME MDP3 NQ front-month packet arrivals.
-The Poisson null is the uniform shuffle of the same arrival count per window. What the
-table shows: the median column equals $T + (N-1)h$ in every cell but three (Hawkes
-$N = 1$ at $64$ and $128\,\mu\mathrm{s}$ and $N = 2$ at $128$), so each stage costs
-exactly one hop at the median. Under real arrivals the single-stage $p_{99}$ sits at the
-no-queue latency at $T \le 4\,\mu\mathrm{s}$, is $1.08\,T$ at $8\,\mu\mathrm{s}$, and then grows
-faster than the service time: $2.2\,T$, $4.6\,T$, $12.8\,T$ and $41.5\,T$ at $T = 16$,
-$32$, $64$ and $128\,\mu\mathrm{s}$, with $p_{99.9}$ roughly twice the $p_{99}$ excess
-again. Under the Poisson null the single-stage $p_{99}$ equals the median up to
-$16\,\mu\mathrm{s}$ and is $1.3\,T$, $1.7\,T$ and $1.9\,T$ at $32$, $64$ and $128$. One
-cut ($N = 2$) takes the Hawkes $p_{99}$ from $34.6$ to $18.3$ at $16\,\mu\mathrm{s}$,
-from $146$ to $52$ at $32$, from $821$ to $180$ at $64$ and from $5317$ to $886$ at
-$128$, for a median cost of $1.7\,\mu\mathrm{s}$; further cuts continue to lower the
-tail until the per-stage service falls below the publisher spacing, after which every quantile rises
-by $h$ per stage. Below about $8\,\mu\mathrm{s}$ there is no queue to
-shorten and splitting is cost only, under either arrival law; from $16\,\mu\mathrm{s}$
-the real stream carries a tail that the Poisson stream at the same rate does not, and
-splitting removes most of it for one hop; the Poisson tail that appears from
-$32\,\mu\mathrm{s}$ is ordinary utilisation queueing ($\rho = \bar\lambda T$ reaching
-$0.01$--$0.05$) and is $11$ to $47$ times smaller than the real one. The reason is the
-arrival process: a deterministic server queues only when consecutive gaps are shorter than
-its service time, the real stream has four to seventeen times the Poisson share of such
-gaps (Table~\ref{tab:tx-gaps}) and arranges them in runs, and a cut halves the service
-each stage must fit into a gap, so the number of gaps that queue, and the length of the
-runs that compound, both fall with $N$ (Theorem~\ref{thm:reduction}).}
+\caption{Corpus-median latency quantiles in \si{\micro\second} for each service time $T$ and
+stage count $N$ at $h = 1.7\,\mu\mathrm{s}$, on the real NQ arrivals and on a Poisson
+stream with the same packet count per window. What the table shows: the median is
+$T + (N-1)h$ in almost every cell, so each stage costs one hop. On the real arrivals the
+single-thread $p_{99}$ equals $T$ up to $4\,\mu\mathrm{s}$ and then grows much faster than
+$T$, to about forty times $T$ at $128\,\mu\mathrm{s}$; on the Poisson stream it stays at
+$T$ up to $16\,\mu\mathrm{s}$. One cut removes most of the real stream's tail for one hop,
+and further cuts keep helping until each stage is shorter than the publisher spacing.
+What follows: the tail comes from how the real packets are bunched, not from load. A
+server queues only when consecutive gaps are shorter than its service time, and the real
+stream has many times the Poisson share of such gaps (Table~\ref{tab:tx-gaps}) and
+arranges them in runs.}
 \label{tab:main-corpus}
 \end{table}
 
@@ -1485,49 +1468,31 @@ utilisation queueing begins.}
 \label{fig:curves}
 \end{figure}
 
-Under the Poisson null the queue is empty when almost every message arrives, so every
-reported quantile equals the no-queue latency, $p_{50} = p_{99} = T + (N-1)h$, in every cell
-with $T \le 16\,\mu\mathrm{s}$. The first exception is $T = 32\,\mu\mathrm{s}$, $N = 1$,
-where Poisson $p_{99}$ is $42.0\,\mu\mathrm{s}$ against a no-queue latency of $32$: at the
-corpus-median packet rate of $452$ packets per second the utilisation there is $\rho = 452
-\times 32\,\mu\mathrm{s} = 0.0144$, above the $0.01$ at which Corollary~\ref{cor:poisson}
-says the Poisson wait must first appear at $p_{99}$, and it does; at $N = 2$ the per-stage
-utilisation halves to $0.007$ and the wait vanishes again. Beyond that the null arm is a
-perfectly ordinary queue: at $T = 64$ and $128\,\mu\mathrm{s}$ the single-stage Poisson
-$p_{99}$ reaches $106.7$ and $237.7\,\mu\mathrm{s}$, and splitting reduces it, to $75.7$
-and $172.4\,\mu\mathrm{s}$ at $N = 2$. Under Poisson, splitting is therefore not useless in general; it is useless in the
-regime an HFT hot path occupies. The $p_{99.9}$ column shows the same pattern one decade
-lower: the Poisson wait is visible at $N = 1$ for every $T
-\ge 4\,\mu\mathrm{s}$ (single-stage $\rho > 10^{-3}$) and at $N = 2$ for $T \ge
-8\,\mu\mathrm{s}$, and absent wherever the per-stage $\rho/N$ falls below $10^{-3}$. Every
-one of these switch-on points is the $\rho = 1 - q$ boundary of
-Corollary~\ref{cor:poisson}, which the corpus reproduces at $q = 0.99$ and $0.999$
-(Section~\ref{sec:evaluation}). The null arm is a queue with a small, predictable wait, and over $T \le
-16\,\mu\mathrm{s}$ splitting under Poisson costs $(N-1)h$ at every reported quantile.
+On the Poisson stream almost every message finds the queue empty, so every quantile
+equals the no-queue latency up to $T = 16\,\mu\mathrm{s}$. A wait appears first at
+$32\,\mu\mathrm{s}$, where utilisation passes the $1\%$ at which
+Corollary~\ref{cor:poisson} predicts it at $p_{99}$; from there on the Poisson stream
+behaves as an ordinary queue, and splitting helps it too. The $p_{99.9}$ column shows the
+same pattern at utilisations ten times lower (Section~\ref{sec:evaluation}). Under Poisson
+arrivals, then, splitting is not useless in general; it is useless over the service times
+an HFT hot path occupies.
 
-Under Hawkes a tail appears only above a threshold. At $T = 2$ and $4\,\mu\mathrm{s}$
-there is no tail: single-stage $p_{99}$ and $p_{99.9}$ both equal the service time, the
-clustered feed is indistinguishable from the Poisson null at $p_{99}$ and $p_{99.9}$, and splitting costs $(N-1)h$
-and removes nothing. The tail appears between $T = 4$ and $8\,\mu\mathrm{s}$ and then
-grows rapidly: single-stage $p_{99}$ is $1.00$, $1.00$, $1.08$, $2.16$, $4.57$, $12.8$ and
-$41.5$ times the service time at $T = 2, 4, 8, 16, 32, 64, 128\,\mu\mathrm{s}$, and
-single-stage $p_{99.9}$ reaches $97.6\,T$ at $T = 128$. Splitting into two stages cuts the
-$p_{99}$ from $34.59$ to $18.31\,\mu\mathrm{s}$ at $T = 16$, from $146.1$ to $52.3$ at $T
-= 32$, from $820.7$ to $179.8$ at $T = 64$, and from $5316.9$ to $886.4$ at $T = 128$, in
-each case for a median cost of $1.7\,\mu\mathrm{s}$ per hop; the two-stage $p_{99}$ is
-below the single-stage $p_{99}$ on $100\%$ of the 3512 windows at every $T \ge
-16\,\mu\mathrm{s}$. The stage count that minimises $p_{99}$ rises with $T$: $N = 1$ at $T
-\le 8$, $N = 2$ at $T = 16$, $N = 4$ at $T = 32$, $N = 8$ at $T = 64$ and $128$. The $T = 2$ and $4\,\mu\mathrm{s}$ rows, both below the publisher spacing, are included to
-demonstrate that boundary: splitting there is dominated under both arrival laws. Section~\ref{sec:results-threshold} resolves the $4$--$8\,\mu\mathrm{s}$
-onset to $1\,\mu\mathrm{s}$ and Section~\ref{sec:results-conditioning} explains what sets
-its location.
+On the real stream a tail appears only above a threshold. At $T = 2$ and
+$4\,\mu\mathrm{s}$ there is none, and the real stream cannot be told apart from the
+Poisson one. Between $4$ and $8\,\mu\mathrm{s}$ a tail appears, and it then grows much
+faster than the service time. Splitting into two stages removes most of it at every
+service time from $16\,\mu\mathrm{s}$ up, for one hop on the median, and wins on every
+window there. The best stage count rises with $T$, from one at $8\,\mu\mathrm{s}$ and below
+to eight at $64\,\mu\mathrm{s}$ and above (Table~\ref{tab:main-corpus}).
+Section~\ref{sec:results-threshold} locates the onset more precisely and
+Section~\ref{sec:results-conditioning} explains what sets it.
 
 \findings{
-    \item \emph{No tail below the publisher spacing.} At $T \le 4\,\mu\mathrm{s}$ the $p_{99}$ equals the service time on real and Poisson arrivals alike.
-    \item \emph{Above it, the real stream's tail grows fast.} Single-thread $p_{99}$ is $2.2$, $4.6$, $12.8$ and $41.5$ times $T$ at $16$, $32$, $64$ and $128\,\mu\mathrm{s}$.
-    \item \emph{The Poisson stream at the same rate has no tail up to $16\,\mu\mathrm{s}$}, and from $32\,\mu\mathrm{s}$ only an ordinary utilisation tail $11$ to $47$ times smaller.
-    \item \emph{One cut removes most of the tail for one hop.} $p_{99}$ falls from $34.6$ to $18.3\,\mu\mathrm{s}$ at $T = 16$ and from $5317$ to $886\,\mu\mathrm{s}$ at $128$, for $1.7\,\mu\mathrm{s}$ on the median; it wins on every window from $16\,\mu\mathrm{s}$.
-    \item \emph{Best stage count:} $1$ at $T \le 8$, $2$ at $16$, $4$ at $32$, $8$ at $64$ and $128\,\mu\mathrm{s}$.
+    \item \emph{No tail below the publisher spacing.} At $T \le 4\,\mu\mathrm{s}$ the $p_{99}$ equals $T$ on real and Poisson arrivals alike.
+    \item \emph{Above it, the real stream's tail grows much faster than $T$}, to about forty times $T$ at $128\,\mu\mathrm{s}$.
+    \item \emph{The Poisson stream at the same rate has no tail up to $16\,\mu\mathrm{s}$}, and above that only a much smaller utilisation tail.
+    \item \emph{One cut removes most of the tail for one hop} and wins on every window from $16\,\mu\mathrm{s}$.
+    \item \emph{The best stage count rises with $T$}, from one at $8\,\mu\mathrm{s}$ to eight at $64\,\mu\mathrm{s}$ and above.
 }
 
 
@@ -1591,34 +1556,21 @@ $T$ & $N$ & real & uniform & gap shuffle & 1\,s-binned \\
 128 & 8 &  158.49 &  139.90 &  154.65 &  139.90 \\
 \bottomrule
 \end{tabular}
-\caption{Corpus-median $p_{99}$ in \si{\micro\second} under the real arrivals and the
-three nulls of Section~\ref{sec:setup-nulls}, for every service time $T$ and stage
-count $N$ of the sweep. Uniform is the Poisson null of Table~\ref{tab:main-corpus}; the
-gap shuffle keeps the multiset of gaps and destroys their ordering; the binned null keeps
-each one-second packet count and destroys the microsecond structure. What the table
-shows: at $T \le 4\,\mu\mathrm{s}$ every arm sits at the no-queue latency $T + (N-1)h$, because no
-gap in the stream is shorter than $4\,\mu\mathrm{s}$ and no queue can form. At $N = 1$
-and $T \ge 8\,\mu\mathrm{s}$ the real stream carries an excess over $T$ ($0.61$, $18.6$,
-$114$, $757$ and $5189\,\mu\mathrm{s}$ at $T = 8, 16, 32, 64, 128$) that the binned null
-and the uniform null remove almost entirely (both at or within $2$--$15\%$ of the excess
-in every cell, and identical to each other at $8$ and $16\,\mu\mathrm{s}$), while the gap
-shuffle retains $88\%$, $79\%$, $59\%$, $37\%$ and $23\%$ of it. At $N \ge 2$ the four
-arms converge on $T + (N-1)h$ as soon as the per-stage service $T/N$ falls below the
-publisher spacing (at $T = 16$, $N = 2$: $18.3$, $17.7$, $18.2$, $17.7$). The tail is
-not second-scale load, since a stream with the real busy seconds and random microsecond
-placement has none of it; at $8$--$32\,\mu\mathrm{s}$ the tail is set mainly by how many
-gaps shorter than $T$ the stream contains, since a stream with the same gaps in random
-order keeps most of it; and from $64\,\mu\mathrm{s}$ the ordering of those gaps into runs
-carries the majority. The reason is the Lindley recursion itself: a single gap shorter
-than $T$ costs the next packet one wait, which the following long gap drains, so a short
-service time is hit by every tight gap whether or not its neighbours are tight, whereas a
-long service time needs a sustained run of tight gaps before the backlog exceeds one
-service, and runs are what the shuffle removes. The tandem's benefit does not depend on
-which channel carries the tail: a cut that takes $T/N$ below the publisher spacing removes the excess
-under every arm. Session-clustered bootstrap over the 276 sessions (1000 draws), $95\%$
-intervals of the gap-shuffle shares: $87.1$--$88.4\%$, $76.7$--$81.3\%$, $58.2$--$60.5\%$,
-$35.8$--$37.2\%$ and $21.9$--$23.6\%$ at $T = 8$ to $128\,\mu\mathrm{s}$; of the binned
-null at $32$--$128$: $12.5$--$14.2\%$, $6.2$--$6.6\%$, $2.2$--$2.4\%$.}
+\caption{Corpus-median $p_{99}$ in \si{\micro\second} under the real arrivals and the three
+packet-level null streams of Section~\ref{sec:setup-nulls}, for every service time $T$
+and stage count $N$. Uniform is the Poisson null; the gap shuffle keeps every gap and
+destroys their order; the 1\,s-binned stream keeps each second's packet count and destroys
+the microsecond structure. What the table shows: at $T \le 4\,\mu\mathrm{s}$ every stream
+sits at the no-queue latency, because no gap is that short. For a single thread above
+that, the uniform and binned streams lose almost all of the real stream's tail, while the
+gap shuffle keeps most of it at short service times and less as $T$ grows
+(Figure~\ref{fig:bars-nulls}). Once a cut takes each stage below the publisher spacing,
+all four streams meet at the no-queue latency. What follows: the tail is not busy-second
+load. At short service times it is set by how many gaps are shorter than $T$, since a
+single short gap costs the next packet one wait whether or not its neighbours are short.
+At long service times it needs runs of short gaps, and runs are what the shuffle
+destroys. Session-bootstrap $95\%$ intervals on the shares are within about two points of
+the reported values.}
 \label{tab:nulls}
 \end{table}
 
@@ -1634,29 +1586,23 @@ keep almost none at any $T$.}
 \label{fig:bars-nulls}
 \end{figure}
 
-Table~\ref{tab:nulls} gives the corpus-median $p_{99}$ under all four arrival arms. The
-share of the single-stage $p_{99}$ excess over $T$ that survives the gap shuffle is $88\%$
-at $T = 8\,\mu\mathrm{s}$, $79\%$ at $16$ and $59\%$ at $32\,\mu\mathrm{s}$, falling to
-$37\%$ at $64$ and $23\%$ at $128\,\mu\mathrm{s}$. The 1\,s-binned null keeps none of it
-at $8$ and $16\,\mu\mathrm{s}$ and $13\%$, $6\%$ and $2\%$ at $32$, $64$ and
-$128\,\mu\mathrm{s}$, within a few points of the uniform null. Two readings follow. The
-tail is not second-scale load: a null that keeps every one-second packet count has no
-tail where the real stream has one. And at the service times of an HFT hot path the tail
-is set mainly by the gap \emph{distribution} --- the surplus of gaps shorter than the
-service time over what a Poisson stream at the same rate carries --- with the
-\emph{ordering} of those gaps into runs supplying the remaining fifth at $16\,\mu\mathrm{s}$
-and the majority only from $64\,\mu\mathrm{s}$ upward. Section~\ref{sec:results-transactions}
-traces both to the timing of matching-engine transactions: the surplus to
-consecutive transactions sent back to back at the publisher's spacing
-(Table~\ref{tab:two-clocks}), the ordering to runs of them, which is the self-exciting
-component. The attribution to clustering stands in that sense; which
-process places two transactions within a few microseconds of each other is not
-identified by any stream run here (Section~\ref{sec:concl-cannot}).
+Table~\ref{tab:nulls} and Figure~\ref{fig:bars-nulls} give the result. The 1\,s-binned
+stream keeps none of the tail at $8$ and $16\,\mu\mathrm{s}$ and little above, so the tail
+is not busy-second load. The gap shuffle keeps about $80\%$ of it at $16\,\mu\mathrm{s}$
+and less as the service time grows, about a quarter at $128\,\mu\mathrm{s}$. At the
+service times of an HFT hot path, then, the tail is set mainly by how many gaps are shorter
+than the service time, and the arrangement of those gaps into runs matters only from
+about $64\,\mu\mathrm{s}$. Section~\ref{sec:results-transactions} traces both to the timing
+of matching-engine transactions: the short gaps are consecutive transactions sent back to
+back at the publisher spacing (Table~\ref{tab:two-clocks}), and the runs are the
+self-exciting component. Which process places two transactions within microseconds of
+each other at the engine is not identified by any stream run here
+(Section~\ref{sec:concl-cannot}).
 
 \findings{
-    \item \emph{The tail is not busy-second load.} Keeping every one-second packet count but placing packets at random within the second leaves no tail at $8$--$16\,\mu\mathrm{s}$ and $2$--$13\%$ from $32\,\mu\mathrm{s}$.
-    \item \emph{At short service times the number of short gaps sets the tail.} Keeping every gap but shuffling their order keeps $88\%$, $79\%$ and $59\%$ of it at $8$, $16$ and $32\,\mu\mathrm{s}$.
-    \item \emph{At long service times the runs of short gaps set it.} The same shuffle keeps only $37\%$ and $23\%$ at $64$ and $128\,\mu\mathrm{s}$.
+    \item \emph{The tail is not busy-second load.} Keeping every second's packet count but placing packets at random within it leaves almost no tail.
+    \item \emph{At short service times the number of short gaps sets the tail.} Keeping every gap but shuffling their order keeps about $80\%$ of it at $16\,\mu\mathrm{s}$.
+    \item \emph{At long service times the runs of short gaps set it.} The same shuffle keeps only about a quarter at $128\,\mu\mathrm{s}$.
 }
 
 
@@ -1672,11 +1618,10 @@ transaction and the start of the next. Two accounts of the tight-gap surplus are
 open. Either the exchange splits transactions across back-to-back packets, in which case
 the clustering is an artefact of packetisation and a receiver that reassembled transactions
 would see none of it; or the transactions themselves arrive clustered and the packets relay
-them. The corpus decides between the two. Every message in the 3512 windows was grouped by
-\texttt{transactTime} and every packet labelled with the transactions it carries:
-$3.30 \times 10^9$ packets, $3.55 \times 10^9$ messages, $3.24 \times 10^9$ transactions;
-$3.0\%$ of packets (median window) carry parts of two transactions --- the exchange's
-publisher packs transactions that reach it while it is busy into one packet
+them. The corpus decides between the two. Every message in the corpus was grouped by
+\texttt{transactTime} and every packet labelled with the transactions it carries, about
+$3 \times 10^9$ of each. About $3\%$ of packets carry parts of two transactions: the
+exchange's publisher packs transactions that reach it while it is busy into one packet
 (Section~\ref{sec:exchange-drain}).
 
 \paragraph{Consecutive transactions and the gap between them.} A \emph{transaction} is one
@@ -1706,11 +1651,11 @@ packets per transaction  & 98.295 & 1.689 & 0.011 & 0.002 & 0.001 & 0.001 & 0.00
 messages per transaction & 95.362 & 2.729 & 0.822 & 0.558 & 0.195 & 0.280 & 0.038 & 0.016 \\
 \bottomrule
 \end{tabular}
-\caption{Size distributions, percent of the pooled corpus ($3.30 \times 10^9$ packets,
-$3.24 \times 10^9$ transactions). A transaction is one packet $98.3\%$ of the time and
-two $1.7\%$ of the time; three or more packets is about $1.5$ transactions in ten thousand. The
-message count per transaction is the message count per packet with the split
-transactions folded back in.}
+\caption{Size distributions, percent of the pooled corpus (about $3 \times 10^9$ packets and as
+many transactions). What the table shows: almost every packet carries one message and
+almost every transaction fits in one packet; a transaction split across three or more
+packets is very rare. The message count per transaction is the message count per packet
+with the split transactions folded back in.}
 \label{tab:tx-counts}
 \end{table}
 
@@ -1723,15 +1668,12 @@ geometric decay; packets per transaction has almost none beyond two.}
 \label{fig:tx-counts}
 \end{figure}
 
-\paragraph{Packetisation and the tight gaps.} Table~\ref{tab:tx-counts}
-gives the three size distributions, and Figure~\ref{fig:tx-counts} plots them. A split transaction is rare, and when it occurs its
-packets are not back-to-back: the gap between two packets of the same transaction has a
-corpus-median $p_{50}$ of $15\,\mu\mathrm{s}$, $1.6\%$ of such gaps are shorter than
-$10\,\mu\mathrm{s}$ and $0.1\%$ shorter than the $7.5\,\mu\mathrm{s}$ publisher spacing; a
-multi-packet transaction spans $15\,\mu\mathrm{s}$ at the median and $110\,\mu\mathrm{s}$
-at $p_{99}$ from first to last packet (Figure~\ref{fig:tx-gaps}, left, and
-Figure~\ref{fig:tx-starts}, right). The tight gaps sit between transactions
-(Table~\ref{tab:tx-gaps}).
+\paragraph{Packetisation and the tight gaps.} Table~\ref{tab:tx-counts} gives the three
+size distributions, and Figure~\ref{fig:tx-counts} plots them. A split transaction is
+rare, and its packets are not sent back to back: they arrive about $15\,\mu\mathrm{s}$
+apart, above the publisher spacing, and almost never closer (Figure~\ref{fig:tx-gaps},
+left, and Figure~\ref{fig:tx-starts}, right). The tight gaps lie between different
+transactions (Table~\ref{tab:tx-gaps}).
 
 \begin{table}[H]
 \centering
@@ -1745,85 +1687,65 @@ $17.8\,\mu\mathrm{s}$  & $20.6\%$ & $5.0\%$ & $1.24\%$ \\
 $35.5\,\mu\mathrm{s}$  & $34.1\%$ & $4.6\%$ & $2.46\%$ \\
 \bottomrule
 \end{tabular}
-\caption{Tight packet gaps, pooled over the corpus ($3.30 \times 10^9$ gaps). The rows
-are the bin edges of the logarithmic grid of Figure~\ref{fig:tx-gaps} nearest to the
-$7.5\,\mu\mathrm{s}$ publisher spacing and to the $16$ and $32\,\mu\mathrm{s}$ service times.
-$2.15\%$ of all packet gaps are shorter than the publisher spacing, $20.6\%$ shorter than about
-$16\,\mu\mathrm{s}$ and $34.1\%$ shorter than about $32\,\mu\mathrm{s}$; a Poisson
-stream at the same rate would carry $0.56\%$, $1.24\%$ and $2.46\%$, so the real stream
-has four, seventeen and fourteen times the Poisson share of gaps below the three service
-times of interest. Of the gaps below the publisher spacing, $0.1\%$ lie between two packets of the
-same transaction; below $16$ and $32\,\mu\mathrm{s}$ the shares are $5.0\%$ and
-$4.6\%$. The tight gaps that make a deterministic server queue are overwhelmingly gaps
-between different matching-engine events, not the exchange's division of one event into
-several datagrams, so a receiver that reassembled transactions before decoding would
-remove at most $5\%$ of the gaps that queue and almost none below the publisher spacing; and the surplus of tight
-gaps over Poisson, which Table~\ref{tab:nulls} shows carries most of the tail at
-$8$--$16\,\mu\mathrm{s}$, is a property of when transactions occur relative to each
-other. The reason the surplus exists is the self-excitation established in
-Table~\ref{tab:tx-fano}: a transaction raises the probability of another within tens of
-microseconds, which puts far more mass at short gaps than a Poisson stream at the same
-mean rate carries.}
+\caption{Short packet gaps, pooled over the corpus. The rows are the bin edges of the
+logarithmic grid of Figure~\ref{fig:tx-gaps} nearest to the $7.5\,\mu\mathrm{s}$ publisher
+spacing and to the $16$ and $32\,\mu\mathrm{s}$ service times. What the table shows: the
+real stream has several times the Poisson share of gaps below each of these service
+times, about one gap in five below $16\,\mu\mathrm{s}$ against about one in a hundred, and
+almost none of these short gaps lie inside a single transaction. What follows: the short
+gaps that make a server queue are gaps between different matching-engine events, not the
+exchange's division of one event into several packets, so a receiver that reassembled
+transactions before decoding would remove almost none of them. Section~\ref{sec:exchange}
+shows where they come from: the engine processes many transactions within a microsecond
+of each other, and the publisher sends them back to back at its spacing
+(Table~\ref{tab:two-clocks}).}
 \label{tab:tx-gaps}
 \end{table}
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.72\textwidth]{figs/bars/tx_gaps_bars.pdf}
-\caption{Table~\ref{tab:tx-gaps} as bars: the share of gaps between consecutive packets shorter
-than the publisher spacing, than about $16\,\mu\mathrm{s}$ and than about $32\,\mu\mathrm{s}$, on the real
-stream (black) and on a Poisson stream with the same packet count (vermillion). The real
-stream has $4$ to $17$ times as many short gaps as the Poisson stream; below
-$16\,\mu\mathrm{s}$ it is one gap in five against about one in a hundred. A server with a
-service time in this range queues on each of these gaps, which is why the real stream has
-a tail and the Poisson stream does not.}
+\caption{Table~\ref{tab:tx-gaps} as bars: the share of gaps between consecutive packets
+shorter than the publisher spacing, than about $16\,\mu\mathrm{s}$ and than about
+$32\,\mu\mathrm{s}$, on the real stream (black) and on a Poisson stream with the same
+packet count (vermillion). Below $16\,\mu\mathrm{s}$ the real stream has about one gap in
+five against about one in a hundred. A server with a service time in this range queues on
+each of these gaps, which is why the real stream has a tail and the Poisson stream does
+not.}
 \label{fig:bars-tx-gaps}
 \end{figure}
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figs/tx/tx_gaps.pdf}
-\caption{Packet interarrival gaps, pooled over the corpus. Left: the two packets of a
-split transaction arrive about $15\,\mu\mathrm{s}$ apart (blue: median $15\,\mu\mathrm{s}$,
-$54\%$ under $16\,\mu\mathrm{s}$, $96\%$ under $64\,\mu\mathrm{s}$; $n = 5.6 \times 10^7$
-gaps), closer than the gap between consecutive packets of different transactions (black: median
-about $80\,\mu\mathrm{s}$, spread from the $7.5\,\mu\mathrm{s}$ publisher spacing to seconds;
-$n = 3.24 \times 10^9$ gaps, $98.3\%$ of all gaps) --- but almost never as close as the publisher spacing ($0.1\%$).
-Below $10\,\mu\mathrm{s}$ the blue curve holds $1.6\%$ of its gaps and below
-$7.5\,\mu\mathrm{s}$ $0.1\%$; the region from the publisher spacing to $12\,\mu\mathrm{s}$ is filled
-by the black curve alone. So the exchange paces the pieces of one event at a steady
-$15\,\mu\mathrm{s}$, and the tightest gaps on the feed, the ones that make a receiver
-queue, are between packets of different events. Right: the gap distribution of the real
-stream (black; the left panel's black curve with the blue folded in) against that of a
-Poisson stream with the same packet count over the same window (red, dashed) --- the same
-null as in Table~\ref{tab:main-corpus}, drawn in gap space. The Poisson density is one
-hump near $1\,\mathrm{ms}$ with a few percent of its mass below $100\,\mu\mathrm{s}$; the real
-density puts a third of its mass below $32\,\mu\mathrm{s}$, with the edge at the publisher spacing and
-the mode near $100\,\mu\mathrm{s}$ absent from the null. The panel is the visual form of
-Table~\ref{tab:tx-gaps}: the whole region of gaps shorter than an HFT service time is
-present in the real stream and absent from an independent-events stream at the same rate,
-which is why the uniform null carries no tail below $32\,\mu\mathrm{s}$, and the
-$100\,\mu\mathrm{s}$ mode is the characteristic spacing of successive transactions within
-a burst, the scale on which the self-excitation of Table~\ref{tab:tx-fano} acts. Axes:
-logarithmic gap axis; vertical axis the fraction of gaps per decade of gap length (twenty
-bins per factor of ten; the area under a curve over a range is the fraction of that
-curve's gaps in the range, total area one, so heights compare shapes, not counts). Dotted
-lines at $7.5$, $16$ and $32\,\mu\mathrm{s}$.}
+\caption{Packet gaps, pooled over the corpus. Left: gaps between the packets of one split
+transaction (blue) against gaps between packets of different transactions (black). The
+pieces of a split transaction arrive about $15\,\mu\mathrm{s}$ apart and almost never
+closer than the publisher spacing; the region from the publisher spacing to about
+$12\,\mu\mathrm{s}$ is filled by the black curve alone. So the gaps that make a receiver
+queue are between packets of different events. Right: all packet gaps of the real stream
+(black) against a Poisson stream with the same packet count (red, dashed), the null of
+Table~\ref{tab:main-corpus} drawn in gap space. The Poisson density is one hump near
+$1\,\mathrm{ms}$; the real density puts about a third of its gaps below
+$32\,\mu\mathrm{s}$, with an edge at the publisher spacing and a mode near
+$100\,\mu\mathrm{s}$ that the null lacks. That region of short gaps is why the real stream
+has a tail at HFT service times and the Poisson stream does not. Axes: logarithmic gap
+axis; vertical axis the fraction of gaps per decade of gap length, so the area under a
+curve over a range is the fraction of its gaps in that range. Dotted lines at $7.5$, $16$
+and $32\,\mu\mathrm{s}$.}
 \label{fig:tx-gaps}
 \end{figure}
 
-\paragraph{Self-excitation of the transaction stream.} Treating each transaction as one event at
-the time of its first packet, the transaction-start process carries the same clustering
-as the packet process (Table~\ref{tab:tx-fano}): the Fano factor of transaction counts
-rises from $7.6$ at $1\,\mathrm{ms}$ to $105$ at $1\,\mathrm{s}$, against $5.5$ to $17$
-once the idle gaps between transactions are shuffled and $1$ for Poisson, and the
-exponential-kernel MLE gives a branching ratio of $0.795$ on transaction starts against
-$0.798$ on packets, with every window's fit converged. The transaction-start gap density
-of Figure~\ref{fig:tx-starts} (left) is indistinguishable from the packet gap density of
-Figure~\ref{fig:tx-gaps} and unlike the Poisson curve at every scale. The self-excitation belongs to the transaction stream: the exchange publishes each
-matching event as it occurs, and the packet process inherits the clustering of the events.
-Why the events cluster is a question about the market, outside the scope of this paper
-(Section~\ref{sec:concl-cannot}).
+\paragraph{Self-excitation of the transaction stream.} Treating each transaction as one
+event at the time of its first packet, the transaction stream carries the same clustering
+as the packet stream (Table~\ref{tab:tx-fano}): the variability of transaction counts
+grows with the counting window just as that of packet counts does, shuffling the idle
+gaps between transactions removes most of the growth, and the Hawkes fit gives the same
+branching ratio, about $0.8$, on both. The gap density of transaction starts
+(Figure~\ref{fig:tx-starts}, left) is the same as that of packets and unlike the Poisson
+curve at every scale. The exchange publishes each matching event as it occurs, and the
+packet stream inherits the clustering of the events. Why the events cluster is a question
+about the market, outside the scope of this paper (Section~\ref{sec:concl-cannot}).
 
 \begin{table}[H]
 \centering
@@ -1866,41 +1788,26 @@ left is the over-dispersion of the gap lengths themselves.}
 \includegraphics[width=\textwidth]{figs/tx/tx_starts.pdf}
 \caption{Gaps between consecutive \emph{transaction starts}, to be read against
 Figure~\ref{fig:tx-gaps}, whose gaps are between consecutive \emph{packets}. Left: each
-transaction is collapsed to one event at the time of its first packet, and the gaps
-between successive events are shown for the real stream (black; $n = 3.24 \times 10^9$),
-for the same events with the idle gaps between transactions shuffled into random order
-(orange), and for a Poisson stream with the same transaction count over the same window
-(red, dashed). At the resolution of the figure the black curve here is the black curve of
-Figure~\ref{fig:tx-gaps} (left) --- the same edge at the $7.5\,\mu\mathrm{s}$ publisher spacing, the
-same plateau to $30\,\mu\mathrm{s}$, the same mode near $100\,\mu\mathrm{s}$, the same
-tail --- because $98.3\%$ of transactions are one packet and the pieces of the remaining
-$1.7\%$ are paced at $15\,\mu\mathrm{s}$, inside the plateau, so removing the packet
-structure changes almost nothing. The orange curve lies exactly on the black one:
-permuting the order of the idle gaps leaves their distribution unchanged, by
-construction. The Poisson curve is a different shape, one hump near $1\,\mathrm{ms}$ with
-a few percent of its mass below $100\,\mu\mathrm{s}$. The packet stream follows the
-transaction stream. The clustering that Figure~\ref{fig:tx-gaps} shows at the packet
-level is present, unchanged, at the level of matching-engine events, and it is those
-events, not the exchange's delivery of them, that arrive in tight groups; the same
-conclusion is reached numerically in Table~\ref{tab:tx-fano}, where transaction starts
-and packets have the same Fano factor at every scale and the same branching ratio
-($0.795$ against $0.798$), and by the simulator in Table~\ref{tab:tx-arms}, where merging
-each transaction into one packet leaves the tail unchanged. Right: duration of a
-multi-packet transaction from its first to its last packet ($n = 5.5 \times 10^7$),
-median $15\,\mu\mathrm{s}$, $p_{99}$ $110\,\mu\mathrm{s}$: the time the exchange takes to
-deliver a split event, and the spacing that the blue curve of Figure~\ref{fig:tx-gaps}
-shows between its pieces. Axes as in Figure~\ref{fig:tx-gaps}: logarithmic gap axis,
-fraction of gaps per decade of gap length; dotted lines at $7.5$, $16$ and
-$32\,\mu\mathrm{s}$.}
+transaction collapsed to one event at the time of its first packet, for the real stream
+(black), for the same events with the idle gaps between transactions shuffled (orange),
+and for a Poisson stream with the same transaction count (red, dashed). The black curve is
+the black curve of Figure~\ref{fig:tx-gaps}: the same edge at the publisher spacing and
+the same mode near $100\,\mu\mathrm{s}$, because almost every transaction is one packet.
+The orange curve lies on the black one by construction, since shuffling keeps the gaps.
+The Poisson curve has a different shape. What follows: the clustering seen at the packet
+level is present unchanged at the level of matching-engine events, which is what
+Table~\ref{tab:tx-fano} shows numerically and Table~\ref{tab:tx-arms} shows in the
+simulator. Right: time from the first to the last packet of a split transaction, about
+$15\,\mu\mathrm{s}$ at the median. Axes as in Figure~\ref{fig:tx-gaps}.}
 \label{fig:tx-starts}
 \end{figure}
 
 \paragraph{The tail under the transaction-level nulls.} To separate the parts of the
 transaction process that build the queue, each window is re-simulated at $N = 1$ with
 service charged per packet at its measured absolute cost, $S_i = T\,(1 + r(\sigma_i - 1))$
-with $\sigma_i$ the packet's message count and $r$ the ratio of per-message slope to decode floor of the live
-decoder ($0.043$ on NQ book, $0.142$ on ZN book, Section~\ref{sec:crossval-floor}), so
-that a large packet adds work rather than redistributing it. Five counterfactual streams
+with $\sigma_i$ the packet's message count and $r$ the live decoder's ratio of
+per-message cost to decode floor (Section~\ref{sec:crossval-floor}), so that a large
+packet adds work rather than redistributing it. Five counterfactual streams
 are built from the real one (H), each removing one ingredient. TG keeps every transaction
 intact --- its packets, their sizes and their spacing --- and permutes the idle gaps
 between transactions, removing the clustering of transactions. TP keeps
@@ -1924,48 +1831,26 @@ $64$  &  832   &  345 (37)   &  118 (7)    &  839 (101)   &  795 (95)    &  833 
 $128$ & 5460   & 1319 (22)   &  251 (2)    & 5218 (95)    & 5035 (92)    & 5459 (100) \\
 \bottomrule
 \end{tabular}
-\caption{Which part of the transaction process builds the queue. Each row is one
-service time $T$; each column is the single-stage $p_{99}$ latency in \si{\micro\second}
-(corpus median over 3512 windows, service charged per packet at the NQ slope ratio,
-packet-weighted) when the simulator is driven by the real stream H or by one of five
-rebuilt streams, each identical to the real one except for a single ingredient that has
-been removed. The number in parentheses is the share, in percent, of the real stream's
-tail excess $p_{99} - T$ that the rebuilt stream still produces: $100$ means removing
-that ingredient changed nothing, $0$ means it removed the whole tail. The
-five columns ask: TG --- keep every transaction exactly as it was, but scatter the
-transactions so that they no longer come in bunches: does the tail survive? TP --- keep
-every transaction as it was but place each one at a random moment in the window: does the
-tail survive? TS --- keep the moments at which transactions occur but swap their contents
-around, so that a big transaction now arrives where a small one did: does the tail
-survive? TM --- deliver every transaction as one packet: does the tail survive? TW ---
-keep the split into packets but spread the pieces of a split transaction apart: does the
-tail survive? TS, TM and TW are at $92$--$114\%$ in every row ---
-the tail survives all three, so the size of transactions, their division into packets,
-and the spacing of those pieces are not what builds the queue. TP is at $25$, $18$, $7$
-and $2\%$ --- placing transactions at random times removes three quarters of the tail at
-$16\,\mu\mathrm{s}$ and almost all of it at $128\,\mu\mathrm{s}$, so the tail is the
-timing of transactions. TG is at $80$, $60$, $37$ and $22\%$ --- scattering the bunches
-while keeping each transaction intact removes a fifth of the tail at $16\,\mu\mathrm{s}$
-and three quarters at $128\,\mu\mathrm{s}$. The queue is built by
-\emph{when} transactions happen, and by nothing about \emph{what} they contain or
-\emph{how} the exchange delivers them. The timing acts in two ways whose weight shifts
-with the service time. At short service times ($16$--$32\,\mu\mathrm{s}$) most of the
-tail is already present in TG, which keeps the number of transactions that land within a
-service time of each other but not their grouping into bunches: a short server queues
-whenever the gap between consecutive transactions is shorter than its service time, so
-what matters is how many such gaps there are, and the real stream has $4$--$17$ times as
-many as a Poisson stream at the same rate (Table~\ref{tab:tx-gaps}). At long service
-times ($64$--$128\,\mu\mathrm{s}$) most of the tail is gone in TG: a long server only
-backs up badly when many transactions arrive in a sustained run, and the runs are what
-scattering destroys. This is the same profile that the packet-level gap shuffle gave in
-Table~\ref{tab:nulls} ($88$, $79$, $59$, $37$, $23\%$), which identifies the packet-level
-ordering channel with the bunching of transactions. At $T \le 8\,\mu\mathrm{s}$ the
-real excess is under $1\,\mu\mathrm{s}$ and the shares are not meaningful. The ZN slope
-ratio and message weighting move every cell by at most a few points. Session-clustered
-bootstrap over the 276 sessions (1000 draws), $95\%$ intervals: TG $77.0$--$81.7$,
-$58.7$--$61.0$, $35.7$--$37.2$, $21.4$--$23.2\%$ at $T = 16, 32, 64, 128$; TP $24.0$--$25.9$,
-$17.7$--$18.8$, $6.8$--$7.2$, $2.2$--$2.4\%$; TS, TM and TW within $\pm 2$ points of the
-reported values in every cell.}
+\caption{Which part of the transaction process builds the queue. Each row is one service time
+$T$; each column is the single-thread $p_{99}$ in \si{\micro\second} (corpus median,
+service charged per packet at NQ's cost per message) when the simulator is driven by the
+real stream H or by one of five rebuilt streams, each identical to the real one except
+for one removed ingredient. The number in parentheses is the share, in percent, of the
+real stream's tail ($p_{99} - T$) that the rebuilt stream still produces: $100$ means the
+ingredient did not matter, $0$ that it was the whole tail. The columns ask: TG, if the
+transactions are kept intact but no longer come in bunches, does the tail survive? TP, if
+each transaction is put at a random moment? TS, if big and small transactions swap
+places? TM, if every transaction is sent as one packet? TW, if the pieces of a split
+transaction are spread apart? What the table shows: TS, TM and TW keep about all of the
+tail in every row, so the size of transactions and how the exchange packs them do not
+build the queue. TP removes most of it at every service time, so the timing of
+transactions does. TG removes little at $16\,\mu\mathrm{s}$ and most at
+$128\,\mu\mathrm{s}$: a short server is hurt by each short gap on its own, a long server
+only by sustained runs, and runs are what TG breaks up. This is the profile the gap
+shuffle gave at the packet level (Table~\ref{tab:nulls}). At $T \le 8\,\mu\mathrm{s}$ the
+real tail is under $1\,\mu\mathrm{s}$ and the shares are not meaningful. Using ZN's cost per
+message instead of NQ's moves every cell by at most a few points, and session-bootstrap
+intervals are within about two points.}
 \label{tab:tx-arms}
 \end{table}
 
@@ -1985,55 +1870,48 @@ transactions and keeps everything else. What removes the tail, and at which serv
 $T$:
 \begin{itemize}
     \item \emph{Putting each transaction at a random moment (TP) removes the tail at every
-$T$.} Three quarters of it goes at $16\,\mu\mathrm{s}$, and almost all of it at
-$64$ and $128\,\mu\mathrm{s}$ ($7\%$ and $2\%$ remain). When transactions happen is what
-builds the queue.
+$T$}: about three quarters of it at $16\,\mu\mathrm{s}$ and almost all of it from
+$64\,\mu\mathrm{s}$. When transactions happen is what builds the queue.
     \item \emph{Keeping every gap between transactions but shuffling their order (TG)
-removes little at short $T$ and most at long $T$.} At $16\,\mu\mathrm{s}$ $80\%$ of the tail
-remains, at $32\,\mu\mathrm{s}$ $60\%$, at $64\,\mu\mathrm{s}$ $37\%$, at $128\,\mu\mathrm{s}$
-$22\%$. A fast server is hurt by each short gap on its own, and the shuffle keeps every
-short gap. A slow server is hurt by long runs of transactions close together, and the
-shuffle breaks the runs up.
+removes little at short $T$ and most at long $T$}: about $80\%$ of the tail remains at
+$16\,\mu\mathrm{s}$, about a fifth at $128\,\mu\mathrm{s}$. A fast server is hurt by each
+short gap on its own, and the shuffle keeps every short gap. A slow server is hurt by long
+runs of transactions close together, and the shuffle breaks the runs up.
     \item \emph{Nothing about what the transactions contain or how the exchange packs them
 removes the tail from $16\,\mu\mathrm{s}$ up.} Swapping big and small transactions around
 (TS), sending each transaction as one packet (TM), or spreading a transaction's packets
-apart (TW) leaves $92$ to $114\%$ of the tail at every $T$ from $16$ to
-$128\,\mu\mathrm{s}$.
+apart (TW) leaves the tail about as it was.
     \item \emph{At $8\,\mu\mathrm{s}$ and below these rebuilt streams say nothing.} The real
-stream's tail there is under $1\,\mu\mathrm{s}$ above $T$, too small to split into shares.
-At the $7\,\mu\mathrm{s}$ of a production receiver the tail comes mostly from decoding long
-packets one message after another (Section~\ref{sec:crossval-spanrun}), which these
-streams were not built to test.
+stream's tail there is too small to split into shares. At the $7\,\mu\mathrm{s}$ of a
+production receiver the tail comes mostly from decoding long packets one message after
+another (Section~\ref{sec:crossval-spanrun}), which these streams were not built to test.
 \end{itemize}
 
-Three things follow. The tail is the transaction process: randomising transaction times
-removes $75$--$98\%$ of it. Sizes and packetisation do not enter: decoupling transaction
-sizes from timing, merging each transaction into one packet, or removing the spacing
-inside a split transaction leaves the tail within $\pm 15\%$ of its value at every service
-time, at the ZN slope as at the NQ slope. And the clustering of transactions --- the
-ordering that TG destroys --- carries $20\%$ of the tail at $16\,\mu\mathrm{s}$, $40\%$ at
-$32$, $63\%$ at $64$ and $78\%$ at $128\,\mu\mathrm{s}$, the same profile the packet-level
-gap shuffle gave in Table~\ref{tab:nulls}. The remainder, dominant at HFT service times,
-is the surplus of tight gaps between transactions over a Poisson stream at the same rate
-(Table~\ref{tab:tx-gaps}), which on the publisher's clock sit at its spacing
-(Table~\ref{tab:two-clocks}). That surplus says the transaction gap distribution is far
-from exponential; it does not say what put the mass there, and a renewal stream with the
-same gaps and no self-excitation (the gap shuffle) reproduces it and most of the tail at
-$16\,\mu\mathrm{s}$. The attribution is therefore the following. The queueing tail behind
-a single-threaded receiver on this feed is produced by the timing of matching-engine
+Three things follow. The tail is the transaction process: putting transactions at random
+moments removes most of it. From $16\,\mu\mathrm{s}$ up, sizes and packetisation do not
+enter, at ZN's cost per message as at NQ's. And the ordering of transactions into runs,
+which TG destroys, carries a small part of the tail at $16\,\mu\mathrm{s}$ and most of it
+at $128\,\mu\mathrm{s}$, the same profile the packet-level gap shuffle gave. The rest,
+dominant at HFT service times, is the surplus of short gaps between transactions over a
+Poisson stream at the same rate (Table~\ref{tab:tx-gaps}), which on the publisher's clock
+sit at its spacing (Table~\ref{tab:two-clocks}). That surplus says the gap distribution is
+far from exponential; it does not say what put the mass there, and a stream with the same
+gaps and no self-excitation (the gap shuffle) reproduces it and most of the tail at
+$16\,\mu\mathrm{s}$. The attribution is therefore the following. The queueing tail behind a
+single-threaded receiver on this feed is produced by the timing of matching-engine
 transactions; from $16\,\mu\mathrm{s}$ up it is not produced by packetisation, by the
 message count per packet, or by the packet rate (at the $7\,\mu\mathrm{s}$ of a production
-receiver the message count carries most of it, Section~\ref{sec:crossval-spanrun}); it acts on a short service time through how often two transactions land
-within one service time of each other, and on a long one through how long the runs of
-them last, which is the self-excitation. Why two transactions land a few microseconds
-apart is a question about the market, not about the receiver, and is left open
-(Section~\ref{sec:concl-cannot}).
+receiver the message count carries most of it, Section~\ref{sec:crossval-spanrun}). It
+acts on a short service time through how often two transactions land within one service
+time of each other, and on a long one through how long the runs of them last, which is the
+self-excitation. Why transactions reach the engine within microseconds of each other is a
+question about the market and is left open (Section~\ref{sec:concl-cannot}).
 
 \findings{
-    \item \emph{The exchange does not split transactions into bursts.} $98.3\%$ of transactions fit in one packet; the packets of a split transaction arrive $15\,\mu\mathrm{s}$ apart, above the publisher spacing; the tight gaps lie between different transactions.
-    \item \emph{The transaction stream carries the clustering.} Branching ratio $0.795$ on transactions against $0.798$ on packets; count variance $105$ times Poisson at one second.
-    \item \emph{When transactions happen builds the tail.} Placing them at random moments removes $75$--$98\%$ of it.
-    \item \emph{From $16\,\mu\mathrm{s}$ up, what they contain and how they are packed does not.} Swapping sizes, merging into one packet or spreading packets leaves $92$--$114\%$ of the tail.
+    \item \emph{The exchange does not split transactions into bursts.} Almost every transaction fits in one packet; the pieces of a split one arrive about $15\,\mu\mathrm{s}$ apart; the short gaps lie between different transactions.
+    \item \emph{The transaction stream carries the clustering}: transactions and packets have the same count variability and the same branching ratio, about $0.8$.
+    \item \emph{When transactions happen builds the tail.} Placing them at random moments removes most of it.
+    \item \emph{From $16\,\mu\mathrm{s}$ up, what they contain and how they are packed does not}: swapping sizes, merging into one packet or spreading packets leaves the tail about as it was.
 }
 
 
