@@ -3251,60 +3251,70 @@ makes and the simulated numbers that test it.
 \paragraph{Proposition~\ref{thm:burst} (burst-limit throughput).} The single-message
 identity $p_{50}(N) = T + (N-1) h$ is predicted exactly by Proposition~\ref{thm:burst} for
 any arrival law when the median message finds the queue empty. Table~\ref{tab:main-corpus}
-confirms it in all 28 $(T, N)$ cells of the Poisson arm and in 25 of the 28 Hawkes cells
-at $h = 1.7\,\mu\mathrm{s}$, to the $0.01\,\mu\mathrm{s}$ reporting precision; the
-three Hawkes exceptions are the longest-service cells, where the median message itself
-waits (Section~\ref{sec:results-median}).
+confirms it in every cell of the Poisson stream and in all but three cells of the real
+stream, to the reporting precision; the three exceptions are the longest service times,
+where the median message itself waits (Section~\ref{sec:results-median}).
 
 \paragraph{Theorem~\ref{thm:reduction} (reduction and scaling bound).} The prediction is
-$\Delta(N) \le \Delta(1)/N$ on every window, and more strongly $W_j^{(N)} \le W_j^{(1)}/N
-+ (N-1)h$ for every individual message. The corpus-median ratios in Table~\ref{tab:delta}
-sit at or below $1/N$ in every cell, with substantial slack everywhere: the tightest
-ratio in the sweep is $0.163$ at $T = 32$, $N = 2$, against a bound of $0.5$. The slack is
-largest where a split drives the per-stage service under the publisher spacing and removes
-the excess outright rather than dividing it, which is why the fitted $\gamma$ is $3.32$
-and $2.68$ at $T = 64$ and $128$ rather than near $1$. The pathwise form was checked
-directly by the simulator: across all 3512 windows, all seven service times, all four
-packet-level arrival arms of Section~\ref{sec:setup-nulls} (real, uniform, gap shuffle,
-1\,s-binned), and $N \in \{2, 4, 8\}$, no message violates the bound (the check allows $N$ nanoseconds for the
-rounding of $T/N$; the largest excess over that tolerance is $0$). The reduction identity
-Equation~\eqref{eq:reduction} is visible in Table~\ref{tab:delta} without any fitting:
+$\Delta(N) \le \Delta(1)/N$ on every window, and more strongly $W_j^{(N)} \le W_j^{(1)}/N +
+(N-1)h$ for every individual message. The corpus-median ratios in Table~\ref{tab:delta}
+are at or below $1/N$ in every cell, with a wide margin: the closest any cell comes is about
+a third of the bound. The margin is largest where a split drives the per-stage service
+below the publisher spacing and removes the tail outright rather than dividing it, which is
+why the fitted decay exponent is about three rather than one. The per-message form was
+checked directly by the simulator on every window, every service time, all four
+packet-level streams and every stage count: no message violates it. The reduction identity,
+Equation~\eqref{eq:reduction}, is visible in Table~\ref{tab:delta} without any fitting:
 $\Delta$ is constant along every diagonal of constant $T/N$, so the tandem's tail is the
 single-server tail at $s_{\max}$ on real arrivals exactly as on synthetic ones
 (Appendices~\ref{app:check} and~\ref{app:unequal}).
 
 \paragraph{Corollary~\ref{cor:poisson} (Poisson null).} The prediction is
-$p_{q}^{\mathrm{P}}(N) = T + (N-1)h$ wherever the per-stage utilisation satisfies $\rho /
-N < 1 - q$, and a visible wait wherever it does not. Table~\ref{tab:main-corpus} matches
-both halves: Poisson $p_{99}$ equals the no-queue latency in 22 of the 28 cells and exceeds it in
-exactly the six cells whose per-stage utilisation clears $10^{-2}$ --- $(T, N) = (32, 1)$,
-$(64, 1)$, $(64, 2)$, $(128, 1)$, $(128, 2)$ and $(128, 4)$, at $\rho/N = 0.0144$ to
-$0.0578$ --- and in no cell below it. Poisson $p_{99.9}$ likewise exceeds the no-queue latency
-exactly in the cells with $\rho/N > 10^{-3}$ (single stage at $T \ge 4$, two stages at $T
-\ge 8$, four stages at $T \ge 16$, eight stages at $T \ge 32$) and nowhere else. The null arm is
-therefore a working queue whose small wait appears where PASTA says it must, and splitting
-under it costs $(N-1)h$ at every reported quantile.
+$p_{q}^{\mathrm{P}}(N) = T + (N-1)h$ wherever the per-stage utilisation satisfies
+$\rho / N < 1 - q$, and a visible wait wherever it does not. Table~\ref{tab:main-corpus}
+matches both halves: the Poisson $p_{99}$ exceeds the no-queue latency in exactly the six
+cells whose per-stage utilisation is above $1\%$, all at long service times, and in no other
+cell. The Poisson $p_{99.9}$ likewise exceeds it exactly where the per-stage utilisation is
+above $0.1\%$. The Poisson stream is therefore a working queue whose small wait appears
+where theory says it must, and splitting under it costs $(N-1)h$ at every reported
+quantile.
 
 \paragraph{The renewal null against the cluster picture.} The gap shuffle of
 Section~\ref{sec:results-nulls} is a renewal stream with the real gap distribution, so
-under it the probability that $k$ consecutive gaps are all shorter than $T$ is
-$F(T)^k$, with $F(T)$ the tight-gap fraction, and the mean run of tight gaps is
-$1/(1 - F(T))$. The cluster picture of Section~\ref{sec:theory} predicts that the real
-stream exceeds both, and by more where the service time is long enough for many members
-of one cluster to fall within it. On 254 windows from 20 sessions the per-window median
-of the probability that a tight gap is followed by another is $0.120$, $0.209$, $0.363$,
-$0.534$ and $0.725$ at $T = 8, 16, 32, 64, 128\,\mu\mathrm{s}$, against $F(T) = 0.020$,
-$0.183$, $0.325$, $0.456$ and $0.655$ for the renewal stream, and the mean run of tight
-gaps is $1.14$, $1.26$, $1.57$, $2.14$ and $3.63$ against $1.02$, $1.22$, $1.48$, $1.84$
-and $2.90$. The excess over renewal on the run length is $1.12$, $1.03$, $1.06$, $1.16$
-and $1.25\times$, growing with $T$ from $16\,\mu\mathrm{s}$, which is the direction of Table~\ref{tab:nulls}: the
-renewal stream keeps $79\%$ of the tail at $16\,\mu\mathrm{s}$, where its runs are
-within $3\%$ of the real ones and the tail is a one-gap wait, and $23\%$ at
-$128\,\mu\mathrm{s}$, where the real runs are a quarter longer and the backlog compounds
-over them. At $T = 8\,\mu\mathrm{s}$ the conditional probability is six times the
-renewal value ($0.120$ against $0.020$) --- gaps near the publisher spacing are strongly bunched ---
-yet the renewal stream keeps $88\%$ of the tail there, because at $8\,\mu\mathrm{s}$ the tail is
-$0.6\,\mu\mathrm{s}$ and consists of single waits that no run is needed to produce.
+under it the chance that a short gap is followed by another equals the share of short gaps
+$F(T)$, and runs of short gaps are as long as independent draws make them. The cluster
+picture of Section~\ref{sec:theory} predicts that the real stream has longer runs, and more
+so at longer service times, where many members of one cluster fall within one service
+time. Table~\ref{tab:renewal} compares the two on 254 windows from 20 sessions. The real
+runs are longer than the renewal ones at every service time, and the excess grows with $T$
+from $16\,\mu\mathrm{s}$: at $16\,\mu\mathrm{s}$ the runs are within a few percent of
+renewal and the shuffle keeps most of the tail, while at $128\,\mu\mathrm{s}$ they are a
+quarter longer and the shuffle keeps little. At $8\,\mu\mathrm{s}$ short gaps are strongly
+bunched, six times the renewal chance, yet the shuffle keeps most of the tail there too,
+because the tail at that service time is a fraction of a microsecond and consists of
+single waits that need no run.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+$T$ (\si{\micro\second}) & 8 & 16 & 32 & 64 & 128 \\
+\midrule
+chance a short gap is followed by another, real      & 0.120 & 0.209 & 0.363 & 0.534 & 0.725 \\
+same, renewal stream (share of short gaps $F(T)$)  & 0.020 & 0.183 & 0.325 & 0.456 & 0.655 \\
+mean run of short gaps, real                          & 1.14 & 1.26 & 1.57 & 2.14 & 3.63 \\
+mean run of short gaps, renewal                       & 1.02 & 1.22 & 1.48 & 1.84 & 2.90 \\
+\bottomrule
+\end{tabular}
+\caption{Runs of short gaps (gaps shorter than $T$) on the real stream against a renewal
+stream with the same gaps in random order; per-window medians over 254 windows from 20
+sessions. What the table shows: short gaps follow one another more often than chance at
+every service time, and the real runs grow longer than the renewal ones as $T$ grows. What
+follows: the runs are what the gap shuffle destroys, which is why it removes more of the
+tail at long service times (Table~\ref{tab:nulls}).}
+\label{tab:renewal}
+\end{table}
 
 \paragraph{The cluster representation against Section~\ref{sec:results-transactions}.}
 The Hawkes--Oakes picture of Section~\ref{sec:theory-cluster} is one of immigrant events
@@ -3321,18 +3331,18 @@ statement about offspring counts, which the data do not label, and its check in
 Appendix~\ref{app:borel} remains indirect.
 
 \paragraph{Summary.} All three analytical statements hold on the full corpus. The
-pathwise bound of Theorem~\ref{thm:reduction} holds on every message of every window under
-all four packet-level arrival arms, and its slack is measured: $\gamma = 3.32$ and $2.68$
-at $T = 64$ and $128\,\mu\mathrm{s}$, and at $T \le 32\,\mu\mathrm{s}$ the tandem removes
-the excess outright rather than dividing it. The renewal null behaves as the cluster
-picture says a renewal stream should, keeping the one-gap tail at short service times and
-losing the run-driven tail at long ones, and the transaction analysis places the clusters
-in the matching engine's event stream.
+per-message bound of Theorem~\ref{thm:reduction} holds on every message of every window
+under all four packet-level streams, and the tail falls far faster than the bound requires:
+where a split takes each stage below the publisher spacing, it removes the tail rather
+than dividing it. The renewal stream behaves as the cluster picture says it should,
+keeping the one-gap tail at short service times and losing the run-driven tail at long
+ones, and the transaction analysis places the clusters in the matching engine's event
+stream.
 
 \findings{
-    \item \emph{Proposition~\ref{thm:burst} holds}: median $= T + (N-1)h$ in $53$ of $56$ cells, the exceptions at the longest service times.
-    \item \emph{Theorem~\ref{thm:reduction} holds on every message of every window} under all four packet-level streams; the tail falls far faster than its $1/N$ bound ($\gamma = 3.3$ and $2.7$ at $64$ and $128\,\mu\mathrm{s}$).
-    \item \emph{Corollary~\ref{cor:poisson} holds}: the Poisson stream's wait appears in exactly the cells where utilisation per stage exceeds $1 - q$.
+    \item \emph{Proposition~\ref{thm:burst} holds}: median $= T + (N-1)h$ in all but three cells, the exceptions at the longest service times.
+    \item \emph{Theorem~\ref{thm:reduction} holds on every message of every window}, and the tail falls far faster than its $1/N$ bound.
+    \item \emph{Corollary~\ref{cor:poisson} holds}: the Poisson wait appears exactly where utilisation per stage exceeds $1 - q$.
     \item \emph{Runs of short gaps are longer than a renewal stream's}, increasingly so with $T$, which is why shuffling the gaps removes more of the tail at long service times.
 }
 
@@ -3524,15 +3534,14 @@ receiver runs right at the edge of the tail.}
 \label{fig:bars-crossval-floor}
 \end{figure}
 
-Across all six streams the fitted decode floor spans $6.81$ to $7.23\,\mu\mathrm{s}$, a range of
-$0.42\,\mu\mathrm{s}$ across six multicast channels on one host and one afternoon.
+Across all six streams the fitted decode floor lies within half a microsecond of
+$7\,\mu\mathrm{s}$, on six multicast channels on one host and one afternoon.
 
 Compare this with Section~\ref{sec:results-conditioning}. The service time at which a
-deterministic stage on this feed begins to accumulate a tail is the publisher
-spacing, its $1$st-percentile interarrival gap, measured at $7.43$ to
-$7.53\,\mu\mathrm{s}$ and invariant across intensity quintiles; the refined sweep of
-Section~\ref{sec:results-threshold} locates the switch-on between $T = 7$ and $T =
-8\,\mu\mathrm{s}$. The production decode floor is $6.81$--$7.23\,\mu\mathrm{s}$.
+stage on this feed begins to build a tail is the publisher spacing, the tightest gap
+between packets, about $7.5\,\mu\mathrm{s}$ and the same at every level of market activity;
+the refined sweep of Section~\ref{sec:results-threshold} puts the switch-on between $7$ and
+$8\,\mu\mathrm{s}$. The production decode floor is about $7\,\mu\mathrm{s}$.
 
 The production system operates at the threshold, to within a few hundred nanoseconds,
 by two measurements made on different data with different estimators. The agreement is
@@ -3590,8 +3599,8 @@ measured on a different corpus. For this system, whether a packet's service is a
 below the threshold is determined by whether it carries one message or more.
 
 \findings{
-    \item \emph{The production decode floor is $6.81$--$7.23\,\mu\mathrm{s}$}, by three independent estimates, just under the $7.43$--$7.53\,\mu\mathrm{s}$ threshold.
-    \item \emph{A packet with one message is served below the threshold, one with two or more at or above it}, on all six live streams.
+    \item \emph{The production decode floor is about $7\,\mu\mathrm{s}$} by three independent estimates, just under the $7.5\,\mu\mathrm{s}$ publisher spacing.
+    \item \emph{A packet with one message is served below the publisher spacing, one with two or more at or above it}, on all six live streams.
 }
 
 
@@ -3770,30 +3779,26 @@ above $16\,\mu\mathrm{s}$, where queueing across packets supplies nearly all of 
 
 \paragraph{Spans and transactions.} On the corpus, where every message carries its
 \texttt{transactTime}, a multi-message packet is usually not one large transaction but
-several transactions delivered together. On 20 sessions ($2.45 \times 10^8$ packets)
-$4.0\%$ of packets carry two or more messages and $3.1\%$ carry parts of two or more
-transactions; of the packets with two or more messages, $77\%$ carry more than one
-transaction, and of those with five or more, $62\%$. The publisher, that is, packs
-transactions that reach it while it is busy into one packet
-(Section~\ref{sec:exchange-drain}). This is consistent with the publisher spacing of
-Section~\ref{sec:results-conditioning}: two transactions that the engine processes closer
-together than about $7.5\,\mu\mathrm{s}$ never appear as two packets closer together than the publisher spacing;
-they appear either as one packet with a larger span or, more often, as two packets at the
-publisher's spacing (Table~\ref{tab:two-clocks}), which is why so few packet gaps on the
-feed ($2.15\%$, Table~\ref{tab:tx-gaps}) fall below the publisher spacing. Two consequences follow for the rest
-of this section. The serialisation tail that a large packet produces is, for the most
-part, the same clustering of transactions as the queueing tail, delivered inside a
-datagram instead of across datagrams; and the message count per packet is set by how
-closely transactions follow one another, not by how large individual transactions are
-(only $4.6\%$ of transactions carry more than one message, Table~\ref{tab:tx-counts}).
-The two-mechanism description below --- queueing across packets, serialisation within
-them --- stands as a description of where the wait is paid; both originate in the
-transaction stream.
+several transactions delivered together. About $4\%$ of packets carry two or more
+messages, and about three quarters of those carry more than one transaction. The publisher,
+that is, packs transactions that reach it while it is busy into one packet
+(Section~\ref{sec:exchange-drain}). This is consistent with the publisher spacing: two
+transactions that the engine processes closer together than about $7.5\,\mu\mathrm{s}$
+never appear as two packets closer together than that; they appear either as one packet
+with more messages or, more often, as two packets at the publisher's spacing
+(Table~\ref{tab:two-clocks}), which is why so few packet gaps fall below the publisher
+spacing (Table~\ref{tab:tx-gaps}). Two consequences follow for the rest of this section.
+The in-packet tail that a large packet produces is, for the most part, the same clustering
+of transactions as the queueing tail, delivered inside a packet instead of across packets;
+and the message count per packet is set by how closely transactions follow one another,
+not by how large individual transactions are. The two-mechanism description below,
+queueing across packets and decoding within them, stands as a description of where the
+wait is paid; both originate in the transaction stream.
 
 \findings{
-    \item \emph{Service is not constant per packet}: a packet costs the decode floor plus $0.31$--$0.97\,\mu\mathrm{s}$ for each further message, depending on the stream.
-    \item \emph{Long packets are rare but expensive}: on ZN trade one packet in nine carries two thirds of the messages and six sevenths of the decode time.
-    \item \emph{A long packet is usually several transactions packed together}: $77\%$ of multi-message packets hold more than one transaction.
+    \item \emph{Service is not constant per packet}: each further message adds a fixed cost, from about a third of a microsecond to about one depending on the stream.
+    \item \emph{Long packets are rare but expensive}: on ZN trade one packet in nine carries two thirds of the messages and most of the decode time.
+    \item \emph{A long packet is usually several transactions packed together}: about three quarters of multi-message packets hold more than one transaction.
 }
 
 
@@ -3913,13 +3918,12 @@ message count (light) bounds the effect from above.}
 \label{fig:bars-spancmp}
 \end{figure}
 
-\paragraph{Regimes of the two tail mechanisms.} The span/const ratio of Table~\ref{tab:spancmp} is
-largest where the queueing tail is absent and smallest where the queueing tail dominates.
-At $T = 2$ and $4\,\mu\mathrm{s}$ the constant-service model has no tail ($p_{50} =
-p_{99} = p_{99.9} = T$, Section~\ref{sec:results-tail}) while the span-dependent model has
-$p_{99} = 1.17\,T$ and $p_{99.9} = 1.77\,T$. Below the publisher spacing there is a tail,
-but it is not a queueing tail. By $T \ge 32\,\mu\mathrm{s}$, where cluster
-queueing produces a $p_{99}$ of $4.5\,T$ and rising, span contributes $0$--$2\%$ on top.
+\paragraph{Regimes of the two tail mechanisms.} The span/const ratio of
+Table~\ref{tab:spancmp} is largest where the queueing tail is absent and smallest where it
+dominates. At $2$ and $4\,\mu\mathrm{s}$ the constant-service model has no tail at all,
+while the span-dependent model has a small one: below the publisher spacing there is a
+tail, but it is not a queueing tail. From $32\,\mu\mathrm{s}$, where queueing across packets
+makes the $p_{99}$ several times $T$, span adds at most a few percent.
 
 \paragraph{Decomposition at the production operating point.} The live system's measured
 decode floor is $6.81$--$7.23\,\mu\mathrm{s}$ (Section~\ref{sec:crossval-floor}), so the
@@ -4029,10 +4033,10 @@ large packets, the second delivery dominates; Section~\ref{sec:fungibility-measu
 takes this up.
 
 \findings{
-    \item \emph{At the production service time, long packets carry most of the tail}: at $8\,\mu\mathrm{s}$ in-packet decode supplies $66\%$ of the $p_{99}$ excess; on the live receiver the decode floor plus the cost of the messages ahead reproduces $71$--$80\%$ of the $p_{99}$ on four of six streams.
-    \item \emph{From $16\,\mu\mathrm{s}$ up, it adds a few percent} to a tail set by queueing across packets.
+    \item \emph{At the production service time, long packets carry most of the tail}: in the simulation at $8\,\mu\mathrm{s}$ about two thirds of it, and on the live receiver in-packet position reproduces about three quarters of the $p_{99}$ on most streams.
+    \item \emph{From $16\,\mu\mathrm{s}$ up, message count adds a few percent} to a tail set by queueing across packets.
     \item \emph{The best stage count does not change}: a stage cut does not shorten the decode of a long packet.
-    \item \emph{On NQ long packets do not arrive preferentially after tight gaps}; on ZN this is untested.
+    \item \emph{On NQ long packets do not arrive preferentially after short gaps}; on ZN this is untested.
 }
 
 
@@ -4098,63 +4102,56 @@ flags a few such isolated spikes as possibly residual recovery, so it is not use
 \label{tab:zn-serial-tail}
 \end{table}
 
-\paragraph{The spread from $p_1$ to $p_{99.9}$.} The slowest message in a thousand takes $274\,\mu\mathrm{s}$
-against $5\,\mu\mathrm{s}$ for the fastest tenth and $7\,\mu\mathrm{s}$ for the median:
-fifty-four times the one and thirty-eight times the other. On the hot path the same
-ratio is five. Conditioning on an empty queue and first position in the packet removes
-nine tenths of the far tail, $274 \to 26\,\mu\mathrm{s}$, without changing the minimum.
-The difference between the two tails is the contribution of queueing and of position
-inside the packet. The hot path itself is not at the decode floor in its tail ($15.5$ and
-$26.4\,\mu\mathrm{s}$ at $p_{99}$ and $p_{99.9}$ against a $7\,\mu\mathrm{s}$ decode floor);
-that residual, present with neither queueing nor serialisation, is not resolved by these
-records (Section~\ref{sec:open-questions}).
+\paragraph{The spread from the median to $p_{99.9}$.} The slowest message in a thousand
+takes $274\,\mu\mathrm{s}$, against $7\,\mu\mathrm{s}$ for the median, some forty times as
+long. Restricting to messages that met an empty queue and were first in their packet
+removes nine tenths of that far tail, down to $26\,\mu\mathrm{s}$, without changing the
+fastest messages. The difference between the two is the contribution of queueing and of
+position inside the packet. The restricted messages are not at the decode floor in their
+own tail either: about twice the decode floor at $p_{99}$ and nearly four times at
+$p_{99.9}$. That residual, present with neither queueing nor in-packet decode, is not
+resolved by these records (Section~\ref{sec:open-questions}).
 
 \paragraph{How the live tail forms.} The three findings of this paper meet here. Packets
 reach the handler as trains about $7.5\,\mu\mathrm{s}$ apart
-(Section~\ref{sec:exchange-drain}). The handler's median service, $6.4$ to
-$7.1\,\mu\mathrm{s}$ on the book streams (Table~\ref{tab:tails-six}), is just under that
-spacing, so a train of single-message packets served at the median builds no queue; this
+(Section~\ref{sec:exchange-drain}). The handler's median service, about $7\,\mu\mathrm{s}$
+on the book streams (Table~\ref{tab:tails-six}), is just under that spacing, so a train of single-message packets served at the median builds no queue; this
 is why its $p_{10}$ and $p_{50}$ sit at the decode floor. Two things push a service over the
 spacing. A packet with two or more messages costs the decode floor plus one per-message slope for
 each further message, which crosses $7.5\,\mu\mathrm{s}$ on every stream
 (Section~\ref{sec:crossval-floor}). And a single-message packet sometimes takes far longer
-than the median for reasons these records do not show: on ZN the hot path reaches
-$15.5\,\mu\mathrm{s}$ at $p_{99}$. Either way the packets still arriving behind it queue,
+than the median for reasons these records do not show: on ZN, messages with nothing queued
+reach about twice the decode floor at $p_{99}$. Either way the packets still arriving behind it queue,
 and the queue lasts until the handler catches up with the train. The large-packet
 mechanism is a matter of arithmetic on the measured decode floor and slope; the slow-service
-mechanism is measured only as the hot-path percentiles above. How the $274\,\mu\mathrm{s}$
-at $p_{99.9}$ divides between the decode inside long packets, the queue behind them and
+mechanism is measured only as the empty-queue percentiles above. How the ZN $p_{99.9}$
+divides between the decode inside long packets, the queue behind them and
 slow services was not decomposed, because the per-message records were not retained.
 What the records do show is that the part of the tail not explained by queueing across
 packets is large at this service time: the decode floor plus the decode cost of the messages
-ahead in the same packet reproduces $71$ to $80\%$ of the observed $p_{99}$ on four of the
-six streams (Section~\ref{sec:crossval-spanrun}).
+ahead in the same packet reproduces about three quarters of the observed $p_{99}$ on four of
+the six streams (Section~\ref{sec:crossval-spanrun}).
 
-\paragraph{Large packets and the queue behind them.} The
-message count of a packet is set by how closely transactions followed one another, not
-by how large any one transaction was: only $4.6\%$ of transactions carry more than one
-message (Table~\ref{tab:tx-counts}), while a packet of ten or more messages is, in most
-cases, ten or more transactions that the publisher packed into one packet.
-Section~\ref{sec:crossval-floor} gives what such a packet costs this handler: a decode floor of
-$6.8\,\mu\mathrm{s}$ plus about $1\,\mu\mathrm{s}$ for each further message, so the
-service time grows in proportion to the number of transactions coalesced, and the largest
-packet seen, forty-five messages (Section~\ref{sec:crossval-span}), holds the thread for
-some $50\,\mu\mathrm{s}$, seven times the decode floor. That is the first delivery of the
-clustering: the last message of that packet waits some $45\,\mu\mathrm{s}$ before its
-own decode, but even so the in-packet serialisation accounts for only a fifth of the
-$p_{99.9}$. The rest is the queue the packet opens behind it, the second delivery. A
-deterministic server begins to build a queue when two arrivals are separated by less
-than its service time (Section~\ref{sec:results-conditioning}); at one message per
-packet the service is $7\,\mu\mathrm{s}$, at the publisher spacing measured on NQ (ZN's
-own packet spacing was not measured), and a queue almost never forms, which is the hot path
-of Table~\ref{tab:zn-serial-tail}. While a forty-five-message packet holds the thread
-for $50\,\mu\mathrm{s}$, every packet that arrives waits behind it, and each of those
-adds its own service to the wait of the ones behind it: the wait of the $k$-th packet in
-the queue is the sum of the service times ahead of it, so a large packet followed by any
-arrivals within its service time produces a wait that grows with the number queued, not
-with any one packet's span. The $0.47\%$ of ZN packets carrying ten or more messages are
-few, but each is a burst of transactions that this handler pays for twice, once inside
-the packet and once in the queue behind it, and the hundreds of microseconds at
+\paragraph{Large packets and the queue behind them.} The message count of a packet is set
+by how closely transactions followed one another, not by how large any one transaction
+was: few transactions carry more than one message (Table~\ref{tab:tx-counts}), while a
+packet of ten or more messages is usually ten or more transactions that the publisher
+packed into one packet. Section~\ref{sec:crossval-floor} gives what such a packet costs this
+handler on ZN: the decode floor of about $7\,\mu\mathrm{s}$ plus about $1\,\mu\mathrm{s}$ for
+each further message. The largest packet seen, forty-five messages
+(Section~\ref{sec:crossval-span}), therefore holds the thread for about $50\,\mu\mathrm{s}$,
+seven times the decode floor. That is the first cost: the last message of that packet waits
+over $40\,\mu\mathrm{s}$ before its own decode. Yet the in-packet decode accounts for only a
+fifth of the $p_{99.9}$. The rest is the queue the packet opens behind it, the second cost.
+At one message per packet the service is about $7\,\mu\mathrm{s}$, just under the publisher
+spacing measured on NQ (ZN's own spacing was not measured), and a queue almost never forms;
+that is the empty-queue population of Table~\ref{tab:zn-serial-tail}. While a
+forty-five-message packet holds the thread, every packet that arrives waits behind it, and
+each adds its own service to the wait of the ones behind it: the wait of the $k$-th packet
+in the queue is the sum of the service times ahead of it, so it grows with the number
+queued, not with any one packet's size. ZN packets of ten or more messages are fewer than
+one in two hundred, but each is a burst of transactions that this handler pays for twice,
+once inside the packet and once in the queue behind it, and the hundreds of microseconds at
 $p_{99.9}$ are those queues.
 
 \paragraph{Across the six streams.} The same measurement covers three instruments and,
@@ -4239,7 +4236,7 @@ scales the whole excursion. Which lever to pull is decided by the end-of-build
 measurement of Section~\ref{sec:fungibility-workflow}.
 
 \findings{
-    \item \emph{On ZN the far tail is large}: $274\,\mu\mathrm{s}$ at $p_{99.9}$ against $26\,\mu\mathrm{s}$ for messages with nothing queued and first in their packet.
+    \item \emph{On ZN the far tail is large}: about $270\,\mu\mathrm{s}$ at $p_{99.9}$, against about $26\,\mu\mathrm{s}$ for messages with nothing queued and first in their packet.
     \item \emph{Across the six live streams the tail follows packet size times cost per message, not packet rate}: the busiest stream, NQ book, has the smallest tail.
     \item \emph{Long packets and occasional slow services each start a queue in the publisher's train}; how the ZN tail divides between them was not measured.
     \item \emph{Messages with no queue still reach twice the decode floor at $p_{99}$}, for reasons the records do not show.
