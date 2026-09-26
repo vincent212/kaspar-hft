@@ -2207,15 +2207,18 @@ rate; the next section establishes this.
 \label{sec:results-conditioning}
 
 One would expect the slow tail, and with it the case for splitting, to depend on how
-busy the market is and on how strongly one packet triggers the next. If it did, the rule
+busy the market is and on how strongly one transaction triggers the next. If it did, the rule
 for splitting would have to change with market conditions. This section tests that
 expectation and finds that, over the task lengths a trading hot path uses, it does not
 hold: a window with four to five times the packet rate has the same tail, relative to
 the task length, as a quiet one. The reason is that a busy market produces more bursts,
-not tighter bursts. The spacing between packets inside a burst is set by how the
-exchange gateway emits them, about seven and a half microseconds on this feed, and that
-spacing does not change with the market state. Since it is the tightest spacing that
-starts a queue, the point at which a tail appears is a constant of the feed. Market load
+not tighter bursts. The tightest spacing between two packets on this feed is about seven
+and a half microseconds, the gateway's minimum separation between successive events; the
+two packets on either side of such a gap are, almost always, two different transactions
+(Section~\ref{sec:results-transactions}), and neither the gateway's floor nor the
+spacing of transactions inside a burst changes with the market state. Since it is the
+tightest spacing that starts a queue, the point at which a tail appears is a constant of
+the feed. Market load
 only matters for very long tasks, where the ordinary effect of a busy server takes over.
 The practical consequence is that the rule for splitting needs no live estimate of market
 conditions; the section closes by confirming the result on five-minute windows, and by
@@ -2314,10 +2317,14 @@ invariant: the $p_1$ gap moves from $7.45$ to $7.43\,\mu\mathrm{s}$, a ratio of 
 while the rate more than quadruples.
 
 Raising the intensity of a self-exciting process raises the rate at which clusters are
-generated; it does not change the spacing of events inside a cluster. The intra-cluster
-spacing is set by the exchange's packet-emission granularity, a property of the CME
-gateway rather than of the market state, and on this corpus that floor is about
-$7.5\,\mu\mathrm{s}$. A busy window contains more bursts, not tighter bursts.
+generated; it does not change the spacing of events inside a cluster. The tight end of
+that spacing is bounded by the gateway's minimum separation between successive events,
+about $7.5\,\mu\mathrm{s}$ on this corpus, a property of the CME gateway rather than of
+the market state; the events on either side of a floor-level gap are distinct
+transactions arriving within that separation of each other
+(Section~\ref{sec:results-transactions}, Table~\ref{tab:tx-gaps}), and how closely
+successive transactions within a burst follow one another is likewise invariant to the
+window's rate. A busy window contains more bursts, not tighter bursts.
 
 The queueing consequence: a deterministic server of service time $T$
 begins to build a queue when it is handed two arrivals separated by less than $T$, so the
@@ -2360,8 +2367,8 @@ exceeds the feed's tight-gap floor; do not split below it) can therefore be stat
 constant of the feed rather than as a function of market state. It requires no runtime
 intensity estimate and does not change between a quiet and a volatile session. This holds
 because of the invariance measured above, and should be rechecked on any feed whose
-packet-emission behaviour differs from CME MDP3's, since the emission granularity sets the
-constant. Appendix~\ref{app:synthetic} constructs a feed on which both dependences appear
+gateway floor or whose intra-burst transaction spacing differs from CME MDP3's, since
+those set the constant. Appendix~\ref{app:synthetic} constructs a feed on which both dependences appear
 at $T = 8\,\mu\mathrm{s}$, and identifies the packed-gap fraction as the quantity that
 separates it from CME.
 
@@ -3606,10 +3613,12 @@ exceeding $h$, which on this corpus happens about $1.5\,\mu\mathrm{s}$ further a
 distribution, never the mean: on this corpus the mean gap is $2215\,\mu\mathrm{s}$, some
 $300\times$ larger, and a rule stated on it would say never to split anything. Second,
 measure it under representative and peak-load conditions. On this corpus the floor is
-a property of the exchange's packet-emission granularity and did not move between quiet
-and volatile sessions (Section~\ref{sec:results-conditioning}), so it was measured once
-per feed; that invariance is a finding about this feed's gateway, to be verified on
-another feed rather than assumed. At longer service times the tail does depend on
+the gateway's minimum separation between successive events --- the packets on either
+side of it are distinct transactions (Section~\ref{sec:results-transactions}) --- and it
+did not move between quiet and volatile sessions
+(Section~\ref{sec:results-conditioning}), so it was measured once per feed; that
+invariance is a finding about this feed's gateway, to be verified on another feed rather
+than assumed. At longer service times the tail does depend on
 intensity and branching ratio, and a chain in that regime needs its threshold measured
 under the load it will actually see.
     \item \textbf{Draft the pipeline as a chain of actors at natural cut points, then
