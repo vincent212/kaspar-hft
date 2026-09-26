@@ -5845,7 +5845,8 @@ $7.5\,\mu\mathrm{s}$ minimum spacing: each arrival is delayed until at least
 $7.5\,\mu\mathrm{s}$ after its predecessor, modelling the exchange's publisher, a queue that sends at most one packet per
 $7.5\,\mu\mathrm{s}$ (Section~\ref{sec:exchange-publisher}). In the third the kernel is slow, $1/\beta =
 80\,\mu\mathrm{s}$, with the same spacing; this is the condition closest to the CME gap
-structure. The grid is $n \in \{0.5, 0.7, 0.8, 0.9, 0.95\}$ and $\bar\lambda \in \{500,
+structure, though the kernel fitted on the corpus is slower still, about $160\,\mu\mathrm{s}$
+(Section~\ref{sec:setup-hawkes}). The grid is $n \in \{0.5, 0.7, 0.8, 0.9, 0.95\}$ and $\bar\lambda \in \{500,
 2000, 8000, 32000, 64000\}$ packets per second, so that $\rho = \bar\lambda T$ at $T =
 8\,\mu\mathrm{s}$ runs from $0.004$ to $0.51$; $2 \times 10^5$ events per cell, three
 seeds, median reported. The last column of Table~\ref{tab:synthetic} is the fraction of interarrival gaps at
