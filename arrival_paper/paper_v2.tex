@@ -2755,17 +2755,28 @@ discrepancy touches any quantity the paper's argument rests on, and for the leve
 burstiness the recorded corpus gives the more conservative value, which is the one
 reported.
 
-\paragraph{The absolute Fano factor: pooling inflates it.} Part~II measures a
-corpus-median Fano at a $5$-second window of $259.7$; the live streams give $1024$ to
-$1260$. The ratio under the gap shuffle agrees closely (Table~\ref{tab:crossval-stats}),
+\paragraph{The absolute Fano factor: computing it over one long stretch inflates it.}
+Two estimators are in play. The \emph{windowed} estimator cuts the data into 30-minute
+windows, computes the Fano factor of the bin counts inside each window, and reports the
+median across windows; the \emph{pooled} estimator treats one long uncut stretch as a
+single series and computes the Fano factor over all of it. (This is a different sense
+of ``pooled'' from the histograms of Section~\ref{sec:results-transactions}, which pool
+gap \emph{lengths} across windows into one distribution; a distribution of lengths is
+indifferent to slow rate drift, a count-variance statistic is not.) Part~II, windowed,
+measures a corpus-median Fano at a $5$-second bin of $259.7$; the live streams, pooled
+over the 53-minute capture, give $1024$ to $1260$. The ratio under the gap shuffle agrees closely (Table~\ref{tab:crossval-stats}),
 so the discrepancy is in the level, not in the effect. The cause is the estimator row of
 Table~\ref{tab:crossval-setup}. The live figure is computed over one uncut 53-minute
 capture that spans a quiet stretch and a busy one; a rate that drifts between the two
 inflates the count variance and reads as clustering whether or not the process is
 self-exciting. Part~II computes the Fano factor \emph{within} each 30-minute window and
 then takes the corpus median, which removes between-window rate variation by
-construction. Pooling raises the level by roughly a factor of four; the windowed estimate is the
-conservative one and is the value reported.
+construction: a slow drift from a quiet stretch to a busy one adds count variance that
+the estimator cannot distinguish from bursts, so the pooled level reads roughly four times
+higher. The gap-shuffle ratio cancels the drift, since the drift is present in the
+numerator and the denominator alike, which is why the ratio agrees between the two
+measurements and why the paper uses the ratio, not the level. The windowed estimate is
+the conservative one and is the value reported.
 
 \paragraph{The shuffled Hurst null: finite-sample bias.} A
 Fisher--Yates shuffle of a gap sequence destroys the ordering while preserving the
