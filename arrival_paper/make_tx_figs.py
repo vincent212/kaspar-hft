@@ -24,17 +24,23 @@ def main():
     # gaps
     def dens(h): h = h.astype(float); return h / h.sum() / np.diff(np.log10(np.maximum(ge, 1e-4)))
     fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-    ax[0].plot(gm, dens(z["gpi"]), label="inside one transaction"); ax[0].plot(gm, dens(z["gpe"]), label="between transactions")
-    ax[1].plot(gm, dens(z["gpall"]), label="all packet gaps (real)"); ax[1].plot(gm, dens(z["gpP"]), "--", label="rate-matched Poisson")
+    # one colour per meaning, shared across panels and with tx_starts:
+    # real stream black, inside-transaction blue, Poisson red dashed, shuffled orange
+    ax[0].plot(gm, dens(z["gpi"]), color="tab:blue", lw=1.6, label="inside one transaction (1.7% of gaps)")
+    ax[0].plot(gm, dens(z["gpe"]), color="black", lw=1.6, label="between transactions (98.3% of gaps)")
+    ax[1].plot(gm, dens(z["gpall"]), color="black", lw=1.6, label="real stream, all packet gaps")
+    ax[1].plot(gm, dens(z["gpP"]), "--", color="tab:red", lw=1.6, label="Poisson stream, same packet count")
     for x in ax:
         x.set_xscale("log"); x.set_xlim(0.5, 1e6); x.set_xlabel("gap between consecutive packets (µs)"); x.set_ylabel("density per decade")
         for v in (7.5, 16, 32): x.axvline(v, color="0.6", lw=0.6, ls=":")
         x.legend(fontsize=8)
     fig.tight_layout(); fig.savefig(out / "tx_gaps.pdf"); fig.savefig(out / "tx_gaps.png", dpi=70); plt.close(fig)
     fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-    ax[0].plot(gm, dens(z["gtx"]), label="real"); ax[0].plot(gm, dens(z["gtxTG"]), label="idle gaps shuffled"); ax[0].plot(gm, dens(z["gtxP"]), "--", label="rate-matched Poisson")
+    ax[0].plot(gm, dens(z["gtx"]), color="black", lw=1.6, label="real transaction starts")
+    ax[0].plot(gm, dens(z["gtxTG"]), color="tab:orange", lw=1.2, label="idle gaps shuffled (transactions intact)")
+    ax[0].plot(gm, dens(z["gtxP"]), "--", color="tab:red", lw=1.6, label="Poisson stream, same transaction count")
     ax[0].set_xlabel("gap between consecutive transaction starts (µs)")
-    ax[1].plot(gm, dens(z["gdur"]), color="0.2"); ax[1].set_xlabel("multi-packet transaction duration, first to last packet (µs)")
+    ax[1].plot(gm, dens(z["gdur"]), color="tab:blue", lw=1.6); ax[1].set_xlabel("multi-packet transaction duration, first to last packet (µs)")
     for x in ax:
         x.set_xscale("log"); x.set_xlim(0.5, 1e6); x.set_ylabel("density per decade")
         for v in (7.5, 16, 32): x.axvline(v, color="0.6", lw=0.6, ls=":")

@@ -1657,11 +1657,17 @@ with almost no mass below $10\,\mu\mathrm{s}$ and none below the floor, which is
 time the exchange takes to emit the next datagram of the same event; the
 inter-transaction distribution has a sharp edge at the $7.5\,\mu\mathrm{s}$ floor, a
 broad plateau from the floor to about $30\,\mu\mathrm{s}$, a second mode near
-$100\,\mu\mathrm{s}$, and a long tail to seconds. Right: all packet gaps against a
-rate-matched Poisson stream. What it shows: the Poisson density is a single hump
-centred near $1\,\mathrm{ms}$ with negligible mass below $100\,\mu\mathrm{s}$; the
-real density puts a third of its mass below $32\,\mu\mathrm{s}$, with the floor edge
-and the $100\,\mu\mathrm{s}$ mode absent from the null. What follows: the edge at
+$100\,\mu\mathrm{s}$, and a long tail to seconds. Right: all packet gaps of the real stream (black; since $98.3\%$ of gaps are between
+transactions this curve is the left panel's black curve with the blue one folded in)
+against the gaps of a Poisson stream with the same packet count over the same window
+(red, dashed), the distribution a receiver would face if the market's events were
+independent of one another at the observed rate. What it shows: the Poisson density is a
+single hump centred near $1\,\mathrm{ms}$ with negligible mass below
+$100\,\mu\mathrm{s}$; the real density puts a third of its mass below
+$32\,\mu\mathrm{s}$, with the floor edge and the $100\,\mu\mathrm{s}$ mode absent from
+the null. The two curves are not two versions of the same shape: the real feed is not a
+Poisson stream, and the region in which it differs is exactly the region of gaps shorter
+than an HFT service time. What follows: the edge at
 $7.5\,\mu\mathrm{s}$ is a property of the gateway --- no two packets of any origin are
 published closer than that --- and it sets where a queue first forms; everything between
 the floor and $32\,\mu\mathrm{s}$ is gaps between different transactions, so the
