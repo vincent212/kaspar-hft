@@ -5015,30 +5015,8 @@ simulation understates.
 \section{Reproducibility}
 \label{sec:reproducibility}
 
-All results in Part~II are reproducible from the \kasparhft{} repository
-\citep{kaspar_repo}, \url{https://github.com/vincent212/kaspar-hft}, directory
-\texttt{arrival\_paper/}. \texttt{qsim\_run.py} holds the packet extraction, the
-per-window Hawkes fit, the $(T, h, N)$ tandem Lindley sweep with the $P$, $G$ and $B$
-nulls, the M/D/$N$ dispatch arm of Section~\ref{sec:results-equal-core} and the
-per-window bound check. \texttt{qsim\_tx.py}, \texttt{transaction\_stats.py} and
-\texttt{make\_tx\_figs.py} hold the transaction grouping, the transaction-level arms and
-the tables and figures of Section~\ref{sec:results-transactions}.
-\texttt{qsim\_marked.py} and \texttt{make\_spans.py} (with \texttt{--trades} for the
-trade streams) hold the span-aware rerun of Section~\ref{sec:crossval-spanrun}. The
-synthetic feed of Appendix~\ref{app:synthetic} and the scripts that regenerate every
-table and figure from the cache are alongside. Every null and arm is seeded per window
-from an MD5 of \texttt{(session, window\_id, salt)} with a fixed salt per arm, so the
-cache is byte-reproducible.
-
-The live measurement of Section~\ref{sec:crossval} uses the \texttt{LatencyProbe} actor in
-the same repository and the readers under \texttt{kaspr/perf/}; its latency results are
-published in \citet{mayeski_fastsend}.
-
-
-The 281 session tapes are derived from licensed CME MDP3 channel 318 pcaps (NQ front
-month, 2025-01 through 2026-02) and are not redistributed; the extraction script and the
-cached per-window metadata are released, and the per-window arrival-time caches, being
-derived from the pcaps, are subject to the same restriction as the pcaps.
+The code for this paper is in the \kasparhft{} repository \citep{kaspar_repo},
+\url{https://github.com/vincent212/kaspar-hft}.
 
 % =====================================================================
 \bibliographystyle{plainnat}
