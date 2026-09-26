@@ -814,15 +814,14 @@ and by Equation~\eqref{eq:reduction} $W_q^{(N)} \ge (N-1)h$, so
 W_q^{(N)} = (N-1)\,h \qquad \text{for all } N \text{ and all } q \le 1 - \rho .
 \label{eq:poisson-cor}
 \end{equation}
-At the utilisations of a CME packet feed (corpus-median $452$ packets per second, so $\rho
-= 0.0036$ at $T = 8\,\mu\mathrm{s}$) this covers $p_{99}$ at every $T \le
-16\,\mu\mathrm{s}$ in the paper's sweep: end-to-end latency is $T + (N-1)h$ at $p_{50}$
-and at $p_{99}$ alike, and splitting costs $(N-1)h$ with nothing to compress. Where $\rho/N$ exceeds $1 - q$, Equation~\eqref{eq:bound} still holds and the tandem
-reduces the Poisson wait as well; splitting then helps under Poisson for the ordinary
-utilisation reason rather than for clustering. The sweep contains six such $p_{99}$ cells, all at the long-service end: $(T, N) =
-(32, 1)$, $(64, 1)$, $(64, 2)$, $(128, 1)$, $(128, 2)$ and $(128, 4)$, spanning $\rho/N =
-0.0144$ to $0.0578$. It contains one such $p_{95}$ cell ($T = 128$, $N = 1$, $\rho =
-0.0578 > 0.05$) and many $p_{99.9}$ cells, and Section~\ref{sec:results-tail} finds the wait in those cells and in no others.
+At the utilisation of a CME packet feed, well under $1\%$ at $T = 8\,\mu\mathrm{s}$, this
+covers $p_{99}$ at every $T \le 16\,\mu\mathrm{s}$ in the paper's sweep: end-to-end latency
+is $T + (N-1)h$ at $p_{50}$ and at $p_{99}$ alike, and splitting costs $(N-1)h$ with
+nothing to compress. Where $\rho/N$ exceeds $1 - q$, Equation~\eqref{eq:bound} still holds
+and the tandem reduces the Poisson wait as well; splitting then helps under Poisson for the
+ordinary utilisation reason rather than for clustering. The sweep contains six such
+$p_{99}$ cells, all at the long-service end, and Section~\ref{sec:results-tail} finds the
+wait in those cells and in no others.
 \end{corollary}
 
 \subsection{Informal statement of the two results}
@@ -876,9 +875,9 @@ $1/N$ is applied. Under Poisson traffic at the load of a CME packet feed, the si
 idle when almost every message arrives, so for tasks up to $16\,\mu\mathrm{s}$ its
 $p_{99}$ wait is zero; there is nothing to divide by $N$, and the pipeline is simply
 $(N-1)h$ slower (Corollary~\ref{cor:poisson}). Under the real feed, transactions arrive
-in self-exciting clusters and the packets relay them, the single thread's $p_{99}$ is $2.2$ to $41.5$ times $T$ in the
-paper's data for tasks of $16$ to $128\,\mu\mathrm{s}$, and the pipeline divides the excess
-by $N$ or better.
+in self-exciting clusters and the packets relay them, the single thread's $p_{99}$ is two
+to about forty times $T$ for tasks of $16$ to $128\,\mu\mathrm{s}$, and the pipeline divides
+the excess by $N$ or better.
 The Hawkes cluster representation gives a model-implied cluster size: Borel-distributed,
 with large clusters of order $(1-n)^{-2}$ transactions, about $25$ at the corpus's
 $n \approx 0.8$. What the receiver waits behind depends on the service time: at
@@ -1077,73 +1076,90 @@ holiday or half-day sessions with none.
 \label{sec:setup-hawkes}
 
 The paper's simulator input is the packet-arrival stream, so the first empirical question
-is whether that stream is clustered or Poisson. Three model-free and one model-based
-diagnostic on the 276-session, 3512-window NQ front-month corpus reject Poisson. The fraction of interarrival gaps shorter than one-tenth of the mean gap has a corpus
-median of $73\%$ per 30-minute window, a 5th--95th percentile range of $54$--$78\%$ and a
-full range of $38$--$85\%$, versus the Poisson benchmark $1 - e^{-0.1} \approx 9.52\%$
-that would obtain for any exponential-gap process regardless of rate; not one of the 3512
-windows comes within a factor of three of the Poisson value. The Fano factor
-$F(\tau) = \mathrm{Var}[C_\tau] / \mathrm{E}[C_\tau]$ of packet counts in bins of width
-$\tau$ rises from
-$F(0.1\,\mathrm{s}) = 51.7$ to $F(60\,\mathrm{s}) = 1027$ across the corpus median,
-against $F(\tau) \equiv 1$ for Poisson at every $\tau$; the log-log fit gives a Hurst
-exponent $H = 0.74$, against $H = 0.5$ for Poisson. These are within-window figures,
-corpus-median over the 3512 windows; pooling a whole session instead raises the Fano level
-by roughly a factor of four without changing the shuffle ratio, for reasons taken up in
-Section~\ref{sec:crossval-disagree}. Running the identical estimator over
-the paper's own Poisson-null arm returns $F(\tau) = 1.00$ at $\tau = 0.1$ through
-$5\,\mathrm{s}$, $0.94$ at $60\,\mathrm{s}$, and $H = 0.50$, which confirms that the
-estimator is unbiased at every bin width used here and that the Hawkes figures above are
-not an artefact of binning or of finite window length. Fitting the
-standard exponential-kernel Hawkes process \citep{hawkes1971spectra} $\lambda(t) = \mu + \sum_{t_i < t} \alpha\,
-e^{-\beta(t - t_i)}$ to each window by MLE \citep{ozaki1979} (Ogata log-likelihood with the standard
-recursive intensity, closed-form compensator, Nelder--Mead over $(\mu, \alpha, \beta)$)
-gives a branching ratio $n = \alpha/\beta$ with a corpus median of $0.798$ and a 5th--95th
-percentile range of $0.761$--$0.832$ across the 3512 windows (extremes $0.566$ and
-$1.000$, the latter a single window pinned at the fit boundary), with every fit converged;
-the kernel's decay time $1/\beta$, on 254 windows from 20 sessions, has a median of
-$167\,\mu\mathrm{s}$ (5th--95th percentile $140$--$205\,\mu\mathrm{s}$), so the fitted
-process concentrates its triggering at lags of order a hundred microseconds and places
-only $4\%$ of it within $7.5\,\mu\mathrm{s}$;
-the same optimum is recovered by a reparameterised L-BFGS-B fit to four decimals on
-spot-checked windows. This is the same near-critical regime that
-\citet{filimonovsornette2012} and \citet{hardimanbercotbouchaud2013} document on ES, at a
-somewhat lower level than their $n \approx 0.9$; they fit trade arrivals rather than
-packet arrivals, and on this corpus the fit on matching-engine transaction starts gives
-the same value as on packets ($0.795$ against $0.798$,
-Section~\ref{sec:results-transactions}). \citet{filimonovsornette2015} show that an
+is whether that stream is clustered or Poisson. Three model-free diagnostics and one
+model-based fit, on every window of the corpus, reject Poisson; Table~\ref{tab:hawkes-diag}
+gives the values. Nearly three quarters of the gaps between packets are shorter than a
+tenth of the mean gap, where a Poisson stream of any rate has under a tenth, and no window
+comes close to the Poisson value. The Fano factor of packet counts,
+$F(\tau) = \mathrm{Var}[C_\tau] / \mathrm{E}[C_\tau]$ in bins of width $\tau$, is $1$ at
+every bin width for Poisson; here it grows from about $50$ at a tenth of a second to about
+a thousand at a minute, and the Hurst exponent from its log-log slope is about $0.75$
+against $0.5$. These are within-window values; pooling a whole session instead raises the
+Fano level without changing the shuffle ratio, for reasons taken up in
+Section~\ref{sec:crossval-disagree}. The same estimators applied to the paper's own
+Poisson null return the Poisson values at every bin width, so the figures are not an
+artefact of binning or of window length.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+statistic & real stream & Poisson & real stream, gaps shuffled \\
+\midrule
+gaps shorter than a tenth of the mean gap & $73\%$ & $9.5\%$ & $73\%$ \\
+Fano factor, $0.1\,\mathrm{s}$ bins & $52$ & $1$ & $16$--$18$ \\
+Fano factor, $1\,\mathrm{s}$ bins & $108$ & $1$ & $17.5$ \\
+Fano factor, $5\,\mathrm{s}$ bins & $260$ & $1$ & $17.6$ \\
+Fano factor, $60\,\mathrm{s}$ bins & $1027$ & $1$ & $16$--$18$ \\
+Hurst exponent & $0.74$ & $0.50$ & $0.50$ \\
+Hawkes branching ratio $n$ & $0.798$ & $0$ & --- \\
+Hawkes kernel decay time $1/\beta$ & $167\,\mu\mathrm{s}$ & --- & --- \\
+\bottomrule
+\end{tabular}
+\caption{Clustering diagnostics of the packet stream, corpus median over windows, against
+the Poisson values and against the same stream with its gaps shuffled within each window.
+The kernel decay time is from 254 windows in 20 sessions. What the table shows: every
+diagnostic is far from Poisson. Shuffling the gaps keeps the share of short gaps, by
+construction, and removes all the growth of the Fano factor with bin width, leaving a flat
+value of about $17$. What follows: the long-range dependence lives in the order of the
+gaps, which is what distinguishes a self-exciting process from a renewal one, while the
+flat residual comes from the gap lengths themselves, which are heavy-tailed.}
+\label{tab:hawkes-diag}
+\end{table}
+
+Fitting the standard exponential-kernel Hawkes process \citep{hawkes1971spectra}
+$\lambda(t) = \mu + \sum_{t_i < t} \alpha\, e^{-\beta(t - t_i)}$ to each window by maximum
+likelihood \citep{ozaki1979} (Ogata log-likelihood with the standard recursive intensity,
+closed-form compensator, Nelder--Mead over $(\mu, \alpha, \beta)$) gives a branching ratio
+$n = \alpha/\beta$ of about $0.8$, varying little between windows, with every fit
+converged; a reparameterised L-BFGS-B fit finds the same optimum on spot-checked windows.
+The kernel decays over about $160\,\mu\mathrm{s}$, so the fitted process triggers at lags of
+order a hundred microseconds and places only a few percent of its triggering within the
+publisher spacing. This is the near-critical regime that \citet{filimonovsornette2012} and
+\citet{hardimanbercotbouchaud2013} document on ES, at a somewhat lower level than their
+$n \approx 0.9$; they fit trade arrivals rather than packet arrivals, and on this corpus
+the fit on matching-engine transactions gives the same value as on packets
+(Section~\ref{sec:results-transactions}). \citet{filimonovsornette2015} show that an
 exponential-kernel fit with a constant background over a fixed window overstates $n$ when
 the background intensity varies within the window, and that ES estimates fall well below
 criticality once that variation is modelled; the $n$ reported here is descriptive and
 subject to the same caveat, and none of the paper's conclusions rests on its value. The
-model-free diagnostics above, the Fano-against-shuffle comparison of
-Section~\ref{sec:results-transactions} and the gap histograms there hold whatever the
-fitted $n$; the nonparametric estimates of \citet{achab2018branching} on EUREX order
-books give the same near-critical picture without a kernel assumption. A Fisher--Yates shuffle of the interarrival gap sequence within each window, which
-preserves the marginal gap distribution exactly and destroys only the ordering, removes
-most but not all of the excess: the corpus-median Fano at $\tau = 5\,\mathrm{s}$ falls
-from $259.7$ to $17.6$, and at $\tau = 1\,\mathrm{s}$ from $108.4$ to $17.5$, i.e.\
-$94\%$ and $85\%$ of the excess over the Poisson value of $1$. What the shuffle removes is
-specifically the \emph{scaling}: the shuffled Fano is flat at $16.1$--$17.6$ across every
-bin width from $0.1$ to $60\,\mathrm{s}$, giving $H = 0.50$ against the unshuffled
-$H = 0.74$. All of the long-range dependence therefore lives in the ordering, which is
-what distinguishes a self-exciting process from a renewal process. The flat residual of
-$\approx 17$ is a scale-free over-dispersion contributed by the gap marginal itself, which
-is heavy-tailed; so the corpus is neither a renewal process nor a pure Hawkes process with
-light-tailed gaps, but a self-exciting process with heavy-tailed gaps. This split bounds what the Hawkes fit describes: the fitted $n$ characterises the
-ordering component, and the simulator is driven by the recorded arrivals, not by the
-fitted process. The simulator input is therefore an arrival process far from Poisson, and
-the matched-rate Poisson null is a strict counterfactual. The Hawkes fit is used only as a
-description of the observed clustering; the tandem reduction of Section~\ref{sec:theory}
-does not depend on the Hawkes assumption, since any arrival process with the same
-clustering drives the same single-server queue. The model-free diagnostics above, not the
-fit, establish the empirical premise.
+model-free diagnostics hold whatever the fitted $n$, and the nonparametric estimates of
+\citet{achab2018branching} on EUREX order books give the same near-critical picture
+without a kernel assumption.
+
+A shuffle of the gaps within each window keeps every gap and destroys only their order.
+It removes most but not all of the excess over Poisson: all of the growth of the Fano
+factor with bin width goes, leaving a flat over-dispersion of about $17$ and a Hurst
+exponent of $0.5$ (Table~\ref{tab:hawkes-diag}). All of the long-range dependence therefore
+lives in the ordering, which is what distinguishes a self-exciting process from a renewal
+process, and the flat residual is contributed by the gap lengths, which are heavy-tailed.
+The corpus is neither a renewal process nor a pure Hawkes process with light-tailed gaps,
+but a self-exciting process with heavy-tailed gaps. This bounds what the Hawkes fit
+describes: the fitted $n$ characterises the ordering component, and the simulator is
+driven by the recorded arrivals, not by the fitted process. The simulator input is
+therefore an arrival process far from Poisson, and the Poisson null at the same rate is a
+strict counterfactual. The tandem reduction of Section~\ref{sec:theory} does not depend on
+the Hawkes assumption, since any arrival process with the same clustering drives the same
+single-server queue. The model-free diagnostics, not the fit, establish the empirical
+premise.
 
 \findings{
-    \item \emph{Packet arrivals are far from Poisson.} $73\%$ of gaps are shorter than a tenth of the mean gap, against $9.5\%$ for Poisson; no window comes within a factor of three.
-    \item \emph{Clustering grows with time scale.} The Fano factor rises from $52$ at $0.1\,\mathrm{s}$ to $1027$ at $60\,\mathrm{s}$ (Poisson: $1$); Hurst exponent $0.74$ (Poisson: $0.5$).
-    \item \emph{A Hawkes fit describes it as near-critical.} Branching ratio $0.798$; the kernel acts over about $167\,\mu\mathrm{s}$ and puts only $4\%$ of its triggering within $7.5\,\mu\mathrm{s}$.
-    \item \emph{Two ingredients.} Shuffling the gaps removes all the growth with time scale (the ordering) and leaves a flat over-dispersion of about $17$ (heavy-tailed gaps).
+    \item \emph{Packet arrivals are far from Poisson.} Nearly three quarters of gaps are shorter than a tenth of the mean gap, against under a tenth for Poisson.
+    \item \emph{Clustering grows with time scale}: the Fano factor rises from about $50$ at a tenth of a second to about a thousand at a minute (Poisson: $1$).
+    \item \emph{A Hawkes fit describes it as near-critical}, with branching ratio about $0.8$ and a kernel acting over about $160\,\mu\mathrm{s}$, mostly beyond the publisher spacing.
+    \item \emph{Two ingredients}: shuffling the gaps removes the growth with time scale (the ordering) and leaves a flat over-dispersion from heavy-tailed gaps.
 }
 
 
@@ -4231,13 +4247,107 @@ measurement of Section~\ref{sec:fungibility-workflow}.
 
 
 
+% =====================================================================
+
+\section{Summary of Part II: findings and what they mean for HFT system design}
+\label{sec:part2-summary}
+
+Part II recorded the packet arrivals of NQ front-month on CME, ran a simulated receiver
+over them at a range of service times and stage counts, followed the same transactions
+upstream through the exchange's matching engine and publisher, and checked the results
+against a live production receiver. This section collects what it found and states, for
+each finding, what it means for the design of an HFT receiver. Part III turns these
+consequences into a design procedure for a concrete system. All results are for one
+instrument.
+
+\paragraph{The arrival stream.} Packets do not arrive at random. They come in clusters
+that a Hawkes process describes as near-critical, with a branching ratio of about $0.8$
+(Section~\ref{sec:setup-hawkes}). The clustering belongs to the matching engine's
+transactions, not to how the exchange packs them into packets
+(Section~\ref{sec:results-transactions}). At the engine, one transaction in six follows the
+previous one by less than $7.5\,\mu\mathrm{s}$, often by a fraction of a microsecond. The
+publisher does not pass that on: it is a queue that sends about one packet every
+$7.5\,\mu\mathrm{s}$, so a burst at the engine reaches the receiver as a train of packets at
+that spacing, mostly one message each (Section~\ref{sec:exchange}).
+\emph{For design:} a receiver cannot be sized from the average packet rate, which is
+hundreds of times too slow to matter. What it must survive is a train of packets at the
+publisher spacing, and that spacing, not the rate, is the number to measure on a feed.
+
+\paragraph{What makes the receiver's tail.} A single-threaded receiver queues only when
+two packets arrive closer together than its service time. Below the publisher spacing it
+has no queueing tail at all; above it, the tail grows much faster than the service time
+(Section~\ref{sec:results-tail}). Up to about $32\,\mu\mathrm{s}$ what sets it is how many
+gaps are shorter than the service time; beyond that it is how long the runs of such gaps
+last (Sections~\ref{sec:results-nulls} and~\ref{sec:results-transactions}). The tail
+relative to the service time does not change with market load or branching ratio in that
+range, because a busier market brings more bursts, not tighter ones
+(Section~\ref{sec:results-conditioning}). \emph{For design:} the question to ask of each
+stage is whether its service time is above or below the publisher spacing. The answer does
+not depend on the session being quiet or volatile, so it can be settled once per feed and
+does not need a live estimate of market conditions.
+
+\paragraph{The production operating point.} A production receiver runs at about
+$7\,\mu\mathrm{s}$, just under the publisher spacing. There the queue across packets is
+small, and most of the tail comes instead from long packets, whose messages are decoded one
+after another while the packets behind them queue, and from service times that vary for
+reasons the records do not show (Sections~\ref{sec:crossval-spanrun}
+and~\ref{sec:fungibility-measured}). A one-message packet is served below the spacing and a
+packet of two or more messages above it (Section~\ref{sec:crossval-floor}).
+\emph{For design:} at this operating point the levers are the cost of each extra message
+and the spread of service times, not the number of threads. A stage cut does not shorten
+the decode of a long packet. What matters is the upper quantiles of per-packet service
+under load, measured on the real feed, compared with the publisher spacing.
+
+\paragraph{What reduces the tail.} Cutting the servicing chain into stages on separate
+threads costs one hop per stage on every message and shrinks the queueing tail, because
+only the slowest stage queues (Section~\ref{sec:results-design}). The tail appears between
+$7$ and $8\,\mu\mathrm{s}$; a cut starts to pay between $8$ and $10\,\mu\mathrm{s}$, once the
+tail is larger than the hop, and from $16\,\mu\mathrm{s}$ it pays on every window
+(Sections~\ref{sec:results-threshold} and~\ref{sec:results-windows}). The best number of
+stages grows with the service time. For a stage without state, such as decode, a pool of
+cores that each take whole packets does as well as a cut at two cores and better from four,
+all costs charged (Section~\ref{sec:results-equal-core}). A cheaper hop widens the range
+where cutting pays but does not move the threshold (Section~\ref{sec:results-h}).
+\emph{For design:} cut a chain whose service time is above the split threshold, at the
+natural boundary that makes the slowest stage shortest; a cut that leaves the slowest
+stage as it was only adds a hop. Merge short stages onto one thread. Give a stateless
+stage a pool of cores instead of a cut when four or more cores are available; the order
+book, which carries state, can only be cut.
+
+\paragraph{The theory and the live system.} The two analytical results of Part~I hold on
+every message of every window, and the Poisson stream behaves exactly as the theory
+predicts (Section~\ref{sec:evaluation}). A live production receiver, on three instruments
+and a different clock, shows the same clustering (Section~\ref{sec:crossval-agree}).
+\emph{For design:} the design equation of Section~\ref{sec:results-design} can be applied
+with confidence to a real pipeline: its terms are exact, and its inputs, the publisher
+spacing and the service time of each stage, can be measured directly.
+
+\findings{
+    \item \emph{The receiver's tail threshold is the publisher spacing}, about $7.5\,\mu\mathrm{s}$. \emph{Design:} measure it once per feed and compare every stage with it.
+    \item \emph{Above it, transaction timing sets the tail and only the slowest stage matters.} \emph{Design:} cut chains above the split threshold of about $10\,\mu\mathrm{s}$ at the boundary that shortens the slowest stage.
+    \item \emph{At a production receiver's $7\,\mu\mathrm{s}$, long packets and variable service carry most of the tail.} \emph{Design:} reduce per-message cost and service spread; do not add threads.
+    \item \emph{A pool of whole-packet servers beats a cut from four cores for a stage without state.} \emph{Design:} pool decode, cut the order book.
+    \item \emph{The threshold does not move with market load.} \emph{Design:} no runtime estimate of market conditions is needed.
+}
+
+\paragraph{What Part II leaves open.} Only NQ front-month was measured, and only its
+messages were counted in each packet; the full channel, ZN and other instruments are open
+(Section~\ref{sec:open-questions}). Service time in the simulation is constant or grows
+with message count; its spread on a live receiver is not modelled. Why orders reach the
+matching engine within a microsecond of each other is a question about the market and is
+not answered here (Section~\ref{sec:concl-cannot}). A designer applying these results to
+another feed should measure the publisher spacing and the per-packet service there rather
+than assume them.
+
 \part{Best practices: implications for HFT systems design}
 
 \section{The reference instance: \kasparhft{} and its \texttt{fast\_send} pipeline}
 \label{sec:kaspar}
 
-This section introduces the system that the rest of Part~III works on, and applies the
-design rule of Section~\ref{sec:results-design} to it: cut a chain only where the cut
+Part~III applies the design consequences of Part~II, collected in
+Section~\ref{sec:part2-summary}, to a concrete system. This section introduces the system
+that the rest of Part~III works on, and applies the design rule of
+Section~\ref{sec:results-design} to it: cut a chain only where the cut
 shortens its slowest stage, and never once that stage is already below the feed's
 publisher spacing, because below it there is no tail left to remove. It first says what \kasparhft{} is and names the two ways its
 actors hand messages to one another, one synchronous and one queued, because the choice
@@ -4592,8 +4702,10 @@ candidate follow-ons.
 \section{Recommendations for HFT system designers}
 \label{sec:recommendations}
 
-The paper's results qualify one architectural default (the single-thread hot path as
-an unconditional choice) and question two adjacent ones (busy-poll receivers,
+Section~\ref{sec:part2-summary} states, finding by finding, what Part~II means for the
+design of a receiver. This section puts those consequences in the form of recommendations.
+The paper's results qualify one architectural default (the single-thread hot path as an
+unconditional choice) and question two adjacent ones (busy-poll receivers,
 pre-warming). They do not contradict
 per-message code optimisation. This section separates what the paper leaves unchanged
 from what it argues against, and states the design flow the design equation implies.
