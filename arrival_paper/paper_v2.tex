@@ -248,16 +248,19 @@ The present author's earlier work belongs on this list with a qualification.\foo
 observation.} An earlier paper by the present author
 \citep{mayeski_fastsend} did not argue for the single-thread principle in its own right.
 That paper addresses a different objection: the actor model had been considered
-unsuitable for HFT because of asynchronous-dispatch overhead, and \texttt{fast\_send} is
-presented there as the mechanism that removes that overhead for co-located actors, making
+unsuitable for HFT because of asynchronous-dispatch overhead, and a synchronous send is
+presented there as the mechanism that removes that overhead for co-located actors. That
+send, \texttt{fast\_send} in the \kasparhft{} framework (Section~\ref{sec:kaspar}), runs
+the receiving actor's handler inline on the sending thread instead of queueing a message
+to another thread; the paper writes ``synchronous send'' for it outside Part~III. It makes
 the actor model usable inside a servicing chain that the prevailing design placed on one
 thread. Its reference architecture (reader to buffer by asynchronous \texttt{send};
-decode, book and signal chained by \texttt{fast\_send} on one thread; signal to order
+decode, book and signal chained by synchronous sends on one thread; signal to order
 manager by asynchronous \texttt{send}) takes the single-thread servicing chain as given
 and does not compare it against more asynchronous topologies. The present paper revises
-that design context, not the \texttt{fast\_send} mechanism: on Hawkes-clustered feeds the
+that design context, not the synchronous send: on Hawkes-clustered feeds the
 servicing chain should be split into asynchronous stages once its service time exceeds
-the threshold established in Part~II. \texttt{fast\_send} remains the mechanism for
+the threshold established in Part~II. The synchronous send remains the mechanism for
 chaining actors placed on one thread; what changes is where the thread boundaries inside
 the chain should be. The design rule is stated in Section~\ref{sec:conclusion}.
 
@@ -357,8 +360,8 @@ first appears; in practice the split pays from about $10\,\mu\mathrm{s}$, where 
 first exceeds the hop cost on nearly every window. Choose the partition with the smallest
 achievable largest stage, since the tail depends only on that stage and a cut that does
 not shorten it adds a hop and nothing else. Place the largest stage first, at ingress.
-Keep sub-tasks below the bottleneck together on one thread via \texttt{fast\_send}, and
-use an asynchronous \texttt{send} only at boundaries that shorten the largest stage.
+Keep sub-tasks below the bottleneck together on one thread by synchronous sends, and
+use an asynchronous send only at boundaries that shorten the largest stage.
 Settle each boundary by end-to-end measurement against a representative feed rather
 than by local reasoning at a single call site.
     \item \textbf{Live cross-validation.} The corpus statistics are compared with an
@@ -780,8 +783,8 @@ give identical latencies on every sample path. Order determines only where the q
 physically sits (below).
     \item A cut that does not lower $s_{\max}$ adds a hop and nothing else. Refining
 $7 + 3$ into $7 + 2 + 1$ leaves every quantile of the wait unchanged and raises
-end-to-end latency by $h$. Conversely, sub-tasks can be merged onto one thread (via
-\texttt{fast\_send}) without any tail cost as long as the merged service does not exceed
+end-to-end latency by $h$. Conversely, sub-tasks can be merged onto one thread (by
+synchronous sends) without any tail cost as long as the merged service does not exceed
 $s_{\max}$. The design problem is therefore to choose the partition with the smallest
 $s_{\max}$ reachable at the natural cut points, and then the fewest hops that realise it.
 \end{enumerate}
@@ -1292,7 +1295,7 @@ processing message 1. Message 1, which never queued, pays the hop and is slower 
 the end of the burst, is faster by a third. The median rises and the tail falls, at the
 same message count, because the two stages together clear the burst twice as fast. This is the mechanism of Proposition~\ref{thm:burst}.
 
-A chain of synchronous \texttt{fast\_send}s on one thread shortens no queue and pays
+A chain of synchronous sends on one thread shortens no queue and pays
 $(N-1)h$; only stages on their own threads do (Section~\ref{sec:implementation}).
 
 \paragraph{Calibration and cost.} The paper reports numerical results at $h =
@@ -2375,7 +2378,7 @@ above $2h$, has $\Delta(1) = 0$ and should not be split. A framework with a
 much more expensive mailbox would find its own minimum binding instead. On CME the binding minimum is
 the publisher period, and the rest of the paper uses that term. Sub-microsecond tasks, for
 instance a single SBE integer decode or a small handler that fires from a strategy fast
-path, belong on \texttt{fast\_send} rather than on a cross-thread mailbox, regardless of
+path, belong on a synchronous send rather than on a cross-thread mailbox, regardless of
 feed statistics.
 
 \findings{
@@ -4431,8 +4434,9 @@ packet captures, a deterministic replay simulator in its own right. Part~II does
 on that simulator: its measurements are made on a standalone tandem-Lindley model of the
 pipeline (Section~\ref{sec:setup-simulator}), driven by packet-arrival timestamps
 extracted from the same class of capture. The framework supplies the architecture under
-study and the calibration of $h$; it is not in the measurement loop. The \texttt{fast\_send} paper documents the four extensions that make the actor model
-usable at HFT latencies. \texttt{fast\_send} itself is a synchronous delivery in which the
+study and the calibration of $h$; it is not in the measurement loop. The earlier paper
+\citep{mayeski_fastsend} documents the four extensions that make the actor model usable
+at HFT latencies. \texttt{fast\_send}, the synchronous send, is a delivery in which the
 sending thread runs the receiver's handler inline and takes the reply as a value. Actor
 \texttt{Group}s co-schedule a set of actors on one thread behind a single mailbox. Mailbox
 queue implementations are selectable per actor. A memory pool removes per-message
@@ -4441,8 +4445,7 @@ allocation and its tail. The defining property of \texttt{fast\_send} is
 was invoked synchronously or asynchronously, on which thread, or whether its sender is
 blocked. Section~\ref{sec:implementation} builds on that property.
 
-The \texttt{fast\_send} paper \citep{mayeski_fastsend} built and measured a production
-trading pipeline; that pipeline is the design this paper re-examines. It has three
+The same paper built and measured a production trading pipeline; that pipeline is the design this paper re-examines. It has three
 sections joined by exactly two cross-thread hops. Two socket-reader actors, one per
 redundant multicast channel, do nothing but drain their UDP sockets and hand datagrams to
 a buffer actor by an asynchronous \texttt{send}; that hop is asynchronous because a reader
