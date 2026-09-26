@@ -56,42 +56,31 @@ or more stages on separate threads better than one thread, and when?
 
 On the first question: the tail is produced by the timing of the matching engine's
 transactions and, at the service times production receivers run at, by the number of
-messages each packet carries. It is not produced by the rate:
-utilisation is below $0.02$ at the service times an HFT hot path occupies, and a window
-with several times the packet rate has the same tail relative to the service time. The
-message count per packet matters where production receivers run. At about
-$7\,\mu\mathrm{s}$, just under the publisher's packet spacing, decoding the messages of a
-long packet one after another supplies two thirds of the simulated $p_{99}$ excess at
-$8\,\mu\mathrm{s}$; on the live receiver the decode cost of a message's position in its
-packet reproduces $71$--$80\%$ of the observed $p_{99}$ on four of six streams; and a long
-packet holds the thread while the packets behind it queue; from $16\,\mu\mathrm{s}$ up it
-adds a few percent. Service times are also not constant: on a live receiver, messages
-with nothing queued ahead of them still reach twice the decode floor at $p_{99}$, and with
-packets arriving $7.5\,\mu\mathrm{s}$ apart any such slow service can start a queue; the
-simulation does not model this and its source is left open. The tail is not produced by
-the exchange's packetisation: grouping messages by matching-engine transaction shows that $98.3\%$ of
-transactions occupy one packet, that the packets of a split transaction arrive
-$15\,\mu\mathrm{s}$ apart, and that $99.9\%$ of the gaps shorter than the feed's
-$7.5\,\mu\mathrm{s}$ publisher spacing separate different transactions. Redrawing
-transaction times uniformly removes $75$--$98\%$ of the tail; from $16\,\mu\mathrm{s}$ up,
-decoupling transaction sizes from their timing, merging each transaction into one packet,
-or spreading its packets leaves the tail within $\pm 15\%$. The timing acts through two channels whose
-weight depends on the service time. At $16\,\mu\mathrm{s}$ the tail is carried mainly
-by consecutive transactions that the publisher sends back to back, about
-$7.5\,\mu\mathrm{s}$ apart, --- a stream with the same gaps in random order keeps $79\%$ of it
---- and at $64\,\mu\mathrm{s}$ and above by runs of
-transactions, which that permutation destroys ($37\%$ and $23\%$ survive). The runs are
-the self-excitation a Hawkes fit measures (branching ratio $0.795$ on transaction
-starts). One stage upstream, the exchange's own timestamps show where the tight gaps come
-from: on the matching engine's clock $17\%$ of consecutive transactions are less than
-$7.5\,\mu\mathrm{s}$ apart, against $1\%$ of packets on the publisher's clock, and the
-delay from engine to packet grows about tenfold during engine bursts, from a median of
-$86$ to $912\,\mu\mathrm{s}$. CME's market-data publisher is a queue with a service time of
-about $7.5\,\mu\mathrm{s}$ per packet, the publisher spacing is its output spacing,
-and a receiver is the second stage of a tandem that starts at the exchange. Why the engine
-bursts --- the engine gaps reach $0.18\,\mu\mathrm{s}$, which fits many participants
-racing on the same signal --- is a question about the market, not about the receiving
-software, and is left open. All results are for NQ.
+messages each packet carries. It is not produced by the rate: utilisation is tiny at the
+service times an HFT hot path occupies, and the busiest windows have the same tail
+relative to the service time as the quietest. At about $7\,\mu\mathrm{s}$, where production
+receivers run, just under the publisher's packet spacing, most of the tail comes from long
+packets, whose messages are decoded one after another while the packets behind them
+queue; from $16\,\mu\mathrm{s}$ up they add a few percent. Service times also vary: on a
+live receiver, messages with nothing queued ahead still reach twice the decode floor at
+$p_{99}$, and any such slow service can start a queue; the simulation does not model this,
+and its source is left open. The tail is not produced by the exchange's packetisation:
+almost every transaction fits in one packet, and the short gaps lie between different
+transactions. Putting transactions at random moments removes most of the tail; changing
+their sizes or how they are packed does not. The timing acts in two ways whose weight
+depends on the service time. At $16\,\mu\mathrm{s}$ the tail is carried mainly by
+consecutive transactions that the publisher sends back to back, and a stream with the same
+gaps in random order keeps most of it; from $64\,\mu\mathrm{s}$ it is carried by runs of
+transactions, which that shuffle breaks up. The runs are the self-excitation a Hawkes fit
+measures. One stage upstream, the exchange's own timestamps show where the short gaps come
+from: on the matching engine's clock one consecutive transaction in six follows the
+previous one by less than $7.5\,\mu\mathrm{s}$, against about one packet in a hundred on the
+publisher's clock, and the delay from engine to packet grows about tenfold during engine
+bursts. CME's market-data publisher is a queue that sends about one packet every
+$7.5\,\mu\mathrm{s}$, and a receiver is the second stage of a tandem that starts at the
+exchange. Why the engine bursts, with transactions a fraction of a microsecond apart,
+which fits many participants racing on the same signal, is a question about the market,
+not about the receiving software, and is left open. All results are for NQ.
 
 On the second question: yes above a threshold and no below it, and the threshold is a
 property of the feed (measured on NQ). Below the publisher spacing there is no queue to shorten and a cut
@@ -149,15 +138,13 @@ publishes each matching-engine event --- a transaction --- as, almost always, on
 packet, so the packet stream relays the timing of transactions without adding
 clustering of its own (Section~\ref{sec:results-transactions}). During such bursts the instantaneous arrival rate exceeds the single-thread event loop's service
 rate $1/T$, and cluster-induced queueing produces a tail one to two orders of magnitude
-larger than $h$. The paper's central empirical observation, on 276 sessions (3512
-thirty-minute windows) of NQ front-month packet arrivals, is that this cluster tail
-dominates end-to-end latency: the $99$th-percentile latency ($p_{99}$) of
-a constant-service queue driven by real packet arrivals is $2.2$ times the service time
-at the corpus-median window for a $16\,\mu\mathrm{s}$ task and $4.6$ times for a
-$32\,\mu\mathrm{s}$ task, and $2.5$ and $6.1$ times at the 95th-percentile window. Under a
-rate-matched Poisson null of the same arrival count the $p_{99}$ still equals the median
-at $16\,\mu\mathrm{s}$ and is only $1.3$ times it at $32$, against the Hawkes arm's $4.6$;
-over this band the tail is almost entirely a clustering effect.
+larger than $h$. The paper's central empirical observation, on over a year of NQ
+front-month packet arrivals, is that this cluster tail dominates end-to-end latency: the
+$99$th-percentile latency ($p_{99}$) of a constant-service queue driven by real packet
+arrivals is about twice the service time for a $16\,\mu\mathrm{s}$ task and between four and
+five times for a $32\,\mu\mathrm{s}$ task, and more in busy windows. A Poisson stream with
+the same number of arrivals has no tail at $16\,\mu\mathrm{s}$ and a small one at
+$32\,\mu\mathrm{s}$; over this band the tail is almost entirely a clustering effect.
 
 The question is then whether splitting the pipeline into $N > 1$ stages, each an
 independent actor on its own core with per-stage service $T/N$, reduces the tail, and
@@ -2727,21 +2714,20 @@ last message of each matching event.
 \label{sec:exchange-events}
 
 Section~\ref{sec:results-transactions} grouped packets into blocks whose
-\texttt{transactTime} ranges overlap. Regrouping by the exact \texttt{transactTime}
-value, and checking against the end-of-event flag, on 40 sessions
-($5.34 \times 10^8$ messages, $5.12 \times 10^8$ transactions), gives the following. A
-\texttt{transactTime} group contains two or more end-of-event flags, or straddles one,
-in $0.002\%$ of cases: one \texttt{transactTime} is one matching event. The flag itself
-cannot serve as the grouping key on a single-instrument tape, since $85\%$ of NQ events
-end on a message for another security on the channel. Under exact \texttt{transactTime}
-grouping $98.36\%$ of transactions occupy one packet ($98.30\%$ under the blocks) and
-there are $4.8\%$ more transactions than blocks, the difference being transactions that
-share a packet. The results of Section~\ref{sec:results-transactions} are unchanged at
-the precision reported.
+\texttt{transactTime} ranges overlap. Regrouping by the exact \texttt{transactTime} value,
+and checking against the end-of-event flag, on 40 sessions, confirms the grouping. A
+\texttt{transactTime} group almost never contains or straddles more than one end-of-event
+flag, so one \texttt{transactTime} is one matching event. The flag itself cannot serve as
+the grouping key on a single-instrument tape, since most NQ events end on a message for
+another security on the channel. Under exact grouping the share of transactions that fit
+in one packet is the same to within a tenth of a percent, and there are a few percent more
+transactions than blocks, the difference being transactions that share a packet. The
+results of Section~\ref{sec:results-transactions} are unchanged at the precision
+reported.
 
 \findings{
-    \item \emph{One \texttt{transactTime} is one matching event}: groups conflict with the end-of-event flag in $0.002\%$ of cases.
-    \item \emph{Regrouping changes nothing reported}: $98.36\%$ of transactions fit in one packet against $98.30\%$ under the earlier grouping.
+    \item \emph{One \texttt{transactTime} is one matching event}: groups almost never conflict with the end-of-event flag.
+    \item \emph{Regrouping changes nothing reported}: the share of transactions that fit in one packet is unchanged.
 }
 
 
@@ -2872,10 +2858,9 @@ microsecond of each other; what reaches the receiver is set by the publisher.
 
 If the publisher sent events on a fixed schedule, the time from engine processing to
 packet send, $\texttt{sendingTime} - \texttt{transactTime}$, would not depend on how busy
-the engine is. On 20 sessions ($2.52 \times 10^8$ transactions) the delay has a median of
-$99\,\mu\mathrm{s}$, a $p_{90}$ of $709\,\mu\mathrm{s}$, a $p_{99}$ of $3.6\,\mathrm{ms}$ and
-a $p_{99.9}$ of $12.6\,\mathrm{ms}$, and it rises steeply with the number of transactions
-the engine processed in the preceding $50\,\mu\mathrm{s}$ (Table~\ref{tab:publisher}).
+the engine is. It does. Its median is about $100\,\mu\mathrm{s}$ and its far tail several
+milliseconds, and it rises steeply with the number of transactions the engine processed in
+the preceding $50\,\mu\mathrm{s}$ (Table~\ref{tab:publisher}).
 
 \begin{table}[H]
 \centering
@@ -2931,9 +2916,9 @@ receiver's gap distribution at $7.5\,\mu\mathrm{s}$ (Figure~\ref{fig:tx-gaps}) a
 mass of gaps just above it are the publisher draining its backlog.
 
 \findings{
-    \item \emph{The delay from engine to packet grows with engine load}: median $86\,\mu\mathrm{s}$ after a quiet $50\,\mu\mathrm{s}$, $912\,\mu\mathrm{s}$ after eight to fifteen transactions.
-    \item \emph{Packing grows with it}: the share of transactions sent in a shared packet rises from $4\%$ to $27\%$.
-    \item \emph{The publisher is a queue} sending about one packet per $7.5\,\mu\mathrm{s}$; the shortest gap the receiver sees is its output spacing.
+    \item \emph{The delay from engine to packet grows with engine load}, about tenfold from a quiet moment to a burst.
+    \item \emph{Packing grows with it}: the share of transactions sent in a shared packet rises several times over.
+    \item \emph{The publisher is a queue} sending about one packet every $7.5\,\mu\mathrm{s}$; the shortest gap the receiver sees is its output spacing.
 }
 
 
@@ -3064,8 +3049,8 @@ that makes the receiver's service time, compared with $7.5\,\mu\mathrm{s}$, the 
 that sets its tail (Section~\ref{sec:exchange-tandem}).
 
 \findings{
-    \item \emph{Packets get bigger as the publisher falls behind}: $1.00$ NQ messages per packet under $100\,\mu\mathrm{s}$ of delay, $1.60$ beyond $5\,\mathrm{ms}$.
-    \item \emph{Packets sent at the publisher spacing stay single-message even far behind} ($1.11$ beyond $5\,\mathrm{ms}$); the publisher drains a backlog with more packets, not bigger ones.
+    \item \emph{Packets get bigger as the publisher falls behind}, from one NQ message each to about one and a half when it is milliseconds behind.
+    \item \emph{Packets sent at the publisher spacing stay single-message even far behind}: the publisher drains a backlog with more packets, not bigger ones.
     \item \emph{The $7.5\,\mu\mathrm{s}$ spacing holds across the channel's order and trade packets}: packets at the spacing always follow the previous NQ packet with no other such packet between.
     \item \emph{Only NQ front-month messages are counted}; the full channel's packet size is an open question.
 }
@@ -3171,21 +3156,20 @@ delete across a tight gap, the pattern a race would leave.}
 \label{fig:bars-tight}
 \end{figure}
 
-The fitted self-excitation is a different phenomenon at a different scale. The
-exponential-kernel Hawkes fit on the engine clock gives a branching ratio of $0.803$ and a
-decay time $1/\beta$ of $155\,\mu\mathrm{s}$ (5th--95th percentile $126$--$192$; on the
-publisher's clock $0.801$ and $167\,\mu\mathrm{s}$), so it places $4.7\%$ of its
-triggering within $7.5\,\mu\mathrm{s}$ and $99.8\%$ within a millisecond. That is the
-scale of the $100\,\mu\mathrm{s}$ mode of the gap distribution (Figure~\ref{fig:tx-gaps})
-and of the runs that carry the tail from $64\,\mu\mathrm{s}$. The self-excitation the fit
-measures is one transaction making another more likely over the following hundred
-microseconds or so; it accounts for the runs and does not account for events a fraction of
-a microsecond apart, which are simultaneous arrivals at the engine, not one event
-triggering the next.
+The fitted self-excitation is a different phenomenon at a different scale. The Hawkes fit
+on the engine clock gives the same branching ratio as on the publisher's clock, about
+$0.8$, and a kernel that decays over about $160\,\mu\mathrm{s}$, so it places only a few
+percent of its triggering within $7.5\,\mu\mathrm{s}$ and nearly all of it within a
+millisecond. That is the scale of the mode near $100\,\mu\mathrm{s}$ in the gap distribution
+(Figure~\ref{fig:tx-gaps}) and of the runs that carry the tail from $64\,\mu\mathrm{s}$. The
+self-excitation the fit measures is one transaction making another more likely over the
+following hundred microseconds or so; it accounts for the runs and does not account for
+transactions a fraction of a microsecond apart, which reach the engine together rather
+than one triggering the next.
 
 \findings{
-    \item \emph{Transactions across a tight engine gap are ordinary quote traffic}: the mix of new orders and deletes matches loose gaps, and only $2\%$ of tight gaps follow a trade.
-    \item \emph{After a trade, the race pattern shows}: the next transaction is another trade in $11.7\%$ of tight gaps against $2.2\%$ of loose ones. The share of racing is not measurable on the public feed.
+    \item \emph{Transactions across a short engine gap are ordinary quote traffic}: the mix of new orders and deletes matches that across long gaps, and few short gaps follow a trade.
+    \item \emph{After a trade, the race pattern shows}: the next transaction is far more often another trade or a delete. The share of racing is not measurable on the public feed.
     \item \emph{The fitted self-excitation acts over about $160\,\mu\mathrm{s}$} and explains the runs, not transactions a fraction of a microsecond apart.
 }
 
