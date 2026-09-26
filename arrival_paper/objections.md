@@ -594,3 +594,37 @@ reaction), without a test.
 6 (bootstrap), 7 (costed dispatch), 8, 11, 12 above. TODO 13 (scope every general
 statement to NQ) is partly applied: the abstract, the Conclusion and Future work are
 scoped; 4.9's box, 6.6 and Appendix E still say "the feed" in places.
+
+## Status after the server runs (2026-09-26, later)
+
+**Run and written in:**
+- TODO 1 / objection 2 — `msgtape --eoe` extracts the MDP3 end-of-event bit; all 281 NQ tapes
+  re-extracted (`tapes/318/message_eoe/`). `eoe_check.py` on 40 sessions: transactTime groups
+  straddle or contain several end-of-event flags in 0.002%; 85% of NQ events end on another
+  security's message, so the flag cannot key grouping on single-instrument tapes; exact
+  transactTime grouping gives 98.36% one-packet transactions (98.30% under blocks), 4.8% more
+  transactions than blocks. **Objection 2 closed** (Section 5.2).
+- New Section 5 (exchange side): on the engine clock 17.1% of consecutive NQ transactions are
+  < 7.5 us apart (14.4–22.9% across 40 sessions), p1 gap 0.18 us; on the publisher clock 1.04%,
+  p1 7.46 us. `gateway_delay.py`: sendingTime − transactTime median 99 us, p99 3.6 ms; rises from
+  86 us to 912 us median with engine burst intensity, coalescing 4% → 27%. The publisher is a
+  queue with ~7.5 us service; the floor is its output spacing; the receiver is stage 2 of a
+  tandem starting at the exchange. **Objection 4 (censoring) answered with numbers.**
+- TODO 2 — `kernel_timescale.py`: 1/beta median 155–171 us on packets, blocks and engine clock;
+  ~4% of kernel mass within 7.5 us. **Objection 1 settled**: self-excitation causes the runs
+  (>= 64 us); the 16–32 us pairs are the publisher draining backlogs of near-simultaneous engine
+  arrivals, whose origin is the open market question (races, per Aquilina–Budish–O'Neill, stated
+  as hypothesis). Author's publisher-as-speed-limit conjecture written as Section 5.7 with
+  qualifications.
+- TODO 6 — `bootstrap_shares.py`: session bootstrap, all intervals within about ±3 points; in
+  captions of tab:nulls and tab:tx-arms.
+- TODO 7 / objection 3 — `qsim_dispatch.py`, full corpus: costed dispatch median T + 2h at any N,
+  resequencing ≤ 0.14% of packets, p99 wait 0; level with a two-stage cut, better from N = 3.
+  **Design rule revised**: cut stateful chains, dispatch stateless stages with ≥ 3 cores
+  (tab:dispatch-costed, 4.4, 11.3, design flow).
+- TODO 11 — `span_conditioning.py`: span and multi-transaction share do not rise with n
+  (Q5/Q1 0.89, 0.99, 0.97). In 4.9 and 11.2.
+- TODO 13 — NQ scoping applied to the 4.9 box and 6.6.
+
+**Still running / open:** TODO 3 (tight-pair composition) — running; ZN (TODO 10) blocked on data;
+order-entry times (races vs reaction) need data the public feed does not carry.

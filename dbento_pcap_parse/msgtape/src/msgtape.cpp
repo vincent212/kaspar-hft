@@ -103,7 +103,9 @@ int main(int argc, char* argv[])
         ("include-mbo",   po::value<bool>()->default_value(true),
                           "include MBO order events (default true)")
         ("include-trade", po::value<bool>()->default_value(true),
-                          "include MBO-trade events (default true)");
+                          "include MBO-trade events (default true)")
+        ("eoe", po::bool_switch(),
+                "append the end-of-event bit of each record as a last column 'eoe'");
 
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -119,6 +121,7 @@ int main(int argc, char* argv[])
     const bool rth   = vm["rth-only"].as<bool>();
     const bool w_mbo = vm["include-mbo"].as<bool>();
     const bool w_trd = vm["include-trade"].as<bool>();
+    const bool with_eoe = vm["eoe"].as<bool>();
 
     std::ofstream fout;
     std::ostream* out = &std::cout;
@@ -138,9 +141,12 @@ int main(int argc, char* argv[])
     oid2sec.reserve(1 << 24);
 
     // CSV header
+    // eoe = MDP3 MatchEventIndicator end-of-event bit of the record (1 on the last
+    // message of a matching-engine event). Appended as the last column only with
+    // --eoe, so tapes written without it keep their original format.
     (*out) << "transactTime,sendingTime,handlerendtim,recv_time,"
               "packet_seq,idx_in_packet,"
-              "typ,action,side,pxd,sz,orderID\n";
+              "typ,action,side,pxd,sz,orderID" << (with_eoe ? ",eoe" : "") << "\n";
 
     gzFile f = gzopen(file.c_str(), "rb");
     if (!f) { std::cerr << "cannot open " << file << "\n"; return 3; }
@@ -198,7 +204,8 @@ int main(int argc, char* argv[])
             if (!w_mbo) continue;
             ++n_kept_mbo;
             int nchar = std::snprintf(buf, sizeof(buf),
-                "%lu,%lu,%lu,,%lu,%u,M,%u,%c,%.9f,%u,%lu\n",
+                with_eoe ? "%lu,%lu,%lu,,%lu,%u,M,%u,%c,%.9f,%u,%lu,%u\n"
+                         : "%lu,%lu,%lu,,%lu,%u,M,%u,%c,%.9f,%u,%lu\n",
                 (unsigned long)m.transactTime,
                 (unsigned long)m.sendingTime,
                 (unsigned long)m.handlerendtim,
@@ -208,7 +215,8 @@ int main(int argc, char* argv[])
                 m.side,
                 m.pxd,
                 (unsigned)m.displayQty,
-                (unsigned long)m.orderID);
+                (unsigned long)m.orderID,
+                (unsigned)(m.endOfEvent ? 1 : 0));
             out->write(buf, nchar);
 
             if (m.orderUpdateAction == 2 /*Delete*/) {
@@ -226,7 +234,8 @@ int main(int argc, char* argv[])
             if (!w_trd) continue;
             ++n_kept_trd;
             int nchar = std::snprintf(buf, sizeof(buf),
-                "%lu,%lu,%lu,%lu,%lu,%u,T,X,,,%d,%lu\n",
+                with_eoe ? "%lu,%lu,%lu,%lu,%lu,%u,T,X,,,%d,%lu,%u\n"
+                         : "%lu,%lu,%lu,%lu,%lu,%u,T,X,,,%d,%lu\n",
                 (unsigned long)t.transactTime,
                 (unsigned long)t.sendingTime,
                 (unsigned long)t.handlerendtim,
@@ -234,7 +243,8 @@ int main(int argc, char* argv[])
                 (unsigned long)packet_seq,
                 (unsigned)idx_in_packet,
                 (int)t.lastQty,
-                (unsigned long)t.orderID);
+                (unsigned long)t.orderID,
+                (unsigned)(t.endOfEvent ? 1 : 0));
             out->write(buf, nchar);
         }
     }

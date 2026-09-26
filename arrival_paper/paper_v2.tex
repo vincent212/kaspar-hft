@@ -71,9 +71,16 @@ by near-simultaneous pairs of transactions --- a stream with the same gaps in ra
 order keeps $79\%$ of it --- and at $64\,\mu\mathrm{s}$ and above by runs of
 transactions, which that permutation destroys ($37\%$ and $23\%$ survive). The runs are
 the self-excitation a Hawkes fit measures (branching ratio $0.795$ on transaction
-starts); what places two transactions within a few microseconds of each other is not
-identified here. The paper is about the queue in the receiving software, not about the
-market's reasons, and states that question for future work. All results are for NQ.
+starts). One stage upstream, the exchange's own timestamps show where the tight gaps come
+from: on the matching engine's clock $17\%$ of consecutive transactions are less than
+$7.5\,\mu\mathrm{s}$ apart, against $1\%$ of packets on the publisher's clock, and the
+delay from engine to packet grows about tenfold during engine bursts, from a median of
+$86$ to $912\,\mu\mathrm{s}$. CME's market-data publisher is a queue with a service time of
+about $7.5\,\mu\mathrm{s}$ per packet, the feed's tight-gap floor is its output spacing,
+and a receiver is the second stage of a tandem that starts at the exchange. Why the engine
+bursts --- the engine gaps reach $0.18\,\mu\mathrm{s}$, which fits many participants
+racing on the same signal --- is a question about the market, not about the receiving
+software, and is left open. All results are for NQ.
 
 On the second question: yes above a threshold and no below it, and the threshold is a
 property of the feed (measured on NQ). Below the tight-gap floor there is no queue to shorten and a cut
@@ -81,9 +88,10 @@ adds one $1.7\,\mu\mathrm{s}$ hop to every message; above it, one balanced cut r
 most of the $p_{99}$ excess for one hop on the median, and pays on $99.7\%$ of the 3512
 windows at $10\,\mu\mathrm{s}$ and on every window from $16\,\mu\mathrm{s}$. Only the
 slowest stage matters: a cut that does not shorten the largest stage gains nothing. With
-the same $N$ cores, a dispatch arrangement matches or beats the tandem on latency in an
-optimistic bound that charges it no ingress hop, no egress hop and no resequencing; the
-stage that holds the order book cannot be dispatched because it carries state. At the production operating point of the
+the same $N$ cores and every cost charged, a pool that dispatches whole packets to $N$
+servers has median $T + 2h$ at any $N$ and resequences almost nothing, so for a stage that
+carries no state it is level with a two-stage cut and better than a cut into three or
+more; the order-book stage carries state and cannot be dispatched. At the production operating point of the
 reference receiver, about $7\,\mu\mathrm{s}$, the chain should not be split. We give the
 analytic framework --- a burst-limit throughput identity and an exact pathwise reduction
 of the deterministic-service tandem to a single bottleneck server --- test it on the
@@ -261,12 +269,14 @@ at or below the tight-gap floor and adds a few percent above it
 (Sections~\ref{sec:crossval-spanrun} and~\ref{sec:fungibility-measured}).
     \item \emph{Are two queues better than one?} Yes above a service-time threshold set by
 the feed and no below it (Sections~\ref{sec:results-tail} and~\ref{sec:results-design});
-only the slowest stage matters (Theorem~\ref{thm:reduction}); with equal cores a
-dispatch pool matches the tandem on latency in an optimistic bound that charges it no
-hops or resequencing, and the stateful order-book stage cannot be dispatched
-(Section~\ref{sec:results-equal-core}); at the
+only the slowest stage matters (Theorem~\ref{thm:reduction}); with equal cores and every cost charged, a dispatch pool is level with a two-stage cut
+and better than a cut into three or more for a stateless stage, and the stateful
+order-book stage cannot be dispatched (Section~\ref{sec:results-equal-core}); at the
 production operating point the answer is no (Section~\ref{sec:kaspar}).
 \end{enumerate}
+Section~\ref{sec:exchange} looks one stage upstream, at the exchange's matching engine
+and market-data publisher through the timestamps the feed carries, and shows that the
+publisher is a queue whose output spacing is the floor the receiver sees.
 
 The paper proceeds in four parts.
 
@@ -1065,6 +1075,10 @@ recursive intensity, closed-form compensator, Nelder--Mead over $(\mu, \alpha, \
 gives a branching ratio $n = \alpha/\beta$ with a corpus median of $0.798$ and a 5th--95th
 percentile range of $0.761$--$0.832$ across the 3512 windows (extremes $0.566$ and
 $1.000$, the latter a single window pinned at the fit boundary), with every fit converged;
+the kernel's decay time $1/\beta$, on 254 windows from 20 sessions, has a median of
+$167\,\mu\mathrm{s}$ (5th--95th percentile $140$--$205\,\mu\mathrm{s}$), so the fitted
+process concentrates its triggering at lags of order a hundred microseconds and places
+only $4\%$ of it within $7.5\,\mu\mathrm{s}$;
 the same optimum is recovered by a reparameterised L-BFGS-B fit to four decimals on
 spot-checked windows. This is the same near-critical regime that
 \citet{filimonovsornette2012} and \citet{hardimanbercotbouchaud2013} document on ES, at a
@@ -1550,7 +1564,10 @@ service time is hit by every tight gap whether or not its neighbours are tight, 
 long service time needs a sustained run of tight gaps before the backlog exceeds one
 service, and runs are what the shuffle removes. The tandem's benefit does not depend on
 which channel carries the tail: a cut that takes $T/N$ below the floor removes the excess
-under every arm.}
+under every arm. Session-clustered bootstrap over the 276 sessions (1000 draws), $95\%$
+intervals of the gap-shuffle shares: $87.1$--$88.4\%$, $76.7$--$81.3\%$, $58.2$--$60.5\%$,
+$35.8$--$37.2\%$ and $21.9$--$23.6\%$ at $T = 8$ to $128\,\mu\mathrm{s}$; of the binned
+null at $32$--$128$: $12.5$--$14.2\%$, $6.2$--$6.6\%$, $2.2$--$2.4\%$.}
 \label{tab:nulls}
 \end{table}
 
@@ -1832,7 +1849,11 @@ scattering destroys. This is the same profile that the packet-level gap shuffle 
 Table~\ref{tab:nulls} ($88$, $79$, $59$, $37$, $23\%$), which identifies the packet-level
 ordering channel with the bunching of transactions. At $T \le 8\,\mu\mathrm{s}$ the
 real excess is under $1\,\mu\mathrm{s}$ and the shares are not meaningful. The ZN slope
-ratio and message weighting move every cell by at most a few points.}
+ratio and message weighting move every cell by at most a few points. Session-clustered
+bootstrap over the 276 sessions (1000 draws), $95\%$ intervals: TG $77.0$--$81.7$,
+$58.7$--$61.0$, $35.7$--$37.2$, $21.4$--$23.2\%$ at $T = 16, 32, 64, 128$; TP $24.0$--$25.9$,
+$17.7$--$18.8$, $6.8$--$7.2$, $2.2$--$2.4\%$; TS, TM and TW within $\pm 2$ points of the
+reported values in every cell.}
 \label{tab:tx-arms}
 \end{table}
 
@@ -1873,17 +1894,14 @@ $T$: the same capacity $N/T$ as the tandem and no hops, so a burst of $k$ packet
 in about the same time, while each packet's own latency stays $T$ rather than
 $T + (N-1)h$.
 
-Neither is available on this feed, for a reason the chain of stages does not share. A CME
-burst is one instrument's order flow, so sharding by instrument sends the whole burst to
-one core at service $T$ and relieves nothing; the corpus is a single instrument, on which
-sharding by instrument is degenerate by construction, and sharding packets round-robin
-breaks the per-instrument ordering the book requires. Dispatch breaks that ordering for
-the same reason and needs a resequencing stage behind the servers, whose cost is a hop.
-The chain of stages is the one arrangement that spends $N$ cores on a single ordered
-stream without reordering it. Table~\ref{tab:equal-core} puts the dispatch alternative
-beside the tandem on the real arrivals with no ingress hop, no egress hop and no
-resequencing charged, so it is an optimistic bound on dispatch: its latencies are the
-lowest dispatch could reach, and a costed design is slower.
+Sharding is not available on this corpus: a CME burst is one instrument's order flow, so
+sharding by instrument sends the whole burst to one core at service $T$ and relieves
+nothing, and the corpus is a single instrument. Dispatch is available for any stage that
+holds no state from one packet to the next --- SBE decode is such a stage, order-book
+application is not --- provided its output is put back in order. Two comparisons follow.
+Table~\ref{tab:equal-core} puts dispatch beside the tandem with no ingress hop, no egress
+hop and no resequencing charged, which is the lowest latency dispatch could reach.
+Table~\ref{tab:dispatch-costed} charges all three.
 
 \begin{table}[H]
 \centering
@@ -1936,26 +1954,66 @@ servers, with no resequencing charged to the latter.}
 \label{tab:equal-core}
 \end{table}
 
-At $T = 16$--$128\,\mu\mathrm{s}$ the dispatch arm's $p_{99}$ is at or below the
-tandem's in every cell, by a margin that is small where the tandem already removes most
-of the excess ($N = 2$: $16.0$ against $18.3\,\mu\mathrm{s}$ at $T = 16$, $48.0$ against
-$52.3$ at $32$, $171$ against $180$ at $64$, $869$ against $886$ at $128\,\mu\mathrm{s}$)
-and, for $T \le 32\,\mu\mathrm{s}$, closes at $N = 8$ to exactly the hop cost $(N-1)h$,
-where both arrangements have spare capacity and neither has any excess. On the median
-the difference is exactly the hop cost: dispatch holds $p_{50} = T$ while the tandem pays
-$T + (N-1)h$. With the same $N$ cores, then, a design free to reorder packets matches or
-beats the tandem on the tail and wins the median by $(N-1)h$ --- before its own costs,
-which the arm does not charge: an ingress stage that assigns packets to servers, a hop to
-and from the servers, and a resequencer that holds each packet until its predecessors
-have been released, whose wait behind a slower predecessor is a queue of its own on a
-span-dependent service. The costed dispatch model is listed in
-Section~\ref{sec:future}. Under constant service the M/D/$N$ arm, first-in first-out
-with the earliest-free server, releases packets in arrival order, so the table's
-comparison is not about ordering; what dispatch cannot do is hold state. The order-book
-stage applies each update to the state left by the previous one and cannot be split
-across servers; a stateless stage, such as SBE decode, can. The table therefore bounds
-what dispatch could gain on a stateless stage; it does not decide between the two
-designs, and a costed comparison is future work.
+Without its costs, dispatch's $p_{99}$ is at or below the tandem's in every cell at
+$T = 16$--$128\,\mu\mathrm{s}$ ($N = 2$: $16.0$ against $18.3\,\mu\mathrm{s}$ at $T = 16$,
+$48.0$ against $52.3$ at $32$, $171$ against $180$ at $64$, $869$ against $886$ at
+$128\,\mu\mathrm{s}$), and its median is $T$ against the tandem's $T + (N-1)h$.
+
+\begin{table}[tbp]
+\centering
+\small
+\begin{tabular}{@{}rr rr rr r@{}}
+\toprule
+ & & \multicolumn{2}{c}{tandem} & \multicolumn{2}{c}{dispatch, costs charged} & reordered \\
+\cmidrule(lr){3-4} \cmidrule(lr){5-6}
+$T$ & $N$ & $p_{50}$ & $p_{99}$ & $p_{50}$ & $p_{99}$ & packets \\
+\midrule
+ 16 & 2 &  17.70 &  19.59 &  19.40 &  20.78 & $0.00\%$ \\
+ 16 & 4 &  21.10 &  22.48 &  19.40 &  20.78 & $0.00\%$ \\
+ 16 & 8 &  27.90 &  29.28 &  19.40 &  20.78 & $0.00\%$ \\
+\midrule
+ 32 & 2 &  33.70 &  52.84 &  35.40 &  51.61 & $0.00\%$ \\
+ 32 & 4 &  37.10 &  39.86 &  35.40 &  38.16 & $0.01\%$ \\
+ 32 & 8 &  43.90 &  46.66 &  35.40 &  38.16 & $0.01\%$ \\
+\midrule
+ 64 & 2 &  65.70 & 181.08 &  67.40 & 175.74 & $0.01\%$ \\
+ 64 & 4 &  69.10 &  89.10 &  67.40 &  79.99 & $0.03\%$ \\
+ 64 & 8 &  75.90 &  81.42 &  67.40 &  72.92 & $0.03\%$ \\
+\midrule
+128 & 2 & 166.37 & 902.82 & 131.40 & 883.83 & $0.08\%$ \\
+128 & 4 & 133.10 & 250.40 & 131.40 & 227.94 & $0.14\%$ \\
+128 & 8 & 139.90 & 162.28 & 131.40 & 142.45 & $0.14\%$ \\
+\bottomrule
+\end{tabular}
+\caption{The same $N$ cores as a tandem and as a dispatch pool with every cost charged:
+an ingress hop to the servers, an egress hop from them, and an in-order resequencer that
+holds each packet until its predecessors have left. Span-dependent service at the NQ
+slope; corpus medians over 3512 windows, in \si{\micro\second}, $h = 1.7\,\mu\mathrm{s}$;
+last column the share of packets that finish before a predecessor and wait in the
+resequencer (its $p_{99}$ wait is $0.00\,\mu\mathrm{s}$ in every cell). Constant service
+gives the same picture. What the table shows: dispatch's median is $T + 2h$ at every
+$N$, against the tandem's $T + (N-1)h$, so dispatch is one hop slower at $N = 2$ and
+faster from $N = 3$; at $N = 2$ the two are within $1.2\,\mu\mathrm{s}$ at $p_{99}$ for
+$T \le 32\,\mu\mathrm{s}$ and dispatch is lower above; at $N \ge 4$ dispatch is lower on
+both quantiles in every cell. Resequencing costs almost nothing, because a packet that
+waited in the shared queue behind a burst leaves in the order it arrived. What follows: for
+a stage that carries no state, dispatching whole packets to three or more cores is at
+least as good as cutting it into the same number of stages; at two cores the two are
+level, with the tandem one hop cheaper on the median. For a stage that carries state, the
+order book above all, dispatch is not available and the tandem is the arrangement that
+spends extra cores on it.}
+\label{tab:dispatch-costed}
+\end{table}
+
+With every cost charged (Table~\ref{tab:dispatch-costed}), dispatch pays two hops on
+every packet --- in and out --- and nothing else measurable: the resequencer holds at
+most $0.14\%$ of packets, for a $p_{99}$ wait of zero. Its median is therefore $T + 2h$
+whatever $N$ is, one hop more than a two-stage tandem and less than any tandem of three or
+more stages, and its tail is lower than the tandem's from $N = 4$ in every cell. The
+design consequence is a division by state. A stateless stage above the floor --- decode is
+the natural candidate --- is best served by a dispatch pool of three or more cores; at two
+cores a cut and a pool are level. A stateful stage above the floor is served by cutting the
+chain, which is the case the rest of the paper analyses.
 
 \subsection{Median cost is linear in $N$, exactly as $(N-1)h$}
 \label{sec:results-median}
@@ -2355,6 +2413,16 @@ transactions arriving within that separation of each other
 successive transactions within a burst follow one another is likewise invariant to the
 window's rate. A busy window contains more bursts, not tighter bursts.
 
+The gap statistics on the publisher's clock are censored at the floor: two transactions
+closer together than about $7.5\,\mu\mathrm{s}$ reach the receiver in one packet
+(Section~\ref{sec:exchange-publisher}). A faster self-excitation would therefore show in
+the packets rather than the gaps. It does not scale with the branching ratio: from the
+lowest to the highest branching-ratio quintile the share of packets carrying two or more
+messages falls by a factor of $0.89$, the mean message count per packet by $0.99$ and the
+share of packets carrying more than one transaction by $0.97$ (per-window Spearman
+correlations with $n$ of $-0.18$, $-0.28$ and $+0.00$); across packet-rate quintiles the
+three move by $1.02$, $0.99$ and $1.13$.
+
 The queueing consequence: a deterministic server of service time $T$
 begins to build a queue when it is handed two arrivals separated by less than $T$, so the
 service time at which a tail appears is set by the \emph{tight} end of the gap
@@ -2391,12 +2459,12 @@ Entries are the Q5/Q1 ratio of the normalised single-stage tail $p_{99}/T$. Reso
 by more than $0.01$. The result is a property of the arrival process, not of the window
 length.
 
-\paragraph{Consequence for the design rule.} The rule can therefore be stated as a
+\paragraph{Consequence for the design rule.} On NQ the rule can therefore be stated as a
 constant of the feed rather than as a function of market state.
 
 \begin{center}
 \fbox{\begin{minipage}{0.92\linewidth}
-\textbf{Design principle (the threshold is a constant of the feed).} Split a stage whose
+\textbf{Design principle (on NQ, the threshold is a constant of the feed).} Split a stage whose
 service time exceeds the feed's tight-gap floor; do not split one below it. The floor is
 the tight end of the feed's interarrival-gap distribution (the $p_1$ gap, about
 $7.5\,\mu\mathrm{s}$ on CME channel 318), not its mean, which is two orders of magnitude
@@ -2404,8 +2472,9 @@ larger. The floor is measured once per feed: on this corpus it is $7.43$--$7.53\
 in every packet-rate quintile across a $4.7\times$ range of rates and in every
 branching-ratio quintile, so the rule requires no runtime estimate of market intensity or
 clustering and does not change between a quiet and a volatile session. Both the floor and
-the spacing of transactions inside a burst are properties of the feed; recheck them on any
-other feed rather than assume them.
+the spacing of transactions inside a burst were measured on one instrument, NQ
+front-month on CME channel 318; recheck them on any other instrument or feed rather than
+assume them.
 \end{minipage}}
 \end{center} Appendix~\ref{app:synthetic} constructs a feed on which both dependences appear
 at $T = 8\,\mu\mathrm{s}$, and identifies the packed-gap fraction as the quantity that
@@ -2473,6 +2542,219 @@ load-conditioned hop cost $h(\rho)$ is left to future work.
 
 
 % =====================================================================
+
+% =====================================================================
+
+\section{The exchange side: matching engine, publisher and bursts}
+\label{sec:exchange}
+
+The receiver's arrivals are the output of the exchange. This section looks one step
+upstream, at the two CME systems that produce them, through the only window the public feed
+opens on them: the timestamps it carries. It treats the exchange as a queueing system
+observed from outside and makes no claim about CME's internal design beyond what the MDP3
+specification states. All figures are for NQ front-month on channel 318.
+
+\subsection{Three timestamps}
+\label{sec:exchange-clocks}
+
+Every message on the feed carries two exchange timestamps, and the receiver adds a third.
+\texttt{transactTime} is the start of event processing at the matching engine: when the
+engine began to match, add or cancel the order behind the message. \texttt{sendingTime}
+is written into each packet by CME's market-data publisher when it sends the packet.
+Both come from CME's synchronised clocks. The receiver's own timestamp, taken at the
+socket read, is the third. The path is
+\[
+\text{order entry} \;\to\; \underbrace{\text{matching engine}}_{\texttt{transactTime}}
+\;\to\; \underbrace{\text{publisher}}_{\texttt{sendingTime}} \;\to\; \text{network}
+\;\to\; \underbrace{\text{receiver}}_{\text{socket read}}.
+\]
+The simulator of Part~II uses \texttt{sendingTime} as each packet's arrival time, since the
+receiver sees the publisher's spacing plus a network delay that is close to constant. The
+feed does not carry the time an order entered the engine, and nothing in it shows the
+engine's or the publisher's internal queues directly. The MDP3 end-of-event flag marks the
+last message of each matching event.
+
+\subsection{Transactions and events}
+\label{sec:exchange-events}
+
+Section~\ref{sec:results-transactions} grouped packets into blocks whose
+\texttt{transactTime} ranges overlap. Regrouping by the exact \texttt{transactTime}
+value, and checking against the end-of-event flag, on 40 sessions
+($5.34 \times 10^8$ messages, $5.12 \times 10^8$ transactions), gives the following. A
+\texttt{transactTime} group contains two or more end-of-event flags, or straddles one,
+in $0.002\%$ of cases: one \texttt{transactTime} is one matching event. The flag itself
+cannot serve as the grouping key on a single-instrument tape, since $85\%$ of NQ events
+end on a message for another security on the channel. Under exact \texttt{transactTime}
+grouping $98.36\%$ of transactions occupy one packet ($98.30\%$ under the blocks) and
+there are $4.8\%$ more transactions than blocks, the difference being transactions that
+share a packet. The results of Section~\ref{sec:results-transactions} are unchanged at
+the precision reported.
+
+\subsection{The engine produces events closer together than the publisher sends them}
+\label{sec:exchange-engine}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l rrrr@{}}
+\toprule
+gap between consecutive transactions & $< 7.5\,\mu\mathrm{s}$ & $< 16\,\mu\mathrm{s}$ & $< 32\,\mu\mathrm{s}$ & $p_1$ gap \\
+\midrule
+engine clock (\texttt{transactTime})    & $17.1\%$ & $25.4\%$ & $35.4\%$ & $0.18\,\mu\mathrm{s}$ \\
+\quad range across sessions             & $14.4$--$22.9$ & $22.3$--$31.8$ & $31.5$--$40.7$ & $0.15$--$0.21$ \\
+publisher clock (\texttt{sendingTime})  & $1.04\%$ & $17.8\%$ & $32.1\%$ & $7.46\,\mu\mathrm{s}$ \\
+\quad range across sessions             & $0.44$--$1.52$ & $15.5$--$22.2$ & $28.6$--$36.9$ & $7.23$--$7.88$ \\
+\bottomrule
+\end{tabular}
+\caption{The same NQ transactions timed by the matching engine and by the publisher;
+median session and full range over 40 sessions. What the table shows: one consecutive
+transaction in six leaves the engine less than $7.5\,\mu\mathrm{s}$ after the previous
+one, and the tightest one percent are $0.18\,\mu\mathrm{s}$ apart; almost none leave the
+publisher that close, and the publisher's tightest one percent are $7.46\,\mu\mathrm{s}$
+apart. The difference holds in every session. What follows: the $7.5\,\mu\mathrm{s}$
+floor of the gap distribution the receiver sees is the publisher's spacing, not a
+property of the market's event process; events the engine produces faster than that are
+either held back or packed into one packet.}
+\label{tab:engine-clock}
+\end{table}
+
+\begin{center}
+\fbox{\begin{minipage}{0.92\linewidth}
+\textbf{Finding.} On NQ, one consecutive transaction in six ($17.1\%$) is processed by the
+matching engine less than $7.5\,\mu\mathrm{s}$ after the previous one, against $1.04\%$
+of consecutive packets sent by the publisher. The tight-gap floor of the receiver's
+arrival stream is set by the exchange's publisher. The engine's own gaps reach
+$0.18\,\mu\mathrm{s}$ at the first percentile, which means the engine went directly from
+one event to the next with the next order already waiting: at those moments it was
+working through a backlog of orders that arrived almost together.
+\end{minipage}}
+\end{center}
+
+\subsection{The publisher is a queue}
+\label{sec:exchange-publisher}
+
+If the publisher sent events on a fixed schedule, the time from engine processing to
+packet send, $\texttt{sendingTime} - \texttt{transactTime}$, would not depend on how busy
+the engine is. On 20 sessions ($2.52 \times 10^8$ transactions) the delay has a median of
+$99\,\mu\mathrm{s}$, a $p_{90}$ of $709\,\mu\mathrm{s}$, a $p_{99}$ of $3.6\,\mathrm{ms}$ and
+a $p_{99.9}$ of $12.6\,\mathrm{ms}$, and it rises steeply with the number of transactions
+the engine processed in the preceding $50\,\mu\mathrm{s}$ (Table~\ref{tab:publisher}).
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}r r rr r@{}}
+\toprule
+other NQ transactions in the & share of & \multicolumn{2}{c}{publisher delay} & published sharing a packet \\
+\cmidrule(lr){3-4}
+previous $50\,\mu\mathrm{s}$ (engine clock) & transactions & $p_{50}$ & $p_{99}$ & with another transaction \\
+\midrule
+0      & $57.9\%$ & $86\,\mu\mathrm{s}$  & $2.9\,\mathrm{ms}$  & $4.2\%$ \\
+1      & $24.1\%$ & $113\,\mu\mathrm{s}$ & $3.5\,\mathrm{ms}$  & $10.0\%$ \\
+2--3   & $13.8\%$ & $205\,\mu\mathrm{s}$ & $4.4\,\mathrm{ms}$  & $15.2\%$ \\
+4--7   & $3.8\%$  & $406\,\mu\mathrm{s}$ & $6.8\,\mathrm{ms}$  & $20.8\%$ \\
+8--15  & $0.4\%$  & $912\,\mu\mathrm{s}$ & $15.0\,\mathrm{ms}$ & $26.6\%$ \\
+\bottomrule
+\end{tabular}
+\caption{Delay from engine processing to packet send, $\texttt{sendingTime} -
+\texttt{transactTime}$, by how busy the engine was in the $50\,\mu\mathrm{s}$ before each
+transaction; 20 sessions, $2.52 \times 10^8$ NQ transactions. What the table shows: the
+median delay is $86\,\mu\mathrm{s}$ for a transaction that follows none within
+$50\,\mu\mathrm{s}$ and $912\,\mu\mathrm{s}$ for one that follows eight to fifteen; the
+$p_{99}$ rises from $2.9$ to $15\,\mathrm{ms}$; the share of transactions sent in a packet
+with another transaction rises from $4\%$ to $27\%$. What follows: a fixed publishing
+schedule would keep the delay flat. It grows about tenfold with engine burst intensity,
+and coalescing grows with it, which is the signature of a queue: the publisher has a
+service time of about $7.5\,\mu\mathrm{s}$ per packet, events the engine produces faster
+than that wait, and the publisher packs the backlog into fuller packets. The burst measure
+counts NQ front-month transactions only, while the publisher serves the whole channel, so
+the table understates the load on the publisher.}
+\label{tab:publisher}
+\end{table}
+
+A fixed publishing policy would keep the delay flat. Here it grows roughly tenfold with
+engine burst intensity, and coalescing grows with it. That is a queue: the publisher has a
+service time of about $7.5\,\mu\mathrm{s}$ per packet. When the engine produces events
+faster than that, they wait, and the publisher packs the backlog into fuller packets.
+
+This accounts for the floor from first principles. The output of a deterministic server
+cannot contain two departures closer together than its service time, and while the server
+works through a backlog its departures are spaced by exactly that time. The edge of the
+receiver's gap distribution at $7.5\,\mu\mathrm{s}$ (Figure~\ref{fig:tx-gaps}) and the
+mass of gaps just above it are the publisher draining its backlog.
+
+\subsection{The receiver is the second stage of a tandem that starts at the exchange}
+\label{sec:exchange-tandem}
+
+The publisher and the receiver are two servers in series. When a burst at the engine
+builds a backlog at the publisher, the publisher emits packets back-to-back at its own
+service interval of about $7.5\,\mu\mathrm{s}$. A receiver whose service time is shorter
+than that keeps up and queues nothing; a receiver whose service time is longer falls
+behind by the difference on every packet of the drain, and its backlog grows for as long
+as the drain lasts. This is the threshold of Section~\ref{sec:results-threshold}, now
+explained: the service time at which a receiver's tail appears equals the service time of
+the exchange stage upstream of it. It is the tandem of Theorem~\ref{thm:reduction} read in
+the other direction: a downstream stage slower than the upstream one is the bottleneck,
+and it is the receiver's stage, not the publisher's, that sets the tail the receiver
+pays. The two regimes of Section~\ref{sec:results-nulls} follow. At service times just
+above the floor, a short drain is enough to build a queue, and what matters is how often
+the publisher drains, which the gap shuffle preserves. At long service times the queue
+needs a sustained drain, which is a run of engine bursts, and that is what the shuffle
+destroys.
+
+\subsection{What bursts at the engine are, and what they are not}
+\label{sec:exchange-bursts}
+
+Section~\ref{sec:exchange-engine} shows that the engine often processes events a fraction
+of a microsecond apart, which means orders were waiting for it. Why they arrived together
+is the market question of Section~\ref{sec:concl-cannot}. The $0.18\,\mu\mathrm{s}$
+spacing fits many participants sending orders in response to the same public signal, the
+\emph{races} that \citet{aquilina2022arms} measured on the London Stock Exchange with
+order-entry times the CME public feed does not carry. It is consistent with that
+mechanism and does not prove it: a reaction to the previous transaction that is faster than
+the engine's backlog would look the same from here.
+
+The fitted self-excitation is a different phenomenon at a different scale. The
+exponential-kernel Hawkes fit on the engine clock gives a branching ratio of $0.803$ and a
+decay time $1/\beta$ of $155\,\mu\mathrm{s}$ (5th--95th percentile $126$--$192$; on the
+publisher's clock $0.801$ and $167\,\mu\mathrm{s}$), so it places $4.7\%$ of its
+triggering within $7.5\,\mu\mathrm{s}$ and $99.8\%$ within a millisecond. That is the
+scale of the $100\,\mu\mathrm{s}$ mode of the gap distribution (Figure~\ref{fig:tx-gaps})
+and of the runs that carry the tail from $64\,\mu\mathrm{s}$. The self-excitation the fit
+measures is one transaction making another more likely over the following hundred
+microseconds or so; it accounts for the runs and does not account for events a fraction of
+a microsecond apart, which are simultaneous arrivals at the engine, not one event
+triggering the next.
+
+\subsection{Conjecture: the publisher's capacity is an information-side speed limit}
+\label{sec:exchange-conjecture}
+
+\begin{center}
+\fbox{\begin{minipage}{0.92\linewidth}
+\textbf{Conjecture.} Because the publisher sends at most one packet per
+$7.5\,\mu\mathrm{s}$ and queues whatever the engine produces faster than that, it bounds
+the rate at which market information reaches participants, and during bursts it delivers
+that information $0.4$ to $15\,\mathrm{ms}$ late (Table~\ref{tab:publisher}). Any feedback
+loop in which participants react to published data therefore cannot run faster than the
+publisher, and a cascade driven by public information unfolds more slowly than the
+engine could process it. In this sense the publisher acts as a speed limit on the
+information side of the market, whether or not it was designed as one, and protects
+downstream receivers from the engine's peak rate.
+\end{minipage}}
+\end{center}
+
+Three qualifications bound the conjecture. First, delaying feedback does not reduce the
+branching ratio of a self-exciting process: each event still triggers the same number of
+follow-on events on average, later, so the publisher cannot make a critical cascade
+subcritical; it bounds the cascade's speed, not its size. Second, it does not bound
+simultaneous reactions to a common signal that reach the engine through order entry, which
+are what the engine-clock gaps of Table~\ref{tab:engine-clock} suggest; those do not pass
+through the publisher before they are submitted. Third, whether the publisher's capacity
+is a design choice or an engineering limit cannot be read from the feed; the queueing
+signature of Table~\ref{tab:publisher} points to a limit. The conjecture is related to
+proposals that slow markets deliberately to blunt speed races, such as frequent batch
+auctions \citep{budish2015fba}; the difference is that here the delay is on the
+information leaving the exchange, not on orders entering it.
 
 % =====================================================================
 
@@ -2961,10 +3243,11 @@ system reports the same ordering. Third, the recommendation on how many stages t
 task into is unchanged at every task length. The in-packet part of that tail is the plain
 cost of decoding several messages one after another, which splitting the work into stages
 does not remove; the queue a large packet opens behind itself is taken up in
-Section~\ref{sec:fungibility-measured}. Fourth, the two channels do not compound at the
+Section~\ref{sec:fungibility-measured}. Fourth, on NQ the two channels do not compound at the
 packet level: a large packet is no more likely to arrive after a tight gap than after a
 loose one, checked two ways, so the tables of Part~II, which measure the queueing
-channel alone, stand as they are at service times above the floor.
+channel alone, stand as they are at service times above the floor. On ZN the live data
+suggest the opposite, and the test has not been run there.
 
 We re-extracted the per-packet span for all 3512 windows --- aligned element-wise against the
 cached arrival arrays, with every window's span count checked against the packet count
@@ -3105,7 +3388,7 @@ live NQ-book ladder is $7.23 + 0.312\times\text{position}$; the forms agree and 
 levels differ by the difference between the $7\,\mu\mathrm{s}$ measured decode path and
 the $8\,\mu\mathrm{s}$ nominal service floor.
 
-\paragraph{The two channels do not compound at the packet level.} There are two places
+\paragraph{On NQ the two channels do not compound at the packet level.} There are two places
 a message can be made slow. One is queueing: it waits behind a run of earlier packets.
 The other is serialisation: it sits deep inside a large packet and waits for the
 messages ahead of it in that same packet to be decoded first. Section~\ref{sec:crossval-span}
@@ -3762,9 +4045,11 @@ exceeding $h$, which on this corpus happens about $1.5\,\mu\mathrm{s}$ further a
 distribution, never the mean: on this corpus the mean gap is $2215\,\mu\mathrm{s}$, some
 $300\times$ larger, and a rule stated on it would say never to split anything. Second,
 measure it under representative and peak-load conditions. On this corpus the floor is
-the gateway's minimum separation between successive events --- the packets on either
-side of it are distinct transactions (Section~\ref{sec:results-transactions}) --- and it
-did not move between quiet and volatile sessions
+the service interval of the exchange's market-data publisher, which spaces successive
+packets by at least that much while it drains a backlog (Section~\ref{sec:exchange}) ---
+the packets on either side of it are distinct transactions
+(Section~\ref{sec:results-transactions}) --- and it did not move between quiet and
+volatile sessions
 (Section~\ref{sec:results-conditioning}), so it was measured once per feed; that
 invariance is a finding about this feed's gateway, to be verified on another feed rather
 than assumed. At longer service times the tail does depend on
@@ -3777,6 +4062,12 @@ strategy actor, order manager --- four or five stages, no artificial decompositi
 (Remark~\ref{rem:unequal}), so the goal of the decomposition is the smallest largest
 stage, and the largest stage belongs at ingress so that all queueing sits in one mailbox
 (Remark~\ref{rem:dissipation}).
+    \item \textbf{Divide the stages above the floor by state.} A stage that carries no
+state from one packet to the next, such as SBE decode, can be served by a dispatch pool of
+whole-packet servers; with three or more cores for it, a pool is better than cutting it
+into the same number of stages, at two cores the two are level
+(Table~\ref{tab:dispatch-costed}). A stage that carries state, the order book above all,
+is served by cutting the chain.
     \item \textbf{Wire boundaries with whichever of \texttt{fast\_send} or \texttt{send}
 is convenient during development.} Receiver transparency in \kasparhft{} makes this a
 one-line-per-boundary decision that can be deferred (Section~\ref{sec:fungibility}).
@@ -3863,6 +4154,19 @@ the same permutation keeps only $37\%$ at $64$ and $23\%$ at $128\,\mu\mathrm{s}
 stream, which a Hawkes fit measures (branching ratio $0.795$ on transaction starts,
 $0.798$ on packets, count variance $105$ times Poisson at one second;
 Table~\ref{tab:tx-fano}).
+    \item \emph{The floor, and the pile-up of gaps just above it, are the exchange
+publisher's output.} On the matching engine's clock $17.1\%$ of consecutive transactions
+are under $7.5\,\mu\mathrm{s}$ apart, against $1.04\%$ on the publisher's clock
+(Table~\ref{tab:engine-clock}); the delay from engine to packet grows about tenfold with
+engine burst intensity and coalescing grows with it (Table~\ref{tab:publisher}). The
+publisher is a queue with a service time of about $7.5\,\mu\mathrm{s}$ per packet, and the
+receiver is the second stage of a tandem that begins at the exchange
+(Section~\ref{sec:exchange-tandem}).
+    \item \emph{The results do not depend on the transaction grouping.} Regrouping by exact
+\texttt{transactTime}, checked against the end-of-event flag, leaves them unchanged at the
+reported precision (Section~\ref{sec:exchange-events}), and the survival shares carry
+session-bootstrap intervals of a few points (Tables~\ref{tab:nulls}
+and~\ref{tab:tx-arms}).
     \item \emph{The arrival statistics are not an artefact of replay.} A live production
 receiver seven months later, on three instruments and a different clock, gives the same
 clustering statistics, and its decoder's service floor coincides with the service time
@@ -3872,57 +4176,51 @@ at which the simulated tail appears (Section~\ref{sec:crossval}).
 \subsection{What causes the tail: what the paper does not establish}
 \label{sec:concl-cannot}
 
-\paragraph{Why transactions land within microseconds of each other.} The paper shows that
-the tail at HFT service times is carried by pairs of distinct transactions arriving closer
-together than the service time, and that the surplus of such pairs over a Poisson stream
-is four to seventeen times (Table~\ref{tab:tx-gaps}). It does not show what places two
-transactions a few microseconds apart. Having more tight gaps than Poisson shows that the
-gap distribution is not exponential, not what produces it: the gap shuffle is a stream
-with the same surplus and no self-excitation, and it reproduces most of the tail at
-$16\,\mu\mathrm{s}$. The tight-gap share is also invariant to the fitted branching ratio
-across its quintiles (Section~\ref{sec:results-conditioning}), which argues against the
-slow self-excitation measured by the Hawkes fit as its origin. Three mechanisms remain
-open. (a)~Reaction: a transaction at time $t$ causes other participants to cancel,
-replace or trade within microseconds, each as a separate transaction. (b)~Common
-reaction: many participants respond to the same public signal at once, their orders reach
-the matching engine together, and the engine processes and publishes them one after
-another, so the spacing reflects the engine's throughput rather than one event triggering
-the next. (c)~Pacing by the gateway or the matching engine, with no market information in
-the spacing. Separating them needs the time each order \emph{entered} the matching engine,
-not only when its result was published: (a) predicts that the second order entered after
-the first transaction was published, (b) that both entered before either was published.
-The public MDP3 feed carries processing and publication times only, and the paper's own
-order-entry sessions record only its own orders.
+\paragraph{Why the matching engine bursts.} The paper traces the receiver's tight gaps
+to the exchange's publisher draining a backlog, and the backlog to the matching engine
+processing events a fraction of a microsecond apart (Section~\ref{sec:exchange}). It does
+not show why orders reach the engine together. Three mechanisms remain open. (a)~Reaction:
+a transaction at time $t$ causes other participants to cancel, replace or trade within
+microseconds, each as a separate transaction. (b)~Common reaction: many participants
+respond to the same public signal at once, their orders reach the matching engine
+together, and the engine processes them one after another. (c)~Pacing or batching inside
+the exchange's order entry, with no market information in the spacing. Separating them
+needs the time each order \emph{entered} the exchange, not only when it was processed and
+published: (a) predicts that the second order entered after the first transaction was
+published, (b) that both entered before either was published. The public MDP3 feed
+carries processing and publication times only, and the paper's own order-entry sessions
+record only its own orders.
 
 The nearest published evidence is \citet{aquilina2022arms}, who had message-level data
 from the London Stock Exchange with participants' order-entry times and found that
 \emph{races} --- several participants sending messages at the same price level in response
 to the same public signal, within microseconds of each other --- are frequent and account
-for a material share of trading volume. That is mechanism~(b). It is likely that the same
-mechanism is at play on CME and supplies a large part of the near-simultaneous pairs this
-paper measures, but the paper has no data that test it, and states it as a hypothesis.
+for a material share of trading volume. That is mechanism~(b). The engine-clock gaps of
+$0.18\,\mu\mathrm{s}$ are what (b) would produce, and it is likely that the same mechanism
+is at play on CME; the paper has no data that test it, and states it as a hypothesis.
 
-\paragraph{That the self-excitation is the cause at HFT service times.} The
-self-excitation measured by the Hawkes fit is established as the cause of the runs, which
-carry the tail from $64\,\mu\mathrm{s}$. At $16$--$32\,\mu\mathrm{s}$ the carrier is the
-near-simultaneous pairs, and whether they come from the same self-exciting process at a
-shorter lag is open. The fitted kernel's timescale $1/\beta$ would say whether the fitted
-process acts at microsecond lags at all; the paper reports $n = \alpha/\beta$ but not
-$\beta$.
+\paragraph{Whether the publisher's capacity is designed.} The publisher behaves as a queue
+with a capacity of about one packet per $7.5\,\mu\mathrm{s}$; whether that capacity is a
+design choice or an engineering limit, and whether it acts as a speed limit on the
+information side of the market, is stated as a conjecture in
+Section~\ref{sec:exchange-conjecture}, with its qualifications.
+
+\paragraph{That the self-excitation is the cause at HFT service times.} It is not, and
+this is now shown rather than argued. The fitted self-excitation acts with a decay time of
+about $160\,\mu\mathrm{s}$ and places about $4\%$ of its triggering within
+$7.5\,\mu\mathrm{s}$ (Section~\ref{sec:exchange-bursts}); it is the cause of the runs,
+which carry the tail from $64\,\mu\mathrm{s}$. At $16$--$32\,\mu\mathrm{s}$ the carrier is
+the publisher draining backlogs built by near-simultaneous arrivals at the engine, whose
+origin is the open question above.
 
 \paragraph{Anything hidden below the floor.} Two transactions closer together than the
-gateway's emission interval appear as one packet with a larger span, not as a gap below
-the floor, so every gap statistic in the paper is censored there. A self-excitation faster
-than about $7.5\,\mu\mathrm{s}$ would show only in the message count per packet, and has
-not been looked for.
-
-\paragraph{That a ``transaction'' in the analysis is exactly one matching-engine
-event.} Section~\ref{sec:results-transactions} groups consecutive packets whose
-\texttt{transactTime} ranges overlap into one block and times each block by its first
-packet's \texttt{sendingTime}. A block is one transaction or a few that share a packet.
-The MDP3 end-of-event flag marks the last message of each event exactly; regrouping by it
-is listed in Section~\ref{sec:future}. The counterfactual argument does not depend on the
-grouping, but the reported counts do.
+publisher's service interval reach the receiver in one packet, so every gap statistic on
+the publisher's clock is censored there. On the engine's clock they are visible
+(Table~\ref{tab:engine-clock}), and on the publisher's clock neither the message count per
+packet nor the share of packets carrying several transactions rises with the fitted
+branching ratio (Section~\ref{sec:results-conditioning}), so no faster self-excitation
+scaling with the branching ratio is hidden in the packets. Faster self-excitation of
+constant strength would not be seen by that test.
 
 \paragraph{Anything beyond NQ.} One instrument was measured. On ZN the live data show the
 message count per packet rising with queue depth, where on NQ it falls, and whether the
@@ -3956,20 +4254,25 @@ the gap distribution the receiver sees, not its cause.
 The single-thread rule is correct whenever the service time of the chain is below the
 feed's threshold, and on this corpus that includes the reference system's socket-to-book
 path, $6.8$--$7.2\,\mu\mathrm{s}$, for which $N^\star = 1$ (Section~\ref{sec:kaspar}).
-The threshold is set by the tight end of the gap distribution and is invariant to packet
-rate and fitted branching ratio at HFT service times; at longer service times both raise
+The threshold is the service time of the exchange's publisher upstream of the
+receiver, which is the tight end of the gap distribution the receiver sees, and is
+invariant to packet rate and fitted branching ratio at HFT service times; at longer service times both raise
 the tail (Section~\ref{sec:results-conditioning}). Appendix~\ref{app:synthetic}
 constructs a feed on which both dependences appear at $T = 8\,\mu\mathrm{s}$ and on which
 splitting pays where on CME it does not. On another feed the threshold, and its
 dependence on load and on clustering, must be measured.
 
-Spending the same $N$ cores as a dispatch pool that sends whole packets to $N$ servers
-matches or beats the tandem on latency in an optimistic bound that charges no ingress
-hop, egress hop or resequencing (Section~\ref{sec:results-equal-core}). Dispatch is
-available only for stateless stages; the order-book stage carries state from one update
-to the next and cannot be dispatched. Where the chain's largest stage is stateless and the
-stream tolerates reordering, dispatch is a candidate of equal standing with a cut, and a
-costed comparison is future work.
+Spending the same $N$ cores as a dispatch pool that sends whole packets to $N$ servers,
+with the ingress hop, the egress hop and in-order resequencing all charged, gives a median
+of $T + 2h$ at every $N$ and resequences at most $0.14\%$ of packets
+(Table~\ref{tab:dispatch-costed}). For a stage that carries no state, such as SBE decode,
+a pool of two cores is level with a two-stage cut, one hop dearer on the median and within
+about a microsecond at $p_{99}$ at $16$--$32\,\mu\mathrm{s}$; a pool of three or more
+cores is better than a cut into the same number of stages on both quantiles. The
+order-book stage carries state from one update to the next and cannot be dispatched; for
+it, cutting the chain is the way to spend cores. The design rule is therefore: cut
+stateful chains above the threshold; dispatch stateless stages above it when three or
+more cores are available.
 
 The recommendation is that HFT designers measure end-to-end latency of the assembled
 pipeline under actual market conditions, including peak load, and split the servicing
@@ -4032,8 +4335,8 @@ message therefore continue to use \texttt{fast\_send} unchanged. The end-of-buil
 
 The corpus is a single instrument (NQ front-month, channel 318); a ZN recording is the
 first replication needed, for the reason given in Section~\ref{sec:concl-cannot}, ahead of
-ES and BTC. Transactions are grouped as described in Section~\ref{sec:concl-cannot}, not
-yet by the end-of-event flag. The live measurements of
+ES and BTC. Transactions are grouped by exact \texttt{transactTime}, checked against the
+end-of-event flag (Section~\ref{sec:exchange-events}). The live measurements of
 Sections~\ref{sec:crossval} and~\ref{sec:fungibility-measured} come from one host on one
 afternoon, a 53-minute capture and one \SI{900}{\second} window, without replication, and
 the 3512 windows are nested in 276 sessions, so uncertainty on the aggregates is
@@ -4047,7 +4350,7 @@ measures that slack ($\gamma = 3.3$ and $2.7$ where it is defined, against the
 guaranteed $\gamma \ge 1$) rather than deriving it, and a closed form for the slack on Hawkes input is open.
 
 None of these caveats reverses the two answers on this corpus. The survival shares
-are ratios of corpus medians; no interval is reported.
+are ratios of corpus medians with session-bootstrap intervals.
 
 % =====================================================================
 
@@ -4070,29 +4373,20 @@ are the leading hypothesis.
 $16\,\mu\mathrm{s}$) against loose pairs ($100\,\mu\mathrm{s}$--$1\,\mathrm{ms}$): message
 type, security, side and price level. This is possible on the public feed and narrows the
 candidates without separating reaction from common reaction.
-    \item The kernel timescale $1/\beta$ of the per-window Hawkes fits, on packets and on
-transaction starts, and a power-law kernel against the exponential; this says at which
-lag the fitted self-excitation acts.
-    \item Self-excitation faster than the gateway floor, visible only in the message count
-per packet: whether transactions per packet scale with the fitted branching ratio or with
-the packet rate across windows.
+    \item A power-law Hawkes kernel against the exponential, fitted on the engine clock.
+    \item The publisher queue measured channel-wide rather than on NQ front-month only, and
+on ES and ZN, so that its service interval and backlog are measured under the full load it
+serves.
 \end{itemize}
 
 \paragraph{The queue in the receiver.}
 \begin{itemize}
-    \item Transactions regrouped by the MDP3 end-of-event flag and timed by
-\texttt{transactTime}, with the transaction tables and counterfactual arms of
-Section~\ref{sec:results-transactions} recomputed on that grouping.
     \item A ZN recording (pcap and per-message records) and the full sweep on it, with
 span-dependent service. On ZN the live data suggest that large packets arrive during
 queues, so the queueing and serialisation channels may compound, which would add a span
 term to the design rule. This is the first replication; ES and BTC follow.
-    \item Dispatch with its costs charged: an ingress stage, a hop to and from $N$
-whole-packet servers, and an in-order resequencer, under constant and span-dependent
-service, reported beside the tandem and the uncharged bound of
-Section~\ref{sec:results-equal-core}.
-    \item Confidence intervals for the survival shares and the tail ratios, by a
-session-clustered bootstrap over the 276 sessions.
+    \item Dispatch under state: a design that dispatches the stateless decode stage and
+feeds a single order-book stage, costed end to end.
     \item Closed form for the slack in Theorem~\ref{thm:reduction} under Hawkes input,
 i.e.\ the exponent $\gamma - 1$ as a function of $(\rho, n, \beta T)$. By the reduction
 this is a single-server question about $M^{[K]}/D/1$ with Borel batches at two service
@@ -4256,6 +4550,11 @@ markets: a Hawkes process analysis. arXiv 1302.1405.
 \bibitem[Bacry et al.(2015)]{bacry2015review}
 Bacry, E., Mastromatteo, I., Muzy, J.-F. (2015). Hawkes processes in finance.
 \textit{Market Microstructure and Liquidity} 1(1).
+
+\bibitem[Budish et al.(2015)]{budish2015fba}
+Budish, E., Cramton, P., Shim, J. (2015). The high-frequency trading arms race: frequent
+batch auctions as a market design response. \textit{Quarterly Journal of Economics}
+130(4), 1547--1621.
 
 \bibitem[Yoon(2026)]{yoon2026matching}
 Yoon, J. (2026). The world's fastest matching engine algorithm. arXiv 2606.01183.
