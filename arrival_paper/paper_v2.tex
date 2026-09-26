@@ -2381,6 +2381,20 @@ $T$ ($\mu$s) & $p_{99}$ Hawkes & excess over $T$ & windows with a tail & $p_{99}
 \end{tabular}
 \end{center}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=1.0\textwidth]{figs/bars/onset.pdf}
+\caption{The table above as bars; the dotted line marks the publisher's spacing of about
+$7.5\,\mu\mathrm{s}$. Left: how far the single-thread $p_{99}$ sits above the service time.
+Below the spacing there is no tail at all; above it the tail grows fast, and it passes the
+hop cost of one split ($1.7\,\mu\mathrm{s}$, dashed) between $T = 8$ and
+$9\,\mu\mathrm{s}$. Right: the share of windows that have any tail (blue) jumps from
+$4.5\%$ to $98.6\%$ between $7$ and $8\,\mu\mathrm{s}$; the share where two stages beat one
+(orange) follows about $1.5\,\mu\mathrm{s}$ later, once the tail is larger than the hop
+cost: none at $8\,\mu\mathrm{s}$, two thirds at $9$, all from $10\,\mu\mathrm{s}$.}
+\label{fig:bars-onset}
+\end{figure}
+
 Two distinct thresholds are visible. The first is the \emph{tail} threshold: between $T = 7$ and $T =
 8\,\mu\mathrm{s}$ the fraction of windows with any $p_{99}$ excess jumps from $4.5\%$ to
 $98.6\%$. The second is the \emph{splitting} threshold, about $1.5\,\mu\mathrm{s}$ later,

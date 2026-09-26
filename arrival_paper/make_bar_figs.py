@@ -153,9 +153,32 @@ def span_share(out):     # serialisation-share table in the span-aware rerun (se
     ax.set_ylim(0, 125); ax.legend(loc="upper right", frameon=False, bbox_to_anchor=(1.0, 1.0), fontsize=11)
     save(fig, out, "span_share")
 
+def onset(out):          # table in sec:results-threshold (fine sweep, 3512 windows)
+    T = [5, 6, 7, 8, 9, 10, 12, 14, 16]
+    excess = [0.00, 0.00, 0.00, 0.61, 1.85, 3.52, 7.83, 12.68, 18.59]
+    tail = [0.0, 0.0, 4.5, 98.6, 100, 100, 100, 100, 100]; split = [0.0, 0.0, 0.0, 0.0, 67.0, 99.7, 100, 100, 100]
+    x = np.arange(len(T)); w = 0.4
+    fig, ax = plt.subplots(1, 2, figsize=(15, 4.8))
+    b = ax[0].bar(x, excess, color=BLUE); labels(ax[0], b, "{:.2f}", 0.3, 10)
+    ax[0].axhline(1.7, color=VERM, lw=1.5, ls="--"); ax[0].text(0, 2.2, "hop cost h = 1.7 µs", color=VERM, fontsize=12)
+    ax[0].set_ylabel("single-thread p99 minus T (µs)"); ax[0].set_ylim(0, 21); ax[0].set_title("how large the tail is")
+    b1 = ax[1].bar(x - w/2, tail, w, color=BLUE, label="windows with any tail")
+    b2 = ax[1].bar(x + w/2, split, w, color=ORANGE, label="windows where two stages beat one")
+    for bars in (b1, b2):
+        for bb in bars:
+            h = bb.get_height()
+            if 0 < h < 100: ax[1].text(bb.get_x() + bb.get_width() / 2, h + 1.5, f"{h:.1f}", ha="center", va="bottom", fontsize=10)
+    ax[1].set_ylabel("% of the 3512 windows"); ax[1].set_ylim(0, 138); ax[1].set_yticks([0, 20, 40, 60, 80, 100]); ax[1].set_title("how often it appears, and how often splitting pays")
+    ax[1].legend(loc="upper left", frameon=False, fontsize=11, ncol=2)
+    for a in ax:
+        a.set_xticks(x, [str(t) for t in T]); a.set_xlabel("service time T (µs)")
+        a.axvline(2.5, color="0.4", lw=1, ls=":")
+    ax[0].text(2.45, 19.5, "7.5 µs spacing ", ha="right", fontsize=11, color="0.3")
+    save(fig, out, "onset")
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--out", required=True); a = ap.parse_args()
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
-    for f in (engine_clock, two_clocks, publisher, drain, tight_gaps, nulls, tx_arms, dispatch, span_share): f(out)
+    for f in (onset, engine_clock, two_clocks, publisher, drain, tight_gaps, nulls, tx_arms, dispatch, span_share): f(out)
     print("wrote", sorted(p.name for p in out.glob("*.pdf")))
 main()
