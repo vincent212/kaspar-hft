@@ -1776,14 +1776,43 @@ $64$  &  832   &  345 (37)   &  118 (7)    &  839 (101)   &  795 (95)    &  833 
 $128$ & 5460   & 1319 (22)   &  251 (2)    & 5218 (95)    & 5035 (92)    & 5459 (100) \\
 \bottomrule
 \end{tabular}
-\caption{Single-stage $p_{99}$ in \si{\micro\second}, corpus median over 3512 windows,
-span-dependent service at the NQ slope ratio, packet-weighted; in parentheses the share
-in percent of the real stream's $p_{99} - T$ that the counterfactual retains. TG: clustering
-of transactions removed; TP: transaction timing random; TS: transaction sizes decoupled from
-timing; TM: each transaction one packet; TW: intra-transaction spacing removed. At
-$T \le 8\,\mu\mathrm{s}$ the excess is under $1\,\mu\mathrm{s}$ and the shares are not
-meaningful. The ZN slope ratio and message weighting move every cell by at most a few
-points.}
+\caption{Which part of the transaction process builds the queue. Each row is one
+service time $T$; each column is the single-stage $p_{99}$ latency in \si{\micro\second}
+(corpus median over 3512 windows, service charged per packet at the NQ slope ratio,
+packet-weighted) when the simulator is driven by the real stream H or by one of five
+rebuilt streams, each identical to the real one except for a single ingredient that has
+been removed. The number in parentheses is the share, in percent, of the real stream's
+tail excess $p_{99} - T$ that the rebuilt stream still produces: $100$ means removing
+that ingredient changed nothing, $0$ means it removed the whole tail. In plain terms the
+five columns ask: TG --- keep every transaction exactly as it was, but scatter the
+transactions so that they no longer come in bunches: does the tail survive? TP --- keep
+every transaction as it was but place each one at a random moment in the window: does the
+tail survive? TS --- keep the moments at which transactions occur but swap their contents
+around, so that a big transaction now arrives where a small one did: does the tail
+survive? TM --- deliver every transaction as one packet: does the tail survive? TW ---
+keep the split into packets but spread the pieces of a split transaction apart: does the
+tail survive? What the table shows: TS, TM and TW are at $92$--$114\%$ in every row ---
+the tail survives all three, so the size of transactions, their division into packets,
+and the spacing of those pieces are not what builds the queue. TP is at $25$, $18$, $7$
+and $2\%$ --- placing transactions at random times removes three quarters of the tail at
+$16\,\mu\mathrm{s}$ and almost all of it at $128\,\mu\mathrm{s}$, so the tail is the
+timing of transactions. TG is at $80$, $60$, $37$ and $22\%$ --- scattering the bunches
+while keeping each transaction intact removes a fifth of the tail at $16\,\mu\mathrm{s}$
+and three quarters at $128\,\mu\mathrm{s}$. What follows: the queue is built by
+\emph{when} transactions happen, and by nothing about \emph{what} they contain or
+\emph{how} the exchange delivers them. The timing acts in two ways whose weight shifts
+with the service time. At short service times ($16$--$32\,\mu\mathrm{s}$) most of the
+tail is already present in TG, which keeps the number of transactions that land within a
+service time of each other but not their grouping into bunches: a short server is hit by
+every such pair, so what matters is how many pairs there are, and a self-exciting stream
+has $4$--$17$ times as many as a Poisson one (Table~\ref{tab:tx-gaps}). At long service
+times ($64$--$128\,\mu\mathrm{s}$) most of the tail is gone in TG: a long server only
+backs up badly when many transactions arrive in a sustained run, and the runs are what
+scattering destroys. This is the same profile that the packet-level gap shuffle gave in
+Table~\ref{tab:nulls} ($88$, $79$, $59$, $37$, $23\%$), which identifies the packet-level
+ordering channel with the bunching of transactions. At $T \le 8\,\mu\mathrm{s}$ the
+real excess is under $1\,\mu\mathrm{s}$ and the shares are not meaningful. The ZN slope
+ratio and message weighting move every cell by at most a few points.}
 \label{tab:tx-arms}
 \end{table}
 
