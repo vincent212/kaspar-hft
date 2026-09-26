@@ -82,11 +82,11 @@ receiver runs just under the publisher period, at about $7\,\mu\mathrm{s}$, and 
 not be split. There, most of the tail comes from long packets, whose messages are decoded
 one after another while the packets behind them queue, and from service times that vary
 from packet to packet; the levers are the cost per message and the spread of service, not
-the number of threads. We give the analytic framework --- a burst-limit throughput
-identity and an exact pathwise reduction of the deterministic-service tandem to a single
-bottleneck server --- test it on the corpus, and check the arrival statistics against a
-live production receiver on other instruments; they agree, and the production decode
-floor coincides with the service time at which the simulated tail appears. Code is in the
+the number of threads. We give the analytic framework, a burst-limit throughput identity and an exact pathwise
+reduction of the deterministic-service tandem to a single bottleneck server, and test it
+on the corpus. We check the arrival statistics against a live production receiver on
+other instruments: they agree, and the production decode floor coincides with the service
+time at which the simulated tail appears. Code is in the
 \kasparhft{} repository; the packet captures are not redistributable.
 \end{abstract}
 
@@ -102,20 +102,19 @@ floor coincides with the service time at which the simulated tail appears. Code 
 \subsection{The single-thread event loop against the multi-actor tandem}
 \label{sec:intro-debate}
 
-The design of the ingress-to-order pipeline in a high-frequency trading system is a choice
-between two archetypes: the single-threaded event loop that processes every step of every
-message on one core (SBE decode, book application, strategy evaluation, order
-construction, all under one call chain, taking a total service time we denote $T$), and
-the multi-actor pipeline --- a \emph{tandem} of $N$ servers in series --- in which those
-steps are split across $N$ separate actors, each on its own thread with its own mailbox,
-performing its part of the work and handing the message to the next across one of $N-1$
-explicit hops whose per-hop wall-clock cost we denote $h$. The low-latency HFT
+The design of the ingress-to-order pipeline in a high-frequency trading system is a
+choice between two archetypes. The first is the single-threaded event loop, which
+processes every step of every message on one core: SBE decode, book application, strategy
+evaluation and order construction, all under one call chain, taking a total service time
+we denote $T$. The second is the multi-actor pipeline, a \emph{tandem} of $N$ servers in
+series. There the steps are split across $N$ actors, each on its own thread with its own
+mailbox; each does its part of the work and hands the message to the next across one of
+$N-1$ explicit hops, whose per-hop wall-clock cost we denote $h$. The low-latency HFT
 community is predominantly in the single-thread camp, and single-threaded is generally
-regarded as the safe choice. The argument cites the cost of a mailbox hop (a mailbox
-enqueue, a cache-line transfer between the sender's core and the receiver's core, and the
-cost of scheduling or spinning the receiver) and holds that $(N-1) h$ adds to every
-message's end-to-end latency, so that each additional stage is a fixed cost that no
-throughput or tail benefit recovers.
+regarded as the safe choice. The argument cites the cost of a mailbox hop: a mailbox enqueue, a cache-line transfer
+between the sender's core and the receiver's core, and the cost of scheduling or spinning
+the receiver. It holds that $(N-1) h$ adds to every message's end-to-end latency, so that
+each additional stage is a fixed cost that no throughput or tail benefit recovers.
 
 That argument holds when the single-server throughput $1/T$ exceeds the peak arrival
 rate. On CME MDP3 the arrival process is strongly self-exciting: packets arrive in Hawkes-clustered bursts
@@ -124,11 +123,11 @@ publishes each matching-engine event --- a transaction --- as, almost always, on
 packet, so the packet stream relays the timing of transactions without adding
 clustering of its own (Section~\ref{sec:results-transactions}). During such bursts the instantaneous arrival rate exceeds the single-thread event loop's service
 rate $1/T$, and cluster-induced queueing produces a tail one to two orders of magnitude
-larger than $h$. The paper's central empirical observation, on over a year of NQ
-front-month packet arrivals, is that this cluster tail dominates end-to-end latency: the
-$99$th-percentile latency ($p_{99}$) of a constant-service queue driven by real packet
-arrivals is about twice the service time for a $16\,\mu\mathrm{s}$ task and between four and
-five times for a $32\,\mu\mathrm{s}$ task, and more in busy windows. A Poisson stream with
+larger than $h$. The paper's central empirical observation, on over a year of NQ front-month packet
+arrivals, is that this cluster tail dominates end-to-end latency. The $99$th-percentile
+latency ($p_{99}$) of a constant-service queue driven by real packet arrivals is about
+twice the service time for a $16\,\mu\mathrm{s}$ task and between four and five times for
+a $32\,\mu\mathrm{s}$ task, and more in busy windows. A Poisson stream with
 the same number of arrivals has no tail at $16\,\mu\mathrm{s}$ and a small one at
 $32\,\mu\mathrm{s}$; over this band the tail is almost entirely a clustering effect.
 
@@ -185,12 +184,12 @@ has been the field's non-single-thread minority throughout the period covered by
 previous two paragraphs. The earliest prominent published argument is the Staged
 Event-Driven Architecture (SEDA) of \citet{welsh2001seda}, which advocated exactly the
 multi-stage pipeline of independently scheduled event handlers that the present paper's
-tandem design revives. Welsh's 2010 retrospective \citep{welsh2010retrospective} is often
-cited as a walk-back to single-thread, but it is actually a hedged pro-pipelining
-recommendation: it advocates decoupling stages from thread pools, grouping multiple stages
-within a single thread-pool domain where latency is critical, and putting a separate
-thread pool and queue in front of any stage with long or nondeterministic runtime ---
-effectively the present paper's design rule in different vocabulary. Beyond SEDA the
+tandem design revives. Welsh's 2010 retrospective \citep{welsh2010retrospective} is often cited as a walk-back
+to single-thread, but it is a hedged pro-pipelining recommendation. It advocates
+decoupling stages from thread pools, grouping several stages within one thread-pool
+domain where latency is critical, and putting a separate thread pool and queue in front
+of any stage with long or nondeterministic runtime. That is the present paper's design
+rule in different vocabulary. Beyond SEDA the
 pro-pipelining tradition includes the Click Modular Router \citep{kohler2000click} for
 staged packet processing; Naiad \citep{murray2013naiad} for low-latency dataflow; Snap
 \citep{marty2019snap} for Google's multi-engine network stack; and the datacenter
@@ -213,12 +212,7 @@ Section~\ref{sec:intro-priors}, and the batch-arrival tandem phase-transition an
 \citet{tandembatch2014}. The present paper's mechanism, that the recommendation reverses when arrivals are
 near-critically self-exciting, is one we have not found in prior work.
 
-The present author's earlier work belongs on this list with a qualification.\footnote{The
-tail compression reported here had been observed in production before its mechanism was
-understood: splitting a long task into shorter asynchronously connected stages was known
-to reduce the tail on a per-strategy basis, and the working assumption at the time was
-that single-thread implementations were simply faster in the inner loop, not that the
-recommendation depended on the arrival law. The present paper is the explanation of that
+The present author's earlier work belongs on this list with a qualification.\footnote{The tail compression reported here had been observed in production before its mechanism was understood. Splitting a long task into shorter asynchronously connected stages was known to reduce the tail on a per-strategy basis. The working assumption at the time was that single-thread implementations were simply faster in the inner loop, not that the recommendation depended on the arrival law. The present paper is the explanation of that
 observation.} An earlier paper by the present author
 \citep{mayeski_fastsend} did not argue for the single-thread principle in its own right.
 That paper addresses a different objection: the actor model had been considered
@@ -258,11 +252,12 @@ it adds a few percent (Sections~\ref{sec:crossval-spanrun}
 and~\ref{sec:fungibility-measured}). Service times that vary from packet to packet, which
 the simulation does not model, add a tail of their own on the live receiver.
     \item \emph{Are two queues better than one?} Yes above a service-time threshold set by
-the feed and no below it (Sections~\ref{sec:results-tail} and~\ref{sec:results-design});
-only the slowest stage matters (Theorem~\ref{thm:reduction}); with equal cores and every cost charged, a dispatch pool is level with a two-stage cut
-and better than a cut into four or more for a stateless stage, and the stateful
-order-book stage cannot be dispatched (Section~\ref{sec:results-equal-core}); at the
-production operating point the answer is no (Section~\ref{sec:kaspar}).
+the feed and no below it (Sections~\ref{sec:results-tail} and~\ref{sec:results-design}),
+and only the slowest stage matters (Theorem~\ref{thm:reduction}). For a stateless stage,
+with equal cores and every cost charged, a dispatch pool is level with a two-stage cut and
+better than a cut into four or more; the stateful order-book stage cannot be dispatched
+(Section~\ref{sec:results-equal-core}). At the production operating point the answer is
+no (Section~\ref{sec:kaspar}).
 \end{enumerate}
 Section~\ref{sec:exchange} looks one stage upstream, at the exchange's matching engine
 and market-data publisher through the timestamps the feed carries, and shows that the
@@ -309,23 +304,22 @@ is not a model of what any designer assumes. Section~\ref{sec:setup-nulls} adds 
 further streams that remove the ingredients of the clustering one at a time, at the
 packet level and at the level of matching-engine transactions.
     \item \textbf{Design equation for practitioners.} From the empirical result we extract
-design rules for a latency-critical servicing chain
-(Sections~\ref{sec:kaspar} and~\ref{sec:implementation}): split a stage only when its
-service time is above the publisher period $\spub$, about $7.5\,\mu\mathrm{s}$ on this
-corpus, where a queueing tail first appears, and in practice from about
-$10\,\mu\mathrm{s}$, where the tail excess first exceeds the hop cost on nearly every
-window; choose the partition with the smallest
-achievable largest stage $s_{\max}$, since the tail depends only on $s_{\max}$ and a cut that does not lower it adds a hop
-and nothing else; place the largest stage first, at ingress; keep
-sub-tasks below the bottleneck together on one thread via \texttt{fast\_send}, using an
-asynchronous \texttt{send} only at boundaries that lower $s_{\max}$; and settle each
-boundary by end-to-end measurement against a representative feed rather than by local
-reasoning at a single call site.
+design rules for a latency-critical servicing chain (Sections~\ref{sec:kaspar}
+and~\ref{sec:implementation}). Split a stage only when its service time is above the
+publisher period $\spub$, about $7.5\,\mu\mathrm{s}$ on this corpus, where a queueing tail
+first appears; in practice the split pays from about $10\,\mu\mathrm{s}$, where the tail
+first exceeds the hop cost on nearly every window. Choose the partition with the smallest
+achievable largest stage, since the tail depends only on that stage and a cut that does
+not shorten it adds a hop and nothing else. Place the largest stage first, at ingress.
+Keep sub-tasks below the bottleneck together on one thread via \texttt{fast\_send}, and
+use an asynchronous \texttt{send} only at boundaries that shorten the largest stage.
+Settle each boundary by end-to-end measurement against a representative feed rather
+than by local reasoning at a single call site.
     \item \textbf{Live cross-validation.} The corpus statistics are compared with an
-independent measurement on a production receiver taken seven months after the corpus ends,
-on three instruments (Section~\ref{sec:crossval}); the clustering statistics agree, the
-measured decode floor coincides with the service time at which the simulated tail appears,
-and the sweep is rerun with the measured per-message decode cost
+independent measurement on a production receiver, on other instruments
+(Section~\ref{sec:crossval}). The clustering statistics agree, and the measured decode
+floor coincides with the service time at which the simulated tail appears. The sweep is
+then rerun with the measured per-message decode cost
 (Section~\ref{sec:crossval-spanrun}). The live ZN stream's far tail is traced to the
 message count of a few large packets (Section~\ref{sec:fungibility-measured}).
 \end{itemize}
@@ -352,8 +346,8 @@ which models order-book events for microstructure and forecasting and does not c
 them to a receiver's service queue or to the packet process that carries them. The first claim is theoretical: that the choice between
 a single-queue (single-thread) architecture and an $N$-stage tandem (multi-actor pipeline)
 is not fixed but \emph{reverses with the arrival law}. At the service times an HFT hot path occupies, single-digit to low-tens of
-microseconds, Poisson arrivals make the single queue the better choice, because at that
-utilisation there is no wait to compress and each additional stage adds hop latency only;
+microseconds, Poisson arrivals make the single queue the better choice: at that
+utilisation there is no wait to compress, and each additional stage adds hop latency only.
 Hawkes-clustered arrivals at the same mean rate make the tandem better on the tail,
 because the cluster wait it removes exceeds the hop cost it adds. The reversal is between
 arrival laws at fixed rate and service time. A Poisson queue also develops a tail at
@@ -364,16 +358,16 @@ a hop cost calibrated from the low-load round trip measured on a production HFT 
 framework. We have found no prior study that
 combines a real exchange-calibrated tandem sweep with both that Poisson counterfactual and
 a measured framework hop cost. The third is the identification of the clustered
-process. Grouping $3.55 \times 10^9$ messages by matching-engine transaction shows that
-the packet stream is the transaction stream relayed one packet per event, that the
-transaction stream is self-exciting with the same branching ratio as the packets, and ---
-through seven null streams that remove one ingredient of the clustering at a time
-(Section~\ref{sec:setup-nulls}) --- that from $16\,\mu\mathrm{s}$ up the receiver's tail is produced by the timing of
-transactions and not by their size, their division into packets, the packet rate, or
-second-scale load, acting through transactions sent back to back at the publisher's
-spacing at short service times and through runs of them at long ones; at the
-decode floor of a production receiver the decode of long packets message by message
-carries most of it. We have found no published
+process. Grouping every message in the corpus by matching-engine transaction shows that the
+packet stream is the transaction stream relayed one packet per event, and that the
+transaction stream is self-exciting with the same branching ratio as the packets. Seven
+null streams, each removing one ingredient of the clustering
+(Section~\ref{sec:setup-nulls}), then show that at service times well above the publisher
+period the receiver's tail is produced by the timing of transactions and not by their
+size, their division into packets, the packet rate, or second-scale load. The timing acts
+through transactions sent back to back at the publisher period at short service times and
+through runs of them at long ones. At the decode floor of a production receiver the decode
+of long packets message by message carries most of the tail. We have found no published
 measurement of the packet process of an exchange feed at this level, and no prior test
 of whether an exchange's packetisation or the market's self-excitation is what a
 receiver queues on. The full reference list appears in Section~\ref{sec:refs}.
@@ -563,13 +557,12 @@ burst regime is entered, and Theorem~\ref{thm:reduction} shows the same factor g
 every message on every sample path.
 
 \paragraph{On what $T$ is, and on the natural stage boundaries.} The paper adopts $T =
-10\,\mu\mathrm{s}$ as a ballpark typical HFT single-thread event loop. Any real HFT
-pipeline of that duration is already a sequential chain of internally atomic sub-tasks
-(SBE decode, order-book application, strategy touch, order construction on CME MDP3, per
-Section~\ref{sec:implementation}), so the $N$ stages of the tandem are placed at the
-existing boundaries between those sub-tasks; the paper is not subdividing any single
-sub-task, and in particular is not subdividing the SBE decode, which is a linear pass over
-the wire bytes of a single message and cannot be split. Ten microseconds is chosen for exposition; none of the paper's qualitative results
+10\,\mu\mathrm{s}$ as a ballpark typical HFT single-thread event loop. Any real HFT pipeline of that duration is already a sequential chain of internally
+atomic sub-tasks: SBE decode, order-book application, strategy touch and order
+construction (Section~\ref{sec:implementation}). The $N$ stages of the tandem are placed at
+the existing boundaries between those sub-tasks. The paper does not subdivide any single
+sub-task, and in particular not the SBE decode, which is a linear pass over the wire bytes
+of one message and cannot be split. Ten microseconds is chosen for exposition; none of the paper's qualitative results
 depend on it. The
 relevant knob for the design equation is the ratio $T/h$: doubling $T$ at fixed $h$
 doubles the cluster-wait terms of Equation~\eqref{eq:burst} and leaves the hop tax
@@ -720,17 +713,17 @@ at time scales beyond $K s_{\max}$, are exactly those of the input), but the int
 spacing has been regularised to $s_{\max}$ and the instantaneous intensity is capped at
 $1/s_{\max}$. The clustering is not removed; it is regularised to a spacing that any consumer at
 least as fast as the bottleneck can absorb, which is why stages with service $s_i \le
-s_{\max}$ never queue. If the bottleneck is stage~1, all of the waiting in the pipeline
-sits in its mailbox and every downstream mailbox holds at most one message; if the
-bottleneck is stage $b > 1$, the stages before it queue partially (the raw burst is still
-bursty relative to their smaller services) and stage $b$ absorbs the remainder, with the
-same total by Equation~\eqref{eq:reduction}.
+s_{\max}$ never queue. If the bottleneck is stage~1, all of the waiting in the pipeline sits in its mailbox
+and every downstream mailbox holds at most one message. If the bottleneck is a later
+stage $b$, the stages before it queue partially, since the raw burst is still bursty
+relative to their smaller services, and stage $b$ absorbs the remainder; the total is the
+same by Equation~\eqref{eq:reduction}.
 
-Four practical consequences follow. First, place the largest stage first, at ingress: end-to-end latency is unchanged by the order, but this
-confines all queueing to one mailbox, keeps the downstream mailboxes at depth one, and
-places the burst-absorbing queue where its receiver is continuously busy during a cluster
-(the regime in which the load-dependent hop cost of Section~\ref{sec:results-h} is
-smallest). Second, any burst-aware logic, such as load shedding, coalescing of superseded
+Four practical consequences follow. First, place the largest stage first, at ingress. End-to-end latency is unchanged by
+the order, but this confines all queueing to one mailbox and keeps the downstream
+mailboxes at depth one. It also places the burst-absorbing queue where its receiver is
+continuously busy during a cluster, the regime in which the load-dependent hop cost of
+Section~\ref{sec:results-h} is smallest. Second, any burst-aware logic, such as load shedding, coalescing of superseded
 book updates, or a cancel-on-burst risk rule, can only observe the raw burst upstream of
 the bottleneck; downstream it sees a rate-$1/s_{\max}$ stream and cannot tell a cluster
 from steady flow except by counting. Third, a packet-Hawkes fit run on the bottleneck's
@@ -1116,11 +1109,11 @@ publisher period. This is the near-critical regime that \citet{filimonovsornette
 \citet{hardimanbercotbouchaud2013} document on ES, at a somewhat lower level than their
 $n \approx 0.9$; they fit trade arrivals rather than packet arrivals, and on this corpus
 the fit on matching-engine transactions gives the same value as on packets
-(Section~\ref{sec:results-transactions}). \citet{filimonovsornette2015} show that an
-exponential-kernel fit with a constant background over a fixed window overstates $n$ when
-the background intensity varies within the window, and that ES estimates fall well below
-criticality once that variation is modelled; the $n$ reported here is descriptive and
-subject to the same caveat, and none of the paper's conclusions rests on its value. The
+(Section~\ref{sec:results-transactions}). \citet{filimonovsornette2015} show that an exponential-kernel fit with a constant
+background over a fixed window overstates $n$ when the background intensity varies within
+the window, and that ES estimates fall well below criticality once that variation is
+modelled. The $n$ reported here is descriptive and subject to the same caveat, and none of
+the paper's conclusions rests on its value. The
 model-free diagnostics hold whatever the fitted $n$, and the nonparametric estimates of
 \citet{achab2018branching} on EUREX order books give the same near-critical picture
 without a kernel assumption.
@@ -1231,13 +1224,11 @@ above the publisher period $\spub \approx 7.5\,\mu\mathrm{s}$ (Section~\ref{sec:
 and ``the sweep point just above the publisher period'' means that cell throughout.
 The design asks whether an $N$-stage tandem reduces $p_{99}$ latency under real Hawkes
 packet arrivals and whether the same architecture achieves the same compression under a
-rate-matched Poisson null. For each 30-minute window we run the tandem Lindley of
-Section~\ref{sec:setup-simulator} at $N \in \{1, 2, 4, 8\}$ under two arrival regimes: the
-real packet-arrival timestamps from the tape (Hawkes arm, stream $H$) and a uniform
-redraw of the same $n_{\mathrm{pkt}}^{\#}$ arrivals over the same support (the uniform
-Poisson null $P$); the
-further null streams that separate the ingredients of the clustering are defined in
-Section~\ref{sec:setup-nulls}. The
+rate-matched Poisson null. For each 30-minute window we run the tandem Lindley of Section~\ref{sec:setup-simulator}
+at $N \in \{1, 2, 4, 8\}$ under two arrival regimes: the real packet-arrival timestamps
+from the tape (stream $H$), and a uniform redraw of the same number of arrivals over the
+same support (the uniform Poisson null $P$). The further null streams that separate the
+ingredients of the clustering are defined in Section~\ref{sec:setup-nulls}. The
 support is the observed packet span $[\min \text{arr}_H, \max \text{arr}_H]$ rather than
 the nominal window $[T_0, T_1]$, so the null is rate-matched to the arrivals it replaces
 rather than to wall-clock; the two coincide on busy windows and the former is the stricter
@@ -1359,10 +1350,9 @@ clustering into the two channels named in Section~\ref{sec:results-transactions}
 \end{table}
 
 The logic of the two families is the same and they are read together. If $P$ and \textsf{TP}
-remove the tail, the tail is produced by the timing of the transaction process. If \textsf{TS}, \textsf{TM} and
-\textsf{TW} leave it, the size of transactions, their division into packets, and the spacing of
-those packets are not the mechanism, and the exchange is relaying events rather than
-creating bursts. $G$ and \textsf{TG} remove the same ingredient --- the arrangement of events
+remove the tail, the tail is produced by the timing of the transaction process. If \textsf{TS}, \textsf{TM} and \textsf{TW} leave it, then the size of transactions,
+their division into packets and the spacing of those packets are not the mechanism: the
+exchange is relaying events, not creating bursts. $G$ and \textsf{TG} remove the same ingredient --- the arrangement of events
 into runs --- at the packet and at the transaction level respectively; agreement between
 them identifies the packet-level ordering channel with the clustering of transactions.
 What survives $G$ is the surplus of tight gaps over a rate-matched Poisson
@@ -1746,12 +1736,12 @@ and $32\,\mu\mathrm{s}$.}
 \label{fig:tx-gaps}
 \end{figure}
 
-\paragraph{Self-excitation of the transaction stream.} Treating each transaction as one
-event at the time of its first packet, the transaction stream carries the same clustering
-as the packet stream (Table~\ref{tab:tx-fano}): the variability of transaction counts
-grows with the counting window just as that of packet counts does, shuffling the idle
-gaps between transactions removes most of the growth, and the Hawkes fit gives the same
-branching ratio, about $0.8$, on both. The gap density of transaction starts
+\paragraph{Self-excitation of the transaction stream.} Treat each transaction as one
+event at the time of its first packet. The transaction stream then carries the same
+clustering as the packet stream (Table~\ref{tab:tx-fano}): the variability of transaction
+counts grows with the counting window just as that of packet counts does, and shuffling
+the idle gaps between transactions removes most of the growth. The Hawkes fit gives the
+same branching ratio, about $0.8$, on both. The gap density of transaction starts
 (Figure~\ref{fig:tx-starts}, left) is the same as that of packets and unlike the Poisson
 curve at every scale. The exchange publishes each matching event as it occurs, and the
 packet stream inherits the clustering of the events. Why the events cluster is a question
@@ -2427,12 +2417,12 @@ for splitting would have to change with market conditions. This section tests th
 expectation and finds that, over the task lengths a trading hot path uses, it does not
 hold: a window with four to five times the packet rate has the same tail, relative to
 the task length, as a quiet one. The reason is that a busy market produces more bursts,
-not tighter bursts. The tightest spacing between two packets on this feed is about seven
-and a half microseconds, the spacing at which the exchange's publisher sends packets
-(Section~\ref{sec:exchange-publisher}); the
-two packets on either side of such a gap are, almost always, two different transactions
-(Section~\ref{sec:results-transactions}), and neither the publisher period nor the
-spacing of transactions inside a burst changes with the market state. Since it is the
+not tighter bursts. The tightest spacing between two packets on this feed is the publisher period, the
+spacing at which the exchange's publisher sends packets
+(Section~\ref{sec:exchange-publisher}). The two packets on either side of such a gap are
+almost always two different transactions (Section~\ref{sec:results-transactions}). Neither
+the publisher period nor the spacing of transactions inside a burst changes with the
+market state. Since it is the
 tightest spacing that starts a queue, the point at which a tail appears is a constant of
 the feed. Market load
 only matters for very long tasks, where the ordinary effect of a busy server takes over.
@@ -2559,14 +2549,12 @@ constant of all: it stays at the publisher period while the rate more than quadr
 (Figure~\ref{fig:bars-gap-quantiles}).
 
 Raising the intensity of a self-exciting process raises the rate at which clusters are
-generated; it does not change the spacing of events inside a cluster. The tight end of
-that spacing is bounded by the publisher period $\spub$ on
-this corpus, a property of the exchange's publisher rather than of the market state
-(Section~\ref{sec:exchange-publisher}); the events on either side of a gap at the publisher period are distinct
-transactions arriving within that separation of each other
-(Section~\ref{sec:results-transactions}, Table~\ref{tab:tx-gaps}), and how closely
-successive transactions within a burst follow one another is likewise invariant to the
-window's rate. A busy window contains more bursts, not tighter bursts.
+generated; it does not change the spacing of events inside a cluster. The tight end of that spacing is bounded by the publisher period, a property of the
+exchange's publisher rather than of the market state
+(Section~\ref{sec:exchange-publisher}). The events on either side of such a gap are
+distinct transactions (Section~\ref{sec:results-transactions}, Table~\ref{tab:tx-gaps}),
+and how closely successive transactions within a burst follow one another is likewise
+invariant to the window's rate. A busy window contains more bursts, not tighter bursts.
 
 The gap statistics on the publisher's clock are censored at the publisher period: two transactions
 closer together than $\spub$ reach the receiver in one packet
@@ -2938,11 +2926,11 @@ mass of gaps just above it are the publisher draining its backlog.
 
 If the publisher's service time is fixed per packet, a backlog can be drained in two ways:
 by keeping the spacing and sending many packets, or by packing more into each packet. The
-end-of-event tapes separate the two. On 20 sessions ($2.43 \times 10^8$ packets) we take,
-for each packet, the NQ front-month messages it carries (its span), the number of distinct
-transactions in it, the gap to the previous NQ packet on the publisher's clock, and the
-publisher delay of its first transaction, $\texttt{sendingTime} - \texttt{transactTime}$,
-as the measure of how far behind the publisher is.\footnote{Channel 318 carries other
+end-of-event tapes separate the two. On 20 sessions we take four things for each packet: the NQ front-month messages it
+carries (its span), the number of distinct transactions in it, the gap to the previous NQ
+packet on the publisher's clock, and the publisher delay of its first transaction,
+$\texttt{sendingTime} - \texttt{transactTime}$. The last is the measure of how far behind
+the publisher is.\footnote{Channel 318 carries other
 instruments besides NQ front-month, and the publisher packs their messages into the same
 packets. The span here counts NQ front-month messages only, so it is not the packet's
 size in bytes, and the publisher's backlog includes work for instruments we do not
@@ -3358,11 +3346,11 @@ This section addresses all three with instrumentation of the \kasparhft{} produc
 measurements were built for different purposes and share only the exchange they observe.
 (The live measurement was taken seven months after the corpus ends, so it also tests
 whether the clustering is specific to the period the corpus covers.)
-One limit is stated at the outset: the live per-message record carries the receive and
+One limit is stated at the outset. The live per-message record carries the receive and
 publish timestamps, the ring depth and the position in the datagram, but not the
-message's \texttt{transactTime}, so the transaction-level identification of
-Section~\ref{sec:results-transactions} is a corpus result that the live data cannot
-repeat; what the live data cross-validate is the packet process, and the transaction
+message's \texttt{transactTime}. The transaction-level identification of
+Section~\ref{sec:results-transactions} is therefore a corpus result that the live data
+cannot repeat. What the live data cross-validate is the packet process; the transaction
 result rests on the corpus alone.
 
 \subsection{The recorded corpus and the live measurement compared}
@@ -3604,11 +3592,10 @@ Two numbers do not match between the recorded and the live measurements, and thi
 section explains why neither is a cause for concern. In both cases the disagreement is
 about how the number was computed, not about the feed, and in both cases one of the two
 measurements can diagnose the other. The first is the raw level of burstiness, which
-reads about four times higher live. That is because the live figure was taken over one
-uncut stretch that mixes a quiet period and a busy one, and a rate that drifts across
-the stretch inflates the measure whether or not the arrivals are genuinely bursty; the
-recorded corpus computes the same quantity inside each half-hour window, which removes
-that drift. The change in burstiness when the packets are scrambled, which is the effect
+reads about four times higher live. That is because the live figure was taken over one uncut stretch that mixes a quiet
+period and a busy one, and a rate that drifts across the stretch inflates the measure
+whether or not the arrivals are genuinely bursty. The recorded corpus computes the same
+quantity inside each half-hour window, which removes that drift. The change in burstiness when the packets are scrambled, which is the effect
 the paper uses, agrees closely between the two. The second is a control value
 that should come out at exactly one half after scrambling, and reads a little above it
 live. That is a known small-sample bias of the estimator on a short capture; on the much
@@ -3666,11 +3653,11 @@ carries. Large packets are rare but expensive: on the most fragmented stream, ZN
 one packet in nine
 carries two thirds of the messages and consumes six sevenths of the decode time. The
 task length used throughout the paper is therefore the work for a typical packet, not a
-fixed constant of the system. Two points follow, set out at the end of the section: the
-results survive, because the cost per message is constant and only the bundling varies;
-and the number of messages per packet is a second place where the same clustering is
-paid: transactions that reach the publisher while it is busy can be packed into one
-packet rather than sent in separate packets (Section~\ref{sec:exchange-drain}). It acts
+fixed constant of the system. Two points follow, set out at the end of the section. The results survive, because the
+cost per message is constant and only the bundling varies. And the number of messages per
+packet is a second place where the same clustering is paid: transactions that reach the
+publisher while it is busy can be packed into one packet rather than sent separately
+(Section~\ref{sec:exchange-drain}). It acts
 mainly where bursts across packets do not, on tasks at or just below the tightest gap
 between packets, which is where production receivers run, and adds a few percent above
 $16\,\mu\mathrm{s}$. The next section reruns the sweep with the message
@@ -3814,10 +3801,10 @@ system reports the same ordering. Third, the recommendation on how many stages t
 task into is unchanged at every task length. The in-packet part of that tail is the plain
 cost of decoding several messages one after another, which splitting the work into stages
 does not remove; the queue a large packet opens behind itself is taken up in
-Section~\ref{sec:fungibility-measured}. Fourth, on NQ the two channels do not compound at the
-packet level: a large packet is no more likely to arrive after a tight gap than after a
-loose one, checked two ways, so the tables of Part~II, which measure the queueing
-channel alone, stand as they are at service times above the publisher period. On ZN the live data
+Section~\ref{sec:fungibility-measured}. Fourth, on NQ the two channels do not compound at the packet level. A large packet is
+no more likely to arrive after a tight gap than after a loose one, checked two ways, so
+the tables of Part~II, which measure the queueing channel alone, stand as they are at
+service times above the publisher period. On ZN the live data
 suggest the opposite, and the test has not been run there.
 
 We re-extracted the per-packet span for all 3512 windows --- aligned element-wise against the
@@ -3962,10 +3949,10 @@ From $16\,\mu\mathrm{s}$ queueing is almost all of it.}
 
 This is consistent with Part~II. The queueing claim stands: below about
 $\spub$ of service, arrival clustering does not build a queue and splitting
-the servicing chain removes nothing. The span-dependent run adds that a second mechanism,
-in-packet serialisation, is active in the same regime; it is deterministic within the
-packet and a stage cut does not shorten it, while the queue that a large packet opens
-behind itself is taken up in Section~\ref{sec:fungibility-measured}. $N^\star$, the $p_{99}$-minimising stage count, is
+the servicing chain removes nothing. The span-dependent run adds that a second mechanism, in-packet decode, is active in the
+same regime. It is deterministic within the packet, and a stage cut does not shorten it.
+The queue that a large packet opens behind itself is taken up in
+Section~\ref{sec:fungibility-measured}. $N^\star$, the $p_{99}$-minimising stage count, is
 unchanged at all seven service times when service is made span-dependent. The design rule of Section~\ref{sec:recommendations} is
 unaffected.
 
@@ -4011,13 +3998,12 @@ with many small packets. Part~II's corpus is NQ, and it behaves like the live NQ
 The transaction-level arms of Section~\ref{sec:results-transactions} give the same
 answer a third way: decoupling transaction sizes from their timing (TS) and merging each
 transaction into one packet (TM) leave the tail within $\pm 15\%$ at every service time from
-$16\,\mu\mathrm{s}$ up (Table~\ref{tab:tx-arms}). Above the publisher period, then, the
-serialisation channel adds a few percent to a tail the queueing channel produces; at the
-publisher period, where the production receiver runs, it carries most of the tail, and
-the constant-service tables of Part~II measure that channel; at the publisher period, where
-serialisation carries most of the excess, the coalescing of transactions into one
-datagram described in Section~\ref{sec:crossval-span} means the two channels are two
-deliveries of the same clustering. On an instrument like ZN, where the far tail is a few
+$16\,\mu\mathrm{s}$ up (Table~\ref{tab:tx-arms}). Above the publisher period, then, in-packet decode adds a few percent to a tail that
+queueing across packets produces, and the constant-service tables of Part~II measure that
+queueing. At the publisher period, where the production receiver runs, in-packet decode
+carries most of the tail. Since a long packet is several transactions packed together
+(Section~\ref{sec:crossval-span}), the two channels are two deliveries of the same
+clustering. On an instrument like ZN, where the far tail is a few
 large packets, the second delivery dominates; Section~\ref{sec:fungibility-measured}
 takes this up.
 
@@ -4040,12 +4026,11 @@ configuration: one thread decoding every packet inline. The question is the one 
 paper opened with, put to a real handler. On the live feed, why is the slowest message
 in a thousand so much slower than the typical one? Read with Sections~\ref{sec:results-transactions}
 and~\ref{sec:crossval-span}, the answer is that the clustering of transactions reaches
-this handler in two forms. Most transactions that the engine processes close together
-reach it as a train of packets one publisher period apart
-(Table~\ref{tab:two-clocks}); some are packed by the publisher into one packet and reach it
-as a single packet carrying several messages, which the handler decodes one message after another,
-so that the packet holds the thread for many times the decode floor and everything behind it
-queues. On the corpus, a multi-message packet is several transactions delivered together
+this handler in two forms. Most transactions that the engine processes close together reach it as a train of
+packets one publisher period apart (Table~\ref{tab:two-clocks}). Some are packed by the
+publisher into one packet carrying several messages. The handler decodes those one after
+another, so the packet holds the thread for many times the decode floor and everything
+behind it queues. On the corpus, a multi-message packet is several transactions delivered together
 far more often than it is one large transaction ($77\%$ of packets with two or more
 messages carry more than one transaction, Section~\ref{sec:crossval-span}), so a large
 packet is a transaction cluster in its own right. On the ZN channel the second form
@@ -4134,11 +4119,10 @@ over $40\,\mu\mathrm{s}$ before its own decode. Yet the in-packet decode account
 fifth of the $p_{99.9}$. The rest is the queue the packet opens behind it, the second cost.
 At one message per packet the service is about $7\,\mu\mathrm{s}$, just under the publisher
 spacing measured on NQ (ZN's own spacing was not measured), and a queue almost never forms;
-that is the empty-queue population of Table~\ref{tab:zn-serial-tail}. While a
-forty-five-message packet holds the thread, every packet that arrives waits behind it, and
-each adds its own service to the wait of the ones behind it: the wait of the $k$-th packet
-in the queue is the sum of the service times ahead of it, so it grows with the number
-queued, not with any one packet's size. ZN packets of ten or more messages are fewer than
+that is the empty-queue population of Table~\ref{tab:zn-serial-tail}. While a forty-five-message packet holds the thread, every packet that arrives waits
+behind it, and each adds its own service to the wait of the ones behind it. The wait of
+the $k$-th packet in the queue is the sum of the service times ahead of it, so it grows
+with the number queued, not with any one packet's size. ZN packets of ten or more messages are fewer than
 one in two hundred, but each is a burst of transactions that this handler pays for twice,
 once inside the packet and once in the queue behind it, and the hundreds of microseconds at
 $p_{99.9}$ are those queues.
@@ -4147,24 +4131,24 @@ $p_{99.9}$ are those queues.
 on each, a book stream and a trade stream. Figure~\ref{fig:tails-six} puts the six
 serial tails side by side and Table~\ref{tab:tails-six} adds, for each stream, its
 packet rate, the size of its packets and the cost of each extra message. Three things
-are visible at once. First, the tail does not follow the packet rate: NQ book is by far
-the busiest stream and has the smallest tail, ZN book carries a third of its rate and
-a tail an order of magnitude larger, and the trade streams, twenty-five to fifty times
-quieter than the books, have larger tails than the books on every instrument. Second,
+are visible at once. First, the tail does not follow the packet rate. NQ book is by far the busiest stream
+and has the smallest tail; ZN book carries a third of its rate and a tail an order of
+magnitude larger; and the trade streams, far quieter than the books, have larger tails
+than the books on every instrument. Second,
 on every instrument the trade stream carries more messages per packet than the book
 stream and has the larger tail: a trade is a transaction that touches several resting
 orders and is followed by the reaction to it, so it is where transactions arrive closest
-together and are coalesced most. Third, ZN, with the largest trade packets and the
-highest cost per extra message, has the largest tails on both streams; its book packets
-are not large at the $99$th percentile, but at three times NQ's cost per message and a
-maximum span of $45$ the excursions they produce are the longest of any book stream.
+together and are coalesced most. Third, ZN, with the largest trade packets and the highest cost per extra message, has
+the largest tails on both streams. Its book packets are not large at the $99$th
+percentile, but at three times NQ's cost per message the largest of them produce the
+longest excursions of any book stream.
 The clustering statistics are similar across the three instruments (the Fano-implied
 branching ceilings of Section~\ref{sec:crossval-agree} span $0.85$--$0.97$ across all six
-streams, and the NQ publisher period is assumed to hold on the others). What separates a
-twenty-fold spread of tails across streams with similar clustering statistics is not the
-arrival rate and not those statistics; it is how much of the clustering the publisher
-delivers inside a packet, the number of coalesced transactions, times the cost this
-handler pays for each, and the queue that opens behind the packet. On the live system
+streams, and the NQ publisher period is assumed to hold on the others). What separates a twenty-fold spread of tails across streams with similar clustering
+statistics is not the arrival rate and not those statistics. It is how much of the
+clustering the publisher delivers inside a packet, that is the number of transactions
+packed together, times the cost this handler pays for each, plus the queue that opens
+behind the packet. On the live system
 the far tail is the clustering of transactions delivered as span.
 
 \begin{figure}[H]
@@ -4206,20 +4190,18 @@ Sections~\ref{sec:results-transactions} and~\ref{sec:crossval-span}, seen from t
 receiver's side. Section~\ref{sec:crossval-span} measured that a packet's decode time is
 the decode floor plus one slope for each message beyond the first, with packets of up to $45$
 messages on the book streams and $85$ on the trade streams, and that such packets are
-coalesced transactions. Section~\ref{sec:crossval-spanrun} re-ran the sweep with that
-span-dependent service and found that the message count inflates the tail at service
-times at or just above the publisher period, where it supplies about two thirds of the
-$p_{99}$ excess at $T = 8\,\mu\mathrm{s}$, adds a few percent above $16\,\mu\mathrm{s}$
-where the queue across packets takes over, and leaves $N^\star$ unchanged; the two
-are one clustering delivered two ways, inside and across datagrams. The ZN records put
-the production handler in the first regime: at a $7\,\mu\mathrm{s}$ decode floor the typical
-packet queues behind nothing and the verdict of Section~\ref{sec:kaspar} for it (do not
-split at the publisher period) stands, while the far tail is paid on the coalesced packets, whose
-effective service is several times the decode floor. That is the regime in which the design
-rule of Section~\ref{sec:results-design} admits a cut, and a cut would shorten the
-queue such a packet opens behind it but not the serialisation inside it; the span-aware
-sweep of Section~\ref{sec:crossval-spanrun}, calibrated on NQ's slope, a third of ZN's,
-found $N^\star$ unchanged, so whether a cut pays on ZN is for the measurement to decide.
+coalesced transactions. Section~\ref{sec:crossval-spanrun} re-ran the sweep with that span-dependent service.
+At service times at or just above the publisher period the message count supplies about
+two thirds of the $p_{99}$ excess; well above it, where the queue across packets takes
+over, it adds a few percent; and the best stage count is unchanged. The two are one
+clustering delivered two ways, inside and across packets. The ZN records put the production handler in the first regime. At its decode floor the
+typical packet queues behind nothing, and the verdict of Section~\ref{sec:kaspar}, not to
+split at the publisher period, stands. The far tail is paid on the packed packets, whose
+effective service is several times the decode floor. That is the regime in which the design rule of Section~\ref{sec:results-design} admits
+a cut. A cut would shorten the queue such a packet opens behind it but not the decode
+inside it. The span-aware sweep of Section~\ref{sec:crossval-spanrun}, calibrated on NQ's
+cost per message, a third of ZN's, found the best stage count unchanged, so whether a cut
+pays on ZN is for the measurement to decide.
 The other lever is the per-message cost itself (Section~\ref{sec:recommendations}), which
 scales the whole excursion. Which lever to pull is decided by the end-of-build
 measurement of Section~\ref{sec:fungibility-workflow}.
@@ -4331,10 +4313,9 @@ than assume them.
 \label{sec:kaspar}
 
 Part~III applies the design consequences of Part~II, collected in
-Section~\ref{sec:part2-summary}, to a concrete system. This section introduces the system
-that the rest of Part~III works on, and applies the design rule of
-Section~\ref{sec:results-design} to it: cut a chain only where the cut
-shortens its slowest stage, and never once that stage is already below the feed's
+Section~\ref{sec:part2-summary}, to a concrete system. This section introduces the system that the rest of Part~III works on, and applies the
+design rule of Section~\ref{sec:results-design} to it. The rule is to cut a chain only
+where the cut shortens its slowest stage, and never once that stage is already below the
 publisher period, because below it there is no tail left to remove. It first says what \kasparhft{} is and names the two ways its
 actors hand messages to one another, one synchronous and one queued, because the choice
 between those two at each boundary is exactly what the design rule decides. It then lays
@@ -4358,13 +4339,12 @@ packet captures, a deterministic replay simulator in its own right. Part~II does
 on that simulator: its measurements are made on a standalone tandem-Lindley model of the
 pipeline (Section~\ref{sec:setup-simulator}), driven by packet-arrival timestamps
 extracted from the same class of capture. The framework supplies the architecture under
-study and the calibration of $h$; it is not in the measurement loop. The
-\texttt{fast\_send} paper documents the four extensions that make the actor model usable
-at HFT latencies: \texttt{fast\_send} itself, a synchronous delivery in which the sending
-thread runs the receiver's handler inline and takes the reply as a value; actor
-\texttt{Group}s, which co-schedule a set of actors on one thread behind a single mailbox;
-mailbox queue implementations selectable per actor; and a memory pool that removes
-per-message allocation and its tail. The defining property of \texttt{fast\_send} is
+study and the calibration of $h$; it is not in the measurement loop. The \texttt{fast\_send} paper documents the four extensions that make the actor model
+usable at HFT latencies. \texttt{fast\_send} itself is a synchronous delivery in which the
+sending thread runs the receiver's handler inline and takes the reply as a value. Actor
+\texttt{Group}s co-schedule a set of actors on one thread behind a single mailbox. Mailbox
+queue implementations are selectable per actor. A memory pool removes per-message
+allocation and its tail. The defining property of \texttt{fast\_send} is
 \emph{receiver transparency}: a handler is written once and has no way to tell whether it
 was invoked synchronously or asynchronously, on which thread, or whether its sender is
 blocked. Section~\ref{sec:implementation} builds on that property.
@@ -4390,11 +4370,10 @@ observation motivated the present paper.
 
 Read against Part~II, this pipeline is the single-thread servicing chain of
 Section~\ref{sec:intro-singlethread-priors} realised with actors: the whole $T$ sits on
-one thread between two hops that were placed where blocking was unacceptable. The present
-paper adds that the same logic applies inside the chain once the chain is long enough for
-the feed to queue behind it, and the recommendations that follow are stated as changes to
-this pipeline: where to cut it, in what order to place the stages, which boundaries to
-leave on \texttt{fast\_send}, and how to decide each by measurement.
+one thread between two hops that were placed where blocking was unacceptable. The present paper adds that the same logic applies inside the chain once the chain is
+long enough for the feed to queue behind it. The recommendations that follow are stated as
+changes to this pipeline: where to cut it, in what order to place the stages, which
+boundaries to leave on \texttt{fast\_send}, and how to decide each by measurement.
 
 \paragraph{The design rule applied to this pipeline.} The rule of
 Section~\ref{sec:results-design}, cut only where the cut shortens the slowest stage and
@@ -4535,20 +4514,20 @@ measurement decides.
 \subsection{The measure-and-flip procedure for setting each boundary}
 \label{sec:fungibility-workflow}
 
-The procedure is: draft the pipeline as a chain of actors at the natural cut points;
-wire each boundary with whichever of \texttt{fast\_send} or \texttt{send} is convenient
-during development; once the pipeline runs end-to-end, measure the corpus-median $p_{50}$
-and $p_{99}$ on a representative tape as a baseline; flip one boundary at a time,
-re-measure, and accept the flip if $(p_{50}, p_{99})$ improves under the operator's
-trade-off; iterate until no single flip improves the objective. The full design flow,
+The procedure has five steps. Draft the pipeline as a chain of actors at the natural
+cut points. Wire each boundary with whichever of \texttt{fast\_send} or \texttt{send} is
+convenient during development. Once the pipeline runs end to end, measure the median and
+$p_{99}$ on a representative tape as a baseline. Flip one boundary at a time, re-measure,
+and accept the flip if the pair improves under the operator's trade-off. Iterate until no
+single flip improves the objective. The full design flow,
 including the steps that precede this, is given in Section~\ref{sec:recommendations}.
 
 Under the arrival law of a CME MDP3 feed the design equation of
-Section~\ref{sec:results-design} predicts what the iteration converges to: async \texttt{send}
-at every boundary whose removal would raise the largest stage, and \texttt{fast\_send}
-everywhere else, in particular between short sub-tasks below the publisher period of
-Section~\ref{sec:results-design} and between sub-tasks downstream of the bottleneck whose
-combined service stays at or below $s_{\max}$ (Remark~\ref{rem:unequal}). The measurement decides; the prediction indicates where to expect it to converge.
+Section~\ref{sec:results-design} predicts what the iteration converges to. Asynchronous
+\texttt{send} goes at every boundary whose removal would lengthen the largest stage.
+\texttt{fast\_send} goes everywhere else: between short sub-tasks below the publisher
+period, and between sub-tasks downstream of the bottleneck whose combined service stays at
+or below the largest stage (Remark~\ref{rem:unequal}). The measurement decides; the prediction indicates where to expect it to converge.
 
 \subsection{Thread mapping and send mode as deployment decisions}
 \label{sec:fungibility-decoupling}
@@ -4621,13 +4600,12 @@ benefit these interventions are intended to deliver, on the tail quantile.
 wake path from a sleeping condition variable is never taken. On a Poisson feed, any
 arrival can find the receiver asleep, and the wake latency is paid on average;
 pre-spinning eliminates it. On a Hawkes feed with branching ratio $n \approx 0.8$,
-sleep/wake transitions happen only at cluster boundaries. Every $p_{99}$ message is
-intra-cluster (Section~\ref{sec:results-tail}: the $p_{99}$ message waits behind a
-cluster, since at these service times the Poisson null produces no wait at all), so by the
-time a tail-setting message arrives the receiver is busy: at $8$--$16\,\mu\mathrm{s}$ it
-is still serving the predecessor the publisher sent one spacing earlier, and from
-$64\,\mu\mathrm{s}$ it has been processing a run for many multiples of the per-message
-service time (Section~\ref{sec:results-nulls}). In either case it is effectively spinning
+sleep/wake transitions happen only at cluster boundaries. Every $p_{99}$ message is inside a cluster, since at these service times the Poisson
+null produces no wait at all (Section~\ref{sec:results-tail}). By the time a tail-setting
+message arrives, then, the receiver is busy. At short service times it is still serving
+the predecessor the publisher sent one period earlier; at long ones it has been processing
+a run for many multiples of the per-message service time
+(Section~\ref{sec:results-nulls}). In either case it is effectively spinning
 as a natural consequence of the load. Under the model used here, pre-spinning therefore saves little or
 no wake latency at the tail; this is a prediction of the queueing model, not a measurement
 of a production receiver's state, and should be evaluated directly. It saves wake latency
@@ -4635,12 +4613,11 @@ for the median and for the minimum latency (inter-cluster arrivals which do find
 receiver asleep after seconds-scale gaps), but the saving is bounded by
 $\sim\!1.4\,\mu\mathrm{s}$ per hop (the $1.7\,\mu\mathrm{s}$ wake-path cost less the
 few-hundred-nanosecond mutex and cache-line cost of Section~\ref{sec:results-h}) and is
-much smaller than the tail win from splitting. There is also an operational cost: in the
-present author's production experience, pinning spinning threads across the servicing
-chain has caused overall system degradation --- steady core burn at $100\%$, cache thrash
-between the spin loop and the actor's own working set, and pressure on shared resources
-like the LLC and memory bandwidth --- that offset the median-latency gains; this is
-anecdotal and not measured here.
+much smaller than the tail win from splitting. There is also an operational cost. In the present author's production experience,
+pinning spinning threads across the servicing chain has degraded the system as a whole:
+steady core burn, cache thrash between the spin loop and the actor's own working set, and
+pressure on shared resources such as the last-level cache and memory bandwidth, which
+together offset the median-latency gains. This is anecdotal and not measured here.
 
 \paragraph{Pre-warming.} Pre-warming is a subset of the wake-up cost discussed above. The $h = 1.7\,\mu\mathrm{s}$ one-way hop cost
 that this paper calibrates already captures the entire process-wake-up path on the
@@ -4723,12 +4700,11 @@ in the service time $T$, which the paper takes as given.
 Proposition~\ref{thm:burst} gives an $N$-factor throughput speedup at any $T$, and the
 $1/N$ bound of Theorem~\ref{thm:reduction} applies to a single-stage wait $\Delta(1)$
 that itself scales with $T$, so the absolute gain from splitting grows with $T$ while
-the hop cost does not. The splitting rule is therefore complementary to per-message
-optimisation: a two-stage tandem on a $20\,\mu\mathrm{s}$ servicing chain has lower
-latency at every quantile than the same tandem on a $40\,\mu\mathrm{s}$ chain, and the
-difference is entirely in the per-message layer; and per-message optimisation that brings
-a chain below the publisher period removes the case for splitting it at all
-(Section~\ref{sec:results-threshold}).
+the hop cost does not. The splitting rule is therefore complementary to per-message optimisation. A two-stage
+tandem on a $20\,\mu\mathrm{s}$ servicing chain has lower latency at every quantile than
+the same tandem on a $40\,\mu\mathrm{s}$ chain, and the difference is entirely in the
+per-message layer. Per-message optimisation that brings a chain below the publisher period
+removes the case for splitting it at all (Section~\ref{sec:results-threshold}).
 
 \subsection{Recommendations the paper argues against}
 
@@ -4762,15 +4738,13 @@ exceeding $h$, which on this corpus happens about $1.5\,\mu\mathrm{s}$ further a
 (Section~\ref{sec:results-threshold}). Two cautions. First, use the tight end of the gap
 distribution, never the mean: on this corpus the mean gap is $2215\,\mu\mathrm{s}$, some
 $300\times$ larger, and a rule stated on it would say never to split anything. Second,
-measure it under representative and peak-load conditions. On this corpus the publisher period is
-the service interval of the exchange's market-data publisher, which spaces successive
-packets by at least that much while it drains a backlog (Section~\ref{sec:exchange}) ---
-the packets on either side of it are distinct transactions
-(Section~\ref{sec:results-transactions}) --- and it did not move between quiet and
-volatile sessions
-(Section~\ref{sec:results-conditioning}), so it was measured once per feed; that
-invariance is a finding about this feed's publisher, to be verified on another feed rather
-than assumed. At longer service times the tail does depend on
+measure it under representative and peak-load conditions. On this corpus the publisher period is the service interval of the exchange's
+market-data publisher, which spaces successive packets by at least that much while it
+drains a backlog (Section~\ref{sec:exchange}); the packets on either side of such a gap are
+distinct transactions (Section~\ref{sec:results-transactions}). It did not move between
+quiet and volatile sessions (Section~\ref{sec:results-conditioning}), so it was measured
+once per feed. That invariance is a finding about this feed's publisher, to be verified on
+another feed rather than assumed. At longer service times the tail does depend on
 intensity and branching ratio, and a chain in that regime needs its threshold measured
 under the load it will actually see.
     \item \textbf{Draft the pipeline as a chain of actors at natural cut points, then
@@ -4850,11 +4824,11 @@ A production receiver runs just under the publisher period, at about $7\,\mu\mat
 and there two further mechanisms carry most of its tail. The first is long packets. Decode
 cost grows with the number of messages, so a packet with two or more messages takes longer
 than the publisher period; its later messages wait for the earlier ones, and the packets
-arriving behind it queue while it holds the thread. In the simulation at that service time
-the decode inside packets supplies about two thirds of the tail, and on the live receiver
-the decode cost of a message's position in its packet reproduces most of the observed
-$p_{99}$ (Section~\ref{sec:crossval-spanrun}); on ZN, where each extra message costs more,
-a few long packets set the far tail (Section~\ref{sec:fungibility-measured}). The second is
+arriving behind it queue while it holds the thread. In the simulation at that service time the decode inside packets supplies about two
+thirds of the tail, and on the live receiver the decode cost of a message's position in
+its packet reproduces most of the observed $p_{99}$ (Section~\ref{sec:crossval-spanrun}).
+On ZN, where each extra message costs more, a few long packets set the far tail
+(Section~\ref{sec:fungibility-measured}). The second is
 service time that varies from packet to packet: on the live ZN receiver, messages with
 nothing queued ahead of them and first in their packet still take about twice the decode
 floor at $p_{99}$, and any such service in a train can start a queue. The simulation
@@ -5082,10 +5056,10 @@ feed the threshold, and its dependence on load and on clustering, must be measur
 Spending the same cores as a dispatch pool that sends whole packets to identical servers,
 with the ingress hop, the egress hop and in-order resequencing all charged, costs two hops
 on the median whatever the pool size and resequences almost nothing
-(Table~\ref{tab:dispatch-costed}). For a stage that carries no state, such as SBE decode,
-a pool of two cores is level with a two-stage cut, one hop dearer on the median and about
-the same in the tail; a pool of four or more cores is better than a cut into as many
-stages on both (three cores were not simulated). The order-book stage carries state from
+(Table~\ref{tab:dispatch-costed}). For a stage that carries no state, such as SBE decode, a pool of two cores is level
+with a two-stage cut: one hop dearer on the median and about the same in the tail. A pool
+of four or more cores is better than a cut into as many stages on both (three cores were
+not simulated). The order-book stage carries state from
 one update to the next and cannot be dispatched; for it, cutting the chain is the way to
 spend cores. The design rule is therefore: cut stateful chains above the threshold;
 dispatch stateless stages above it when four or more cores are available.
@@ -5093,21 +5067,20 @@ dispatch stateless stages above it when four or more cores are available.
 The recommendation is that HFT designers measure end-to-end latency of the assembled
 pipeline under actual market conditions, including peak load, and split the servicing
 chain wherever the measurement shows a tail excess larger than the hop cost. Splitting the
-hot path is a design option of equal standing with optimising it. For a chain above the
-threshold, one cut at a natural boundary reduces the tail by more than any per-message
-optimisation is likely to: on this corpus a balanced cut of a chain twice the publisher
-spacing removes almost all of its tail excess for one hop (Section~\ref{sec:kaspar}),
-whereas per-message work moves the decode floor, and the cost per message, by tenths of a
-microsecond. Below the threshold, for the typical packet, per-message optimisation is the
+hot path is a design option of equal standing with optimising it. For a chain above the threshold, one cut at a natural boundary reduces the tail by more
+than any per-message optimisation is likely to. On this corpus a balanced cut of a chain
+twice the publisher period removes almost all of its tail excess for one hop
+(Section~\ref{sec:kaspar}), whereas per-message work moves the decode floor and the cost
+per message by tenths of a microsecond. Below the threshold, for the typical packet, per-message optimisation is the
 lever; the far tail that a few many-message packets open on a live channel
 (Section~\ref{sec:fungibility-measured}) is a separate regime, whose remedy the
-end-of-build measurement decides. Framework designers should measure busy-poll dequeue on
-pinned isolated cores against the wait/notify mailbox on a representative tape rather than
-assume it is faster (Section~\ref{sec:other-arch}), drive the mailbox mutex uncontended,
-keep memory-pool discipline, and cut the decode pipeline at whichever of its natural
-boundaries minimises the largest stage, with that stage at ingress and everything
-downstream merged up to its service time; the tail is set by the largest stage, and a hop
-that does not lower it is pure cost. Strategy designers of both percentage-of-volume (POV)
+end-of-build measurement decides. Framework designers should measure busy-poll dequeue on pinned isolated cores against
+the wait/notify mailbox on a representative tape rather than assume it is faster
+(Section~\ref{sec:other-arch}), drive the mailbox mutex uncontended, and keep memory-pool
+discipline. They should cut the decode pipeline at whichever of its natural boundaries
+minimises the largest stage, put that stage at ingress, and merge everything downstream
+up to its service time. The tail is set by the largest stage, and a hop that does not
+lower it is pure cost. Strategy designers of both percentage-of-volume (POV)
 and race-sensitive algorithms benefit for the same reason.
 
 \subsection{Revision of a prior design context}
@@ -5156,11 +5129,11 @@ afternoon, without replication, and the corpus windows are nested in sessions, s
 uncertainty on the aggregates is session-clustered; the headline survival shares carry
 session-bootstrap intervals. Constant per-packet service is a simplification, and at the
 production service time it is the one that matters most.
-Section~\ref{sec:crossval-spanrun} removes it for message count, at NQ's cost per message,
-which is lower than ZN's, and finds the stage count unchanged; service that varies for
-other reasons, which the live receiver shows at twice the decode floor at $p_{99}$ with no
-queue, is not modelled, so the simulated tails at the production service time understate
-a real receiver's. The cache-pollution cost of spinning receivers on many cores is bounded
+Section~\ref{sec:crossval-spanrun} removes it for message count, at NQ's cost per
+message, which is lower than ZN's, and finds the stage count unchanged. Service that
+varies for other reasons is not modelled, although the live receiver shows it at twice
+the decode floor at $p_{99}$ with no queue. The simulated tails at the production service
+time therefore understate a real receiver's. The cache-pollution cost of spinning receivers on many cores is bounded
 but not measured. And Theorem~\ref{thm:reduction} is a bound whose slack depends on the
 arrival law; the paper measures that slack rather than deriving it, and a closed form for
 the slack on Hawkes input is open.
@@ -5229,11 +5202,11 @@ and the span-aware sweep rerun at ZN's per-message cost, three times NQ's.
 records would allow the ZN $p_{99.9}$ to be split into in-packet decode, the queue behind
 long packets, and slow services.
     \item \textbf{Can decoding one packet's messages in parallel shorten the long-packet
-tail?} A stage cut does not shorten it. An unmerged experiment in the \kasparhft{}
-repository that dispatched every message to parallel decoders was slower than serial at
-every book percentile; a later one that sent only multi-message packets to parallel
-decoders lost at the median but improved $p_{99.9}$ on five of six streams, on a build
-with recovery disabled and without validation of its output. Whether it pays in a
+tail?} A stage cut does not shorten it. An unmerged experiment in the \kasparhft{} repository that dispatched every message to
+parallel decoders was slower than serial at every book percentile. A later one that sent
+only multi-message packets to parallel decoders lost at the median but improved
+$p_{99.9}$ on most streams, on a build with recovery disabled and without validation of
+its output. Whether it pays in a
 production build is open.
     \item \textbf{Does the result replicate on ZN, ES and BTC?} The design rule is measured
 on NQ; the threshold equals the upstream publisher's service time only if each channel
@@ -5251,14 +5224,13 @@ Separating them needs order-entry times for all participants, the data
 \citet{aquilina2022arms} had for the London Stock Exchange. Races of the kind they found
 are the leading hypothesis. Their data were exchange message data, which, unlike the
 order-book data of a public feed, include the attempts to trade or cancel that failed, so
-both the winner and the losers of a race can be seen. On FTSE 100 stocks they found that
-latency-arbitrage races, in which several firms react to the same public signal and try
-to take or cancel the same stale quote, are frequent (about one per minute per symbol),
-extremely fast (the modal race lasts five to ten microseconds) and account for about a
-fifth of trading volume; that the top six firms account for over $80\%$ of race wins and
-losses; that races make up roughly a third of the cost of liquidity as measured by price
-impact and the effective spread; and that a market design removing them would lower that
-cost by about $17\%$. The timescale of their races is the timescale of the engine-clock
+both the winner and the losers of a race can be seen. On FTSE 100 stocks they found that latency-arbitrage races, in which several firms
+react to the same public signal and try to take or cancel the same stale quote, are
+frequent, about one per minute per symbol, and extremely fast, the typical race lasting
+five to ten microseconds. Races account for about a fifth of trading volume, and the top
+six firms account for most of the wins and losses. Races make up roughly a third of the
+cost of liquidity as measured by price impact and the effective spread, and a market
+design that removed them would lower that cost by about a sixth. The timescale of their races is the timescale of the engine-clock
 gaps of Table~\ref{tab:engine-clock}, and the failed attempts that reveal a race are what
 the CME public feed does not carry (Section~\ref{sec:exchange-bursts}).
     \item Which instruments' transactions sit on either side of a tight gap on the engine
