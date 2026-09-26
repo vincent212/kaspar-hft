@@ -27,7 +27,6 @@
 \newtheorem{corollary}[theorem]{Corollary}
 \newtheorem*{fact}{Fact}
 \newtheorem{remark}{Remark}[section]
-\newcommand{\blank}[1]{\fbox{\parbox{0.92\linewidth}{\textbf{[FILL:} #1\textbf{]}}}}
 
 \newcommand{\kasparhft}{\textsc{Kaspar-HFT}}
 
@@ -45,42 +44,47 @@ Modelling HFT Pipeline Latency Under Hawkes Arrivals}
 The prevailing view in high-frequency-trading (HFT) system design is that the entire hot
 path --- market-data decode, order-book application, strategy evaluation, order
 construction --- should run on a single-threaded event loop, because each additional
-thread hop adds wall-clock latency. We measure this trade-off on CME MDP3 market data (NQ
-front-month, channel 318, regular trading hours, 2025--2026), whose packet arrivals are
-self-exciting (Hawkes-clustered), and find that it reverses at
-a service-time threshold: below the threshold the single thread has the lower tail, above
-it the multi-actor pipeline does.
+thread hop adds wall-clock latency. This paper puts two questions to that view on CME
+MDP3 market data (NQ front-month, channel 318, regular trading hours, 2025--2026: 276
+sessions, 3512 thirty-minute windows, $3.3 \times 10^9$ packets). First, what produces the
+queueing tail behind a single-threaded receiver: the packet rate, the clustering of
+arrivals, or the number of messages per packet? Second, is a servicing chain cut into two
+or more stages on separate threads better than one thread, and when?
 
-Two consequences follow. First, on a clustered feed the end-to-end latency tail is set
-by cluster-induced queueing, not by the per-hop cost. Second, splitting the servicing
-chain into concurrent actor stages lowers the latency tail, because the queue that forms
-behind a burst is spread across the stages and drains at their combined rate, at the
-cost of one hop per stage on the median. Above the threshold the tail reduction exceeds the hop cost; below it the hop cost is
-paid and no tail is removed.
+On the first question: not the rate and not the message count. Utilisation is below
+$0.02$ at the service times an HFT hot path occupies, and a window with several times the
+packet rate has the same tail relative to the service time. The clustering is the cause,
+and it belongs to the market, not to the feed. Grouping messages by matching-engine
+transaction shows that $98.3\%$ of transactions occupy one packet, that the packets of a
+split transaction arrive $15\,\mu\mathrm{s}$ apart, and that $99.9\%$ of the gaps shorter
+than the feed's $7.5\,\mu\mathrm{s}$ tight-gap floor separate different transactions.
+Transaction starts are self-exciting with a branching ratio of $0.795$, equal to the
+packets' $0.798$. Redrawing transaction times uniformly removes $75$--$98\%$ of the tail;
+decoupling transaction sizes from their timing, merging each transaction into one packet,
+or spreading its packets leaves the tail within $15\%$. At service times of
+$8$--$16\,\mu\mathrm{s}$ the clustering acts through the surplus of near-simultaneous
+transactions it produces, which a random permutation of the gap sequence preserves
+($79$--$88\%$ of the tail survives it); at $64\,\mu\mathrm{s}$ and above it acts through
+runs of transactions, which the permutation destroys ($37\%$ and $23\%$ survive). A null
+that keeps every one-second packet count and randomises within the second has no tail
+where the real stream has one.
 
-To isolate the contribution of clustering we simulate each window a second time under a
-matched-rate Poisson null with the same packet count and support, differing only in the
-arrival ordering. Over the per-message service times an HFT hot path occupies, up to
-about $20\,\mu\mathrm{s}$ on this feed, the null has no $p_{99}$ tail, so the tail
-reduction in that regime is attributable to clustering. \blank{after the run: one
-sentence on whether the tail survives the gap-shuffle and 1\,s-binned nulls of
-Section~\ref{sec:results-nulls}} The null does develop a tail at
-longer service times, when utilisation queueing begins, and it is then smaller than the
-clustered feed's; by PASTA the $q$-quantile of latency equals the service
-time until the utilisation $\rho = \bar\lambda T$ reaches $1 - q$, which the corpus
-reproduces at $q = 0.99$ and $0.999$. At the
-corpus-median rate the Poisson $p_{99}$ crossover is at $T \approx 22\,\mu\mathrm{s}$,
-about three times the service time at which the clustered feed's tail appears, and past
-the crossover the clustered feed's tail excess is $11$--$47\times$ the Poisson null's.
-We give an analytic framework for the mechanism, a burst-limit throughput identity and
-an exact pathwise reduction of the deterministic-service tandem to a single bottleneck
-server, and test its predictions with simulations driven by a corpus of CME MDP3 packet
-arrivals. We compare the arrival-process result against an independent measurement on a live
-production receiver taken seven months after the corpus ends, on three instruments, one
-of them the corpus's own, and with a different arrival clock. The clustering statistics agree, and
-the production decoder's measured service floor coincides with the service time at which
-the simulated latency tail appears. Code is in the \kasparhft{} repository; the packet
-captures are not redistributable.
+On the second question: yes above a threshold and no below it, and the threshold is a
+property of the feed. Below the tight-gap floor there is no queue to shorten and a cut
+adds one $1.7\,\mu\mathrm{s}$ hop to every message; above it, one balanced cut removes
+most of the $p_{99}$ excess for one hop on the median, and pays on every one of the 3512
+windows from about $10\,\mu\mathrm{s}$. Only the slowest stage matters: a cut that does
+not shorten the largest stage buys nothing. With the same $N$ cores, a dispatch
+arrangement that ignores ordering matches or beats the tandem on latency, so the tandem's
+case is that it keeps the stream in order. At the production operating point of the
+reference receiver, about $7\,\mu\mathrm{s}$, the chain should not be split. We give the
+analytic framework --- a burst-limit throughput identity and an exact pathwise reduction
+of the deterministic-service tandem to a single bottleneck server --- test it on the
+corpus, and compare the arrival statistics against an independent measurement on a live
+production receiver seven months later, on three instruments; the clustering statistics
+agree and the production decoder's service floor coincides with the service time at which
+the simulated tail appears. Code is in the \kasparhft{} repository; the packet captures
+are not redistributable.
 \end{abstract}
 
 \clearpage
@@ -231,6 +235,26 @@ the chain should be. The design rule is stated in Section~\ref{sec:conclusion}.
 \subsection{Plan of the paper}
 \label{sec:intro-plan}
 
+The paper asks two questions and answers each in a named place.
+
+\begin{enumerate}
+    \item \emph{What produces the queueing tail behind a single-threaded receiver?} Three
+candidates are tested. The packet rate: no, at HFT service times
+(Section~\ref{sec:results-conditioning}). The clustering of arrivals: yes
+(Section~\ref{sec:results-nulls}), and Section~\ref{sec:results-transactions} identifies
+the clustered process as the self-exciting stream of matching-engine transactions,
+acting through the surplus of near-simultaneous transactions at short service times and
+through runs of transactions at long ones. The number of messages per packet: a second,
+separate mechanism, which dominates at or below the tight-gap floor and adds a few
+percent above it (Sections~\ref{sec:crossval-spanrun} and~\ref{sec:fungibility-measured}).
+    \item \emph{Are two queues better than one?} Yes above a service-time threshold set by
+the feed and no below it (Sections~\ref{sec:results-tail} and~\ref{sec:results-design});
+only the slowest stage matters (Theorem~\ref{thm:reduction}); with equal cores a
+dispatch pool that reorders packets matches the tandem on latency, so the tandem's
+advantage is that it preserves order (Section~\ref{sec:results-equal-core}); at the
+production operating point the answer is no (Section~\ref{sec:kaspar}).
+\end{enumerate}
+
 The paper proceeds in four parts.
 
 \begin{itemize}
@@ -278,6 +302,13 @@ sub-tasks below the bottleneck together on one thread via \texttt{fast\_send}, u
 asynchronous \texttt{send} only at boundaries that lower $s_{\max}$; and settle each
 boundary by end-to-end measurement against a representative feed rather than by local
 reasoning at a single call site.
+    \item \textbf{Live cross-validation.} The corpus statistics are compared with an
+independent measurement on a production receiver taken seven months after the corpus ends,
+on three instruments (Section~\ref{sec:crossval}); the clustering statistics agree, the
+measured decoder floor coincides with the service time at which the simulated tail appears,
+and the sweep is re-run with the measured per-message decode cost
+(Section~\ref{sec:crossval-spanrun}). The live ZN stream's far tail is traced to the
+message count of a few large packets (Section~\ref{sec:fungibility-measured}).
 \end{itemize}
 
 \subsection{Contribution and prior-art positioning}
@@ -292,7 +323,10 @@ Hawkes single-queue and adjacent work
 and empirical and applied HFT and RPC-pipeline work
 \citep{byrd2020abides,frey2023jaxlob,aquilina2022arms,deanbarroso2013tailatscale,zhao2023parsimon}
 together with the datacenter tail-latency literature found no direct prior art on
-either of the paper's two claims. The first is theoretical: that the choice between
+either of the paper's two claims. The nearest neighbour on the exchange side is
+\citet{yoon2026matching}, who reports that a matching engine's tail latency under load is
+set by queueing at the serialised match loop during bursts; the present paper is the
+receiver-side counterpart, with the arrival process measured rather than assumed. The first is theoretical: that the choice between
 a single-queue (single-thread) architecture and an $N$-stage tandem (multi-actor pipeline)
 is not fixed but \emph{reverses with the arrival law}. At the service times an HFT hot path occupies, single-digit to low-tens of
 microseconds, Poisson arrivals make the single queue the better choice, because at that
@@ -998,7 +1032,15 @@ spot-checked windows. This is the same near-critical regime that
 \citet{filimonovsornette2012} and \citet{hardimanbercotbouchaud2013} document on ES, at a
 somewhat lower level than their $n \approx 0.9$; they fit trade arrivals rather than
 packet arrivals, and a packet aggregates several book events, which is expected to lower
-the fitted self-excitation. A Fisher--Yates shuffle of the interarrival gap sequence within each window, which
+the fitted self-excitation. \citet{filimonovsornette2015} show that an
+exponential-kernel fit with a constant background over a fixed window overstates $n$ when
+the background intensity varies within the window, and that ES estimates fall well below
+criticality once that variation is modelled; the $n$ reported here is descriptive and
+subject to the same caveat, and none of the paper's conclusions rests on its value. The
+model-free diagnostics above, the Fano-against-shuffle comparison of
+Section~\ref{sec:results-transactions} and the gap histograms there hold whatever the
+fitted $n$; the nonparametric estimates of \citet{achab2018branching} on EUREX order
+books give the same near-critical picture without a kernel assumption. A Fisher--Yates shuffle of the interarrival gap sequence within each window, which
 preserves the marginal gap distribution exactly and destroys only the ordering, removes
 most but not all of the excess: the corpus-median Fano at $\tau = 5\,\mathrm{s}$ falls
 from $259.7$ to $17.6$, and at $\tau = 1\,\mathrm{s}$ from $108.4$ to $17.5$, i.e.\
@@ -1282,7 +1324,40 @@ same second-scale rate variation, no microsecond clustering.
 \toprule
 $T$ & $N$ & real & uniform & gap shuffle & 1\,s-binned \\
 \midrule
-\multicolumn{6}{c}{\blank{paste the tab:nulls rows printed by make\_tables.py}} \\
+ 2 & 1 &    2.00 &    2.00 &    2.00 &    2.00 \\
+ 2 & 2 &    3.70 &    3.70 &    3.70 &    3.70 \\
+ 2 & 4 &    7.10 &    7.10 &    7.10 &    7.10 \\
+ 2 & 8 &   13.90 &   13.90 &   13.90 &   13.90 \\
+\midrule
+ 4 & 1 &    4.00 &    4.00 &    4.00 &    4.00 \\
+ 4 & 2 &    5.70 &    5.70 &    5.70 &    5.70 \\
+ 4 & 4 &    9.10 &    9.10 &    9.10 &    9.10 \\
+ 4 & 8 &   15.90 &   15.90 &   15.90 &   15.90 \\
+\midrule
+ 8 & 1 &    8.61 &    8.00 &    8.54 &    8.00 \\
+ 8 & 2 &    9.70 &    9.70 &    9.70 &    9.70 \\
+ 8 & 4 &   13.10 &   13.10 &   13.10 &   13.10 \\
+ 8 & 8 &   19.90 &   19.90 &   19.90 &   19.90 \\
+\midrule
+16 & 1 &   34.59 &   16.00 &   30.75 &   16.00 \\
+16 & 2 &   18.31 &   17.70 &   18.24 &   17.70 \\
+16 & 4 &   21.10 &   21.10 &   21.10 &   21.10 \\
+16 & 8 &   27.90 &   27.90 &   27.90 &   27.90 \\
+\midrule
+32 & 1 &  146.14 &   42.02 &   99.61 &   47.36 \\
+32 & 2 &   52.29 &   33.70 &   48.45 &   33.70 \\
+32 & 4 &   37.71 &   37.10 &   37.64 &   37.10 \\
+32 & 8 &   43.90 &   43.90 &   43.90 &   43.90 \\
+\midrule
+64 & 1 &  820.70 &  106.73 &  340.62 &  112.62 \\
+64 & 2 &  179.84 &   75.72 &  133.31 &   81.06 \\
+64 & 4 &   87.69 &   69.10 &   83.85 &   69.10 \\
+64 & 8 &   76.51 &   75.90 &   76.44 &   75.90 \\
+\midrule
+128 & 1 & 5316.85 &  237.65 & 1306.63 &  246.03 \\
+128 & 2 &  886.40 &  172.43 &  406.32 &  178.32 \\
+128 & 4 &  247.24 &  143.12 &  200.71 &  148.46 \\
+128 & 8 &  158.49 &  139.90 &  154.65 &  139.90 \\
 \bottomrule
 \end{tabular}
 \caption{Corpus-median $p_{99}$ in \si{\micro\second} under the real arrivals and the
@@ -1293,13 +1368,214 @@ destroys the microsecond ordering.}
 \label{tab:nulls}
 \end{table}
 
-\blank{Two or three sentences from the [prose] block make\_tables.py prints: at $T = 8$,
-$16$ and $32\,\mu\mathrm{s}$, the share of the single-stage $p_{99}$ excess that survives
-the gap shuffle and the binned null. If the gap shuffle keeps most of it, the tail is set
-by the gap distribution and the attribution to clustering in the abstract and
-Section~\ref{sec:results-tail} must be reworded to the gap floor. If it collapses,
-clustering is confirmed against the stronger null: the tight-gap floor sets where the
-tail switches on and the ordering of tight gaps into runs sets how large it grows.}
+Table~\ref{tab:nulls} gives the corpus-median $p_{99}$ under all four arrival arms. The
+share of the single-stage $p_{99}$ excess over $T$ that survives the gap shuffle is $88\%$
+at $T = 8\,\mu\mathrm{s}$, $79\%$ at $16$ and $59\%$ at $32\,\mu\mathrm{s}$, falling to
+$37\%$ at $64$ and $23\%$ at $128\,\mu\mathrm{s}$. The 1\,s-binned null keeps none of it
+at $8$ and $16\,\mu\mathrm{s}$ and $13\%$, $6\%$ and $2\%$ at $32$, $64$ and
+$128\,\mu\mathrm{s}$, within a few points of the uniform null. Two readings follow. The
+tail is not second-scale load: a null that keeps every one-second packet count has no
+tail where the real stream has one. And at the service times of an HFT hot path the tail
+is set mainly by the gap \emph{distribution} --- the surplus of gaps shorter than the
+service time over what a Poisson stream at the same rate carries --- with the
+\emph{ordering} of those gaps into runs supplying the remaining fifth at $16\,\mu\mathrm{s}$
+and the majority only from $64\,\mu\mathrm{s}$ upward. Section~\ref{sec:results-transactions}
+traces both the surplus and the ordering to one source, the self-excitation of
+matching-engine transactions, so the attribution to clustering stands, with the mechanism
+made precise: clustering acts on a short service time through the excess of
+near-simultaneous arrivals it produces and on a long one through the runs.
+
+
+\subsection{Transactions, not packets, are the clustered process}
+\label{sec:results-transactions}
+
+The nulls of Section~\ref{sec:results-nulls} act on packet times. A packet is the
+exchange's unit, not the market's. CME MDP3 publishes each matching-engine event --- a
+\emph{transaction}, identified by the common \texttt{transactTime} carried by every message
+it generates --- as one or more UDP datagrams, and a datagram may carry the end of one
+transaction and the start of the next. Two accounts of the tight-gap surplus are therefore
+open. Either the exchange splits transactions across back-to-back packets, in which case
+the clustering is an artefact of packetisation and a receiver that reassembled transactions
+would see none of it; or the transactions themselves arrive clustered and the packets relay
+them. The corpus decides between the two. Every message in the 3512 windows was grouped by
+\texttt{transactTime} and every packet labelled with the transactions it carries:
+$3.30 \times 10^9$ packets, $3.55 \times 10^9$ messages, $3.24 \times 10^9$ transactions;
+$3.0\%$ of packets (median window) carry parts of two transactions.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l rrrrrrrr@{}}
+\toprule
+ & 1 & 2 & 3 & 4 & 5 & 6--10 & 11--20 & 21+ \\
+\midrule
+messages per packet      & 95.897 & 2.439 & 0.869 & 0.401 & 0.188 & 0.171 & 0.027 & 0.009 \\
+packets per transaction  & 98.295 & 1.689 & 0.011 & 0.002 & 0.001 & 0.001 & 0.000 & 0.000 \\
+messages per transaction & 95.362 & 2.729 & 0.822 & 0.558 & 0.195 & 0.280 & 0.038 & 0.016 \\
+\bottomrule
+\end{tabular}
+\caption{Size distributions, percent of the pooled corpus ($3.30 \times 10^9$ packets,
+$3.24 \times 10^9$ transactions). A transaction is one packet $98.3\%$ of the time and
+two $1.7\%$ of the time; three or more packets is one transaction in ten thousand. The
+message count per transaction is the message count per packet with the split
+transactions folded back in.}
+\label{tab:tx-counts}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/tx/tx_counts.pdf}
+\caption{The three size distributions of Table~\ref{tab:tx-counts} on a logarithmic
+share axis, counts $1$--$60$. Messages per packet and per transaction have the same
+geometric decay; packets per transaction has none beyond two.}
+\label{fig:tx-counts}
+\end{figure}
+
+\paragraph{Packetisation does not produce the tight gaps.} Table~\ref{tab:tx-counts}
+gives the three size distributions. A split transaction is rare, and when it occurs its
+packets are not back-to-back: the gap between two packets of the same transaction has a
+corpus-median $p_{50}$ of $15\,\mu\mathrm{s}$, $1.6\%$ of such gaps are shorter than
+$10\,\mu\mathrm{s}$ and $0.1\%$ shorter than the $7.5\,\mu\mathrm{s}$ floor; a
+multi-packet transaction spans $15\,\mu\mathrm{s}$ at the median and $110\,\mu\mathrm{s}$
+at $p_{99}$ from first to last packet (Figure~\ref{fig:tx-gaps}, left, and
+Figure~\ref{fig:tx-starts}, right). The tight gaps sit between transactions
+(Table~\ref{tab:tx-gaps}).
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}r rrr@{}}
+\toprule
+gap shorter than & share of all packet gaps & of which inside one transaction & Poisson at the same rate \\
+\midrule
+$7.5\,\mu\mathrm{s}$ & $2.15\%$ & $0.1\%$ & $0.56\%$ \\
+$16\,\mu\mathrm{s}$  & $20.6\%$ & $5.0\%$ & $1.24\%$ \\
+$32\,\mu\mathrm{s}$  & $34.1\%$ & $4.6\%$ & $2.46\%$ \\
+\bottomrule
+\end{tabular}
+\caption{Tight packet gaps, pooled over the corpus ($3.30 \times 10^9$ gaps; bin edges
+at $7.9$, $17.8$ and $35.5\,\mu\mathrm{s}$ on the logarithmic grid of
+Figure~\ref{fig:tx-gaps}). The real stream carries $4$--$17$ times the Poisson share of
+tight gaps, and $95$--$99.9\%$ of them separate two different transactions.}
+\label{tab:tx-gaps}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/tx/tx_gaps.pdf}
+\caption{Packet interarrival gaps, pooled over the corpus, density per decade on a
+logarithmic gap axis; dotted lines at $7.5$, $16$ and $32\,\mu\mathrm{s}$. Left: gaps
+between two packets of the same transaction ($5.6 \times 10^7$) against gaps between
+packets of different transactions ($3.24 \times 10^9$); the intra-transaction distribution
+peaks at $12$--$16\,\mu\mathrm{s}$, above the floor. Right: all packet gaps against a
+rate-matched Poisson stream; the real stream's mass below $32\,\mu\mathrm{s}$ and its
+peak at the $7.5\,\mu\mathrm{s}$ floor have no counterpart in the null.}
+\label{fig:tx-gaps}
+\end{figure}
+
+\paragraph{Transactions are self-exciting.} Treating each transaction as one event at
+the time of its first packet, the transaction-start process carries the same clustering
+as the packet process (Table~\ref{tab:tx-fano}): the Fano factor of transaction counts
+rises from $7.6$ at $1\,\mathrm{ms}$ to $105$ at $1\,\mathrm{s}$, against $5.5$ to $17$
+once the idle gaps between transactions are shuffled and $1$ for Poisson, and the
+exponential-kernel MLE gives a branching ratio of $0.795$ on transaction starts against
+$0.798$ on packets, with every window's fit converged. The two gap densities of
+Figure~\ref{fig:tx-starts} (left) are indistinguishable from each other and unlike the
+Poisson curve at every scale. The self-excitation belongs to the transaction stream, which
+is to say to the market: the exchange publishes each matching event as it occurs, and the
+packet process inherits the clustering of the events.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}r rrr@{}}
+\toprule
+count window $\tau$ & transactions & transactions, idle gaps shuffled & packets \\
+\midrule
+$1\,\mathrm{ms}$   &   7.6 &  5.5 &   7.8 \\
+$10\,\mathrm{ms}$  &  21.6 & 10.8 &  22.2 \\
+$100\,\mathrm{ms}$ &  50.5 & 15.8 &  51.8 \\
+$1\,\mathrm{s}$    & 105.4 & 17.1 & 108.4 \\
+\midrule
+branching ratio $n$ & 0.795 & --- & 0.798 \\
+\bottomrule
+\end{tabular}
+\caption{Fano factor $\mathrm{Var}[C_\tau]/\mathrm{E}[C_\tau]$ of event counts, corpus
+median over 3512 windows, for transaction starts, for the same starts with the idle gaps
+between transactions randomly permuted (transactions kept intact), and for packets; Poisson
+gives $1$ at every $\tau$. Last row: exponential-kernel Hawkes branching ratio, corpus
+median, all fits converged. The within-window Fano values are lower than the
+whole-session values of Section~\ref{sec:setup-hawkes} for the reason given there.}
+\label{tab:tx-fano}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/tx/tx_starts.pdf}
+\caption{Left: gaps between consecutive transaction starts, pooled over the corpus, for
+the real stream, for the stream with idle gaps shuffled, and for a rate-matched Poisson
+stream. Right: duration of a multi-packet transaction from its first to its last packet.
+Density per decade on a logarithmic axis; dotted lines at $7.5$, $16$ and $32\,\mu\mathrm{s}$.}
+\label{fig:tx-starts}
+\end{figure}
+
+\paragraph{The tail follows the transaction process.} To separate the parts of the
+transaction process that build the queue, each window is re-simulated at $N = 1$ with
+service charged per packet at its measured absolute cost, $S_i = T\,(1 + r(\sigma_i - 1))$
+with $\sigma_i$ the packet's message count and $r$ the slope-to-floor ratio of the live
+decoder ($0.043$ on NQ book, $0.142$ on ZN book, Section~\ref{sec:crossval-floor}), so
+that a large packet adds work rather than redistributing it. Five counterfactual streams
+are built from the real one (H), each removing one ingredient. TG keeps every transaction
+intact --- its packets, their sizes and their spacing --- and permutes the idle gaps
+between transactions, removing the clustering of transactions and nothing else. TP keeps
+the transactions intact and redraws their start times uniformly over the window. TS keeps
+the real start times and permutes the transactions' shapes among them, decoupling size
+from timing. TM merges each transaction into a single packet at its start. TW keeps the
+starts and spreads a split transaction's packets by the median idle gap instead of their
+real spacing. Table~\ref{tab:tx-arms} reports the corpus-median $p_{99}$ of each stream
+and the share of the real stream's excess over $T$ that it retains.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}r r rrrrr@{}}
+\toprule
+$T$ & H & TG & TP & TS & TM & TW \\
+\midrule
+$16$  &   34.8 &   31.0 (80) &   20.7 (25) &   37.4 (114) &   34.9 (101) &   35.6 (104) \\
+$32$  &  146.8 &  100.5 (60) &   52.9 (18) &  155.9 (108) &  146.3 (100) &  148.1 (101) \\
+$64$  &  832   &  345 (37)   &  118 (7)    &  839 (101)   &  795 (95)    &  833 (100) \\
+$128$ & 5460   & 1319 (22)   &  251 (2)    & 5218 (95)    & 5035 (92)    & 5459 (100) \\
+\bottomrule
+\end{tabular}
+\caption{Single-stage $p_{99}$ in \si{\micro\second}, corpus median over 3512 windows,
+span-dependent service at the NQ slope ratio, packet-weighted; in parentheses the share
+in percent of the real stream's $p_{99} - T$ that the counterfactual retains. TG: clustering
+of transactions removed; TP: transaction timing random; TS: transaction sizes decoupled from
+timing; TM: each transaction one packet; TW: intra-transaction spacing removed. At
+$T \le 8\,\mu\mathrm{s}$ the excess is under $1\,\mu\mathrm{s}$ and the shares are not
+meaningful. The ZN slope ratio and message weighting move every cell by at most a few
+points.}
+\label{tab:tx-arms}
+\end{table}
+
+Three things follow. The tail is the transaction process: randomising transaction times
+removes $75$--$98\%$ of it. Sizes and packetisation do not enter: decoupling transaction
+sizes from timing, merging each transaction into one packet, or removing the spacing
+inside a split transaction leaves the tail within $15\%$ of its value at every service
+time, at the ZN slope as at the NQ slope. And the clustering of transactions --- the
+ordering that TG destroys --- carries $20\%$ of the tail at $16\,\mu\mathrm{s}$, $40\%$ at
+$32$, $63\%$ at $64$ and $78\%$ at $128\,\mu\mathrm{s}$, the same profile the packet-level
+gap shuffle gave in Table~\ref{tab:nulls}. The remainder, dominant at HFT service times,
+is the surplus of near-simultaneous transactions over a Poisson stream at the same rate
+(Table~\ref{tab:tx-gaps}); that surplus is itself a product of the self-excitation,
+since a renewal stream with the same rate has a quarter to a seventeenth as many tight
+gaps. The attribution in the abstract is therefore the following. The queueing tail behind
+a single-threaded receiver on this feed is produced by the clustering of matching-engine
+transactions; it is not produced by packetisation, by the message count per packet, or by
+the packet rate; and it acts on a short service time through how often transactions land
+within the service time of each other and on a long one through how long the runs of them
+last.
 
 \subsection{The same $N$ cores spent differently}
 \label{sec:results-equal-core}
@@ -1337,7 +1613,40 @@ what dispatch could achieve.
 \cmidrule(lr){3-4} \cmidrule(lr){5-6}
 $T$ & $N$ & $p_{50}$ & $p_{99}$ & $p_{50}$ & $p_{99}$ \\
 \midrule
-\multicolumn{6}{c}{\blank{paste the tab:equal-core rows printed by make\_tables.py}} \\
+ 2 & 1 &    2.00 &    2.00 &    2.00 &    2.00 \\
+ 2 & 2 &    3.70 &    3.70 &    2.00 &    2.00 \\
+ 2 & 4 &    7.10 &    7.10 &    2.00 &    2.00 \\
+ 2 & 8 &   13.90 &   13.90 &    2.00 &    2.00 \\
+\midrule
+ 4 & 1 &    4.00 &    4.00 &    4.00 &    4.00 \\
+ 4 & 2 &    5.70 &    5.70 &    4.00 &    4.00 \\
+ 4 & 4 &    9.10 &    9.10 &    4.00 &    4.00 \\
+ 4 & 8 &   15.90 &   15.90 &    4.00 &    4.00 \\
+\midrule
+ 8 & 1 &    8.00 &    8.61 &    8.00 &    8.61 \\
+ 8 & 2 &    9.70 &    9.70 &    8.00 &    8.00 \\
+ 8 & 4 &   13.10 &   13.10 &    8.00 &    8.00 \\
+ 8 & 8 &   19.90 &   19.90 &    8.00 &    8.00 \\
+\midrule
+16 & 1 &   16.00 &   34.59 &   16.00 &   34.59 \\
+16 & 2 &   17.70 &   18.31 &   16.00 &   16.00 \\
+16 & 4 &   21.10 &   21.10 &   16.00 &   16.00 \\
+16 & 8 &   27.90 &   27.90 &   16.00 &   16.00 \\
+\midrule
+32 & 1 &   32.00 &  146.14 &   32.00 &  146.14 \\
+32 & 2 &   33.70 &   52.29 &   32.00 &   48.04 \\
+32 & 4 &   37.10 &   37.71 &   32.00 &   32.00 \\
+32 & 8 &   43.90 &   43.90 &   32.00 &   32.00 \\
+\midrule
+64 & 1 &   98.88 &  820.70 &   98.88 &  820.70 \\
+64 & 2 &   65.70 &  179.84 &   64.00 &  171.38 \\
+64 & 4 &   69.10 &   87.69 &   64.00 &   72.50 \\
+64 & 8 &   75.90 &   76.51 &   64.00 &   64.00 \\
+\midrule
+128 & 1 &  364.45 & 5316.85 &  364.45 & 5316.85 \\
+128 & 2 &  164.58 &  886.40 &  128.00 &  868.98 \\
+128 & 4 &  133.10 &  247.24 &  128.00 &  223.06 \\
+128 & 8 &  139.90 &  158.49 &  128.00 &  128.00 \\
 \bottomrule
 \end{tabular}
 \caption{Real (Hawkes) arrivals, corpus medians in \si{\micro\second}: $N$ cores as an
@@ -1346,9 +1655,21 @@ servers, with no resequencing charged to the latter.}
 \label{tab:equal-core}
 \end{table}
 
-\blank{One or two sentences reading Table~\ref{tab:equal-core}: how the tandem's
-$p_{99}$ compares with the dispatch arm's at $T = 16$--$128\,\mu\mathrm{s}$, and the
-median difference, $(N-1)h$ against no hops.}
+At $T = 16$--$128\,\mu\mathrm{s}$ the dispatch arm's $p_{99}$ is at or below the
+tandem's in every cell, by a margin that is small where the tandem already removes most
+of the excess ($N = 2$: $16.0$ against $18.3\,\mu\mathrm{s}$ at $T = 16$, $48.0$ against
+$52.3$ at $32$, $171$ against $180$ at $64$, $869$ against $886$ at $128\,\mu\mathrm{s}$)
+and closes to zero at $N = 8$, where both arrangements have spare capacity. On the median
+the difference is exactly the hop cost: dispatch holds $p_{50} = T$ while the tandem pays
+$T + (N-1)h$. With the same $N$ cores, then, a design free to reorder packets matches or
+beats the tandem on the tail and wins the median by $(N-1)h$ --- before its own costs,
+which the arm does not charge: an ingress stage that assigns packets to servers, a hop to
+and from the servers, and a resequencer that holds each packet until its predecessors
+have been released, whose wait behind a slower predecessor is a queue of its own on a
+span-dependent service. The costed dispatch model is listed in
+Section~\ref{sec:future}. What the table settles is that the tandem's case does not rest on
+latency: it is preferred because it keeps an ordered stream in order without a
+resequencing stage.
 
 \subsection{Median cost is linear in $N$, exactly as $(N-1)h$}
 \label{sec:results-median}
@@ -2281,8 +2602,8 @@ to the message count; this overstates the dependence, since the measured floor e
 the slope by more than twenty to one, and it is included as an upper bound. As a correctness check the \emph{const} arm reproduces the published
 constant-service grid of Table~\ref{tab:main-corpus} to zero difference in all 28 cells.
 
-\paragraph{Message-weighted quantiles.} On this corpus $96.1\%$ of packets carry one
-message and the mean span is $1.073$, so a packet-weighted quantile is dominated by
+\paragraph{Message-weighted quantiles.} On this corpus, pooled over its $3.30 \times 10^9$ packets, $95.9\%$ of packets carry
+one message and the mean span is $1.078$ (per-window medians $96.0\%$ and $1.077$), so a packet-weighted quantile is dominated by
 singletons and changes little under any service model. Weighting by message, which counts
 a $20$-message datagram twenty times, the in-packet position distribution is concentrated
 at zero with a long upper tail:
@@ -2297,8 +2618,8 @@ in-packet position & 0 & 0 & 1 & 4 & 19 & 84 \\
 \end{tabular}
 \end{center}
 
-$93.2\%$ of messages are alone in their packet and pay no serialisation; the remaining
-$6.8\%$ constitute the tail. The live measurement reports the same shape. The comparison
+$89.0\%$ of messages are alone in their packet and pay no serialisation; the remaining
+$11.0\%$ constitute the tail. The live measurement reports the same shape. The comparison
 below is message-weighted.
 
 \begin{table}[H]
@@ -3076,61 +3397,76 @@ code.
 \section{Conclusion}
 \label{sec:conclusion}
 
-The paper's two conclusions qualify the prevailing view in HFT system design, which
-holds that the hot path should run on a single-thread event loop because every thread hop
-adds per-message latency. That view is correct below a service-time threshold and
-incorrect above it. On CME MDP3 packet arrivals both parts of the argument fail above the
-threshold, and the threshold depends on the feed.
+The paper put two questions to the prevailing view in HFT system design, which holds
+that the hot path should run on a single-thread event loop because every thread hop adds
+per-message latency. The answers qualify that view: it is correct below a service-time
+threshold and incorrect above it, and the threshold is set by the arrival process of the
+feed, which on CME is the self-exciting stream of matching-engine transactions.
 
-\paragraph{Conclusion 1: above the threshold, the hop cost is small relative to the
-cluster-wait tail.} The dominant term in end-to-end latency on a Hawkes-clustered feed
-above the threshold is the cluster-wait tail, not the mailbox handoff. On 3512 windows at $h = 1.7\,\mu\mathrm{s}$ the corpus-median
-single-thread $p_{99}$ is $2.2$, $4.6$, $12.8$ and $41.5$ times the service floor at $T =
-16, 32, 64, 128\,\mu\mathrm{s}$, i.e.\ a tail excess of $11$ to $2900$ times the hop cost;
-the $p_{99.9}$ excess is roughly twice that again. Adding a hop is $+1.7\,\mu\mathrm{s}$
-at every quantile; the tail it lets us compress is one to three orders of magnitude larger
-whenever $T$ sits above the feed's tight-gap floor. Below that floor the hop is cost only, so the rule is a threshold rule. The
-single-thread objection, that every hop is a fixed cost that no benefit recovers, does not
-hold on this feed above the threshold.
+\paragraph{Question 1: what produces the queueing tail.} The candidates were the packet
+rate, the clustering of arrivals and the number of messages per packet. The rate does not:
+utilisation is below $0.02$ at every service time an HFT hot path occupies, and a window
+with four to five times the corpus-median packet rate has the same tail relative to $T$
+(Section~\ref{sec:results-conditioning}); rate matters only from $64\,\mu\mathrm{s}$,
+where ordinary utilisation queueing begins. The message count is a second, separate
+mechanism: decode time grows about $1\,\mu\mathrm{s}$ per message, so a large packet delays
+its own later messages and holds the thread behind it; that is the live ZN far tail
+(Section~\ref{sec:fungibility-measured}), it dominates at or below the tight-gap floor and
+adds a few percent above $16\,\mu\mathrm{s}$ (Section~\ref{sec:crossval-spanrun}). The
+clustering is the cause, and Section~\ref{sec:results-transactions} locates it. The
+arrival stream is the matching engine's transaction stream relayed one packet per
+transaction ($98.3\%$ of transactions); the packets of a split transaction arrive
+$15\,\mu\mathrm{s}$ apart and $99.9\%$ of gaps inside the floor separate different
+transactions; transaction starts are self-exciting with $n = 0.795$; and redrawing their
+times removes $75$--$98\%$ of the tail while altering their sizes or packetisation leaves
+it within $15\%$. The clustering acts on the receiver through two channels whose weight
+depends on the service time: the surplus of near-simultaneous transactions over a
+rate-matched Poisson stream, which a permutation of the gap sequence preserves and which
+carries $79$--$88\%$ of the tail at $8$--$16\,\mu\mathrm{s}$, and runs of transactions,
+which the permutation destroys and which carry $63$--$78\%$ at $64$--$128\,\mu\mathrm{s}$
+(Section~\ref{sec:results-nulls}). Second-scale load variation carries none of it.
 
-\paragraph{Conclusion 2: above the threshold, a two-stage tandem has the lower tail at
-the cost of one hop on the median.} Splitting a service task into two half-length actors on separate threads joined
-by one $1.7\,\mu\mathrm{s}$ mailbox hop lowers $p_{99}$ on $100\%$ of the 3512 windows
-(nested in 276 sessions) at
-every service floor from $16$ to $128\,\mu\mathrm{s}$, cutting the corpus-median tail
-excess to between $0.03$ and $0.16$ of its single-thread value for a median cost of
-exactly $h$; the trade favours the split for any tail weight $\kappa \gtrsim 0.095$ at $T
-= 16\,\mu\mathrm{s}$ and $\kappa \gtrsim 0.0004$ at $T = 128\,\mu\mathrm{s}$. At $T \le
-8\,\mu\mathrm{s}$, at or below the feed's tight-gap floor, the split loses on $p_{99}$, as
-the design equation says it must. The pattern extends to $N > 2$: an $N$-stage tandem
-contracts the tail excess by a factor of $N$ or better on every sample path
-(Theorem~\ref{thm:reduction}) --- and in practice by far more than $N$, because a split
-that drives the per-stage service under the tight-gap floor removes the excess outright
-rather than dividing it --- while paying $(N-1)h$ at every quantile. The
-$p_{99}$-minimising stage count rises with the task length, from $1$ at $T \le
-8\,\mu\mathrm{s}$ to $2$ at $16$, $4$ at $32$ and $8$ at $64$ and $128\,\mu\mathrm{s}$, up
-to the number of natural cut points in the decode chain (four or five on CME). Above the
-floor the single-thread event loop has the higher tail and the lower median, by one hop
-per stage. At the production operating point of the reference system, a socket-to-book
-chain of $6.8$--$7.2\,\mu\mathrm{s}$, $N^\star = 1$ and the chain should not be split
-(Section~\ref{sec:kaspar}); the recommendation applies to stages above about
-$10\,\mu\mathrm{s}$ on this feed.
+\paragraph{Question 2: are two queues better than one.} Above a service-time threshold,
+yes; below it, no; and the threshold is a property of the feed. On 3512 windows at
+$h = 1.7\,\mu\mathrm{s}$ the corpus-median single-thread $p_{99}$ is $2.2$, $4.6$, $12.8$
+and $41.5$ times the service floor at $T = 16, 32, 64, 128\,\mu\mathrm{s}$, a tail excess
+of $11$ to $2900$ times the hop cost, so above the floor the hop is small against what it
+lets the pipeline compress; below the floor the hop is cost only. Splitting a task into
+two half-length actors on separate threads joined by one hop lowers $p_{99}$ on $100\%$ of
+the windows (nested in 276 sessions) at every service floor from $16$ to
+$128\,\mu\mathrm{s}$, cutting the corpus-median tail excess to between $0.03$ and $0.16$
+of its single-thread value for a median cost of exactly $h$; the trade favours the split
+for any tail weight $\kappa \gtrsim 0.095$ at $T = 16\,\mu\mathrm{s}$ and
+$\kappa \gtrsim 0.0004$ at $T = 128\,\mu\mathrm{s}$, and at $T \le 8\,\mu\mathrm{s}$ the
+split loses on $p_{99}$. An $N$-stage tandem contracts the excess by a factor of $N$ or
+better on every sample path (Theorem~\ref{thm:reduction}), in practice by far more where a
+split drives the per-stage service under the floor, while paying $(N-1)h$ at every
+quantile; only its largest stage matters. The $p_{99}$-minimising stage count rises from
+$1$ at $T \le 8\,\mu\mathrm{s}$ to $2$ at $16$, $4$ at $32$ and $8$ at $64$ and
+$128\,\mu\mathrm{s}$, up to the number of natural cut points in the decode chain. Spending
+the same $N$ cores as a dispatch pool that ignores ordering matches or beats the tandem on
+$p_{99}$ and wins the median by $(N-1)h$ (Section~\ref{sec:results-equal-core}); the
+tandem's advantage is that it keeps an ordered stream in order without a resequencing
+stage, whose cost in a dispatch design is not charged here. At the production operating
+point of the reference system, a socket-to-book chain of $6.8$--$7.2\,\mu\mathrm{s}$,
+$N^\star = 1$ and the chain should not be split (Section~\ref{sec:kaspar}); the
+recommendation applies to stages above about $10\,\mu\mathrm{s}$ on this feed.
 
-\paragraph{When one thread is the right design.} The single-thread rule is correct
+\paragraph{The single-thread rule is a threshold rule.} The single-thread rule is correct
 whenever the service time of the chain is below the feed's threshold, and on this corpus
-that includes the reference system's socket-to-book path. The rule is a threshold rule
-in both directions: below the floor, splitting adds hop cost and removes no tail; above
-it, the cluster-wait tail exceeds the hop cost and splitting reduces it. The threshold is
-set by the feed's arrival statistics. On this corpus it is set by the tight-gap structure
-of the arrival stream and is invariant to intensity and branching ratio at HFT service
-times; at longer service times both intensity and branching ratio raise the tail
+that includes the reference system's socket-to-book path. The rule holds in both
+directions: below the floor, splitting adds hop cost and removes no tail; above it, the
+cluster-wait tail exceeds the hop cost and splitting reduces it. The threshold is set by
+the feed's arrival statistics. On this corpus it is set by the tight-gap structure of the
+transaction stream and is invariant to intensity and branching ratio at HFT service times;
+at longer service times both intensity and branching ratio raise the tail
 (Section~\ref{sec:results-conditioning}). Near-critical branching ratios on CME futures
-($n \approx 0.9$ on ES trades in the literature, $n \approx 0.8$ on NQ packets in this
-corpus) have been documented for over a decade, and those clusters are what produce the
-tail. These results are for one feed and one exchange gateway. Appendix~\ref{app:synthetic}
-constructs a feed on which both dependences appear at $T = 8\,\mu\mathrm{s}$ and on
-which splitting pays where on CME it does not. On another feed the threshold, and its
-dependence on load and on clustering, must be measured.
+($n \approx 0.9$ on ES trades in the literature, $n \approx 0.8$ on NQ transactions and
+packets in this corpus) have been documented for over a decade, and those clusters are
+what produce the tail. These results are for one feed and one exchange gateway.
+Appendix~\ref{app:synthetic} constructs a feed on which both dependences appear at
+$T = 8\,\mu\mathrm{s}$ and on which splitting pays where on CME it does not. On another
+feed the threshold, and its dependence on load and on clustering, must be measured.
 
 \paragraph{Practical consequences.} The recommendation is that HFT designers
 measure end-to-end latency of the assembled pipeline under actual market conditions,
@@ -3199,14 +3535,20 @@ Theorem~\ref{thm:reduction} is a bound whose slack depends on the arrival law; t
 measures that slack ($\gamma = 3.3$ and $2.7$ where it is defined, against the
 guaranteed $\gamma \ge 1$) rather than deriving it, and a closed form for the slack on Hawkes input is open.
 
-None of these caveats reverses the two conclusions on this corpus, subject to the two
-tests of Sections~\ref{sec:results-nulls} and~\ref{sec:results-equal-core}.
+None of these caveats reverses the two answers on this corpus. The two tests deferred
+in an earlier draft, the three-null comparison of Section~\ref{sec:results-nulls} and the
+equal-core comparison of Section~\ref{sec:results-equal-core}, have been run, and
+Section~\ref{sec:results-transactions} identifies the clustered process.
 
 % =====================================================================
 
 \section{Future work}
 \label{sec:future}
 \begin{itemize}
+    \item Dispatch with its costs charged: an ingress stage, a hop to and from $N$
+whole-packet servers, and an in-order resequencer, under constant and span-dependent
+service, reported beside the tandem and the uncharged M/D/$N$ bound of
+Section~\ref{sec:results-equal-core}.
     \item Multi-instrument replication (ES, BTC).
     \item Closed form for the slack in Theorem~\ref{thm:reduction} under Hawkes input,
 i.e.\ the exponent $\gamma - 1$ as a function of $(\rho, n, \beta T)$. By the reduction
@@ -3352,6 +3694,17 @@ Ozaki, T. (1979). Maximum likelihood estimation of Hawkes' self-exciting point p
 Filimonov, V., Sornette, D. (2012). Quantifying reflexivity in financial markets: toward a
 prediction of flash crashes. \textit{Physical Review E} 85, 056108.
 
+\bibitem[Filimonov and Sornette(2015)]{filimonovsornette2015}
+Filimonov, V., Sornette, D. (2015). Apparent criticality and calibration issues in the
+Hawkes self-excited point process model: application to high-frequency financial data.
+\textit{Quantitative Finance} 15(8), 1293--1314.
+
+\bibitem[Achab et al.(2018)]{achab2018branching}
+Achab, M., Bacry, E., Ga\"iffas, S., Mastromatteo, I., Muzy, J.-F. (2018). Uncovering
+causality from multivariate Hawkes integrated cumulants; analysis of order book flows using
+a nonparametric estimation of the branching ratio matrix. \textit{Journal of Machine
+Learning Research} 18(192), 1--28; arXiv 1706.03411.
+
 \bibitem[Hardiman et al.(2013)]{hardimanbercotbouchaud2013}
 Hardiman, S. J., Bercot, N., Bouchaud, J.-P. (2013). Critical reflexivity in financial
 markets: a Hawkes process analysis. arXiv 1302.1405.
@@ -3359,6 +3712,9 @@ markets: a Hawkes process analysis. arXiv 1302.1405.
 \bibitem[Bacry et al.(2015)]{bacry2015review}
 Bacry, E., Mastromatteo, I., Muzy, J.-F. (2015). Hawkes processes in finance.
 \textit{Market Microstructure and Liquidity} 1(1).
+
+\bibitem[Yoon(2026)]{yoon2026matching}
+Yoon, J. (2026). The world's fastest matching engine algorithm. arXiv 2606.01183.
 
 \bibitem[Byrd et al.(2020)]{byrd2020abides}
 Byrd, D., Hybinette, M., Balch, T. H. (2020). ABIDES: Towards high-fidelity market

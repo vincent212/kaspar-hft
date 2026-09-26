@@ -336,3 +336,41 @@ Wording rule for §0-A: do not write "clustering does not matter" from the const
 alone. The clustering answer in the abstract, introduction and conclusions must come from this marked
 experiment. If H ≫ HS and H ≫ GS but GP ≈ H, the answer is "transaction trains: large packets arriving
 in runs"; that is still Hawkes (marked), and the title can stand.
+
+## 9. Status after the server run, 2026-09-25
+
+**Done (commit on this branch):**
+- §2 run: `qsim_run.py` on the full cache, 3512 windows, `Thm 2 bound check: 0`; all 410 H/P columns
+  bit-identical to the pre-handoff grid; Tables 1 and 2 unchanged row for row. Output
+  `figs/qsim_grid_v3/qsim_grid.parquet` (local, gitignored).
+- §3 blanks: all five filled; `\blank` macro removed; `pdflatex` ×3 clean, 0 Overfull, 0 undefined, 71 pages.
+- §4 null result: **the gap shuffle keeps 88 / 79 / 59 / 37 / 23 % of the single-stage p99 excess at
+  T = 8 / 16 / 32 / 64 / 128 µs; the 1 s-binned null keeps 0 / 0 / 13 / 6 / 2 %.** Mixed by T, reported by T
+  in §4.2. The title stands because §8.2's experiment (below) shows the gap surplus itself is a product of
+  transaction self-excitation.
+- §5 equal-core: M/D/N p99 ≤ tandem in every cell (N=2: 16.0 vs 18.3 at T=16 … 869 vs 886 at 128), p50 = T
+  vs T+(N−1)h; written as "the tandem's case rests on ordering". Costed dispatch model listed in Future work.
+- §0 A/B: abstract, §1.5 (two numbered question sets with pointers; fourth part added) and §11 (one
+  paragraph per question, "When one thread…" renamed) rewritten. No question-form headings remain.
+- §8.2 experiment run at corpus scale as **new §4.3 "Transactions, not packets, are the clustered
+  process"** — `qsim_tx.py` (E1 size/gap distributions, E2 Fano + Hawkes on transaction starts, E3
+  counterfactual arms TG/TP/TS/TM/TW), `make_tx_figs.py` (three figures in `figs/tx/`, LaTeX rows), and
+  `make_spans.py --trades` (per-packet trade count and min/max transactTime; `figs/qsim_spans_tr/`, local).
+  Result: 98.3 % of transactions are one packet; split-transaction packets are 15 µs apart; 99.9 % of
+  gaps < 7.5 µs separate different transactions; transaction starts have n = 0.795 (packets 0.798) and Fano
+  105 vs 17 shuffled at 1 s; TP removes 75–98 % of the tail, TS/TM/TW leave it within 15 %; TG (clustering of
+  transactions removed) keeps 80 / 60 / 37 / 22 % at 16 / 32 / 64 / 128 µs, matching the packet gap shuffle.
+- §6 items: 96.1 % / 1.073 / 93.2 % replaced by the pooled corpus values 95.9 % / 1.078 / 89.0 % (consistent).
+  Filimonov–Sornette 2015 (apparent criticality) cited and answered in §3.2; Achab et al. 2018 and Yoon 2026
+  added; contribution list gains the live cross-validation and ZN-tail part.
+
+**Remaining (author / `.msg` logs):**
+- "8.29 million messages" (§6.1) vs the §6.5 span table's 6.81 M: the report gives 8.29 M for the 53-min
+  capture and 7.4 M at qlen 0; the span table's subset is not defined anywhere. Needs the logs.
+- Trade-stream message counts and p1 on ZN for §8.3; hot-path residual; reproducibility lines (commit, Python
+  / numba versions, MLE init, hardware); Hawkes GOF test (§3.2 now carries the descriptive-fit caveat instead).
+- §8.1 costed dispatch: `dispatch_full()` in `qsim_marked.py` implements ingress → N servers → resequencer
+  with both hops; not yet run on the corpus or written up. `qsim_marked.py`'s large-packet arms are
+  superseded by `qsim_tx.py` and were not run.
+- §8.2 trade-bearing subset: `w{wid}_TR` is extracted; the E3 arms were run on all transactions, not the
+  trade subset.
