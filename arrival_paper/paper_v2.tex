@@ -2714,6 +2714,52 @@ order-entry times the CME public feed does not carry. It is consistent with that
 mechanism and does not prove it: a reaction to the previous transaction that is faster than
 the engine's backlog would look the same from here.
 
+Table~\ref{tab:tight-pairs} tests what the tight pairs are made of. It takes every pair of
+consecutive transactions on the engine clock in 40 sessions ($512$ million pairs) and
+compares pairs less than $16\,\mu\mathrm{s}$ apart with pairs $0.1$ to $1\,\mathrm{ms}$
+apart. A transaction is labelled by the first matching kind among trade, delete, new and
+change. Tight pairs are ordinary book traffic. Their composition is close to that of loose
+pairs, and only $2.0\%$ of them start with a trade. After a trade, the two differ: the next
+transaction is another trade in $11.7\%$ of tight pairs against $2.2\%$ of loose ones, and a
+delete in $37.4\%$ against $23.5\%$. A trade followed within microseconds by a further trade
+or a cancellation is the pattern a race would leave, and it is enriched in tight pairs.
+The table cannot measure how much of the engine's activity is racing: the losers of a race
+to take liquidity are rejected and never reach the public feed, and a race to cancel
+appears only as deletes, which dominate tight and loose pairs alike. What the feed shows is
+that tight pairs are mostly quote placements and cancellations, and that the trade-led
+part carries the race signature.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{lrr}
+\hline
+Consecutive transactions, engine clock & gap $<16\,\mu\mathrm{s}$ & gap $0.1$--$1\,\mathrm{ms}$ \\
+\hline
+share of all pairs & 25.8\% & 27.2\% \\
+first is a trade & 2.0\% & 3.5\% \\
+first is a delete & 41.2\% & 39.8\% \\
+first is a new order & 46.0\% & 39.5\% \\
+first is a change & 10.8\% & 17.2\% \\
+\hline
+after a trade: next is a trade & 11.7\% & 2.2\% \\
+after a trade: next is a delete & 37.4\% & 23.5\% \\
+after a trade: next is a new order & 45.5\% & 68.2\% \\
+\hline
+same side & 52.5\% & 53.9\% \\
+same price & 20.5\% & 17.3\% \\
+\hline
+\end{tabular}
+\caption{What tight pairs of transactions are made of. Forty sessions, $512$ million
+consecutive pairs on the engine clock; the middle bin ($16$--$100\,\mu\mathrm{s}$, $31.5\%$
+of pairs) is omitted. Tight pairs are mostly quote placements and cancellations, in about
+the same mix as loose pairs; only $2\%$ start with a trade. After a trade, a tight follow-up
+is five times as likely to be another trade and more likely to be a cancellation, the
+signature of a race. Rejected race orders do not appear on the public feed, so the table
+does not measure the share of racing.}
+\label{tab:tight-pairs}
+\end{table}
+
 The fitted self-excitation is a different phenomenon at a different scale. The
 exponential-kernel Hawkes fit on the engine clock gives a branching ratio of $0.803$ and a
 decay time $1/\beta$ of $155\,\mu\mathrm{s}$ (5th--95th percentile $126$--$192$; on the

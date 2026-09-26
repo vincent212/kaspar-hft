@@ -25,10 +25,11 @@ def one(path):
     d = d[d.transactTime > 0]
     if len(d) < 100_000: return None
     d['trade'] = d.typ == 'T'; d['del'] = d.action == '2'; d['new'] = d.action == '0'; d['chg'] = d.action == '1'
+    d = d.sort_values('transactTime', kind='stable')
     g = d.groupby('transactTime', sort=True)
-    tx = pd.DataFrame({'t_st': g.sendingTime.min(), 'trade': g.trade.any(), 'dl': g['del'].any(), 'nw': g.new.any(), 'ch': g.chg.any(),
-                       'side': g.side.agg(lambda s: s.dropna().iloc[0] if s.notna().any() else ''),
-                       'px': g.pxd.agg(lambda s: s.dropna().iloc[0] if s.notna().any() else np.nan)}).reset_index()
+    agg = g.agg(t_st=('sendingTime', 'min'), trade=('trade', 'any'), dl=('del', 'any'), nw=('new', 'any'), ch=('chg', 'any'))
+    firstq = d[d.side.notna()].drop_duplicates('transactTime').set_index('transactTime')[['side', 'pxd']]   # first quote message
+    tx = agg.join(firstq).reset_index().rename(columns={'pxd': 'px'}); tx['side'] = tx.side.fillna('')
     tx['kind'] = np.select([tx.trade, tx.dl, tx.nw, tx.ch], ['trade', 'delete', 'new', 'change'], 'other')
     a, b = tx.iloc[:-1].reset_index(drop=True), tx.iloc[1:].reset_index(drop=True)
     gap_eng = (b.transactTime - a.transactTime).values; gap_gw = (b.t_st - a.t_st).values
