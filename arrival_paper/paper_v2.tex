@@ -1488,10 +1488,30 @@ $T$ & $N$ & real & uniform & gap shuffle & 1\,s-binned \\
 \bottomrule
 \end{tabular}
 \caption{Corpus-median $p_{99}$ in \si{\micro\second} under the real arrivals and the
-three nulls, for every service floor $T$ and stage count $N$ of the sweep. Uniform is
-the Poisson null of Table~\ref{tab:main-corpus}. The gap shuffle keeps the gap
-distribution and destroys the ordering; the binned null keeps the second-scale rate and
-destroys the microsecond ordering.}
+three nulls of Section~\ref{sec:setup-nulls}, for every service floor $T$ and stage
+count $N$ of the sweep. Uniform is the Poisson null of Table~\ref{tab:main-corpus}; the
+gap shuffle keeps the multiset of gaps and destroys their ordering; the binned null keeps
+each one-second packet count and destroys the microsecond structure. What the table
+shows: at $T \le 4\,\mu\mathrm{s}$ every arm sits on the floor $T + (N-1)h$, because no
+gap in the stream is shorter than $4\,\mu\mathrm{s}$ and no queue can form. At $N = 1$
+and $T \ge 8\,\mu\mathrm{s}$ the real stream carries an excess over $T$ ($0.61$, $18.6$,
+$114$, $757$ and $5189\,\mu\mathrm{s}$ at $T = 8, 16, 32, 64, 128$) that the binned null
+and the uniform null remove almost entirely (both at or within $2$--$15\%$ of the excess
+in every cell, and identical to each other at $8$ and $16\,\mu\mathrm{s}$), while the gap
+shuffle retains $88\%$, $79\%$, $59\%$, $37\%$ and $23\%$ of it. At $N \ge 2$ the four
+arms converge on $T + (N-1)h$ as soon as the per-stage service $T/N$ falls below the
+floor (at $T = 16$, $N = 2$: $18.3$, $17.7$, $18.2$, $17.7$). What follows: the tail is
+not second-scale load, since a stream with the real busy seconds and random microsecond
+placement has none of it; at $8$--$32\,\mu\mathrm{s}$ the tail is set mainly by how many
+gaps shorter than $T$ the stream contains, since a stream with the same gaps in random
+order keeps most of it; and from $64\,\mu\mathrm{s}$ the ordering of those gaps into runs
+carries the majority. The reason is the Lindley recursion itself: a single gap shorter
+than $T$ costs the next packet one wait, which the following long gap drains, so a short
+service time is hit by every tight gap whether or not its neighbours are tight, whereas a
+long service time needs a sustained run of tight gaps before the backlog exceeds one
+service, and runs are what the shuffle removes. The tandem's benefit does not depend on
+which channel carries the tail: a cut that takes $T/N$ below the floor removes the excess
+under every arm.}
 \label{tab:nulls}
 \end{table}
 
