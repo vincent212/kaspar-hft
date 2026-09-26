@@ -2683,6 +2683,117 @@ works through a backlog its departures are spaced by exactly that time. The edge
 receiver's gap distribution at $7.5\,\mu\mathrm{s}$ (Figure~\ref{fig:tx-gaps}) and the
 mass of gaps just above it are the publisher draining its backlog.
 
+\subsection{Under backlog the publisher sends more packets, not bigger ones}
+\label{sec:exchange-drain}
+
+If the publisher's service time is fixed per packet, a backlog can be drained in two ways:
+by keeping the spacing and sending many packets, or by packing more into each packet. The
+end-of-event tapes separate the two. On 20 sessions ($2.43 \times 10^8$ packets) we take,
+for each packet, the NQ front-month messages it carries (its span), the number of distinct
+transactions in it, the gap to the previous NQ packet on the publisher's clock, and the
+publisher delay of its first transaction, $\texttt{sendingTime} - \texttt{transactTime}$,
+as the measure of how far behind the publisher is.\footnote{Channel 318 carries other
+instruments besides NQ front-month, and the publisher packs their messages into the same
+packets. The span here counts NQ front-month messages only, so it is not the packet's
+size in bytes, and the publisher's backlog includes work for instruments we do not
+decode. Doing this properly means measuring the whole channel and modelling how activity
+in one instrument excites activity in the others (cross-excitation, a multivariate
+Hawkes process), rather than treating NQ as a stream on its own. On NQ the other
+instruments are thin. On ZN they are not: the Treasury futures along the yield curve
+trade against each other, a move in one is likely to trigger quotes and trades in the
+others within microseconds, and where they share ZN's channel the publisher would carry
+those reactions in the same packets. Cross-excitation along the curve is therefore a
+candidate cause of the large ZN packets of Section~\ref{sec:crossval-spanrun}. It is
+untested here and listed in Section~\ref{sec:future}.}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l r r r@{}}
+\toprule
+publisher delay of the & share of & mean span & packets with $\ge 2$ \\
+packet's first transaction & packets & (NQ messages) & transactions \\
+\midrule
+$< 100\,\mu\mathrm{s}$           & $52.3\%$ & $1.000$ & $0.02\%$ \\
+$100$--$200\,\mu\mathrm{s}$      & $21.3\%$ & $1.016$ & $1.2\%$ \\
+$200$--$500\,\mu\mathrm{s}$      & $14.9\%$ & $1.237$ & $8.9\%$ \\
+$0.5$--$1\,\mathrm{ms}$          & $5.9\%$  & $1.278$ & $11.3\%$ \\
+$1$--$5\,\mathrm{ms}$            & $5.2\%$  & $1.440$ & $18.2\%$ \\
+$> 5\,\mathrm{ms}$               & $0.4\%$  & $1.603$ & $20.6\%$ \\
+\bottomrule
+\end{tabular}
+\caption{Packet size against the publisher's backlog; 20 sessions, $2.43 \times 10^8$
+packets. What the table shows: when the publisher is less than $100\,\mu\mathrm{s}$ behind,
+packets carry exactly one NQ message; when it is more than $5\,\mathrm{ms}$ behind, they
+carry $1.6$ on average and one in five holds two or more transactions. What follows:
+packets get bigger when the publisher falls behind. Table~\ref{tab:drain-gap} shows which
+packets.}
+\label{tab:drain-delay}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l r r r r r@{}}
+\toprule
+gap to previous & share of & mean span & packets with $\ge 2$ & adjacent on & median other \\
+NQ packet & packets & (NQ messages) & transactions & the channel & packets between \\
+\midrule
+$< 7.5\,\mu\mathrm{s}$             & $1.0\%$  & $1.006$ & $0.08\%$ & $100\%$  & 0 \\
+$7.5$--$10\,\mu\mathrm{s}$ (floor) & $9.9\%$  & $1.007$ & $0.40\%$ & $100\%$  & 0 \\
+$10$--$16\,\mu\mathrm{s}$          & $6.8\%$  & $1.096$ & $2.8\%$  & $95.7\%$ & 0 \\
+$16$--$32\,\mu\mathrm{s}$          & $14.2\%$ & $1.141$ & $6.7\%$  & $36.2\%$ & 1 \\
+$32$--$100\,\mu\mathrm{s}$         & $25.2\%$ & $1.073$ & $3.4\%$  & $20.6\%$ & 2 \\
+$0.1$--$1\,\mathrm{ms}$            & $26.9\%$ & $1.106$ & $4.5\%$  & $12.9\%$ & 4 \\
+\bottomrule
+\end{tabular}
+\caption{Packet size against the gap to the previous NQ packet on the publisher's clock;
+same packets as Table~\ref{tab:drain-delay}. The last two columns count the channel's
+other packets sent between two consecutive NQ packets, from the channel-wide packet index
+of the tape. What the table shows: packets sent at the floor carry one NQ message
+($1.007$ on average) and in every case follow the previous NQ packet with no other packet
+of the channel between them. Bigger packets appear after gaps of $10$ to $32\,\mu\mathrm{s}$,
+which from $16\,\mu\mathrm{s}$ usually contain at least one packet for another instrument.
+What follows: the $7.5\,\mu\mathrm{s}$ spacing is the spacing of the whole channel, not of
+NQ alone, and the publisher does not answer a backlog with bigger packets sent at the
+floor.}
+\label{tab:drain-gap}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l r r@{}}
+\toprule
+publisher delay (floor packets only, & mean span & packets with $\ge 2$ \\
+gap $7.5$--$10\,\mu\mathrm{s}$) & (NQ messages) & transactions \\
+\midrule
+$< 100\,\mu\mathrm{s}$          & $1.000$ & $0.04\%$ \\
+$100$--$500\,\mu\mathrm{s}$     & $1.006$ & $0.50\%$ \\
+$0.5$--$5\,\mathrm{ms}$         & $1.026$ & $1.0\%$ \\
+$> 5\,\mathrm{ms}$              & $1.114$ & $2.0\%$ \\
+\bottomrule
+\end{tabular}
+\caption{Packets sent at the floor, by the publisher's backlog. What the table shows: even
+more than $5\,\mathrm{ms}$ behind, packets sent back-to-back at the floor carry $1.1$ NQ
+messages on average and $98\%$ of them hold a single transaction. What follows: pacing
+holds under load. The publisher keeps its spacing when it is far behind and does not
+switch to fuller packets at the same rate.}
+\label{tab:drain-floor}
+\end{table}
+
+Three things follow. First, pacing holds under load: even when the publisher is
+milliseconds behind, the packets it sends back-to-back are single-message packets at about
+$7.5\,\mu\mathrm{s}$ spacing (Table~\ref{tab:drain-floor}), and that spacing holds across
+the whole channel (Table~\ref{tab:drain-gap}). Second, coalescing happens elsewhere. Bigger
+NQ packets come after gaps of $10$ to $32\,\mu\mathrm{s}$, so when packets are bigger they
+also leave more slowly, which fits a service time per packet that grows with its size, the
+span-dependent service of Section~\ref{sec:crossval-spanrun}. Third, a receiver sees a
+burst at the engine as more packets, not bigger ones: a long run of small packets at the
+floor, with an occasional larger packet after a longer gap. This is the arrival pattern
+that makes the receiver's service time, compared with $7.5\,\mu\mathrm{s}$, the quantity
+that sets its tail (Section~\ref{sec:exchange-tandem}).
+
 \subsection{The receiver is the second stage of a tandem that starts at the exchange}
 \label{sec:exchange-tandem}
 
@@ -4270,7 +4381,13 @@ constant strength would not be seen by that test.
 
 \paragraph{Anything beyond NQ.} One instrument was measured. On ZN the live data show the
 message count per packet rising with queue depth, where on NQ it falls, and whether the
-two channels compound there has not been tested; no ZN corpus exists.
+two channels compound there has not been tested; no ZN corpus exists. The paper also
+treats NQ front-month as a stream on its own, while the publisher serves the whole
+channel. On NQ the other instruments are thin; on ZN the Treasury futures along the yield
+curve are likely to excite one another, and where they share a channel the publisher
+would carry those reactions in the same packets. Cross-excitation between instruments is
+a candidate cause of ZN's large packets that the paper does not test
+(Section~\ref{sec:exchange-drain}).
 
 \subsection{How to reduce the tail}
 \label{sec:concl-mitigate}
@@ -4415,10 +4532,19 @@ signal, or pacing by the gateway or matching engine (Section~\ref{sec:concl-cann
 Separating them needs order-entry times for all participants, the data
 \citet{aquilina2022arms} had for the London Stock Exchange. Races of the kind they found
 are the leading hypothesis.
-    \item The composition of near-simultaneous transaction pairs (gap below
-$16\,\mu\mathrm{s}$) against loose pairs ($100\,\mu\mathrm{s}$--$1\,\mathrm{ms}$): message
-type, security, side and price level. This is possible on the public feed and narrows the
-candidates without separating reaction from common reaction.
+    \item The composition of near-simultaneous transaction pairs by security, across the
+whole channel. Table~\ref{tab:tight-pairs} gives message type, side and price level for NQ
+front-month; which other instruments' transactions sit within microseconds of an NQ
+transaction is not measured.
+    \item Cross-excitation between instruments, above all on ZN. The Treasury futures
+along the yield curve (two-, five-, ten- and thirty-year and the ultra bond) are priced off
+one another, so a move in one is likely to trigger quotes and trades in the others within
+microseconds. Where they share ZN's channel, those reactions reach the publisher together
+and leave in the same packets, which would make large packets a product of the curve and
+not of ZN alone. The test is a multivariate Hawkes fit across the channel's instruments
+on the engine clock, the share of each instrument's triggering that comes from the others,
+and packet size on the whole channel conditioned on that cross-triggering
+(Section~\ref{sec:exchange-drain}). It needs a full-channel ZN recording.
     \item A power-law Hawkes kernel against the exponential, fitted on the engine clock.
     \item The publisher queue measured channel-wide rather than on NQ front-month only, and
 on ES and ZN, so that its service interval and backlog are measured under the full load it

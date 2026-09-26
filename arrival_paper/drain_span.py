@@ -16,9 +16,9 @@ def one(path):
     d = d[(d.transactTime > 0) & (d.sendingTime > 0)]
     if len(d) < 100_000: return None
     g = d.groupby('packet_seq')
-    p = pd.DataFrame({'st': g.sendingTime.min(), 'msgs': g.size(), 'ntx': g.transactTime.nunique(), 'tt0': g.transactTime.min()}).sort_values('st')
-    p['gap_us'] = p.st.diff() / 1e3; p['delay_us'] = (p.st - p.tt0) / 1e3
-    return p.iloc[1:][['gap_us', 'delay_us', 'msgs', 'ntx']]
+    p = pd.DataFrame({'seq': g.packet_seq.first(), 'st': g.sendingTime.min(), 'msgs': g.size(), 'ntx': g.transactTime.nunique(), 'tt0': g.transactTime.min()}).sort_values('st')
+    p['dseq'] = p.seq.diff(); p['gap_us'] = p.st.diff() / 1e3; p['delay_us'] = (p.st - p.tt0) / 1e3
+    return p.iloc[1:][['gap_us', 'delay_us', 'msgs', 'ntx', 'dseq']]
 
 def tab(p, col, bins, lab):
     print(f"\n=== by {lab} ===")
@@ -38,6 +38,11 @@ def main():
                       (100, 1000, '0.1-1 ms'), (1000, 1e12, '> 1 ms')], 'gap to previous packet (publisher clock)')
     tab(p, 'delay_us', [(-1e12, 100, '< 100 us'), (100, 200, '100-200 us'), (200, 500, '200-500 us'), (500, 1000, '0.5-1 ms'), (1000, 5000, '1-5 ms'),
                         (5000, 1e12, '> 5 ms')], 'publisher delay of the first transaction (backlog proxy)')
+    print("\n=== other-channel packets between consecutive NQ packets (packet_seq difference - 1), by NQ gap ===")
+    print(f"{'bin':>18} | {'adjacent (0 between)':>20} | {'1 between':>9} | {'2-4':>6} | {'5+':>6} | {'median between':>14}")
+    for lo, hi, name in [(-1, 7.5, '< 7.5 us'), (7.5, 10, '7.5-10 us (floor)'), (10, 16, '10-16 us'), (16, 32, '16-32 us'), (32, 100, '32-100 us'), (100, 1000, '0.1-1 ms')]:
+        k = p[(p.gap_us > lo) & (p.gap_us <= hi)].dseq - 1
+        print(f"{name:>18} | {(k==0).mean()*100:19.2f}% | {(k==1).mean()*100:8.2f}% | {((k>=2)&(k<=4)).mean()*100:5.2f}% | {(k>=5).mean()*100:5.2f}% | {k.median():14.0f}")
     f = p[(p.gap_us > 7.5) & (p.gap_us <= 10)]
     tab(f, 'delay_us', [(-1e12, 100, '< 100 us'), (100, 500, '100-500 us'), (500, 5000, '0.5-5 ms'), (5000, 1e12, '> 5 ms')],
         'publisher delay, packets sent at the floor only (gap 7.5-10 us)')
