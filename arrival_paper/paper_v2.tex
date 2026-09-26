@@ -117,27 +117,45 @@ the receiver. It holds that $(N-1) h$ adds to every message's end-to-end latency
 each additional stage is a fixed cost that no throughput or tail benefit recovers.
 
 That argument holds when the single-server throughput $1/T$ exceeds the peak arrival
-rate. On CME MDP3 the arrival process is strongly self-exciting: packets arrive in Hawkes-clustered bursts
-\citep{filimonovsornette2012,hardimanbercotbouchaud2013,bacry2015review}. The exchange
-publishes each matching-engine event --- a transaction --- as, almost always, one
-packet, so the packet stream relays the timing of transactions without adding
-clustering of its own (Section~\ref{sec:results-transactions}). During such bursts the instantaneous arrival rate exceeds the single-thread event loop's service
-rate $1/T$, and cluster-induced queueing produces a tail one to two orders of magnitude
-larger than $h$. The paper's central empirical observation, on over a year of NQ front-month packet
-arrivals, is that this cluster tail dominates end-to-end latency. The $99$th-percentile
-latency ($p_{99}$) of a constant-service queue driven by real packet arrivals is about
-twice the service time for a $16\,\mu\mathrm{s}$ task and between four and five times for
-a $32\,\mu\mathrm{s}$ task, and more in busy windows. A Poisson stream with
-the same number of arrivals has no tail at $16\,\mu\mathrm{s}$ and a small one at
-$32\,\mu\mathrm{s}$; over this band the tail is almost entirely a clustering effect.
+rate. On CME MDP3 the arrival process is strongly self-exciting: packets arrive in
+Hawkes-clustered bursts \citep{filimonovsornette2012,hardimanbercotbouchaud2013,bacry2015review}.
+The exchange publishes each matching-engine event, a transaction, as almost always one
+packet, so the packet stream relays the timing of transactions without adding clustering
+of its own (Section~\ref{sec:results-transactions}). The peak arrival rate has a hard
+ceiling, however. The exchange's market-data publisher sends at most one packet per
+\emph{publisher period}, about $7.5\,\mu\mathrm{s}$ on this feed
+(Section~\ref{sec:exchange-publisher}); during a burst it sends packets exactly that far
+apart. A receiver that handles every packet in less than one publisher period therefore
+never queues on packet arrivals, however bursty the market: it is done with each packet
+before the next can arrive. That is the design goal, and the paper's own production
+receiver meets it, at about $7\,\mu\mathrm{s}$ for a one-message packet
+(Section~\ref{sec:crossval-floor}). Below the publisher period the single-thread argument is
+simply right, and splitting the chain adds hop cost for nothing.
 
-The question is then whether splitting the pipeline into $N > 1$ stages, each an
-independent actor on its own core with per-stage service $T/N$, reduces the tail, and
-whether the additional median cost $(N-1)h$ is small relative to the tail reduction.
-Neither architecture is better unconditionally. Both conditions hold above a service
-time that depends on the feed's arrival statistics and fail below it; the paper measures
-that threshold on one feed, and its recommendation is that designers measure it on
-theirs.
+A receiver that is slower than the publisher period, whether because its chain carries a
+strategy stage or an order path, because it decodes a packet of several messages, or
+because its service time occasionally spikes, falls behind on every packet of a burst.
+There cluster-induced queueing produces a tail one to two orders of magnitude larger than
+$h$. The paper's central empirical observation, on over a year of NQ front-month packet
+arrivals, is that this cluster tail dominates end-to-end latency once the service time
+is above the publisher period. The $99$th-percentile latency ($p_{99}$) of a
+constant-service queue driven by real packet arrivals is about twice the service time for
+a $16\,\mu\mathrm{s}$ task and between four and five times for a $32\,\mu\mathrm{s}$ task,
+and more in busy windows. A Poisson stream with the same number of arrivals has no tail
+at $16\,\mu\mathrm{s}$ and a small one at $32\,\mu\mathrm{s}$; over this band the tail is
+almost entirely a clustering effect.
+
+The question is then, for a chain that cannot be brought under the publisher period,
+whether splitting it into $N > 1$ stages, each an independent actor on its own core with
+per-stage service $T/N$, reduces the tail, and whether the additional median cost
+$(N-1)h$ is small relative to the tail reduction. Neither architecture is better
+unconditionally. Both conditions hold above a service time set by the feed, the
+publisher period, and fail below it; the paper measures that threshold on one feed, and
+its recommendation is that designers measure it on theirs. For a receiver already under
+the period, the paper's second finding matters instead: the tail it still carries comes
+from packets of several messages and from variable service, and the levers there are the
+cost per message and the spread of service, not the thread count
+(Sections~\ref{sec:crossval-spanrun} and~\ref{sec:fungibility-measured}).
 
 \subsection{Prior recommendations for single-thread hot paths}
 \label{sec:intro-singlethread-priors}
