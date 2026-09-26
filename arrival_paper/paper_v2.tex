@@ -47,61 +47,46 @@ How Matching-Engine Transactions Cause Long Tails in Market-Data Handlers}
 The prevailing view in high-frequency-trading (HFT) system design is that the entire hot
 path --- market-data decode, order-book application, strategy evaluation, order
 construction --- should run on a single-threaded event loop, because each additional
-thread hop adds wall-clock latency. This paper puts two questions to that view on CME
-MDP3 market data (NQ front-month, channel 318, regular trading hours, 2025--2026: 276
-sessions, 3512 thirty-minute windows, $3.3 \times 10^9$ packets). First, what produces the
+thread hop adds wall-clock latency. This paper puts two questions to that view, on more
+than a year of CME market data for the NQ front-month contract. First, what produces the
 queueing tail behind a single-threaded receiver: the packet rate, the clustering of
-arrivals, or the number of messages per packet? Second, is a servicing chain cut into two
-or more stages on separate threads better than one thread, and when?
+arrivals, or the number of messages per packet? Second, is a servicing chain cut into
+stages on separate threads better than one thread, and when?
 
 On the first question: the tail is produced by the timing of the matching engine's
 transactions and, at the service times production receivers run at, by the number of
-messages each packet carries. It is not produced by the rate: utilisation is tiny at the
-service times an HFT hot path occupies, and the busiest windows have the same tail
-relative to the service time as the quietest. At about $7\,\mu\mathrm{s}$, where production
-receivers run, just under the publisher's packet spacing, most of the tail comes from long
-packets, whose messages are decoded one after another while the packets behind them
-queue; from $16\,\mu\mathrm{s}$ up they add a few percent. Service times also vary: on a
-live receiver, messages with nothing queued ahead still reach twice the decode floor at
-$p_{99}$, and any such slow service can start a queue; the simulation does not model this,
-and its source is left open. The tail is not produced by the exchange's packetisation:
-almost every transaction fits in one packet, and the short gaps lie between different
-transactions. Putting transactions at random moments removes most of the tail; changing
-their sizes or how they are packed does not. The timing acts in two ways whose weight
-depends on the service time. At $16\,\mu\mathrm{s}$ the tail is carried mainly by
-consecutive transactions that the publisher sends back to back, and a stream with the same
-gaps in random order keeps most of it; from $64\,\mu\mathrm{s}$ it is carried by runs of
-transactions, which that shuffle breaks up. The runs are the self-excitation a Hawkes fit
-measures. One stage upstream, the exchange's own timestamps show where the short gaps come
-from: on the matching engine's clock one consecutive transaction in six follows the
-previous one by less than $7.5\,\mu\mathrm{s}$, against about one packet in a hundred on the
-publisher's clock, and the delay from engine to packet grows about tenfold during engine
-bursts. CME's market-data publisher is a queue that sends about one packet every
-$7.5\,\mu\mathrm{s}$, and a receiver is the second stage of a tandem that starts at the
-exchange. Why the engine bursts, with transactions a fraction of a microsecond apart,
-which fits many participants racing on the same signal, is a question about the market,
-not about the receiving software, and is left open. All results are for NQ.
+messages each packet carries. It is not produced by the rate: utilisation is tiny at
+HFT service times, and the busiest windows have the same tail, relative to the service
+time, as the quietest. Nor is it produced by how the exchange packs transactions into
+packets: almost every transaction fits in one packet, and the short gaps that make a
+receiver queue lie between different transactions. Putting transactions at random moments
+removes most of the tail; changing their sizes or their packing does not. The exchange's
+own timestamps show where the short gaps come from. The matching engine often processes
+consecutive transactions within a fraction of a microsecond of each other; the exchange's
+market-data publisher is a queue that sends about one packet every $7.5\,\mu\mathrm{s}$,
+so a burst at the engine reaches the receiver as a train of packets at that spacing. A
+receiver is therefore the second stage of a tandem that starts at the exchange, and its
+tail threshold is the publisher's spacing. Why orders reach the engine within a
+microsecond of each other, which fits many participants racing on the same signal, is a
+question about the market rather than the receiving software, and is left open.
 
-On the second question: yes above a threshold and no below it, and the threshold is a
-property of the feed (measured on NQ). Below the publisher spacing there is no queue to shorten and a cut
-adds one $1.7\,\mu\mathrm{s}$ hop to every message; above it, one balanced cut removes
-most of the $p_{99}$ excess for one hop on the median, and pays on $99.7\%$ of the 3512
-windows at $10\,\mu\mathrm{s}$ and on every window from $16\,\mu\mathrm{s}$. Only the
-slowest stage matters: a cut that does not shorten the largest stage gains nothing. With
-the same $N$ cores and every cost charged, a pool that dispatches whole packets to $N$
-servers has median $T + 2h$ at any $N$ and resequences almost nothing, so for a stage that
-carries no state it is level with a two-stage cut and better than a cut into four or
-more stages (three was not simulated); the order-book stage carries state and cannot be dispatched. At the production operating point of the
-reference receiver, about $7\,\mu\mathrm{s}$, the chain should not be split; there the
-levers are the per-message decode cost and the spread of service times, because a stage
-cut does not shorten the decode of a long packet. We give the
-analytic framework --- a burst-limit throughput identity and an exact pathwise reduction
-of the deterministic-service tandem to a single bottleneck server --- test it on the
-corpus, and compare the arrival statistics against an independent measurement on a live
-production receiver seven months later, on three instruments; the clustering statistics
-agree and the production decode floor coincides with the service time at which
-the simulated tail appears. Code is in the \kasparhft{} repository; the packet captures
-are not redistributable.
+On the second question: yes above a threshold and no below it, and the threshold is the
+publisher's spacing. Below it there is no queue to shorten and a cut only adds a hop to
+every message; above it, one balanced cut removes most of the tail for one hop on the
+median, and only the slowest stage matters, so a cut that does not shorten the largest
+stage gains nothing. For a stage without state, such as decode, a pool of cores that each
+take whole packets does as well as a cut and better once the pool is large enough, with
+every cost charged; the order book carries state and can only be cut. A production
+receiver runs just under the publisher's spacing, at about $7\,\mu\mathrm{s}$, and should
+not be split. There, most of the tail comes from long packets, whose messages are decoded
+one after another while the packets behind them queue, and from service times that vary
+from packet to packet; the levers are the cost per message and the spread of service, not
+the number of threads. We give the analytic framework --- a burst-limit throughput
+identity and an exact pathwise reduction of the deterministic-service tandem to a single
+bottleneck server --- test it on the corpus, and check the arrival statistics against a
+live production receiver on other instruments; they agree, and the production decode
+floor coincides with the service time at which the simulated tail appears. Code is in the
+\kasparhft{} repository; the packet captures are not redistributable.
 \end{abstract}
 
 \clearpage
