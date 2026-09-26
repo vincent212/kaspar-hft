@@ -327,43 +327,24 @@ Poisson null the single-stage wait at the $q$-quantile is already zero whenever 
 utilisation satisfies $\rho < 1 - q$ --- which at this feed's rate covers $p_{99}$ for
 every task up to $16\,\mu\mathrm{s}$ --- so over that band there is nothing to compress
 and splitting costs exactly $(N-1)h$. The Hawkes--Oakes cluster representation explains why the single-stage wait on a real
-feed is one to two orders of magnitude above $h$. A self-exciting process is equivalent to
-a Poisson stream of immigrant arrivals, each of which generates a cluster of offspring.
-Cluster size is governed by the branching ratio $n$, the mean number of direct offspring
-per arrival: the mean cluster holds $1/(1-n)$ arrivals and the largest clusters reach a
-scale of $(1-n)^{-2}$ arrivals (the cluster-size law is the Borel distribution;
-Appendix~\ref{app:borel}). At the fitted $n \approx 0.8$ the mean is about five and the
-model-implied scale about twenty-five transactions. The last member of a run of $K$
-arrivals closer together than the service time waits behind $K-1$ predecessors on a single
-server (Proposition~\ref{thm:burst}), so the single-stage wait grows with run length. At
-$8$--$16\,\mu\mathrm{s}$ the run is typically two consecutive packets sent back to back
-at the publisher period; from
-$64\,\mu\mathrm{s}$ many members of one cluster fall within one service time. This is the
-wait the tandem reduces.
+feed is one to two orders of magnitude above $h$: a burst of clustered arrivals closer
+together than the service time queues behind its first member (Section~\ref{sec:theory-cluster}).
+This is the wait the tandem reduces.
     \item \textbf{Simulation.} We build an $N$-stage tandem Lindley recursion on real CME
-MDP3 packet-arrival streams at a hop cost $h = 1.7\,\mu\mathrm{s}$ (the one-way async
-mailbox cost derived by halving the round-trip figure in Table 4 of
-\citet{mayeski_fastsend}) and a service
+MDP3 packet-arrival streams at a measured hop cost $h$ (Section~\ref{sec:setup-sweep}) and a service
 time swept across $T \in \{2, 4, 8, 16, 32, 64, 128\}\,\mu\mathrm{s}$, from tasks below
-the hop cost to tasks far above it. We sweep $N \in \{1, 2, 4, 8\}$ per scenario on each of the 3512
-thirty-minute RTH windows of the corpus. Each window is also simulated under a uniform
+the hop cost to tasks far above it. We sweep $N \in \{1, 2, 4, 8\}$ on every thirty-minute window of the corpus. Each window is also simulated under a uniform
 Poisson null $P$ that redraws the same number of arrivals uniformly over the same support
 (Section~\ref{sec:setup-sweep}); the null isolates the contribution of clustering, and
 is not a model of what any designer assumes. Section~\ref{sec:setup-nulls} adds seven
 further streams that remove the ingredients of the clustering one at a time, at the
 packet level and at the level of matching-engine transactions.
-    \item \textbf{Design equation for practitioners.} From the empirical result we extract
-design rules for a latency-critical servicing chain (Sections~\ref{sec:kaspar}
-and~\ref{sec:implementation}). Split a stage only when its service time is above the
-publisher period $\spub$, about $7.5\,\mu\mathrm{s}$ on this corpus, where a queueing tail
-first appears; in practice the split pays from about $10\,\mu\mathrm{s}$, where the tail
-first exceeds the hop cost on nearly every window. Choose the partition with the smallest
-achievable largest stage, since the tail depends only on that stage and a cut that does
-not shorten it adds a hop and nothing else. Place the largest stage first, at ingress.
-Keep sub-tasks below the bottleneck together on one thread by synchronous sends, and
-use an asynchronous send only at boundaries that shorten the largest stage.
-Settle each boundary by end-to-end measurement against a representative feed rather
-than by local reasoning at a single call site.
+    \item \textbf{Design equation for practitioners.} From the measurements and the
+simulation we extract design rules for a latency-critical servicing chain: stay under the
+publisher period where the chain allows it; above it, cut the chain at the boundary that
+shortens its slowest stage, and settle each boundary by end-to-end measurement
+(Sections~\ref{sec:kaspar} and~\ref{sec:implementation}; the full rule is the
+design-rule box of Section~\ref{sec:concl-summary}).
     \item \textbf{Live cross-validation.} The corpus statistics are compared with an
 independent measurement on a production receiver, on other instruments
 (Section~\ref{sec:crossval}). The clustering statistics agree, and the measured decode
@@ -549,7 +530,7 @@ is the isolated-burst identity. A message's end-to-end \emph{latency} is its
 predecessors before service begins. Running the $N$ stages concurrently raises throughput
 from $1/T$ to $N/T$, so an $N$-stage tandem clears a back-to-back burst $N$ times faster:
 the service time is unchanged at $T$, and the last message's queueing wait falls by a
-factor of $N$. This is the classical pipeline speedup, stated without proof.
+factor of $N$. This is the classical pipeline speedup.
 
 For example, split a service-$T$ server into two equal $T/2$ stages and feed it a burst of
 $k$ back-to-back messages. All of the queueing now happens at the first stage: its last
@@ -971,8 +952,8 @@ comparison: the single-thread wait at the quantile of interest, times $(1 - s_{\
 against $h$ per hop added. On a Poisson feed at HFT service times the left side is zero;
 on a clustered feed at the same rate it is tens to thousands of microseconds. With the
 same cores, a stateless stage on a stream that tolerates reordering can instead dispatch
-whole packets to $N$ servers; Section~\ref{sec:results-equal-core} compares the two
-without charging dispatch its ingress, hop or resequencing cost.
+whole packets to $N$ servers; Section~\ref{sec:results-equal-core} compares the two, first without and then with
+dispatch's ingress, egress and resequencing costs.
 \end{itemize}
 \end{minipage}}
 \end{center}
@@ -2981,10 +2962,8 @@ the publisher looks like.}
 \label{fig:bars-publisher}
 \end{figure}
 
-A fixed publishing policy would keep the delay flat. Here it grows roughly tenfold with
-engine burst intensity, and coalescing grows with it. That is a queue: the publisher has a
-service time of one publisher period, $\spub$. When the engine produces events
-faster than that, they wait, and the publisher packs the backlog into fuller packets.
+A fixed publishing policy would keep the delay flat. Delay and packing growing together
+with the engine's load is the signature of a queue with service time $\spub$.
 
 This accounts for the publisher period from first principles. The output of a deterministic server
 cannot contain two departures closer together than its service time, and while the server
@@ -3865,25 +3844,9 @@ The previous section found that a packet takes longer to process the more messag
 carries. This section reruns the whole simulation with that fact built in, to find out
 what it changes. The processing time is modelled three ways: fixed per packet, as in
 Part~II; growing with message count at the rate measured on the live system; and, as a
-deliberately exaggerated upper bound, fully proportional to message count. All three do
-the same total work on average, so any difference in the slow tail comes from how the
-work is spread across packets. There are four findings. First, message count and bursts
-produce slow messages in different places. Message count matters most for short tasks,
-at or just above the tightest gap between packets, which is where production receivers
-run, where bursts build little or no
-queue; for longer tasks the bursts dominate and message count adds a few percent at
-$16\,\mu\mathrm{s}$ and one or two beyond. Second, at the simulated task length nearest
-the production system's seven microseconds, eight, message count
-accounts for roughly two thirds of the slow tail and bursts for one third, and the live
-system reports the same ordering. Third, the recommendation on how many stages to split a
-task into is unchanged at every task length. The in-packet part of that tail is the plain
-cost of decoding several messages one after another, which splitting the work into stages
-does not remove; the queue a large packet opens behind itself is taken up in
-Section~\ref{sec:fungibility-measured}. Fourth, on NQ the two channels do not compound at the packet level. A large packet is
-no more likely to arrive after a tight gap than after a loose one, checked two ways, so
-the tables of Part~II, which measure the queueing channel alone, stand as they are at
-service times above the publisher period. On ZN the live data
-suggest the opposite, and the test has not been run there.
+deliberately exaggerated upper bound, fully proportional to message count. All three do the same total work on average, so any difference in the slow tail comes
+from how the work is spread across packets. The findings are collected at the end of the
+section.
 
 We re-extracted the per-packet span for all 3512 windows --- aligned element-wise against the
 cached arrival arrays, with every window's span count checked against the packet count
@@ -4745,19 +4708,15 @@ from what it argues against, and states the design flow the design equation impl
 \fbox{\begin{minipage}{0.92\linewidth}
 \textbf{Design principle (measure the split threshold on the target feed).} The split
 threshold is the service time above which cutting a stage into two lowers its $p_{99}$.
-On NQ it lies between $9$ and $10\,\mu\mathrm{s}$ (splitting wins on $67\%$ of windows at
-$9\,\mu\mathrm{s}$ and $99.7\%$ at $10$, Section~\ref{sec:results-threshold}): just above
-the tail threshold of $7$--$8\,\mu\mathrm{s}$, where a tail first appears, by the amount the
-tail needs to exceed the hop cost. Both are decided by how many packets arrive closer
-together than the stage's service time, not by the packet rate or the branching ratio as
-such. That fraction is a property
-of the transaction stream's gap distribution and of the publisher period. On CME MDP3 it is about $1\%$ at the publisher period
-and does not vary with rate or with the fitted branching ratio at HFT service times, so a
-$7$--$8\,\mu\mathrm{s}$ stage is not split. On a feed that places tens of percent of its
-gaps at the publisher period at the same fitted branching ratio, the same stage
-is split (Appendix~\ref{app:synthetic}). The split threshold cannot be read off fitted
-parameters. Measure the end-to-end latency of the assembled pipeline under the load the
-system will see, and split where the measured tail excess exceeds the hop cost.
+On NQ it lies between $9$ and $10\,\mu\mathrm{s}$, just above the publisher period by the
+amount the tail needs to exceed the hop cost (Section~\ref{sec:results-threshold}). It is
+set by how many packets arrive closer together than the stage's service time, which on
+CME depends on the publisher period and not on the packet rate or the fitted branching
+ratio at HFT service times. On a feed that packs a large share of its gaps at its minimum
+period, the same stage would be split (Appendix~\ref{app:synthetic}), so the threshold
+cannot be read off fitted parameters. Measure it on the target feed, under the load the
+system will see; the full rule is the design-rule box of
+Section~\ref{sec:concl-summary}.
 \end{minipage}}
 \end{center}
 
@@ -4802,27 +4761,18 @@ recommendation and determines absolute latency. Basis: at a production receiver,
 under the publisher period, the tail that remains is in packets of several messages
 and in variable service, so the cost per message and the spread of service are the
 levers there (Sections~\ref{sec:crossval-spanrun} and~\ref{sec:fungibility-measured}).
-    \item \textbf{Measure the target publisher period, and use it as the
-split/don't-split test.} Take the corpus of packet arrivals, form the per-window
-interarrival-gap distribution, and read off a low quantile of it --- we use $p_1$. This
-single number is the service time at which a deterministic stage begins to accumulate a
-tail, and on NQ it is $\spub$
-(Section~\ref{sec:results-conditioning}). A stage whose service time sits comfortably
-below it will not develop a queue and must not be split: the split gains nothing and costs
-$h$ at every quantile. A stage above it should be split, subject to the tail excess
-exceeding $h$, which on this corpus happens about $1.5\,\mu\mathrm{s}$ further along
-(Section~\ref{sec:results-threshold}). Two cautions. First, use the tight end of the gap
-distribution, never the mean: on this corpus the mean gap is $2215\,\mu\mathrm{s}$, some
-$300\times$ larger, and a rule stated on it would say never to split anything. Second,
-measure it under representative and peak-load conditions. On this corpus the publisher period is the service interval of the exchange's
-market-data publisher, which spaces successive packets by at least that much while it
-drains a backlog (Section~\ref{sec:exchange}); the packets on either side of such a gap are
-distinct transactions (Section~\ref{sec:results-transactions}). It did not move between
-quiet and volatile sessions (Section~\ref{sec:results-conditioning}), so it was measured
-once per feed. That invariance is a finding about this feed's publisher, to be verified on
-another feed rather than assumed. At longer service times the tail does depend on
-intensity and branching ratio, and a chain in that regime needs its threshold measured
-under the load it will actually see.
+    \item \textbf{Measure the target publisher period, and use it as the split/don't-split
+test.} Take the corpus of packet arrivals, form the per-window gap distribution, and read
+off a low quantile of it; we use the $1$st percentile. On NQ it is the publisher period
+(Section~\ref{sec:results-conditioning}). Compare it with the upper quantiles of each
+stage's per-packet service under load, not with the median. A stage below it will not
+develop a queue and must not be split. A stage above it should be split, once the tail
+exceeds the hop cost, which on this corpus happens a microsecond or two further along
+(Section~\ref{sec:results-threshold}). Use the tight end of the gap distribution, never
+the mean: the mean gap is some three hundred times longer, and a rule stated on it would
+say never to split anything. On NQ the publisher period did not move between quiet and
+volatile sessions, so it was measured once per feed; that is a finding about this feed's
+publisher, to be checked on another feed rather than assumed.
     \item \textbf{Draft the pipeline as a chain of actors at natural cut points, then
 balance it.} On a CME MDP3 handler: \texttt{SocketReader}, SBE decoder, order book,
 strategy actor, order manager --- four or five stages, no artificial decomposition
@@ -5130,16 +5080,11 @@ Appendix~\ref{app:synthetic} constructs a feed on which both dependences appear 
 production service time and on which splitting pays where on CME it does not. On another
 feed the threshold, and its dependence on load and on clustering, must be measured.
 
-Spending the same cores as a dispatch pool that sends whole packets to identical servers,
-with the ingress hop, the egress hop and in-order resequencing all charged, costs two hops
-on the median whatever the pool size and resequences almost nothing
-(Table~\ref{tab:dispatch-costed}). For a stage that carries no state, such as SBE decode, a pool of two cores is level
-with a two-stage cut: one hop dearer on the median and about the same in the tail. A pool
-of four or more cores is better than a cut into as many stages on both (three cores were
-not simulated). The order-book stage carries state from
-one update to the next and cannot be dispatched; for it, cutting the chain is the way to
-spend cores. The design rule is therefore: cut stateful chains above the threshold;
-dispatch stateless stages above it when four or more cores are available.
+Spending the same cores on a dispatch pool that sends whole packets to identical servers
+is the alternative for a stage without state, such as SBE decode; with every cost
+charged it is level with a cut at two cores and better from four
+(Table~\ref{tab:dispatch-costed}, Section~\ref{sec:concl-summary}). The order book
+carries state and can only be cut.
 
 The recommendation is that HFT designers measure end-to-end latency of the assembled
 pipeline under actual market conditions, including peak load, and split the servicing
