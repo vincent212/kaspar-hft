@@ -31,7 +31,7 @@ def main():
     ax[1].plot(gm, dens(z["gpall"]), color="black", lw=1.6, label="real stream, all packet gaps")
     ax[1].plot(gm, dens(z["gpP"]), "--", color="tab:red", lw=1.6, label="Poisson stream, same packet count")
     for x in ax:
-        x.set_xscale("log"); x.set_xlim(0.5, 1e6); x.set_xlabel("gap between consecutive packets (µs)"); x.set_ylabel("density per decade")
+        x.set_xscale("log"); x.set_xlim(0.5, 1e6); x.set_xlabel("gap between consecutive packets (µs)"); x.set_ylabel("fraction of gaps per decade of gap length")
         for v in (7.5, 16, 32): x.axvline(v, color="0.6", lw=0.6, ls=":")
         x.legend(fontsize=8)
     fig.tight_layout(); fig.savefig(out / "tx_gaps.pdf"); fig.savefig(out / "tx_gaps.png", dpi=70); plt.close(fig)
@@ -42,7 +42,7 @@ def main():
     ax[0].set_xlabel("gap between consecutive transaction starts (µs)")
     ax[1].plot(gm, dens(z["gdur"]), color="tab:blue", lw=1.6); ax[1].set_xlabel("multi-packet transaction duration, first to last packet (µs)")
     for x in ax:
-        x.set_xscale("log"); x.set_xlim(0.5, 1e6); x.set_ylabel("density per decade")
+        x.set_xscale("log"); x.set_xlim(0.5, 1e6); x.set_ylabel("fraction of gaps per decade of gap length")
         for v in (7.5, 16, 32): x.axvline(v, color="0.6", lw=0.6, ls=":")
     ax[0].legend(fontsize=8); fig.tight_layout(); fig.savefig(out / "tx_starts.pdf"); fig.savefig(out / "tx_starts.png", dpi=70); plt.close(fig)
     # tables

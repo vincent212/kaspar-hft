@@ -1648,10 +1648,13 @@ mean rate can produce.}
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figs/tx/tx_gaps.pdf}
-\caption{Packet interarrival gaps, pooled over the corpus, density per decade on a
-logarithmic gap axis; dotted lines at $7.5$, $16$ and $32\,\mu\mathrm{s}$. Left: gaps
-between two packets of the same transaction ($5.6 \times 10^7$) against gaps between
-packets of different transactions ($3.24 \times 10^9$). Each curve is normalised to its own
+\caption{Packet interarrival gaps, pooled over the corpus. The gap axis is
+logarithmic and the vertical axis is the fraction of gaps per decade of gap length
+(twenty bins per factor of ten; the area under a curve between, say, $10$ and
+$100\,\mu\mathrm{s}$ is the fraction of that curve's gaps in that range, and the total
+area is one). Dotted lines at $7.5$, $16$ and $32\,\mu\mathrm{s}$. Left: gaps between
+two packets of the same transaction ($n = 5.6 \times 10^7$ gaps) against gaps between
+packets of different transactions ($n = 3.24 \times 10^9$ gaps). Each curve is normalised to its own
 total, so heights compare shapes, not counts (the blue gaps are $1.7\%$ of all gaps,
 the black $98.3\%$). What it shows: the intra-transaction distribution is a single
 narrow peak at $12$--$16\,\mu\mathrm{s}$ with almost no mass below $10\,\mu\mathrm{s}$
@@ -1723,10 +1726,15 @@ whole-session values of Section~\ref{sec:setup-hawkes} for the reason given ther
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figs/tx/tx_starts.pdf}
-\caption{Left: gaps between consecutive transaction starts, pooled over the corpus, for
-the real stream, for the stream with idle gaps shuffled, and for a rate-matched Poisson
-stream. Right: duration of a multi-packet transaction from its first to its last packet.
-Density per decade on a logarithmic axis; dotted lines at $7.5$, $16$ and $32\,\mu\mathrm{s}$.}
+\caption{Left: gaps between consecutive transaction starts, pooled over the corpus
+($n = 3.24 \times 10^9$), for the real stream, for the stream with the idle gaps between
+transactions shuffled, and for a Poisson stream with the same transaction count. Right:
+duration of a multi-packet transaction from its first to its last packet
+($n = 5.5 \times 10^7$). Axes as in Figure~\ref{fig:tx-gaps}: logarithmic gap axis,
+fraction of gaps per decade of gap length; dotted lines at $7.5$, $16$ and
+$32\,\mu\mathrm{s}$. The real and shuffled curves coincide, which is the statement that
+permuting the order of the idle gaps does not change their distribution; the Poisson
+curve is a different shape, with no mass below $100\,\mu\mathrm{s}$.}
 \label{fig:tx-starts}
 \end{figure}
 
