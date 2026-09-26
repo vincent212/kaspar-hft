@@ -662,3 +662,16 @@ separate packets (43.0% at 7.5–10 us, 16.1% at 10–16 us, 21.5% beyond 16 us)
 at the engine's input; the receiver sees trains of packets at the publisher's spacing. The open market
 question is why orders reach the engine within a microsecond of each other. New `tab:two-clocks` and
 Finding box in 5.3; abstract, 1.3, 3.x, 4.x, 5.6, 11.1, 11.2 and Future work reworded.
+
+## Span and service variability (2026-09-26, author)
+
+Author: the conclusions lost that much of the live tail is the linear decode of long packets, and
+the constant-service assumption was not tempered. Applied: abstract, 1.3, 1.x contributions, 3
+(simulator: service is constant or span-linear, never random; P-K note), 6.3/6.6 preamble and
+title, 6.8 (publisher trains, not gateway coalescing; new "How the live tail forms"), Conclusion
+summary + design-rule box (compare upper quantiles of per-packet service with the 7.5 us spacing;
+production regime = long packets + slow services, levers are per-message cost and service
+spread), claims 1/4/5 scoped by service time, 11.x "not established" (+ service variability,
++ how the ZN far tail divides), caveats, open questions (+ service spread, random-service sweep
+and ZN slope, retain live records, in-packet parallel decode — preliminary unvalidated
+experiment only). Stage-count result unchanged: a stage cut does not shorten a long packet.
