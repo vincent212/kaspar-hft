@@ -67,8 +67,9 @@ transaction times uniformly removes $75$--$98\%$ of the tail; decoupling transac
 sizes from their timing, merging each transaction into one packet, or spreading its
 packets leaves the tail within $\pm 15\%$. The timing acts through two channels whose
 weight depends on the service time. At $16\,\mu\mathrm{s}$ the tail is carried mainly
-by near-simultaneous pairs of transactions --- a stream with the same gaps in random
-order keeps $79\%$ of it --- and at $64\,\mu\mathrm{s}$ and above by runs of
+by pairs of transactions sent back to back at the publisher's spacing of about
+$7.5\,\mu\mathrm{s}$ --- a stream with the same gaps in random order keeps $79\%$ of it
+--- and at $64\,\mu\mathrm{s}$ and above by runs of
 transactions, which that permutation destroys ($37\%$ and $23\%$ survive). The runs are
 the self-excitation a Hawkes fit measures (branching ratio $0.795$ on transaction
 starts). One stage upstream, the exchange's own timestamps show where the tight gaps come
@@ -260,9 +261,10 @@ candidates are tested. The packet rate: no, at HFT service times
 (Section~\ref{sec:results-conditioning}). The clustering of arrivals: yes
 (Section~\ref{sec:results-nulls}), and Section~\ref{sec:results-transactions} identifies
 the clustered process as the stream of matching-engine transactions, acting through
-near-simultaneous pairs of transactions at short service times and through runs of
-transactions, the self-exciting component, at long ones. Why transactions land within
-microseconds of each other is a question about the market, outside the scope of this
+pairs of transactions sent back to back at the publisher's spacing at short service times
+and through runs of transactions, the self-exciting component, at long ones. Why the
+matching engine processes transactions within a microsecond of each other, which is what
+backs up the publisher, is a question about the market, outside the scope of this
 paper; Section~\ref{sec:concl-cannot} states what can and cannot be claimed about it. The number of messages per packet: not a
 separate mechanism but the same clustering delivered inside a datagram, which dominates
 at or below the tight-gap floor and adds a few percent above it
@@ -301,7 +303,8 @@ Appendix~\ref{app:borel}). At the fitted $n \approx 0.8$ the mean is about five 
 model-implied scale about twenty-five transactions. The last member of a run of $K$
 arrivals closer together than the service time waits behind $K-1$ predecessors on a single
 server (Proposition~\ref{thm:burst}), so the single-stage wait grows with run length. At
-$8$--$16\,\mu\mathrm{s}$ the run is typically a near-simultaneous pair; from
+$8$--$16\,\mu\mathrm{s}$ the run is typically a pair of packets sent back to back at the
+publisher's spacing; from
 $64\,\mu\mathrm{s}$ many members of one cluster fall within one service time. This is the
 wait the tandem reduces.
     \item \textbf{Simulation.} We build an $N$-stage tandem Lindley recursion on real CME
@@ -857,7 +860,8 @@ by $N$ or better.
 The Hawkes cluster representation gives a model-implied cluster size: Borel-distributed,
 with large clusters of order $(1-n)^{-2}$ transactions, about $25$ at the corpus's
 $n \approx 0.8$. What the receiver waits behind depends on the service time: at
-$8$--$16\,\mu\mathrm{s}$ the wait is usually behind one near-simultaneous predecessor,
+$8$--$16\,\mu\mathrm{s}$ the wait is usually behind one predecessor sent
+$7.5$--$16\,\mu\mathrm{s}$ earlier,
 and only from about $64\,\mu\mathrm{s}$ does a run of cluster members fall within one
 service time (Sections~\ref{sec:results-nulls} and~\ref{sec:evaluation}).
 
@@ -1313,7 +1317,7 @@ those packets are not the mechanism, and the exchange is relaying events rather 
 creating bursts. $G$ and \textsf{TG} remove the same ingredient --- the arrangement of events
 into runs --- at the packet and at the transaction level respectively; agreement between
 them identifies the packet-level ordering channel with the clustering of transactions.
-What survives $G$ is the surplus of near-simultaneous events over a rate-matched Poisson
+What survives $G$ is the surplus of tight gaps over a rate-matched Poisson
 stream, which Table~\ref{tab:tx-gaps} measures directly. That surplus shows the gap
 distribution is far from exponential; it does not show what produces it, and $G$ itself is
 a stream with the surplus and no self-excitation. What $G$ removes, the runs, is the
@@ -1584,8 +1588,9 @@ service time over what a Poisson stream at the same rate carries --- with the
 \emph{ordering} of those gaps into runs supplying the remaining fifth at $16\,\mu\mathrm{s}$
 and the majority only from $64\,\mu\mathrm{s}$ upward. Section~\ref{sec:results-transactions}
 traces both to the timing of matching-engine transactions: the surplus to
-near-simultaneous pairs of distinct transactions, the ordering to runs of them, which is
-the self-exciting component. The attribution to clustering stands in that sense; which
+pairs of distinct transactions sent back to back at the publisher's spacing
+(Table~\ref{tab:two-clocks}), the ordering to runs of them, which is the self-exciting
+component. The attribution to clustering stands in that sense; which
 process places two transactions within a few microseconds of each other is not
 identified by any stream run here (Section~\ref{sec:concl-cannot}).
 
@@ -1865,8 +1870,9 @@ time, at the ZN slope as at the NQ slope. And the clustering of transactions ---
 ordering that TG destroys --- carries $20\%$ of the tail at $16\,\mu\mathrm{s}$, $40\%$ at
 $32$, $63\%$ at $64$ and $78\%$ at $128\,\mu\mathrm{s}$, the same profile the packet-level
 gap shuffle gave in Table~\ref{tab:nulls}. The remainder, dominant at HFT service times,
-is the surplus of near-simultaneous transactions over a Poisson stream at the same rate
-(Table~\ref{tab:tx-gaps}). That surplus says the transaction gap distribution is far
+is the surplus of tight gaps between transactions over a Poisson stream at the same rate
+(Table~\ref{tab:tx-gaps}), which on the publisher's clock sit at its spacing
+(Table~\ref{tab:two-clocks}). That surplus says the transaction gap distribution is far
 from exponential; it does not say what put the mass there, and a renewal stream with the
 same gaps and no self-excitation (the gap shuffle) reproduces it and most of the tail at
 $16\,\mu\mathrm{s}$. The attribution is therefore the following. The queueing tail behind
@@ -2626,7 +2632,62 @@ of consecutive packets sent by the publisher. The tight-gap floor of the receive
 arrival stream is set by the exchange's publisher. The engine's own gaps reach
 $0.18\,\mu\mathrm{s}$ at the first percentile, which means the engine went directly from
 one event to the next with the next order already waiting: at those moments it was
-working through a backlog of orders that arrived almost together.
+working through a backlog of orders that reached it within a fraction of a microsecond of
+each other.
+\end{minipage}}
+\end{center}
+
+The receiver does not see these transactions together. Table~\ref{tab:two-clocks} follows
+each consecutive pair of NQ transactions from the engine's clock to the publisher's: the
+engine gap is the difference of their \texttt{transactTime}s, the publisher gap the
+difference of the \texttt{sendingTime}s of the packets that carry them.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}l r rrrrrr@{}}
+\toprule
+ & share of & \multicolumn{6}{c}{gap on the publisher's clock (row \%)} \\
+\cmidrule(l){3-8}
+gap on the engine's clock & pairs & same packet & $<7.5$ & $7.5$--$10$ & $10$--$16$ & $16$--$100$ & $>100\,\mu\mathrm{s}$ \\
+\midrule
+$< 1\,\mu\mathrm{s}$            & $5.3\%$  & $15.7$ & $3.7$ & $43.0$ & $16.1$ & $19.9$ & $1.7$ \\
+$1$--$7.5\,\mu\mathrm{s}$       & $11.8\%$ & $10.0$ & $3.8$ & $32.1$ & $20.2$ & $29.9$ & $4.1$ \\
+$7.5$--$16\,\mu\mathrm{s}$      & $8.5\%$  & $8.8$  & $2.1$ & $21.5$ & $13.6$ & $48.7$ & $5.3$ \\
+$16$--$100\,\mu\mathrm{s}$      & $31.4\%$ & $4.9$  & $0.5$ & $4.9$  & $4.0$  & $71.1$ & $14.7$ \\
+$> 100\,\mu\mathrm{s}$          & $43.0\%$ & $0.8$  & $0.0$ & $0.1$  & $0.2$  & $15.1$ & $83.7$ \\
+\midrule
+all pairs                       & $100\%$  & $4.6$  & $1.0$ & $9.5$  & $5.7$  & $37.5$ & $41.6$ \\
+\quad of which engine gap $< 7.5\,\mu\mathrm{s}$ & & $43.3$ & $66.2$ & $64.0$ & $56.4$ & $12.2$ & $1.4$ \\
+\bottomrule
+\end{tabular}
+\caption{The same pairs of consecutive NQ transactions on two clocks; 20 sessions,
+$2.52 \times 10^8$ pairs. Rows: the gap between the two transactions on the matching
+engine's clock. Columns: the gap between the packets that carry them on the publisher's
+clock, as a percentage of the row; ``same packet'' means both were sent in one packet. The
+last row gives, for each publisher gap, the share of pairs the engine processed less than
+$7.5\,\mu\mathrm{s}$ apart. What the table shows: of the pairs the engine processed less
+than $1\,\mu\mathrm{s}$ apart, $16\%$ reach the receiver in one packet and $84\%$ in
+separate packets, $43\%$ of them $7.5$ to $10\,\mu\mathrm{s}$ apart and $22\%$ more than
+$16\,\mu\mathrm{s}$ apart. Read the other way, $64\%$ of the gaps of $7.5$ to
+$10\,\mu\mathrm{s}$ that the receiver sees are pairs the engine processed less than
+$7.5\,\mu\mathrm{s}$ apart. What follows: transactions do not reach the receiver together.
+The publisher spaces them out to its own interval of about $7.5\,\mu\mathrm{s}$ and packs
+only a sixth of the tightest pairs into one packet. The tight gaps that load the receiver
+are, for the most part, near-simultaneous engine events delivered back to back at the
+publisher's spacing.}
+\label{tab:two-clocks}
+\end{table}
+
+\begin{center}
+\fbox{\begin{minipage}{0.92\linewidth}
+\textbf{Finding.} Transactions the engine processes a fraction of a microsecond apart do
+not reach the receiver together: $84\%$ of them arrive in separate packets, most of them
+$7.5$ to $16\,\mu\mathrm{s}$ apart. What the receiver sees is a train of packets at the
+publisher's spacing. Its queue grows when its service time exceeds that spacing, which is
+why the threshold of Section~\ref{sec:results-threshold} sits at about
+$7.5\,\mu\mathrm{s}$. The open market question is why orders reach the engine within a
+microsecond of each other; what reaches the receiver is set by the publisher.
 \end{minipage}}
 \end{center}
 
@@ -2818,8 +2879,10 @@ destroys.
 \label{sec:exchange-bursts}
 
 Section~\ref{sec:exchange-engine} shows that the engine often processes events a fraction
-of a microsecond apart, which means orders were waiting for it. Why they arrived together
-is the market question of Section~\ref{sec:concl-cannot}. The $0.18\,\mu\mathrm{s}$
+of a microsecond apart, which means orders were waiting for it; the publisher then
+delivers them to the receiver about $7.5\,\mu\mathrm{s}$ apart
+(Table~\ref{tab:two-clocks}). Why orders reach the engine within a fraction of a
+microsecond of each other is the market question of Section~\ref{sec:concl-cannot}. The $0.18\,\mu\mathrm{s}$
 spacing fits many participants sending orders in response to the same public signal, the
 \emph{races} that \citet{aquilina2022arms} measured on the London Stock Exchange with
 order-entry times the CME public feed does not carry. It is consistent with that
@@ -4305,7 +4368,9 @@ dominates at or below the floor and adds a few percent above $16\,\mu\mathrm{s}$
 (Section~\ref{sec:crossval-spanrun}), and it is the live ZN far tail
 (Section~\ref{sec:fungibility-measured}).
     \item \emph{The timing acts through two channels whose weight depends on the service
-time.} Near-simultaneous pairs of transactions: a stream with the real gaps in random order
+time.} Pairs of transactions sent back to back at the publisher's spacing, most of which
+the engine processed less than $7.5\,\mu\mathrm{s}$ apart (Table~\ref{tab:two-clocks}): a
+stream with the real gaps in random order
 keeps $79\%$ of the tail at $16\,\mu\mathrm{s}$ and $59\%$ at $32$. Runs of transactions:
 the same permutation keeps only $37\%$ at $64$ and $23\%$ at $128\,\mu\mathrm{s}$
 (Table~\ref{tab:nulls}). The runs are the self-exciting component of the transaction
@@ -4337,7 +4402,10 @@ at which the simulated tail appears (Section~\ref{sec:crossval}).
 \paragraph{Why the matching engine bursts.} The paper traces the receiver's tight gaps
 to the exchange's publisher draining a backlog, and the backlog to the matching engine
 processing events a fraction of a microsecond apart (Section~\ref{sec:exchange}). It does
-not show why orders reach the engine together. Three mechanisms remain open. (a)~Reaction:
+not show why orders reach the engine within a fraction of a microsecond of each other.
+They do not reach the receiver together: the publisher delivers $84\%$ of such pairs in
+separate packets, most $7.5$ to $16\,\mu\mathrm{s}$ apart (Table~\ref{tab:two-clocks}). The
+open question is about the engine's input. Three mechanisms remain open. (a)~Reaction:
 a transaction at time $t$ causes other participants to cancel, replace or trade within
 microseconds, each as a separate transaction. (b)~Common reaction: many participants
 respond to the same public signal at once, their orders reach the matching engine
@@ -4368,8 +4436,9 @@ this is now shown rather than argued. The fitted self-excitation acts with a dec
 about $160\,\mu\mathrm{s}$ and places about $4\%$ of its triggering within
 $7.5\,\mu\mathrm{s}$ (Section~\ref{sec:exchange-bursts}); it is the cause of the runs,
 which carry the tail from $64\,\mu\mathrm{s}$. At $16$--$32\,\mu\mathrm{s}$ the carrier is
-the publisher draining backlogs built by near-simultaneous arrivals at the engine, whose
-origin is the open question above.
+the publisher draining, at its $7.5\,\mu\mathrm{s}$ spacing, backlogs built by orders
+reaching the engine within a microsecond of each other, whose origin is the open question
+above.
 
 \paragraph{Anything hidden below the floor.} Two transactions closer together than the
 publisher's service interval reach the receiver in one packet, so every gap statistic on
@@ -4556,7 +4625,9 @@ together and leave in the same packets, which would make ZN's large packets a pr
 the curve and not of ZN alone. The test is a multivariate Hawkes fit across the channel's
 instruments on the engine clock and packet size conditioned on cross-triggering. It needs
 a full-channel ZN recording.
-    \item \textbf{Why do transactions reach the matching engine together?} Reaction,
+    \item \textbf{Why do orders reach the matching engine within a microsecond of each
+other?} The receiver sees them $7.5\,\mu\mathrm{s}$ apart, spaced by the publisher; the
+question is about the engine's input. Reaction,
 common reaction to one signal (races), or pacing inside order entry
 (Section~\ref{sec:concl-cannot}). It needs order-entry times for all participants.
     \item \textbf{How much of the engine's activity is racing?} Table~\ref{tab:tight-pairs}
@@ -4571,7 +4642,7 @@ is paced the same way.
 
 The lists below give the remaining work in two groups.
 
-\paragraph{Why transactions land together (questions about the market).}
+\paragraph{Why orders reach the matching engine within microseconds of each other (questions about the market).}
 \begin{itemize}
     \item What places two distinct transactions within a few microseconds of each other:
 reaction to the previous transaction, common reaction of many participants to the same

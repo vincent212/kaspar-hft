@@ -651,3 +651,14 @@ order-entry times (races vs reaction) need data the public feed does not carry.
 **Not run (by decision or data):** TODO 4 (tight-gap share vs market variables), TODO 5 at
 transaction level (autocorrelation of size), TODO 8 fallback/zero-transactTime counts, TODO 9
 (pre-spinning measured), TODO 10 (ZN, no data).
+
+## Objection 1 wording: "why they arrive together" (2026-09-26, author)
+
+Author: transactions do not arrive "together" at the receiver; they are 7.5 us apart. Checked with
+`clock_pairs.py` (20 sessions, 2.52e8 consecutive transaction pairs, engine gap vs publisher gap of the
+carrying packets): of pairs the engine processed < 1 us apart, 15.7% share a packet and 84.3% arrive in
+separate packets (43.0% at 7.5–10 us, 16.1% at 10–16 us, 21.5% beyond 16 us). 64% of the receiver's
+7.5–10 us gaps are pairs the engine processed < 7.5 us apart. The paper now says: near-simultaneity is
+at the engine's input; the receiver sees trains of packets at the publisher's spacing. The open market
+question is why orders reach the engine within a microsecond of each other. New `tab:two-clocks` and
+Finding box in 5.3; abstract, 1.3, 3.x, 4.x, 5.6, 11.1, 11.2 and Future work reworded.
