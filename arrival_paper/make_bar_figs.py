@@ -71,7 +71,7 @@ def publisher(out):      # tab:publisher
 
 def drain(out):          # tab:drain-delay, tab:drain-gap, tab:drain-floor
     dcat = ["< 0.1", "0.1–0.2", "0.2–0.5", "0.5–1", "1–5", "> 5"]; dspan = [1.000, 1.016, 1.237, 1.278, 1.440, 1.603]
-    gcat = ["< 7.5", "7.5–10\n(floor)", "10–16", "16–32", "32–\n100", "100–\n1000"]; gspan = [1.006, 1.007, 1.096, 1.141, 1.073, 1.106]
+    gcat = ["< 7.5", "7.5–10\n(spacing)", "10–16", "16–32", "32–\n100", "100–\n1000"]; gspan = [1.006, 1.007, 1.096, 1.141, 1.073, 1.106]
     gadj = [100, 100, 95.7, 36.2, 20.6, 12.9]
     fcat = ["< 0.1", "0.1–0.5", "0.5–5", "> 5"]; fspan = [1.000, 1.006, 1.026, 1.114]
     fig, ax = plt.subplots(1, 3, figsize=(16, 4.8), gridspec_kw={"width_ratios": [6, 6, 4]})
@@ -82,7 +82,7 @@ def drain(out):          # tab:drain-delay, tab:drain-gap, tab:drain-floor
         ax[1].text(i, h + 0.05, f"adj.\n{v:.0f}%", ha="center", va="bottom", fontsize=10, color="0.35")
     ax[1].set_xticks(range(6), gcat); ax[1].set_xlabel("gap to previous NQ packet (µs)"); ax[1].set_title("all packets, by gap before them")
     b = ax[2].bar(range(4), fspan, color=plt.cm.Oranges(np.linspace(0.35, 0.9, 4))); labels(ax[2], b, "{:.2f}", 0.01)
-    ax[2].set_xticks(range(4), fcat); ax[2].set_xlabel("publisher delay (ms)"); ax[2].set_title("floor packets only (gap 7.5–10 µs)")
+    ax[2].set_xticks(range(4), fcat); ax[2].set_xlabel("publisher delay (ms)"); ax[2].set_title("packets at the 7.5 µs spacing only")
     for a in ax: a.set_ylim(0.9, 1.7); a.set_ylabel("mean NQ messages per packet")
     save(fig, out, "drain")
 
@@ -187,7 +187,7 @@ def grouped(ax, cats, series, colors, labels_, w=None, fmt=None, fs=10, dy=0.0, 
     ax.set_xticks(x, cats); return bars
 
 def tx_gaps_bars(out):   # tab:tx-gaps
-    cats = ["< 7.9 µs (floor)", "< 17.8 µs", "< 35.5 µs"]
+    cats = ["< 7.9 µs (spacing)", "< 17.8 µs", "< 35.5 µs"]
     fig, ax = plt.subplots(figsize=(9, 4.6))
     grouped(ax, cats, [[2.15, 20.6, 34.1], [0.56, 1.24, 2.46]], ["black", VERM], ["real packet stream", "Poisson stream, same rate"], fmt="{:.2f}%", dy=0.5)
     ax.set_ylabel("% of gaps between consecutive packets"); ax.set_ylim(0, 40); ax.legend(frameon=False, loc="upper left")
@@ -320,7 +320,7 @@ def synthetic(out):      # tab:synthetic, n = 0.8 row of each block, plus Poisso
     rates = ["500", "2000", "8000", "32000", "64000"]
     fig, ax = plt.subplots(figsize=(12, 4.8))
     grouped(ax, rates, [[91.4, 100.0, 97.1, 105.0, 140.7], [6.81, 7.38, 7.56, 10.88, 23.12], [2.38, 2.71, 3.12, 8.12, 19.56], [1.00, 1.39, 1.87, 2.69, 4.45]],
-            [PURPLE, VERM, GREEN, "black"], ["fast kernel, no floor", "fast kernel, 7.5 µs floor", "slow kernel, 7.5 µs floor", "Poisson, same rate"], fmt="{:.1f}", fs=8, log=True)
+            [PURPLE, VERM, GREEN, "black"], ["fast kernel, no minimum spacing", "fast kernel, 7.5 µs spacing", "slow kernel, 7.5 µs spacing", "Poisson, same rate"], fmt="{:.1f}", fs=8, log=True)
     ax.set_yscale("log"); ax.set_ylim(0.8, 600); ax.set_xlabel("mean packet rate (per second)"); ax.set_ylabel("p99 / T at T = 8 µs (log scale)")
     ax.legend(frameon=False, ncol=2, loc="upper left", fontsize=11)
     save(fig, out, "synthetic")
