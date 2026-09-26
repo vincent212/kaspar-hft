@@ -2704,7 +2704,7 @@ trade against each other, a move in one is likely to trigger quotes and trades i
 others within microseconds, and where they share ZN's channel the publisher would carry
 those reactions in the same packets. Cross-excitation along the curve is therefore a
 candidate cause of the large ZN packets of Section~\ref{sec:crossval-spanrun}. It is
-untested here and listed in Section~\ref{sec:future}.}
+untested here and listed among the open questions of Section~\ref{sec:open-questions}.}
 
 \begin{table}[H]
 \centering
@@ -2749,13 +2749,14 @@ $0.1$--$1\,\mathrm{ms}$            & $26.9\%$ & $1.106$ & $4.5\%$  & $12.9\%$ & 
 \end{tabular}
 \caption{Packet size against the gap to the previous NQ packet on the publisher's clock;
 same packets as Table~\ref{tab:drain-delay}. The last two columns count the channel's
-other packets sent between two consecutive NQ packets, from the channel-wide packet index
-of the tape. What the table shows: packets sent at the floor carry one NQ message
-($1.007$ on average) and in every case follow the previous NQ packet with no other packet
-of the channel between them. Bigger packets appear after gaps of $10$ to $32\,\mu\mathrm{s}$,
+other packets sent between two consecutive NQ packets, from the packet index of the tape,
+which numbers every channel packet that carries order or trade records for any
+instrument; packets carrying only other message types are not counted. What the table shows: packets sent at the floor carry one NQ message
+($1.007$ on average) and in every case follow the previous NQ packet with no other order or
+trade packet of the channel between them. Bigger packets appear after gaps of $10$ to $32\,\mu\mathrm{s}$,
 which from $16\,\mu\mathrm{s}$ usually contain at least one packet for another instrument.
-What follows: the $7.5\,\mu\mathrm{s}$ spacing is the spacing of the whole channel, not of
-NQ alone, and the publisher does not answer a backlog with bigger packets sent at the
+What follows: the $7.5\,\mu\mathrm{s}$ spacing is the spacing of the channel's order and
+trade packets, not of NQ alone, and the publisher does not answer a backlog with bigger packets sent at the
 floor.}
 \label{tab:drain-gap}
 \end{table}
@@ -2785,7 +2786,7 @@ switch to fuller packets at the same rate.}
 Three things follow. First, pacing holds under load: even when the publisher is
 milliseconds behind, the packets it sends back-to-back are single-message packets at about
 $7.5\,\mu\mathrm{s}$ spacing (Table~\ref{tab:drain-floor}), and that spacing holds across
-the whole channel (Table~\ref{tab:drain-gap}). Second, coalescing happens elsewhere. Bigger
+the channel's order and trade packets (Table~\ref{tab:drain-gap}). Second, coalescing happens elsewhere. Bigger
 NQ packets come after gaps of $10$ to $32\,\mu\mathrm{s}$, so when packets are bigger they
 also leave more slowly, which fits a service time per packet that grows with its size, the
 span-dependent service of Section~\ref{sec:crossval-spanrun}. Third, a receiver sees a
@@ -4387,7 +4388,7 @@ channel. On NQ the other instruments are thin; on ZN the Treasury futures along 
 curve are likely to excite one another, and where they share a channel the publisher
 would carry those reactions in the same packets. Cross-excitation between instruments is
 a candidate cause of ZN's large packets that the paper does not test
-(Section~\ref{sec:exchange-drain}).
+(Section~\ref{sec:open-questions}).
 
 \subsection{How to reduce the tail}
 \label{sec:concl-mitigate}
@@ -4520,9 +4521,55 @@ are ratios of corpus medians with session-bootstrap intervals.
 \section{Future work}
 \label{sec:future}
 
-The questions this paper leaves open fall into two groups: questions about the market,
-which are outside its scope, and questions about the receiver, which are within it but
-were not answered with the data at hand.
+The section first states the open questions the paper raises, then lists the remaining
+work in two groups: questions about the market, which are outside the paper's scope, and
+questions about the receiver, which are within it but were not answered with the data at
+hand.
+
+\subsection{Open questions this paper raises}
+\label{sec:open-questions}
+
+The paper answers its two questions on NQ front-month. Measuring it raised others that
+need data or scope beyond this paper, and each is better answered in a shorter, focused
+study.
+
+\begin{enumerate}
+    \item \textbf{Does filtering the channel to NQ front-month change any result?}
+Channel 318 carries other instruments, and the publisher packs their messages into the
+same packets as NQ. Every packet statistic in the paper counts NQ front-month messages
+only: span, transactions per packet, and the packet stream fed to the simulated receiver.
+Two things could change on the full channel. First, packets are larger in bytes and
+messages than the NQ span shows, which bears on the span-dependent service of
+Section~\ref{sec:crossval-spanrun} and the tables of Section~\ref{sec:exchange-drain}.
+Second, a receiver subscribed to the channel sees every packet, including those without
+NQ, so its arrival stream is denser than the one simulated unless those packets are
+discarded at negligible cost. The raw captures hold the full channel; the measurement
+is packet bytes and message counts on every packet, joined to the NQ tapes on the
+publisher's send time, and the sweep rerun with every channel packet as an arrival. The
+pacing floor is not in question: Table~\ref{tab:drain-gap} shows it on the channel's order
+and trade packets.
+    \item \textbf{Do instruments excite each other, above all on ZN?} The Treasury futures
+along the yield curve (two-, five-, ten- and thirty-year and the ultra bond) are priced
+off one another, so a move in one is likely to trigger quotes and trades in the others
+within microseconds. Where they share ZN's channel, those reactions reach the publisher
+together and leave in the same packets, which would make ZN's large packets a product of
+the curve and not of ZN alone. The test is a multivariate Hawkes fit across the channel's
+instruments on the engine clock and packet size conditioned on cross-triggering. It needs
+a full-channel ZN recording.
+    \item \textbf{Why do transactions reach the matching engine together?} Reaction,
+common reaction to one signal (races), or pacing inside order entry
+(Section~\ref{sec:concl-cannot}). It needs order-entry times for all participants.
+    \item \textbf{How much of the engine's activity is racing?} Table~\ref{tab:tight-pairs}
+shows the race signature in trade-led tight pairs, but rejected race orders do not reach
+the public feed.
+    \item \textbf{Is the publisher's capacity a design choice, and does it act as a speed
+limit on information?} The conjecture of Section~\ref{sec:exchange-conjecture}.
+    \item \textbf{Does the result replicate on ZN, ES and BTC?} The design rule is measured
+on NQ; the threshold equals the upstream publisher's service time only if each channel
+is paced the same way.
+\end{enumerate}
+
+The lists below give the remaining work in two groups.
 
 \paragraph{Why transactions land together (questions about the market).}
 \begin{itemize}
@@ -4536,15 +4583,8 @@ are the leading hypothesis.
 whole channel. Table~\ref{tab:tight-pairs} gives message type, side and price level for NQ
 front-month; which other instruments' transactions sit within microseconds of an NQ
 transaction is not measured.
-    \item Cross-excitation between instruments, above all on ZN. The Treasury futures
-along the yield curve (two-, five-, ten- and thirty-year and the ultra bond) are priced off
-one another, so a move in one is likely to trigger quotes and trades in the others within
-microseconds. Where they share ZN's channel, those reactions reach the publisher together
-and leave in the same packets, which would make large packets a product of the curve and
-not of ZN alone. The test is a multivariate Hawkes fit across the channel's instruments
-on the engine clock, the share of each instrument's triggering that comes from the others,
-and packet size on the whole channel conditioned on that cross-triggering
-(Section~\ref{sec:exchange-drain}). It needs a full-channel ZN recording.
+    \item Cross-excitation between instruments, above all on ZN
+(Section~\ref{sec:open-questions}, question 2).
     \item A power-law Hawkes kernel against the exponential, fitted on the engine clock.
     \item The publisher queue measured channel-wide rather than on NQ front-month only, and
 on ES and ZN, so that its service interval and backlog are measured under the full load it
