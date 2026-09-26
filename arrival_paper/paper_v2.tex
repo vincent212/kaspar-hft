@@ -1625,8 +1625,23 @@ $32\,\mu\mathrm{s}$  & $34.1\%$ & $4.6\%$ & $2.46\%$ \\
 \end{tabular}
 \caption{Tight packet gaps, pooled over the corpus ($3.30 \times 10^9$ gaps; bin edges
 at $7.9$, $17.8$ and $35.5\,\mu\mathrm{s}$ on the logarithmic grid of
-Figure~\ref{fig:tx-gaps}). The real stream carries $4$--$17$ times the Poisson share of
-tight gaps, and $95$--$99.9\%$ of them separate two different transactions.}
+Figure~\ref{fig:tx-gaps}). What the table shows: $2.15\%$ of all packet gaps are
+shorter than the $7.5\,\mu\mathrm{s}$ floor, $20.6\%$ shorter than $16\,\mu\mathrm{s}$
+and $34.1\%$ shorter than $32\,\mu\mathrm{s}$; a Poisson stream at the same rate would
+carry $0.56\%$, $1.24\%$ and $2.46\%$, so the real stream has four, seventeen and
+fourteen times the Poisson share of gaps below the three service times of interest.
+Of the gaps below the floor, $0.1\%$ lie between two packets of the same transaction;
+below $16$ and $32\,\mu\mathrm{s}$ the share is $5\%$. What follows: the tight gaps
+that make a deterministic server queue are overwhelmingly gaps between different
+matching-engine events, not the exchange's division of one event into several
+datagrams, so a receiver that reassembled transactions before decoding would remove at
+most $5\%$ of the gaps that queue and none below the floor; and the surplus of tight
+gaps over Poisson, which Table~\ref{tab:nulls} shows carries most of the tail at
+$8$--$16\,\mu\mathrm{s}$, is a property of when transactions occur relative to each
+other. The reason the surplus exists is the self-excitation established in
+Table~\ref{tab:tx-fano}: a transaction raises the probability of another within tens of
+microseconds, which puts far more mass at short gaps than any renewal stream at the same
+mean rate can produce.}
 \label{tab:tx-gaps}
 \end{table}
 
@@ -1636,10 +1651,27 @@ tight gaps, and $95$--$99.9\%$ of them separate two different transactions.}
 \caption{Packet interarrival gaps, pooled over the corpus, density per decade on a
 logarithmic gap axis; dotted lines at $7.5$, $16$ and $32\,\mu\mathrm{s}$. Left: gaps
 between two packets of the same transaction ($5.6 \times 10^7$) against gaps between
-packets of different transactions ($3.24 \times 10^9$); the intra-transaction distribution
-peaks at $12$--$16\,\mu\mathrm{s}$, above the floor. Right: all packet gaps against a
-rate-matched Poisson stream; the real stream's mass below $32\,\mu\mathrm{s}$ and its
-peak at the $7.5\,\mu\mathrm{s}$ floor have no counterpart in the null.}
+packets of different transactions ($3.24 \times 10^9$). What it shows: the
+intra-transaction distribution is a single narrow peak at $12$--$16\,\mu\mathrm{s}$
+with almost no mass below $10\,\mu\mathrm{s}$ and none below the floor, which is the
+time the exchange takes to emit the next datagram of the same event; the
+inter-transaction distribution has a sharp edge at the $7.5\,\mu\mathrm{s}$ floor, a
+broad plateau from the floor to about $30\,\mu\mathrm{s}$, a second mode near
+$100\,\mu\mathrm{s}$, and a long tail to seconds. Right: all packet gaps against a
+rate-matched Poisson stream. What it shows: the Poisson density is a single hump
+centred near $1\,\mathrm{ms}$ with negligible mass below $100\,\mu\mathrm{s}$; the
+real density puts a third of its mass below $32\,\mu\mathrm{s}$, with the floor edge
+and the $100\,\mu\mathrm{s}$ mode absent from the null. What follows: the edge at
+$7.5\,\mu\mathrm{s}$ is a property of the gateway --- no two packets of any origin are
+published closer than that --- and it sets where a queue first forms; everything between
+the floor and $32\,\mu\mathrm{s}$ is gaps between different transactions, so the
+queueing regime of an HFT receiver is populated by distinct matching events arriving
+within one service time of each other, not by fragments of one event; and the whole of
+that region is absent from a Poisson stream at the same rate, which is why the uniform
+null in Table~\ref{tab:main-corpus} has no tail below $32\,\mu\mathrm{s}$. The
+$100\,\mu\mathrm{s}$ mode is the characteristic spacing of successive transactions
+within a burst, the time scale on which the self-excitation of Table~\ref{tab:tx-fano}
+acts.}
 \label{fig:tx-gaps}
 \end{figure}
 
