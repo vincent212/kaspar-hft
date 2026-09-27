@@ -26,6 +26,7 @@
 - **Shadow execution algorithm:** Efficient, production-grade, turn-key execution algorithm.
 - **Strategy authoring in C++ or Rust:** Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop.
 - **Two papers to dive deeper, more in the works:** The C++ actor framework design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
+- **Async vs sync (fast_send) communication fungibility** Allows for system latency optimization [DRAFT](https://github.com/vincent212/kaspar-hft/blob/research/arrival-paper/arrival_paper/paper_v2.pdf)
 
 ---
 
@@ -346,6 +347,9 @@ Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.su
 - [**Shadow POV Execution: Trade Where the Market Is Going to Trade**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where) — a percentage-of-volume algorithm that follows passive flow.
 
 ## Decode Paths Research — serial vs parallel
+
+Motivation: working to reduce the latency tail 
+(https://github.com/vincent212/kaspar-hft/blob/research/arrival-paper/arrival_paper/paper_v2.pdf)
 
 MDP3 packet decode has two implementations, selected per channel by
 `cme_decode_workers` in `cme.ini` (`kaspr.cpp`, `start_channel()`).
