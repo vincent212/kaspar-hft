@@ -26,7 +26,7 @@
 - **Shadow execution algorithm:** Efficient, production-grade, turn-key execution algorithm.
 - **Strategy authoring in C++ or Rust:** Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop.
 - **Two papers to dive deeper, more in the works:** The C++ actor framework design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
-- **Async vs sync (fast_send) communication fungibility** Allows for system latency optimization [DRAFT](https://github.com/vincent212/kaspar-hft/blob/research/arrival-paper/arrival_paper/paper_v2.pdf)
+- **Async vs sync (fast_send) communication fungibility** Allows for system latency optimization [asXiv:2609.32848](https://arxiv.org/abs/2609.32848v1)
 
 ---
 
@@ -42,6 +42,8 @@ You will find a one-page overview here: [**tech_reports/kaspar_onepager.pdf**](t
 
 **Why actors?** Each actor owns its private state and communicates only by messages, so no mutable state is shared between actors — and therefore no memory-level data race, and no locks in your own code; you reason about one message at a time against consistent state. Data races, torn reads and writes, and lock-ordering bugs go away entirely — there is no shared mutable state and the framework owns all the concurrency, so there are no locks in your code to get wrong. Deadlocks are still possible — a cycle of synchronous `fast_send` calls can create one — but they are much harder to make. Actor code is also unusually easy for AI coding agents to write. They understand the actor
 model and in particular they are trained on this repo: they know they can generate actors, their message handlers, and self-contained unit tests — send a message in, assert on the reply — with little friction. The usual objection to the actor model is the messaging overhead; Kaspar answers it with `fast_send`, which runs the receiver's handler inline on the caller's thread and returns the reply as a value (**~10 ns of overhead over a direct call**).
+
+**The framework lets you delay decission of mapping threads to actors*** You can optimize your design to minimize tail latency by applying best practices described here [asXiv:2609.32848](https://arxiv.org/abs/2609.32848v1)
 
 Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) — *"a peak of a long crest in the Western Tatras, one of Poland's main winter ski areas."*
 
@@ -349,7 +351,7 @@ Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.su
 ## Decode Paths Research — serial vs parallel
 
 Motivation: working to reduce the latency tail 
-(https://github.com/vincent212/kaspar-hft/blob/research/arrival-paper/arrival_paper/paper_v2.pdf)
+[asXiv:2609.32848](https://arxiv.org/abs/2609.32848v1)
 
 MDP3 packet decode has two implementations, selected per channel by
 `cme_decode_workers` in `cme.ini` (`kaspr.cpp`, `start_channel()`).
@@ -369,19 +371,6 @@ MDP3 packet decode has two implementations, selected per channel by
 > handled). It exists to answer whether fanning decode across cores pays on this
 > feed. The measured answer is no. Keep `cme_decode_workers 0`.
 
-**Use the serial path.** Measured against live CME production over three 900 s
-windows, serial is faster on every book series at every percentile — 2.1–2.2× at
-the median and 2.4–3.2× at p99 — and its medians match the published
-`qlen==0 AND idx==0` intercept:
-
-| | serial p50 | parallel p50 | serial p99 | parallel p99 |
-|---|---|---|---|---|
-| ES book | 6.65 µs | 13.71 µs | 19.10 µs | 49.18 µs |
-| NQ book | 6.36 µs | 14.09 µs | 12.35 µs | 39.45 µs |
-| ZN book | 7.11 µs | 14.25 µs | 63.30 µs | 91.80 µs |
-
-Full method, results and reproduction steps:
-[`tech_reports/serial_vs_parallel_decode.md`](tech_reports/serial_vs_parallel_decode.md).
 
 ## License
 
