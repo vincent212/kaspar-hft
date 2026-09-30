@@ -353,23 +353,13 @@ Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.su
 Motivation: working to reduce the latency tail 
 [arXiv:2609.32848](https://arxiv.org/abs/2609.32848v1)
 
-MDP3 packet decode has two implementations, selected per channel by
-`cme_decode_workers` in `cme.ini` (`kaspr.cpp`, `start_channel()`).
-
-| | `cme_decode_workers 0` (default) | `cme_decode_workers N` (N a power of two) |
-|---|---|---|
-| decode | inline via `mbo_data()` on the MessageProcessor thread | fanned out to a warm `DecodeWorker` fleet |
-| routing | straight into `handler_if` | `ParsedMsg` → `Reconstructor`, resequenced by `order_seq` |
-| copies / allocs | none | packet memcpy + `pending_` map slot per packet |
-| status | **the supported path** | **RESEARCH ONLY — not for production** |
-
-> **The parallel decoder is a research path. Do not run it in production.**
-> It is slower than serial at every book percentile measured (below), and it is
-> not validated for correctness: no dual-path replay has confirmed that its
-> output matches serial, and some message types are not routed on it yet
-> (stats/volume flush empty batches, option and spread definitions are not
-> handled). It exists to answer whether fanning decode across cores pays on this
-> feed. The measured answer is no. Keep `cme_decode_workers 0`.
+MDP3 packets are decoded serially, inline on the MessageProcessor thread via
+`mbo_data()`, straight into `handler_if`. A parallel decoder that fanned packets
+out to a `DecodeWorker` fleet was measured against it on live CME data and then
+removed: serial was faster at the median and at p99 on every book series, and
+CME packets carry 1.06–1.10 messages, so a fan-out has almost nothing to divide.
+The `cme_decode_workers` key in `cme.ini` is no longer read. The measurement is in
+[tech_reports/serial_vs_parallel_decode.md](tech_reports/serial_vs_parallel_decode.md).
 
 
 ## License

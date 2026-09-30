@@ -13,7 +13,7 @@
  *     Actor::add_message_to_queue   stamps Message::qlen  (test_msg_qlen.cpp)
  *  -> MsgBuf::processq_handler      copies it onto message_buffer.qlen   <-- HERE
  *  -> MessageProcessor::processq    -> DecodePacket.qlen  (test_processq_qlen.cpp)
- *  -> DecodeReq / DecodeSink        -> l3.ingress_qlen    (test_decode_qlen.cpp)
+ *  -> DataDecoder -> handler_if     -> set_ingress_qlen   (test_processq_qlen.cpp)
  *
  * The copy is one line and it is not optional. MessageProcessor's reorder map
  * stores packets BY VALUE (msg_q.try_emplace(seqnum, m->buf)), so anything

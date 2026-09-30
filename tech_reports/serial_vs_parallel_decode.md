@@ -2,14 +2,19 @@
 
 ## STATUS: PARALLEL DECODE REMOVED
 
-**As of 2026-09-30, parallel decode has been removed from the codebase.** It was
-2.1–2.2× slower at p50 and 2.4–3.2× at p99, not validated for correctness, and
-structurally unsuitable for CME's feed shape (1.06–1.10 messages per packet).
-Serial decode is the only path. This report remains for reference.
+**As of 2026-09-30, parallel decode has been removed from the codebase.** In the
+main comparison (§2, book series) serial was 2.0–2.2× faster at p50 and 1.5–3.2×
+faster at p99; against the best parallel configuration measured (§8.4b, all six
+series) it was 1.7–2.1× faster at p50 and 1.5–3.3× faster at p99. The parallel
+path was not validated for correctness, and CME packets carry 1.06–1.10 messages,
+so a fan-out has almost nothing to divide. Serial decode is the only path. The
+rest of this report is the record of the measurement, as written at the time; its
+status notes and production guidance (`cme_decode_workers`) are superseded by the
+removal.
 
 ---
 
-## (Historical) STATUS: UNDER DEVELOPMENT — this branch is not merged
+## Status at the time of measurement (historical, superseded by the removal above)
 
 **Where the code lives.** This report and the code it measures are on
 **`mdp3/uniform-decode`** (PR **#127**, open, unmerged). `main` is at `4b6d889`
@@ -79,7 +84,7 @@ Book, full 900 s windows, recovery excluded (see §5). All figures µs.
 | ZN book | **SERIAL** | 157,699 | **5.04** | **7.11** | **11.81** | **63.30** | **273.69** | **9.95** |
 | ZN book | PAR w=8 | 150,751 | 11.69 | 14.25 | 22.65 | 91.80 | 337.81 | 18.39 |
 
-**Serial is 2.1–2.2× faster at the median and 2.4–3.2× at p99.** The serial
+**Serial is 2.0–2.2× faster at the median and 1.5–3.2× at p99** (ZN book 1.45×, ES book 2.6×, NQ book 3.2×). The serial
 medians (6.36–7.11 µs) land on the 6.72/7.29/7.03 µs `qlen==0 AND idx==0`
 intercept published in `kaspr/perf/RESULT_qlen_vs_latency.md`, so serial is
 behaving exactly as previously measured; parallel is the slow path.
@@ -518,14 +523,14 @@ comparison below is **against serial**.
 | **ZN trade** serial | 16,250 | **17.19** | **95.61** | **268.04** | **310.13** | **318.32** | **319.05** |
 | ZN trade parallel | 9,546 | 30.64 | 140.84 | 387.78 | 460.25 | 465.28 | 466.18 |
 
-**Serial wins 28 of 30 tail comparisons** (6 series × p99, p99.5, p999, p9999, max).
+**Serial wins 28 of 30 tail comparisons** (6 series × p90, p99, p999, p9999, max).
 The two exceptions are both ZN book: **p999 248.08 vs 273.69** (−9%) and
 **max 1238.19 vs 3046.64** (2.5× better). Everywhere else serial leads, and the
 margin is widest exactly where a fan-out was supposed to help — the trade series
 at p999, where serial is 1.5–2.4× faster (ES 67.65 vs 148.39, NQ 42.47 vs 103.92,
 ZN 310.13 vs 460.25).
 
-At the median serial is 1.6–2.1× faster on every series.
+At the median serial is 1.7–2.1× faster on every series.
 
 **What this establishes.** The best parallel configuration measured still loses to
 serial almost everywhere, including the far tail it was expected to win. The one

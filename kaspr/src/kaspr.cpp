@@ -478,7 +478,7 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
 
     // Create feed handler
     // UseFastSend=false; TreasOnly from the template flag (treasury channels
-    // key RefData by asset). The Reconstructor below gets the SAME flag.
+    // key RefData by asset).
     auto handler = new handler_if<false, TreasOnly>(venue, chan);
     handler->mbo_order_books = order_books.at(venue);
     handler->binrec = nullptr;
@@ -514,9 +514,17 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     // mbo_data, straight into handler_if. This is the path the latency article
     // measured.
     //
-    // Parallel decode was removed: it was 2.1-2.2x slower at p50 and 2.4-3.2x
-    // slower at p99 due to CME's feed shape (1.06-1.10 messages per packet), and
-    // was not validated for correctness. See tech_reports/serial_vs_parallel_decode.md.
+    // Parallel decode was removed: on the book series it was 2.0-2.2x slower at
+    // p50 and 1.5-3.2x slower at p99, because CME packets carry 1.06-1.10
+    // messages and a fan-out has almost nothing to divide; it was also not
+    // validated for correctness. See tech_reports/serial_vs_parallel_decode.md.
+    //
+    // cme_decode_workers used to select it. A config key nothing reads is
+    // silent, so say so if an old cme.ini still sets it.
+    if (pt_chan.get_optional<std::string>("cme_decode_workers"))
+        std::cerr << "Kaspr: *** WARNING chan " << chanstr << ": cme_decode_workers is set but"
+                  << " ignored -- parallel decode was removed; decode is always serial ***"
+                  << std::endl;
 
     std::cerr << "Kaspr: chan " << chanstr << " SERIAL decode (inline)" << std::endl;
 
@@ -622,8 +630,8 @@ void Kaspr::start_market_data()
     // failure as the TachBook ladder: the system reported normal operation
     // while producing nothing.
     if (pt_general.get<bool>("kaspr.channels.chan_344", false)) {
-        // Treasury futures: TreasOnly=true -> handler_if and Reconstructor both
-        // key RefData by asset (not symbol), the treasury-specific lookup.
+        // Treasury futures: TreasOnly=true -> handler_if keys RefData by asset
+        // (not symbol), the treasury-specific lookup.
         start_channel<true>("prod_treasury_futures", en::x::CMEMDFUT);
     }
 }

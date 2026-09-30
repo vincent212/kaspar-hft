@@ -1185,10 +1185,6 @@ struct handler_if : public mdp3::feed_handler_if
       recmsg->l3 = l3;
       binrec->send(recmsg, 0);
     }
-
-    // The book is cleared -> clear our orderID map so a reused orderID
-    // after the reset does not misroute (asset defs persist).
-    orderid_to_securityid.clear();
   }
 
   virtual void MDIncrementalRefreshVolume(

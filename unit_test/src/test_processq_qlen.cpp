@@ -9,8 +9,8 @@
  * MessageProcessor::processq() -- packet sequencing, and the SOURCE of the
  * ingress-qlen stamp.
  *
- * test_decode_qlen.cpp pins the stamp from DecodePacket onward. This file pins
- * the link upstream of that, which nothing covered:
+ * This file pins the link from the packet buffer to the DecodePacket, and on
+ * through the DataDecoder to the handler:
  *
  *     message_buffer.qlen  ->  DecodePacket.qlen
  *
@@ -32,8 +32,7 @@
  * as-is under a KnownDefect_ name rather than quietly left untested.
  *
  * Packets here are header-only: the 12-byte MDP3 header (MsgSeqNum +
- * SendingTime) and zero SBE messages. scan() returns count==0, so the parallel
- * branch is skipped and mbo_data decodes an empty packet and calls
+ * SendingTime) and zero SBE messages, so mbo_data decodes an empty packet and calls
  * EndOfPacket(MsgSeqNum). Setting the packet's MsgSeqNum equal to the
  * message_buffer seqnum makes the recorded decode order read back directly as
  * the seqnums fed in.
@@ -48,7 +47,7 @@
 #include "unit_test/TestHelper.hpp"
 #include "mdp3/act/MessageProcessor.hpp"
 #include "mdp3/DataDecoder.hpp"
-#include "mdp3/DecodeSink.hpp"
+#include "unit_test/NullFeedHandler.hpp"
 #include "mdp3/msg/DecodePacket.hpp"
 #include "mdp3/msg/DecodeResult.hpp"
 #include "mcast_recv/msg/ProcessQ.hpp"
@@ -226,13 +225,11 @@ TEST_F(ProcessqDecodePacketTest, DecodePacketCarriesThePacketLengthNotTheBuffer)
 //    emitters actually read.
 // ---------------------------------------------------------------------------
 
-// feed_handler_if has ~20 pure virtuals. DecodeSink is a concrete one already,
-// so deriving from it costs two overrides instead of a 70-line stub that rots
-// every time a callback signature moves.
-struct RecordingHandler : public mdp3::DecodeSink
+// Records the ingress depth the DataDecoder hands it and reads it back at
+// EndOfPacket, the way handler_if's l3 emitters do.
+struct RecordingHandler : public NullFeedHandler
 {
-  RecordingHandler() : mdp3::DecodeSink(nullptr, nullptr, en::x::CMEMDFUT) {}
-
+  uint32_t ingress_qlen_ = 0;
   std::vector<uint32_t> decoded;       // MsgSeqNums, in decode order
   std::vector<uint32_t> qlen_at_decode; // the member as each packet finished
 
@@ -250,8 +247,6 @@ class ProcessqHandlerQlenTest : public ::testing::Test
 protected:
   MockActor recovery{"MockRecovery"};
   RecordingHandler cb;
-  // parallel decode left off (no set_workers), so every packet takes the inline
-  // branch -- which is also what a header-only packet would get anyway.
   mdp3::DataDecoder dec{&cb, /*disable_mbo=*/false, /*max_mbp_level=*/10,
                         /*debug=*/false};
   mdp3::MessageProcessor mp{"test", &recovery, &dec, true, false};

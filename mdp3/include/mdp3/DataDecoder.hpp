@@ -15,7 +15,6 @@
 #include "actors/Actor.hpp"
 #include "chutil/Assert.hpp"
 #include "mcast_recv/message_buffer.hpp"
-#include "mdp3/msg/TriggerRecovery.hpp"
 #include "mdp3/msg/DecodePacket.hpp"
 #include "mdp3/msg/DecodeResult.hpp"
 #include "mdp3/msg/DecoderCmd.hpp"
@@ -23,11 +22,6 @@
 #include "logger/act/Logger.hpp"
 
 #define TRACEF std::cerr
-
-// decode_one is static so it cannot call the non-static get_name() that
-// log_err/log_wrn use. Log with a literal component name instead.
-#define SLOG_ERR(...) polonaise::logger::act::log(polonaise::logger::msg::Log::Level::_ERROR_, "DataDecoder", __FILE__, __LINE__, __VA_ARGS__)
-#define SLOG_WRN(...) polonaise::logger::act::log(polonaise::logger::msg::Log::Level::_WARN_, "DataDecoder", __FILE__, __LINE__, __VA_ARGS__)
 
 namespace mdp3
 {
@@ -61,13 +55,11 @@ namespace mdp3
         // Decode ONE SBE message at `msg` (points at its 10-byte SBE header) into
         // `cb`. Returns false if a CRITICAL message failed to decode (caller must
         // trigger recovery), true otherwise; sets is_channel_reset on a reset.
-        //
-        // Static + cb/debug params so the per-message decode can be isolated from
-        // DataDecoder's member state. Per-PACKET work (EndOfPacket) stays in mbo_data;
-        // this handles exactly one message.
-        static bool decode_one(char *msg, uint16_t MsgSize, uint64_t ts,
-                               uint32_t MsgSeqNum, uint64_t SendingTime,
-                               feed_handler_if *cb, bool &is_channel_reset, bool debug)
+        // Per-PACKET work (EndOfPacket) stays in mbo_data; this handles exactly
+        // one message.
+        bool decode_one(char *msg, uint16_t MsgSize, uint64_t ts,
+                        uint32_t MsgSeqNum, uint64_t SendingTime,
+                        bool &is_channel_reset)
         {
             const std::size_t sbe_message_header_size = 10;
             char *databuf = msg;
@@ -108,7 +100,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDIncrementalRefreshBook46 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDIncrementalRefreshBook46 %s", std::string(e.what()));
                         return false;
                     }
 
@@ -136,7 +128,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDIncrementalRefreshTradeSummary48 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDIncrementalRefreshTradeSummary48 %s", std::string(e.what()));
                         return false;
                     }
 
@@ -163,7 +155,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDIncrementalRefreshDailyStatistics49 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDIncrementalRefreshDailyStatistics49 %s", std::string(e.what()));
                     }
 
                     break;
@@ -189,7 +181,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDIncrementalRefreshSessionStatistics51 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDIncrementalRefreshSessionStatistics51 %s", std::string(e.what()));
                     }
 
                     break;
@@ -215,7 +207,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDInstrumentDefinitionSpread56 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDInstrumentDefinitionSpread56 %s", std::string(e.what()));
                     }
 
                     break;
@@ -241,7 +233,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDInstrumentDefinitionOption55 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDInstrumentDefinitionOption55 %s", std::string(e.what()));
                     }
 
                     break;
@@ -267,7 +259,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDInstrumentDefinitionFuture54 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDInstrumentDefinitionFuture54 %s", std::string(e.what()));
                     }
 
                     break;
@@ -293,7 +285,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDInstrumentDefinitionFixedIncome57 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDInstrumentDefinitionFixedIncome57 %s", std::string(e.what()));
                     }
 
                     break;
@@ -303,7 +295,7 @@ namespace mdp3
                     sbe::ChannelReset4 reset;
                     reset.wrapForDecode(databuf, sbe_message_header_size, BlockLength, Version, MsgSize);
 
-                    SLOG_WRN("ChannelReset4");
+                    log_wrn("ChannelReset4");
 
                     is_channel_reset = true;
 
@@ -323,7 +315,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_ChannelReset4 %s", std::string(e.what()));
+                        log_err("caught exception in decode_ChannelReset4 %s", std::string(e.what()));
                         return false;
                     }
 
@@ -350,7 +342,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_ChannelReset4 %s", std::string(e.what()));
+                        log_err("caught exception in decode_ChannelReset4 %s", std::string(e.what()));
                     }
 
                     break;
@@ -376,7 +368,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_SecurityStatus30 %s", std::string(e.what()));
+                        log_err("caught exception in decode_SecurityStatus30 %s", std::string(e.what()));
                     }
 
                     break;
@@ -402,7 +394,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDIncrementalRefreshOrderBook47 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDIncrementalRefreshOrderBook47 %s", std::string(e.what()));
                         return false;
                     }
 
@@ -429,7 +421,7 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_MDIncrementalRefreshVolume37 %s", std::string(e.what()));
+                        log_err("caught exception in decode_MDIncrementalRefreshVolume37 %s", std::string(e.what()));
                     }
 
                     break;
@@ -460,14 +452,14 @@ namespace mdp3
                     }
                     catch (std::runtime_error &e)
                     {
-                        SLOG_ERR("caught exception in decode_QuoteRequest39 %s", std::string(e.what()));
+                        log_err("caught exception in decode_QuoteRequest39 %s", std::string(e.what()));
                     }
 
                     break;
                 }
                 default:
                 {
-                    SLOG_ERR("unknown message: %d", TemplateID);
+                    log_err("unknown message: %d", TemplateID);
                     if (debug)
                         TRACEF << "UNKNONWN MESSAGE " << TemplateID << std::endl;
                     break;
@@ -502,7 +494,7 @@ namespace mdp3
                     log_err("corrupt SBE MsgSize==0 (seq %u) -- aborting packet, initiating recovery", MsgSeqNum);
                     return false;
                 }
-                if (!decode_one(databuf, MsgSize, ts, MsgSeqNum, SendingTime, cb, is_channel_reset, debug))
+                if (!decode_one(databuf, MsgSize, ts, MsgSeqNum, SendingTime, is_channel_reset))
                     return false;
                 databuf += MsgSize;
             }
