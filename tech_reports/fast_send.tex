@@ -1393,7 +1393,7 @@ load, moving by at most $+0.4~\mu$s (and \emph{falling} on two of three
 instruments) during a Federal Reserve release that raised the packet rate
 $4.6$--$9.8\times$ in a second. Against this $\sim\!7~\mu$s floor the framework's
 per-message contribution --- the mailbox handoff and dispatch of
-Section~\ref{sec:micro} --- is tens of nanoseconds: a \fs{} hop adds $\sim\!10$~ns
+Section~\ref{sec:micro} --- is tens of nanoseconds: a \fs{} hop adds $\sim\!7.5$~ns
 over a direct call (about one mispredicted virtual call,
 Table~\ref{tab:dispatch}; the full ping/pong round trip is $\sim\!30$~ns). \emph{The actor abstraction is under $1\%$ of the floor}; the floor
 is SBE decode and book mutation, not message delivery.
@@ -2525,9 +2525,9 @@ thread runs the receiver's handler directly under the receiver's exclusive-acces
 lock and takes the reply as a value, while the handler's code does not depend on
 the delivery mode, the executing thread, or the sender's blocked state ---
 receiver transparency. We also set out the design of a thread-local
-call-chain membership test, checked before lock acquisition, that would make the
-cross-thread synchronous path safe against the deadlock and stack-overflow modes
-that cyclic synchronous invocation otherwise causes, a refinement keyed on
+call-chain membership test, checked before lock acquisition, that would catch
+synchronous cycles on one thread before they deadlock or overflow the stack
+(cycles across threads need a different mechanism), a refinement keyed on
 (actor, message-class) pairs that admits legitimate callbacks, and a family of
 five delivery operations behind one transparent handler interface. These are not
 yet implemented (Section~\ref{sec:future}); in the current implementation a
