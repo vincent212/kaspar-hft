@@ -41,7 +41,16 @@ namespace actors
 
     mutable Actor *sender = nullptr;
     mutable Actor *destination = nullptr;
+  private:
+    // How the message was delivered. Framework-only, readable by Actor and
+    // Group. Declared here, between the public fields, so the object layout is
+    // unchanged.
     mutable bool is_fast = false;
+    friend class Actor;
+    friend class Group;
+  public:
+    // send: true when the receiver's mailbox held nothing behind this message.
+    // fast_send: always true (no mailbox was involved).
     mutable bool last = false;
     // Async analog of fast_send's ownership model: when a handler sets this on
     // the message it is processing, process_message_internal does NOT delete it
@@ -61,9 +70,10 @@ namespace actors
      * queued behind. Join latency against it directly — no time alignment, no
      * wake jitter, no gauge caveat.
      *
-     * Written once by Actor::add_message_to_queue, read by the receiving
-     * handler. Zero for fast_send (no queue was involved) and zero until the
-     * message is actually enqueued.
+     * Written by Actor::add_message_to_queue, read by the receiving handler.
+     * fast_send does not touch it: a fresh message reads zero, and a message a
+     * handler forwards with fast_send keeps the depth of the mailbox it last
+     * queued in. Zero until the message is enqueued.
      *
      * GROUPED ACTORS: Actor::send routes to group->add_message_to_queue when
      * is_part_of_group is set, so for those actors this is the depth of the

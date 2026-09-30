@@ -312,3 +312,28 @@ TEST(BatchedLast, LastMeansMailboxEmptyNotBatchEnd)
     EXPECT_EQ(a.lasts[i], i == K - 1 ? 1 : 0)
         << "m->last wrong at index " << i << " (expected true only on the last message)";
 }
+
+// A spinning LockFreeMPSC consumer never parks: pop() and pop_batch() busy-poll
+// until a producer on another thread delivers.
+TEST(LockFreeSpin, PopAndBatchReceiveFromAnotherThread)
+{
+  actors::LockFreeMPSC<int> q(64, /*spin=*/true);
+  std::thread producer([&q] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    q.push(1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    q.push(2);
+    q.push(3);
+  });
+  auto r = q.pop();
+  EXPECT_EQ(std::get<0>(r), 1);
+  std::vector<int> batch;
+  while (batch.size() < 2)
+  {
+    std::vector<int> more;
+    q.pop_batch(more);
+    batch.insert(batch.end(), more.begin(), more.end());
+  }
+  producer.join();
+  EXPECT_EQ(batch, (std::vector<int>{2, 3}));
+}
