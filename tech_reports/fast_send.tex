@@ -1166,9 +1166,8 @@ amortized, because its per-sample $p50$ is resolution-bound (the
 amortized figures. The grouped and \fs{} rows show negligible spread. In the
 spinning row both actors keep their own threads on separate cores, but each
 thread busy-polls its mailbox (the lock-free mailbox with a consumer that never
-sleeps), so a message still crosses cores but never waits for a thread to wake;
-median of three runs, $p50$ $370$--$380$~ns, $p99$ $400$--$410$~ns (commit
-\texttt{ea35e55}, recorder running).}
+sleeps), so a message still crosses cores but never waits for a thread to wake.
+Three runs: $p50$ $370$--$380$~ns (median $370$), $p99$ $400$--$410$~ns.}
 \label{tab:transport}
 \small
 \begin{tabular}{lccccr}
