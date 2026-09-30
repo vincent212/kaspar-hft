@@ -17,6 +17,10 @@
 \usepackage{enumitem}
 \usepackage{microtype}
 \usepackage{caption}
+\usepackage{array}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit}
 \usepackage[capitalise,noabbrev]{cleveref}
 
 \hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black}
@@ -33,7 +37,7 @@
 
 \newcommand{\fs}{\texttt{fast\_send}}
 \newcommand{\snd}{\texttt{send}}
-\newcommand{\kh}{kaspar-hft}
+\newcommand{\kh}{Kaspar-HFT}
 
 % semantic entities
 \newcommand{\Act}[1]{\mathcal{A}\langle #1\rangle}
@@ -54,38 +58,32 @@
 
 \title{Extending the Actor Model with Synchronous Delivery:\\
 \fs{} from CPU Threads to FPGA Pipelines}
-\author{Vincent Mayeski\\M2 Tech, Montreal\\\texttt{mayeski@gmail.com}}
+\author{Vincent Maciejewski\\M2 Tech, Montreal\\\texttt{mayeski@gmail.com}}
 \date{October 2026}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-The actor model has one communication primitive, asynchronous send. Practical actor
-systems add synchronous request/reply on top of it, as a library pattern (Erlang's
-\texttt{gen\_server:call}, Akka's \texttt{ask}) or as a call restricted to a single
-scheduling unit (ABS cogs, E vats). We add a second primitive to the model itself:
-\fs{}, in which the receiver's turn runs now, the caller waits for it, and the reply
-comes back as a value. We give \fs{} an operational semantics by extending the
-active-object calculus of De Koster and De Meuter with explicit execution resources, and
-we compare it with their isolated turn principle, which has a safety half (a turn is
-isolated and its result is determined) and a liveness half (a turn never blocks). \fs{}
-keeps isolation: no two turns of an actor overlap and no turn touches another actor's
-state. It weakens determinism to determinism relative to the replies a turn receives.
-It gives up unconditional liveness: we prove that a turn fails to complete exactly when
-its thread reaches a cycle in a wait-for graph, and that with asynchronous send alone
-the graph is empty, which recovers the original result. A per-thread call-chain check
-sees only the cycles that stay on one thread. We show that \fs{} is not reducible to
-asynchronous send followed by a blocking wait once execution resources are shared, which
-is where the classic encodings of synchronous into asynchronous communication do not
-apply. For debugging and backtesting, we prove that running every actor --- whatever its
-language or substrate --- from one global queue is sound: each execution of that
-simulator is an execution of the concurrent system, \fs{} included, so a failure seen
-in simulation is real, while some failures of the concurrent system, cross-thread
-deadlock among them, cannot appear in it. Finally we map \snd{} and \fs{} onto CPU
-threads, an FPGA actor runtime, a Rust runtime and, as a design, a GPU runtime: on each
-substrate the two primitives correspond to two distinct mechanisms, a queue and an
-inline or blocking call. We report their measured cost on the CPU runtime.
+In the classic actor semantics communication is asynchronous. Actor and active-object
+systems add synchronous communication as a request followed by a blocking wait, as a call
+confined to one scheduling unit, or as a rendezvous. We study a different primitive,
+\fs{}, from the open-source actor framework \kh{}: the receiver's handler runs as a turn
+now, on the caller's execution resource when possible and otherwise on a resource
+dedicated to the receiver, under the receiver's mutual exclusion and without re-entry,
+and its reply is returned as a value; the handler is the same code for both deliveries. We
+extend the active-object calculus of De Koster and De Meuter with explicit execution
+resources and state the properties of \fs{} against their isolated turn principle.
+Isolation is kept. Determinism becomes relative to the values that \fs{} calls return. For
+terminating handlers under fair scheduling, a turn can fail to complete exactly when a
+wait-for cycle is reachable from its thread; without \fs{} there are none, which recovers
+the original liveness result. When execution resources are shared, \fs{} completes where
+a send followed by a blocking wait deadlocks, so the classic encodings of synchronous into
+asynchronous communication do not carry over. For debugging and deterministic replay, we
+prove that a single global queue driving every actor, in any language or on any
+substrate, is trace-sound: its traces are traces of the concurrent system, although
+deadlocks that need two turns in progress at once cannot appear in it. Finally we map \snd{} and \fs{} onto CPU
+threads, a Rust runtime and an FPGA actor runtime, and propose a mapping onto GPUs.
 \end{abstract}
 
 % ---------------------------------------------------------------
@@ -101,47 +99,77 @@ no state is shared, turns cannot race. De Koster and De Meuter name this the
 \emph{isolated turn principle}, give an operational semantics for four families of actor
 languages, and prove the principle for each \cite{dekoster2024}.
 
-Real actor systems nonetheless need request/reply, and they obtain it in one of two ways.
-Either the sender sends a request and then blocks until a reply message arrives --- the
+Real actor systems nonetheless need request/reply or synchronisation, and they obtain it
+in one of three ways. The sender sends a request and then blocks until a reply message
+arrives --- the
 receiver still runs on its own thread (ABCL/1's \emph{now}-type messages
 \cite{yonezawa1986}, ABS calls between cogs \cite{johnsen2012abs}, Erlang's
-\texttt{gen\_server:call}, Akka's \texttt{ask}) --- or a synchronous call is allowed only
+\texttt{gen\_server:call}, Akka's \texttt{ask}); or a synchronous call is allowed only
 between objects that already share one scheduling unit (ABS calls inside a cog, E's
-immediate calls inside a vat \cite{miller2005}).
+immediate calls inside a vat \cite{miller2005}); or sender and receiver meet at a
+rendezvous (Extended Rebeca \cite{sirjani2005jucs}).
 
-This paper studies a third form, which we call \fs{} and which the \kh{} framework
-provides \cite{mayeski2026fastsend}: the receiver's turn is run \emph{now}, by an
+\paragraph{\kh{} and \fs{}.} \kh{}\footnote{\kh{} is open source:
+\url{https://github.com/vincent212/kaspar-hft}.} \cite{mayeski2026fastsend} is an
+open-source C++20 actor framework, written for high-frequency trading and used to build a
+trading system for CME futures: market data decoding, order-book reconstruction,
+execution algorithms and order routing are all actors. In \kh{} an actor is a C++ object
+that registers one handler per message type and holds references to other actors. It
+offers two ways to deliver a message. \snd{} is the classic asynchronous send: the
+message is placed in the receiver's mailbox, the sender continues, and a thread that
+serves the receiver later runs its handler. \fs{} is synchronous: the \emph{sending}
+thread acquires the receiver's lock, runs the receiver's handler inline, bypassing its
+mailbox, and receives the handler's reply as the call's return value. The handler is the
+same code in both cases and does not depend on which delivery was used --- the
+property the \kh{} paper calls \emph{receiver transparency}. \kh{} adds two further
+extensions that matter here: actor \emph{groups}, which run a set of actors on one
+thread behind one shared mailbox, and a choice of mailbox implementation per actor.
+That paper describes the framework and measures its cost; it does not give \fs{} a
+formal semantics.
+
+This paper studies \fs{} as a third form of synchronous communication: the receiver's
+turn is run \emph{now}, by an
 execution resource that the caller is willing to wait on --- on a CPU, the caller's own
 thread --- under the receiver's exclusive access, and its result is returned to the
 caller as a value. It is neither a blocking wait on another thread's work nor a call
-confined to one scheduling unit. We argue that it belongs in the model rather than in a
-library, for two reasons. First, its meaning can be stated precisely and its effect on
-the model's guarantees characterised exactly (Sections~\ref{sec:calculus}
-and~\ref{sec:properties}). Second, it maps onto a distinct physical mechanism on every
-substrate we have built, just as asynchronous send does (Section~\ref{sec:substrates}).
+confined to one scheduling unit, nor a rendezvous. Synchronous communication in actor
+systems is not new; what this paper contributes is a precise semantics for this
+particular primitive, in which execution resources are explicit, and an exact account of
+what it does to isolation, determinism, liveness, message order and single-queue
+simulation when those resources are finite (Sections~\ref{sec:calculus}
+to~\ref{sec:debug}). We also show that it has a distinct mechanism on each runtime
+considered, just as asynchronous send does (Section~\ref{sec:substrates}).
+
+In short, \fs{} is the synchronous form that runs the receiver's ordinary handler, reaches
+any actor across scheduling units, returns a value, and completes on a shared execution
+resource where send-then-wait deadlocks.
 
 \paragraph{Contributions.}
 \begin{enumerate}[leftmargin=1.6em]
   \item A thread-aware extension of the active-object calculus of
   \cite{dekoster2024} with a \fs{} rule, in two variants: the callee's turn runs on the
   caller's resource (\textsc{Fast-Local}) or on the callee's own resource while the
-  caller waits (\textsc{Fast-Remote}) (Section~\ref{sec:calculus}).
+  caller waits (\textsc{Fast-Remote}) (Section~\ref{sec:calculus}). Both variants start
+  the same method body as asynchronous delivery, which is receiver transparency stated
+  in the calculus (\cref{rem:transparency}).
   \item Its properties, stated against the isolated turn principle
   (Section~\ref{sec:properties}): isolation is kept (\cref{thm:isolation});
   determinism holds relative to replies (\cref{thm:determinism}); liveness holds
-  exactly when no thread reaches a cycle of waits (\cref{thm:liveness}), and the
+  exactly when no reachable wait-for cycle is reachable from the turn's thread, under
+  terminating handlers and fair scheduling (\cref{thm:liveness}), and the
   original liveness result is the special case without \fs{}
   (\cref{cor:asynclive}); a per-thread call-chain check detects exactly the cycles
-  confined to one thread (\cref{prop:localcycles}); \fs{} overtakes queued messages
-  (\cref{prop:order}); and \fs{} is not send-then-wait when resources are shared
+  confined to one thread (\cref{prop:localcycles}); a \fs{} is never queued behind the
+  callee's mailbox (\cref{prop:order}); and \fs{} is not send-then-wait when resources are shared
   (\cref{prop:notsendwait}).
-  \item A soundness theorem for debugging and backtesting from a single global queue,
-  across languages and substrates (\cref{thm:gqsound}), its limits
+  \item Trace soundness of a single global queue as a simulator for debugging and
+  deterministic replay, across languages and substrates (\cref{thm:gqsound}), its limits
   (\cref{prop:gqincomplete}), and an offline check for the deadlocks it cannot
   exhibit (\cref{prop:callgraph}) (Section~\ref{sec:debug}).
-  \item A mapping of both primitives onto CPU threads, an FPGA actor runtime, a Rust
-  runtime and a GPU runtime design, and between them (Section~\ref{sec:substrates}),
-  with measurements of the CPU runtime (Section~\ref{sec:eval}).
+  \item A mapping of both primitives onto CPU threads, a Rust runtime and an FPGA actor
+  runtime, a proposed mapping onto GPUs, and the mappings between them
+  (Section~\ref{sec:substrates}), with their implementation status in \kh{}
+  (Section~\ref{sec:impl}).
 \end{enumerate}
 
 % ---------------------------------------------------------------
@@ -191,7 +219,7 @@ actor that handles one message at a time and waits inside a turn can wait on its
 directly or through others. \emph{Distribution}: across machines, a synchronous call can
 wait forever on a failed peer.
 
-Where systems provide synchronous communication anyway, they do so in one of two ways.
+Where systems provide synchronous communication anyway, they do so in one of three ways.
 
 \paragraph{Wait on the receiver's thread.} ABCL/1 distinguishes \emph{past}
 (asynchronous), \emph{now} (send and wait for the reply) and \emph{future} messages
@@ -211,6 +239,15 @@ vats only eventual sends exist \cite{miller2005}. These calls run on the caller'
 processor, but they never cross a scheduling unit, so they need no mutual exclusion; and
 ABS allows re-entry into an object that is already executing.
 
+\paragraph{Rendezvous inside a component.} Extended Rebeca \cite{sirjani2005jucs}
+groups actors (``rebecs'') into components. Components communicate only asynchronously;
+inside a component, rebecs may also exchange synchronous messages. A synchronous message
+has a signature but no handler: it is a ``handshake between the execution of a
+send-statement by the caller and a receive statement by the callee'', and both sides
+block until they meet at that point; the data flows from sender to receiver only, and a
+rebec may not send a synchronous message to itself. The receiver takes part explicitly,
+by executing a \texttt{receive} statement inside one of its methods.
+
 \paragraph{Expressiveness.} Honda and Tokoro \cite{hondatokoro1991} and Boudol
 \cite{boudol1992} showed that synchronous communication can be encoded in the
 asynchronous $\pi$-calculus. \fs{} therefore adds nothing to what can be computed. The
@@ -223,9 +260,29 @@ difference between the primitives is a difference in who executes a turn and whe
 willing to wait on --- on a CPU, the caller's own thread --- across scheduling units,
 under the receiver's mutual exclusion, and without re-entry: an actor already in a turn
 cannot be entered again, and a call that tries waits, possibly forever. It combines the
-``run it here'' of the second group with the ``any actor'' of the first, and pays for it
-with the deadlock case that the first group has and the second avoids. The rest of the
-paper makes this precise.
+``run it here'' of calls within a scheduling unit with the ``any actor'' of
+send-then-wait, and pays for it with a deadlock case that calls within a scheduling
+unit do not have. Unlike a rendezvous, the receiver does not take part: its ordinary
+handler runs as a whole turn and its result comes back as a value. \Cref{tab:sync}
+summarises the differences; the rest of the paper makes them precise.
+
+\begin{table}[t]
+\centering
+\caption{Synchronous communication in actor and active-object systems. ``Busy callee'':
+what happens when the callee is in a turn when the call is made.}
+\label{tab:sync}
+\small
+\begin{tabular}{@{}P{3.0cm}P{3.0cm}P{1.8cm}P{1.1cm}P{1.4cm}P{3.3cm}@{}}
+\toprule
+Mechanism & Who runs the callee's code & Reach & Reply value & Re-entry & Busy callee \\
+\midrule
+Send-then-wait (ABCL/1 \emph{now}, ABS between cogs, \texttt{gen\_server:call}) & the callee's own processor, in a later turn & any actor & yes & no & request queued behind its mailbox \\
+Call in one unit (ABS inside a cog, E immediate call) & the caller's processor & same cog / vat & yes & yes & not applicable: one processor \\
+Rendezvous (Extended Rebeca) & both, at a \texttt{receive} statement in the callee & same component & no & no self-send & sender waits for the \texttt{receive} \\
+\fs{} (this paper) & the caller's resource, or one dedicated to the callee & any actor & yes & no & caller waits for the turn to end; mailbox bypassed \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 % ---------------------------------------------------------------
 \section{A thread-aware calculus with \fs{}}
@@ -295,15 +352,12 @@ become thread rules, and three rules are new (\cref{fig:rules}).
   {K \red K[t \mapsto \Thr{\theta, S}]}
 
 \inferrule*[right=Fast-Local]
-  {t = \Thr{\theta, S\cdot\Frm{\iota_a, \ctx{\fsend(\iota_b, msg, \overline{v})}, \kappa}} \\
-   \neg\busy_K(\iota_b) \\ \overline{v}' = \pass(\overline{v}) \\ \rho\ \text{fresh}}
-  {K \red K[t \mapsto \Thr{\theta, S\cdot\Frm{\iota_a, \ctx{\wait{\rho}}, \kappa}\cdot\Frm{\iota_b, \body(b,msg,\overline{v}'), \ret{\rho}}}]}
+  {\mathsf{Call}(t, \iota_b, \rho)}
+  {K \red K[t \mapsto \Thr{\theta, S\cdot W_\rho\cdot C_\rho}]}
 
 \inferrule*[right=Fast-Remote]
-  {t = \Thr{\theta, S\cdot\Frm{\iota_a, \ctx{\fsend(\iota_b, msg, \overline{v})}, \kappa}} \\
-   b = \Act{\iota_b, \mu_b, O_b, o_b, \theta_b} \\ \theta_b \neq \theta \\ t_b = \Thr{\theta_b, \epsilon} \\\\
-   \neg\busy_K(\iota_b) \\ \overline{v}' = \pass(\overline{v}) \\ \rho\ \text{fresh}}
-  {K \red K[t \mapsto \Thr{\theta, S\cdot\Frm{\iota_a, \ctx{\wait{\rho}}, \kappa}}][t_b \mapsto \Thr{\theta_b, \Frm{\iota_b, \body(b,msg,\overline{v}'), \ret{\rho}}}]}
+  {\mathsf{Call}(t, \iota_b, \rho) \\ \theta_b \neq \theta \\ t_b = \Thr{\theta_b, \epsilon}}
+  {K \red K[t \mapsto \Thr{\theta, S\cdot W_\rho}][t_b \mapsto \Thr{\theta_b, C_\rho}]}
 
 \inferrule*[right=Fast-Return]
   {t' = \Thr{\theta', S'\cdot\Frm{\iota_b, v, \ret{\rho}}} \\
@@ -311,7 +365,12 @@ become thread rules, and three rules are new (\cref{fig:rules}).
   {K \red K[t' \mapsto \Thr{\theta', S'}][t \mapsto \Thr{\theta, S\cdot\Frm{\iota_a, \ctx{v'}, \kappa}\cdot S''}]}
 \end{mathpar}
 \caption{Thread rules. $K[t\mapsto t']$ replaces thread $t$ by $t'$ (and likewise for
-actors). In \textsc{Fast-Return}, $t$ and $t'$ may be the same thread, in which case
+actors). The two \fs{} rules share the premise $\mathsf{Call}(t, \iota_b, \rho)$, which
+holds when $t = \Thr{\theta, S\cdot\Frm{\iota_a, \ctx{\fsend(\iota_b, msg,
+\overline{v})}, \kappa}}$, $\neg\busy_K(\iota_b)$ and $\rho$ is fresh; with
+$b = \Act{\iota_b, \mu_b, O_b, o_b, \theta_b}$ and $\overline{v}' = \pass(\overline{v})$,
+the caller's waiting frame is $W_\rho = \Frm{\iota_a, \ctx{\wait{\rho}}, \kappa}$ and the
+callee's frame is $C_\rho = \Frm{\iota_b, \body(b,msg,\overline{v}'), \ret{\rho}}$. In \textsc{Fast-Return}, $t$ and $t'$ may be the same thread, in which case
 $S''$ is empty and the returned frame was directly above the waiting one.}
 \label{fig:rules}
 \end{figure}
@@ -333,12 +392,69 @@ $S''$ is empty and the returned frame was directly above the waiting one.}
   value, copied, replaces the $\wait{\rho}$ of its caller.
 \end{itemize}
 
-Both \fs{} rules require the callee to be idle. When it is busy, neither applies: the
-calling frame is \emph{blocked}. The callee's mailbox is not consulted. A system may use
-\textsc{Fast-Local} for some pairs of actors and \textsc{Fast-Remote} for others; every
-result below holds for any such mixture.
+Two different conditions govern a \fs{}, and the distinction matters throughout.
+\emph{Actor availability}: both rules require the callee actor to be idle, that is, to
+have no frame on any thread. \emph{Resource availability}: \textsc{Fast-Remote}
+additionally requires the callee's home thread to be idle. An actor can be idle while its
+home thread is busy running another actor's turn; \textsc{Fast-Local} then still applies,
+because it does not use the callee's thread, but \textsc{Fast-Remote} does not. When the
+condition of the chosen rule fails, the calling frame is \emph{blocked}. The callee's
+mailbox is never consulted. A system may use \textsc{Fast-Local} for some pairs of actors
+and \textsc{Fast-Remote} for others; every result below holds for any such mixture.
+\Cref{fig:sendfast} shows \snd{} and \textsc{Fast-Local} side by side.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  fr/.style={draw, minimum width=2.5cm, minimum height=0.55cm, inner sep=2pt},
+  q/.style={draw, minimum width=0.35cm, minimum height=0.45cm},
+  lab/.style={font=\small\bfseries},
+  >={Stealth[length=2mm]}]
+  % ---- (a) send
+  \node[lab] at (1.6,3.2) {(a) \snd{}};
+  \node[fr] (a1) at (0.2,1.2) {$A$: \snd{}$(B,m)$};
+  \node[below=0.05cm of a1] {thread 1};
+  \node[q] (q1) at (2.3,2.4) {$m$};
+  \node[q, right=0pt of q1] {};
+  \node[q, right=0pt of q1, xshift=0.35cm] {};
+  \node[above=0.02cm of q1, xshift=0.35cm] {$B$'s mailbox};
+  \node[fr] (b1) at (3.2,1.2) {$B$: handler$(m)$};
+  \node[below=0.05cm of b1] {thread 2, later};
+  \draw[->] (a1.north) |- (q1.west);
+  \draw[->] (q1.south) ++(0.35,0) -- (b1.north);
+  \node[align=center, font=\footnotesize] at (0.2,0.3) {returns at once};
+  % ---- (b) fast_send, Fast-Local
+  \node[lab] at (8.6,3.2) {(b) \fs{}, \textsc{Fast-Local}};
+  \node[fr] (s1) at (6.4,1.2) {$A$: \fs{}$(B,m)$};
+  \node[below=0.05cm of s1] {thread 1};
+  \node[fr] (s2) at (10.2,1.2) {$A$: $\mathsf{wait}(\rho)$};
+  \node[fr, above=0pt of s2] (s3) {$B$: handler$(m)$};
+  \node[below=0.05cm of s2] {thread 1};
+  \node[fr] (s4) at (10.2,-0.4) {$A$: continues with $v$};
+  \draw[->] (s1.east) -- node[above, font=\footnotesize]{push} (s2.west);
+  \draw[->] (s3.east) to[out=0,in=0,looseness=1.6] node[right, font=\footnotesize]{$v$} (s4.east);
+\end{tikzpicture}
+\caption{(a) \snd{} enqueues the message and returns; the receiver's handler runs later
+on a thread that serves it. (b) \fs{} under \textsc{Fast-Local}: the caller's frame waits,
+the callee's turn is pushed on the caller's own thread, and its value $v$ is returned
+when it ends. The callee's mailbox is not used.}
+\label{fig:sendfast}
+\end{figure}
+
+\begin{remark}[What \fs{} does not provide]
+\label[remark]{rem:notprovided}
+\fs{} is not a function call. It does not enter an actor that is already in a turn:
+re-entry is excluded, and a call to a busy actor waits. It gives no guarantee that the
+call completes (\cref{thm:liveness}), and hence no deadlock freedom. It is not a priority
+mechanism: it is not queued behind the callee's mailbox (\cref{prop:order}) but does not interrupt a
+turn in progress. It carries no timing guarantee, no failure handling --- a call to an
+actor whose resource has failed waits forever --- and no transactional semantics across
+the actors a turn calls.
+\end{remark}
 
 \begin{remark}[Receiver transparency]
+\label[remark]{rem:transparency}
 A method body cannot tell how its turn started: \textsc{Receive}, \textsc{Fast-Local} and
 \textsc{Fast-Remote} all install the same $\body(b, msg, \overline{v})$. This is the
 calculus counterpart of receiver transparency in \kh{} \cite{mayeski2026fastsend}. It is
@@ -423,7 +539,7 @@ being handled between the request and the reply.
 
 \begin{definition}[Blocked frame, wait-for graph]
 A top frame $\Frm{\iota_a, \ctx{\fsend(\iota_b, msg, \overline{v})}, \kappa}$ on thread
-$\theta$ is \emph{blocked} in $K$ if no \fs{} rule applies to it. The \emph{wait-for
+$\theta$ is \emph{blocked} in $K$ if the \fs{} rule used for that call does not apply to it. The \emph{wait-for
 graph} $W_K$ has the threads of $K$ as nodes and an edge $\theta \to \theta'$ when either
 \begin{enumerate}[label=(\roman*),leftmargin=2em]
   \item the top frame of $\theta$ is blocked on $\iota_b$ and $\theta'$ holds the frame
@@ -434,18 +550,56 @@ graph} $W_K$ has the threads of $K$ as nodes and an edge $\theta \to \theta'$ wh
 \end{enumerate}
 \end{definition}
 
-Every edge leaves a thread that cannot progress until something on the target thread is
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  fr/.style={draw, minimum width=2.6cm, minimum height=0.55cm, inner sep=2pt},
+  th/.style={draw, circle, inner sep=1.5pt, font=\small},
+  >={Stealth[length=2mm]}]
+  \node[fr] (c) at (0,0.6) {$C$: $\mathsf{wait}(\rho)$};
+  \node[below=0.05cm of c] {$\theta_3$};
+  \node[fr] (d0) at (5.2,0.6) {$D$: \fs{}$(B)$};
+  \node[below=0.05cm of d0] {$\theta_1$};
+  \node[fr] (b0) at (10.4,0.6) {$B$: handler};
+  \node[below=0.05cm of b0] {$\theta_2$};
+  \draw[->, thick] (c.east) -- node[above, font=\footnotesize]{(ii) callee on $\theta_1$} (d0.west);
+  \draw[->, thick] (d0.east) -- node[above, font=\footnotesize]{(i) blocked on $B$} (b0.west);
+\end{tikzpicture}
+\caption{Wait-for edges in one configuration. $C$ on $\theta_3$ made a \fs{} to $D$ under
+\textsc{Fast-Remote}, so $D$'s turn (a frame marked $\ret{\rho}$) runs on $\theta_1$ and $\theta_3$ waits for it: an
+edge of kind (ii). $D$'s top frame is a \fs{} to $B$, which is busy on $\theta_2$: an
+edge of kind (i). $\theta_2$ has no outgoing edge, so its top frame can be reduced; when
+$B$'s turn ends, $D$'s call can start, and the path shortens from the right. With no
+cycle on the path, every thread on it eventually progresses (\cref{thm:liveness}).}
+\label{fig:waitfor}
+\end{figure}
+
+\Cref{fig:waitfor} shows both kinds of edge. Every edge leaves a thread that cannot progress until something on the target thread is
 removed. A thread whose top frame is waiting has an edge of kind (ii) unless the callee is
 above it on the same stack, in which case the thread is not stuck: its top frame is the
 callee's.
 
+The liveness result is not a termination theorem for arbitrary actor programs. We
+assume that every handler terminates once the \fs{} calls it makes have returned, and that
+scheduling is fair. Fairness has two parts. The first is the usual one: a thread whose top
+frame can be reduced is eventually reduced. The second concerns a blocked call: when a
+busy callee's turn ends, the calculus lets its home thread start its next mailbox turn
+before the waiting \fs{} applies, and this can repeat for ever, starving the caller. We
+therefore also assume that a \fs{} that becomes applicable infinitely often is eventually
+applied. A runtime whose lock gives no fairness guarantee does not provide this; the
+preference for pending calls in \cref{prop:order} does. Under these assumptions the only
+source of non-termination that remains is cyclic waiting, which \fs{} introduces; a
+handler that loops forever violates the assumption and is outside the result.
+
 \begin{assumption}[Terminating handlers, fair scheduling]
 \label[assumption]{ass:fair}
-Every method body terminates when its \fs{} calls return, and every thread whose top
-frame can be reduced is eventually reduced.
+(a) Every method body terminates when its \fs{} calls return. (b) Every thread whose top
+frame can be reduced is eventually reduced. (c) A blocked \fs{} whose rule becomes
+applicable infinitely often is eventually applied.
 \end{assumption}
 
-\begin{theorem}[Liveness exactly when waits are acyclic]
+\begin{theorem}[Liveness and wait-for cycles]
 \label{thm:liveness}
 Under \cref{ass:fair}, a turn in a reachable configuration $K$ fails to complete in some
 fair continuation of $K$ if and only if, in some configuration reachable from $K$, its
@@ -459,16 +613,19 @@ progress, which needs a frame on $\theta_{i+2}$ removed, and so on around the cy
 rule removes a frame of a thread whose top frame is blocked or waiting, so none of the
 $\theta_i$ ever progresses, and a thread with a path to the cycle waits on it forever.
 
-($\Rightarrow$) Suppose the thread $\theta$ of a turn never completes it, and that no
-configuration reachable from $K$ has a path from $\theta$ to a cycle. Consider a
-configuration from which $\theta$ never again removes a frame. Its outgoing path in $W$ is
-finite and acyclic, so it ends in a thread $\theta^*$ with no outgoing edge: its top frame
-is neither blocked nor waiting on another thread, so it can be reduced. By
-\cref{ass:fair} it is reduced, and by termination of method bodies its top frame reaches
-a value and is removed by \textsc{Turn-End} or \textsc{Fast-Return}. Induction on the
-number of frames above the one that the predecessor of $\theta^*$ waits for shows that
-this frame is eventually removed, which unblocks the predecessor; repeating along the
-path, $\theta$ progresses --- a contradiction.
+($\Rightarrow$) Under \cref{ass:fair}, a frame that can be reduced is eventually reduced
+and, its body terminating, eventually removed. So a turn that never completes must, from
+some point on, sit on a thread that is permanently blocked or waiting, and we show that
+this requires a path to a cycle. Suppose not: in every configuration reachable from $K$,
+the path from $\theta$ in $W$ is finite and acyclic. Its last thread $\theta^*$ has no
+outgoing edge, so its top frame is neither blocked nor waiting on another thread, and it
+is reduced until it is removed by \textsc{Turn-End} or \textsc{Fast-Return}. Each such
+removal either brings $\theta^*$ closer to removing the frame its predecessor on the path
+waits for --- there are finitely many frames above it --- or removes that frame, after
+which the predecessor's waiting frame resumes or its blocked \fs{} becomes applicable,
+and by part (c) of \cref{ass:fair} is eventually applied. Induction on
+the length of the path then shows that $\theta$ itself progresses, contradicting the
+assumption that its turn never completes.
 \end{proof}
 
 \begin{corollary}[Liveness without \fs{}]
@@ -485,7 +642,7 @@ rather than of the model.
 
 \begin{proposition}[What a per-thread call chain detects]
 \label[proposition]{prop:localcycles}
-Suppose a thread checks, before each \textsc{Fast-Local} to $\iota_b$, whether $\iota_b$
+Suppose a thread checks, before each \fs{} to $\iota_b$, whether $\iota_b$
 has a frame on its own stack. The check succeeds exactly for the self-loops
 $\theta \to \theta$ of the wait-for graph. It does not detect cycles of length two or
 more.
@@ -499,7 +656,40 @@ callee absent, and passes. For example, thread~1 runs a \fs{} to $A$ whose body 
 \fs{} to $B$, while thread~2 runs a \fs{} to $B$ whose body makes a \fs{} to $A$.
 \end{proof}
 
-A per-thread detector, such as the call-chain test designed in
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  fr/.style={draw, minimum width=2.4cm, minimum height=0.55cm, inner sep=2pt},
+  lab/.style={font=\small\bfseries},
+  >={Stealth[length=2mm]}]
+  \node[lab] at (2.6,2.6) {(a) cycle through two threads};
+  \node[fr] (x1) at (0,0.6) {$X$: \fs{}$(A)$};
+  \node[fr, above=0pt of x1] (a1) {$A$: \fs{}$(B)$};
+  \node[below=0.05cm of x1] {thread 1};
+  \node[fr] (y1) at (5.2,0.6) {$Y$: \fs{}$(B)$};
+  \node[fr, above=0pt of y1] (b1) {$B$: \fs{}$(A)$};
+  \node[below=0.05cm of y1] {thread 2};
+  \draw[->, thick] ([yshift=3pt]a1.east) -- node[above, font=\footnotesize]{blocked on $B$} ([yshift=3pt]b1.west);
+  \draw[->, thick] ([yshift=-3pt]b1.west) -- node[below, font=\footnotesize]{blocked on $A$} ([yshift=-3pt]a1.east);
+  \node[lab] at (10.6,2.6) {(b) $A$ and $B$ share one thread};
+  \node[fr] (c1) at (8.8,0.6) {$A$: $\mathsf{wait}$};
+  \node[fr, above=0pt of c1] (c2) {$B$: handler};
+  \node[below=0.05cm of c1, font=\footnotesize] {\fs{}: completes};
+  \node[fr] (d1) at (12.4,0.6) {$A$: wait for reply};
+  \node[below=0.05cm of d1, font=\footnotesize, align=center] {send-then-wait:\\never completes};
+  \node[draw, dashed, minimum width=1.4cm, minimum height=0.45cm, above=0.35cm of d1] (dq) {$B$: queued};
+  \draw[->] (d1.north) -- (dq.south);
+\end{tikzpicture}
+\caption{(a) A wait-for cycle through two threads: each top frame is blocked on an actor
+whose frame is on the other thread. A check of each thread's own stack passes on both
+(\cref{prop:localcycles}). (b) When $A$ and $B$ share a thread, \fs{} pushes $B$'s turn on
+it and completes; send-then-wait leaves the request in $B$'s mailbox behind $A$'s
+waiting turn, and $B$ never runs (\cref{prop:notsendwait}).}
+\label{fig:deadlock}
+\end{figure}
+
+\Cref{fig:deadlock}(a) shows the two-thread case. A per-thread detector, such as the call-chain test designed in
 \cite{mayeski2026fastsend},\footnote{\kh{} does not implement the call-chain test yet:
 \fs{} takes the receiver's mutex directly, so a synchronous cycle currently deadlocks.}
 therefore turns same-thread cycles into errors and leaves cross-thread cycles as
@@ -510,21 +700,34 @@ actors, or bounded waiting with a fallback to asynchronous delivery.
 
 \begin{proposition}[Order]
 \label[proposition]{prop:order}
-(1) Messages sent with \snd{} from $\iota_a$ to $\iota_b$ start turns of $\iota_b$ in the
-order they were sent. (2) A \fs{} from $\iota_a$ to $\iota_b$ starts its turn before any
-message already in $\iota_b$'s mailbox, including earlier \snd{}s from $\iota_a$.
+(1) Messages sent with \snd{} by the same actor $\iota_a$ to the same receiver $\iota_b$
+start turns of $\iota_b$ in the order $\iota_a$ sent them. Nothing is claimed about the
+relative order of messages from different senders. (2) A \fs{} from $\iota_a$ to $\iota_b$ is never placed in $\iota_b$'s mailbox: its
+turn starts when a \fs{} rule applies, whatever the mailbox holds, so it can start before
+messages already queued for $\iota_b$, including earlier \snd{}s from $\iota_a$. While
+$\iota_b$ is busy, the calculus leaves open whether the pending call or the head of the
+mailbox starts next; a runtime that always prefers a pending \fs{} guarantees that the
+call starts before every message that was in $\iota_b$'s mailbox when it was made.
 (3) Messages sent during the callee's turn of a \fs{} are enqueued before any message the
 caller sends after the \fs{} returns.
 \end{proposition}
 \begin{proof}
-(1) \textsc{Send} appends and \textsc{Receive} removes the head. (2) The \fs{} rules start
-the callee's turn without consulting its mailbox. (3) The caller's frame is waiting from
+(1) The sends of $\iota_a$ are totally ordered, because $\iota_a$ has at most one frame
+(\cref{lem:oneframe}); \textsc{Send} appends and \textsc{Receive} removes the head. (2) The \fs{} rules start
+the callee's turn without consulting its mailbox, and \textsc{Receive} does not consult
+pending calls; when both are enabled for $\iota_b$ the choice is free. Under the
+preference, each time $\iota_b$ becomes idle while the call is pending, a \fs{} rule is
+applied to $\iota_b$ before any \textsc{Receive} of $\iota_b$, so no queued message of
+$\iota_b$ starts first. (3) The caller's frame is waiting from
 the \fs{} until \textsc{Fast-Return}, and the callee's sends happen before that.
 \end{proof}
 
-Part (2) is the formal counterpart of ``\fs{} bypasses the mailbox''. On the FPGA runtime
-of Section~\ref{sec:substrates} it is implemented by a dedicated input port that each
-actor process serves before its mailbox FIFO.
+Part (2) is the formal counterpart of ``\fs{} bypasses the mailbox'', and it is one of
+the practical reasons to use \fs{}: a call is not delayed by the backlog in the callee's
+mailbox. It is not a priority mechanism --- a turn in progress is never interrupted
+(\cref{rem:notprovided}). The FPGA runtime of Section~\ref{sec:substrates} implements the
+preference: each actor process serves a dedicated \fs{} input port before its mailbox
+FIFO.
 
 \subsection{\fs{} is not send-then-wait}
 
@@ -549,21 +752,22 @@ have an empty stack, which it never has again, so the reply is never produced. W
 terminates and \textsc{Fast-Return} resumes $\iota_a$.
 \end{proof}
 
-The encodings of synchronous into asynchronous communication
+\Cref{fig:deadlock}(b) illustrates the proposition. The encodings of synchronous into asynchronous communication
 \cite{hondatokoro1991,boudol1992} are sound in a setting where every process progresses
 independently. In a setting with a bounded number of execution resources --- actor
 groups, ABS cogs, E vats, a pinned thread per core, a fixed number of FPGA processes ---
-\fs{} and send-then-wait differ in whether they complete. This is also why systems of the
-second group in Section~\ref{sec:related-sync} permit synchronous calls exactly inside a
-shared scheduling unit: there, send-then-wait is not an option.
+\fs{} and send-then-wait differ in whether they complete. The proposition also shows why
+a synchronous call inside one scheduling unit, as in ABS cogs and E vats, has to run on
+the caller's processor: inside the unit, send-then-wait cannot complete.
 
 % ---------------------------------------------------------------
 \section{Simulation and debugging from a global queue}
 \label{sec:debug}
 % ---------------------------------------------------------------
 
-A backtest replays recorded inputs through the same actors that trade live. A debugger
-needs the same thing plus the ability to stop, step and inspect. Both are easiest when
+Deterministic replay runs recorded external inputs through the same actor handlers
+used in production; in a trading system this is a backtest. A debugger needs the same
+thing plus the ability to stop, step and inspect. Both are easiest when
 every actor in the system --- whatever language it is written in and whatever substrate
 it normally runs on --- is driven from a single queue by a single thread: every message
 goes into the queue, receivers take their messages from it, and the execution is one
@@ -592,8 +796,8 @@ transparency, the body is the same whatever starts the turn.
 
 The production semantics $\mathit{P}$ is the calculus of Section~\ref{sec:calculus} with
 any assignment of actors to threads and any choice of \textsc{Fast-Local} or
-\textsc{Fast-Remote} per call site, subject to one condition that the runtimes studied
-here satisfy:
+\textsc{Fast-Remote} per call site, subject to one condition on the resources that
+\textsc{Fast-Remote} uses:
 
 \begin{assumption}[Dedicated remote resources]
 \label[assumption]{ass:dedicated}
@@ -601,8 +805,23 @@ A thread that serves as the home thread of a \textsc{Fast-Remote} callee is the 
 that actor only.
 \end{assumption}
 
-On the FPGA runtime each actor is its own process, so the assumption holds for \fs{}
-calls into the FPGA. CPU actors that share a thread are called with \textsc{Fast-Local}.
+Which runtimes satisfy it:
+\begin{itemize}[leftmargin=1.4em]
+  \item \emph{CPU to FPGA, and between FPGA processes}: each FPGA actor is its own
+  process, so the assumption holds. Between FPGA processes the host only relays the
+  request and the reply; it does not run the callee.
+  \item \emph{Within the CPU runtime}: \fs{} is \textsc{Fast-Local}, so the assumption
+  does not apply.
+  \item \emph{FPGA to CPU}: in the current bridge one host thread runs every CPU handler
+  that FPGA actors call, so that resource is shared and the assumption fails. Such a call
+  can wait for the bridge where the global queue proceeds --- for instance when a CPU
+  handler running on the bridge calls into the FPGA and the FPGA actor calls back to the
+  CPU. One bridge thread per called CPU actor, or running the handler under
+  \textsc{Fast-Local} semantics, would restore it.
+  \item \emph{Another machine}: the assumption holds if the remote actor has a thread of
+  its own, and fails if that thread also serves other actors, for example a group.
+\end{itemize}
+Where the assumption fails, \cref{thm:gqsound} does not cover the calls concerned.
 
 \subsection{Soundness}
 
@@ -610,11 +829,12 @@ Say that two executions \emph{agree} if every actor starts the same turns in the
 with $\alpha$-equivalent messages, and every turn ends with an $\alpha$-equivalent value
 and heap.
 
-\begin{theorem}[Global-queue simulation is sound]
+\begin{theorem}[Trace soundness of the global queue]
 \label{thm:gqsound}
 Under \cref{ass:dedicated}, for every finite execution of $\mathit{GQ}$ from a given
 initial configuration there is an execution of $\mathit{P}$ from the corresponding initial
-configuration that agrees with it. In particular, a configuration in which a turn is
+configuration that agrees with it: the traces of $\mathit{GQ}$ are included in those of
+$\mathit{P}$. In particular, a configuration in which a turn is
 stuck, or an error state, reached in $\mathit{GQ}$ has an agreeing counterpart in
 $\mathit{P}$.
 \end{theorem}
@@ -666,20 +886,44 @@ simulator would then show behaviour the concurrent system cannot produce.
 
 \begin{proposition}[Incompleteness]
 \label[proposition]{prop:gqincomplete}
-There are executions of $\mathit{P}$ that agree with no execution of $\mathit{GQ}$. In
-particular: (1) a deadlock on a wait-for cycle through two or more threads; (2) a turn of
-$\iota_a$ that makes a \fs{} to $\iota_b$ after another thread has run a turn of
-$\iota_b$ that started after $\iota_a$'s turn began.
+There are executions of $\mathit{P}$ that agree with no execution of $\mathit{GQ}$. Two
+examples: (1) the deadlock of \cref{fig:deadlock}(a), where the turns of $X$ and $Y$,
+both started from mailboxes, never end; (2) a turn of $\iota_a$ that sends $m$ to
+$\iota_b$ and then makes a \fs{} to $\iota_b$, where $\iota_b$'s home thread runs the turn
+for $m$ before the \fs{} applies, so the call sees $\iota_b$'s state after $m$.
 \end{proposition}
 \begin{proof}
-In $\mathit{GQ}$ only one thread exists, so the wait-for graph can contain only
-self-loops, and no turn starts while another is in progress except as a \fs{} callee on
-the same stack. Both executions described require a turn to start on another thread while
-$\iota_a$'s turn is in progress.
+In $\mathit{GQ}$, \textsc{Receive-GQ} needs an empty stack, so at most one turn started
+from a mailbox is unfinished at any time, and every other turn in progress is a \fs{}
+callee on the same stack. (1) has two unfinished turns started from mailboxes, so an
+agreeing $\mathit{GQ}$ execution would need both, which it cannot have. In (2), $m$ enters
+$Q$ during $\iota_a$'s turn and can start only after that turn ends, so in every
+$\mathit{GQ}$ execution $\iota_b$ starts the turn for the \fs{} before the turn for $m$;
+in the $\mathit{P}$ execution it starts them in the other order.
 \end{proof}
 
-A backtest can therefore confirm bugs but cannot rule out the two classes above. The
-first can be approached offline:
+\Cref{tab:gq} summarises what the global queue does and does not give. Replay can
+therefore confirm bugs but cannot rule out the two classes above. The first can be
+approached offline:
+
+\begin{table}[t]
+\centering
+\caption{The global queue as a simulator of the concurrent system (under
+\cref{ass:dedicated}).}
+\label{tab:gq}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Question & Answer & Result \\
+\midrule
+Can it produce an execution the concurrent system cannot? & no & \cref{thm:gqsound} \\
+Can it reproduce every execution of the concurrent system? & no & \cref{prop:gqincomplete} \\
+Can it exhibit a deadlock needing two mailbox turns at once? & no & \cref{prop:gqincomplete} \\
+Can it exhibit a same-thread \fs{} cycle? & yes & \cref{thm:gqsound} \\
+Is a run reproducible from its inputs? & yes & single queue, single thread \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{proposition}[Cycles in the call graph]
 \label[proposition]{prop:callgraph}
@@ -702,8 +946,7 @@ a real risk to be removed, and the absence of a cycle is evidence only for the p
 backtest covered. A static analysis of the call sites would give all of $G$.
 
 \paragraph{Time.} $\mathit{GQ}$ reproduces what happens, not when. Latency on each
-substrate is a separate question, answered by measurement or by the substrate's own
-timing model (Section~\ref{sec:eval}).
+substrate is a separate question (Section~\ref{sec:future}).
 
 % ---------------------------------------------------------------
 \section{Mapping \snd{} and \fs{} onto substrates}
@@ -720,7 +963,7 @@ supplies both, and each supplies a distinct mechanism for each primitive
 Section~\ref{sec:calculus} each \fs{} implements.}
 \label{tab:mapping}
 \small
-\begin{tabular}{@{}p{3.2cm}p{4.6cm}p{6.3cm}@{}}
+\begin{tabular}{@{}P{3.2cm}P{4.6cm}P{6.3cm}@{}}
 \toprule
 Where & \snd{} & \fs{} \\
 \midrule
@@ -728,13 +971,20 @@ CPU, one process & message into the receiver's mailbox; a thread per actor or pe
 C++ $\leftrightarrow$ Rust, one process & message converted and enqueued through a C ABI bridge & callee's handler runs on the caller's thread through the bridge (\textsc{Fast-Local}) \\
 FPGA, one process & --- & callee is an actor object inside the caller's process; its handler is inlined into the caller's pipeline (\textsc{Fast-Local}) \\
 FPGA, between processes & on-chip router into the receiver's mailbox FIFO & request and reply relayed through the host (\textsc{Fast-Remote}) \\
-CPU $\to$ FPGA & envelope over PCIe, router, mailbox FIFO & envelope to the actor's fast\_send port, served before its mailbox; the CPU thread waits for the reply (\textsc{Fast-Remote}) \\
+CPU $\to$ FPGA & envelope over PCIe, router, mailbox FIFO & envelope to the actor's \fs{} port, served before its mailbox; the CPU thread waits for the reply (\textsc{Fast-Remote}) \\
 FPGA $\to$ CPU & envelope over PCIe; a host bridge thread enqueues it & request over PCIe; the bridge thread runs the CPU handler inline; the FPGA process stalls until the reply returns (\textsc{Fast-Remote}) \\
-GPU (design) & ring buffer in device memory & device function call inside one kernel (\textsc{Fast-Local}); host calls wait on a reply ring (\textsc{Fast-Remote}) \\
+GPU (proposed) & ring buffer in device memory & device function call inside one kernel (\textsc{Fast-Local}); host calls wait on a reply ring (\textsc{Fast-Remote}) \\
 Another machine & network message & request/reply RPC; the caller waits (\textsc{Fast-Remote}) \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+On an FPGA the two \fs{} rules correspond to two different hardware arrangements. When
+the callee is compiled into the caller's hardware process, its handler becomes part of
+the caller's pipeline and runs on the caller's resource: \textsc{Fast-Local}. When the
+callee is a separate process, it has its own resource, which the caller waits on:
+\textsc{Fast-Remote}. In the runtime described in Section~\ref{sec:impl} each actor is its
+own process, and \textsc{Fast-Local} applies to actor objects that a process contains.
 
 The pattern is the same everywhere. \snd{} is a queue between two independently scheduled
 resources. \fs{} is either an inline call on the caller's resource, where the substrate
@@ -746,19 +996,55 @@ hold for any mixture.
 A \fs{} is available between any two substrates where the caller can wait. A CPU thread
 can wait on a condition. An FPGA process can wait on a blocking stream read, which stalls
 that process alone while the rest of the chip keeps running. What differs between
-substrate pairs is the cost of the wait, which Section~\ref{sec:eval} measures where it can.
+substrate pairs is the cost of the wait.
 
 % ---------------------------------------------------------------
-\section{Implementations}
+\section{Practical implementation in \kh{}}
 \label{sec:impl}
 % ---------------------------------------------------------------
+
+\kh{} has actors on three runtimes --- C++ on CPU threads, Rust, and an FPGA
+runtime that currently runs as a software model of the hardware --- and a GPU runtime is
+planned. Each runtime has its own actors, written in its
+own language; an actor is not recompiled from one runtime to another. What is shared is
+the model: on every runtime an actor holds references to other actors, whether they run
+on the same runtime or another, and uses the same two primitives, \snd{} and \fs{}, and
+the same \texttt{reply}. The extended actor model of Sections~\ref{sec:calculus}
+and~\ref{sec:properties} is the semantics of all of them, and of any mixture of them,
+with each \fs{} implemented by \textsc{Fast-Local} or \textsc{Fast-Remote} as
+\cref{tab:mapping} shows. \Cref{tab:status} separates what is formalised, what is
+implemented and how each part has been exercised. The rest of this section describes each
+runtime and then the facility for debugging and simulation.
+
+\begin{table}[t]
+\centering
+\caption{Status of each part in \kh{}. ``Semantics'' refers to this paper.}
+\label{tab:status}
+\small
+\begin{tabular}{@{}P{4.4cm}P{2.3cm}P{3.6cm}P{4.0cm}@{}}
+\toprule
+Part & Semantics & Implementation & Exercised by \\
+\midrule
+C++ CPU runtime: \snd{}, \fs{}, groups & \S\ref{sec:calculus}--\ref{sec:properties} & implemented & tests; the \kh{} trading system \cite{mayeski2026fastsend} \\
+Rust runtime; C++ $\leftrightarrow$ Rust \snd{} and \fs{} & \S\ref{sec:calculus}--\ref{sec:properties} & implemented; cross-language \fs{} returns no reply yet & tests \\
+FPGA runtime and CPU bridge & \S\ref{sec:calculus}--\ref{sec:properties} & implemented as a software model & unit tests in software \\
+FPGA runtime on hardware & \S\ref{sec:calculus}--\ref{sec:properties} & not yet synthesised & --- \\
+GPU runtime & \cref{tab:mapping} & design & --- \\
+Global queue and sequencer & \S\ref{sec:debug} & design; single-runtime instance: actor groups & --- \\
+Per-thread call-chain check & \cref{prop:localcycles} & design & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \paragraph{CPU runtime.} The \kh{} C++ runtime \cite{mayeski2026fastsend} implements
 actors with a mutex-protected turn, a selectable mailbox per actor, \snd{}, \fs{} and
 groups. \fs{} takes the callee's lock on the caller's thread and runs its handler
-inline; a reply is returned as a value. A delivery flag is private to the framework, and
-the two queue fields a handler may read are defined identically for both delivery modes,
-so the handler receives no information about how it was reached. A mailbox may also be
+inline; a reply is returned as a value. The delivery flag is private to the framework,
+but some message fields --- the queue depth, the ``mailbox empty'' flag and the
+destination --- are filled differently for the two deliveries, so a handler that reads
+them can infer how it was reached. Receiver transparency in \kh{} is therefore a
+property of how handlers are written, as in \cref{rem:transparency}, not one the
+framework enforces. A mailbox may also be
 configured to busy-poll instead of sleeping, which changes the cost of \snd{} between
 threads but not its semantics.
 
@@ -777,60 +1063,39 @@ On the CPU, an \texttt{ActorRef} can refer to an FPGA actor; \snd{} and \fs{} on
 envelopes to the card, and a bridge thread delivers messages and \fs{} requests from the
 card to CPU actors, passing a stand-in for the FPGA actor as the sender so that ordinary
 replies return to the chip. The design runs today in software, with one thread per
-hardware process.\footnote{The FPGA runtime has not yet been synthesized or run on a
+hardware process, and its unit tests check \snd{} through the router, \fs{} inside a
+process, \snd{} and \fs{} in both directions between CPU and FPGA actors, ordering,
+error reporting, and the priority of the \fs{} port over the mailbox.\footnote{The FPGA runtime has not yet been synthesized or run on a
 card; \fs{} between two FPGA processes is relayed through the host.}
 
 \paragraph{GPU runtime.} The same structure maps onto a GPU: actors as warps or thread
 blocks of a persistent kernel, mailboxes as device-memory rings, \fs{} inside the kernel as
-a device function call, and a host bridge over rings in pinned memory. It is a design; we
-have not built it.
+a device function call, and a host bridge over rings in pinned memory. This is a
+proposed mapping; it has not been built.
 
-% ---------------------------------------------------------------
-\section{Evaluation}
-\label{sec:eval}
-% ---------------------------------------------------------------
+\paragraph{Global queue and sequencer.} Debugging and simulation across runtimes will be
+provided by a global queue and a \emph{sequencer}, which implement the global-queue
+semantics $\mathit{GQ}$ of Section~\ref{sec:debug}.\footnote{\kh{} does not
+implement the cross-runtime global queue and sequencer yet.} In this mode every runtime
+hands each message it sends, whatever its destination, to the sequencer instead of
+delivering it. The sequencer gives the message a global sequence number and appends it to
+the global queue. It then delivers messages one at a time: it takes the head of the queue,
+passes it to the runtime of the receiving actor, and waits until that runtime reports that
+the turn has ended, including every \fs{} the turn made, before it delivers the next.
+Each runtime therefore needs only an adapter with two operations --- accept one delivery,
+report the end of the turn --- and keeps its own actors, handlers and \fs{} mechanism
+unchanged; an FPGA actor can be driven on the card or in software simulation of its
+hardware process.
 
-\paragraph{CPU.} \Cref{tab:cpu} gives the round-trip cost of a ping/pong exchange with a
-reply on an AMD EPYC 9374F (RHEL 9.2, \texttt{g++ -O3 -march=native}, two dedicated
-cores). The four rows are four implementations of the same exchange in the calculus:
-\snd{} between two threads that sleep when idle, the same with threads that busy-poll,
-\snd{} within one group, and \fs{}.
-
-\begin{table}[t]
-\centering
-\caption{Round trip of one ping/pong with a reply, median over runs, AMD EPYC 9374F. The
-\fs{} figure is amortized over $10^6$ round trips because its per-sample value is below
-the clock's resolution of about 10~ns.}
-\label{tab:cpu}
-\small
-\begin{tabular}{@{}lrl@{}}
-\toprule
-Implementation & ns & What it pays for \\
-\midrule
-\snd{}, two threads, sleeping & $\sim\!3370$ & two cross-core handoffs and two thread wake-ups \\
-\snd{}, two threads, busy-polling & $370$ & two cross-core handoffs; each thread holds a core \\
-\snd{}, one group (one thread) & $90$ & two queue operations \\
-\fs{} & $\sim\!30$ & two inline calls under the callee's lock \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Most of the cost of \snd{} between threads is putting a thread to sleep and waking it; the
-cross-core handoff itself is about 185~ns each way. \fs{} costs about one mispredicted
-virtual call per hop (9.1~ns against 7.5--9.3~ns, measured the same way) and about
-$5\times$ a direct call \cite{mayeski2026fastsend}.
-
-\paragraph{Across languages.} On an Apple Silicon machine, a one-way \fs{} without a reply
-costs about 13--15~ns within one language, 46~ns from C++ to Rust and 70~ns from Rust to
-C++; the difference is the marshalling, the C-ABI call, and a per-call lookup of the
-receiver by name.
-
-\paragraph{FPGA.} The FPGA runtime's semantics are tested in software: \snd{} through the
-router, \fs{} inside a process, and \snd{} and \fs{} in both directions between CPU and
-FPGA actors, with ordering, error reporting and the fast\_send port's priority over the
-mailbox checked by unit tests. Its latencies are not yet measured. The per-part cycle
-counts will come from high-level synthesis, and the PCIe component from measurement on a
-card; we do not report either here.
+Because deliveries are serialized, a debugger can step through the queue one message at a
+time and see, before each step, which actor on which runtime will run next and with what
+message; between steps it can inspect the state of any actor on any runtime, and it can
+stop on a given actor, message type or runtime. \Cref{thm:gqsound} is what makes this
+useful, for every call that satisfies \cref{ass:dedicated}: the sequence the debugger shows is one the concurrent system can produce, so a
+fault found by stepping is real. The same sequence, recorded, replays a backtest exactly,
+and the \fs{} calls it executes give the call graph of \cref{prop:callgraph}. What the
+sequencer cannot show is behaviour such as that of \cref{prop:gqincomplete}, which needs
+more than one turn started from a mailbox in progress at once.
 
 % ---------------------------------------------------------------
 \section{Related work}
@@ -846,9 +1111,27 @@ Our isolation and liveness results are stated against their isolated turn princi
 provide synchronous calls between concurrent objects that block the caller while the
 callee runs on its own processor, and ABS adds reentrant synchronous calls inside a cog.
 E \cite{miller2005} restricts immediate calls to one vat. Extended Rebeca
-\cite{sirjani2005extended} adds synchronous message passing to the Rebeca actor language
-with a formal semantics; comparing its scheduling of synchronous messages with \fs{} is
-left for future work. The survey of active-object languages by De Boer et al.
+\cite{sirjani2005extended,sirjani2005jucs} is the closest actor language with a formal
+semantics for synchronous messages, and differs from \fs{} on each point of
+\cref{tab:sync}. Its synchronous messages are rendezvous: the receiver must execute an
+explicit \texttt{receive} statement, no handler is invoked, and data flows only from
+sender to receiver, so there is no reply value. They are confined to one component, while
+\fs{} addresses any actor. A rebec blocked in a rendezvous is blocked inside a method,
+whereas a \fs{} callee's turn is an ordinary handler that runs to completion. Its
+semantics has no execution resources, so the questions answered here for \fs{} ---
+behaviour when the callee's resource is shared (\cref{prop:notsendwait}) or occupied
+(\cref{ass:dedicated}), and single-queue simulation (Section~\ref{sec:debug}) --- do not
+arise in it; its aim is compositional model checking. We therefore do not claim that
+synchronous messages in an actor language are new; the contribution is the particular
+resource-sensitive primitive and its properties.
+
+One can ask whether \fs{} could be encoded with rendezvous. An encoding would have the
+callee wait at a \texttt{receive} for the request, run the handler's code, and hand the
+result back through a second rendezvous. The callee's code then runs on the callee's side,
+not on the caller's resource, and the caller's blocked computation keeps its resource
+while it waits; when the two share one resource, the argument of \cref{prop:notsendwait}
+applies unchanged and the encoding deadlocks where \textsc{Fast-Local} completes. The
+survey of active-object languages by De Boer et al.
 \cite{deboer2017survey} maps this design space.
 
 \paragraph{Encodings.} Honda and Tokoro \cite{hondatokoro1991} and Boudol
@@ -872,24 +1155,33 @@ the message-passing actor model with both primitives.
   forever. Timeouts and their interaction with isolation are open.
   \item Detecting cross-thread cycles at run time needs shared state
   (\cref{prop:localcycles}); its cost on the hot path is not measured.
-  \item FPGA latencies await synthesis and a card; the GPU runtime is a design.
-  \item Extended Rebeca's synchronous messages should be compared with \fs{} in detail.
+  \item Performance is outside the scope of this paper. The cost of \snd{} and \fs{} on
+  the C++ runtime is measured in \cite{mayeski2026fastsend}; measuring it across the
+  language boundary, on the FPGA runtime once it is synthesised and run on a card, and
+  between runtimes, is future work, as is the GPU runtime itself.
+  \item The global queue and sequencer of Section~\ref{sec:impl} are designs; building
+  them, and a static analysis that computes the call graph of \cref{prop:callgraph}, would
+  turn \cref{thm:gqsound,prop:callgraph} into tools.
 \end{itemize}
 
 % ---------------------------------------------------------------
 \section{Conclusion}
 % ---------------------------------------------------------------
 
-\fs{} adds a second primitive to the actor model: the receiver's turn runs now, on a
-resource the caller waits on, and returns a value. Formally, it keeps the model's isolation,
-makes determinism relative to replies, and replaces unconditional liveness with liveness
-exactly when waits are acyclic; asynchronous send alone is the acyclic case. It is not
-reducible to send-then-wait once execution resources are shared. A single global queue
-remains a sound simulator with \fs{}, so a backtest or a debugger that runs every actor,
-in any language and on any substrate, from one queue shows only behaviour the real system
-can produce, though not all of it. And on every substrate we have built, \snd{} and \fs{}
-are two different mechanisms --- a queue, and an inline or blocking call --- which is the
-practical case for treating both as primitives of the model.
+We defined \fs{}, a synchronous delivery primitive with explicit execution-resource
+semantics: the receiver's turn runs now, on the caller's resource or on one dedicated to
+the receiver, under the receiver's mutual exclusion and without re-entry, and returns a
+value to a caller that waits for it. Formally, it keeps the actor model's isolation, makes
+determinism relative to the values that \fs{} calls return, and, for terminating handlers
+under fair scheduling, makes a turn's completion depend on whether a wait-for cycle is
+reachable from its thread; asynchronous send alone never creates one. When execution
+resources are shared, \fs{} completes where send-then-wait deadlocks, so it is not an
+abbreviation for it. A single global queue remains a trace-sound simulator with \fs{}:
+replay or a debugger that runs every actor, in any language and on any substrate, from one
+queue shows only behaviour the concurrent system can produce, though not all of it. On the
+C++ and Rust runtimes and the software model of the FPGA runtime, \snd{} and \fs{} are two
+distinct mechanisms --- a queue, and an inline or blocking call --- and the same semantic
+distinction gives direct mappings onto FPGA hardware and GPUs.
 
 % ---------------------------------------------------------------
 \begin{thebibliography}{99}
@@ -913,15 +1205,18 @@ practical case for treating both as primitives of the model.
 \bibitem{johnsen2012abs} E.~B. Johnsen, R.~H\"ahnle, J.~Sch\"afer, R.~Schlatte, and
   M.~Steffen. ABS: A core language for abstract behavioral specification. In \emph{Formal
   Methods for Components and Objects (FMCO 2010)}, LNCS 6957, pages 142--164, 2012.
-\bibitem{mayeski2026fastsend} V.~Mayeski. Evaluating suitability of the actor model of
-  concurrency for high-frequency trading: the \texttt{fast\_send} mechanism and a
+\bibitem{mayeski2026fastsend} V.~Maciejewski. Adapting the actor model of concurrency for
+  high-frequency trading: synchronous message delivery (\texttt{fast\_send}) and a
   tick-to-book latency study. arXiv:2609.21173, 2026.
 \bibitem{miller2005} M.~S. Miller, E.~D. Tribble, and J.~Shapiro. Concurrency among
   strangers: programming in E as plan coordination. In \emph{Trustworthy Global
   Computing}, 2005.
-\bibitem{sirjani2005extended} M.~Sirjani, F.~S. de Boer, A.~Movaghar, and A.~Shali.
+\bibitem{sirjani2005extended} M.~Sirjani, A.~Movaghar, A.~Shali, and F.~S. de Boer.
   Extended Rebeca: a component-based actor language with synchronous message passing. In
-  \emph{Application of Concurrency to System Design (ACSD)}, 2005.
+  \emph{Application of Concurrency to System Design (ACSD'05)}, pages 212--221, 2005.
+\bibitem{sirjani2005jucs} M.~Sirjani, F.~S. de Boer, and A.~Movaghar. Modular verification
+  of a component-based actor language. \emph{Journal of Universal Computer Science},
+  11(10):1695--1717, 2005.
 \bibitem{yonezawa1986} A.~Yonezawa, J.-P. Briot, and E.~Shibayama. Object-oriented
   concurrent programming in ABCL/1. In \emph{OOPSLA '86}, pages 258--268, 1986.
 \end{thebibliography}
