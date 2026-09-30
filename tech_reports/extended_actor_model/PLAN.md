@@ -1,7 +1,6 @@
-# Unified actor model: plan
+# Extended actor model: plan
 
-Working title: *fast_send as an actor primitive: one actor model across CPU, FPGA and GPU
-runtimes*.
+Working title: *Extending the Actor Model with Synchronous Delivery: fast_send from CPU Threads to FPGA Pipelines*.
 
 ## Thesis
 
