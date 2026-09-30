@@ -7,6 +7,7 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -64,6 +65,45 @@ public:
 };
 
 /**
+ * FpgaLink - the CPU end of a bridge to an FPGA actor runtime.
+ *
+ * Implemented outside the core library (actors/fpga/host/FpgaBridge), so the
+ * core has no FPGA dependency: the same pattern as ZmqSender for remote actors.
+ */
+class FpgaLink {
+public:
+    virtual ~FpgaLink() = default;
+    virtual void send(uint16_t fpga_actor, const Message* m, Actor* sender) = 0;
+    virtual std::unique_ptr<const Message> fast_send(uint16_t fpga_actor, const Message* m,
+                                                     Actor* sender) = 0;
+    virtual std::string name(uint16_t fpga_actor) const = 0;
+};
+
+/**
+ * FpgaActorRef - Reference to an actor running in an FPGA actor runtime.
+ *
+ * send():      the message goes to the FPGA actor's mailbox; replies come back
+ *              to the sender's mailbox.
+ * fast_send(): the FPGA actor handles it now, ahead of its mailbox, while the
+ *              caller waits; the reply is the return value.
+ */
+class FpgaActorRef {
+    uint16_t id_;
+    std::shared_ptr<FpgaLink> link_;
+
+public:
+    FpgaActorRef(uint16_t fpga_actor, std::shared_ptr<FpgaLink> link)
+        : id_(fpga_actor), link_(std::move(link)) {}
+
+    void send(const Message* m, Actor* sender = nullptr) { link_->send(id_, m, sender); }
+    std::unique_ptr<const Message> fast_send(const Message* m, Actor* sender) {
+        return link_->fast_send(id_, m, sender);
+    }
+    std::string name() const { return link_->name(id_); }
+    uint16_t id() const { return id_; }
+};
+
+/**
  * RemoteActorRef - Reference to an actor in another process
  *
  * Communicates via ZeroMQ using JSON wire protocol.
@@ -101,7 +141,7 @@ public:
  *   remote_ref.send(new Ping{1}, this);  // remote - same syntax!
  */
 class ActorRef {
-    std::variant<LocalActorRef, RemoteActorRef, RustActorRef> ref_;
+    std::variant<LocalActorRef, RemoteActorRef, RustActorRef, FpgaActorRef> ref_;
 
 public:
     // Default constructor - creates an empty/invalid ref
@@ -116,6 +156,9 @@ public:
 
     // Construct from Rust actor
     explicit ActorRef(RustActorRef rust_ref) : ref_(std::move(rust_ref)) {}
+
+    // Construct from an actor in an FPGA actor runtime
+    explicit ActorRef(FpgaActorRef fpga_ref) : ref_(std::move(fpga_ref)) {}
 
     // Copy/move constructors
     ActorRef(const ActorRef&) = default;
@@ -132,19 +175,23 @@ public:
     }
 
     /**
-     * Send a message synchronously (local only)
-     * Throws if called on remote actor
+     * Send a message synchronously: local and FPGA actors.
+     * Throws for remote and Rust actors.
      */
     std::unique_ptr<const Message> fast_send(const Message* m, Actor* sender) {
         if (auto* local = std::get_if<LocalActorRef>(&ref_)) {
             return local->fast_send(m, sender);
         }
-        throw std::runtime_error("fast_send not supported for remote actors");
+        if (auto* fpga = std::get_if<FpgaActorRef>(&ref_)) {
+            return fpga->fast_send(m, sender);
+        }
+        throw std::runtime_error("fast_send not supported for remote or Rust actors");
     }
 
     bool is_local() const { return std::holds_alternative<LocalActorRef>(ref_); }
     bool is_remote() const { return std::holds_alternative<RemoteActorRef>(ref_); }
     bool is_rust() const { return std::holds_alternative<RustActorRef>(ref_); }
+    bool is_fpga() const { return std::holds_alternative<FpgaActorRef>(ref_); }
 
     // Check if this is a valid (non-null) reference
     bool is_valid() const {

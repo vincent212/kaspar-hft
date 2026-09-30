@@ -131,3 +131,7 @@ kaspr/src/md_perf_meter
 kaspr/genconfig
 kaspr/assertion__*.args
 kaspr/perf/__pycache__/
+actors/fpga/run_tests
+actors/fpga/hls/kfpga_hls/
+actors/fpga/run_bridge_tests
+actors/fpga/cpu_fpga
