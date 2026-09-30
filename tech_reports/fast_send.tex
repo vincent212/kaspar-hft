@@ -89,9 +89,10 @@ $O(1)$; a thread-local call-chain test detects cyclic synchronous invocation on
 one thread before any lock is taken, while a cycle spread across threads is
 outside what it can see and deadlocks; and five delivery operations expose the
 latency/robustness spectrum behind one transparent interface. Microbenchmarks put the synchronous round trip at tens of nanoseconds
---- roughly two orders of magnitude below the ungrouped asynchronous path, and
-about the cost of one unpredictable virtual call (about $5\times$ a direct call)
---- and the pool cuts the allocator tail by two orders of magnitude.
+--- roughly two orders of magnitude below the ungrouped asynchronous path --- and
+a single \fs{} dispatch at about the cost of one unpredictable virtual call
+(about $5\times$ a direct call); the pool cuts the allocator tail by two orders of
+magnitude.
 
 We then measure the framework in a real HFT setting: socket-to-book
 (``tick-to-book'') latency on a live CME market-data feed for ES, NQ, and ZN
@@ -181,9 +182,8 @@ measurements in this paper are drawn from that repository.
   \item A precise statement of \emph{receiver transparency}: the handler
   executes identical code in both modes and does not depend on the delivery
   mode, the executing thread, or whether the sender is blocked
-  (Section~\ref{sec:transparency}). It is a property of the interface: the
-  framework gives the handler no delivery information, though C++ cannot stop a
-  handler from inspecting its own execution context.
+  (Section~\ref{sec:transparency}). It is a property of how handlers are
+  written, not one the framework or the language enforces.
   \item A thread-local call-chain membership test that detects cyclic
   synchronous invocation on one thread before lock acquisition, together with a
   refined (actor, message-class) variant that admits callback patterns while
@@ -649,17 +649,17 @@ a context switch at that step.
 Receiver transparency is the property that the receiving actor's handler is
 written identically for both delivery modes and does not depend on (i) whether it
 was reached synchronously or asynchronously, (ii) which thread is executing it,
-or (iii) whether the sender is blocked awaiting a reply. It is a property of the
-interface: the framework passes the handler nothing that distinguishes the
-delivery modes. It is not isolation that the language enforces. C++ cannot stop a
-handler from inspecting its own execution context --- its thread identifier, the
-address of a local variable (and so which thread's stack it is on), or the time
---- and a handler that does so can infer the mode. Transparency means that a
-handler has no reason and no framework-provided means to do so, and that its code
-does not change between modes. It is what keeps \fs{} within the actor
+or (iii) whether the sender is blocked awaiting a reply. It is a property of how
+handlers are written, not isolation that the framework or the language enforces. A
+handler that looks can infer the mode: C++ cannot stop it from inspecting its own
+execution context --- its thread identifier, the address of a local variable (and
+so which thread's stack it is on), or the time --- and some message fields the
+framework sets are filled differently in the two modes (element 4). Transparency
+means that a handler has no reason to look, and that its code does not change
+between modes. It is what keeps \fs{} within the actor
 abstraction rather than reducing it to a locked method call.
 
-Four elements provide it:
+Four elements bear on it:
 
 \begin{enumerate}[leftmargin=1.6em]
   \item \textbf{Identical interface.} The handler receives a message and invokes
@@ -674,13 +674,13 @@ Four elements provide it:
   by delivery context with no handler involvement, and the reply value is
   heap-allocated in both modes, so neither the reply's behavior nor allocation
   side effects reveal the mode.
-  \item \textbf{No delivery information on the message.} The flag recording how a
-  message was delivered is private to the framework. The two fields a handler may
-  read describe the receiver, not the delivery: the receiver's mailbox depth and
-  whether that mailbox is empty, set the same way for both modes (for a
-  synchronous delivery, at the moment of delivery).\footnote{Versions of
-  kaspar-hft before this revision exposed the delivery flag and set the other two
-  fields to fixed values on synchronous delivery; that defect is corrected.}
+  \item \textbf{No delivery flag for handlers.} The flag recording how a message
+  was delivered is private to the framework. Other message fields are not
+  mode-neutral: the queue depth and the ``mailbox empty'' flag describe the
+  receiver's mailbox on asynchronous delivery and have fixed values on synchronous
+  delivery, and the destination field is set only on asynchronous delivery. They
+  exist for instrumentation and routing; a handler whose logic depends on them
+  gives up transparency.
 \end{enumerate}
 
 Two consequences follow. First, the delivery mode becomes a \emph{sender-side}
@@ -1135,8 +1135,8 @@ Table~\ref{tab:dispatch}.
 \centering
 \caption{\textbf{The cost is thread-crossing, not messaging.} Same ping/pong
 round trip with a reply; only the delivery mechanism varies. Each row eliminates
-one operation relative to the row above. ``Thread hop'' is a cross-core mailbox
-wakeup (mutex $+$ condition variable); ``queue'' is a mailbox push/pop.
+one operation relative to the row above. ``Wakeup'' is a cross-core mailbox
+wakeup of a sleeping thread (mutex $+$ condition variable); ``queue'' is a mailbox push/pop.
 The $p50$ column is per-sample round-trip latency; the \fs{} figure is
 amortized, because its per-sample $p50$ is resolution-bound (the
 \texttt{steady\_clock} tick is $\sim\!10$~ns), and its speedup is computed on
@@ -1149,10 +1149,10 @@ Three runs: $p50$ $370$--$380$~ns (median $370$), $p99$ $400$--$410$~ns.}
 \small
 \begin{tabular}{lccccr}
 \toprule
-Delivery mode & Threads & Thread hop & Queue & $p50$ RT (ns) & Speedup \\
+Delivery mode & Threads & Wakeup & Queue & $p50$ RT (ns) & Speedup \\
 \midrule
 \snd{}, ungrouped        & 2 & yes & yes & $\sim\!3370$  & $1\times$ \\
-\snd{}, ungrouped, spinning & 2 & no wake & yes & $370$ & $9.1\times$ \\
+\snd{}, ungrouped, spinning & 2 & no & yes & $370$ & $9.1\times$ \\
 \snd{}, grouped          & 1 & no  & yes & $90$          & $37\times$ \\
 \fs{} (inline)           & 1 & no  & no  & $\sim\!30$    & $\sim\!110\times$ \\
 \bottomrule
@@ -1235,7 +1235,7 @@ queue.
 \paragraph{Scope.} These are sequential latencies with one message in flight, not
 saturated throughput, and they do not vary contention or chain depth. The
 established results are: \fs{} costs tens of nanoseconds; its overhead over a
-direct call is $\sim\!10$~ns plus whatever memory the caller allocates; it
+direct call is $\sim\!7.5$~ns plus whatever memory the caller allocates; it
 improves on same-thread grouping by about $3\times$; and pooling removes the
 latency tail. The multi-axis, saturated evaluation (Section~\ref{sec:disc})
 remains future work.
@@ -1809,8 +1809,8 @@ $\sim\!10$~ns hop is below every figure in these tables.
 
 The framework does not appear in this decomposition. The floor is decode and
 book work, and the slope is protocol serialization; neither is the framework. The
-actor abstraction --- the mailbox handoff and the \fs{}/\snd{} dispatch --- costs
-about one mispredicted virtual call per hop ($\sim\!10$~ns), a few tens of nanoseconds across
+actor abstraction on the collapsed chain --- one \fs{} dispatch per hop --- costs
+about one mispredicted virtual call per hop ($\sim\!9$~ns), a few tens of nanoseconds across
 the collapsed decode/book/signal chain, against a $\sim\!7~\mu$s floor: well under
 $1\%$, and it does not grow with in-packet position, so it makes no measurable
 contribution to the tail under this workload.
@@ -2493,7 +2493,7 @@ The applied study places these numbers against a live market-data path. On the
 kaspar-hft framework, socket-to-book latency decomposes into a $\sim\!7~\mu$s
 decode-and-book floor and a per-message serialization slope; the floor is stable
 to within a few tenths of a microsecond across three estimators and a tenfold
-change in packet rate, and the framework's own per-hop overhead ($\sim\!10$~ns,
+change in packet rate, and the framework's own per-hop cost ($\sim\!9$~ns,
 about one unpredictable virtual call) is well under $1\%$ of it. The tail is not the framework and not, primarily, the queue: with in-packet
 position held fixed the mailbox queue is convex exactly as queueing theory
 predicts but fires on only $0.08\%$ of messages, while the dominant effect is the

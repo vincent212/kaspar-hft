@@ -57,10 +57,10 @@ TEST(MessageQLen, StampsBacklogAtEnqueue)
   }
 }
 
-// qlen and last mean the same thing for fast_send as for send: the receiver's
-// mailbox depth, and whether that mailbox is empty. A handler therefore cannot
-// tell the two delivery modes apart from them (receiver transparency).
-TEST(MessageQLen, FastSendOnEmptyMailbox)
+// fast_send runs the handler inline on the caller's thread. No queue is
+// involved, so it leaves qlen as it was (zero for a fresh message) and sets
+// last.
+TEST(MessageQLen, FastSendLeavesQlenZero)
 {
   Sink sink;
   QProbe m(0);
@@ -69,8 +69,8 @@ TEST(MessageQLen, FastSendOnEmptyMailbox)
   EXPECT_TRUE(m.last);
 }
 
-// The delivery mode itself is framework-private: code outside Actor and Group
-// cannot read Message::is_fast. (Access checking is part of substitution, so the
+// The delivery flag is framework-private: code outside Actor and Group cannot
+// read Message::is_fast. (Access checking is part of substitution, so the
 // detector below is false when the member is private.)
 namespace
 {
@@ -81,18 +81,7 @@ namespace
     : std::true_type {};
 }
 static_assert(!can_read_is_fast<actors::Message>::value,
-              "a handler must not be able to read the delivery mode");
-
-TEST(MessageQLen, FastSendReportsTheReceiversBacklog)
-{
-  Sink sink;
-  for (int i = 0; i < 3; ++i)
-    sink.send(new QProbe(i), nullptr);   // three waiting, never drained
-  QProbe m(99);
-  auto reply = sink.fast_send(&m, nullptr);
-  EXPECT_EQ(m.qlen, 3u);
-  EXPECT_FALSE(m.last);
-}
+              "Message::is_fast must stay framework-private");
 
 // The ring was 64 slots. Past that, BQueue::push falls back to a heap
 // allocation into overflow_ on the PRODUCER thread under the mailbox mutex --

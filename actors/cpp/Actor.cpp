@@ -127,17 +127,7 @@ std::unique_ptr<const Message> Actor::fast_send(const Message *m, Actor *sender)
 
   m->sender = sender;
   m->is_fast = true;
-  // qlen and last describe the receiver's mailbox, as they do on the send
-  // path, so a handler cannot tell the two delivery modes apart: the depth of
-  // the mailbox this actor is served from (its group's, if it is grouped), and
-  // whether that mailbox is empty. One unlocked load, the same approximation
-  // add_message_to_queue accepts.
-  {
-    const Actor *owner = is_part_of_group && group ? group : this;
-    const std::size_t depth = owner->circ_buf_len();
-    m->qlen = static_cast<uint32_t>(depth);
-    m->last = depth == 0;
-  }
+  m->last = true;
   reply_message = nullptr;
   using_fast_send = true;
   msg_cnt++;
