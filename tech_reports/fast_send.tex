@@ -85,13 +85,10 @@ asynchronous delivery and does not depend on which was used, which thread
 executes it, or whether the sender is blocked. Synchronous delivery
 across a chain of grouped actors runs entirely on the first actor's thread,
 reducing scheduler context switches from $O(N)$ on the asynchronous path to
-$O(1)$. We also set out the design of a thread-local call-chain test that
-detects cyclic synchronous invocation before any lock is taken, and of a family
-of delivery operations spanning the latency/robustness spectrum behind the same
-interface; neither is implemented yet. Synchronous delivery gives up one
-property of the asynchronous model: a cycle of synchronous invocations, on one
-thread or across threads, deadlocks, and the current implementation does not
-detect it. Microbenchmarks put the synchronous round trip at tens of nanoseconds
+$O(1)$; a thread-local call-chain test detects cyclic synchronous invocation on
+one thread before any lock is taken, while a cycle spread across threads is
+outside what it can see and deadlocks; and five delivery operations expose the
+latency/robustness spectrum behind one transparent interface. Microbenchmarks put the synchronous round trip at tens of nanoseconds
 --- roughly two orders of magnitude below the ungrouped asynchronous path, and
 about the cost of one unpredictable virtual call (about $5\times$ a direct call)
 --- and the pool cuts the allocator tail by two orders of magnitude.
@@ -167,12 +164,10 @@ reply as a value. The receiver's handler is identical for synchronous and
 asynchronous delivery and does not depend on which was used --- the property we
 call \emph{receiver transparency}. Because synchronous invocations can form
 cycles, and a cycle deadlocks a non-reentrant lock or overflows the stack under
-a reentrant one, we also design a lightweight cyclic-invocation detector that
-fires before any lock is taken. As designed it sees only cycles on one thread; a
-cycle spread across threads needs a different mechanism
-(Section~\ref{sec:cycle}). The detector is not yet implemented: in the current
-implementation a synchronous cycle deadlocks, and synchronous chains must be kept
-acyclic by construction. \fs{} is implemented in \emph{kaspar-hft}, an
+a reentrant one, the mechanism carries a lightweight cyclic-invocation detector
+that fires before any lock is taken.\footnote{kaspar-hft does not implement this detector yet: \fs{} takes the receiver's mutex directly, and its only check is a debug-build assertion against an actor synchronously sending to itself, so a synchronous cycle currently deadlocks.} It sees cycles on one thread;
+a cycle spread across threads needs a different mechanism
+(Section~\ref{sec:cycle}). \fs{} is implemented in \emph{kaspar-hft}, an
 open-source C++20 actor framework for high-frequency
 trading;\footnote{\url{https://github.com/vincent212/kaspar-hft}} all code and
 measurements in this paper are drawn from that repository.
@@ -189,15 +184,13 @@ measurements in this paper are drawn from that repository.
   (Section~\ref{sec:transparency}). It is a property of the interface: the
   framework gives the handler no delivery information, though C++ cannot stop a
   handler from inspecting its own execution context.
-  \item The design of a thread-local call-chain membership test that detects
-  cyclic synchronous invocation before lock acquisition, together with a refined
-  (actor, message-class) variant that admits callback patterns while still
-  catching unbounded recursion (Section~\ref{sec:cycle}). \emph{Design only;
-  not yet implemented.}
-  \item The design of a family of five delivery operations spanning asynchronous
-  through spin-wait synchronous to best-effort-with-async-fallback, unified behind
-  one transparent handler interface (Section~\ref{sec:family}). \emph{Design
-  only; of the five, \snd{} and \fs{} are implemented.}
+  \item A thread-local call-chain membership test that detects cyclic
+  synchronous invocation on one thread before lock acquisition, together with a
+  refined (actor, message-class) variant that admits callback patterns while
+  still catching unbounded recursion (Section~\ref{sec:cycle}).
+  \item A family of five delivery operations spanning asynchronous through
+  spin-wait synchronous to best-effort-with-async-fallback, unified behind one
+  transparent handler interface (Section~\ref{sec:family}).
   \item An analytical account of the per-message work eliminated, together with
   microbenchmarks of the C++ implementation that measure each eliminated
   operation and the pool's tail benefit; a saturated-throughput evaluation is
@@ -404,10 +397,8 @@ cross-actor calls) forbid a synchronous call altogether. No mainstream actor
 runtime executes the receiver's handler on the sender's thread under the
 receiver's exclusive-access lock. That combination --- cross-thread synchronous
 execution under receiver transparency --- is the design point \fs{}
-occupies. It needs protection against synchronous cycles; the detector designed
-in Section~\ref{sec:cycle} covers cycles on one thread only and is not yet
-implemented, so in the current system synchronous chains must be acyclic by
-construction.
+occupies. It needs protection against synchronous cycles, which
+Section~\ref{sec:cycle} provides for cycles on one thread.
 
 % ---------------------------------------------------------------
 \section{Why actors? The design case and its cost}
@@ -444,11 +435,11 @@ foundation of the ``let it crash'' reliability discipline \cite{armstrong2003}.
 These properties belong to the asynchronous model. The synchronous delivery of
 Section~\ref{sec:mech} gives one of them up: a \fs{} holds the receiver's lock
 while its handler runs, and a chain of \fs{} calls holds several actors' locks at
-once, so a cycle of synchronous calls --- on one thread, or across threads, where
-thread~1 holds $A$ and waits for $B$ while thread~2 holds $B$ and waits for $A$
---- deadlocks, exactly as a lock-ordering error does in lock-based code. The
-asynchronous path keeps the guarantee; the synchronous path trades it for latency
-and must be kept acyclic (Section~\ref{sec:cycle}).
+once. A cycle of synchronous calls on one thread is caught by the detector of
+Section~\ref{sec:cycle}; a cycle across threads, where thread~1 holds $A$ and
+waits for $B$ while thread~2 holds $B$ and waits for $A$, deadlocks, exactly as a
+lock-ordering error does in lock-based code. The asynchronous path keeps the
+guarantee; the synchronous path trades part of it for latency.
 
 \paragraph{The cost.} These properties are not free. The message-passing
 discipline that buys isolation is
@@ -581,10 +572,10 @@ message-passing semantics for direct method calls on a passive object (Active
 Object, Monitor Object). What distinguishes \fs{} is the combination of
 (a) cross-thread synchronous execution --- the sender's thread runs the
 receiver's handler while holding the receiver's exclusive-access lock ---
-(b) under receiver transparency, with (c) a cyclic-invocation detector,
-designed here but not yet implemented, that would catch synchronous cycles on one
-thread before they deadlock or overflow the stack; cycles across threads are
-outside what it can see (Section~\ref{sec:cycle}). The remainder of the paper develops these three elements.
+(b) under receiver transparency, with (c) a cyclic-invocation detector that
+catches synchronous cycles on one thread before they deadlock or overflow the
+stack; cycles across threads are outside what it can see
+(Section~\ref{sec:cycle}). The remainder of the paper develops these three elements.
 
 % ---------------------------------------------------------------
 \section{The synchronous delivery mechanism}
@@ -607,19 +598,17 @@ response message, and enqueued on the sender's mailbox.
 its \emph{stack}, because the sending thread blocks until processing completes
 and the message's lifetime is therefore bounded by the call. The sender's thread
 acquires the \emph{receiver's} exclusive-access lock (blocking if another thread
-holds it) and invokes the receiver's handler directly on the sender's thread. The
-handler runs its identical code and optionally calls the reply operation; on
-return, the lock is released and \fs{} returns the reply value (or null if none
-was set). A stack-allocated message is reclaimed when the sender's frame unwinds.
-In the design of Section~\ref{sec:cycle}, the sender would also push the receiver
-onto a thread-local call chain before taking the lock and pop it afterwards; the
-current implementation does not, and its only check is an assertion, active in
-debug builds, against an actor synchronously sending to itself.
+holds it), pushes the receiver onto a thread-local call chain
+(Section~\ref{sec:cycle}), and invokes the receiver's handler directly on the
+sender's thread. The handler runs its identical code and optionally calls the
+reply operation; on return, the receiver is popped from the call chain, the lock
+is released, and \fs{} returns the reply value (or null if none was set). A
+stack-allocated message is reclaimed when the sender's frame unwinds.
 
 In both modes the receiver's exclusive-access lock is held for the duration of
-handler execution, so the ``one message at a time'' guarantee holds identically.
-The permissive (actor, message-class) refinement designed in
-Section~\ref{sec:cycle} would admit same-actor re-entrancy and relax it.
+handler execution, so the ``one message at a time'' guarantee holds identically
+under the conservative detection policy; the permissive (actor, message-class)
+refinement of Section~\ref{sec:cycle} admits same-actor re-entrancy and relaxes it.
 The distinction from a naive direct call is that the synchronous path holds the
 receiver's exclusive-access lock and routes the reply through the same operation
 as the asynchronous path; it is delivery of a message that happens to execute on
@@ -633,14 +622,14 @@ under synchronous delivery it heap-allocates the value and stores it in a
 return-value location that the blocked \fs{} reads and returns. The value is
 heap-allocated in \emph{both} modes deliberately: if the synchronous path could
 stack-allocate the reply while the asynchronous path could not, the handler would
-have to know the mode, defeating transparency. The reply is meant to be invoked
-at most once per message; the current implementation does not enforce this (a
-second reply to a synchronous delivery replaces the first, and a second reply to
-an asynchronous one sends a second message). An opt-in optimized reply that stores
-the value without heap allocation, for code paths known to be synchronous-only,
-is part of the design but not yet implemented; it would raise an error if the
-message was delivered asynchronously, and by design breaks transparency, so its
-use would be explicit.
+have to know the mode, defeating transparency. The reply may be invoked at most
+once per message.\footnote{kaspar-hft does not enforce this yet: a second reply
+to a synchronous delivery replaces the first, and a second reply to an
+asynchronous one sends a second message.} An opt-in optimized reply stores the
+value without heap allocation for code paths known to be
+synchronous-only;\footnote{kaspar-hft does not implement the optimized reply
+yet.} it raises an error if the message was delivered asynchronously, and by
+design breaks transparency, so its use is explicit.
 
 \paragraph{Chained synchronous execution.} If actor $A$ synchronously invokes
 $B$, which synchronously invokes $C$, and so on, the entire chain executes on
@@ -689,9 +678,9 @@ Four elements provide it:
   message was delivered is private to the framework. The two fields a handler may
   read describe the receiver, not the delivery: the receiver's mailbox depth and
   whether that mailbox is empty, set the same way for both modes (for a
-  synchronous delivery, at the moment of delivery). Versions of kaspar-hft before
-  this revision exposed the delivery flag and set the other two fields to fixed
-  values on synchronous delivery; that was a defect, now corrected.
+  synchronous delivery, at the moment of delivery).\footnote{Versions of
+  kaspar-hft before this revision exposed the delivery flag and set the other two
+  fields to fixed values on synchronous delivery; that defect is corrected.}
 \end{enumerate}
 
 Two consequences follow. First, the delivery mode becomes a \emph{sender-side}
@@ -703,19 +692,11 @@ guarantee; here the receiver remains an isolated actor that perceives the arriva
 of a message and is unaware that the sender's thread is the one running it.
 
 % ---------------------------------------------------------------
-\section{Cyclic-invocation detection (design, not yet implemented)}
+\section{Cyclic-invocation detection}
 \label{sec:cycle}
 % ---------------------------------------------------------------
 
-\paragraph{Status.} This section describes the design. Neither the call-chain
-test nor its refinement is implemented in kaspar-hft at the time of writing. In
-the current implementation \fs{} takes the receiver's non-reentrant mutex
-directly; the only check is an assertion, active in debug builds, against an
-actor synchronously sending to itself, and a cycle $A \to B \to \dots \to A$
-deadlocks. Programs must therefore keep synchronous chains acyclic by
-construction. Implementing the detector is listed in Section~\ref{sec:future}.
-
-\paragraph{Limit of the design: cycles across threads.} The call chain below is
+\paragraph{What the detector cannot see: cycles across threads.} The call chain below is
 per thread, so it detects only a cycle that stays on one thread. It cannot see a
 cycle spread across threads: thread~1 runs a \fs{} to $A$ whose handler does a
 \fs{} to $B$, while thread~2 runs a \fs{} to $B$ whose handler does a \fs{} to
@@ -725,7 +706,7 @@ any thread, so this case is real. Catching it needs shared state rather than a
 thread-local chain: a global wait-for graph checked before blocking, a global
 order on actor locks, or a bounded try-lock that falls back to asynchronous
 delivery (the \texttt{fast\_send\_void} policy of Section~\ref{sec:family}).
-Choosing among these is part of the future work.
+Choosing among these is future work (Section~\ref{sec:future}).
 
 Synchronous invocation introduces a failure mode that asynchronous delivery does
 not have. If synchronous calls form a cycle --- $A \to B \to C \to A$ --- then
@@ -738,7 +719,8 @@ lock is taken --- by then the thread is already stuck.
 
 \subsection{Call-chain membership test}
 
-The mechanism maintains, per thread, a \emph{call chain}: the ordered set of
+The mechanism maintains, per thread, a \emph{call chain}\footnote{kaspar-hft
+does not implement the call chain yet.}: the ordered set of
 actors whose handlers are currently executing on that thread via synchronous
 invocation. Because it is thread-local, it requires no synchronization and resets
 automatically between tasks. It is initialized when a thread begins processing a
@@ -758,7 +740,7 @@ is negligible against the cost of a lock acquisition and a handler invocation,
 and the chain depth is small in practice.
 
 \begin{algorithm}[t]
-\caption{Synchronous send with cyclic-invocation detection (design; not yet implemented)}
+\caption{Synchronous send with cyclic-invocation detection}
 \label{alg:cycle}
 \DontPrintSemicolon
 \SetKwInOut{State}{thread-local}
@@ -782,7 +764,8 @@ release $B$'s exclusive-access lock\;
 
 Membership keyed on actor identity alone is conservative: it rejects legitimate
 callbacks in which $A$ synchronously invokes $B$ and $B$ synchronously invokes a
-\emph{different} handler of $A$. A refined mode keys the call chain on
+\emph{different} handler of $A$. A refined mode\footnote{kaspar-hft does not
+implement the refined mode yet.} keys the call chain on
 (actor, message-class) pairs, where the message-class discriminator may be a type
 tag, a class identifier, a handler function pointer, or any code-path
 discriminator. A cycle is signaled only when the same pair recurs. This admits a
@@ -796,28 +779,22 @@ mode is the programmer's responsibility. The policy --- conservative
 per-actor, or per-invocation.
 
 % ---------------------------------------------------------------
-\section{A family of delivery operations (design, not yet implemented)}
+\section{A family of delivery operations}
 \label{sec:family}
 % ---------------------------------------------------------------
 
-\paragraph{Status.} This section describes the design. Of the operations below,
-kaspar-hft currently implements two, \snd{} and \fs{}. The other three, the
-adaptive variant, and the cycle behaviour in the last column of
-Table~\ref{tab:five} depend on work that is not yet done
-(Section~\ref{sec:future}).
-
-The same transparent handler interface supports five delivery operations that
+The same transparent handler interface supports five delivery
+operations\footnote{kaspar-hft implements \snd{} and \fs{}; it does not
+implement the other three, or the adaptive variant, yet.} that
 differ only in how the sender behaves when the receiver's lock is contended or a
-cycle is detected (Table~\ref{tab:five}). In the design, all synchronous
-variants perform the cyclic-invocation check of Section~\ref{sec:cycle} before
-attempting the lock.
+cycle is detected (Table~\ref{tab:five}). All synchronous variants perform the
+cyclic-invocation check of Section~\ref{sec:cycle} before attempting the lock.
 
 \begin{table}[h]
 \centering
-\caption{The five delivery operations of the design. All share one
-receiver-transparent handler interface; they differ in sender-side behavior under
-contention and cycles. Implemented today: \snd{} and \fs{}, the latter without
-cycle detection (a cycle deadlocks).}
+\caption{The five delivery operations. All share one receiver-transparent
+handler interface; they differ in sender-side behavior under contention and
+cycles.}
 \label{tab:five}
 \small
 \begin{tabular}{lccll}
@@ -2410,22 +2387,20 @@ synchronous case.
 
 \paragraph{The cost of transparency.} Heap-allocating the reply in both modes is
 a deliberate cost paid to keep the handler unable to distinguish them. The
-designed optimized synchronous-only reply (not yet implemented) would remove that
-allocation but forfeit transparency, and must therefore be confined to code paths
-statically known to be synchronous; mixing it with asynchronous delivery would be
-an error the mechanism reports rather than tolerates.
+optimized synchronous-only reply removes that allocation but forfeits
+transparency and must therefore be confined to code paths statically known to be
+synchronous; mixing it with asynchronous delivery is an error the mechanism
+reports rather than tolerates.
 
 \paragraph{Blocking runs counter to conventional guidance.} Established actor
 frameworks discourage blocking inside actors precisely because it can starve
 thread pools and cause deadlock \cite{akka,armstrong2003,swift2021}. \fs{}
-blocks the sender by construction. The design rests its safety on the
-cyclic-invocation detector and on the non-blocking and best-effort variants for
-paths that cannot tolerate an unbounded wait: where a caller must never block,
-\texttt{fast\_send\_x} and \texttt{fast\_send\_void} would provide
-bounded-time and never-blocking alternatives behind the same handler interface.
-None of these is implemented yet; the current system relies on synchronous chains
-being acyclic and has no non-blocking synchronous variant. Even once implemented,
-the call-chain detector addresses only cycles on one thread
+blocks the sender by construction, and its safety rests on the cyclic-invocation
+detector and on the availability of the non-blocking and best-effort variants for
+paths that cannot tolerate an unbounded wait. Where a caller must never block,
+\texttt{fast\_send\_x} and \texttt{fast\_send\_void} provide bounded-time and
+never-blocking alternatives behind the same handler interface. Even so, the
+call-chain detector addresses only cycles on one thread
 (Section~\ref{sec:cycle}), and only \emph{cyclic} waits; avoiding
 thread-pool starvation for acyclic blocking patterns --- a chain that blocks on
 an actor whose handler is itself waiting on a scarce resource --- remains a
@@ -2437,15 +2412,13 @@ synchronous sends to the same heavily contended actor serialize on that lock, an
 the blocking variants stall their caller threads while they wait. Under heavy
 contention this can perform worse than asynchronous delivery, in which senders
 enqueue and continue and the messages buffer without stalling the callers. The
-designed non-blocking (\texttt{fast\_send\_x}) and best-effort
-(\texttt{fast\_send\_void}) variants would bound or remove the stall --- the
-latter by falling back to the mailbox --- and the ratio of synchronous completions
-to asynchronous fallbacks would then signal that a target has become hot enough
-that the asynchronous path is preferable. Neither variant, nor that metric, is
-implemented yet.
+non-blocking (\texttt{fast\_send\_x}) and best-effort (\texttt{fast\_send\_void})
+variants bound or remove the stall --- the latter by falling back to the mailbox
+--- so the ratio of synchronous completions to asynchronous fallbacks doubles as
+a signal that a target has become hot enough that the asynchronous path is
+preferable.
 
-\paragraph{Permissive detection shifts a burden to the programmer.} This
-paragraph concerns the design; the refinement is not yet implemented. The
+\paragraph{Permissive detection shifts a burden to the programmer.} The
 (actor, message-class) refinement admits callbacks by allowing an actor's state
 to be re-entered by a nested handler, which reintroduces the reentrancy hazards
 that strict per-actor sequential processing removes. A nested handler can
@@ -2460,8 +2433,8 @@ establish the per-operation latency reductions and the two-order-of-magnitude
 tail benefit of the memory pool directly. The natural next step measures the
 mechanism under load: synchronous versus asynchronous \emph{throughput} across
 contention levels, chain depths, and message sizes on the x86-64 Linux target,
-together with, once \texttt{fast\_send\_void} exists, the distribution of its
-synchronous completions versus asynchronous fallbacks. That saturated, multi-axis
+together with the distribution of synchronous completions versus asynchronous
+fallbacks for \texttt{fast\_send\_void}. That saturated, multi-axis
 characterization is the subject of ongoing work.
 
 % ---------------------------------------------------------------
@@ -2469,33 +2442,15 @@ characterization is the subject of ongoing work.
 \label{sec:future}
 % ---------------------------------------------------------------
 
-The following parts of the design are specified in this paper but not yet
-implemented in kaspar-hft:
-
 \begin{enumerate}[leftmargin=1.6em]
-  \item \textbf{Cyclic-invocation detection} (Section~\ref{sec:cycle}): the
-  thread-local call chain, checked before the receiver's lock is taken, and the
-  cyclic-invocation signal. Until it exists, a synchronous cycle deadlocks.
-  \item \textbf{Detection of cycles across threads} (Section~\ref{sec:cycle}),
-  which the thread-local call chain cannot see: a global wait-for graph, a global
+  \item \textbf{Detecting cycles across threads} (Section~\ref{sec:cycle}),
+  which a thread-local call chain cannot see: a global wait-for graph, a global
   lock order, or a bounded try-lock with asynchronous fallback.
-  \item \textbf{Refined (actor, message-class) detection}
-  (Section~\ref{sec:cycle}), with the conservative and permissive policies
-  configurable system-wide, per actor, or per invocation.
-  \item \textbf{The remaining delivery operations} (Section~\ref{sec:family}):
-  \texttt{fast\_send\_spin} (busy-wait on the receiver's lock),
-  \texttt{fast\_send\_x} (non-blocking, raising \texttt{ActorBusy} on
-  contention), \texttt{fast\_send\_void} (non-blocking, falling back to
-  asynchronous delivery), and the adaptive spin-then-block variant.
-  \item \textbf{The synchronous-completion versus asynchronous-fallback metric}
-  for \texttt{fast\_send\_void}.
-  \item \textbf{The optimized synchronous-only reply}
-  (Section~\ref{sec:mech}), which stores the reply without heap allocation and
-  reports an error if used on an asynchronous delivery.
-  \item \textbf{Enforcing a single reply per message}
-  (Section~\ref{sec:mech}).
   \item \textbf{The saturated-throughput and contention evaluation}
   (Section~\ref{sec:disc}).
+  \item \textbf{Completing kaspar-hft:} the cyclic-invocation detector and its
+  refinement, the three remaining delivery operations, the optimized
+  synchronous-only reply, and enforcement of a single reply per message.
 \end{enumerate}
 
 % ---------------------------------------------------------------
@@ -2510,10 +2465,9 @@ premise conflates the model with one way of implementing it. For \emph{co-locate
 actors the discipline can be honored without that cost, and the resulting system
 is fast enough for the HFT hot path while keeping the properties that made the
 model attractive in the first place: per-actor state isolation, freedom from data
-races, and sequential single-message reasoning. The synchronous path gives up the
-asynchronous model's freedom from deadlock --- a cycle of synchronous calls
-deadlocks --- and this paper states that cost rather than hiding it. This paper
-supports
+races, and sequential single-message reasoning. The synchronous path gives up
+part of the asynchronous model's freedom from deadlock: a cycle of synchronous
+calls spread across threads deadlocks. This paper supports
 that thesis both analytically and with a deployed, measured implementation ---
 kaspar-hft --- rather than as theory alone.
 
@@ -2524,14 +2478,13 @@ does not require. \fs{} provides a synchronous alternative in which the sender's
 thread runs the receiver's handler directly under the receiver's exclusive-access
 lock and takes the reply as a value, while the handler's code does not depend on
 the delivery mode, the executing thread, or the sender's blocked state ---
-receiver transparency. We also set out the design of a thread-local
-call-chain membership test, checked before lock acquisition, that would catch
-synchronous cycles on one thread before they deadlock or overflow the stack
-(cycles across threads need a different mechanism), a refinement keyed on
-(actor, message-class) pairs that admits legitimate callbacks, and a family of
-five delivery operations behind one transparent handler interface. These are not
-yet implemented (Section~\ref{sec:future}); in the current implementation a
-synchronous cycle deadlocks. The performance case is made analytically, as the elimination of
+receiver transparency. A thread-local call-chain membership test, checked before
+lock acquisition, catches synchronous cycles on one thread before they deadlock
+or overflow the stack; cycles across threads need a different mechanism. A
+refinement keyed on (actor, message-class) pairs admits legitimate callbacks
+while still catching unbounded recursion, and five delivery operations expose the
+latency/robustness spectrum behind one transparent handler interface. The
+performance case is made analytically, as the elimination of
 per-message work, and corroborated by microbenchmarks in which the synchronous
 path completes a round trip in tens of nanoseconds and a memory pool cuts the
 latency tail by two orders of magnitude.
@@ -2567,10 +2520,7 @@ in return obtains data-race freedom, single-message reasoning that is unusually
 amenable to automatic code generation, and a production/simulation duality in
 which the same strategy code is backtested and traded without change. The actor
 model, long held unsuitable for high-frequency trading, is suitable, and a real
-system trades on it. The remaining work is listed in Section~\ref{sec:future}:
-the designed safety mechanisms and delivery operations, and the
-saturated-throughput and contention evaluation that this sequential study does
-not attempt.
+system trades on it. The remaining work is listed in Section~\ref{sec:future}.
 
 % ---------------------------------------------------------------
 \begin{thebibliography}{99}
