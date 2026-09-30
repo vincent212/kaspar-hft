@@ -18,7 +18,8 @@
  *
  *     KFPGA_HANDLERS(KFPGA_ON(Ping, on_ping))
  *
- *     void on_ping(const Ping &m, kfpga::Ctx &ctx) {
+ *     template <class Ctx>
+ *     void on_ping(const Ping &m, Ctx &ctx) {
  *       ++pings;
  *       Pong r; r.count = m.count + 1000 * pings;
  *       ctx.reply(r);
@@ -26,34 +27,82 @@
  *   };
  *
  * A handler talks through its Ctx:
- *   ctx.send(dst, msg)            queue msg for actor dst (on this FPGA or the CPU)
+ *   ctx.send(dst, msg)            msg to actor dst (on this FPGA or the CPU), written
+ *                                 straight into the FIFO that leads to dst
  *   ctx.reply(msg)                answer the sender of the current message
  *   ctx.fast_send(b, msg, rep)    b is an actor object in this process: its
  *                                 handler runs now, inline; reply by value
- *   ctx.fast_send(dst, msg, rep)  dst is an actor id, typically a CPU actor: the
- *                                 request goes out, this actor's process waits
- *                                 for the reply, then continues. An RPC.
+ *   ctx.fast_send(dst, msg, rep)  dst is an actor id: an FPGA actor in another
+ *                                 process, or a CPU actor through the host. The
+ *                                 request goes straight into dst's fast_send FIFO
+ *                                 from this actor; this actor's process waits on
+ *                                 the reply FIFO from dst, then continues.
  *   ctx.sender()                  who sent the current message
  *
- * Each actor runs as its own hardware process (actor_process): one mailbox FIFO,
- * one fast_send port that is always served first, one message at a time.
+ * Handlers are templates on the Ctx type, because a Ctx knows at compile time
+ * which process it belongs to: that is what lets every FIFO have one writer.
+ *
+ * Each actor runs as its own hardware process (actor_process), one message at a
+ * time, serving its fast_send request FIFOs before anything else.
  */
 
 #include <type_traits>
 
 #include "actors_fpga/envelope.hpp"
+#include "actors_fpga/links.hpp"
 #include "actors_fpga/stream.hpp"
 
 namespace kfpga {
 
+// Messages an actor sends to itself: a small queue inside its own process (a FIFO
+// cannot be written and read by the same process).
+constexpr int kSelfDepth = 8;
+
+struct SelfQueue
+{
+  Envelope q[kSelfDepth];
+  uint8_t head = 0;
+  uint8_t n = 0;
+
+  bool push(const Envelope &e)
+  {
+    if (n == kSelfDepth)
+      return false;
+    q[(head + n) % kSelfDepth] = e;
+    ++n;
+    return true;
+  }
+  Envelope pop()
+  {
+    const Envelope e = q[head];
+    head = static_cast<uint8_t>((head + 1) % kSelfDepth);
+    --n;
+    return e;
+  }
+};
+
+// Per-process state the runtime keeps between steps.
+template <int NE>
+struct ActorPorts
+{
+  int last_fast = NE - 1;   // round-robin position over fast_send request FIFOs
+  int last_msg = NE - 1;    // round-robin position over message FIFOs
+  SelfQueue self;
+};
+
+// The handler's view of the runtime, for the actor process at endpoint K of a
+// design with NE endpoints.
+template <int NE, int K>
 class Ctx
 {
 public:
-  // out:        where this actor's messages leave (to the router)
-  // call_reply: where the reply to this actor's remote fast_send arrives
-  Ctx(ActorId self, ActorId sender, bool fast, hls::stream<Envelope> &out,
-      hls::stream<Envelope> &call_reply)
-    : self_(self), sender_(sender), fast_(fast), out_(out), call_reply_(call_reply)
+  static constexpr int kHostEp = NE - 1;
+
+  // from_ep: the endpoint the current message came from (K for the self queue).
+  Ctx(Links<NE> &links, const DiscoveryTable &rt, SelfQueue &self_q, ActorId self, ActorId sender,
+      int from_ep, bool fast)
+    : L_(links), rt_(rt), selfq_(self_q), self_(self), sender_(sender), from_(from_ep),
+      fast_(fast)
   {
   }
 
@@ -66,158 +115,199 @@ public:
     Envelope e;
     if (!pack(m, dst, self_, SEND, e))
     {
-      out_.write(make_error(ERR_PAYLOAD_FULL, self_, M::id, dst));
+      error(make_error(ERR_PAYLOAD_FULL, self_, M::id, dst));
       return;
     }
-    out_.write(e);
+    const int ep = endpoint<NE>(rt_, dst);
+    if (ep == K)
+      to_self(e);
+    else if (ep < 0)
+      error(make_error(ERR_NO_ROUTE, self_, M::id, dst));
+    else
+      write_to<NE, K>(L_.msg, ep, e);
   }
 
-  // To a send(): a message to the sender, now, as on the CPU.
+  // To a send(): a message to the sender, now, on the FIFO it came from.
   // To a fast_send(): held and returned to the waiting caller when the handler
   // returns, as on the CPU. Only the first reply to a fast_send counts.
   template <class M>
   void reply(const M &m)
   {
-    if (!fast_)
+    if (fast_)
     {
-      send(sender_, m);
+      if (has_reply_)
+        return;
+      if (!pack(m, sender_, self_, FAST_REPLY, reply_))
+      {
+        error(make_error(ERR_PAYLOAD_FULL, self_, M::id, sender_));
+        return;
+      }
+      has_reply_ = true;
       return;
     }
-    if (has_reply_)
-      return;
-    if (!pack(m, sender_, self_, FAST_REPLY, reply_))
+    Envelope e;
+    if (!pack(m, sender_, self_, SEND, e))
     {
-      out_.write(make_error(ERR_PAYLOAD_FULL, self_, M::id, sender_));
+      error(make_error(ERR_PAYLOAD_FULL, self_, M::id, sender_));
       return;
     }
-    has_reply_ = true;
+    if (from_ == K)
+      to_self(e);
+    else
+      write_to<NE, K>(L_.msg, from_, e);
   }
 
   // fast_send to an actor object in the same process: its handler runs now,
   // inside this one. Returns true if it replied with a Rep.
   template <class B, class Req, class Rep,
-            class = decltype(&B::kfpga_dispatch)>
+            class = typename std::enable_if<std::is_class<B>::value>::type>
   bool fast_send(B &b, const Req &req, Rep &rep)
   {
     Envelope e;
     if (!pack(req, B::kId, self_, FAST, e))
     {
-      out_.write(make_error(ERR_PAYLOAD_FULL, self_, Req::id, B::kId));
+      error(make_error(ERR_PAYLOAD_FULL, self_, Req::id, B::kId));
       return false;
     }
-    Ctx inner(B::kId, self_, true, out_, call_reply_);
+    Ctx inner(L_, rt_, selfq_, B::kId, self_, K, true);
     if (!b.kfpga_dispatch(e, inner))
-      out_.write(make_error(ERR_NO_HANDLER, B::kId, Req::id, B::kId));
-    if (!inner.has_reply_ || inner.reply_.id != Rep::id)
+      error(make_error(ERR_NO_HANDLER, B::kId, Req::id, B::kId));
+    if (!inner.has_reply_)
       return false;
-    unpack(inner.reply_, rep);
-    return true;
+    return take_reply<Rep>(inner.reply_, rep);
   }
 
-  // fast_send to an actor by id, outside this process (a CPU actor, or an FPGA
-  // actor in another process, relayed through the host): send the request, then
-  // wait for the reply on call_reply. This actor handles nothing else meanwhile;
+  // fast_send to an actor by id in another process, on this chip or on the CPU:
+  // write the request into that actor's fast_send FIFO from this process, then
+  // wait on the reply FIFO from it. This actor handles nothing else meanwhile;
   // the rest of the chip keeps running. Returns true if it replied with a Rep.
   template <class Req, class Rep>
   bool fast_send(ActorId dst, const Req &req, Rep &rep)
   {
+    const int ep = endpoint<NE>(rt_, dst);
+    if (ep == K)
+    {
+      error(make_error(ERR_CYCLE, self_, Req::id, dst));
+      return false;
+    }
+    if (ep < 0)
+    {
+      error(make_error(ERR_NO_ROUTE, self_, Req::id, dst));
+      return false;
+    }
     Envelope e;
     if (!pack(req, dst, self_, FAST, e))
     {
-      out_.write(make_error(ERR_PAYLOAD_FULL, self_, Req::id, dst));
+      error(make_error(ERR_PAYLOAD_FULL, self_, Req::id, dst));
       return false;
     }
-    out_.write(e);
-    const Envelope r = call_reply_.read();
-    if (r.id == Rep::id)
-    {
-      unpack(r, rep);
-      return true;
-    }
+    write_to<NE, K>(L_.freq, ep, e);
+    const Envelope r = read_from<NE, K>(L_.frep, ep);
     if (r.id == Error::id)
     {
       // The call failed (no such actor, no handler...): tell the host.
       Envelope err = r;
       err.dst = kHost;
       err.kind = SEND;
-      out_.write(err);
+      error(err);
+      return false;
     }
-    return false;
+    return take_reply<Rep>(r, rep);
   }
 
   bool has_reply() const { return has_reply_; }
   const Envelope &reply_envelope() const { return reply_; }
 
 private:
+  template <int, int> friend class Ctx;
+
+  void error(const Envelope &e) { L_.msg[K][kHostEp].write(e); }
+
+  void to_self(const Envelope &e)
+  {
+    if (!selfq_.push(e))
+      error(make_error(ERR_SELF_FULL, self_, e.id, self_));
+  }
+
+  // A reply to this actor's fast_send: a Rep, no reply (id 0), or a message of
+  // another type, which is reported to the host rather than dropped.
+  template <class Rep>
+  bool take_reply(const Envelope &r, Rep &rep)
+  {
+    if (r.id == Rep::id)
+    {
+      unpack(r, rep);
+      return true;
+    }
+    if (r.id != 0)
+      error(make_error(ERR_WRONG_REPLY, self_, r.id, r.src));
+    return false;
+  }
+
+  Links<NE> &L_;
+  const DiscoveryTable &rt_;
+  SelfQueue &selfq_;
   ActorId self_;
   ActorId sender_;
+  int from_;
   bool fast_;
-  hls::stream<Envelope> &out_;
-  hls::stream<Envelope> &call_reply_;
   Envelope reply_;
   bool has_reply_ = false;
 };
 
-// One step of an actor's process: take one message, fast_send port first, and
-// run its handler. Returns false if both inputs were empty.
+// One step of the actor process at endpoint K: take one message and run its
+// handler. Order: a fast_send request from any endpoint, then a message the actor
+// sent itself, then a message from any endpoint; round-robin among endpoints.
+// Returns false if nothing was waiting.
 //
-//   fast_in     fast_send requests from the host, served before the mailbox
-//   mbox        the mailbox: messages routed to this actor
-//   call_reply  replies to this actor's own remote fast_sends
-//   to_router   everything this actor sends, its replies to send()s, errors
-//   fast_reply  the answer to each fast_send request (id 0 if the handler did
-//               not reply), so the waiting caller is always released
-template <class A>
-bool actor_step(A &a, hls::stream<Envelope> &fast_in, hls::stream<Envelope> &mbox,
-                hls::stream<Envelope> &call_reply, hls::stream<Envelope> &to_router,
-                hls::stream<Envelope> &fast_reply)
+// The answer to a fast_send request (id 0 if the handler did not reply) goes
+// back on the reply FIFO to the endpoint the request came from, so the waiting
+// caller is always released.
+template <class A, int NE, int K>
+bool actor_step(A &a, Links<NE> &L, const DiscoveryTable &rt, ActorPorts<NE> &st)
 {
   Envelope e;
-  bool fast;
-  if (!fast_in.empty())
+  int from;
+  bool fast = false;
+  const int f = pick_from<NE, K>(L.freq, st.last_fast);
+  if (f >= 0)
   {
-    e = fast_in.read();
+    e = read_from<NE, K>(L.freq, f);
+    from = f;
     fast = true;
+    st.last_fast = f;
   }
-  else if (!mbox.empty())
+  else if (st.self.n > 0)
   {
-    e = mbox.read();
-    fast = false;
+    e = st.self.pop();
+    from = K;
   }
   else
   {
-    return false;
+    const int m = pick_from<NE, K>(L.msg, st.last_msg);
+    if (m < 0)
+      return false;
+    e = read_from<NE, K>(L.msg, m);
+    from = m;
+    st.last_msg = m;
   }
 
-  Ctx ctx(A::kId, e.src, fast, to_router, call_reply);
+  Ctx<NE, K> ctx(L, rt, st.self, A::kId, e.src, from, fast);
   if (!a.kfpga_dispatch(e, ctx))
-    to_router.write(make_error(ERR_NO_HANDLER, A::kId, e.id, A::kId));
+    L.msg[K][NE - 1].write(make_error(ERR_NO_HANDLER, A::kId, e.id, A::kId));
 
   if (fast)
-  {
-    if (ctx.has_reply())
-      fast_reply.write(ctx.reply_envelope());
-    else
-    {
-      Envelope none = {};
-      none.dst = e.src;
-      none.src = A::kId;
-      none.id = 0;
-      none.kind = FAST_REPLY;
-      fast_reply.write(none);
-    }
-  }
+    write_to<NE, K>(L.frep, from, ctx.has_reply() ? ctx.reply_envelope() : make_no_reply(e));
   return true;
 }
 
 // The actor as a free-running hardware process.
-template <class A>
-void actor_process(A &a, hls::stream<Envelope> &fast_in, hls::stream<Envelope> &mbox,
-                   hls::stream<Envelope> &call_reply, hls::stream<Envelope> &to_router,
-                   hls::stream<Envelope> &fast_reply)
+template <class A, int NE, int K>
+void actor_process(A &a, Links<NE> &L, const DiscoveryTable &rt)
 {
+  ActorPorts<NE> st;
   for (;;)
-    actor_step(a, fast_in, mbox, call_reply, to_router, fast_reply);
+    actor_step<A, NE, K>(a, L, rt, st);
 }
 
 } // namespace kfpga
@@ -232,13 +322,14 @@ void actor_process(A &a, hls::stream<Envelope> &fast_in, hls::stream<Envelope> &
     return true;                           \
   }
 
-#define KFPGA_HANDLERS(...)                                         \
-  bool kfpga_dispatch(const ::kfpga::Envelope &e_, ::kfpga::Ctx &ctx_) \
-  {                                                                 \
-    switch (e_.id)                                                  \
-    {                                                               \
-      __VA_ARGS__                                                   \
-    default:                                                        \
-      return false;                                                 \
-    }                                                               \
+#define KFPGA_HANDLERS(...)                                                  \
+  template <class KfpgaCtx_>                                                 \
+  bool kfpga_dispatch(const ::kfpga::Envelope &e_, KfpgaCtx_ &ctx_)          \
+  {                                                                          \
+    switch (e_.id)                                                           \
+    {                                                                        \
+      __VA_ARGS__                                                            \
+    default:                                                                 \
+      return false;                                                          \
+    }                                                                        \
   }

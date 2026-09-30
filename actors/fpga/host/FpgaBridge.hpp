@@ -15,38 +15,50 @@
  *                           thread returns at once. A reply comes back to this
  *                           actor's mailbox.
  *   ref.fast_send(&m, this) m is written to the card as a fast_send; the calling
- *                           thread waits for the reply and returns it.
+ *                           thread waits for the reply and returns it. Several
+ *                           threads may have calls outstanding at once.
  *
- * FPGA -> CPU. The bridge thread reads everything the card sends and routes it:
+ * FPGA -> CPU. The reader thread reads everything the card sends and delivers it:
  *   SEND        rebuilt as a Kaspar message and delivered with target->send(),
  *               with a stand-in for the FPGA actor as the sender, so the CPU
  *               handler's reply() goes back to the FPGA actor
- *   FAST        an FPGA actor's fast_send: the bridge thread calls
- *               target->fast_send() (the CPU handler runs on the bridge thread)
- *               and writes the reply back to the card, where the FPGA actor waits
+ *   FAST        an FPGA actor's fast_send: handed to that FPGA actor's worker
+ *               thread, which calls target->fast_send() (the CPU handler runs on
+ *               the worker) and writes the reply back to the card, where the FPGA
+ *               actor waits
  *   FAST_REPLY  the answer to a CPU fast_send: handed to the waiting thread
  *   Error       reported through on_error
  *
- * Addressing. FPGA actors and CPU actors share one id space. A CPU actor that
- * FPGA actors may address, or that expects replies from them, is registered
- * with add_cpu_actor(id, actor); the card's route table sends those ids to the
- * host.
+ * The reader thread never runs a CPU handler, so it is always free to deliver
+ * replies. Each calling FPGA actor has its own worker (an FPGA actor has at most
+ * one fast_send outstanding), so one CPU handler that is waiting does not hold up
+ * calls from other FPGA actors.
+ *
+ * Addressing. FPGA actors and CPU actors share one id space, 0..kMaxActors-1. A
+ * CPU actor that FPGA actors may address, or that expects replies from them, is
+ * registered with add_cpu_actor(id, actor); the card's discovery table sends those
+ * ids to the host.
  *
  * Messages. Each message that crosses is a Kaspar message class with the same
  * id and fields as its FPGA struct, e.g.
  *   struct Ping : actors::Message_N<301> { uint32_t count = 0; KFPGA_FIELDS(count) };
- * and is registered once: register_messages<Ping, Pong>().
+ * and is registered once, before start(): register_messages<Ping, Pong>().
+ *
+ * Failures. A fast_send from the CPU that fails (no route, no codec, an error
+ * from the FPGA) throws. Called from a handler, that ends the process: failures
+ * are never silent.
  *
  * Deadlock: fast_send is a blocking call in both directions. A cycle of
  * fast_sends that returns to an actor already waiting deadlocks, exactly as a
  * fast_send cycle does inside the CPU runtime.
  */
 
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <cstdio>
+#include <deque>
 #include <functional>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -64,20 +76,32 @@ namespace kfpga {
 class FpgaBridge : public actors::FpgaLink, public std::enable_shared_from_this<FpgaBridge>
 {
 public:
+  // Message ids that may cross: Message_N ids are below 512.
+  static constexpr int kMaxMsgId = 512;
+
   explicit FpgaBridge(std::shared_ptr<CardTransport> card) : card_(std::move(card))
   {
     on_error = [](const std::string &what) { std::fprintf(stderr, "FpgaBridge: %s\n", what.c_str()); };
+    for (int i = 0; i < kMaxActors; ++i)
+    {
+      proxies_[i].reset(new Proxy(this, static_cast<ActorId>(i)));
+      cpu_by_id_[i].store(nullptr);
+    }
   }
 
   ~FpgaBridge() override { stop(); }
 
-  // Where problems are reported (default: stderr). Nothing is dropped silently.
+  // Where problems are reported (default: stderr). Called from the bridge's
+  // threads and from callers' threads, one call at a time. Nothing is dropped
+  // silently.
   std::function<void(const std::string &)> on_error;
 
-  // Kaspar message classes that cross to or from the card.
+  // Kaspar message classes that cross to or from the card. Before start().
   template <class... M>
   void register_messages()
   {
+    if (started_)
+      throw std::logic_error("FpgaBridge: register_messages after start()");
     int dummy[] = {0, (register_one<M>(), 0)...};
     (void)dummy;
   }
@@ -85,9 +109,9 @@ public:
   // A CPU actor reachable from the card under `id`.
   void add_cpu_actor(ActorId id, actors::Actor *a)
   {
-    std::lock_guard<std::mutex> lk(map_mu_);
-    cpu_by_id_[id] = a;
-    id_by_cpu_[a] = id;
+    if (id >= kMaxActors)
+      throw std::out_of_range("FpgaBridge: actor id " + std::to_string(id) + " >= kMaxActors");
+    cpu_by_id_[id].store(a, std::memory_order_release);
   }
 
   // An ActorRef for an FPGA actor. The bridge must be owned by a shared_ptr.
@@ -98,15 +122,31 @@ public:
 
   void start()
   {
+    started_ = true;
     stop_ = false;
-    thread_ = std::thread([this] { run(); });
+    reader_ = std::thread([this] { run(); });
   }
 
+  // Joins the bridge's threads. A worker inside a CPU handler that never returns
+  // cannot be joined.
   void stop()
   {
     stop_ = true;
-    if (thread_.joinable())
-      thread_.join();
+    if (reader_.joinable())
+      reader_.join();
+    for (auto &w : workers_)
+    {
+      if (!w)
+        continue;
+      {
+        std::lock_guard<std::mutex> lk(w->mu);
+        w->stop = true;
+      }
+      w->cv.notify_one();
+      if (w->thread.joinable())
+        w->thread.join();
+      w.reset();
+    }
   }
 
   uint64_t errors() const { return errors_.load(); }
@@ -125,28 +165,25 @@ public:
   std::unique_ptr<const actors::Message> fast_send(uint16_t fpga_actor, const actors::Message *m,
                                                    actors::Actor *sender) override
   {
-    if (std::this_thread::get_id() == thread_.get_id())
-      throw std::logic_error("FpgaBridge: fast_send to the FPGA from a handler the FPGA called "
-                             "with fast_send would wait on itself");
+    if (fpga_actor >= kMaxActors)
+      throw std::runtime_error("FpgaBridge: fast_send to actor id " + std::to_string(fpga_actor) +
+                               ", outside 0.." + std::to_string(kMaxActors - 1));
     Envelope e;
     if (!encode(m, fpga_actor, id_of(sender), FAST, e))
       throw std::runtime_error("FpgaBridge: cannot encode message id " +
                                std::to_string(m->get_message_id()));
 
-    std::lock_guard<std::mutex> one_at_a_time(call_mu_);
-    {
-      std::lock_guard<std::mutex> lk(reply_mu_);
-      waiting_ = true;
-      reply_ready_ = false;
-    }
+    // Replies from one FPGA actor come back in the order its requests were
+    // written, so each actor keeps a FIFO of waiting callers. Queueing and
+    // writing under one lock keeps that FIFO in the same order as the card's.
+    Waiter w;
+    std::unique_lock<std::mutex> lk(pending_mu_);
+    pending_[fpga_actor].push_back(&w);
     card_->write(e);
-    Envelope r;
-    {
-      std::unique_lock<std::mutex> lk(reply_mu_);
-      reply_cv_.wait(lk, [this] { return reply_ready_; });
-      r = reply_;
-      waiting_ = false;
-    }
+    w.cv.wait(lk, [&w] { return w.ready; });
+    lk.unlock();
+
+    const Envelope &r = w.reply;
     if (r.id == 0)
       return nullptr;   // the FPGA actor did not reply
     if (r.id == Error::id)
@@ -156,7 +193,11 @@ public:
       throw std::runtime_error("FpgaBridge: fast_send to FPGA actor " + std::to_string(fpga_actor) +
                                " failed: " + describe(err));
     }
-    return std::unique_ptr<const actors::Message>(decode(r));
+    actors::Message *rep = decode(r);
+    if (!rep)
+      throw std::runtime_error("FpgaBridge: fast_send to FPGA actor " + std::to_string(fpga_actor) +
+                               ": no registered class for reply id " + std::to_string(r.id));
+    return std::unique_ptr<const actors::Message>(rep);
   }
 
   std::string name(uint16_t fpga_actor) const override
@@ -186,8 +227,26 @@ private:
 
   struct Codec
   {
-    bool (*encode)(const actors::Message *, ActorId dst, ActorId src, uint8_t kind, Envelope &);
-    actors::Message *(*decode)(const Envelope &);
+    bool (*encode)(const actors::Message *, ActorId dst, ActorId src, uint8_t kind, Envelope &) = nullptr;
+    actors::Message *(*decode)(const Envelope &) = nullptr;
+  };
+
+  // A CPU thread waiting for the reply to its fast_send.
+  struct Waiter
+  {
+    std::condition_variable cv;
+    bool ready = false;
+    Envelope reply{};
+  };
+
+  // Runs CPU handlers for the fast_sends of one FPGA actor.
+  struct Worker
+  {
+    std::thread thread;
+    std::mutex mu;
+    std::condition_variable cv;
+    std::deque<Envelope> q;
+    bool stop = false;
   };
 
   template <class M>
@@ -208,13 +267,21 @@ private:
   void register_one()
   {
     static_assert(std::is_base_of<actors::Message, M>::value, "a Kaspar message class");
-    std::lock_guard<std::mutex> lk(map_mu_);
-    codecs_[static_cast<MsgId>(M::id)] = Codec{&encode_as<M>, &decode_as<M>};
+    static_assert(M::id >= 0 && M::id < kMaxMsgId, "message ids that cross must be below 512");
+    codecs_[M::id] = Codec{&encode_as<M>, &decode_as<M>};
+  }
+
+  // Codecs are fixed before start(), so they are read without a lock.
+  const Codec *codec(int id) const
+  {
+    if (id < 0 || id >= kMaxMsgId || !codecs_[id].encode)
+      return nullptr;
+    return &codecs_[id];
   }
 
   bool encode(const actors::Message *m, ActorId dst, ActorId src, uint8_t kind, Envelope &e)
   {
-    const Codec *c = codec(static_cast<MsgId>(m->get_message_id()));
+    const Codec *c = codec(m->get_message_id());
     if (!c)
     {
       report("no registered class for message id " + std::to_string(m->get_message_id()));
@@ -240,43 +307,38 @@ private:
     return c->decode(e);
   }
 
-  const Codec *codec(MsgId id)
+  actors::Actor *cpu_actor(ActorId id) const
   {
-    std::lock_guard<std::mutex> lk(map_mu_);
-    auto it = codecs_.find(id);
-    return it == codecs_.end() ? nullptr : &it->second;
+    return id < kMaxActors ? cpu_by_id_[id].load(std::memory_order_acquire) : nullptr;
   }
 
-  actors::Actor *cpu_actor(ActorId id)
+  // The id a CPU sender is registered under: a scan of kMaxActors slots, no lock.
+  ActorId id_of(actors::Actor *a) const
   {
-    std::lock_guard<std::mutex> lk(map_mu_);
-    auto it = cpu_by_id_.find(id);
-    return it == cpu_by_id_.end() ? nullptr : it->second;
+    if (a)
+      for (int i = 0; i < kMaxActors; ++i)
+        if (cpu_by_id_[i].load(std::memory_order_acquire) == a)
+          return static_cast<ActorId>(i);
+    return kHost;
   }
 
-  ActorId id_of(actors::Actor *a)
+  actors::Actor *proxy(ActorId fpga_actor) const
   {
-    if (!a)
-      return kHost;
-    std::lock_guard<std::mutex> lk(map_mu_);
-    auto it = id_by_cpu_.find(a);
-    return it == id_by_cpu_.end() ? kHost : it->second;
-  }
-
-  actors::Actor *proxy(ActorId fpga_actor)
-  {
-    std::lock_guard<std::mutex> lk(map_mu_);
-    auto &p = proxies_[fpga_actor];
-    if (!p)
-      p.reset(new Proxy(this, fpga_actor));
-    return p.get();
+    return fpga_actor < kMaxActors ? proxies_[fpga_actor].get() : nullptr;
   }
 
   static std::string describe(const Error &err)
   {
-    static const char *names[] = {"?", "no handler", "no route", "outbox full", "payload too big",
-                                  "no codec"};
-    const char *n = err.code < 6 ? names[err.code] : "?";
+    static const char *names[] = {"?",
+                                  "no handler",
+                                  "no route",
+                                  "?",
+                                  "payload too big",
+                                  "no codec",
+                                  "wrong reply type",
+                                  "fast_send to itself",
+                                  "self queue full"};
+    const char *n = err.code < 9 ? names[err.code] : "?";
     return std::string(n) + " (actor " + std::to_string(err.actor) + ", message " +
            std::to_string(err.msg) + ", destination " + std::to_string(err.dst) + ")";
   }
@@ -284,20 +346,11 @@ private:
   void report(const std::string &what)
   {
     ++errors_;
+    std::lock_guard<std::mutex> lk(report_mu_);
     on_error(what);
   }
 
-  // Answer a waiting FPGA actor with an error, so it is not left blocked.
-  void fail_call(const Envelope &req, uint32_t code)
-  {
-    Envelope err = make_error(code, req.dst, req.id, req.dst);
-    err.kind = FAST_REPLY;
-    err.dst = req.src;
-    err.src = req.dst;
-    card_->write(err);
-  }
-
-  // ---- the bridge thread: FPGA -> CPU --------------------------------------------
+  // ---- the reader thread: everything from the card ------------------------------
 
   void run()
   {
@@ -307,7 +360,7 @@ private:
       if (card_->read(e))
         route(e);
       else
-        std::this_thread::yield();
+        std::this_thread::yield();   // the card is polled: CardTransport::read does not block
     }
   }
 
@@ -315,23 +368,7 @@ private:
   {
     if (e.kind == FAST_REPLY)
     {
-      if (e.dst == kHost || cpu_actor(e.dst))
-      {
-        std::lock_guard<std::mutex> lk(reply_mu_);
-        if (!waiting_)
-        {
-          ++errors_;
-          on_error("reply from FPGA actor " + std::to_string(e.src) + " with no caller waiting");
-          return;
-        }
-        reply_ = e;
-        reply_ready_ = true;
-        reply_cv_.notify_one();
-      }
-      else
-      {
-        card_->write(e);   // answer to an FPGA actor's call to another FPGA actor: relay
-      }
+      deliver_reply(e);
       return;
     }
 
@@ -347,35 +384,14 @@ private:
 
     if (e.kind == FAST)
     {
-      if (!target)
+      if (!target || e.src >= kMaxActors)
       {
-        if (e.dst == kHost)
-          fail_call(e, ERR_NO_ROUTE);
-        else
-          card_->write(e);   // a call from one FPGA actor to another: relay it back
+        report("fast_send from FPGA actor " + std::to_string(e.src) + " to unknown CPU actor " +
+               std::to_string(e.dst));
+        card_->write(make_fast_reply_error(e, ERR_NO_ROUTE));
         return;
       }
-      std::unique_ptr<actors::Message> req(decode(e));
-      if (!req)
-      {
-        fail_call(e, ERR_NO_CODEC);
-        return;
-      }
-      auto rep = target->fast_send(req.get(), proxy(e.src));   // CPU handler runs here
-      Envelope out;
-      if (!rep)
-      {
-        out = {};
-        out.dst = e.src;
-        out.src = e.dst;
-        out.kind = FAST_REPLY;
-      }
-      else if (!encode(rep.get(), e.src, e.dst, FAST_REPLY, out))
-      {
-        fail_call(e, ERR_NO_CODEC);
-        return;
-      }
-      card_->write(out);
+      worker(e.src).post(e);
       return;
     }
 
@@ -391,23 +407,102 @@ private:
       target->send(m, proxy(e.src));
   }
 
+  // A reply to a CPU fast_send: the oldest caller waiting on that FPGA actor.
+  void deliver_reply(const Envelope &e)
+  {
+    Waiter *w = nullptr;
+    {
+      std::lock_guard<std::mutex> lk(pending_mu_);
+      if (e.src < kMaxActors && !pending_[e.src].empty())
+      {
+        w = pending_[e.src].front();
+        pending_[e.src].pop_front();
+        w->reply = e;
+        w->ready = true;
+        w->cv.notify_one();
+      }
+    }
+    if (!w)
+      report("reply from FPGA actor " + std::to_string(e.src) + " with no caller waiting");
+  }
+
+  // ---- workers: CPU handlers called by FPGA actors ------------------------------
+
+  struct WorkerRef
+  {
+    Worker &w;
+    void post(const Envelope &e)
+    {
+      {
+        std::lock_guard<std::mutex> lk(w.mu);
+        w.q.push_back(e);
+      }
+      w.cv.notify_one();
+    }
+  };
+
+  // Created on first use, by the reader thread only.
+  WorkerRef worker(ActorId fpga_actor)
+  {
+    auto &slot = workers_[fpga_actor];
+    if (!slot)
+    {
+      slot.reset(new Worker());
+      Worker *w = slot.get();
+      w->thread = std::thread([this, w] { work(*w); });
+    }
+    return WorkerRef{*slot};
+  }
+
+  void work(Worker &w)
+  {
+    for (;;)
+    {
+      Envelope e;
+      {
+        std::unique_lock<std::mutex> lk(w.mu);
+        w.cv.wait(lk, [&w] { return w.stop || !w.q.empty(); });
+        if (w.q.empty())
+          return;
+        e = w.q.front();
+        w.q.pop_front();
+      }
+      serve_fast(e);
+    }
+  }
+
+  // Run the CPU handler for an FPGA actor's fast_send and answer it.
+  void serve_fast(const Envelope &e)
+  {
+    std::unique_ptr<actors::Message> req(decode(e));
+    if (!req)
+    {
+      card_->write(make_fast_reply_error(e, ERR_NO_CODEC));
+      return;
+    }
+    auto rep = cpu_actor(e.dst)->fast_send(req.get(), proxy(e.src));   // CPU handler runs here
+    Envelope out;
+    if (!rep)
+      out = make_no_reply(e);
+    else if (!encode(rep.get(), e.src, e.dst, FAST_REPLY, out))
+      out = make_fast_reply_error(e, ERR_NO_CODEC);
+    card_->write(out);
+  }
+
   std::shared_ptr<CardTransport> card_;
-  std::thread thread_;
+  std::thread reader_;
   std::atomic<bool> stop_{false};
+  bool started_ = false;
   std::atomic<uint64_t> errors_{0};
+  std::mutex report_mu_;
 
-  std::mutex map_mu_;
-  std::map<MsgId, Codec> codecs_;
-  std::map<ActorId, actors::Actor *> cpu_by_id_;
-  std::map<actors::Actor *, ActorId> id_by_cpu_;
-  std::map<ActorId, std::unique_ptr<Proxy>> proxies_;
+  std::array<Codec, kMaxMsgId> codecs_{};
+  std::array<std::atomic<actors::Actor *>, kMaxActors> cpu_by_id_;
+  std::array<std::unique_ptr<Proxy>, kMaxActors> proxies_;
+  std::array<std::unique_ptr<Worker>, kMaxActors> workers_;
 
-  std::mutex call_mu_;   // one CPU -> FPGA fast_send at a time
-  std::mutex reply_mu_;
-  std::condition_variable reply_cv_;
-  bool waiting_ = false;
-  bool reply_ready_ = false;
-  Envelope reply_{};
+  std::mutex pending_mu_;
+  std::array<std::deque<Waiter *>, kMaxActors> pending_;
 };
 
 } // namespace kfpga

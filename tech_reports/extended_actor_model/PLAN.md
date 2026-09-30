@@ -71,8 +71,9 @@ read in full before claiming novelty.
 - **CPU runtime** (`actors/cpp`): send, fast_send, groups; measured with
   `perf/bench_pingpong`.
 - **Rust runtime and C++ ↔ Rust interop** (`actors/rust`): measured.
-- **FPGA runtime** (`actors/fpga`): actor processes, mailbox FIFOs, a fast_send port,
-  router, host link, and a CPU bridge with all four directions. Tested with a software
+- **FPGA runtime** (`actors/fpga`): actor processes joined by direct FIFOs (messages,
+  fast_send requests, replies), a discovery table, a host link, and a CPU bridge with
+  all four directions. Tested with a software
   card. Needs synthesis on Vitis for cycle counts.
 - **GPU runtime:** design only (future work).
 - **Evaluation table:** the cost of send and of fast_send for every pair of runtimes, with

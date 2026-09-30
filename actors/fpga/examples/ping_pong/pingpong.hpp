@@ -11,10 +11,11 @@
  * Ping-pong on the FPGA runtime.
  *
  *   PingActor  (id 1)  on Start from the host, sends Ping to Pong `rounds` times,
- *                      one at a time through the router, then sends Done to the host
+ *                      one at a time over the FIFO from Ping to Pong, then sends Done
+ *                      to the host
  *   PongActor  (id 2)  replies to each Ping; its state counts the pings it has seen
  *   FusedPing  (id 3)  owns its own Pong (id 4) in the same process and calls it with
- *                      fast_send: no router, no FIFO, the reply comes back by value
+ *                      fast_send: no FIFO at all, the reply comes back by value
  *
  * The host can also fast_send a Ping straight to Pong (id 2): it goes to Pong's
  * fast_send port and is served before anything waiting in Pong's mailbox.
@@ -25,7 +26,6 @@
 namespace pingpong {
 
 using kfpga::ActorId;
-using kfpga::Ctx;
 using kfpga::MsgId;
 
 struct Start
@@ -71,6 +71,7 @@ struct PongActor
 
   KFPGA_HANDLERS(KFPGA_ON(Ping, on_ping))
 
+  template <class Ctx>
   void on_ping(const Ping &m, Ctx &ctx)
   {
     ++pings;
@@ -88,6 +89,7 @@ struct PingActor
 
   KFPGA_HANDLERS(KFPGA_ON(Start, on_start) KFPGA_ON(Pong, on_pong))
 
+  template <class Ctx>
   void on_start(const Start &m, Ctx &ctx)
   {
     rounds = m.rounds;
@@ -97,6 +99,7 @@ struct PingActor
     ctx.send(kPong, p);
   }
 
+  template <class Ctx>
   void on_pong(const Pong &m, Ctx &ctx)
   {
     ++replies;
@@ -123,6 +126,7 @@ struct FusedPing
 
   KFPGA_HANDLERS(KFPGA_ON(Start, on_start))
 
+  template <class Ctx>
   void on_start(const Start &m, Ctx &ctx)
   {
     Done d;
@@ -143,14 +147,14 @@ struct FusedPing
   }
 };
 
-// ---- the design: three processes, a router and a host link --------------------
+// ---- the design: three actor processes and the host link -----------------------
 
-constexpr int kNumActors = 3;       // mailbox ports: 0 Ping, 1 Pong, 2 FusedPing
-constexpr int kRouterInputs = 4;    // 0..2 actors' outputs, 3 host_in
+constexpr int kNumActors = 3;           // endpoints: 0 Ping, 1 Pong, 2 FusedPing
+constexpr int kEndpoints = kNumActors + 1;   // 3 = the host link
 
-inline kfpga::RouteTable routes()
+inline kfpga::DiscoveryTable discovery()
 {
-  kfpga::RouteTable rt;
+  kfpga::DiscoveryTable rt;
   for (int i = 0; i < kfpga::kMaxActors; ++i)
     rt.port[i] = kfpga::kNoRoute;
   rt.port[kfpga::kHost] = kfpga::kToHost;

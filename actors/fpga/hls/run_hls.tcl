@@ -12,7 +12,7 @@
 set part  [expr {[info exists ::env(PART)]     ? $::env(PART)     : "xcvu2p-fsvj2104-3-e"}]
 set clock [expr {[info exists ::env(CLOCK_NS)] ? $::env(CLOCK_NS) : "3.2"}]
 
-set tops {bench_actor_step bench_router_step bench_host_in bench_host_out bench_fast_send}
+set tops {bench_actor_step bench_host_in bench_host_out bench_fast_send}
 set flags "-std=c++14 -DKASPAR_VITIS -I../include -I../examples/ping_pong"
 
 foreach top $tops {

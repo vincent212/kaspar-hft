@@ -8,13 +8,14 @@
  */
 
 /*
- * The ping-pong design's wiring: which stream connects which process. On the
- * FPGA each process runs on its own (hls/pingpong_top.cpp); step() runs one step
- * of every process in turn, which is how the unit tests drive it.
+ * The ping-pong design's wiring: the FIFOs between its processes (Links) and the
+ * table that says which endpoint holds which actor. On the FPGA each process runs
+ * on its own (hls/pingpong_top.cpp); step() runs one step of every process in
+ * turn, which is how the unit tests drive it.
  */
 
 #include "actors_fpga/actor.hpp"
-#include "actors_fpga/router.hpp"
+#include "actors_fpga/links.hpp"
 #include "pingpong.hpp"
 
 namespace pingpong {
@@ -25,28 +26,22 @@ struct Design
   PongActor<kPong> pong;
   FusedPing fused;
 
-  hls::stream<kfpga::Envelope> fast_in[kNumActors];
-  hls::stream<kfpga::Envelope> mbox[kNumActors];
-  hls::stream<kfpga::Envelope> call_reply[kNumActors];
-  hls::stream<kfpga::Envelope> router_in[kRouterInputs];   // 0..2 actors, 3 host_in
-  hls::stream<kfpga::Envelope> fast_reply[kNumActors];
-  hls::stream<kfpga::Envelope> to_host;
-  hls::stream<kfpga::Envelope> host_err;
-
-  kfpga::RouteTable rt = routes();
-  int router_last = kRouterInputs - 1;
-  int out_last = kNumActors + 1;
+  kfpga::Links<kEndpoints> links;
+  kfpga::DiscoveryTable rt = discovery();
+  kfpga::ActorPorts<kEndpoints> ping_st, pong_st, fused_st;
+  int out_last = 0;
 
   // One step of every process. Returns true if any of them moved a message.
+  // (An actor waiting on its own remote fast_send blocks here; designs with
+  // such actors run one thread per process, on a SoftCard.)
   bool step(hls::stream<kfpga::Envelope> &from_host, hls::stream<kfpga::Envelope> &to_pcie)
   {
     bool w = false;
-    w |= kfpga::host_in_step(from_host, router_in[3], fast_in, call_reply, host_err, rt);
-    w |= kfpga::router_step(router_in, mbox, to_host, rt, router_last);
-    w |= kfpga::actor_step(ping, fast_in[0], mbox[0], call_reply[0], router_in[0], fast_reply[0]);
-    w |= kfpga::actor_step(pong, fast_in[1], mbox[1], call_reply[1], router_in[1], fast_reply[1]);
-    w |= kfpga::actor_step(fused, fast_in[2], mbox[2], call_reply[2], router_in[2], fast_reply[2]);
-    w |= kfpga::host_out_step(to_host, host_err, fast_reply, to_pcie, out_last);
+    w |= kfpga::host_in_step(from_host, links, rt);
+    w |= kfpga::actor_step<PingActor, kEndpoints, 0>(ping, links, rt, ping_st);
+    w |= kfpga::actor_step<PongActor<kPong>, kEndpoints, 1>(pong, links, rt, pong_st);
+    w |= kfpga::actor_step<FusedPing, kEndpoints, 2>(fused, links, rt, fused_st);
+    w |= kfpga::host_out_step(links, to_pcie, out_last);
     return w;
   }
 

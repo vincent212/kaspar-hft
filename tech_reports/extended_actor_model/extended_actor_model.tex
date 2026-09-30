@@ -382,12 +382,13 @@ $S''$ is empty and the returned frame was directly above the waiting one.}
   \item \textsc{Turn-End}: a turn started from the mailbox that has reduced to a value
   is removed. Its value is discarded; a reply to a \snd{} is an explicit \snd{}.
   \item \textsc{Fast-Local}: the caller's frame becomes waiting, and the callee's turn is
-  pushed on the \emph{caller's} stack. This is \fs{} on one CPU thread, or inside one
-  FPGA process.
+  pushed on the \emph{caller's} stack. This is \fs{} on one CPU thread, inside one
+  FPGA process, or from an FPGA actor to a CPU actor, whose handler runs on a host
+  thread acting for the caller.
   \item \textsc{Fast-Remote}: the caller's frame becomes waiting, and the callee's turn
   starts on the callee's own, idle, home thread. This is \fs{} to an actor on another
-  resource that the caller waits on: a CPU thread calling into an FPGA process, an FPGA
-  process calling a CPU actor, or a call to another machine.
+  resource that the caller waits on: a CPU thread calling into an FPGA process, one
+  FPGA process calling another, or a call to another machine.
   \item \textsc{Fast-Return}: a callee turn that has reduced to a value is removed and its
   value, copied, replaces the $\wait{\rho}$ of its caller.
 \end{itemize}
@@ -808,16 +809,15 @@ that actor only.
 Which runtimes satisfy it:
 \begin{itemize}[leftmargin=1.4em]
   \item \emph{CPU to FPGA, and between FPGA processes}: each FPGA actor is its own
-  process, so the assumption holds. Between FPGA processes the host only relays the
-  request and the reply; it does not run the callee.
+  process, so the assumption holds. Between FPGA processes the request goes over a
+  FIFO straight into the callee's \fs{} port and the reply over a FIFO straight back.
   \item \emph{Within the CPU runtime}: \fs{} is \textsc{Fast-Local}, so the assumption
   does not apply.
-  \item \emph{FPGA to CPU}: in the current bridge one host thread runs every CPU handler
-  that FPGA actors call, so that resource is shared and the assumption fails. Such a call
-  can wait for the bridge where the global queue proceeds --- for instance when a CPU
-  handler running on the bridge calls into the FPGA and the FPGA actor calls back to the
-  CPU. One bridge thread per called CPU actor, or running the handler under
-  \textsc{Fast-Local} semantics, would restore it.
+  \item \emph{FPGA to CPU}: the CPU handler runs on a host thread dedicated to the
+  calling FPGA actor, which waits for it; that thread acts as part of the caller's
+  resource, so the call is \textsc{Fast-Local} and the assumption does not apply. A
+  separate host thread only reads from the card and never runs a handler, so replies
+  are always delivered.
   \item \emph{Another machine}: the assumption holds if the remote actor has a thread of
   its own, and fails if that thread also serves other actors, for example a group.
 \end{itemize}
@@ -970,9 +970,9 @@ Where & \snd{} & \fs{} \\
 CPU, one process & message into the receiver's mailbox; a thread per actor or per group & callee's handler runs on the caller's thread under the callee's lock (\textsc{Fast-Local}) \\
 C++ $\leftrightarrow$ Rust, one process & message converted and enqueued through a C ABI bridge & callee's handler runs on the caller's thread through the bridge (\textsc{Fast-Local}) \\
 FPGA, one process & --- & callee is an actor object inside the caller's process; its handler is inlined into the caller's pipeline (\textsc{Fast-Local}) \\
-FPGA, between processes & on-chip router into the receiver's mailbox FIFO & request and reply relayed through the host (\textsc{Fast-Remote}) \\
-CPU $\to$ FPGA & envelope over PCIe, router, mailbox FIFO & envelope to the actor's \fs{} port, served before its mailbox; the CPU thread waits for the reply (\textsc{Fast-Remote}) \\
-FPGA $\to$ CPU & envelope over PCIe; a host bridge thread enqueues it & request over PCIe; the bridge thread runs the CPU handler inline; the FPGA process stalls until the reply returns (\textsc{Fast-Remote}) \\
+FPGA, between processes & a FIFO from sender to receiver & a FIFO to the callee's \fs{} port, served before its mailbox; the reply over a FIFO back to the caller; the caller's process waits (\textsc{Fast-Remote}) \\
+CPU $\to$ FPGA & envelope over PCIe into the receiver's FIFO from the host & envelope to the actor's \fs{} port, served before its mailbox; the CPU thread waits for the reply (\textsc{Fast-Remote}) \\
+FPGA $\to$ CPU & envelope over PCIe; a host thread enqueues it & request over PCIe; a host thread dedicated to the calling FPGA actor runs the CPU handler; the FPGA process stalls until the reply returns (\textsc{Fast-Local}, on a thread acting for the caller) \\
 GPU (proposed) & ring buffer in device memory & device function call inside one kernel (\textsc{Fast-Local}); host calls wait on a reply ring (\textsc{Fast-Remote}) \\
 Another machine & network message & request/reply RPC; the caller waits (\textsc{Fast-Remote}) \\
 \bottomrule
@@ -1055,18 +1055,22 @@ schema; both \snd{} and \fs{} work across the boundary.\footnote{\kh{} does not 
 message and returns no value.}
 
 \paragraph{FPGA runtime.} The FPGA runtime is written in Vitis HLS C++. Each actor is a
-hardware process with a mailbox FIFO, a \fs{} port served before the mailbox, and a
-port on which replies to its own remote \fs{}s arrive; its handlers are selected by a
-switch on the message identifier. A router delivers messages by destination actor, using a
-route table fixed when the design is built, and a host link connects the design to PCIe.
+hardware process; its handlers are selected by a switch on the message identifier. Two
+actors that communicate are joined by FIFOs from one to the other --- for messages, for
+\fs{} requests and for their replies --- and a sender writes straight into the FIFO
+that leads to the receiver. A table fixed when the design is built tells a sender which
+FIFO leads to a given actor. Each actor serves its \fs{} request FIFOs before its
+message FIFOs, and a remote \fs{} waits on the reply FIFO from its callee. A host link
+connects the design to PCIe.
 On the CPU, an \texttt{ActorRef} can refer to an FPGA actor; \snd{} and \fs{} on it write
-envelopes to the card, and a bridge thread delivers messages and \fs{} requests from the
-card to CPU actors, passing a stand-in for the FPGA actor as the sender so that ordinary
-replies return to the chip. The design runs today in software, with one thread per
-hardware process, and its unit tests check \snd{} through the router, \fs{} inside a
-process, \snd{} and \fs{} in both directions between CPU and FPGA actors, ordering,
+envelopes to the card. On the way back, a host thread reads the card and delivers
+messages and replies, and \fs{} requests from each FPGA actor are run by a host thread
+dedicated to that actor; both pass a stand-in for the FPGA actor as the sender so that
+ordinary replies return to the chip. The design runs today in software, with one thread per
+hardware process, and its unit tests check \snd{} and \fs{} between FPGA processes,
+\fs{} inside a process, \snd{} and \fs{} in both directions between CPU and FPGA actors, ordering,
 error reporting, and the priority of the \fs{} port over the mailbox.\footnote{The FPGA runtime has not yet been synthesized or run on a
-card; \fs{} between two FPGA processes is relayed through the host.}
+card.}
 
 \paragraph{GPU runtime.} The same structure maps onto a GPU: actors as warps or thread
 blocks of a persistent kernel, mailboxes as device-memory rings, \fs{} inside the kernel as

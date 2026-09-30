@@ -10,7 +10,7 @@
 /*
  * SoftCard -- an FPGA design run in software, for functional work without a card.
  *
- * Each process of the design (host link, router, each actor) runs in its own
+ * Each process of the design (host link in and out, each actor) runs in its own
  * thread, repeatedly calling its step function, as it runs on its own on the
  * chip. The design's streams are the thread-safe hls::stream stand-in, and a
  * blocked read (an actor waiting for the reply to its own fast_send) blocks only

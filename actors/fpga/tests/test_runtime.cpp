@@ -9,6 +9,9 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
+#include <thread>
 #include <vector>
 
 #include "../examples/ping_pong/design.hpp"
@@ -112,8 +115,8 @@ TEST(Envelope, OversizeMessageIsRejected)
   EXPECT_FALSE(pack(TooBig{}, 1, 2, SEND, e));
 }
 
-// Ping sends to Pong through the router, three round trips, then reports Done.
-TEST(PingPong, SendThroughRouter)
+// Ping sends to Pong over the FIFO between them, three round trips, then reports Done.
+TEST(PingPong, SendBetweenProcesses)
 {
   Design d;
   hls::stream<Envelope> from_host, to_pcie;
@@ -130,7 +133,7 @@ TEST(PingPong, SendThroughRouter)
   EXPECT_EQ(d.pong.pings, 3u);
 }
 
-// FusedPing calls its own Pong with fast_send: same answers, no router traffic.
+// FusedPing calls its own Pong with fast_send: same answers, no FIFO traffic.
 TEST(PingPong, FusedFastSend)
 {
   Design d;
@@ -163,26 +166,117 @@ TEST(PingPong, HostFastSend)
   EXPECT_EQ(as<Pong>(out[0]).count, 7u + 1000u);
 }
 
-// A fast_send is served before messages already waiting in the mailbox.
+// A fast_send is served before messages already waiting.
 TEST(ActorStep, FastPortBeforeMailbox)
 {
+  constexpr int H = kEndpoints - 1;
+  Links<kEndpoints> L;
+  const DiscoveryTable rt = discovery();
+  ActorPorts<kEndpoints> st;
   PongActor<kPong> pong;
-  hls::stream<Envelope> fast_in, mbox, call_reply, to_router, fast_reply;
-  mbox.write(env(ping(1), kPong));
-  mbox.write(env(ping(2), kPong));
-  fast_in.write(env(ping(9), kPong, kHost, FAST));
+  L.msg[H][1].write(env(ping(1), kPong));
+  L.msg[H][1].write(env(ping(2), kPong));
+  L.freq[H][1].write(env(ping(9), kPong, kHost, FAST));
 
-  ASSERT_TRUE(actor_step(pong, fast_in, mbox, call_reply, to_router, fast_reply));
-  auto fr = drain(fast_reply);
+  ASSERT_TRUE((actor_step<PongActor<kPong>, kEndpoints, 1>(pong, L, rt, st)));
+  auto fr = drain(L.frep[1][H]);
   ASSERT_EQ(fr.size(), 1u);
+  EXPECT_EQ(fr[0].kind, FAST_REPLY);
   EXPECT_EQ(as<Pong>(fr[0]).count, 9u + 1000u);   // first message Pong handled
-  EXPECT_EQ(mbox.size(), 2u);                      // mailbox untouched
+  EXPECT_EQ(L.msg[H][1].size(), 2u);               // the waiting messages untouched
 
-  while (actor_step(pong, fast_in, mbox, call_reply, to_router, fast_reply)) {}
-  auto sent = drain(to_router);
+  while (actor_step<PongActor<kPong>, kEndpoints, 1>(pong, L, rt, st)) {}
+  auto sent = drain(L.msg[1][H]);
   ASSERT_EQ(sent.size(), 2u);
   EXPECT_EQ(as<Pong>(sent[0]).count, 1u + 2000u);
   EXPECT_EQ(as<Pong>(sent[1]).count, 2u + 3000u);
+}
+
+// A send goes straight into the FIFO from sender to receiver: after only the
+// sender has run, the message is waiting at the receiver.
+TEST(Links, SendIsOneFifoHop)
+{
+  constexpr int H = kEndpoints - 1;
+  Links<kEndpoints> L;
+  const DiscoveryTable rt = discovery();
+  ActorPorts<kEndpoints> st;
+  PingActor ping_actor;
+  L.msg[H][0].write(env(start(1), kPing));
+  ASSERT_TRUE((actor_step<PingActor, kEndpoints, 0>(ping_actor, L, rt, st)));
+  ASSERT_EQ(L.msg[0][1].size(), 1u);   // Ping -> Pong, nothing in between
+  EXPECT_EQ(as<Ping>(L.msg[0][1].read()).count, 1u);
+  for (int r = 0; r < kEndpoints; ++r)
+    if (r != 1)
+      EXPECT_TRUE(L.msg[0][r].empty());
+}
+
+namespace {
+constexpr ActorId kCaller = 10;
+constexpr ActorId kCallee = 11;
+struct RemoteCaller
+{
+  static constexpr ActorId kId = kCaller;
+  KFPGA_HANDLERS(KFPGA_ON(Ping, on_ping))
+  template <class Ctx>
+  void on_ping(const Ping &m, Ctx &ctx)
+  {
+    Pong r;
+    if (ctx.fast_send(kCallee, m, r))
+      ctx.reply(r);
+  }
+};
+DiscoveryTable two_actor_discovery()
+{
+  DiscoveryTable rt;
+  for (int i = 0; i < kMaxActors; ++i)
+    rt.port[i] = kNoRoute;
+  rt.port[kHost] = kToHost;
+  rt.port[kCaller] = 0;
+  rt.port[kCallee] = 1;
+  return rt;
+}
+} // namespace
+
+// fast_send between two processes: the request goes straight into the callee's
+// fast_send FIFO from the caller, and the reply straight back.
+TEST(Links, FastSendIsOneFifoHopEachWay)
+{
+  constexpr int NE = 3, H = 2;
+  Links<NE> L;
+  const DiscoveryTable rt = two_actor_discovery();
+  ActorPorts<NE> caller_st, callee_st;
+  RemoteCaller caller;
+  PongActor<kCallee> callee;
+  L.msg[H][0].write(env(ping(4), kCaller));
+
+  // The caller's process blocks waiting for the reply, as it does in hardware.
+  std::thread t([&] { actor_step<RemoteCaller, NE, 0>(caller, L, rt, caller_st); });
+  for (int i = 0; i < 2000 && L.freq[0][1].empty(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  ASSERT_EQ(L.freq[0][1].size(), 1u);   // request at the callee, nothing in between
+
+  ASSERT_TRUE((actor_step<PongActor<kCallee>, NE, 1>(callee, L, rt, callee_st)));
+  t.join();
+  EXPECT_TRUE(L.frep[1][0].empty());    // the caller took its reply
+  auto out = drain(L.msg[0][H]);
+  ASSERT_EQ(out.size(), 1u);
+  EXPECT_EQ(as<Pong>(out[0]).count, 4u + 1000u);
+}
+
+// fast_send to oneself would wait on itself: reported, not a hang.
+TEST(Errors, FastSendToSelfIsReported)
+{
+  constexpr int NE = 3, H = 2;
+  Links<NE> L;
+  DiscoveryTable rt = two_actor_discovery();
+  rt.port[kCallee] = 0;   // the callee id lives in the caller's own process
+  ActorPorts<NE> st;
+  RemoteCaller caller;
+  L.msg[H][0].write(env(ping(1), kCaller));
+  ASSERT_TRUE((actor_step<RemoteCaller, NE, 0>(caller, L, rt, st)));
+  auto out = drain(L.msg[0][H]);
+  ASSERT_EQ(out.size(), 1u);
+  EXPECT_EQ(as<Error>(out[0]).code, ERR_CYCLE);
 }
 
 // Messages from one sender to one receiver arrive in order.
@@ -258,4 +352,49 @@ TEST(Errors, FastSendWithoutReplyStillAnswers)
   }
   EXPECT_TRUE(saw_error);
   EXPECT_TRUE(saw_empty_reply);
+}
+
+// An inline fast_send answered with the wrong message type is reported, not dropped.
+namespace {
+struct WrongReplier
+{
+  static constexpr ActorId kId = 7;
+  KFPGA_HANDLERS(KFPGA_ON(Ping, on_ping))
+  template <class Ctx>
+  void on_ping(const Ping &m, Ctx &ctx) { ctx.reply(start(m.count)); }   // a Start, not a Pong
+};
+struct CallsWrongReplier
+{
+  static constexpr ActorId kId = 8;
+  WrongReplier callee;
+  bool got = true;
+  KFPGA_HANDLERS(KFPGA_ON(Ping, on_ping))
+  template <class Ctx>
+  void on_ping(const Ping &m, Ctx &ctx)
+  {
+    Pong r;
+    got = ctx.fast_send(callee, m, r);
+  }
+};
+} // namespace
+
+TEST(Errors, WrongReplyTypeIsReported)
+{
+  constexpr int NE = 2, H = 1;
+  Links<NE> L;
+  DiscoveryTable rt;
+  for (int i = 0; i < kMaxActors; ++i)
+    rt.port[i] = kNoRoute;
+  rt.port[kHost] = kToHost;
+  rt.port[CallsWrongReplier::kId] = 0;
+  ActorPorts<NE> st;
+  CallsWrongReplier a;
+  L.msg[H][0].write(env(ping(1), CallsWrongReplier::kId));
+  ASSERT_TRUE((actor_step<CallsWrongReplier, NE, 0>(a, L, rt, st)));
+  EXPECT_FALSE(a.got);
+  auto out = drain(L.msg[0][H]);
+  ASSERT_EQ(out.size(), 1u);
+  Error err = as<Error>(out[0]);
+  EXPECT_EQ(err.code, ERR_WRONG_REPLY);
+  EXPECT_EQ(err.msg, Start::id);
 }

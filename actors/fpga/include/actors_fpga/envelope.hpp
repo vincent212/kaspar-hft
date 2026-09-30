@@ -8,7 +8,7 @@
  */
 
 /*
- * The envelope: one message, as it travels through FIFOs, the router and the
+ * The envelope: one message, as it travels through FIFOs and the
  * host link. The same layout crosses PCIe to and from the CPU.
  *
  *   dst   destination actor id            (0 = the host, i.e. the CPU side)
@@ -61,7 +61,10 @@ enum ErrorCode : uint32_t
   ERR_NO_HANDLER = 1,     // actor has no handler for message `msg`
   ERR_NO_ROUTE = 2,       // destination actor id not on this FPGA
   ERR_PAYLOAD_FULL = 4,   // a message needs more than kPayloadWords words
-  ERR_NO_CODEC = 5        // the CPU side has no class registered for message `msg`
+  ERR_NO_CODEC = 5,       // the CPU side has no class registered for message `msg`
+  ERR_WRONG_REPLY = 6,    // a fast_send was answered with message `msg`, not the type expected
+  ERR_CYCLE = 7,          // a fast_send to the calling actor itself would wait on itself
+  ERR_SELF_FULL = 8       // an actor's queue of messages to itself is full
 };
 
 // ---- field encoding ------------------------------------------------------------
@@ -176,6 +179,28 @@ inline Envelope make_error(uint32_t code, ActorId actor, MsgId msg, ActorId dst)
   Envelope e;
   pack(err, kHost, actor, SEND, e);
   return e;
+}
+
+// The answer to a fast_send request `req` that failed: an Error, returned to the
+// waiting caller as its reply so it is released.
+inline Envelope make_fast_reply_error(const Envelope &req, uint32_t code)
+{
+  Envelope err = make_error(code, req.dst, req.id, req.dst);
+  err.kind = FAST_REPLY;
+  err.dst = req.src;
+  err.src = req.dst;
+  return err;
+}
+
+// The answer to a fast_send request `req` whose handler did not reply (id 0).
+inline Envelope make_no_reply(const Envelope &req)
+{
+  Envelope none = {};
+  none.dst = req.src;
+  none.src = req.dst;
+  none.id = 0;
+  none.kind = FAST_REPLY;
+  return none;
 }
 
 } // namespace kfpga

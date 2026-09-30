@@ -24,7 +24,7 @@ class CardTransport
 {
 public:
   virtual ~CardTransport() = default;
-  virtual void write(const Envelope &e) = 0;
+  virtual void write(const Envelope &e) = 0;   // may be called from several threads
   virtual bool read(Envelope &e) = 0;   // non-blocking
 };
 
