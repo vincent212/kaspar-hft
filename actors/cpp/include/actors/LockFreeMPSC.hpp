@@ -85,6 +85,12 @@ namespace actors
 
     static constexpr int            kPushSpin = 1024;  // spin budget before blocking
 
+    // Consumer policy. false (default): park on the condvar when empty. true:
+    // never park -- busy-poll the ring with a CPU pause between attempts. The
+    // consumer thread then burns its core, and a producer never pays a wakeup.
+    // Used for spinning receivers (MailboxKind::LockFreeMPSCSpin).
+    bool                            spin_ = false;
+
     void notify_space() noexcept {
       if (producers_waiting_.load(std::memory_order_relaxed)) {
         std::lock_guard<std::mutex> lk(space_mtx_);
@@ -93,8 +99,8 @@ namespace actors
     }
 
   public:
-    explicit LockFreeMPSC(size_t capacity = 1024)
-      : buf_(round_up_pow2(capacity)), mask_(buf_.size() - 1)
+    explicit LockFreeMPSC(size_t capacity = 1024, bool spin = false)
+      : buf_(round_up_pow2(capacity)), mask_(buf_.size() - 1), spin_(spin)
     {
       for (size_t i = 0; i < buf_.size(); i++)
         buf_[i].seq.store(i, std::memory_order_relaxed);
@@ -177,6 +183,7 @@ namespace actors
         T v;
         while (out.size() < kMaxDrain && try_pop(v)) out.push_back(v);
         if (!out.empty()) { notify_space(); return; }
+        if (spin_) { cpu_relax(); continue; }   // spinning consumer: never park
         // empty: park with a bounded safety-net wait
         std::unique_lock<std::mutex> lk(wait_mtx_);
         parked_.store(true, std::memory_order_relaxed);
@@ -194,6 +201,13 @@ namespace actors
     }
 
     std::tuple<T, bool> pop() noexcept override {
+      if (spin_) {
+        T v;
+        while (!try_pop(v))
+          cpu_relax();
+        notify_space();
+        return std::make_tuple(v, is_empty());
+      }
       for (;;) {
         T v;
         if (try_pop(v)) { notify_space(); return std::make_tuple(v, is_empty()); }

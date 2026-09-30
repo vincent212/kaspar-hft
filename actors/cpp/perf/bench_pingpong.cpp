@@ -9,6 +9,9 @@
  * A. Transport (heap-allocated messages, with reply):
  *      send ungrouped  - ping/pong on separate threads; each round trip crosses
  *                        cores twice (mailbox mutex + condvar wakeup).
+ *      send ungrouped spin - the same, but both threads busy-poll their
+ *                        mailboxes (LockFreeMPSCSpin): no sleep/wake, only the
+ *                        cross-core handoff. Needs two dedicated cores.
  *      send grouped    - both actors share one Group thread+queue; no cross-core
  *                        wakeup, just queue push/pop + dispatch.
  *      fast_send       - synchronous: receiver's handler runs inline in the
@@ -29,7 +32,7 @@
  * Every round trip is measured sequentially (one outstanding message), so each
  * sample is a clean round-trip latency, not saturated throughput.
  *
- *   usage: bench_pingpong [N] [warmup] [section: transport|alloc|fastsend|all]
+ *   usage: bench_pingpong [N] [warmup] [section: transport|spin|alloc|fastsend|all]
  *     N       measured round trips per row   (default 1000000)
  *     warmup  discarded round trips per row  (default 10000)
  */
@@ -107,10 +110,12 @@ class DriverActor : public Actor
 {
 public:
   DriverActor(Actor* pong, size_t measured, size_t warmup, std::vector<uint64_t>* samples,
-              std::promise<void>* done, uint64_t* measured_wall_ns)
+              std::promise<void>* done, uint64_t* measured_wall_ns,
+              Actor::MailboxKind mbk = Actor::MailboxKind::BQueue)
   : pong_(pong), warmup_(warmup), total_(measured + warmup), samples_(samples), done_(done),
     measured_wall_ns_(measured_wall_ns)
   {
+    set_mailbox(mbk);
     std::strncpy(name, "DriverActor", sizeof(name) - 1);
     samples_->reserve(measured);
     MESSAGE_HANDLER(msg::Start, on_start);
@@ -194,6 +199,36 @@ perf::LatencyStats run_send(const std::string& label, bool grouped, size_t measu
     mgr.add_to_manage_q(pong);
     mgr.add_to_manage_q(driver);
   }
+
+  mgr.init();
+  fut.wait();
+  mgr.end();
+  auto s = perf::LatencyStats::from(label, samples);
+  s.amortized = measured ? static_cast<double>(measured_wall) / measured : 0.0;
+  return s;
+}
+
+// Thread to thread with SPINNING actors: ping and pong each run on their own
+// thread and busy-poll their mailboxes (MailboxKind::LockFreeMPSCSpin), so no
+// round trip pays a sleep/wake. This isolates the cost of the cross-core
+// handoff itself -- cache-line transfer of the message and the queue slot --
+// from the wakeup that dominates "send ungrouped". Each spinning thread burns a
+// core: run with at least two dedicated cores (e.g. taskset -c 2,3), or the two
+// spinners share a core and the row measures the scheduler instead.
+template <class PingT, class PongT>
+perf::LatencyStats run_send_spin(const std::string& label, size_t measured, size_t warmup)
+{
+  std::vector<uint64_t> samples;
+  std::promise<void> done;
+  auto fut = done.get_future();
+  uint64_t measured_wall = 0;
+
+  Manager mgr("bench_mgr");
+  auto* pong = new PongActor<PingT, PongT>(Actor::MailboxKind::LockFreeMPSCSpin);
+  auto* driver = new DriverActor<PingT, PongT>(pong, measured, warmup, &samples, &done,
+                                               &measured_wall, Actor::MailboxKind::LockFreeMPSCSpin);
+  mgr.add_to_manage_q(pong);
+  mgr.add_to_manage_q(driver);
 
   mgr.init();
   fut.wait();
@@ -609,7 +644,7 @@ int main(int argc, char** argv)
   {
     if (std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0)
     {
-      std::printf("usage: %s [N] [warmup] [section: transport|alloc|fastsend|solo|batch|grouped|fanin|all]\n", argv[0]);
+      std::printf("usage: %s [N] [warmup] [section: transport|spin|alloc|fastsend|solo|batch|grouped|fanin|all]\n", argv[0]);
       return 0;
     }
     measured = std::strtoull(argv[1], nullptr, 10);
@@ -630,9 +665,12 @@ int main(int argc, char** argv)
   if (all || section == "transport")
   {
     rows.push_back(run_send<Ping, Pong>("send ungrouped", false, measured, warmup));
+    rows.push_back(run_send_spin<Ping, Pong>("send ungrouped spin", measured, warmup));
     rows.push_back(run_send<Ping, Pong>("send grouped", true, measured, warmup));
     rows.push_back(run_fastsend_heap<Ping, Pong>("fast_send", measured, warmup));
   }
+  if (section == "spin")   // the spinning row alone (needs two dedicated cores)
+    rows.push_back(run_send_spin<Ping, Pong>("send ungrouped spin", measured, warmup));
   if (all || section == "alloc")
   {
     rows.push_back(run_send<Ping, Pong>("grouped plain-new", true, measured, warmup));
