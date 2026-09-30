@@ -1139,9 +1139,15 @@ asynchronous \snd{} between two actors on separate cores costs $\approx 3.4\,\mu
 at the median. This cost is dominated by the two cross-core mailbox wakeups per
 round trip, each a mutex acquisition and a condition-variable signal on which the
 receiving thread must be scheduled; it is placement-sensitive, because the
-cross-core path depends on which cores the two threads occupy. Co-scheduling the
-two actors on one thread (grouping) removes both wakeups and reduces the round
-trip to $90$~ns, a $37\times$ reduction. Replacing the remaining mailbox push/pop
+cross-core path depends on which cores the two threads occupy. Keeping both
+threads but letting each busy-poll its mailbox instead of sleeping removes the
+wakeups and nothing else: the round trip falls to $370$~ns. Of the
+$\sim\!3.4~\mu$s, therefore, some $3~\mu$s is putting threads to sleep and
+waking them, and about $370$~ns --- two crossings of $\sim\!185$~ns --- is moving
+the message and the queue slot between cores; the price of spinning is a core per
+actor, busy whether or not a message arrives. Co-scheduling the two actors on one
+thread (grouping) removes the crossings as well and reduces the round trip to
+$90$~ns, a $37\times$ reduction. Replacing the remaining mailbox push/pop
 with an inline \fs{} reduces it to $\sim\!30$~ns (amortized; the per-sample $p50$
 is resolution-bound), because a \fs{} is mechanically a locked function call: it
 takes the receiver's lock and runs the handler inline. What that costs against the
@@ -1157,7 +1163,12 @@ wakeup (mutex $+$ condition variable); ``queue'' is a mailbox push/pop.
 The $p50$ column is per-sample round-trip latency; the \fs{} figure is
 amortized, because its per-sample $p50$ is resolution-bound (the
 \texttt{steady\_clock} tick is $\sim\!10$~ns), and its speedup is computed on
-amortized figures. The grouped and \fs{} rows show negligible spread.}
+amortized figures. The grouped and \fs{} rows show negligible spread. In the
+spinning row both actors keep their own threads on separate cores, but each
+thread busy-polls its mailbox (the lock-free mailbox with a consumer that never
+sleeps), so a message still crosses cores but never waits for a thread to wake;
+median of three runs, $p50$ $370$--$380$~ns, $p99$ $400$--$410$~ns (commit
+\texttt{ea35e55}, recorder running).}
 \label{tab:transport}
 \small
 \begin{tabular}{lccccr}
@@ -1165,6 +1176,7 @@ amortized figures. The grouped and \fs{} rows show negligible spread.}
 Delivery mode & Threads & Thread hop & Queue & $p50$ RT (ns) & Speedup \\
 \midrule
 \snd{}, ungrouped        & 2 & yes & yes & $\sim\!3370$  & $1\times$ \\
+\snd{}, ungrouped, spinning & 2 & no wake & yes & $370$ & $9.1\times$ \\
 \snd{}, grouped          & 1 & no  & yes & $90$          & $37\times$ \\
 \fs{} (inline)           & 1 & no  & no  & $\sim\!30$    & $\sim\!110\times$ \\
 \bottomrule
