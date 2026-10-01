@@ -1,7 +1,7 @@
 # Median vs tail in an HFT market-data path: inline vs hand-off, and why parallel decode loses
 
 *Draft for an arXiv paper. Experimental branch `md-latency-experiments`; not production code.*
-*Data: live CME MDP3, 2026-10-01, 08:56-12:10 ET (pre-open and RTH), kaspr on one AMD EPYC 9374F host.*
+*Data: live CME MDP3, 2026-10-01, 08:56-13:00 ET (pre-open and RTH), kaspr on one AMD EPYC 9374F host.*
 
 ## Abstract
 
