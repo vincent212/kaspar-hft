@@ -67,7 +67,7 @@ All runs: Onload kernel bypass, live CME channels 310 (ES), 318 (NQ) and 344
     is always 0.
 """
 
-CFG_ORDER = ['base', 'fastsend', 'mbspin', 'fastsend_mbspin', 'p4s', 'base_A', 'fastsend_A', 'mbspin_A', 'fastsend_mbspin_A', 'p4s_A', 'fsmb_pin', 'rfs', 'rfs_pin', 'rfs_pin_A']
+CFG_ORDER = ['base', 'fastsend', 'mbspin', 'fastsend_mbspin', 'p4s', 'base_A', 'fastsend_A', 'mbspin_A', 'fastsend_mbspin_A', 'p4s_A', 'fsmb_pin', 'rfs', 'rfs_pin', 'rfs_pin_A', 'mbspin_tbspin_A', 'rfs_tbspin_A', 'rfs_A']
 
 
 def load(path):
@@ -94,8 +94,8 @@ def pct(v, p):
 
 
 def runs():
-    for d in sorted(glob.glob(os.path.join(ROOT, '[px][0-9]*_*'))):
-        m = re.match(r'([px]\d+)_(.+)$', os.path.basename(d))
+    for d in sorted(glob.glob(os.path.join(ROOT, '[pxd][0-9]*_*'))):
+        m = re.match(r'([pxd]\d+)_(.+)$', os.path.basename(d))
         if m:
             yield m.group(1), m.group(2), d
 

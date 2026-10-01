@@ -13,12 +13,12 @@ ROOT = sys.argv[1] if len(sys.argv) > 1 else '/home/vincent/perf/mdperf/paper'
 SKIPW = int(sys.argv[2]) if len(sys.argv) > 2 else 12
 rx = re.compile(r'(DataDecoder|HandlerIfActor)_(\d+) STAGE (\S+) n=(\d+) (.*) us')
 PCT = ['p1', 'p10', 'p50', 'p99', 'p999']
-CFG_ORDER = ['base', 'fastsend', 'mbspin', 'fastsend_mbspin', 'p4s', 'base_A', 'fastsend_A', 'mbspin_A', 'fastsend_mbspin_A', 'p4s_A', 'fsmb_pin', 'rfs', 'rfs_pin', 'rfs_pin_A']
+CFG_ORDER = ['base', 'fastsend', 'mbspin', 'fastsend_mbspin', 'p4s', 'base_A', 'fastsend_A', 'mbspin_A', 'fastsend_mbspin_A', 'p4s_A', 'fsmb_pin', 'rfs', 'rfs_pin', 'rfs_pin_A', 'mbspin_tbspin_A', 'rfs_tbspin_A', 'rfs_A']
 CH = {'310': 'ES', '318': 'NQ', '344': 'ZN'}
 
 win = defaultdict(list)   # (cfg, ch, stage) -> [dict]
-for d in sorted(glob.glob(os.path.join(ROOT, '[px][0-9]*_*'))):
-    m = re.match(r'[px](\d+)_(.+)$', os.path.basename(d))
+for d in sorted(glob.glob(os.path.join(ROOT, '[pxd][0-9]*_*'))):
+    m = re.match(r'[pxd](\d+)_(.+)$', os.path.basename(d))
     f = os.path.join(d, 'kaspr.log')
     if not m or not os.path.exists(f):
         continue

@@ -11,7 +11,7 @@ ROOT = sys.argv[1] if len(sys.argv) > 1 else '/home/vincent/perf/mdperf/paper'
 SKIP = float(sys.argv[2]) if len(sys.argv) > 2 else 120.0
 HDR, REC, MAGIC = 64, 16, b'KHMSGV01'
 HOT = re.compile(r'SketReader|MsgBuf|DataDecoder_|DataActor_|HandIfActor|TACHOB_|MgeProcessor')
-CFG_ORDER = ['base', 'fastsend', 'mbspin', 'fastsend_mbspin', 'p4s', 'base_A', 'fastsend_A', 'mbspin_A', 'fastsend_mbspin_A', 'p4s_A', 'fsmb_pin', 'rfs', 'rfs_pin', 'rfs_pin_A']
+CFG_ORDER = ['base', 'fastsend', 'mbspin', 'fastsend_mbspin', 'p4s', 'base_A', 'fastsend_A', 'mbspin_A', 'fastsend_mbspin_A', 'p4s_A', 'fsmb_pin', 'rfs', 'rfs_pin', 'rfs_pin_A', 'mbspin_tbspin_A', 'rfs_tbspin_A', 'rfs_A']
 
 
 def role(name):
@@ -51,8 +51,8 @@ summary = defaultdict(lambda: defaultdict(list))  # cfg -> role -> [runq_wait_us
 spikes = defaultdict(list)                         # cfg -> (bucket max, p999, worst thread, its runq, nonvol, run)
 corr = defaultdict(list)                           # cfg -> (bucket max e2e, max hot runq wait)
 
-for d in sorted(glob.glob(os.path.join(ROOT, '[px][0-9]*_*'))):
-    m = re.match(r'[px](\d+)_(.+)$', os.path.basename(d))
+for d in sorted(glob.glob(os.path.join(ROOT, '[pxd][0-9]*_*'))):
+    m = re.match(r'[pxd](\d+)_(.+)$', os.path.basename(d))
     if not m or not os.path.exists(os.path.join(d, 'sched.csv')):
         continue
     cfg = m.group(2)

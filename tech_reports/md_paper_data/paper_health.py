@@ -9,8 +9,8 @@ ROOT = sys.argv[1] if len(sys.argv) > 1 else '/home/vincent/perf/mdperf/paper'
 tot = defaultdict(lambda: [0, 0, 0, 0, 0])
 print('| run | minutes | waiting for gap | gaps declared | extra data recoveries |')
 print('|---|---|---|---|---|')
-for d in sorted(glob.glob(os.path.join(ROOT, '[px][0-9]*_*'))):
-    m = re.match(r'[px](\d+)_(.+)$', os.path.basename(d))
+for d in sorted(glob.glob(os.path.join(ROOT, '[pxd][0-9]*_*'))):
+    m = re.match(r'[pxd](\d+)_(.+)$', os.path.basename(d))
     f = os.path.join(d, 'kaspr.log')
     if not m or not os.path.exists(f):
         continue
