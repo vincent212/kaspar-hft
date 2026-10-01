@@ -226,6 +226,8 @@ void Kaspr::create_tach_books()
                       << " (" << a->mnemonic << ", id=" << j << ")" << std::endl;
 
             auto tb = new frame::ob::act::TachBook(j);
+            if (pt_general.get<bool>("kaspr.general.tachbook_spin", false))
+                tb->set_spin_mailbox(size_t(1) << 30);
             std::set<int> aff;
             if (!tb_cpu_vec.empty()) {
                 aff.insert(tb_cpu_vec[tb_i % tb_cpu_vec.size()]);
@@ -476,12 +478,27 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     auto chanstr = std::to_string(chan);
     auto p_cme = pt_mdp3.get_child("chan" + chanstr);
 
-    // Create feed handler
-    // UseFastSend=false; TreasOnly from the template flag (treasury channels
-    // key RefData by asset).
-    auto handler = new handler_if<false, TreasOnly>(venue, chan);
-    handler->mbo_order_books = order_books.at(venue);
-    handler->binrec = nullptr;
+    // Create feed handler. TreasOnly from the template flag (treasury channels
+    // key RefData by asset). kaspr.general.book_fast_send (default false)
+    // selects UseFastSend=true: the book runs inline on the decode thread
+    // instead of receiving a heap copy on its own thread.
+    const bool book_fast_send = pt_general.get<bool>("kaspr.general.book_fast_send", false);
+    auto make_handler = [&](auto fast) -> mdp3::feed_handler_if * {
+        auto h = new handler_if<decltype(fast)::value, TreasOnly>(venue, chan);
+        h->mbo_order_books = order_books.at(venue);
+        h->binrec = nullptr;
+#ifdef USE_TACHBOOK
+        if (enable_tachbook_ && enable_perf_probe_ &&
+            pt_general.get<bool>("kaspr.general.perf_route_tachbook", false))
+            h->mbo_order_books = tach_books.at(venue);
+#endif
+        return h;
+    };
+    mdp3::feed_handler_if *handler = book_fast_send ? make_handler(std::true_type{})
+                                                    : make_handler(std::false_type{});
+    if (book_fast_send)
+        std::cerr << "Kaspr: chan " << chan << " book_fast_send: book runs inline on the decode thread"
+                  << std::endl;
 
 #ifdef USE_TACHBOOK
     // Measurement mode. handler_if has ONE book vector, indexed by asset_id --
@@ -497,7 +514,6 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     if (enable_tachbook_ && enable_perf_probe_ &&
         pt_general.get<bool>("kaspr.general.perf_route_tachbook", false))
     {
-        handler->mbo_order_books = tach_books.at(venue);
         std::cerr << "Kaspr: PERF MODE - channel " << chan
                   << " market data routed to TachBook; OB receives nothing"
                   << std::endl;

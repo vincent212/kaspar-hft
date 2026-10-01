@@ -244,6 +244,13 @@ namespace frame::ob::act
     boost::intrusive_ptr<frame::mda::msg::data_pay_load> prev_pl=0;
 
 
+    // Busy-poll the mailbox `polls` times before parking (LockFreeMPSC). Call
+    // before the actor thread starts. Burns a core per book.
+    void set_spin_mailbox(size_t polls)
+    {
+      set_mailbox(MailboxKind::LockFreeMPSC, 0, polls);
+    }
+
     TachBook(
         int sym) : sym(sym), bid(*this), ask(*this)
     {
