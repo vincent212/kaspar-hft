@@ -277,6 +277,7 @@ std::cerr << get_name() << " read loop: " << port
         {
           auto msg = q.front();
           q.pop_front();
+          msg->buf.send_ts = chutil::Time::epoch();
           msg_processor->send(msg, this);
           if (chutil::mcast::has_more(sock))
           {

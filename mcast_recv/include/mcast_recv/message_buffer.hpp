@@ -44,6 +44,11 @@ namespace mcast_recv
         // a value equal to ACTOR_BQUEUE_SIZE means "at least this deep". Zero
         // on any path that did not enqueue (PCAP replay, fast_send).
         uint32_t qlen;
+
+        // Stage timing (epoch ns): SocketReader just before send(), and MsgBuf
+        // handler entry. Read only by the parallel-decode stage histograms.
+        uint64_t send_ts = 0;
+        uint64_t msgbuf_ts = 0;
     };
 
 }

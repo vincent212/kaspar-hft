@@ -25,6 +25,12 @@ PR #138 (`remove-parallel-decode`).
   test).
 - **No book damage.** `drop_baddata` was 0 on ESZ6, NQZ6 and ZNZ6 in all four
   experiment runs, and order counts agree within 4%.
+- **Decode is not where the time goes** (R6). SBE decode is about 1 us per
+  packet. Each thread hop costs 1-5 us.
+  - The socket -> MsgBuf hop is the largest single stage, on both serial and
+    parallel.
+  - Parallel adds 3-4.5 us of hand-off for nothing: packets almost never queue.
+  - Its tail spikes are stalled hops, threads descheduled for up to 6 ms.
 
 ## Method
 
@@ -244,6 +250,193 @@ CPU: in SP, six threads (one per TachBook) ran at 100%. FS adds no threads.
   several books per channel, a slow book holds up its neighbours. In SP that
   work stays on separate threads.
 
+### R4. Pinned layout attempt (discarded)
+
+07:40-07:58. Pinning, all on NUMA node 2:
+
+- **Socket readers:** A and B of a channel together on one logical CPU (16, 17
+  or 18).
+- **MsgBuf:** on that core's SMT sibling (48, 49 or 50).
+- **TachBooks:** 2 per CPU on 21, 22 and 23.
+
+Medians matched the unpinned runs: fast_send was 3.5-4 us faster at p50 on all
+books. **Tails were ruined in both cases:** p99 0.2-1.5 ms and p999 1.5-3 ms.
+
+Cause: under Onload each socket reader busy-polls for up to 3 ms after every
+packet. A and B carry the same feed, so both poll at once, and on one logical
+CPU they preempt each other. The NQ pair was forcibly switched about 61,000
+times in 5 minutes. A reader that stamps t0 and is then preempted before it
+hands the packet to MsgBuf adds a scheduler time slice to that packet.
+
+Rule: **never put A and B on the same logical CPU.** R4 is not used for any
+conclusion.
+
+### R5. Parallel decode, 4 workers, spinning, unpinned
+
+- **Serial reference:** 08:05, 8 minutes.
+- **P4 spin:** 08:14, 8 minutes. 4 workers per channel plus HandlerIfActor,
+  all busy-polling: 15 spinning threads, confirmed at 100% CPU each.
+- First 60 s of each run dropped.
+
+| stream | case | msgs | p1 | p10 | p50 | p90 | p99 | p999 |
+|---|---|---|---|---|---|---|---|---|
+| ESZ6 book | serial | 35,344 | 4.1 | 4.8 | 7.2 | 14.7 | 28.2 | 62.3 |
+| | P4 spin | 47,903 | 7.2 | 8.8 | 12.1 | 22.5 | 82.9 | 1,388 |
+| NQZ6 book | serial | 66,054 | 3.5 | 4.2 | 5.3 | 8.6 | 13.7 | 220.1 |
+| | P4 spin | 92,726 | 6.4 | 7.5 | 9.7 | 13.8 | 22.2 | 130.5 |
+| ZNZ6 book | serial | 40,194 | 3.6 | 4.4 | 7.5 | 12.1 | 58.0 | 188.0 |
+| | P4 spin | 60,083 | 7.8 | 9.7 | 13.4 | 22.4 | 118.9 | 2,655 |
+
+- **Spin helps a little.** Against P4 without spin (R2, earlier hour), p50
+  drops 1-4 us.
+- **Parallel is still about 5 us behind serial at p50,** and 3-4 us behind at
+  p1. The p1 gap is the floor cost of the extra hops, even with no wakeup.
+- **The tail is worse, not better.**
+
+### R6. Where the time goes in the parallel path
+
+HandlerIfActor timestamps every packet through the stages below and logs
+quantiles every 10 s (`STAGE` lines in the kaspr log). Same run as R5's P4 spin
+(a second run, 08:23).
+
+| stage | measures |
+|---|---|
+| A | t0 -> dispatch: socket -> MsgBuf hop, reorder, MessageProcessor, packet copy |
+| B | dispatch -> worker start (hop) |
+| C | worker decode, including recording the calls |
+| D | worker end -> HandlerIfActor (hop) |
+| E | wait behind an earlier packet (reorder) |
+| F | replay into handler_if, including the send to the book |
+
+Typical steady-state 10 s window, p50 / p99 in us:
+
+| stage | ES (310) | NQ (318) | ZN (344) |
+|---|---|---|---|
+| A sock -> dispatch | **3.5 / 12.2** | **3.3 / 8.7** | **5.2 / 10.8** |
+| B to worker | 0.9 / 2.8 | 0.9 / 2.1 | 0.9 / 2.5 |
+| C decode | 1.1 / 3.8 | 1.4 / 6.2 | 1.3 / 8.7 |
+| D to handler | 0.8 / 6.6 | 0.8 / 3.4 | 0.8 / 3.1 |
+| E reorder wait | 0.1 / 0.3 | 0.1 / 0.3 | 0.1 / 3.5 |
+| F replay | 0.9 / 3.1 | 0.5 / 2.0 | 0.5 / 2.0 |
+| total to replayed | 7.2 / 22.7 | 7.0 / 16.3 | 8.7 / 21.9 |
+
+The TachBook hop (replayed -> t1) adds 2-3 us on top.
+
+Findings:
+
+1. **Decode is not the long pole.**
+   - Stage C is 1.1-1.4 us at p50, and that includes recording each callback
+     into a heap `std::function`. Pure SBE decode of a one-message packet is
+     well under that: fixed offsets, no parsing.
+   - The longest stage is A, the socket -> MsgBuf hop, at 3.3-5.2 us. Serial
+     pays it too.
+2. **Parallel adds about 3-4.5 us of hand-off overhead and buys nothing.**
+   - B + C + D + F is 3.2-4.4 us at p50. Serial does decode and handler work
+     inline in about 1.5 us.
+   - E, the reorder wait, is 0.1 us at p50, so packets almost never queue
+     behind one another. With about 1.1 messages per packet and a few packets
+     in flight at most, there is no backlog for parallel workers to absorb.
+3. **Tail spikes are stalled hops, not slow decode.**
+   - Most 10 s windows have a total p99 of 13-30 us. Some windows spike to
+     0.2-6 ms.
+   - The spike lands in A, B or D almost every time, for example a 5.9 ms
+     D_to_handler on ES. Stage C max stays mostly under 50 us.
+   - A stalled hop means the receiving thread was off the CPU. 15 spinning
+     threads, unpinned on a shared box, get descheduled and preempted.
+   - The first window after start also carries the snapshot-recovery backlog,
+     up to 34 ms on ZN.
+
+### R7. Stage A split, with p1 and p10 (08:33, P4 spin)
+
+Stage A split into three parts:
+
+| part | from -> to | includes |
+|---|---|---|
+| A1 | t0 -> reader `send` | reader batching, `ioctl(FIONREAD)`, buffer refill |
+| A2 | `send` -> MsgBuf handler entry | `BQueue` push + condvar wakeup of MsgBuf |
+| A3 | MsgBuf entry -> dispatch | `fast_send` to MessageProcessor, `msg_q` map copy, `ParDecodePacket` copy |
+
+p1 / p10 / p50 / p99, steady-state 10 s window, in us:
+
+| stage | ES (310) | NQ (318) | ZN (344) |
+|---|---|---|---|
+| A1 read -> send | 0.2 / 0.3 / 0.6 / 6.1 | 0.2 / 0.2 / 0.4 / 4.9 | 0.1 / 0.2 / 0.3 / 4.3 |
+| **A2 send -> MsgBuf** | **1.3 / 3.1 / 3.8 / 11.9** | **1.0 / 3.0 / 3.5 / 8.2** | **0.4 / 1.5 / 1.9 / 5.9** |
+| A3 MsgBuf -> dispatch | 0.4 / 1.0 / 1.4 / 3.7 | 0.4 / 0.9 / 1.3 / 3.9 | 0.3 / 0.8 / 1.1 / 4.9 |
+| B to worker | 0.5 / 0.8 / 1.0 / 4.2 | 0.3 / 0.3 / 0.9 / 1.5 | 0.6 / 0.7 / 0.9 / 1.7 |
+| C decode | 0.5 / 0.7 / 1.7 / 5.5 | 0.7 / 1.0 / 1.4 / 4.5 | 0.8 / 1.4 / 3.1 / 9.8 |
+| D to handler | 0.6 / 0.8 / 0.9 / 5.9 | 0.6 / 0.7 / 0.8 / 3.6 | 0.6 / 0.7 / 0.8 / 678 |
+| E reorder wait | 0.1 / 0.1 / 0.1 / 4.2 | 0.1 / 0.1 / 0.1 / 0.2 | 0.1 / 0.1 / 0.1 / 3.8 |
+| F replay | 0.6 / 0.8 / 1.0 / 4.5 | 0.3 / 0.3 / 0.5 / 2.0 | 0.3 / 0.4 / 0.9 / 3.1 |
+| **total -> replayed** | **6.9 / 8.8 / 10.9 / 29.8** | **5.9 / 7.6 / 9.1 / 19.0** | **5.7 / 6.9 / 9.8 / 686** |
+
+Findings:
+
+- **A2 is the single largest stage**: 1.9-3.8 us at p50, and already 1.5-3.1 us
+  at p10. It is the one remaining hop into a sleeping thread (`BQueue` condvar).
+  The spinning hops B and D cost 0.3-0.9 us.
+- **The reader's batching and refill (A1) is small:** 0.3-0.6 us at p50.
+- **The two packet copies plus the map insert (A3) cost 1.1-1.4 us.**
+- **The p1 floor (5.7-6.9 us) has no single culprit.** It is nine steps of
+  0.1-1.3 us each. The only way below it is fewer steps.
+- **ZN's 686 us p99 in that window came from D alone**, the handler thread
+  stalled. That is scheduling, not work.
+
+### R8. MsgBuf mailbox: BQueue vs ShardedBQueue (P4 spin)
+
+- **Change:** `cme_msgbuf_mailbox sharded` on all three channels. Everything
+  else is the same as R7.
+- **Runs:** BQueue 08:33, ShardedBQueue 08:36, 8 minutes each.
+- **Method:** each value is the median, across the steady-state 10 s windows
+  (the first 2 per channel skipped), of that window's percentile.
+
+A2 (send -> MsgBuf), p1 / p10 / p50 / p99 / p999, in us:
+
+| chan | BQueue | ShardedBQueue |
+|---|---|---|
+| ES 310 | 1.1 / 2.3 / 3.8 / 9.7 / 12.6 | 1.4 / 2.0 / 3.9 / 7.5 / 11.8 |
+| NQ 318 | 0.8 / 2.2 / 2.8 / 6.8 / 12.5 | 1.2 / 1.9 / 3.7 / 6.4 / 61.8 |
+| ZN 344 | 0.5 / 1.6 / 2.1 / 6.7 / 10.6 | 1.2 / 2.0 / 3.9 / 6.9 / 12.3 |
+
+Total, socket -> replayed:
+
+| chan | BQueue | ShardedBQueue |
+|---|---|---|
+| ES 310 | 6.6 / 8.6 / 10.5 / 25.2 / 35.6 | 6.7 / 7.9 / 10.5 / 23.9 / 30.3 |
+| NQ 318 | 5.3 / 6.8 / 8.4 / 16.6 / 24.6 | 4.8 / 6.2 / 8.6 / 15.8 / 73.2 |
+| ZN 344 | 5.1 / 6.7 / 9.7 / 20.1 / 31.5 | 6.7 / 8.6 / 11.6 / 20.3 / 31.4 |
+
+Feed health over the 8 minutes:
+
+| MsgBuf mailbox | "waiting for gap" | gaps declared | data recoveries beyond startup |
+|---|---|---|---|
+| BQueue | 0 | 0 | 0 |
+| ShardedBQueue | 10 | 2 | **2** |
+
+Findings:
+
+- **No latency gain.** A2 is flat to worse: p50 3.7-3.9 us against
+  2.1-3.8 us, and p1 is higher. ShardedBQueue only reduces producer-side lock
+  contention. Its consumer still parks on a condvar, so the wakeup, which is
+  what A2 costs, is unchanged. MsgBuf has two producers (A and B), so there was
+  little contention to remove.
+- **Correctness cost.** ShardedBQueue does not keep arrival order. Packets
+  reached MessageProcessor out of sequence. Twice in 8 minutes the reordering
+  was more than its 3-packet wait, so it declared a gap and ran a full data
+  recovery on a healthy feed.
+- **Verdict:** ShardedBQueue must not be used for MsgBuf. Removing the A2 cost
+  needs a consumer that does not sleep: `cme_msgbuf_mailbox lockfree_spin`, not
+  yet measured.
+
+Implications:
+
+- The next latency target is the **socket -> MsgBuf hop (stage A2)**, which
+  both designs pay. Options: spin MsgBuf, or have the socket readers
+  `fast_send` into it.
+- Spinning threads must be **pinned to dedicated cores**, never sharing a
+  logical CPU with each other or with the socket readers (see R4). Otherwise
+  the tail gets worse.
+
 ## Conclusions
 
 1. On the production path, the one hop that matters after the socket is
@@ -251,9 +444,15 @@ CPU: in SP, six threads (one per TachBook) ran at 100%. FS adds no threads.
    measured: about 3 us at p50 on NQ, with no extra cores and no book damage.
 2. Spinning the book is about as fast but costs a core per book. Prefer it only
    if the decode thread must stay free of book work.
-3. Parallel decode costs 2 hops per packet and cannot help one-message packets.
-   Spinning its mailboxes is the next thing to measure. Even at zero wakeup cost
-   it keeps 4 hops against serial's 2, or 1 with fast_send.
+3. **Parallel decode does not pay on this feed.** The stage timing (R6) shows
+   decode is about 1 us per packet. The hops around it cost more than the decode
+   itself, and packets almost never queue, so there is nothing to parallelize.
+   - Spinning the parallel mailboxes recovers 1-4 us of the 7 us penalty.
+   - It is still about 5 us behind serial at p50, and the tail is worse.
+4. **Socket -> MsgBuf is the largest stage on both paths** (3-5 us at p50). It
+   is the next thing to remove.
+5. **Pinning:** never put socket readers A and B on the same logical CPU (R4).
+   Unpinned spinning threads produce ms-scale stalls (R6).
 
 ## Next measurements
 
@@ -274,6 +473,7 @@ All default off; production behaviour is unchanged.
 | `cme_decode_spin true` | `cme.<channel>` | workers and HandlerIfActor busy-poll |
 | `book_fast_send true` | `kaspr.general` | handler_if<UseFastSend=true>: book runs inline on the decode thread |
 | `tachbook_spin true` | `kaspr.general` | every TachBook busy-polls its mailbox (one core each) |
+| `cme_msgbuf_mailbox K` | `cme.<channel>` | MsgBuf mailbox: `bqueue` (default), `sharded` (do not use, see R8), `lockfree`, `lockfree_spin` |
 
-Raw data: `/home/vincent/perf/mdperf/pr138_onload`, `pr139_par4`, `exp_1_base`,
+Raw data: `/home/vincent/perf/mdperf/pr138_onload`, `pr139_par4`, `par_1_base`, `par_p4s`, `par_p4s_stages`, `par_p4s_split`, `par_p4s_sharded`, `exp_1_base`,
 `exp_2_fastsend`, `exp_3_tbspin`, `exp_4_base`.

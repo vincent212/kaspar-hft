@@ -9,6 +9,7 @@
 
 #include <cstdio>
 #include "chutil/Macros.hpp"
+#include "chutil/Time.hpp"
 #include "actors/Actor.hpp"
 #include "actors/msg/Start.hpp"
 #include "actors/msg/Shutdown.hpp"
@@ -53,6 +54,12 @@ namespace mcast_recv
       MESSAGE_HANDLER(msg::ProcessQ<seqnumT>, processq_handler);
     }
 
+    // Choose the mailbox. Call before the actor thread starts.
+    void use_mailbox(MailboxKind kind, size_t cap = 0, size_t consumer_spin = 0)
+    {
+      set_mailbox(kind, cap, consumer_spin);
+    }
+
   private:
     void processq_handler(const msg::ProcessQ<seqnumT> *m) noexcept
     {
@@ -77,6 +84,7 @@ namespace mcast_recv
       // and never const-qualified at the definition -- but it is a wart. See
       // the `mutable message_buffer buf` note in ProcessQ.hpp.
       const_cast<msg::ProcessQ<seqnumT> *>(m)->buf.qlen = m->qlen;
+      const_cast<msg::ProcessQ<seqnumT> *>(m)->buf.msgbuf_ts = chutil::Time::epoch();
 
       msg_processor->fast_send(m, this);
     }

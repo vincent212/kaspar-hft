@@ -27,6 +27,8 @@ namespace mdp3::msg
     uint64_t ts;
     uint32_t qlen;
     std::size_t len;
+    // Stage timing, epoch ns: reader send, MsgBuf entry, MessageProcessor dispatch.
+    uint64_t t_send = 0, t_msgbuf = 0, t_dispatch = 0;
     mutable std::unique_ptr<char[]> data;
 
     ParDecodePacket(uint64_t id, uint32_t ep, uint32_t s, const char *d,

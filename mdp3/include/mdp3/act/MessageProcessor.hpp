@@ -367,6 +367,9 @@ namespace mdp3
                         auto *pd = new msg::ParDecodePacket(
                             next_dispatch, epoch, sn, &p->second.message[0],
                             p->second.len, ts, p->second.qlen);
+                        pd->t_send = p->second.send_ts;
+                        pd->t_msgbuf = p->second.msgbuf_ts;
+                        pd->t_dispatch = chutil::Time::epoch();
                         workers[next_dispatch & worker_mask]->send(pd, this);
                         ++next_dispatch;
                         ++inflight;

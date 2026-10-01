@@ -611,6 +611,22 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     // siblings of one physical core -- they will fight for the same execution
     // units precisely during a burst. Siblings on this box are (N, N+32):
     // cpu16/cpu48 are one core, not two.
+    // cme_msgbuf_mailbox: bqueue (default) | sharded | lockfree | lockfree_spin.
+    const auto mb_kind = pt_chan.get<std::string>("cme_msgbuf_mailbox", "bqueue");
+    {
+        using MK = actors::Actor::MailboxKind;
+        auto *mb = static_cast<mcast_recv::MsgBuf<uint32_t> *>(mdp3cfsmp[2]);
+        if (mb_kind == "sharded")
+            mb->use_mailbox(MK::ShardedBQueue);
+        else if (mb_kind == "lockfree")
+            mb->use_mailbox(MK::LockFreeMPSC);
+        else if (mb_kind == "lockfree_spin")
+            mb->use_mailbox(MK::LockFreeMPSC, 0, size_t(1) << 30);
+        else if (mb_kind != "bqueue")
+            throw std::runtime_error("chan " + chanstr + ": unknown cme_msgbuf_mailbox '" + mb_kind + "'");
+        std::cerr << "Kaspr: chan " << chanstr << " MsgBuf mailbox " << mb_kind << std::endl;
+    }
+
     auto cpu_str = pt_chan.get<std::string>("cme_cpus", "");
     auto cpus    = parse_cpu_list(cpu_str);
 

@@ -8,6 +8,7 @@
  */
 
 #include "actors/Actor.hpp"
+#include "chutil/Time.hpp"
 #include "mdp3/DataDecoder.hpp"
 #include "mdp3/RecordingHandler.hpp"
 #include "mdp3/msg/DecodedPacket.hpp"
@@ -42,7 +43,13 @@ namespace mdp3
     private:
         void on_packet(const msg::ParDecodePacket *m) noexcept
         {
+            const uint64_t t_wstart = chutil::Time::epoch();
             auto *d = new msg::DecodedPacket();
+            d->t0 = m->ts;
+            d->t_send = m->t_send;
+            d->t_msgbuf = m->t_msgbuf;
+            d->t_dispatch = m->t_dispatch;
+            d->t_wstart = t_wstart;
             d->dispatch_id = m->dispatch_id;
             d->epoch = m->epoch;
             d->sn = m->sn;
@@ -55,6 +62,7 @@ namespace mdp3
             d->is_channel_reset = is_channel_reset;
             rec_.out = nullptr;
 
+            d->t_wend = chutil::Time::epoch();
             handler_actor_->send(d, this);
         }
 

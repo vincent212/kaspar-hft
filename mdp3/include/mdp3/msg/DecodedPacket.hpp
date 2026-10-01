@@ -30,6 +30,9 @@ namespace mdp3::msg
     uint32_t qlen = 0;
     bool rc = true;
     bool is_channel_reset = false;
+    // Stage timing, epoch ns: t0 (socket read), reader send, MsgBuf entry,
+    // dispatch, worker start/end.
+    uint64_t t0 = 0, t_send = 0, t_msgbuf = 0, t_dispatch = 0, t_wstart = 0, t_wend = 0;
     mutable std::unique_ptr<char[]> data;
     mutable std::vector<RecordedCall> calls;
   };
