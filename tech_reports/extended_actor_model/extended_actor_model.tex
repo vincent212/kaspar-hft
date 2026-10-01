@@ -727,8 +727,8 @@ Part (2) is the formal counterpart of ``\fs{} bypasses the mailbox'', and it is 
 the practical reasons to use \fs{}: a call is not delayed by the backlog in the callee's
 mailbox. It is not a priority mechanism --- a turn in progress is never interrupted
 (\cref{rem:notprovided}). The FPGA runtime of Section~\ref{sec:substrates} implements the
-preference: each actor process serves a dedicated \fs{} input port before its mailbox
-FIFO.
+preference: each actor process serves its \fs{} request FIFOs before its message
+FIFOs.
 
 \subsection{\fs{} is not send-then-wait}
 
@@ -808,9 +808,11 @@ that actor only.
 
 Which runtimes satisfy it:
 \begin{itemize}[leftmargin=1.4em]
-  \item \emph{CPU to FPGA, and between FPGA processes}: each FPGA actor is its own
-  process, so the assumption holds. Between FPGA processes the request goes over a
+  \item \emph{CPU to FPGA, and between FPGA processes}: an FPGA actor that has a process
+  to itself satisfies the assumption. Between FPGA processes the request goes over a
   FIFO straight into the callee's \fs{} port and the reply over a FIFO straight back.
+  An actor held inside another actor's process and reachable from outside it shares
+  that process, so the assumption fails for calls to it from other processes.
   \item \emph{Within the CPU runtime}: \fs{} is \textsc{Fast-Local}, so the assumption
   does not apply.
   \item \emph{FPGA to CPU}: the CPU handler runs on a host thread dedicated to the
@@ -969,7 +971,7 @@ Where & \snd{} & \fs{} \\
 \midrule
 CPU, one process & message into the receiver's mailbox; a thread per actor or per group & callee's handler runs on the caller's thread under the callee's lock (\textsc{Fast-Local}) \\
 C++ $\leftrightarrow$ Rust, one process & message converted and enqueued through a C ABI bridge & callee's handler runs on the caller's thread through the bridge (\textsc{Fast-Local}) \\
-FPGA, one process & --- & callee is an actor object inside the caller's process; its handler is inlined into the caller's pipeline (\textsc{Fast-Local}) \\
+FPGA, one process & a queue inside the process & callee is an actor object inside the caller's process; its handler is inlined into the caller's pipeline (\textsc{Fast-Local}) \\
 FPGA, between processes & a FIFO from sender to receiver & a FIFO to the callee's \fs{} port, served before its mailbox; the reply over a FIFO back to the caller; the caller's process waits (\textsc{Fast-Remote}) \\
 CPU $\to$ FPGA & envelope over PCIe into the receiver's FIFO from the host & envelope to the actor's \fs{} port, served before its mailbox; the CPU thread waits for the reply (\textsc{Fast-Remote}) \\
 FPGA $\to$ CPU & envelope over PCIe; a host thread enqueues it & request over PCIe; a host thread dedicated to the calling FPGA actor runs the CPU handler; the FPGA process stalls until the reply returns (\textsc{Fast-Local}, on a thread acting for the caller) \\
@@ -1157,6 +1159,11 @@ the message-passing actor model with both primitives.
   the PLT Redex models of \cite{dekoster2024}, would check them.
   \item The calculus has no failures; a \fs{} to an actor on a failed resource waits
   forever. Timeouts and their interaction with isolation are open.
+  \item The calculus's mailboxes are unbounded, so \snd{} never blocks. In hardware the
+  FIFOs between FPGA actors have a fixed depth, and a \snd{} into a full FIFO waits;
+  two actors that send to each other can then both wait for ever. \Cref{thm:liveness}
+  does not cover this blocking. Modelling bounded mailboxes, and sizing FIFOs so that a
+  design cannot reach it, are open.
   \item Detecting cross-thread cycles at run time needs shared state
   (\cref{prop:localcycles}); its cost on the hot path is not measured.
   \item Performance is outside the scope of this paper. The cost of \snd{} and \fs{} on

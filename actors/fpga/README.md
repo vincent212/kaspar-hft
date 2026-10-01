@@ -2,332 +2,84 @@
 
 An actor runtime that runs on an FPGA, alongside the CPU runtime (`actors/cpp`) and the
 Rust runtime (`actors/rust`). Each runtime hosts its own actors, written in its own
-language. A Rust actor does not run in the C++ runtime, and an FPGA actor, written in
-Vitis HLS C++, does not run in either. Runtimes talk through bridges, as the C++ and Rust
-runtimes do today (`actors/rust/interop`).
+language: an FPGA actor is written in Vitis HLS C++ and runs only on the FPGA. Actors on
+different runtimes talk through bridges, with the same `send`, `fast_send` and `reply` as
+inside one runtime.
 
-Status: the FPGA runtime and the CPU-side bridge are written and tested on the host, with
-the FPGA design run in software threads. Nothing has been synthesized or run on a card
-yet. See [Status](#status).
+**To write FPGA actors and designs, read
+[FPGA_PROGRAMMERS_GUIDE.md](FPGA_PROGRAMMERS_GUIDE.md).** It also records the design
+decisions and the known limitations.
+
+Status: the runtime and the CPU-side bridge are written and tested on the host, with the
+FPGA design run in software threads. Nothing has been synthesized or run on a card yet.
 
 ---
 
-## What an FPGA actor looks like
+## Overview
 
-```cpp
-struct Ping { static constexpr kfpga::MsgId id = 301; uint32_t count = 0; KFPGA_FIELDS(count) };
-struct Pong { static constexpr kfpga::MsgId id = 302; uint32_t count = 0; KFPGA_FIELDS(count) };
+- **Actors.** Each FPGA actor is its own hardware process: an id, private state, and
+  handlers chosen by message id. It handles one message at a time.
+- **Messages.** Plain structs with a fixed id and integer fields; the same layout crosses
+  PCIe to the CPU.
+- **`send`.** The sender writes straight into a FIFO that leads to the receiver. Nothing
+  sits between two actors; a table fixed when the design is built tells the sender which
+  FIFO leads where.
+- **`fast_send`.** To an actor inside the same process, the callee's handler runs inline.
+  To an actor in another process, or on the CPU, the request goes straight to the
+  callee and the caller's process waits for the reply; the rest of the chip keeps running.
+  Requests are served before ordinary messages.
+- **CPU ↔ FPGA.** `host/FpgaBridge.hpp` joins the CPU actor runtime to the card. A CPU
+  actor holds an ordinary `ActorRef` to an FPGA actor; an FPGA actor addresses a CPU actor
+  by id. All four directions work for `send` and `fast_send`.
 
-struct PongActor {
-  static constexpr kfpga::ActorId kId = 2;
-  uint32_t pings = 0;                                  // private state
-
-  KFPGA_HANDLERS(KFPGA_ON(Ping, on_ping))              // message id -> handler
-
-  void on_ping(const Ping &m, kfpga::Ctx &ctx) {
-    ++pings;
-    Pong r;
-    r.count = m.count + 1000 * pings;
-    ctx.reply(r);                                      // back to whoever sent the Ping
-  }
-};
-```
-
-A handler talks only through its `Ctx`:
-
-| call | meaning |
+| directory | contents |
 |---|---|
-| `ctx.send(dst, msg)` | queue `msg` for actor `dst`, on this FPGA or on the CPU |
-| `ctx.reply(msg)` | answer the sender of the current message |
-| `ctx.fast_send(b, msg, reply)` | `b` is an actor object in this process: its handler runs now, inline, and its reply comes back by value |
-| `ctx.fast_send(dst, msg, reply)` | `dst` is an actor id outside this process, e.g. a CPU actor: the request goes out and this actor's process waits for the reply (an RPC); the rest of the chip keeps running |
-| `ctx.sender()` | the actor that sent the current message |
-
-Messages are plain structs with a fixed id and a `KFPGA_FIELDS` list. Fields are
-integers, enums, `bool` or `char` of up to 8 bytes; there are no pointers and no floating
-point, so the encoding is exact on both sides of PCIe. A message fits in 12 payload
-words.
-
-The full example is `examples/ping_pong/pingpong.hpp`: `PingActor` plays ping-pong with
-`PongActor` over the FIFO between them, and `FusedPing` owns its own Pong and calls it with
-`fast_send`.
+| `include/actors_fpga/` | the runtime: `envelope.hpp`, `links.hpp`, `actor.hpp`, `stream.hpp` |
+| `host/` | the CPU side: `FpgaBridge.hpp`, `CardTransport.hpp`, `SoftCard.hpp` |
+| `examples/ping_pong/` | an FPGA-only design: ping-pong between processes and inside one |
+| `examples/cpu_fpga/` | CPU and FPGA actors talking in all four directions |
+| `hls/` | the hardware top, per-part synthesis tops, `run_hls.tcl` |
+| `tests/` | runtime tests and bridge tests |
 
 ---
 
-## How it runs
+## Running the examples and tests
 
-Each actor is its own hardware process, running continuously, one message at a time,
-with its handler chosen by message id.
-
-Two endpoints that talk are joined by FIFOs (`hls::stream`), one writer and one reader
-each. The endpoints are the actor processes and the host link. From every endpoint `s`
-to every endpoint `r` there are three:
+Needs a C++17 compiler, GoogleTest, and the CPU actor library built in `actors/cpp`
+(`make -C ../cpp`). No Vitis and no card: the FPGA design runs in software.
 
 ```
-  msg[s][r]    messages: send, and replies to a send
-  freq[s][r]   fast_send requests from s to r
-  frep[s][r]   replies from s to a fast_send that r made
-
-  actor s ──msg / freq──> actor r          actor r ──frep──> actor s
-  from_host       ─> host_in       ──> msg / freq FIFOs from the host to each actor
-  from_host_reply ─> host_in_reply ──> frep FIFO from the host to each actor
-  each actor's FIFOs to the host ──> host_out ──> to_pcie
+cd actors/fpga
+make test        # C++14 check of the runtime, FPGA runtime tests, CPU <-> FPGA bridge tests
+make example     # the CPU <-> FPGA example
 ```
 
-A sender writes straight into the FIFO that leads to its receiver; nothing sits in
-between. A `fast_send` between two FPGA processes is one FIFO hop for the request and one
-for the reply. The discovery table (`DiscoveryTable`, fixed when the design is built) only
-tells a sender which endpoint holds a given actor id. `host_out` merges the FIFOs to the
-host onto the one PCIe stream; it is on the PCIe path only. Replies from the CPU come in
-on their own stream, `from_host_reply`, so a reply an actor is waiting for never sits
-behind a message for an actor whose FIFO is full.
-
-A message is handled by the actor it is addressed to. An actor that holds others inside
-its process lists them with `KFPGA_INNER(member, ...)`; the discovery table maps their ids
-to that process, and messages to them reach them there.
-
-| actor model | FPGA runtime | file |
-|---|---|---|
-| actor | a free-running process | `actor.hpp` (`actor_step`, `actor_process`) |
-| mailbox | the FIFOs into an actor from each endpoint, served round-robin | `links.hpp` |
-| handler dispatch | a `switch` on the message id, generated by `KFPGA_HANDLERS` | `actor.hpp` |
-| addressing | an actor id in every message; a discovery table, fixed at build time, from actor id to endpoint | `links.hpp` |
-| `send` | written by the sender straight into the FIFO to the receiver | `Ctx::send` |
-| `fast_send` inside one process | the callee's handler is inlined into the caller's: no FIFO | `Ctx::fast_send` |
-| `fast_send` to another process | the request straight into the callee's `freq` FIFO, served before messages; the caller waits on the `frep` FIFO from the callee | `Ctx::fast_send`, `actor_step` |
-| link to the CPU | two streams in (messages and requests; replies), one out | `host_in_step`, `host_in_reply_step`, `host_out_step` |
-
-Designs here use a FIFO for every pair of endpoints; a pair that never talks has FIFOs
-nobody writes. Declaring only the pairs a design uses is not done yet.
-
-Every message is an `Envelope` (`envelope.hpp`): destination, sender, message id, kind
-(`SEND`, `FAST`, `FAST_REPLY`), payload length, a tag, payload. A `fast_send` request's
-tag is copied onto its reply, so a caller matches its reply by tag. The same envelope
-crosses PCIe.
-
-Rules the runtime keeps:
-
-- **One message at a time per actor.** A process takes one message, runs its handler to
-  the end, then takes the next.
-- **`fast_send` is served first.** A `FAST` message, from the host or from another FPGA
-  process, goes to the actor's `fast_in` port, past its mailbox, and the actor serves that port before the mailbox,
-  as a CPU `fast_send` bypasses the mailbox.
-- **A `fast_send` caller is always answered.** If the handler did not reply, the runtime
-  still sends a `FAST_REPLY` with message id 0; if the destination does not exist, it
-  sends one carrying an error.
-- **Order per sender and receiver.** Messages from one actor to another arrive in the
-  order they were sent.
-- **Nothing is dropped silently.** An unknown destination, a missing handler or an
-  oversized message produce an `Error` message to the host.
-- **Every FIFO has one writer and one reader,** as Vitis HLS dataflow requires.
-
----
-
-## `send` and `fast_send` across runtimes
-
-| from → to | `send` | `fast_send` |
-|---|---|---|
-| inside the CPU runtime | the target's mailbox | the target's handler runs on the caller's thread |
-| inside the FPGA runtime | straight into the FIFO from sender to receiver | same process: the target's handler is inlined into the caller's; different processes: see below |
-| CPU → FPGA | into `from_host`, then into the FIFO from the host to the target | into `from_host` as `FAST`, then into the target's `freq` FIFO from the host; the CPU caller waits for the `FAST_REPLY` |
-| FPGA → CPU | out through `to_pcie`; the bridge's reader thread calls the target's `send` | out through `to_pcie` as `FAST`; a bridge worker thread for the calling FPGA actor calls the target's `fast_send` (the CPU handler runs on that worker) and writes the reply back; the calling FPGA actor's process waits for it |
-| FPGA → FPGA, different processes | straight into the FIFO from sender to receiver | the request straight into the target's `freq` FIFO from the caller; the reply straight back on the `frep` FIFO |
-| CPU ↔ another machine | a network message | an RPC: send, then wait for the reply |
-
-A `fast_send` works wherever the caller can wait for the receiver to finish. On one
-substrate the handler runs inline. Anywhere else it is a blocking request/reply: an
-RPC. In hardware, waiting stalls only the calling actor's process.
-
----
-
-## CPU ↔ FPGA: the bridge
-
-The CPU side is `host/FpgaBridge.hpp`. It connects the CPU actor runtime to one card.
-
-- **CPU → FPGA.** A CPU actor holds an ordinary `ActorRef`, obtained with
-  `bridge->ref(fpga_actor_id)`; the ref holds an `FpgaActorRef`. Its `send` and
-  `fast_send` behave as described above, and the calling code is plain Kaspar.
-- **FPGA → CPU.** The bridge's reader thread reads everything the card sends and delivers
-  it:
-  - `SEND`: the message is rebuilt as a Kaspar message and delivered with the target's
-    `send`;
-  - `FAST`: handed to the worker thread of the calling FPGA actor, which calls the
-    target's `fast_send` and writes the reply back;
-  - `FAST_REPLY`: handed to the CPU thread waiting in `fast_send`, found by the tag its
-    request carried, so several CPU threads can have calls outstanding;
-  - `Error`: reported through `on_error`.
-
-  The reader never runs a CPU handler, so it is always free to deliver replies. A CPU
-  handler run for an FPGA actor may itself `fast_send` to the FPGA.
-- **Failures.** A CPU `fast_send` to the FPGA that fails (no route, unregistered
-  message, an error from the FPGA, a bridge that is not running) throws; called from a
-  handler, that ends the process. Each failure is reported once. `stop()` releases any
-  CPU caller still waiting, with no reply, and reports it.
-- **Replies from CPU actors.** When the bridge delivers a message from an FPGA actor, the
-  sender it passes is a stand-in object for that FPGA actor. Its `send` writes back to
-  the card, and a `fast_send` to it is forwarded to the FPGA actor and returns its reply.
-  A CPU handler's ordinary `reply()` therefore reaches the FPGA actor.
-- **Addressing.** FPGA and CPU actors share one id space, 1–15; id 0 is the host
-  itself, and is what a message from an unregistered CPU sender carries. A CPU actor that FPGA actors
-  address, or that expects replies from them, is registered with
-  `bridge->add_cpu_actor(id, actor)`, and the design's discovery table sends that id to the
-  host.
-- **Messages.** Each message that crosses has a Kaspar class with the same id and fields
-  as its FPGA struct, e.g.
-  `struct Ping : actors::Message_N<301> { uint32_t count = 0; KFPGA_FIELDS(count) };`.
-  It is registered once with `bridge->register_messages<Ping, Pong>()`.
-- **Deadlock.** `fast_send` blocks in both directions. A cycle of `fast_send`s that comes
-  back to an actor already waiting deadlocks, exactly as inside the CPU runtime.
-
-The link to the card is a `CardTransport` (`host/CardTransport.hpp`): write one envelope,
-read one envelope. `SoftCard` runs the FPGA design in software, one thread per process,
-so a stalled actor stalls only its own thread. A real card needs a transport over its
-PCIe DMA path; that is not written yet.
-
-### The four-direction example
-
-`examples/cpu_fpga/`. The FPGA side runs `FpgaPong` (id 2) and `FpgaCaller` (id 3). The
-CPU side runs `CpuPong` (id 8), which mirrors `FpgaPong`, and `CpuDriver` (id 9), which
+`make example` runs `examples/cpu_fpga/`. The FPGA side runs `FpgaPong` (id 2) and
+`FpgaCaller` (id 3); the CPU side runs `CpuPong` (id 8) and `CpuDriver` (id 9), which
 drives four cases:
 
 ```
-make example
 1 CPU->FPGA fast_send  Ping(1) -> Pong(1001)
 2 CPU->FPGA send       Ping(2) -> Pong(2002)
 3 FPGA->CPU send       3 round trips, last Pong(3003)
 4 FPGA->CPU fast_send  3 round trips, last Pong(6003)
 ```
 
-- **Cases 1–2.** `CpuDriver` calls `fpga_pong.fast_send(&p, this)` and
-  `fpga_pong.send(new Ping(2), this)`, the same calls it would make to a CPU actor.
-- **Case 3.** `FpgaCaller` calls `ctx.send(kCpuPong, p)`, and `CpuPong`'s ordinary
-  `reply()` comes back to `FpgaCaller`'s mailbox.
-- **Case 4.** `FpgaCaller` calls `ctx.fast_send(kCpuPong, p, r)` and waits for each reply.
+1. `CpuDriver` calls `fpga_pong.fast_send(&p, this)`, as it would to a CPU actor.
+2. `CpuDriver` calls `fpga_pong.send(new Ping(2), this)`; the reply arrives in its
+   mailbox.
+3. `FpgaCaller` calls `ctx.send(kCpuPong, p)`; `CpuPong`'s ordinary `reply()` comes back
+   to it.
+4. `FpgaCaller` calls `ctx.fast_send(kCpuPong, p, r)` and waits for each reply.
 
-Each Pong's reply shows how many pings it has seen, so the numbers also show that state
+Each Pong counts the pings it has seen, so the numbers also show that actor state
 persists: 6003 is `CpuPong`'s sixth ping.
 
----
-
-## Building and testing
-
-```
-cd actors/fpga
-make test        # C++14 check, FPGA runtime tests, CPU <-> FPGA bridge tests
-make example     # the four-direction example
-```
-
-The FPGA tests (`tests/test_runtime.cpp`) drive the ping-pong design one step of every
-process at a time, until nothing moves. They cover:
-- field encoding;
-- `send` as one FIFO hop, and `fast_send` between processes as one hop each way;
-- `fast_send` inside the FPGA and from the host;
-- the fast_send port being served before the mailbox;
-- order per sender and receiver;
-- every error path.
-
-They run the same `*_step` functions the hardware runs in a loop. Plain C++ is used,
-with a small, thread-safe stand-in for `hls::stream`.
-
-The bridge tests (`tests/test_bridge.cpp`) run the four-direction example against a
-`SoftCard`. They also check that:
-- a CPU `fast_send` without a registered sender still gets its reply;
-- a `fast_send` to an FPGA actor that does not exist throws instead of hanging;
-- a `fast_send` the FPGA actor has no handler for returns no reply and is reported;
-- a message class the bridge does not know is reported, not sent.
-
----
-
-## Measuring
-
-The aim is one table of what `send` and `fast_send` cost between each pair of runtimes.
-
-Vitis HLS synthesis gives the latency of each runtime part in clock cycles:
+`examples/ping_pong/` has no CPU side; the runtime tests (`tests/test_runtime.cpp`) drive
+it. To synthesize the hardware on Linux with Vitis HLS:
 
 ```
-cd actors/fpga/hls && vitis_hls -f run_hls.tcl      # Linux, Vitis HLS installed
+cd actors/fpga/hls && vitis_hls -f run_hls.tcl
 ```
 
-`run_hls.tcl` synthesizes one small top per part (`bench_tops.cpp`) for the Virtex
-UltraScale+ VU2P of the AMD Alveo UL3524, at 3.2 ns by default. Both are parameters; check
-the exact part string before quoting numbers. Each report,
-`kfpga_hls/<top>/solution1/syn/report/<top>_csynth.rpt`, gives latency in cycles.
-
-| top | part |
-|---|---|
-| `bench_actor_step` | an actor takes one message and replies |
-| `bench_host_out` | the host link puts one message out to PCIe |
-| `bench_host_in` | the host link, in |
-| `bench_fast_send` | one `fast_send` to an actor in the same process |
-
-From these, with one or two cycles per FIFO:
-
-| path | cost |
-|---|---|
-| `fast_send` inside the FPGA | `bench_fast_send` − `bench_actor_step` (the added call) |
-| `send` round trip A → B → A inside the FPGA | 2 × (actor step + FIFO) |
-| host `fast_send`, FPGA part | host_in + FIFO + actor step + FIFO + host_out |
-| host `fast_send`, PCIe part | a model from AMD's published DMA latency for the card until a card is available |
-| CPU runtime `send` / `fast_send` | `actors/cpp/perf/bench_pingpong` (measured) |
-| C++ ↔ Rust | the benchmark in `actors/rust/interop/example` (measured) |
-
-The FPGA numbers are synthesis estimates, not measurements on a card, and the PCIe
-number is a model. Both are labelled as such wherever they are used.
-
----
-
-## Status
-
-| built and tested on the host | not done yet |
-|---|---|
-| envelope and field encoding | Vitis HLS synthesis (`run_hls.tcl` is ready; needs Linux with Vitis) |
-| actor process with mailbox, fast_send port and call-reply port | whether the free-running `pingpong_top` form synthesizes, or needs `hls::task` |
-| handler dispatch by message id | a `CardTransport` for the UL3524's PCIe DMA |
-| direct FIFOs between endpoints and a discovery table, including `fast_send` between FPGA processes | bounded hardware FIFOs: two actors that send to each other can both block when the FIFOs between them are full; the software stand-in is unbounded. FIFO depths per pair, and FIFOs only for the pairs a design uses |
-| host link in and out | generating message structs, CPU classes and discovery tables from one schema, as `actors/rust/interop/codegen/generate.py` does for Rust |
-| `fast_send` inside the FPGA, CPU → FPGA and FPGA → CPU | measurements on a card |
-| `FpgaActorRef` in `ActorRef`, `FpgaBridge`, `SoftCard` | |
-| error reporting on both sides | |
-
----
-
-## Future work: a GPU runtime
-
-The GPU runtime would follow the same design, without being built here (there is no GPU
-to run it on):
-
-| actor model | GPU runtime |
-|---|---|
-| actor | a warp or thread block inside one persistent kernel |
-| mailbox | a ring buffer in device memory |
-| handler dispatch | a `switch` on the message id |
-| `send` | write to the destination actor's ring |
-| `fast_send` inside the GPU | a device function call |
-| link to the CPU | rings in pinned host memory, polled by the kernel and by a CPU bridge thread |
-| `fast_send` CPU → GPU | write the request, wait for the reply in the reply ring |
-| `fast_send` GPU → CPU | not available, as for the FPGA |
-
-The envelope, the actor ids and the CPU bridge would be shared with the FPGA runtime.
-
----
-
-## Background: `fast_send` and the actor model
-
-These notes are to be checked against the sources for the paper.
-
-- **Only asynchronous send.** The actor model as formulated by Hewitt and colleagues
-  (1973) and by Agha (1986) has no synchronous call. Three reasons are commonly given:
-  - messages are guaranteed to arrive but not in any order;
-  - a synchronous call among actors that handle one message at a time can deadlock;
-  - the model was meant for distributed systems, where a synchronous call can wait
-    forever.
-- **Synchronous forms did exist.** ABCL/1 (Yonezawa, 1986) had "now type" messages, a
-  send that waits for the reply. Erlang has `gen_server:call`, Akka has `ask` and Scala
-  actors had `!?`. These are built on asynchronous send, usually with a timeout.
-- **The thesis to argue.** `fast_send` maps to a concrete mechanism on every substrate:
-  - an inline call on a CPU;
-  - a fused pipeline on an FPGA;
-  - a device function on a GPU;
-  - a blocking request/reply towards a device or another machine.
-
-  It is therefore a primitive of the model, not a convenience layered on top of it.
+See section 9 of the guide for what it reports.

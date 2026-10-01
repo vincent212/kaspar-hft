@@ -8,8 +8,8 @@
 /*
  * One top-level function per runtime part, each doing exactly one step. Vitis HLS
  * synthesis (run_hls.tcl) reports each one's latency in clock cycles; those are
- * the numbers the send / fast_send cost model is built from (see README.md,
- * "Measuring").
+ * the numbers the send / fast_send cost model is built from (see
+ * FPGA_PROGRAMMERS_GUIDE.md, section 9).
  *
  *   bench_actor_step   Pong takes one message from a FIFO and replies
  *   bench_host_in      the host link takes one message from PCIe

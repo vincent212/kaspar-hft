@@ -17,7 +17,7 @@
  * that process's thread, as it stalls only that process in hardware.
  *
  * It says nothing about timing: it exists so the CPU/FPGA semantics can be run
- * and tested. Latency comes from synthesis (see README.md, "Measuring").
+ * and tested. Latency comes from synthesis (FPGA_PROGRAMMERS_GUIDE.md, section 9).
  */
 
 #include <atomic>
