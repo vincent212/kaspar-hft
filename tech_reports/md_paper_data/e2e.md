@@ -1,5 +1,58 @@
-<!-- Generated 2026-10-01 13:59 EDT from /home/vincent/perf/mdperf/paper -->
+<!-- Generated 2026-10-01 14:04 EDT from /home/vincent/perf/mdperf/paper -->
 # End-to-end t1-t0 (us), pooled over passes, first 120s of each run dropped
+
+## Legend
+
+**What is measured.** t1 - t0 per message, in microseconds:
+
+- t0: user-space timestamp on the socket-reader thread, right after `recvfrom`
+  returns the packet.
+- t1: timestamp in TachBook (the MBO book) just before it publishes the updated
+  book.
+
+Time before t0 (NIC, socket buffer) is not included. Stream: front-month
+contract (Z6), `book` = book updates, `trade` = trades.
+
+**Columns.**
+
+| column | meaning |
+|---|---|
+| config | label below |
+| runs | number of 8-10 minute runs pooled |
+| msgs | messages measured, after dropping the first 120 s of every run (startup recovery) |
+| p1..p999 | percentiles of t1 - t0 over those messages |
+| max | slowest single message |
+
+**Config labels.** Every config is `base` plus the listed changes. Exact files:
+`configs/<label>/`. Full description: `../md_median_vs_tail_draft.md`,
+section "Configuration labels".
+
+| label | what changes vs base | thread hops between t0 and t1 |
+|---|---|---|
+| `base` | none (production path): socket reader -> MsgBuf (sleeps between packets) -> decode inline -> book on its own thread (sleeps) | 2, both into sleeping threads |
+| `fastsend` | book update runs inline on the decode thread (`book_fast_send`) | 1 |
+| `mbspin` | MsgBuf busy-polls instead of sleeping (`cme_msgbuf_mailbox lockfree_spin`) | 2, first without wakeup |
+| `fastsend_mbspin` | both of the above | 1, without wakeup |
+| `rfs` | socket reader runs MsgBuf, decode and book inline (`cme_reader_fast_send` + `book_fast_send`) | 0 |
+| `p4s` | parallel decode: 4 busy-polling workers + one resequencing handler per channel (`cme_decode_workers 4`, `cme_decode_spin`) | 4 |
+| `fsmb_pin` | `fastsend_mbspin`, busy threads pinned to NUMA node 2 CPUs (not isolated), everything else kept off node 2 | 1 |
+| `rfs_pin` | `rfs`, each socket reader pinned alone on a physical core | 0 |
+| `<label>_A` | same as `<label>`, feed B switched off (`cme_feed_b false`); one socket reader per channel | same |
+
+All runs: Onload kernel bypass, live CME channels 310 (ES), 318 (NQ) and 344
+(ZN), 2026-10-01 08:56-13:00 ET.
+
+**Sections.**
+
+- **Per-pass:** p50 / p99 / p999 of each run block, as a consistency check.
+  - `p1`, `p2` = matrix passes 1 and 2.
+  - `x1`, `x2` = experiment rounds 1 and 2.
+- **Latency by ingress qlen:** latency grouped by how many packets were already
+  queued at MsgBuf when this one arrived.
+  - Shows queueing in bursts.
+  - For `rfs*` there is no MsgBuf queue (the reader calls it directly), so qlen
+    is always 0.
+
 
 ## ESZ6_book
 | config | runs | msgs | p1 | p10 | p50 | p90 | p99 | p999 | max |
