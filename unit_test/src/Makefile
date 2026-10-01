@@ -31,7 +31,8 @@ SRC = test_cache_array.cpp \
       test_latency_probe.cpp \
       test_msg_qlen.cpp \
       test_processq_qlen.cpp \
-      test_msgbuf_qlen.cpp
+      test_msgbuf_qlen.cpp \
+      test_parallel_decode.cpp
 
 APPNAM = run_tests
 

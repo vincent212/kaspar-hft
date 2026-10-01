@@ -23,6 +23,8 @@
 #include "mdp3/msg/DecodePacket.hpp"
 #include "mdp3/msg/DecodeResult.hpp"
 #include "mdp3/msg/DecoderCmd.hpp"
+#include "mdp3/msg/ParDecodePacket.hpp"
+#include "mdp3/msg/DecodeDone.hpp"
 #include "mdp3/msg/DoDataRecovery.hpp"
 #include "mdp3/msg/DoInstrumentRecovery.hpp"
 #include "mdp3/msg/EndDataRecovery.hpp"
@@ -70,6 +72,19 @@ namespace mdp3
         bool stopq = false;
         uint32_t nummsg = 0;
 
+        // Parallel decode. Empty => serial: `decoder` is a DataDecoder and every
+        // packet is decoded inline by fast_send. Non-empty => `decoder` is the
+        // HandlerIfActor and packets are dispatched round-robin to these workers.
+        std::vector<actor_ptr> workers;
+        uint32_t worker_mask = 0;
+        uint64_t next_dispatch = 0;
+        uint32_t epoch = 0;
+        uint32_t inflight = 0;
+        // A recovery is owed but handler_if may still be applying dispatched
+        // packets on the HandlerIfActor thread. RecoveryProcessor writes
+        // handler_if from its own thread, so it must not start until inflight==0.
+        bool recovery_wait = false;
+
     public:
         MessageProcessor(
             const std::string _chan_nam,
@@ -93,12 +108,26 @@ namespace mdp3
             MESSAGE_HANDLER(msg::StartQ, startq_handler); // who sends this?
             MESSAGE_HANDLER(msg::StopQ, stopq_handler);   // who sends this?
             MESSAGE_HANDLER(frame::cons::msg::Get, get_handler);
+            MESSAGE_HANDLER(msg::DecodeDone, decodedone_handler);
 
             // if (dorecovery)
             // {
             //     data_recoveryonstart = true;
             // }
         }
+
+        // Switch to parallel decode. `decoder` (constructor) must then be the
+        // HandlerIfActor. The worker count must be a power of two.
+        void set_workers(const std::vector<actor_ptr> &w)
+        {
+            ASSERT(!w.empty() && (w.size() & (w.size() - 1)) == 0,
+                   "decode worker count must be a power of two");
+            workers = w;
+            worker_mask = uint32_t(w.size() - 1);
+        }
+
+        uint32_t num_inflight() const { return inflight; }
+        bool waiting_to_recover() const { return recovery_wait; }
 
     private:
         void get_handler(const frame::cons::msg::Get *m) noexcept
@@ -233,6 +262,44 @@ namespace mdp3
             waitcnt = maxwaitcnt;
         }
 
+        void request_data_recovery()
+        {
+            if (inflight > 0)
+            {
+                log_inf("data recovery deferred until %u in-flight packets are applied", inflight);
+                recovery_wait = true;
+                return;
+            }
+            do_data_recovery();
+        }
+
+        void decodedone_handler(const msg::DecodeDone *m) noexcept
+        {
+            ASSERT(inflight > 0, "DecodeDone with nothing in flight");
+            --inflight;
+
+            if (m->applied && !m->rc)
+            {
+                log_err("could not decode critical data message sn: %d, initiating recovery", m->sn);
+                // Packets dispatched after this one carry the same epoch and are
+                // dropped by HandlerIfActor. Rewind so recovery's last_seq, not
+                // the dropped packets, decides where live decode resumes.
+                ++epoch;
+                qseq_num = m->sn - 1;
+                request_data_recovery();
+            }
+            else if (m->applied && m->is_channel_reset)
+            {
+                log_err("****** channel reset ****** sn: %d, qseq_num: %d", m->sn, qseq_num);
+            }
+
+            if (recovery_wait && inflight == 0)
+            {
+                recovery_wait = false;
+                do_data_recovery();
+            }
+        }
+
         void do_instr_recovery()
         {
             if (recovery_processor)
@@ -250,7 +317,7 @@ namespace mdp3
         void processq(uint64_t ts, [[maybe_unused]] bool last)
         {
 
-            if CHUNLIKELY (in_data_recovery || in_instr_recovery)
+            if CHUNLIKELY (in_data_recovery || in_instr_recovery || recovery_wait)
             {
                 return;
             }
@@ -292,6 +359,25 @@ namespace mdp3
                 {
                     // process message
                     log_dbg("processing message sn: %d, qseq_num: %d", sn, qseq_num);
+                    if (!workers.empty())
+                    {
+                        // Parallel: the outcome (rc, channel reset) arrives later
+                        // in a DecodeDone; see decodedone_handler.
+                        auto *pd = new msg::ParDecodePacket(
+                            next_dispatch, epoch, sn, &p->second.message[0],
+                            p->second.len, ts, p->second.qlen);
+                        workers[next_dispatch & worker_mask]->send(pd, this);
+                        ++next_dispatch;
+                        ++inflight;
+                        p = msg_q.erase(p);
+                        qseq_num = sn;
+                        if (waitcnt < maxwaitcnt)
+                        {
+                            log_inf("gap has closed waitcnt: %d", waitcnt);
+                            waitcnt = maxwaitcnt;
+                        }
+                        continue;
+                    }
                     bool is_channel_reset = false;
                     // Ingress mailbox depth for THIS packet, read from the
                     // reorder-map node (p->second) -- the packet actually being
@@ -364,7 +450,7 @@ namespace mdp3
                         do_instr_recovery(); 
 #endif
                         log_inf("will do data recovery");
-                        do_data_recovery();
+                        request_data_recovery();
                     }
                     else
                     {

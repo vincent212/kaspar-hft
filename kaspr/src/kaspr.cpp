@@ -508,27 +508,42 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     auto disable_mbo = pt_chan.get<bool>("cme_disable_mbo", false);
     auto maxmpblevel = pt_chan.get<int>("cme_max_mbp_level", 0);
 
-    // ---- decode subsystem: SERIAL only ----
+    // ---- decode subsystem ----
     //
-    // DataDecoder decodes every packet inline on the MessageProcessor thread via
-    // mbo_data, straight into handler_if. This is the path the latency article
-    // measured.
+    // cme_decode_workers = 0 (default): SERIAL. DataDecoder decodes every packet
+    // inline on the MessageProcessor thread via mbo_data, straight into
+    // handler_if. This is the path the latency article measured.
     //
-    // Parallel decode was removed: on the book series it was 2.0-2.2x slower at
-    // p50 and 1.5-3.2x slower at p99, because CME packets carry 1.06-1.10
-    // messages and a fan-out has almost nothing to divide; it was also not
-    // validated for correctness. See tech_reports/serial_vs_parallel_decode.md.
-    //
-    // cme_decode_workers used to select it. A config key nothing reads is
-    // silent, so say so if an old cme.ini still sets it.
-    if (pt_chan.get_optional<std::string>("cme_decode_workers"))
-        std::cerr << "Kaspr: *** WARNING chan " << chanstr << ": cme_decode_workers is set but"
-                  << " ignored -- parallel decode was removed; decode is always serial ***"
-                  << std::endl;
+    // cme_decode_workers = N (power of two): PARALLEL. N DataDecoderActors run
+    // the same mbo_data against a RecordingHandler; one HandlerIfActor replays
+    // the recorded calls into handler_if in packet order. The earlier parallel
+    // decode was 2.0-2.2x slower at p50 (tech_reports/serial_vs_parallel_decode.md).
+    const uint32_t nworkers = pt_chan.get<uint32_t>("cme_decode_workers", 0);
+    if (nworkers & (nworkers - 1))
+        throw std::runtime_error("chan " + chanstr + ": cme_decode_workers must be 0 or a power of two, got " +
+                                 std::to_string(nworkers));
 
-    std::cerr << "Kaspr: chan " << chanstr << " SERIAL decode (inline)" << std::endl;
-
-    auto* decoder = new mdp3::DataDecoder(handler, disable_mbo, (uint32_t)maxmpblevel, /*debug=*/false, (uint32_t)chan);
+    actor_ptr decoder = nullptr;
+    mdp3::HandlerIfActor* handler_actor = nullptr;
+    std::vector<actor_ptr> workers;
+    if (nworkers == 0)
+    {
+        std::cerr << "Kaspr: chan " << chanstr << " SERIAL decode (inline)" << std::endl;
+        decoder = new mdp3::DataDecoder(handler, disable_mbo, (uint32_t)maxmpblevel, /*debug=*/false, (uint32_t)chan);
+    }
+    else
+    {
+        std::cerr << "Kaspr: chan " << chanstr << " PARALLEL decode (" << nworkers << " workers)" << std::endl;
+        // DataDecoder's constructor configures the handler; in parallel mode no
+        // DataDecoder is built around the real handler, so configure it here.
+        handler->set_max_mbp_level((uint32_t)maxmpblevel);
+        handler->disable_mbo(disable_mbo);
+        handler_actor = new mdp3::HandlerIfActor((uint32_t)chan, handler);
+        for (uint32_t i = 0; i < nworkers; ++i)
+            workers.push_back(new mdp3::DataDecoderActor((uint32_t)chan, i, handler_actor,
+                                                         disable_mbo, (uint32_t)maxmpblevel));
+        decoder = handler_actor;
+    }
 
     // Create MDP3 components
     auto mdp3cfsmp = create_all_mdp3(
@@ -597,8 +612,19 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     add_to_manage_q(mdp3cfsmp[4], pin(3));  // socket_processor_a
     add_to_manage_q(mdp3cfsmp[5], pin(4));  // socket_processor_b
 
-    // Manage the DataDecoder.
-    add_to_manage_q(decoder);
+    if (nworkers == 0)
+    {
+        add_to_manage_q(decoder);
+    }
+    else
+    {
+        auto* mp = static_cast<mdp3::MessageProcessor*>(mdp3cfsmp[1]);
+        mp->set_workers(workers);
+        handler_actor->set_message_processor(mp);
+        add_to_manage_q(handler_actor);
+        for (auto w : workers)
+            add_to_manage_q(w);
+    }
 
     std::cerr << "Kaspr: MDP3 channel " << chan << " configured" << std::endl;
 }
