@@ -1,0 +1,564 @@
+
+chan310 {
+chanid 310
+name "CME Globex Equity Futures - E-mini S&P 500 futures"
+group_a 224.0.31.1
+port_a 14310
+group_b 224.0.32.1
+port_b 15310
+group_ir 224.0.31.43
+port_ir 14310
+group_dr 233.72.75.1
+port_dr 23310
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan311 {
+chanid 311
+name "CME Globex Equity Options - E-mini S&P 500 outrights"
+group_a 224.0.31.2
+port_a 14311
+group_b 224.0.32.2
+port_b 15311
+group_ir 224.0.31.44
+port_ir 14311
+group_dr 233.72.75.2
+port_dr 23311
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan312 {
+chanid 312
+name "CME Globex Interest Rate Futures"
+group_a 224.0.31.3
+port_a 14312
+group_b 224.0.32.3
+port_b 15312
+group_ir 224.0.31.45
+port_ir 14312
+group_dr 233.72.75.3
+port_dr 23312
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan313 {
+chanid 313
+name "CME Globex Interest Rate Options"
+group_a 224.0.31.4
+port_a 14313
+group_b 224.0.32.4
+port_b 15313
+group_ir 224.0.31.46
+port_ir 14313
+group_dr 233.72.75.4
+port_dr 23313
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan314 {
+chanid 314
+name "CME Globex FX Futures"
+group_a 224.0.31.5
+port_a 14314
+group_b 224.0.32.5
+port_b 15314
+group_ir 224.0.31.47
+port_ir 14314
+group_dr 233.72.75.5
+port_dr 23314
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan316 {
+chanid 316
+name "CME Globex Commodity Futures"
+group_a 224.0.31.7
+port_a 14316
+group_b 224.0.32.7
+port_b 15316
+group_ir 224.0.31.49
+port_ir 14316
+group_dr 233.72.75.7
+port_dr 23316
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan317 {
+chanid 317
+name "CME Globex Commodity Options"
+group_a 224.0.31.8
+port_a 14317
+group_b 224.0.32.8
+port_b 15317
+group_ir 224.0.31.50
+port_ir 14317
+group_dr 233.72.75.8
+port_dr 23317
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan318 {
+chanid 318
+name "CME Globex Equity Futures - excludes E-mini S&P 500"
+group_a 224.0.31.9
+port_a 14318
+group_b 224.0.32.9
+port_b 15318
+group_ir 224.0.31.51
+port_ir 14318
+group_dr 233.72.75.9
+port_dr 23318
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan319 {
+chanid 319
+name "CME Globex Equity Options - excludes E-mini S&P 500"
+group_a 224.0.31.10
+port_a 14319
+group_b 224.0.32.10
+port_b 15319
+group_ir 224.0.31.52
+port_ir 14319
+group_dr 233.72.75.10
+port_dr 23319
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan321 {
+chanid 321
+name "CME Globex FX Options"
+group_a 224.0.31.12
+port_a 14321
+group_b 224.0.32.12
+port_b 15321
+group_ir 224.0.31.54
+port_ir 14321
+group_dr 233.72.75.27
+port_dr 23321
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan323 {
+chanid 323
+name "CME Globex Equity Options - Micro E-mini S&P 500 and E-mini S&P 500 option spreads"
+group_a 224.0.31.70
+port_a 14346
+group_b 224.0.32.70
+port_b 15346
+group_ir 224.0.31.112
+port_ir 14346
+group_dr 233.72.75.35
+port_dr 23346
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+; --------------------------------------------------------------------------
+; Multicast re-IP applied 2026-05-28:
+;   chan326 (CME Crypto Futures), chan327 (CME Crypto Options),
+;   chan329 (Event-based contracts) were re-IP'd from the legacy
+;   224.0.{31,33,34}.x ranges into the 224.4.{70,71}.x ranges per the
+;   CME Globex notice on the Crypto / Event channels.  Old groups are
+;   no longer broadcasting; previous values kept in git history.
+; --------------------------------------------------------------------------
+
+chan326 {
+chanid 326
+name "CME Crypto Futures"
+group_a 224.4.70.16
+port_a 14326
+group_b 224.4.71.16
+port_b 15326
+group_ir 224.4.70.19
+port_ir 14326
+group_dr 224.4.70.18
+port_dr 23326
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan327 {
+chanid 327
+name "CME Crypto Options"
+group_a 224.4.70.20
+port_a 14327
+group_b 224.4.71.20
+port_b 15327
+group_ir 224.4.70.23
+port_ir 14327
+group_dr 224.4.70.22
+port_dr 23327
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan329 {
+chanid 329
+name "Event-based contracts"
+group_a 224.4.70.5
+port_a 14329
+group_b 224.4.71.5
+port_b 15329
+group_ir 224.4.70.8
+port_ir 14329
+group_dr 224.4.70.7
+port_dr 23329
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan330 {
+chanid 330
+name "CME Globex FX Spot+"
+group_a 224.0.31.13
+port_a 14330
+group_b 224.0.32.13
+port_b 15330
+group_ir 224.0.31.55
+port_ir 14330
+group_dr 233.72.75.28
+port_dr 23330
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan333 {
+chanid 333
+name "Event Contracts II"
+group_a 224.4.70.1
+port_a 14333
+group_b 224.4.71.1
+port_b 15333
+group_ir 224.4.70.4
+port_ir 14333
+group_dr 224.4.70.3
+port_dr 23333
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan340 {
+chanid 340
+name "CBOT Globex Commodity Futures"
+group_a 224.0.31.64
+port_a 14340
+group_b 224.0.32.64
+port_b 15340
+group_ir 224.0.31.106
+port_ir 14340
+group_dr 233.72.75.29
+port_dr 23340
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan341 {
+chanid 341
+name "CBOT Globex Commodity Options"
+group_a 224.0.31.65
+port_a 14341
+group_b 224.0.32.65
+port_b 15341
+group_ir 224.0.31.107
+port_ir 14341
+group_dr 233.72.75.30
+port_dr 23341
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan342 {
+chanid 342
+name "CBOT Globex Equity Index Futures"
+group_a 224.0.31.66
+port_a 14342
+group_b 224.0.32.66
+port_b 15342
+group_ir 224.0.31.108
+port_ir 14342
+group_dr 233.72.75.31
+port_dr 23342
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan343 {
+chanid 343
+name "CBOT Globex Equity Index Options"
+group_a 224.0.31.67
+port_a 14343
+group_b 224.0.32.67
+port_b 15343
+group_ir 224.0.31.109
+port_ir 14343
+group_dr 233.72.75.32
+port_dr 23343
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan344 {
+chanid 344
+name "CBOT Globex Interest Rate Futures"
+group_a 224.0.31.68
+port_a 14344
+group_b 224.0.32.68
+port_b 15344
+group_ir 224.0.31.110
+port_ir 14344
+group_dr 233.72.75.33
+port_dr 23344
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan345 {
+chanid 345
+name "CBOT Globex Interest Rate Options"
+group_a 224.0.31.69
+port_a 14345
+group_b 224.0.32.69
+port_b 15345
+group_ir 224.0.31.111
+port_ir 14345
+group_dr 233.72.75.34
+port_dr 23345
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan348 {
+chanid 348
+name "CBOT Globex Interest Rate Futures II"
+group_a 224.0.31.71
+port_a 14348
+group_b 224.0.32.71
+port_b 15348
+group_ir 224.0.31.113
+port_ir 14348
+group_dr 233.72.75.39
+port_dr 23348
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan360 {
+chanid 360
+name "COMEX Globex Futures"
+group_a 224.0.31.192
+port_a 14360
+group_b 224.0.32.192
+port_b 15360
+group_ir 224.0.31.212
+port_ir 14360
+group_dr 233.72.75.21
+port_dr 23360
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan361 {
+chanid 361
+name "COMEX Globex Options"
+group_a 224.0.31.193
+port_a 14361
+group_b 224.0.32.193
+port_b 15361
+group_ir 224.0.31.213
+port_ir 14361
+group_dr 233.72.75.25
+port_dr 23361
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan380 {
+chanid 380
+name "NYMEX Globex Emissions Futures"
+group_a 224.0.31.128
+port_a 14380
+group_b 224.0.32.128
+port_b 15380
+group_ir 224.0.31.170
+port_ir 14380
+group_dr 233.72.75.11
+port_dr 23380
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan381 {
+chanid 381
+name "NYMEX Globex Emissions Options"
+group_a 224.0.31.129
+port_a 14381
+group_b 224.0.32.129
+port_b 15381
+group_ir 224.0.31.171
+port_ir 14381
+group_dr 233.72.75.12
+port_dr 23381
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan382 {
+chanid 382
+name "NYMEX Globex Crude & Crude Refined Futures"
+group_a 224.0.31.130
+port_a 14382
+group_b 224.0.32.130
+port_b 15382
+group_ir 224.0.31.172
+port_ir 14382
+group_dr 233.72.75.18
+port_dr 23382
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan383 {
+chanid 383
+name "NYMEX Globex Crude & Crude Refined Options"
+group_a 224.0.31.131
+port_a 14383
+group_b 224.0.32.131
+port_b 15383
+group_ir 224.0.31.173
+port_ir 14383
+group_dr 233.72.75.22
+port_dr 23383
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan384 {
+chanid 384
+name "NYMEX Globex Metals, Softs, & Alternative Market Futures"
+group_a 224.0.31.132
+port_a 14384
+group_b 224.0.32.132
+port_b 15384
+group_ir 224.0.31.174
+port_ir 14384
+group_dr 233.72.75.20
+port_dr 23384
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan385 {
+chanid 385
+name "NYMEX Globex Metals, Softs, & Alternative Market Options"
+group_a 224.0.31.133
+port_a 14385
+group_b 224.0.32.133
+port_b 15385
+group_ir 224.0.31.175
+port_ir 14385
+group_dr 233.72.75.24
+port_dr 23385
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan386 {
+chanid 386
+name "NYMEX Globex Nat Gas & other Non-Crude Energy Futures"
+group_a 224.0.31.134
+port_a 14386
+group_b 224.0.32.134
+port_b 15386
+group_ir 224.0.31.176
+port_ir 14386
+group_dr 233.72.75.19
+port_dr 23386
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan387 {
+chanid 387
+name "NYMEX Globex Nat Gas & other Non-Crude Energy Options"
+group_a 224.0.31.135
+port_a 14387
+group_b 224.0.32.135
+port_b 15387
+group_ir 224.0.31.177
+port_ir 14387
+group_dr 233.72.75.23
+port_dr 23387
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan430 {
+chanid 430
+name "BMD Globex Futures"
+group_a 224.0.33.64
+port_a 14430
+group_b 224.0.34.64
+port_b 15430
+group_ir 224.0.33.74
+port_ir 14430
+group_dr 233.72.75.14
+port_dr 23430
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan431 {
+chanid 431
+name "BMD Globex Options"
+group_a 224.0.33.65
+port_a 14431
+group_b 224.0.34.65
+port_b 15431
+group_ir 224.0.33.75
+port_ir 14431
+group_dr 233.72.75.15
+port_dr 23431
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan440 {
+chanid 440
+name "DME Globex Futures"
+group_a 224.0.33.80
+port_a 14440
+group_b 224.0.34.80
+port_b 15440
+group_ir 224.0.33.90
+port_ir 14440
+group_dr 233.72.75.16
+port_dr 23440
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
+
+chan441 {
+chanid 441
+name "DME Globex Options"
+group_a 224.0.33.81
+port_a 14441
+group_b 224.0.34.81
+port_b 15441
+group_ir 224.0.33.91
+port_ir 14441
+group_dr 233.72.75.17
+port_dr 23441
+mdinterface_a 172.17.248.103
+mdinterface_b 172.17.249.103
+}
