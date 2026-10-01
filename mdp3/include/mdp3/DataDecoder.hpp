@@ -544,10 +544,10 @@ namespace mdp3
         // Serial-path stage timing, logged every 10 s. G includes everything
         // handler_if does inline: the book send (heap copy + push), or with
         // UseFastSend the book's whole update.
-        // X0: exchange SendingTime (packet header) -> t0. Covers network plus
-        // socket-buffer wait, which t0-based stages cannot see. Includes the
-        // host/CME clock offset, so compare shapes across configs, not levels.
-        // Negative deltas (clock skew) go to X0_NEG as magnitudes.
+        // X0: exchange SendingTime (packet header) -> t0, as excess over the
+        // previous 10 s window's minimum. That is queueing before t0 (network,
+        // NIC, socket buffer), which t0-based stages cannot see. Values below
+        // the baseline (clock drift) go to X0_NEG as magnitudes.
         enum Stage { X0_EXCH_TO_T0, X0_NEG, A1_READ_TO_SEND, A2_TO_MSGBUF, A2_Q0, A2_QPOS,
                      A3_MSGBUF_TO_DECODE, G_DECODE_HANDLER, TOTAL, NSTAGES };
 
@@ -560,8 +560,16 @@ namespace mdp3
             {
                 uint64_t sending = 0;
                 std::memcpy(&sending, m->data + 4, sizeof(sending));
-                const int64_t x0 = int64_t(m->ts - sending);
-                stages_.h[x0 >= 0 ? X0_EXCH_TO_T0 : X0_NEG].add(x0 >= 0 ? x0 : -x0);
+                // Excess over the previous window's minimum: removes the
+                // constant host/CME clock offset (about 8 ms on this box) and
+                // the fixed wire time, leaving the queueing before t0.
+                const int64_t raw = int64_t(m->ts - sending);
+                if (raw < x0_cur_min_) x0_cur_min_ = raw;
+                if (x0_base_ != INT64_MAX)
+                {
+                    const int64_t x0 = raw - x0_base_;
+                    stages_.h[x0 >= 0 ? X0_EXCH_TO_T0 : X0_NEG].add(x0 >= 0 ? x0 : -x0);
+                }
             }
             stages_.h[A1_READ_TO_SEND].add(int64_t(m->send_ts - m->ts));
             stages_.h[A2_TO_MSGBUF].add(a2);
@@ -573,7 +581,13 @@ namespace mdp3
                 "A1_read_to_send", "A2_to_msgbuf",
                 "A2_to_msgbuf_qlen0", "A2_to_msgbuf_qlenpos", "A3_msgbuf_to_decode",
                 "G_decode_handler", "TOTAL_t0_to_decoded"};
+            const uint64_t before = stages_.last_flush;
             stages_.maybe_flush(t_end, name_, names);
+            if (stages_.last_flush != before && x0_cur_min_ != INT64_MAX)
+            {
+                x0_base_ = x0_cur_min_;
+                x0_cur_min_ = INT64_MAX;
+            }
         }
 
         // Low-rate control ops from MessageProcessor (gap / burstend / print_stats).
@@ -591,5 +605,7 @@ namespace mdp3
         bool debug;
         char name_[256];
         StageSet<NSTAGES> stages_;
+        int64_t x0_base_ = INT64_MAX;
+        int64_t x0_cur_min_ = INT64_MAX;
     };
 }
