@@ -648,7 +648,13 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     add_to_manage_q(mdp3cfsmp[1], pin(1));  // message_processor
     add_to_manage_q(mdp3cfsmp[2], pin(2));  // msg_buf_a
     add_to_manage_q(mdp3cfsmp[4], pin(3));  // socket_processor_a
-    add_to_manage_q(mdp3cfsmp[5], pin(4));  // socket_processor_b
+    // cme_feed_b false (experiment): never start socket reader B, so it never
+    // joins its group and MsgBuf sees feed A only. A-feed loss then costs a
+    // recovery instead of being filled from B.
+    if (pt_chan.get<bool>("cme_feed_b", true))
+        add_to_manage_q(mdp3cfsmp[5], pin(4));  // socket_processor_b
+    else
+        std::cerr << "Kaspr: chan " << chanstr << " FEED B OFF (A only)" << std::endl;
 
     if (nworkers == 0)
     {

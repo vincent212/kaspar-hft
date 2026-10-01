@@ -428,6 +428,37 @@ Findings:
   needs a consumer that does not sleep: `cme_msgbuf_mailbox lockfree_spin`, not
   yet measured.
 
+### R9. Spinning MsgBuf (P4 spin)
+
+- **Change:** `cme_msgbuf_mailbox lockfree_spin`. MsgBuf moves to a
+  `LockFreeMPSC` whose consumer busy-polls, so it never sleeps. Everything else
+  is the same as R7.
+- **Run:** 08:40. Compared with the R8 BQueue run, same method.
+
+| | ES 310 | NQ 318 | ZN 344 |
+|---|---|---|---|
+| A2 send -> MsgBuf, BQueue | 1.1 / 2.3 / 3.8 / 9.7 / 12.6 | 0.8 / 2.2 / 2.8 / 6.8 / 12.5 | 0.5 / 1.6 / 2.1 / 6.7 / 10.6 |
+| A2, spinning | **0.6 / 0.7 / 0.9 / 3.5 / 5.0** | **0.6 / 0.7 / 0.8 / 2.1 / 21.8** | **0.5 / 0.7 / 0.8 / 1.9 / 8.2** |
+| A3 MsgBuf -> dispatch, BQueue | 0.4 / 0.9 / 1.3 / 3.4 / 4.9 | 0.3 / 0.9 / 1.4 / 4.2 / 6.0 | 0.4 / 0.9 / 1.3 / 5.1 / 7.5 |
+| A3, spinning | 0.4 / 0.7 / 1.0 / 2.7 / 4.3 | 0.5 / 0.6 / 0.9 / 2.9 / 6.0 | 0.5 / 0.8 / 1.1 / 3.2 / 7.0 |
+| total -> replayed, BQueue | 6.6 / 8.6 / 10.5 / 25.2 / 35.6 | 5.3 / 6.8 / 8.4 / 16.6 / 24.6 | 5.1 / 6.7 / 9.7 / 20.1 / 31.5 |
+| total, spinning | **4.9 / 5.6 / 7.1 / 19.3 / 26.2** | **4.3 / 4.8 / 5.9 / 15.1 / 51.8** | **3.7 / 4.8 / 7.7 / 16.4 / 23.0** |
+
+p1 / p10 / p50 / p99 / p999, in us.
+
+Findings:
+
+- **A2 drops from 2.1-3.8 us to 0.8-0.9 us at p50.** That is the same as the
+  other spinning hops (B, D). p99 drops from 7-10 us to 2-3.5 us. This
+  confirms A2 was the wakeup of a sleeping MsgBuf. The feed is sparse (about
+  1 packet per ms on NQ and ZN, 1 per 10 ms on ES), so MsgBuf was asleep for
+  nearly every packet.
+- **End to end:** p50 is 2-3.4 us better, p1 1-1.7 us better, and p99 1.5-6 us
+  better.
+- **Ordering is intact:** zero "waiting for gap" and zero gaps (compare R8).
+- **Cost:** one busy core per channel for MsgBuf. 22 threads ran at 100% in
+  this run: 15 decode, 3 MsgBuf, and the Onload-polling socket readers.
+
 Implications:
 
 - The next latency target is the **socket -> MsgBuf hop (stage A2)**, which
