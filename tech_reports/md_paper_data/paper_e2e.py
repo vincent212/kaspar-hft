@@ -34,6 +34,8 @@ contract (Z6), `book` = book updates, `trade` = trades.
 | p1..p999 | percentiles of t1 - t0 over those messages |
 | max | slowest single message |
 
+Rows in the per-stream tables are sorted by p90, fastest first.
+
 **Config labels.** Every config is `base` plus the listed changes. Exact files:
 `configs/<label>/`. Full description: `../md_median_vs_tail_draft.md`,
 section "Configuration labels".
@@ -124,13 +126,16 @@ for s in STREAMS:
     print(f'\n## {s}')
     print(f'| config | runs | msgs | ' + ' | '.join(p for p, _ in PS) + ' | max |')
     print('|---|---|---|' + '---|' * (len(PS) + 1))
+    rows = []
     for c in cfgs:
         v = sorted(x[0] for x in pooled[c][s])
         if len(v) < 100:
             continue
         nr = len([k for k in per_pass if k[0] == c and per_pass[k][s]])
-        print(f'| {c} | {nr} | {len(v):,} | ' + ' | '.join(f'{pct(v, q):.1f}' for _, q in PS) +
-              f' | {v[-1]:.0f} |')
+        rows.append((pct(v, .90), f'| {c} | {nr} | {len(v):,} | ' +
+                     ' | '.join(f'{pct(v, q):.1f}' for _, q in PS) + f' | {v[-1]:.0f} |'))
+    for _, line in sorted(rows):
+        print(line)
 
 print('\n# Per-pass p50 / p99 / p999 (consistency check)')
 for s in STREAMS[:3]:
