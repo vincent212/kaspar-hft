@@ -1,4 +1,4 @@
-<!-- Generated 2026-10-01 14:14 EDT from /home/vincent/perf/mdperf/paper -->
+<!-- Generated 2026-10-01 14:25 EDT from /home/vincent/perf/mdperf/paper -->
 # End-to-end t1-t0 (us), pooled over passes, first 120s of each run dropped
 
 ## Legend
@@ -281,7 +281,50 @@ thread that is asleep costs a futex wakeup, about 2-4 us on this feed. The feed
 is sparse: about 1 packet per ms on NQ and ZN, 1 per 10 ms on ES. So a
 receiving thread is asleep for almost every packet.
 
+## Diagram notation
+
+Each box is an actor. Each column of boxes under a `THREAD` heading runs on
+that one OS thread.
+
+```
+==send==>        async send: message queued in the receiver's mailbox; the receiver's
+                 own thread processes it later. A thread hop.
+--fast_send-->   synchronous: the receiver's handler runs immediately, on the
+                 caller's thread, under the receiver's lock. No hop.
+--call-->        plain virtual function call. No hop.
+(sleeps)         the receiving mailbox parks its thread on a condvar when empty;
+                 every message pays a futex wakeup.
+(spins)          the receiving mailbox busy-polls, so there is no wakeup; it burns
+                 a core.
+t0 / t1          where the latency clock starts and stops.
+```
+
+The book -> LatencyProbe send happens after t1, so it is outside the measured
+latency. It is shown only for completeness.
+
 ## base (production path)
+
+```
+THREAD sock A                         THREAD sock B
+  [SocketReader A]  t0                  [SocketReader B]  t0
+        |                                     |
+        |  ==send==>                          |  ==send==>
+        +-----------------+-------------------+
+                          v
+THREAD MsgBuf  (sleeps)
+  [MsgBuf]
+    --fast_send-->  [MessageProcessor]   (sequence check, reorder)
+    --fast_send-->  [DataDecoder]        (SBE decode)
+    --call-->       [handler_if]         (book events)
+                          |
+                          |  ==send==>  (heap copy of each book event)
+                          v
+THREAD TachBook  (sleeps)
+  [TachBook]  t1
+    ==send==>  [LatencyProbe]   (after t1, not measured)
+
+hops between t0 and t1: 2, both into sleeping threads
+```
 
 The socket reader hands each packet to MsgBuf (hop 1). MsgBuf, MessageProcessor,
 decode and the handler then run inline on the MsgBuf thread. The handler copies
@@ -298,6 +341,24 @@ competition for CPUs. It is the reference point, not a good target.
 
 ## fastsend (book inline)
 
+```
+THREAD sock A                         THREAD sock B
+  [SocketReader A]  t0                  [SocketReader B]  t0
+        |                                     |
+        |  ==send==>                          |  ==send==>
+        +-----------------+-------------------+
+                          v
+THREAD MsgBuf  (sleeps)  -- also runs the book
+  [MsgBuf]
+    --fast_send-->  [MessageProcessor]   (sequence check, reorder)
+    --fast_send-->  [DataDecoder]        (SBE decode)
+    --call-->       [handler_if]         (book events)
+    --fast_send-->  [TachBook]  t1       (book update on this same thread)
+    ==send==>  [LatencyProbe]   (after t1, not measured)
+
+hops between t0 and t1: 1, into a sleeping thread
+```
+
 Same as base, except the handler calls TachBook directly. The book update runs
 on the MsgBuf thread, so hop 2 disappears. One hop remains, and it still pays a
 wakeup.
@@ -310,6 +371,28 @@ this directly: packets that arrived 2-3 deep in the queue had a p50 of 30 us,
 against 9.5 us on base. This is the median-vs-tail trade-off of inlining.
 
 ## mbspin (spinning MsgBuf)
+
+```
+THREAD sock A                         THREAD sock B
+  [SocketReader A]  t0                  [SocketReader B]  t0
+        |                                     |
+        |  ==send==>                          |  ==send==>
+        +-----------------+-------------------+
+                          v
+THREAD MsgBuf  (SPINS: LockFreeMPSC busy-poll, no wakeup)
+  [MsgBuf]
+    --fast_send-->  [MessageProcessor]   (sequence check, reorder)
+    --fast_send-->  [DataDecoder]        (SBE decode)
+    --call-->       [handler_if]         (book events)
+                          |
+                          |  ==send==>  (heap copy of each book event)
+                          v
+THREAD TachBook  (sleeps)
+  [TachBook]  t1
+    ==send==>  [LatencyProbe]   (after t1, not measured)
+
+hops between t0 and t1: 2, the first without a wakeup
+```
 
 Same as base, but MsgBuf's mailbox busy-polls instead of sleeping (LockFreeMPSC
 consumer spin). Hop 1 still exists, but nothing has to be woken. It costs one
@@ -324,6 +407,24 @@ in the milliseconds.
 
 ## fastsend_mbspin (both)
 
+```
+THREAD sock A                         THREAD sock B
+  [SocketReader A]  t0                  [SocketReader B]  t0
+        |                                     |
+        |  ==send==>                          |  ==send==>
+        +-----------------+-------------------+
+                          v
+THREAD MsgBuf  (SPINS)  -- also runs the book
+  [MsgBuf]
+    --fast_send-->  [MessageProcessor]   (sequence check, reorder)
+    --fast_send-->  [DataDecoder]        (SBE decode)
+    --call-->       [handler_if]         (book events)
+    --fast_send-->  [TachBook]  t1       (book update on this same thread)
+    ==send==>  [LatencyProbe]   (after t1, not measured)
+
+hops between t0 and t1: 1, without a wakeup
+```
+
 One hop left, and it does not wake anything: the reader hands off to a spinning
 MsgBuf, which runs decode, handler and book inline. It is the best of the
 "one hop" designs.
@@ -334,6 +435,25 @@ for mbspin. ZN packets carry more book events, and they are all processed in
 line before the next packet starts. It also spins one core per channel.
 
 ## rfs (reader fast_send: zero hops)
+
+```
+THREAD sock A                         THREAD sock B
+  [SocketReader A]  t0                  [SocketReader B]  t0
+        |                                     |
+        |  --fast_send-->                     |  --fast_send-->
+        +-----------------+-------------------+
+                          v   (A and B take turns through MsgBuf's lock)
+  [MsgBuf]          (runs on whichever reader thread got there first)
+    --fast_send-->  [MessageProcessor]   (sequence check, reorder)
+    --fast_send-->  [DataDecoder]        (SBE decode)
+    --call-->       [handler_if]         (book events)
+    --fast_send-->  [TachBook]  t1       (book update on this same thread)
+    ==send==>  [LatencyProbe]   (after t1, not measured)
+
+MsgBuf's own thread is idle. The second copy of each packet (from the other feed)
+is dropped by MessageProcessor's sequence check.
+hops between t0 and t1: 0. Everything runs on the socket-reader thread.
+```
 
 The socket reader calls MsgBuf directly. MsgBuf, MessageProcessor, decode,
 handler and the book update all run on the reader thread. t0 and t1 are taken
@@ -350,6 +470,39 @@ contend for one lock. This is one unpinned run on a quiet day; it needs repeats,
 including on a high-volume day.
 
 ## p4s (parallel decode)
+
+```
+THREAD sock A                         THREAD sock B
+  [SocketReader A]  t0                  [SocketReader B]  t0
+        |                                     |
+        |  ==send==>                          |  ==send==>
+        +-----------------+-------------------+
+                          v
+THREAD MsgBuf  (sleeps)
+  [MsgBuf]
+    --fast_send-->  [MessageProcessor]
+                          |
+                          |  ==send==>  (copy of the packet, round-robin to worker k)
+                          v
+THREAD worker k  (x4 per channel, SPINS)
+  [DataDecoderActor k]
+    --call-->  [DataDecoder] + [RecordingHandler]   (decode, record handler calls)
+                          |
+                          |  ==send==>  (packet bytes + recorded calls)
+                          v
+THREAD HandlerIfActor  (SPINS)
+  [HandlerIfActor]   (puts packets back in dispatch order)
+    --call-->  [handler_if]   (replays the recorded calls)
+    ==send==>  DecodeDone back to MessageProcessor's own thread (off the latency path)
+                          |
+                          |  ==send==>  (heap copy of each book event)
+                          v
+THREAD TachBook  (sleeps)
+  [TachBook]  t1
+    ==send==>  [LatencyProbe]   (after t1, not measured)
+
+hops between t0 and t1: 4 (MsgBuf asleep, worker spins, handler spins, TachBook asleep)
+```
 
 MessageProcessor copies each packet and sends it round-robin to 4 decode
 workers per channel. Each worker decodes into a recording of handler calls. A
@@ -368,6 +521,22 @@ worker holds up every packet behind it.
 
 ## fsmb_pin and rfs_pin (pinned, not isolated)
 
+```
+fsmb_pin = the fastsend_mbspin diagram, threads pinned (ES / NQ / ZN, NUMA node 2):
+  SocketReader A  -> cpu 17 / 19 / 21
+  SocketReader B  -> cpu 49 / 51 / 53   (SMT sibling of A: same physical core)
+  MsgBuf (spins; runs decode + book) -> cpu 16 / 18 / 20 (a core to itself)
+  idle actors -> cpu 22, TachBook threads -> cpu 54, all other threads -> off node 2
+
+rfs_pin = the rfs diagram, threads pinned:
+  SocketReader A  -> cpu 16 / 18 / 20   (a core to itself)
+  SocketReader B  -> cpu 17 / 19 / 21   (a core to itself)
+  MsgBuf thread (idle) -> cpu 22, TachBook threads -> cpu 54, all other threads -> off node 2
+
+CPUs 17-22 also handle the storage controller's interrupts (mpi3mr0).
+Nothing is isolated.
+```
+
 These are fastsend_mbspin and rfs with every busy thread pinned to fixed CPUs
 on NUMA node 2. All other kaspr threads are kept off node 2. In fsmb_pin, sock
 A and sock B of a channel share one core as SMT siblings, and MsgBuf has a core
@@ -384,6 +553,17 @@ nohz_full, IRQ affinity moved off them). That needs a reboot and was not
 tested.
 
 ## *_A variants (feed B off)
+
+```
+THREAD sock A
+  [SocketReader A]  t0
+        |  ==send==>   (or --fast_send--> in rfs_pin_A)
+        v
+  ... rest exactly as in the named config ...
+
+SocketReader B is never started: one copy of each packet, no A/B arbitration,
+one fewer busy-polling thread per channel.
+```
 
 Same as the named config, but socket reader B is never started. Each channel
 reads feed A only, so there is no arbitration between A and B.

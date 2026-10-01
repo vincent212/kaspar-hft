@@ -1,4 +1,4 @@
-<!-- Generated 2026-10-01 14:14 EDT from /home/vincent/perf/mdperf/paper -->
+<!-- Generated 2026-10-01 14:25 EDT from /home/vincent/perf/mdperf/paper -->
 | run | minutes | waiting for gap | gaps declared | extra data recoveries |
 |---|---|---|---|---|
 | p1_base | 9.7 | 0 | 0 | 0 |
