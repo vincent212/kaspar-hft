@@ -16,6 +16,8 @@
  *   id    message type id                  (1-15 framework, 300-399 application)
  *   kind  SEND, FAST (a fast_send request) or FAST_REPLY
  *   n     payload words used
+ *   tag   on FAST, chosen by the caller; copied onto its FAST_REPLY, so the
+ *         caller matches a reply to its request by tag alone
  *   w     payload: the message's fields, see KFPGA_FIELDS
  *
  * Messages are plain structs with a static id and a KFPGA_FIELDS list. Fields are
@@ -49,6 +51,7 @@ struct Envelope
   MsgId id;
   uint8_t kind;
   uint8_t n;
+  uint32_t tag;
   uint32_t w[kPayloadWords];
 };
 
@@ -64,7 +67,8 @@ enum ErrorCode : uint32_t
   ERR_NO_CODEC = 5,       // the CPU side has no class registered for message `msg`
   ERR_WRONG_REPLY = 6,    // a fast_send was answered with message `msg`, not the type expected
   ERR_CYCLE = 7,          // a fast_send to the calling actor itself would wait on itself
-  ERR_SELF_FULL = 8       // an actor's queue of messages to itself is full
+  ERR_SELF_FULL = 8,      // an actor's queue of messages to itself is full
+  ERR_NOT_HERE = 9        // a message reached a process that holds no actor `dst`
 };
 
 // ---- field encoding ------------------------------------------------------------
@@ -143,6 +147,7 @@ bool pack(const M &m, ActorId dst, ActorId src, uint8_t kind, Envelope &e)
   e.src = src;
   e.id = M::id;
   e.kind = kind;
+  e.tag = 0;
   for (int i = 0; i < kPayloadWords; ++i)
     e.w[i] = 0;
   Writer wr{e.w, 0};
@@ -189,6 +194,7 @@ inline Envelope make_fast_reply_error(const Envelope &req, uint32_t code)
   err.kind = FAST_REPLY;
   err.dst = req.src;
   err.src = req.dst;
+  err.tag = req.tag;
   return err;
 }
 
@@ -200,6 +206,7 @@ inline Envelope make_no_reply(const Envelope &req)
   none.src = req.dst;
   none.id = 0;
   none.kind = FAST_REPLY;
+  none.tag = req.tag;
   return none;
 }
 

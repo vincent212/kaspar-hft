@@ -10,8 +10,9 @@
 /*
  * CardTransport -- how envelopes move between the CPU and the FPGA card.
  *
- * write() puts one envelope into the card's from_host stream; read() takes one
- * envelope from its to_pcie stream if there is one. On a real card this is the
+ * write() puts one envelope into the card: a FAST_REPLY into its from_host_reply
+ * stream, anything else into from_host. read() takes one envelope from its
+ * to_pcie stream if there is one. On a real card this is the
  * PCIe DMA path (host-memory rings, QDMA streams, ...); SoftCard runs the FPGA
  * design in software threads instead.
  */

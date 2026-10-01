@@ -10,8 +10,10 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <deque>
 #include <future>
 #include <mutex>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -48,7 +50,8 @@ struct Rig
 
   Rig()
   {
-    card = std::make_shared<kfpga::SoftCard>(design.steps(), design.from_host, design.to_pcie);
+    card = std::make_shared<kfpga::SoftCard>(design.steps(), design.from_host,
+                                               design.from_host_reply, design.to_pcie);
     bridge = std::make_shared<kfpga::FpgaBridge>(card);
     bridge->on_error = [this](const std::string &e)
     {
@@ -158,7 +161,7 @@ TEST(Bridge, UnregisteredMessageIsReported)
 TEST(Fpga, FastSendBetweenFpgaActorsStaysOnChip)
 {
   fpga_side::Design design;
-  kfpga::SoftCard card(design.steps(), design.from_host, design.to_pcie);
+  kfpga::SoftCard card(design.steps(), design.from_host, design.from_host_reply, design.to_pcie);
   card.start();
 
   fpga_side::Go go;
@@ -256,4 +259,200 @@ TEST(Bridge, CpuHandlerCalledByFpgaCallsFpga)
   EXPECT_EQ(d.last, 3u + 1000u * 3u);
   EXPECT_EQ(rig.design.pong.pings, 3u);
   EXPECT_TRUE(rig.errors().empty());
+}
+
+// Id 0 is the host itself.
+TEST(Bridge, ActorIdZeroIsRejected)
+{
+  Rig rig;
+  cpu_side::CpuPong a;
+  EXPECT_THROW(rig.bridge->add_cpu_actor(kfpga::kHost, &a), std::invalid_argument);
+}
+
+// Many CPU threads fast_send the same FPGA actor at once; each gets its own reply.
+TEST(Bridge, ConcurrentCpuFastSendsGetTheirOwnReplies)
+{
+  Rig rig;
+  auto ref = rig.bridge->ref(fpga_side::kFpgaPong);
+  constexpr int kThreads = 8, kCalls = 50;
+  std::atomic<int> wrong{0}, done{0};
+  std::vector<std::thread> ts;
+  for (int t = 0; t < kThreads; ++t)
+    ts.emplace_back([&, t] {
+      for (int i = 0; i < kCalls; ++i)
+      {
+        const uint32_t c = static_cast<uint32_t>(t * 1000000 + i);
+        cpu_side::Ping p(c);
+        auto r = ref.fast_send(&p, nullptr);
+        // FpgaPong answers count + 1000 * pings; pings < 1000 here, so the low
+        // part identifies the request.
+        if (!r || static_cast<const cpu_side::Pong *>(r.get())->count / 1000000 !=
+                      static_cast<uint32_t>(t))
+          ++wrong;
+        ++done;
+      }
+    });
+  for (auto &t : ts)
+    t.join();
+  EXPECT_EQ(done.load(), kThreads * kCalls);
+  EXPECT_EQ(wrong.load(), 0);
+  EXPECT_TRUE(rig.errors().empty());
+}
+
+// stop() releases a CPU caller still waiting, and reports it.
+TEST(Bridge, StopReleasesWaitingCaller)
+{
+  Rig rig;
+  rig.card->stop();   // the FPGA never answers
+  auto ref = rig.bridge->ref(fpga_side::kFpgaPong);
+  std::promise<bool> got_null;
+  std::thread caller([&] {
+    cpu_side::Ping p(1);
+    got_null.set_value(ref.fast_send(&p, nullptr) == nullptr);
+  });
+  std::this_thread::sleep_for(50ms);
+  rig.bridge->stop();
+  auto f = got_null.get_future();
+  ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
+  EXPECT_TRUE(f.get());
+  caller.join();
+  const auto errs = rig.errors();
+  ASSERT_EQ(errs.size(), 1u);
+  EXPECT_NE(errs[0].find("bridge stopped"), std::string::npos);
+}
+
+namespace {
+
+// Answers an FPGA actor's Ping by fast_sending a Pong back to that actor, through
+// the sender it was given (the bridge's stand-in for the FPGA actor).
+class AnswersThroughSender : public actors::Actor
+{
+public:
+  AnswersThroughSender()
+  {
+    std::strncpy(name, "AnswersThroughSender", sizeof(name) - 1);
+    MESSAGE_HANDLER(cpu_side::Ping, on_ping);
+  }
+
+private:
+  void on_ping(const cpu_side::Ping *m)
+  {
+    cpu_side::Pong p(77);
+    (void)m->sender->fast_send(&p, this);
+  }
+};
+
+} // namespace
+
+// A CPU fast_send to the stand-in for an FPGA actor reaches the FPGA actor.
+TEST(Bridge, FastSendToFpgaSenderReachesFpga)
+{
+  Rig rig;
+  auto *answer = new AnswersThroughSender();
+  auto *sink = new DoneSink();
+  rig.bridge->add_cpu_actor(fpga_side::kCpuPong, answer);
+  rig.bridge->add_cpu_actor(fpga_side::kCpuDriver, sink);
+  actors::Manager mgr;
+  mgr.add_to_manage_q(answer);
+  mgr.add_to_manage_q(sink);
+  mgr.init();
+
+  auto fut = sink->done.get_future();
+  // FpgaCaller sends Ping(1) to kCpuPong; the answer comes back as a fast_send of
+  // Pong(77) to FpgaCaller, which then reports Done(last = 77).
+  rig.bridge->ref(fpga_side::kFpgaCaller).send(new cpu_side::Go(1, 0), nullptr);
+  ASSERT_EQ(fut.wait_for(10s), std::future_status::ready);
+  const cpu_side::Done d = fut.get();
+  mgr.end();
+  EXPECT_EQ(d.last, 77u);
+  EXPECT_TRUE(rig.errors().empty());
+}
+
+// A failed FPGA -> CPU fast_send is reported once.
+TEST(Bridge, FailedFpgaToCpuFastSendReportedOnce)
+{
+  Rig rig;
+  auto *sink = new DoneSink();
+  rig.bridge->add_cpu_actor(fpga_side::kCpuDriver, sink);   // kCpuPong not registered
+  actors::Manager mgr;
+  mgr.add_to_manage_q(sink);
+  mgr.init();
+
+  auto fut = sink->done.get_future();
+  rig.bridge->ref(fpga_side::kFpgaCaller).send(new cpu_side::Go(1, 1), nullptr);
+  ASSERT_EQ(fut.wait_for(10s), std::future_status::ready);
+  EXPECT_EQ(fut.get().rounds, 0u);
+  mgr.end();
+  std::this_thread::sleep_for(20ms);   // anything else that was going to be reported
+  EXPECT_EQ(rig.errors().size(), 1u);
+}
+
+namespace {
+
+// A transport whose first write throws; envelopes put in `incoming` are read back.
+class ThrowingCard : public kfpga::CardTransport
+{
+public:
+  void write(const kfpga::Envelope &) override
+  {
+    if (!thrown_.exchange(true))
+      throw std::runtime_error("card write failed");
+  }
+  bool read(kfpga::Envelope &e) override
+  {
+    std::lock_guard<std::mutex> lk(mu);
+    if (incoming.empty())
+      return false;
+    e = incoming.front();
+    incoming.pop_front();
+    return true;
+  }
+  std::mutex mu;
+  std::deque<kfpga::Envelope> incoming;
+
+private:
+  std::atomic<bool> thrown_{false};
+};
+
+} // namespace
+
+// A card write that throws leaves no waiter behind: a reply that arrives later
+// for that request is reported, not delivered to freed memory.
+TEST(Bridge, ThrowingWriteLeavesNoWaiter)
+{
+  auto card = std::make_shared<ThrowingCard>();
+  auto bridge = std::make_shared<kfpga::FpgaBridge>(card);
+  std::mutex mu;
+  std::vector<std::string> errs;
+  bridge->on_error = [&](const std::string &e) {
+    std::lock_guard<std::mutex> lk(mu);
+    errs.push_back(e);
+  };
+  bridge->register_messages<cpu_side::Ping, cpu_side::Pong>();
+  bridge->start();
+
+  cpu_side::Ping p(1);
+  EXPECT_THROW(bridge->ref(fpga_side::kFpgaPong).fast_send(&p, nullptr), std::runtime_error);
+
+  cpu_side::Pong late(5);
+  kfpga::Envelope e;
+  ASSERT_TRUE(kfpga::pack(late, kfpga::kHost, fpga_side::kFpgaPong, kfpga::FAST_REPLY, e));
+  e.tag = 1;   // the first tag the bridge hands out
+  {
+    std::lock_guard<std::mutex> lk(card->mu);
+    card->incoming.push_back(e);
+  }
+  for (int i = 0; i < 1000; ++i)
+  {
+    {
+      std::lock_guard<std::mutex> lk(mu);
+      if (!errs.empty())
+        break;
+    }
+    std::this_thread::sleep_for(1ms);
+  }
+  bridge->stop();
+  std::lock_guard<std::mutex> lk(mu);
+  ASSERT_EQ(errs.size(), 1u);
+  EXPECT_NE(errs[0].find("no caller waiting"), std::string::npos);
 }

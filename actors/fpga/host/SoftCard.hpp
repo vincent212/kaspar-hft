@@ -36,8 +36,9 @@ public:
   using Step = std::function<bool()>;   // one step of one process; false = idle
 
   SoftCard(std::vector<Step> steps, hls::stream<Envelope> &from_host,
-           hls::stream<Envelope> &to_pcie)
-    : steps_(std::move(steps)), from_host_(from_host), to_pcie_(to_pcie)
+           hls::stream<Envelope> &from_host_reply, hls::stream<Envelope> &to_pcie)
+    : steps_(std::move(steps)), from_host_(from_host), from_host_reply_(from_host_reply),
+      to_pcie_(to_pcie)
   {
   }
 
@@ -65,12 +66,20 @@ public:
     threads_.clear();
   }
 
-  void write(const Envelope &e) override { from_host_.write(e); }
+  // Replies go on their own input, so they never wait behind other traffic.
+  void write(const Envelope &e) override
+  {
+    if (e.kind == FAST_REPLY)
+      from_host_reply_.write(e);
+    else
+      from_host_.write(e);
+  }
   bool read(Envelope &e) override { return to_pcie_.read_nb(e); }
 
 private:
   std::vector<Step> steps_;
   hls::stream<Envelope> &from_host_;
+  hls::stream<Envelope> &from_host_reply_;
   hls::stream<Envelope> &to_pcie_;
   std::vector<std::thread> threads_;
   std::atomic<bool> stop_{false};

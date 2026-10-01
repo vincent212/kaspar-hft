@@ -25,6 +25,11 @@
  *
  * Order: each FIFO keeps its order, so messages from one sender to one receiver
  * arrive in the order they were sent.
+ *
+ * The host link has two inputs: from_host (messages and fast_send requests) and
+ * from_host_reply (replies to FPGA actors' fast_sends to the CPU). A reply never
+ * waits behind a message for an actor whose FIFO is full, so an actor waiting on
+ * the CPU always gets its answer.
  */
 
 #include "actors_fpga/envelope.hpp"
@@ -66,6 +71,7 @@ struct Links
   hls::stream<Envelope> msg[NE][NE];
   hls::stream<Envelope> freq[NE][NE];
   hls::stream<Envelope> frep[NE][NE];
+  hls::stream<Envelope> reply_err;   // from host_in_reply to host_out
 };
 
 // Endpoint K writes to endpoint `to`. Unrolled over constant indices so Vitis HLS
@@ -114,9 +120,9 @@ int pick_from(hls::stream<Envelope> (&a)[NE][NE], int last)
   return chosen;
 }
 
-// Host -> FPGA: each envelope goes straight into the FIFO from the host to its
-// actor, by kind. What cannot be delivered is answered on msg[host][host], which
-// the host output sends back out.
+// Host -> FPGA, messages and fast_send requests: each envelope goes straight into
+// the FIFO from the host to its actor. What cannot be delivered is answered on
+// msg[host][host], which the host output sends back out.
 template <int NE>
 bool host_in_step(hls::stream<Envelope> &from_host, Links<NE> &L, const DiscoveryTable &rt)
 {
@@ -125,12 +131,10 @@ bool host_in_step(hls::stream<Envelope> &from_host, Links<NE> &L, const Discover
     return false;
   const Envelope e = from_host.read();
   const int8_t p = lookup(rt, e.dst);
-  if (p >= 0 && p < H)
+  if (p >= 0 && p < H && e.kind != FAST_REPLY)
   {
     if (e.kind == FAST)
       write_to<NE, H>(L.freq, p, e);
-    else if (e.kind == FAST_REPLY)
-      write_to<NE, H>(L.frep, p, e);
     else
       write_to<NE, H>(L.msg, p, e);
   }
@@ -146,14 +150,33 @@ bool host_in_step(hls::stream<Envelope> &from_host, Links<NE> &L, const Discover
   return true;
 }
 
+// Host -> FPGA, replies: each goes into the reply FIFO from the host to the actor
+// that is waiting for it. An actor has at most one fast_send outstanding, so that
+// FIFO never holds more than one reply and this process never blocks.
+template <int NE>
+bool host_in_reply_step(hls::stream<Envelope> &from_host_reply, Links<NE> &L,
+                        const DiscoveryTable &rt)
+{
+  constexpr int H = NE - 1;
+  if (from_host_reply.empty())
+    return false;
+  const Envelope e = from_host_reply.read();
+  const int8_t p = lookup(rt, e.dst);
+  if (p >= 0 && p < H && e.kind == FAST_REPLY)
+    write_to<NE, H>(L.frep, p, e);
+  else
+    L.reply_err.write(make_error(ERR_NO_ROUTE, kHost, e.id, e.dst));
+  return true;
+}
+
 // FPGA -> host: merge everything addressed to the host onto the one PCIe stream,
 // round-robin. Inputs, numbered for the arbiter: 0..NE-1 msg[s][H],
-// NE..2NE-2 freq[s][H], 2NE-1..3NE-3 frep[s][H].
+// NE..2NE-2 freq[s][H], 2NE-1..3NE-3 frep[s][H], 3NE-2 reply_err.
 template <int NE>
 bool host_out_step(Links<NE> &L, hls::stream<Envelope> &to_pcie, int &last)
 {
   constexpr int H = NE - 1;
-  constexpr int N = NE + 2 * (NE - 1);
+  constexpr int N = NE + 2 * (NE - 1) + 1;
   int chosen = -1;
   int best = N;
   for (int j = 0; j < N; ++j)
@@ -164,8 +187,10 @@ bool host_out_step(Links<NE> &L, hls::stream<Envelope> &to_pcie, int &last)
       ready = !L.msg[j][H].empty();
     else if (j < 2 * NE - 1)
       ready = !L.freq[j - NE][H].empty();
-    else
+    else if (j < N - 1)
       ready = !L.frep[j - (2 * NE - 1)][H].empty();
+    else
+      ready = !L.reply_err.empty();
     const int rank = (j - last - 1 + 2 * N) % N;
     if (ready && rank < best)
     {
@@ -184,8 +209,10 @@ bool host_out_step(Links<NE> &L, hls::stream<Envelope> &to_pcie, int &last)
       to_pcie.write(L.msg[j][H].read());
     else if (j < 2 * NE - 1)
       to_pcie.write(L.freq[j - NE][H].read());
-    else
+    else if (j < N - 1)
       to_pcie.write(L.frep[j - (2 * NE - 1)][H].read());
+    else
+      to_pcie.write(L.reply_err.read());
   }
   last = chosen;
   return true;

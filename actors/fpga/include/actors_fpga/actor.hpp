@@ -42,6 +42,10 @@
  * Handlers are templates on the Ctx type, because a Ctx knows at compile time
  * which process it belongs to: that is what lets every FIFO have one writer.
  *
+ * Actors inside another actor's process (FusedPing's Pong, say) are listed with
+ * KFPGA_INNER(member, ...); a message addressed to one of them, routed to that
+ * process, is handled by it.
+ *
  * Each actor runs as its own hardware process (actor_process), one message at a
  * time, serving its fast_send request FIFOs before anything else.
  */
@@ -204,14 +208,7 @@ public:
     write_to<NE, K>(L_.freq, ep, e);
     const Envelope r = read_from<NE, K>(L_.frep, ep);
     if (r.id == Error::id)
-    {
-      // The call failed (no such actor, no handler...): tell the host.
-      Envelope err = r;
-      err.dst = kHost;
-      err.kind = SEND;
-      error(err);
-      return false;
-    }
+      return false;   // the call failed; whoever produced the Error has reported it
     return take_reply<Rep>(r, rep);
   }
 
@@ -255,14 +252,53 @@ private:
   bool has_reply_ = false;
 };
 
-// One step of the actor process at endpoint K: take one message and run its
-// handler. Order: a fast_send request from any endpoint, then a message the actor
-// sent itself, then a message from any endpoint; round-robin among endpoints.
+// Actors inside A's process, if A lists any with KFPGA_INNER.
+template <class A, class C, class = void>
+struct has_inner : std::false_type {};
+template <class A, class C>
+struct has_inner<A, C,
+                 decltype((void)std::declval<A &>().kfpga_inner(std::declval<const Envelope &>(),
+                                                                std::declval<C &>()))>
+    : std::true_type {};
+
+// -1: no inner actor has that id; 0: it has no handler; 1: handled.
+template <class C>
+int dispatch_inner(const Envelope &, C &)
+{
+  return -1;
+}
+template <class C, class B, class... R>
+int dispatch_inner(const Envelope &e, C &ctx, B &b, R &...r)
+{
+  if (e.dst == B::kId)
+    return b.kfpga_dispatch(e, ctx) ? 1 : 0;
+  return dispatch_inner(e, ctx, r...);
+}
+
+template <class A, class C>
+int dispatch_to(A &a, const Envelope &e, C &ctx, std::true_type)
+{
+  if (e.dst == A::kId)
+    return a.kfpga_dispatch(e, ctx) ? 1 : 0;
+  return a.kfpga_inner(e, ctx);
+}
+template <class A, class C>
+int dispatch_to(A &a, const Envelope &e, C &ctx, std::false_type)
+{
+  if (e.dst == A::kId)
+    return a.kfpga_dispatch(e, ctx) ? 1 : 0;
+  return -1;
+}
+
+// One step of the actor process at endpoint K: take one message and run the
+// handler of the actor it is addressed to (A, or an actor inside A's process).
+// Order: a fast_send request from any endpoint, then a message the process sent
+// itself, then a message from any endpoint; round-robin among endpoints.
 // Returns false if nothing was waiting.
 //
 // The answer to a fast_send request (id 0 if the handler did not reply) goes
-// back on the reply FIFO to the endpoint the request came from, so the waiting
-// caller is always released.
+// back on the reply FIFO to the endpoint the request came from, with the
+// request's tag, so the waiting caller is always released.
 template <class A, int NE, int K>
 bool actor_step(A &a, Links<NE> &L, const DiscoveryTable &rt, ActorPorts<NE> &st)
 {
@@ -292,12 +328,19 @@ bool actor_step(A &a, Links<NE> &L, const DiscoveryTable &rt, ActorPorts<NE> &st
     st.last_msg = m;
   }
 
-  Ctx<NE, K> ctx(L, rt, st.self, A::kId, e.src, from, fast);
-  if (!a.kfpga_dispatch(e, ctx))
-    L.msg[K][NE - 1].write(make_error(ERR_NO_HANDLER, A::kId, e.id, A::kId));
+  Ctx<NE, K> ctx(L, rt, st.self, e.dst, e.src, from, fast);
+  const int r = dispatch_to(a, e, ctx, has_inner<A, Ctx<NE, K>>{});
+  if (r < 0)
+    L.msg[K][NE - 1].write(make_error(ERR_NOT_HERE, A::kId, e.id, e.dst));
+  else if (r == 0)
+    L.msg[K][NE - 1].write(make_error(ERR_NO_HANDLER, e.dst, e.id, e.dst));
 
   if (fast)
-    write_to<NE, K>(L.frep, from, ctx.has_reply() ? ctx.reply_envelope() : make_no_reply(e));
+  {
+    Envelope out = ctx.has_reply() ? ctx.reply_envelope() : make_no_reply(e);
+    out.tag = e.tag;
+    write_to<NE, K>(L.frep, from, out);
+  }
   return true;
 }
 
@@ -320,6 +363,14 @@ void actor_process(A &a, Links<NE> &L, const DiscoveryTable &rt)
     ::kfpga::unpack(e_, m_);               \
     handler(m_, ctx_);                     \
     return true;                           \
+  }
+
+// Actors held as members of this one, inside its process, e.g. KFPGA_INNER(pong).
+#define KFPGA_INNER(...)                                                     \
+  template <class KfpgaCtx_>                                                 \
+  int kfpga_inner(const ::kfpga::Envelope &e_, KfpgaCtx_ &ctx_)              \
+  {                                                                          \
+    return ::kfpga::dispatch_inner(e_, ctx_, __VA_ARGS__);                   \
   }
 
 #define KFPGA_HANDLERS(...)                                                  \

@@ -27,6 +27,7 @@ struct Design
   FusedPing fused;
 
   kfpga::Links<kEndpoints> links;
+  hls::stream<kfpga::Envelope> from_host_reply;   // replies to the actors' calls to the CPU
   kfpga::DiscoveryTable rt = discovery();
   kfpga::ActorPorts<kEndpoints> ping_st, pong_st, fused_st;
   int out_last = 0;
@@ -38,6 +39,7 @@ struct Design
   {
     bool w = false;
     w |= kfpga::host_in_step(from_host, links, rt);
+    w |= kfpga::host_in_reply_step(from_host_reply, links, rt);
     w |= kfpga::actor_step<PingActor, kEndpoints, 0>(ping, links, rt, ping_st);
     w |= kfpga::actor_step<PongActor<kPong>, kEndpoints, 1>(pong, links, rt, pong_st);
     w |= kfpga::actor_step<FusedPing, kEndpoints, 2>(fused, links, rt, fused_st);

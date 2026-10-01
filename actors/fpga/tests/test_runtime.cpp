@@ -398,3 +398,52 @@ TEST(Errors, WrongReplyTypeIsReported)
   EXPECT_EQ(err.code, ERR_WRONG_REPLY);
   EXPECT_EQ(err.msg, Start::id);
 }
+
+// An actor inside another actor's process receives messages addressed to it.
+TEST(PingPong, InnerActorIsAddressable)
+{
+  Design d;
+  hls::stream<Envelope> from_host, to_pcie;
+  from_host.write(env(ping(5), kFusedPong));   // FusedPing's inner Pong
+  d.run(from_host, to_pcie);
+  auto out = drain(to_pcie);
+  ASSERT_EQ(out.size(), 1u);
+  EXPECT_EQ(out[0].src, kFusedPong);
+  EXPECT_EQ(as<Pong>(out[0]).count, 5u + 1000u);
+  EXPECT_EQ(d.fused.pong.pings, 1u);
+}
+
+// A reply from the host has its own input: it reaches the waiting actor even
+// while messages wait, unread, on the other input.
+TEST(Links, HostReplyHasItsOwnInput)
+{
+  constexpr int H = kEndpoints - 1;
+  Links<kEndpoints> L;
+  const DiscoveryTable rt = discovery();
+  hls::stream<Envelope> from_host, from_host_reply;
+  for (int i = 0; i < 4; ++i)
+    from_host.write(env(ping(1), kPong));
+  Pong p;
+  p.count = 7;
+  from_host_reply.write(env(p, kPing, kHost, FAST_REPLY));
+  ASSERT_TRUE(host_in_reply_step(from_host_reply, L, rt));
+  ASSERT_EQ(L.frep[H][0].size(), 1u);
+  EXPECT_EQ(from_host.size(), 4u);
+}
+
+// A fast_send reply carries the request's tag.
+TEST(ActorStep, ReplyCarriesTheRequestTag)
+{
+  constexpr int H = kEndpoints - 1;
+  Links<kEndpoints> L;
+  const DiscoveryTable rt = discovery();
+  ActorPorts<kEndpoints> st;
+  PongActor<kPong> pong;
+  Envelope req = env(ping(1), kPong, kHost, FAST);
+  req.tag = 4242;
+  L.freq[H][1].write(req);
+  ASSERT_TRUE((actor_step<PongActor<kPong>, kEndpoints, 1>(pong, L, rt, st)));
+  auto r = drain(L.frep[1][H]);
+  ASSERT_EQ(r.size(), 1u);
+  EXPECT_EQ(r[0].tag, 4242u);
+}

@@ -69,7 +69,8 @@ to every endpoint `r` there are three:
   frep[s][r]   replies from s to a fast_send that r made
 
   actor s ──msg / freq──> actor r          actor r ──frep──> actor s
-  from_host ─> host_in ──> the FIFOs from the host to each actor
+  from_host       ─> host_in       ──> msg / freq FIFOs from the host to each actor
+  from_host_reply ─> host_in_reply ──> frep FIFO from the host to each actor
   each actor's FIFOs to the host ──> host_out ──> to_pcie
 ```
 
@@ -77,7 +78,13 @@ A sender writes straight into the FIFO that leads to its receiver; nothing sits 
 between. A `fast_send` between two FPGA processes is one FIFO hop for the request and one
 for the reply. The discovery table (`DiscoveryTable`, fixed when the design is built) only
 tells a sender which endpoint holds a given actor id. `host_out` merges the FIFOs to the
-host onto the one PCIe stream; it is on the PCIe path only.
+host onto the one PCIe stream; it is on the PCIe path only. Replies from the CPU come in
+on their own stream, `from_host_reply`, so a reply an actor is waiting for never sits
+behind a message for an actor whose FIFO is full.
+
+A message is handled by the actor it is addressed to. An actor that holds others inside
+its process lists them with `KFPGA_INNER(member, ...)`; the discovery table maps their ids
+to that process, and messages to them reach them there.
 
 | actor model | FPGA runtime | file |
 |---|---|---|
@@ -88,13 +95,15 @@ host onto the one PCIe stream; it is on the PCIe path only.
 | `send` | written by the sender straight into the FIFO to the receiver | `Ctx::send` |
 | `fast_send` inside one process | the callee's handler is inlined into the caller's: no FIFO | `Ctx::fast_send` |
 | `fast_send` to another process | the request straight into the callee's `freq` FIFO, served before messages; the caller waits on the `frep` FIFO from the callee | `Ctx::fast_send`, `actor_step` |
-| link to the CPU | one stream in, one stream out | `host_in_step`, `host_out_step` |
+| link to the CPU | two streams in (messages and requests; replies), one out | `host_in_step`, `host_in_reply_step`, `host_out_step` |
 
 Designs here use a FIFO for every pair of endpoints; a pair that never talks has FIFOs
 nobody writes. Declaring only the pairs a design uses is not done yet.
 
 Every message is an `Envelope` (`envelope.hpp`): destination, sender, message id, kind
-(`SEND`, `FAST`, `FAST_REPLY`), payload length, payload. The same envelope crosses PCIe.
+(`SEND`, `FAST`, `FAST_REPLY`), payload length, a tag, payload. A `fast_send` request's
+tag is copied onto its reply, so a caller matches its reply by tag. The same envelope
+crosses PCIe.
 
 Rules the runtime keeps:
 
@@ -144,19 +153,22 @@ The CPU side is `host/FpgaBridge.hpp`. It connects the CPU actor runtime to one 
     `send`;
   - `FAST`: handed to the worker thread of the calling FPGA actor, which calls the
     target's `fast_send` and writes the reply back;
-  - `FAST_REPLY`: handed to the CPU thread waiting in `fast_send` (replies from one FPGA
-    actor come back in the order its requests were sent, so several CPU threads can
-    have calls outstanding);
+  - `FAST_REPLY`: handed to the CPU thread waiting in `fast_send`, found by the tag its
+    request carried, so several CPU threads can have calls outstanding;
   - `Error`: reported through `on_error`.
 
   The reader never runs a CPU handler, so it is always free to deliver replies. A CPU
   handler run for an FPGA actor may itself `fast_send` to the FPGA.
 - **Failures.** A CPU `fast_send` to the FPGA that fails (no route, unregistered
-  message, an error from the FPGA) throws; called from a handler, that ends the process.
+  message, an error from the FPGA, a bridge that is not running) throws; called from a
+  handler, that ends the process. Each failure is reported once. `stop()` releases any
+  CPU caller still waiting, with no reply, and reports it.
 - **Replies from CPU actors.** When the bridge delivers a message from an FPGA actor, the
-  sender it passes is a stand-in object for that FPGA actor, whose `send` writes back to
-  the card. A CPU handler's ordinary `reply()` therefore reaches the FPGA actor.
-- **Addressing.** FPGA and CPU actors share one id space. A CPU actor that FPGA actors
+  sender it passes is a stand-in object for that FPGA actor. Its `send` writes back to
+  the card, and a `fast_send` to it is forwarded to the FPGA actor and returns its reply.
+  A CPU handler's ordinary `reply()` therefore reaches the FPGA actor.
+- **Addressing.** FPGA and CPU actors share one id space, 1–15; id 0 is the host
+  itself, and is what a message from an unregistered CPU sender carries. A CPU actor that FPGA actors
   address, or that expects replies from them, is registered with
   `bridge->add_cpu_actor(id, actor)`, and the design's discovery table sends that id to the
   host.

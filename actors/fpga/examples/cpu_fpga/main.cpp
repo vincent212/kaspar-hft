@@ -22,7 +22,8 @@ int main()
 {
   // The FPGA side.
   fpga_side::Design design;
-  auto card = std::make_shared<kfpga::SoftCard>(design.steps(), design.from_host, design.to_pcie);
+  auto card = std::make_shared<kfpga::SoftCard>(design.steps(), design.from_host,
+                                                 design.from_host_reply, design.to_pcie);
 
   // The bridge between the two runtimes.
   auto bridge = std::make_shared<kfpga::FpgaBridge>(card);

@@ -163,7 +163,7 @@ struct Design
   FpgaPong pong;
   FpgaCaller caller;
 
-  hls::stream<Envelope> from_host, to_pcie;
+  hls::stream<Envelope> from_host, from_host_reply, to_pcie;
   kfpga::Links<kEndpoints> links;
 
   kfpga::DiscoveryTable rt = discovery();
@@ -175,6 +175,7 @@ struct Design
   {
     return {
         [this] { return kfpga::host_in_step(from_host, links, rt); },
+        [this] { return kfpga::host_in_reply_step(from_host_reply, links, rt); },
         [this] { return kfpga::actor_step<FpgaPong, kEndpoints, 0>(pong, links, rt, pong_st); },
         [this] { return kfpga::actor_step<FpgaCaller, kEndpoints, 1>(caller, links, rt, caller_st); },
         [this] { return kfpga::host_out_step(links, to_pcie, out_last); },

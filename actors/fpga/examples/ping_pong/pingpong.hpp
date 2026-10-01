@@ -125,6 +125,7 @@ struct FusedPing
   PongActor<kFusedPong> pong;   // lives inside this actor's process
 
   KFPGA_HANDLERS(KFPGA_ON(Start, on_start))
+  KFPGA_INNER(pong)   // messages addressed to kFusedPong reach it here
 
   template <class Ctx>
   void on_start(const Start &m, Ctx &ctx)
@@ -161,6 +162,7 @@ inline kfpga::DiscoveryTable discovery()
   rt.port[kPing] = 0;
   rt.port[kPong] = 1;
   rt.port[kFusedPing] = 2;
+  rt.port[kFusedPong] = 2;   // inside FusedPing's process
   return rt;
 }
 

@@ -11,6 +11,7 @@
  * PCIe depends on the card's shell and is not part of this file.
  *
  *   from_host -> host_in -> the FIFO from the host to each actor
+ *   from_host_reply -> host_in_reply -> the reply FIFO from the host to each actor
  *   actor s -> the FIFO from s to actor r -> actor r      (messages, fast_send
  *                                                          requests, replies)
  *   each actor's FIFO to the host -> host_out -> to_pcie
@@ -43,6 +44,13 @@ static void host_in_proc(hls::stream<Envelope> &from_host, L4 &L)
     kfpga::host_in_step(from_host, L, rt);
 }
 
+static void host_in_reply_proc(hls::stream<Envelope> &from_host_reply, L4 &L)
+{
+  const kfpga::DiscoveryTable rt = discovery();
+  for (;;)
+    kfpga::host_in_reply_step(from_host_reply, L, rt);
+}
+
 static void host_out_proc(L4 &L, hls::stream<Envelope> &to_pcie)
 {
   int last = 0;
@@ -50,9 +58,11 @@ static void host_out_proc(L4 &L, hls::stream<Envelope> &to_pcie)
     kfpga::host_out_step(L, to_pcie, last);
 }
 
-void pingpong_top(hls::stream<Envelope> &from_host, hls::stream<Envelope> &to_pcie)
+void pingpong_top(hls::stream<Envelope> &from_host, hls::stream<Envelope> &from_host_reply,
+                  hls::stream<Envelope> &to_pcie)
 {
 #pragma HLS INTERFACE mode = axis port = from_host
+#pragma HLS INTERFACE mode = axis port = from_host_reply
 #pragma HLS INTERFACE mode = axis port = to_pcie
 #pragma HLS INTERFACE mode = ap_ctrl_none port = return
 #pragma HLS DATAFLOW
@@ -60,6 +70,7 @@ void pingpong_top(hls::stream<Envelope> &from_host, hls::stream<Envelope> &to_pc
   static L4 links;
 
   host_in_proc(from_host, links);
+  host_in_reply_proc(from_host_reply, links);
   actor_proc<PingActor, 0>(links);
   actor_proc<PongActor<kPong>, 1>(links);
   actor_proc<FusedPing, 2>(links);
