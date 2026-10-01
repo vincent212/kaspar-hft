@@ -1,12 +1,12 @@
-<!-- Generated 2026-10-01 10:55 EDT from /home/vincent/perf/mdperf/paper -->
+<!-- Generated 2026-10-01 13:00 EDT from /home/vincent/perf/mdperf/paper -->
 # Run-queue wait per thread role, us per 10 s sample (first 120s dropped)
 | config | role | samples | p50 | p90 | p99 | max |
 |---|---|---|---|---|---|---|
-| base | decoder(serial idle) | 249 | 0 | 0 | 0 | 0 |
-| base | msgbuf | 249 | 59 | 297 | 1160 | 10194 |
-| base | msgproc | 426 | 0 | 0 | 0 | 5 |
-| base | sock_reader | 534 | 8 | 2516 | 7661 | 14718 |
-| base | tachbook | 498 | 7 | 85 | 272 | 844 |
+| base | decoder(serial idle) | 459 | 0 | 0 | 0 | 0 |
+| base | msgbuf | 459 | 46 | 268 | 831 | 10194 |
+| base | msgproc | 786 | 0 | 0 | 0 | 5 |
+| base | sock_reader | 990 | 14 | 2793 | 11508 | 19455 |
+| base | tachbook | 918 | 6 | 66 | 259 | 1222 |
 | fastsend | decoder(serial idle) | 252 | 0 | 0 | 0 | 0 |
 | fastsend | msgbuf | 252 | 36 | 237 | 1108 | 2731 |
 | fastsend | msgproc | 429 | 0 | 0 | 0 | 19 |
@@ -17,17 +17,17 @@
 | mbspin | msgproc | 423 | 0 | 0 | 0 | 34 |
 | mbspin | sock_reader | 528 | 33 | 3458 | 11244 | 19199 |
 | mbspin | tachbook | 492 | 8 | 79 | 234 | 1351 |
-| fastsend_mbspin | decoder(serial idle) | 144 | 0 | 0 | 0 | 0 |
-| fastsend_mbspin | msgbuf | 144 | 66 | 5662 | 12727 | 15604 |
-| fastsend_mbspin | msgproc | 246 | 0 | 0 | 0 | 8 |
-| fastsend_mbspin | sock_reader | 306 | 10 | 2790 | 12418 | 17053 |
-| fastsend_mbspin | tachbook | 288 | 0 | 0 | 0 | 0 |
-| p4s | msgbuf | 198 | 139 | 1082 | 4611 | 12672 |
-| p4s | msgproc | 339 | 37 | 348 | 1362 | 4830 |
-| p4s | par_handler | 198 | 146 | 2427 | 13027 | 24019 |
-| p4s | par_worker | 792 | 4 | 3405 | 15600 | 55910 |
-| p4s | sock_reader | 414 | 67 | 2526 | 9880 | 17087 |
-| p4s | tachbook | 396 | 14 | 148 | 2273 | 7077 |
+| fastsend_mbspin | decoder(serial idle) | 462 | 0 | 0 | 0 | 0 |
+| fastsend_mbspin | msgbuf | 462 | 23 | 3464 | 12629 | 66915 |
+| fastsend_mbspin | msgproc | 789 | 0 | 0 | 0 | 8 |
+| fastsend_mbspin | sock_reader | 996 | 8 | 3204 | 12418 | 28515 |
+| fastsend_mbspin | tachbook | 924 | 0 | 0 | 0 | 0 |
+| p4s | msgbuf | 246 | 173 | 1264 | 4891 | 12672 |
+| p4s | msgproc | 423 | 39 | 465 | 1601 | 4830 |
+| p4s | par_handler | 246 | 138 | 2066 | 12700 | 24019 |
+| p4s | par_worker | 984 | 0 | 3744 | 14770 | 55910 |
+| p4s | sock_reader | 534 | 80 | 3016 | 13280 | 53254 |
+| p4s | tachbook | 492 | 17 | 191 | 862 | 7077 |
 | base_A | decoder(serial idle) | 108 | 0 | 0 | 0 | 0 |
 | base_A | msgbuf | 108 | 58 | 331 | 674 | 998 |
 | base_A | msgproc | 183 | 0 | 0 | 0 | 0 |
@@ -38,6 +38,11 @@
 | fastsend_A | msgproc | 180 | 0 | 0 | 0 | 0 |
 | fastsend_A | sock_reader | 114 | 4 | 3430 | 13933 | 20122 |
 | fastsend_A | tachbook | 210 | 0 | 0 | 0 | 0 |
+| mbspin_A | decoder(serial idle) | 105 | 0 | 0 | 0 | 0 |
+| mbspin_A | msgbuf | 105 | 115 | 3308 | 4487 | 8450 |
+| mbspin_A | msgproc | 180 | 0 | 0 | 0 | 0 |
+| mbspin_A | sock_reader | 114 | 6 | 2284 | 5690 | 11328 |
+| mbspin_A | tachbook | 210 | 2 | 20 | 55 | 405 |
 | fastsend_mbspin_A | decoder(serial idle) | 105 | 0 | 0 | 0 | 0 |
 | fastsend_mbspin_A | msgbuf | 105 | 0 | 2967 | 5543 | 10881 |
 | fastsend_mbspin_A | msgproc | 180 | 0 | 0 | 0 | 14 |
@@ -49,6 +54,26 @@
 | p4s_A | par_worker | 432 | 0 | 1852 | 4581 | 16301 |
 | p4s_A | sock_reader | 117 | 1334 | 4324 | 9257 | 15271 |
 | p4s_A | tachbook | 216 | 17 | 127 | 314 | 364 |
+| fsmb_pin | decoder(serial idle) | 213 | 0 | 0 | 0 | 0 |
+| fsmb_pin | msgbuf | 213 | 21071 | 48871 | 72294 | 105618 |
+| fsmb_pin | msgproc | 363 | 0 | 11 | 46 | 76 |
+| fsmb_pin | sock_reader | 462 | 51040 | 110617 | 195776 | 271994 |
+| fsmb_pin | tachbook | 426 | 0 | 0 | 0 | 0 |
+| rfs | decoder(serial idle) | 108 | 0 | 0 | 0 | 0 |
+| rfs | msgbuf | 108 | 0 | 0 | 0 | 0 |
+| rfs | msgproc | 183 | 0 | 0 | 0 | 0 |
+| rfs | sock_reader | 234 | 28 | 2656 | 5548 | 13587 |
+| rfs | tachbook | 216 | 0 | 0 | 0 | 0 |
+| rfs_pin | decoder(serial idle) | 213 | 0 | 0 | 0 | 0 |
+| rfs_pin | msgbuf | 213 | 0 | 0 | 0 | 0 |
+| rfs_pin | msgproc | 363 | 0 | 10 | 46 | 58 |
+| rfs_pin | sock_reader | 462 | 22459 | 65739 | 151162 | 256204 |
+| rfs_pin | tachbook | 426 | 0 | 0 | 0 | 0 |
+| rfs_pin_A | decoder(serial idle) | 216 | 0 | 0 | 0 | 0 |
+| rfs_pin_A | msgbuf | 216 | 0 | 0 | 0 | 0 |
+| rfs_pin_A | msgproc | 366 | 0 | 11 | 46 | 62 |
+| rfs_pin_A | sock_reader | 234 | 5839 | 26079 | 37331 | 43467 |
+| rfs_pin_A | tachbook | 432 | 0 | 0 | 0 | 0 |
 
 # Worst 10 s buckets by max end-to-end book latency, with the hot thread that waited longest
 | config | run | bucket max e2e us | bucket p999 us | worst thread | its runq wait us | its forced cs |
@@ -72,11 +97,11 @@
 | mbspin | p2_mbspin | 396 | 59 | 318SketReader A | 11068 | 1661 |
 | mbspin | p2_mbspin | 378 | 31 | 344MsgBuf A | 15413 | 2213 |
 | fastsend_mbspin | p1_fastsend_mbspin | 3440 | 379 | 344MsgBuf A | 6496 | 1623 |
+| fastsend_mbspin | x1_fastsend_mbspin | 2180 | 1636 | 344MsgBuf A | 66915 | 4503 |
 | fastsend_mbspin | p1_fastsend_mbspin | 1755 | 329 | 318MsgBuf A | 11337 | 1979 |
 | fastsend_mbspin | p1_fastsend_mbspin | 1727 | 146 | 318SketReader A | 17053 | 1959 |
+| fastsend_mbspin | x1_fastsend_mbspin | 972 | 700 | 344MsgBuf A | 43268 | 2745 |
 | fastsend_mbspin | p1_fastsend_mbspin | 574 | 140 | 318SketReader A | 2897 | 383 |
-| fastsend_mbspin | p1_fastsend_mbspin | 383 | 42 | 318SketReader A | 7306 | 1375 |
-| fastsend_mbspin | p1_fastsend_mbspin | 376 | 17 | 318SketReader B | 2180 | 168 |
 | p4s | p2_p4s | 13053 | 9984 | DataActor_344_0 | 6181 | 817 |
 | p4s | p2_p4s | 10736 | 9637 | DataActor_344_0 | 55910 | 3289 |
 | p4s | p1_p4s | 7190 | 3869 | 344MsgBuf A | 12672 | 21 |
@@ -95,6 +120,12 @@
 | fastsend_A | p2_fastsend_A | 374 | 38 | 318MsgBuf A | 22 | 2 |
 | fastsend_A | p2_fastsend_A | 333 | 19 | 318MsgBuf A | 25 | 1 |
 | fastsend_A | p2_fastsend_A | 299 | 40 | 318MsgBuf A | 327 | 1 |
+| mbspin_A | p2_mbspin_A | 413 | 58 | 344MsgBuf A | 4698 | 1255 |
+| mbspin_A | p2_mbspin_A | 410 | 34 | 344MsgBuf A | 4056 | 961 |
+| mbspin_A | p2_mbspin_A | 390 | 37 | 344SketReader A | 5280 | 746 |
+| mbspin_A | p2_mbspin_A | 372 | 42 | 344MsgBuf A | 149 | 53 |
+| mbspin_A | p2_mbspin_A | 365 | 55 | 344MsgBuf A | 3277 | 775 |
+| mbspin_A | p2_mbspin_A | 156 | 71 | 344SketReader A | 11328 | 2336 |
 | fastsend_mbspin_A | p2_fastsend_mbspin_A | 394 | 18 | 318SketReader A | 46 | 10 |
 | fastsend_mbspin_A | p2_fastsend_mbspin_A | 394 | 12 | 318SketReader A | 3012 | 640 |
 | fastsend_mbspin_A | p2_fastsend_mbspin_A | 394 | 36 | 318SketReader A | 3460 | 758 |
@@ -107,16 +138,45 @@
 | p4s_A | p2_p4s_A | 503 | 49 | 344SketReader A | 2579 | 659 |
 | p4s_A | p2_p4s_A | 441 | 37 | 310SketReader A | 15271 | 2178 |
 | p4s_A | p2_p4s_A | 430 | 48 | 318SketReader A | 2585 | 442 |
+| fsmb_pin | x1_fsmb_pin | 24838 | 22704 | 318SketReader B | 271994 | 13572 |
+| fsmb_pin | x1_fsmb_pin | 3469 | 1959 | 318SketReader B | 172401 | 6201 |
+| fsmb_pin | x1_fsmb_pin | 3247 | 519 | 318SketReader B | 104222 | 3813 |
+| fsmb_pin | x1_fsmb_pin | 3052 | 913 | 318SketReader B | 190434 | 8383 |
+| fsmb_pin | x1_fsmb_pin | 2815 | 304 | 318SketReader B | 195776 | 7825 |
+| fsmb_pin | x1_fsmb_pin | 2671 | 491 | 318SketReader B | 143246 | 5060 |
+| rfs | x2_rfs | 249 | 207 | 310SketReader B | 1975 | 388 |
+| rfs | x2_rfs | 150 | 131 | 318SketReader B | 2343 | 88 |
+| rfs | x2_rfs | 145 | 24 | 318SketReader B | 2776 | 534 |
+| rfs | x2_rfs | 81 | 77 | 318SketReader B | 2330 | 428 |
+| rfs | x2_rfs | 74 | 62 | 318SketReader B | 3348 | 458 |
+| rfs | x2_rfs | 70 | 63 | 318SketReader B | 1767 | 460 |
+| rfs_pin | x2_rfs_pin | 1848 | 1802 | 318SketReader B | 18216 | 1446 |
+| rfs_pin | x1_rfs_pin | 1463 | 623 | 318SketReader B | 191847 | 14948 |
+| rfs_pin | x2_rfs_pin | 1231 | 207 | 318SketReader B | 46842 | 3999 |
+| rfs_pin | x2_rfs_pin | 1162 | 265 | 318SketReader B | 14204 | 1245 |
+| rfs_pin | x1_rfs_pin | 946 | 559 | 318SketReader B | 122473 | 10753 |
+| rfs_pin | x1_rfs_pin | 922 | 164 | 318SketReader B | 75243 | 5756 |
+| rfs_pin_A | x1_rfs_pin_A | 256 | 168 | 318SketReader A | 27596 | 1812 |
+| rfs_pin_A | x2_rfs_pin_A | 216 | 142 | 318SketReader A | 23169 | 1602 |
+| rfs_pin_A | x1_rfs_pin_A | 201 | 156 | 318SketReader A | 15370 | 1038 |
+| rfs_pin_A | x2_rfs_pin_A | 173 | 117 | 318SketReader A | 29283 | 1631 |
+| rfs_pin_A | x1_rfs_pin_A | 160 | 108 | 318SketReader A | 17408 | 1197 |
+| rfs_pin_A | x2_rfs_pin_A | 157 | 112 | 318SketReader A | 25020 | 1613 |
 
 # Bucket max e2e vs max hot-thread run-queue wait
 | config | buckets | buckets with max e2e > 100us | of those, hot runq wait > 100us | rank corr |
 |---|---|---|---|---|
-| base | 85 | 24 | 24 | 0.42 |
+| base | 156 | 48 | 46 | 0.21 |
 | fastsend | 84 | 28 | 24 | -0.12 |
 | mbspin | 83 | 28 | 28 | 0.16 |
-| fastsend_mbspin | 49 | 16 | 16 | 0.26 |
-| p4s | 67 | 44 | 44 | 0.31 |
+| fastsend_mbspin | 157 | 56 | 56 | 0.15 |
+| p4s | 84 | 61 | 61 | 0.29 |
 | base_A | 36 | 15 | 14 | 0.14 |
 | fastsend_A | 36 | 9 | 5 | 0.15 |
+| mbspin_A | 36 | 7 | 7 | 0.14 |
 | fastsend_mbspin_A | 36 | 15 | 11 | 0.43 |
 | p4s_A | 36 | 26 | 26 | 0.03 |
+| fsmb_pin | 72 | 70 | 70 | 0.50 |
+| rfs | 36 | 3 | 3 | 0.06 |
+| rfs_pin | 72 | 53 | 53 | 0.40 |
+| rfs_pin_A | 73 | 17 | 17 | -0.01 |

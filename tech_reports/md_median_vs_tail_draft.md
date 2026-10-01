@@ -5,16 +5,133 @@
 
 ## Abstract
 
-(TODO after data.) Two results.
+We measure socket-to-book latency on a live CME MDP3 feed, message by message,
+across 14 configurations of one C++ actor-based market-data path.
 
-1. Running the order book inline on the decode thread (`fast_send`) roughly
-   halves median latency against handing it to its own thread (`send`). It
-   lengthens the tail, because book work delays the packets queued behind it.
-2. Fanning decode out to parallel workers adds two thread hops per packet. On a
-   feed whose packets carry about one message each, it buys no throughput. It
-   adds a hand-off floor of several microseconds and exposes more threads to
-   descheduling, which is where its tail comes from.
+1. **Thread hand-offs, not decoding, set the median.** SBE decode plus
+   book-event handling costs about 0.3-0.9 us. Each hop into a sleeping thread
+   costs 2-4 us on a sparse feed. Removing every hop between socket read and
+   book publish cuts the median from 6.3 to 1.3 us, and p1 from 3.6 to 0.5 us,
+   with no packet loss.
+2. **Inlining book work trades tail for median on some instruments.** Running
+   the book on the decode thread halves the median. It lengthens p999 by up to
+   2x on books with heavy per-event work (ZN, ES), not on NQ.
+3. **Parallel decode loses on both median and tail.** Packets carry about one
+   message each, so fanning out adds two hops and a record/replay cost per
+   packet for nothing. More threads also means more chances to be descheduled.
+4. **Pinning busy-polling threads without CPU isolation is worse than not
+   pinning.** Device interrupt work on the pinned CPUs stalls them for
+   milliseconds.
 
+## Results as of 2026-10-01 13:00 (all passes pooled)
+
+37 valid runs, 08:56-13:00 ET, Onload solo mode, 8-10 minutes each, first
+120 s of each run dropped. One run (`x1_rfs`) is invalid: a stale library meant
+the feature was not active. It is excluded and listed in `runs.log`.
+
+Full tables: `md_paper_data/`.
+
+### F1. End-to-end book latency, t1 - t0 (us)
+
+Each cell is p1 / p10 / p50 / p90 / p99 / p999. `runs` = runs pooled.
+
+| config | runs | ES Z6 book | NQ Z6 book | ZN Z6 book |
+|---|---|---|---|---|
+| base: serial, send to book, sleeping MsgBuf (production) | 4 | 3.9 / 4.7 / 6.6 / 11.0 / 23.1 / 65.6 | 3.6 / 4.3 / 6.3 / 8.9 / 12.6 / 21.9 | 3.9 / 4.6 / 7.3 / 12.0 / 63.0 / 138.0 |
+| fastsend: book inline | 2 | 2.2 / 2.9 / 4.9 / 8.1 / 19.6 / 80.1 | 2.0 / 2.7 / 4.7 / 6.8 / 10.3 / 20.8 | 1.9 / 2.7 / 4.7 / 7.8 / 54.0 / 179.3 |
+| mbspin: spinning MsgBuf | 2 | 2.7 / 3.8 / 5.3 / 8.1 / 16.6 / 34.6 | 3.2 / 3.6 / 5.3 / 7.0 / 10.0 / 17.2 | 3.2 / 3.7 / 4.9 / 8.8 / 44.0 / 153.6 |
+| fastsend + spinning MsgBuf | 4 | 1.4 / 1.8 / 2.5 / 5.3 / 14.4 / 29.9 | 0.9 / 1.6 / 2.2 / 3.9 / 7.2 / 15.0 | 0.9 / 1.5 / 2.4 / 5.3 / 65.8 / 290.2 |
+| rfs: reader -> MsgBuf -> decode -> book all inline (no hops) | 1 | 0.6 / 0.9 / 1.6 / 4.5 / 13.8 / 28.6 | 0.5 / 0.8 / 1.3 / 3.1 / 6.6 / 12.9 | 0.6 / 0.9 / 1.4 / 4.1 / 53.9 / 162.5 |
+| p4s: parallel, 4 spinning workers | 2 | 7.8 / 9.6 / 12.3 / 18.1 / 35.8 / 85.3 | 6.5 / 8.2 / 11.0 / 15.6 / 22.6 / 346.8 | 7.8 / 10.0 / 13.7 / 20.8 / 90.9 / 264.8 |
+| fastsend+mbspin, pinned (node 2, not isolated) | 2 | 0.9 / 1.1 / 1.7 / 5.4 / 51.0 / 739.0 | 0.8 / 1.0 / 1.4 / 3.5 / 29.6 / 312.0 | 0.9 / 1.2 / 1.9 / 13.9 / 331.8 / 1282.6 |
+| rfs, pinned | 2 | 0.6 / 0.8 / 1.3 / 4.4 / 31.9 / 253.5 | 0.6 / 0.8 / 1.1 / 3.0 / 8.6 / 84.0 | 0.7 / 0.9 / 1.3 / 4.4 / 104.6 / 361.5 |
+| base, feed A only | 1 | 4.0 / 4.6 / 6.6 / 9.6 / 16.9 / 37.1 | 3.8 / 4.1 / 5.0 / 7.5 / 10.4 / 17.6 | 3.9 / 4.4 / 6.6 / 10.9 / 66.0 / 266.3 |
+| fastsend, feed A only | 1 | 2.3 / 2.9 / 4.4 / 6.6 / 14.4 / 29.6 | 2.1 / 2.3 / 2.8 / 4.7 / 7.5 / 12.6 | 2.4 / 2.9 / 4.7 / 6.8 / 44.6 / 196.4 |
+| mbspin, feed A only | 1 | 3.0 / 3.4 / 4.0 / 6.7 / 13.5 / 26.3 | 3.1 / 3.5 / 4.1 / 5.8 / 8.4 / 12.9 | 3.4 / 3.8 / 5.5 / 8.0 / 46.2 / 85.4 |
+| fastsend+mbspin, feed A only | 1 | 1.5 / 1.8 / 2.3 / 3.9 / 11.1 / 23.2 | 1.4 / 1.7 / 2.1 / 3.1 / 5.8 / 9.1 | 1.7 / 2.0 / 2.5 / 4.0 / 46.7 / 109.3 |
+| rfs pinned, feed A only | 2 | 0.6 / 0.8 / 1.2 / 4.0 / 16.6 / 42.8 | 0.6 / 0.7 / 1.1 / 2.6 / 6.2 / 15.7 | 0.6 / 0.8 / 1.2 / 3.3 / 36.8 / 100.5 |
+| p4s, feed A only | 1 | 6.6 / 8.0 / 10.3 / 14.9 / 25.6 / 49.8 | 7.5 / 8.7 / 11.2 / 14.9 / 20.8 / 31.3 | 8.6 / 10.4 / 13.5 / 19.4 / 58.1 / 163.6 |
+
+### F2. Main findings
+
+1. **Hops, not decode, set the median.**
+   - Decode plus handler is 0.3-0.9 us at p50 on every serial config.
+   - Each thread hop into a sleeping thread costs 2-4 us: a futex wakeup on a
+     sparse feed of about 1 packet per ms.
+   - Removing hops step by step moves the NQ book median:
+
+     | path | NQ book p50 |
+     |---|---|
+     | base, 2 hops, both receivers sleeping | 6.3 us |
+     | spinning MsgBuf | 5.3 us |
+     | fastsend: book hop removed | 4.7 us |
+     | both | 2.2 us |
+     | reader fast_send (`rfs`): zero hops | **1.3 us** |
+
+   - p1 falls from 3.6 to 0.5 us.
+2. **Median vs tail, inline vs hand-off: real but modest, and not universal.**
+   - fastsend vs base, pooled:
+     - ES p999 80 vs 66 us
+     - ZN p999 179 vs 138 us
+     - NQ p999 21 vs 22 us
+   - fastsend + mbspin vs mbspin on ZN: p999 290 vs 154 us, while p50 halves
+     (2.4 vs 4.9 us).
+   - The penalty shows on the books with heavier per-event book work (ZN, ES),
+     not on NQ.
+   - Mechanism (pass 1, P2): packets queue behind inline book work in bursts.
+   - Unpinned, the zero-hop `rfs` path was **not** worse than base at p999 on
+     ES/NQ (28.6 vs 65.6, 12.9 vs 21.9). On ZN it was comparable (162 vs 138).
+     That is one run; it needs repeats.
+3. **Parallel decode (p4s) is the slowest and has the longest tails.**
+   - p50 11-14 us, about 2x base.
+   - p999 85-347 us.
+   - The fixed hand-off cost (two extra hops plus recording and replay) and
+     more threads exposed to descheduling explain it (P4).
+   - 61 of 84 p4s buckets had a book message over 100 us, against 48 of 156
+     for base. Every one coincided with a hot thread waiting for a CPU.
+4. **Pinning without isolation makes the tail far worse.**
+   - fsmb_pin ZN p999 is 1,283 us, against 290 us unpinned. rfs_pin ES p999 is
+     254 us, against 29 us unpinned.
+   - The pinned hot threads waited 22-51 ms per 10 s in the run queue at p50,
+     max 272 ms. Unpinned: about 0.01-0.03 ms p50.
+   - CPUs 17-22 service the storage controller's interrupts (`mpi3mr0` msix
+     18-23, about 120 M each). A pinned spinner cannot move off when softirq or
+     kernel work lands on its CPU; an unpinned one migrates.
+   - Pinning needs isolation: `isolcpus`/`nohz_full`, IRQ affinity moved off
+     the hot CPUs. Not possible on this box without a reboot; not tested.
+5. **No packet loss, and no hidden queueing, from inlining.**
+   - Onload `oflow_drop` and `mem_drop` were 0 on every socket in every run
+     captured.
+   - Zero gaps and zero extra recoveries in all 37 valid runs, including all
+     feed-A-only runs.
+   - Exchange SendingTime -> t0 (excess over the window minimum, X0) for `rfs`
+     unpinned matches base: ES p50 / p999 6.8 / 29.5 vs 6.5 / 27.8 us. Running
+     decode on the reader thread did not push measurable waiting into the
+     socket buffer.
+   - With pinning, X0 p999 rose to 70-850 us: the reader itself was held off
+     its CPU.
+6. **Feed A only (B off) has shorter tails for the same config.**
+   - fastsend_mbspin: ZN p999 109 vs 290, NQ 9.1 vs 15.0.
+   - rfs pinned: ES 43 vs 254, NQ 16 vs 84, ZN 101 vs 362.
+   - p4s: NQ 31 vs 347.
+   - One fewer busy-polling socket reader per channel means less CPU
+     contention. Under `rfs`, A and B also serialize on MsgBuf's mutex.
+   - Medians are about the same.
+   - Cost: no arbitration. A drop on feed A becomes a gap and a recovery.
+     None were seen in 8 A-only runs (64 minutes).
+
+### F3. Threats to validity (specific to these runs)
+
+- **Live market, uncontrolled load.** Order was rotated, but some configs have
+  1-2 runs only (`rfs` 1).
+- **Shared, unisolated host.** Run-queue waits show contention.
+- **The tail percentiles are thin.** p999 on ZN rests on about 100-400 samples
+  per run.
+- **t0 is software, after `recvfrom`.** The X0 stage compensates only partly:
+  it includes network and exchange jitter, and its baseline is a rolling
+  minimum.
+- **Disturbed runs.** Three were touched by short rebuilds (`p2_p4s` 20 s,
+  `x1_rfs_pin` 30 s, `x1_rfs_pin_A` 30 s), noted in `runs.log`.
 
 ## Progress log
 
