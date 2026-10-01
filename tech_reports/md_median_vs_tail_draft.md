@@ -23,6 +23,67 @@ across 14 configurations of one C++ actor-based market-data path.
    pinning.** Device interrupt work on the pinned CPUs stalls them for
    milliseconds.
 
+
+## Configuration labels
+
+Every configuration is the measurement base config below plus the listed keys,
+nothing else. The exact files are in `md_paper_data/configs/<label>/`.
+
+**Common to all** (`md_perf.ini`, `kaspr.general`):
+
+- `tachbook true`, `perf_probe true`, `perf_route_tachbook true`: market data
+  goes to TachBook, the MBO L3 book, and the latency probe subscribes to it.
+- `perf_bin_ms 100`, `mqport 7778`.
+- Channels 310 (ES), 318 (NQ) and 344 (ZN/ZF/ZB/ZT/UB) on, with feeds A and B.
+- Universe: Z6 and H7 contracts.
+- Run with Onload (`EF_POLL_USEC=3000`, `EF_INT_DRIVEN=0`) by `run_probe.sh` in
+  solo mode, with the recorder stopped.
+
+**The path being changed:**
+
+```
+socket reader A/B -> [hop 1] -> MsgBuf -> MessageProcessor -> decode -> handler -> [hop 2] -> TachBook (t1)
+```
+
+`MsgBuf -> MessageProcessor -> decode -> handler` is inline (fast_send) in every
+serial config. "Hop" means a `send` into another thread's mailbox.
+
+| label | keys added to base | hops in t0..t1 | what it tests |
+|---|---|---|---|
+| `base` | none | 2. Hop 1 into a sleeping MsgBuf (BQueue condvar), hop 2 into a sleeping TachBook. | the production path |
+| `fastsend` | `book_fast_send true` (`kaspr.general`) | 1. Hop 2 removed: handler_if<UseFastSend=true> runs the book update inline on the MsgBuf thread. | book inline vs hand-off |
+| `mbspin` | `cme_msgbuf_mailbox lockfree_spin` (per channel) | 2. MsgBuf is a LockFreeMPSC whose consumer busy-polls, so hop 1 has no wakeup. | cost of the wakeup on hop 1 |
+| `fastsend_mbspin` | `fastsend` + `mbspin` keys | 1, no wakeup | both together |
+| `rfs` | `book_fast_send true` + `cme_reader_fast_send true` (per channel) | 0. The socket reader fast_sends into MsgBuf, so the whole path runs on the reader thread. Readers A and B serialize on MsgBuf's mutex. | no hops at all |
+| `p4s` | `cme_decode_workers 4` + `cme_decode_spin true` (per channel) | 4: MsgBuf, worker, HandlerIfActor, book. Hop 1 into a sleeping MsgBuf; workers and HandlerIfActor busy-poll. | parallel decode, 4 workers per channel |
+| `fsmb_pin` | `fastsend_mbspin` + `cme_cpus` per channel + `tachbook_cpus 54x6`; run under `taskset -c 0-15,24-47,56-63` | 1 | pinning busy threads on NUMA node 2 (not isolated) |
+| `rfs_pin` | `rfs` + `cme_cpus` per channel + `tachbook_cpus 54x6`; same taskset | 0 | pinning the zero-hop path |
+| `<label>_A` | `<label>` + `cme_feed_b false` (per channel) | same as `<label>` | feed A only: socket reader B never started, so no A/B arbitration |
+
+**`cme_cpus` order:** recovery, MessageProcessor, MsgBuf, sock A, sock B.
+
+| | ES | NQ | ZN |
+|---|---|---|---|
+| `fsmb_pin` | 22,22,16,17,49 | 22,22,18,19,51 | 22,22,20,21,53 |
+| `rfs_pin` | 22,22,22,16,17 | 22,22,22,18,19 | 22,22,22,20,21 |
+
+- `fsmb_pin`: sock A and B on the two SMT siblings of one core, MsgBuf alone on
+  its own core.
+- `rfs_pin`: each socket reader alone on its own core.
+- Siblings on this host are (N, N+32).
+
+**Short names used in the text:**
+
+| short name | label |
+|---|---|
+| base | `base` |
+| fastsend, "fast_send to book" | `fastsend` |
+| mbspin, "spinning MsgBuf" | `mbspin` |
+| "reader fast_send", "no hops" | `rfs` |
+| p4s, "parallel" | `p4s` |
+| "pinned" | `*_pin` |
+| "feed A only" | `*_A` |
+
 ## Results as of 2026-10-01 13:00 (all passes pooled)
 
 26 valid runs, 08:56-13:00 ET, Onload solo mode, 8-10 minutes each, first
@@ -132,6 +193,129 @@ Each cell is p1 / p10 / p50 / p90 / p99 / p999. `runs` = runs pooled.
   minimum.
 - **Disturbed runs.** Three were touched by short rebuilds (`p2_p4s` 20 s,
   `x1_rfs_pin` 30 s, `x1_rfs_pin_A` 30 s), noted in `runs.log`.
+
+
+## How to reproduce
+
+Everything below is on branch `md-latency-experiments` of kaspar-hft. That
+branch is experimental and is not merged to main.
+
+### 1. Host requirements
+
+- Live CME MDP3 multicast on two interfaces (feeds A and B). Group addresses
+  come from `kaspr/genconfig/mdp3_prod.info`.
+- OpenOnload installed, `onload` kernel module loaded.
+- `onload_stackdump` readable, for the loss counters.
+- No other kaspr reading the same groups. The probe runs solo: stop the live
+  recorder first.
+- A universe whose contracts are live on the run date. This study used Z6/H7
+  (`kaspr/config/universe.csv`); M6/U6 had expired and produce empty books.
+  Roll it for later dates.
+
+### 2. Build
+
+```bash
+cd kaspar-hft
+./build.sh                               # ALL libraries. Required after any header change.
+./build.sh -C kaspr/src USE_TACHBOOK=1   # kaspr with TachBook and the latency probe
+strings kaspr/src/kaspr | grep -c perf_LatencyProbe_   # must be > 0
+```
+
+Pitfall seen in this study: a header change to a class instantiated inside a
+library (for example `SocketReader`, compiled into `libmcast_recv.a`) has no
+effect until the library is rebuilt. `./build.sh -C <dir>` on a library
+directory may silently do nothing. Always run plain `./build.sh`, then check the
+library's timestamp. One run (`x1_rfs`) was lost to this.
+
+If the link fails with `cannot find -lboost_*`, set
+`BOOST_PATH=/usr/local/boost188`, or wherever Boost 1.88 is installed.
+
+### 3. Configs
+
+```bash
+for c in base fastsend mbspin fastsend_mbspin rfs p4s fsmb_pin rfs_pin rfs_pin_A ...; do
+  cp -r tech_reports/md_paper_data/configs/$c kaspr/config_$c
+done
+```
+
+Edit `perf_csv_dir` in each `md_perf.ini` to the output directory for the run.
+
+Pinned configs hard-code CPU ids for this host (AMD EPYC 9374F, NUMA node 2 =
+CPUs 16-23 and 48-55). Remap them, and check
+`/sys/devices/system/cpu/cpuN/topology/thread_siblings_list` and
+`/proc/interrupts` first. This study found storage-controller IRQs on the
+pinned CPUs, which is why pinning hurt.
+
+### 4. One run
+
+```bash
+cd kaspar-hft
+OUT=/path/to/output/<run>; C=<label>; mkdir -p $OUT
+sed -i "s#perf_csv_dir .*#perf_csv_dir $OUT#" kaspr/config_$C/md_perf.ini
+MASK=(); case $C in *_pin*) MASK=(taskset -c 0-15,24-47,56-63);; esac
+KHPROJ=$PWD OUTDIR=$OUT "${MASK[@]}" kaspr/run_probe.sh --no-restart -t 480 \
+    -c ../config_$C/md_perf.ini > $OUT/probe.out 2>&1 &
+P=$(pgrep -x md_perf_meter)   # once it is up
+python3 tech_reports/md_paper_data/schedsample.py $P $OUT/probe.out $OUT/sched.csv 10 &
+# after the window: save Onload loss counters, then stop the probe
+for id in $(onload_stackdump | awk -v p=$P '$3==p{print $1}'); do onload_stackdump lots $id; done > $OUT/onload.txt
+kill -9 $P   # known defect: kaspr hangs on shutdown in ZMQ teardown; samples are already on disk
+cp $(ls -t kaspr/kaspr_log.*.log | head -1) $OUT/kaspr.log
+```
+
+`tech_reports/md_paper_data/run_matrix3.sh` automates this for a whole schedule:
+
+- start time, window, CPU mask, Onload dump, force-kill and log copy for each
+  run
+- the schedule itself is a list at the top of the file
+- `run_matrix.sh` and `run_matrix2.sh` are the earlier versions, which rotated
+  the order across passes
+
+Method used here:
+
+- 8-10 minute windows.
+- Configs interleaved and the order rotated between passes, so time of day does
+  not line up with a config.
+- At least one reference run (`base`, `fastsend_mbspin`) in each block.
+
+### 5. Analysis
+
+```bash
+R=/path/to/output bash tech_reports/md_paper_data/paper_all.sh   # R = parent of the per-run directories
+```
+
+That writes:
+
+| file | contents |
+|---|---|
+| `e2e.md` | end-to-end t1 - t0 per config, pooled: p1 / p10 / p50 / p90 / p99 / p999 / max, per run, and by ingress qlen |
+| `stages.md` | per-stage percentiles from the `STAGE` lines, median across 10 s windows |
+| `sched.md` | run-queue wait per thread role; worst 10 s buckets |
+| `health.md` | gaps and recoveries; Onload `oflow_drop`, `mem_drop` and max socket queue |
+
+Definitions:
+
+- **First 120 s of each run dropped** (snapshot recovery). For stages, the first
+  12 windows per channel.
+- **End-to-end:** t1 - t0 per message, from the probe's `.msg` files: one
+  16-byte record per message (t1, latency, ingress qlen, index in packet).
+- **Stages:** logged by `DataDecoder` (serial) or `HandlerIfActor` (parallel)
+  every 10 s as `STAGE` lines in the kaspr log.
+- **X0** (exchange SendingTime -> t0) is the excess over the previous window's
+  minimum. The raw value includes this host's clock offset to CME, about
+  7.9 ms here. Valid only from run `x2_rfs_pin` on.
+- **Thread names** are the actor names (first 4 + last 11 chars), set by the
+  actor Manager. The scheduler sampler relies on them.
+
+### 6. Known limits of the setup
+
+- **t0 is software, after `recvfrom`.** Time in the NIC and socket buffer is not
+  in t1 - t0, only partly in X0.
+- **Nothing is isolated** (`isolcpus`, `nohz_full` and IRQ affinity are all
+  default). Busy-polling threads contend with each other and with device
+  interrupts.
+- **kaspr does not exit cleanly** (ZMQ teardown hang). Every run is force-killed
+  after its window; samples are flushed on a timer before that.
 
 ## Progress log
 

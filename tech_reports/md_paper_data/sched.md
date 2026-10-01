@@ -1,4 +1,4 @@
-<!-- Generated 2026-10-01 13:00 EDT from /home/vincent/perf/mdperf/paper -->
+<!-- Generated 2026-10-01 13:59 EDT from /home/vincent/perf/mdperf/paper -->
 # Run-queue wait per thread role, us per 10 s sample (first 120s dropped)
 | config | role | samples | p50 | p90 | p99 | max |
 |---|---|---|---|---|---|---|

@@ -1,4 +1,4 @@
-<!-- Generated 2026-10-01 13:00 EDT from /home/vincent/perf/mdperf/paper -->
+<!-- Generated 2026-10-01 13:59 EDT from /home/vincent/perf/mdperf/paper -->
 # End-to-end t1-t0 (us), pooled over passes, first 120s of each run dropped
 
 ## ESZ6_book
