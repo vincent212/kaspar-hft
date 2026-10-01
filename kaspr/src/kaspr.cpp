@@ -24,10 +24,8 @@
  *   start_market_data()      -> start_channel<TreasOnly>() per configured chan
  *
  * start_channel() is the one to read first: it owns the per-channel decode
- * subsystem -- handler_if, the serial/parallel decode switch, the DecodeWorker
- * fleet, the Reconstructor, sockets and recovery. See the block comment at
- * "decode subsystem" below, and tech_reports/serial_vs_parallel_decode.md for
- * which path is faster and why.
+ * subsystem -- handler_if, DataDecoder, sockets and recovery. See the block
+ * comment at "decode subsystem" below.
  *
  * Copyright 2025 Vincent Maciejewski, & M2 Tech
  */
@@ -480,7 +478,7 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
 
     // Create feed handler
     // UseFastSend=false; TreasOnly from the template flag (treasury channels
-    // key RefData by asset). The Reconstructor below gets the SAME flag.
+    // key RefData by asset).
     auto handler = new handler_if<false, TreasOnly>(venue, chan);
     handler->mbo_order_books = order_books.at(venue);
     handler->binrec = nullptr;
@@ -510,87 +508,27 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     auto disable_mbo = pt_chan.get<bool>("cme_disable_mbo", false);
     auto maxmpblevel = pt_chan.get<int>("cme_max_mbp_level", 0);
 
-    // ---- decode subsystem: SERIAL by default, PARALLEL opt-in ----
+    // ---- decode subsystem: SERIAL only ----
     //
-    // cme_decode_workers == 0 (the DEFAULT) selects the SERIAL path: DataDecoder
-    // decodes every packet inline on the MessageProcessor thread via mbo_data,
-    // straight into handler_if. No Reconstructor, no workers, no second orderid
-    // map. This is the path the latency article measured.
+    // DataDecoder decodes every packet inline on the MessageProcessor thread via
+    // mbo_data, straight into handler_if. This is the path the latency article
+    // measured.
     //
-    // > 0 selects the PARALLEL path and MUST be a power of two (set_workers uses
-    // nworkers-1 as a mask, and asserts it). Every message is fanned out to a
-    // worker uniformly -- no hot/cold split and no mixed-packet abort (both
-    // removed when the decode path was unified).
+    // Parallel decode was removed: on the book series it was 2.0-2.2x slower at
+    // p50 and 1.5-3.2x slower at p99, because CME packets carry 1.06-1.10
+    // messages and a fan-out has almost nothing to divide; it was also not
+    // validated for correctness. See tech_reports/serial_vs_parallel_decode.md.
     //
-    // *** RESEARCH ONLY. DO NOT ENABLE IN PRODUCTION. ***
-    //
-    // Two independent reasons:
-    //
-    // 1. It is SLOWER. Measured against live CME production over three 900 s
-    //    windows (tech_reports/serial_vs_parallel_decode.md): serial wins every
-    //    book series at every percentile, 2.1-2.2x at the median and 2.4-3.2x at
-    //    p99 (NQ book p50 6.36 us serial vs 14.09 us parallel). The cause is the
-    //    feed shape, not the code: CME packets carry 1.06-1.10 messages, so a
-    //    fan-out hands one message to one worker and pays the whole coordination
-    //    bill -- packet memcpy, pending_ map slot, two actor hops -- to
-    //    parallelize sub-microsecond work. Raising the worker count does not
-    //    help; 64 workers measured within 4% of 8 at the median.
-    //
-    // 2. It is NOT CORRECTNESS-VALIDATED. No dual-path replay has confirmed the
-    //    parallel output matches serial, and some message types are not routed
-    //    on this path yet (stats/volume flush empty batches; option and spread
-    //    definitions are unhandled). The risk is silent book divergence, which
-    //    is worse than the latency cost.
-    //
-    // So it stays opt-in and off by default.
-    //
-    // The default used to be 8 and NO ini anywhere set the key, so every channel
-    // silently ran the parallel path; it is 0 (serial) now.
-    const uint32_t NWORKERS = pt_chan.get<uint32_t>("cme_decode_workers", 0);
+    // cme_decode_workers used to select it. A config key nothing reads is
+    // silent, so say so if an old cme.ini still sets it.
+    if (pt_chan.get_optional<std::string>("cme_decode_workers"))
+        std::cerr << "Kaspr: *** WARNING chan " << chanstr << ": cme_decode_workers is set but"
+                  << " ignored -- parallel decode was removed; decode is always serial ***"
+                  << std::endl;
 
-    mdp3::Reconstructor* recon   = nullptr;
-    actor_ptr*           workers = nullptr;
+    std::cerr << "Kaspr: chan " << chanstr << " SERIAL decode (inline)" << std::endl;
 
-    if (NWORKERS > 0)
-    {
-        std::cerr << "Kaspr: chan " << chanstr << " PARALLEL decode, "
-                  << NWORKERS << " workers" << std::endl;
-        std::cerr << "Kaspr: *** WARNING chan " << chanstr << ": PARALLEL DECODE IS RESEARCH ONLY."
-                  << " Not for production: measured SLOWER than serial at every book percentile"
-                  << " (2.1-2.2x at p50, 2.4-3.2x at p99) and NOT validated for correctness"
-                  << " against the serial path. Set cme_decode_workers 0."
-                  << " See tech_reports/serial_vs_parallel_decode.md ***" << std::endl;
-        recon = new mdp3::Reconstructor(handler->mbo_order_books, venue, (uint32_t)chan, "P", TreasOnly);
-        workers = new actor_ptr[NWORKERS]; // process-lifetime; set_workers keeps this array
-        for (uint32_t i = 0; i < NWORKERS; ++i)
-            workers[i] = new mdp3::DecodeWorker(recon, venue, i, (uint32_t)chan, "P");
-    }
-    else
-    {
-        std::cerr << "Kaspr: chan " << chanstr << " SERIAL decode (inline)" << std::endl;
-    }
-
-    // Null on the serial path. handler_if guards every use of this pointer (the
-    // AssetMap sends in the two definition handlers, and the ResetMBO send), so
-    // null just means "nobody to tell".
-    handler->reconstructor = recon;
-
-    auto* decoder = new mdp3::DataDecoder(handler, disable_mbo, (uint32_t)maxmpblevel, /*debug=*/false,
-                                          NWORKERS > 0 ? "P" : "S", (uint32_t)chan);
-    decoder->set_workers(workers, NWORKERS); // (nullptr,0) on serial -> parallel_decode_ stays false
-
-    // Inline-bypass sink, parallel path only. A packet carrying at most
-    // DataDecoder::INLINE_MAX_MSGS messages is decoded on the decoder's own thread
-    // and its entries sent straight to the Reconstructor, skipping the packet
-    // memcpy, the pending_ slot, the worker hop and the DecodeDone reply. Ordering
-    // is unchanged: the entries carry the same dense order_seq, and the
-    // Reconstructor still applies strictly in that order.
-    //
-    // Measured on this feed: CME packets carry 1.06-1.10 messages (p50 1, p90 1,
-    // p99 2-4), so nearly every packet takes this path. The serial path does not
-    // need it -- it is already inline -- so this is only wired when recon exists.
-    if (recon)
-        decoder->set_inline_sink(new mdp3::DecodeSink(recon, decoder, venue));
+    auto* decoder = new mdp3::DataDecoder(handler, disable_mbo, (uint32_t)maxmpblevel, /*debug=*/false, (uint32_t)chan);
 
     // Create MDP3 components
     auto mdp3cfsmp = create_all_mdp3(
@@ -617,9 +555,6 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
         p_cme.get<std::string>("mdinterface_b").c_str(),
         p_cme.get<std::string>("name").c_str()
     );
-
-    // Let the decoder ask the MessageProcessor to recover on a parallel decode failure.
-    decoder->set_recovery_target(mdp3cfsmp[1]); // message_processor
 
     // Manage MDP3 actors.
     //
@@ -662,14 +597,7 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     add_to_manage_q(mdp3cfsmp[4], pin(3));  // socket_processor_a
     add_to_manage_q(mdp3cfsmp[5], pin(4));  // socket_processor_b
 
-    // Manage the decode subsystem. On the serial path recon/workers do not
-    // exist, so there is exactly one actor here: the DataDecoder.
-    if (recon)
-    {
-        add_to_manage_q(recon);
-        for (uint32_t i = 0; i < NWORKERS; ++i)
-            add_to_manage_q(workers[i]);
-    }
+    // Manage the DataDecoder.
     add_to_manage_q(decoder);
 
     std::cerr << "Kaspr: MDP3 channel " << chan << " configured" << std::endl;
@@ -702,8 +630,8 @@ void Kaspr::start_market_data()
     // failure as the TachBook ladder: the system reported normal operation
     // while producing nothing.
     if (pt_general.get<bool>("kaspr.channels.chan_344", false)) {
-        // Treasury futures: TreasOnly=true -> handler_if and Reconstructor both
-        // key RefData by asset (not symbol), the treasury-specific lookup.
+        // Treasury futures: TreasOnly=true -> handler_if keys RefData by asset
+        // (not symbol), the treasury-specific lookup.
         start_channel<true>("prod_treasury_futures", en::x::CMEMDFUT);
     }
 }

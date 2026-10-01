@@ -177,9 +177,7 @@ struct dbento_pcap_to_bin : public actors::Manager
         // Setup CME MDP3 handler
         handler_treas.binrec = binrec;
 
-        // Build the decode actor inline-only: no worker fleet is wired here (no
-        // set_workers), so parallel_decode_ stays off and every packet decodes
-        // inline via mbo_data -- exactly as before DataDecoder became an actor.
+        // Build the decode actor: every packet decodes inline via mbo_data.
         // MBO enabled, max 10 MBP levels.
         auto *decoder = new mdp3::DataDecoder(&handler_treas, false, 10, false);
 
