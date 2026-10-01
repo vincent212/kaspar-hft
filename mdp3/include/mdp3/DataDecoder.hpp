@@ -544,21 +544,33 @@ namespace mdp3
         // Serial-path stage timing, logged every 10 s. G includes everything
         // handler_if does inline: the book send (heap copy + push), or with
         // UseFastSend the book's whole update.
-        enum Stage { A1_READ_TO_SEND, A2_TO_MSGBUF, A2_Q0, A2_QPOS, A3_MSGBUF_TO_DECODE,
-                     G_DECODE_HANDLER, TOTAL, NSTAGES };
+        // X0: exchange SendingTime (packet header) -> t0. Covers network plus
+        // socket-buffer wait, which t0-based stages cannot see. Includes the
+        // host/CME clock offset, so compare shapes across configs, not levels.
+        // Negative deltas (clock skew) go to X0_NEG as magnitudes.
+        enum Stage { X0_EXCH_TO_T0, X0_NEG, A1_READ_TO_SEND, A2_TO_MSGBUF, A2_Q0, A2_QPOS,
+                     A3_MSGBUF_TO_DECODE, G_DECODE_HANDLER, TOTAL, NSTAGES };
 
         void record_stages(const msg::DecodePacket *m, uint64_t t_start, uint64_t t_end)
         {
             if (!m->ts || !m->send_ts || !m->msgbuf_ts)
                 return;
             const int64_t a2 = int64_t(m->msgbuf_ts - m->send_ts);
+            if (m->len >= 12)
+            {
+                uint64_t sending = 0;
+                std::memcpy(&sending, m->data + 4, sizeof(sending));
+                const int64_t x0 = int64_t(m->ts - sending);
+                stages_.h[x0 >= 0 ? X0_EXCH_TO_T0 : X0_NEG].add(x0 >= 0 ? x0 : -x0);
+            }
             stages_.h[A1_READ_TO_SEND].add(int64_t(m->send_ts - m->ts));
             stages_.h[A2_TO_MSGBUF].add(a2);
             stages_.h[m->qlen ? A2_QPOS : A2_Q0].add(a2);
             stages_.h[A3_MSGBUF_TO_DECODE].add(int64_t(t_start - m->msgbuf_ts));
             stages_.h[G_DECODE_HANDLER].add(int64_t(t_end - t_start));
             stages_.h[TOTAL].add(int64_t(t_end - m->ts));
-            static const char *const names[NSTAGES] = {"A1_read_to_send", "A2_to_msgbuf",
+            static const char *const names[NSTAGES] = {"X0_exch_to_t0", "X0_neg_skew",
+                "A1_read_to_send", "A2_to_msgbuf",
                 "A2_to_msgbuf_qlen0", "A2_to_msgbuf_qlenpos", "A3_msgbuf_to_decode",
                 "G_decode_handler", "TOTAL_t0_to_decoded"};
             stages_.maybe_flush(t_end, name_, names);
