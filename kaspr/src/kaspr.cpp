@@ -627,6 +627,16 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
         std::cerr << "Kaspr: chan " << chanstr << " MsgBuf mailbox " << mb_kind << std::endl;
     }
 
+    // cme_reader_fast_send (experiment): socket readers fast_send into MsgBuf, so
+    // MsgBuf -> MessageProcessor -> decode run on the reader thread. A and B
+    // serialize on MsgBuf's mutex.
+    if (pt_chan.get<bool>("cme_reader_fast_send", false))
+    {
+        static_cast<mcast_recv::SocketReader<uint32_t, 0> *>(mdp3cfsmp[4])->set_fast_send(true);
+        static_cast<mcast_recv::SocketReader<uint32_t, 0> *>(mdp3cfsmp[5])->set_fast_send(true);
+        std::cerr << "Kaspr: chan " << chanstr << " reader fast_send into MsgBuf" << std::endl;
+    }
+
     auto cpu_str = pt_chan.get<std::string>("cme_cpus", "");
     auto cpus    = parse_cpu_list(cpu_str);
 

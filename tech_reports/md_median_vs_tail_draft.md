@@ -16,6 +16,82 @@
    descheduling, which is where its tail comes from.
 
 
+## Progress log
+
+All raw numbers live in `tech_reports/md_paper_data/`, regenerated from the run
+files by `paper_all.sh`. **Every table carries the full p1 / p10 / p50 / p90 /
+p99 / p999 / max curve.**
+
+| file | contents |
+|---|---|
+| `e2e.md` | end-to-end t1 - t0 per config, pooled and per run; latency by ingress qlen |
+| `stages.md` | per-stage percentiles (median across 10 s windows), serial and parallel |
+| `sched.md` | run-queue wait per thread role; worst 10 s buckets with the waiting thread |
+| `health.md` | gaps and recoveries per run; Onload socket drops (`oflow_drop`, `mem_drop`, max socket queue) |
+| `runs.log` | every run: start/end time, pid, CPU mask, kaspr log |
+
+Scripts are copied alongside.
+
+### 2026-10-01
+
+| time (ET) | what |
+|---|---|
+| 08:56-09:50 | Pass 1: base, fastsend, p4s, mbspin, fastsend_mbspin. 10 min each, feeds A+B. |
+| 09:50-11:16 | Pass 2: the same five plus each with feed B off (`*_A`), 8 min each, order rotated. 10:51: kaspr rebuilt for 20 s during `p2_p4s` (noted, minor). |
+| 11:16 onward | Experiments, interleaved with reference runs (base, fastsend_mbspin), 8 min each, see below. |
+
+Experiment 1, **pinning (`fsmb_pin`).** fastsend + spinning MsgBuf, with every
+busy thread pinned on NUMA node 2:
+
+| channel | sock A | sock B | MsgBuf |
+|---|---|---|---|
+| ES | 17 | 49 | 16 |
+| NQ | 19 | 51 | 18 |
+| ZN | 21 | 53 | 20 |
+
+- sock A and B of a channel sit on the two SMT siblings of one core.
+- Each MsgBuf is alone on its own core.
+- Idle actors run on cpu 22, books on cpu 54.
+- Every other kaspr thread is confined to nodes 0, 1 and 3 (`taskset`).
+
+Experiment 2, **socket reader fast_send into MsgBuf (`rfs`, `rfs_pin`,
+`rfs_pin_A`).** Each reader runs MsgBuf, MessageProcessor, decode, handler
+and book (book_fast_send) inline. There are no thread hops between socket read
+and book publish.
+
+- **Pinned layout:** each reader alone on its own physical core.
+  - ES: A on 16, B on 17
+  - NQ: A on 18, B on 19
+  - ZN: A on 20, B on 21
+- **Loss risk:** while a reader decodes, it is not reading its socket.
+  Measured by Onload `oflow_drop` and `mem_drop` per socket, by gaps and
+  recoveries, and with feed B off (`rfs_pin_A`), where any A-side drop
+  becomes a gap.
+
+### Current pooled snapshot (10:55, passes 1-2 partial), book latency, us
+
+p1 / p10 / p50 / p90 / p99 / p999:
+
+| config | runs | ES Z6 | NQ Z6 | ZN Z6 |
+|---|---|---|---|---|
+| base | 2 | 3.8 / 4.7 / 6.9 / 11.1 / 22.1 / 41.5 | 3.7 / 4.4 / 6.5 / 9.3 / 13.1 / 23.7 | 3.8 / 4.5 / 7.0 / 11.6 / 61.4 / 151.8 |
+| fastsend | 2 | 2.2 / 2.9 / 4.9 / 8.1 / 19.6 / 80.1 | 2.0 / 2.7 / 4.7 / 6.8 / 10.3 / 20.8 | 1.9 / 2.7 / 4.7 / 7.8 / 54.0 / 179.3 |
+| mbspin | 2 | 2.7 / 3.8 / 5.3 / 8.1 / 16.6 / 34.6 | 3.2 / 3.6 / 5.3 / 7.0 / 10.0 / 17.2 | 3.2 / 3.7 / 4.9 / 8.8 / 44.0 / 153.6 |
+| fastsend_mbspin | 1 | 1.5 / 1.9 / 2.5 / 5.1 / 13.3 / 30.7 | 0.8 / 1.3 / 2.1 / 3.7 / 6.9 / 16.4 | 0.9 / 1.4 / 2.4 / 5.2 / 59.7 / 296.6 |
+| fastsend_mbspin_A | 1 | 1.5 / 1.8 / 2.3 / 3.9 / 11.1 / 23.2 | 1.4 / 1.7 / 2.1 / 3.1 / 5.8 / 9.1 | 1.7 / 2.0 / 2.5 / 4.0 / 46.7 / 109.3 |
+| base_A | 1 | 4.0 / 4.6 / 6.6 / 9.6 / 16.9 / 37.1 | 3.8 / 4.1 / 5.0 / 7.5 / 10.4 / 17.6 | 3.9 / 4.4 / 6.6 / 10.9 / 66.0 / 266.3 |
+
+Notes:
+
+- **The fastsend tail penalty weakened with the second run.**
+  - ES p999 is now 1.9x base (80 vs 42).
+  - ZN is 1.2x (179 vs 152).
+  - NQ shows none (21 vs 24).
+- **The fastsend median gain held at about 2 us on every book.**
+- **fastsend_mbspin reaches a 2.1-2.5 us median,** about 3x better than base.
+  ZN p999 is its weak point.
+- **No gaps or extra recoveries in any run so far,** including feed-A-only.
+
 ## Preliminary results: pass 1 (08:56-09:50, one 10-minute run per config)
 
 *To be replaced by pooled passes 1-3. Caveat: `mbspin` and `fastsend_mbspin`

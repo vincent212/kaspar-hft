@@ -54,6 +54,7 @@ namespace mcast_recv
     char chan;
     bool newloop = false;
     bool read_loop = true;
+    bool fast_to_msgbuf_ = false;
     uint64_t last_ts = 0;
     bool big_endian;
     // ts_cnt is gone with the 1-in-16 subsample in read(). Left as a note
@@ -134,6 +135,10 @@ namespace mcast_recv
 
 
   public:
+    // Experiment (cme_reader_fast_send): hand packets to MsgBuf with fast_send
+    // instead of send. Call before the thread starts.
+    void set_fast_send(bool f) { fast_to_msgbuf_ = f; }
+
     SocketReader(
         const std::string &chan_nam,
         bool blocksock,
@@ -278,7 +283,20 @@ std::cerr << get_name() << " read loop: " << port
           auto msg = q.front();
           q.pop_front();
           msg->buf.send_ts = chutil::Time::epoch();
-          msg_processor->send(msg, this);
+          if (fast_to_msgbuf_)
+          {
+            // Experiment: run MsgBuf -> MessageProcessor -> decode inline on
+            // this thread. The buffer is copied by MessageProcessor, so the
+            // message is ours again on return; recycle it.
+            msg->qlen = 0;
+            msg_processor->fast_send(msg, this);
+            if (!pre_alloc_q.full())
+              pre_alloc_q.push_back(msg);
+            else
+              delete msg;
+          }
+          else
+            msg_processor->send(msg, this);
           if (chutil::mcast::has_more(sock))
           {
             goto L1;

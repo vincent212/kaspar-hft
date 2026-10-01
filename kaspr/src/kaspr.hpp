@@ -59,6 +59,7 @@
 #include "mdp3/act/HandlerIfActor.hpp"
 #include "mdp3/act/MessageProcessor.hpp"
 #include "mcast_recv/act/MsgBuf.hpp"
+#include "mcast_recv/act/SocketReader.hpp"
 
 //
 // Frame (kaspr uses frame_kaspr for runtime components)
