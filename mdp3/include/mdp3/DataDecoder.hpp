@@ -17,6 +17,8 @@
 #include "mcast_recv/message_buffer.hpp"
 #include "mdp3/msg/DecodePacket.hpp"
 #include "mdp3/msg/DecodeResult.hpp"
+#include "mdp3/StageHist.hpp"
+#include "chutil/Time.hpp"
 #include "mdp3/msg/DecoderCmd.hpp"
 
 #include "logger/act/Logger.hpp"
@@ -531,10 +533,35 @@ namespace mdp3
         // Decode one packet fast_sent by MessageProcessor. Reply carries rc + is_channel_reset.
         void on_decode_packet(const msg::DecodePacket *m) noexcept
         {
+            const uint64_t t_start = chutil::Time::epoch();
             cb->set_ingress_qlen(m->qlen);
             bool is_channel_reset = false;
             bool rc = mbo_data(const_cast<char *>(m->data), m->len, m->ts, is_channel_reset);
+            record_stages(m, t_start, chutil::Time::epoch());
             reply(new msg::DecodeResult(rc, is_channel_reset));
+        }
+
+        // Serial-path stage timing, logged every 10 s. G includes everything
+        // handler_if does inline: the book send (heap copy + push), or with
+        // UseFastSend the book's whole update.
+        enum Stage { A1_READ_TO_SEND, A2_TO_MSGBUF, A2_Q0, A2_QPOS, A3_MSGBUF_TO_DECODE,
+                     G_DECODE_HANDLER, TOTAL, NSTAGES };
+
+        void record_stages(const msg::DecodePacket *m, uint64_t t_start, uint64_t t_end)
+        {
+            if (!m->ts || !m->send_ts || !m->msgbuf_ts)
+                return;
+            const int64_t a2 = int64_t(m->msgbuf_ts - m->send_ts);
+            stages_.h[A1_READ_TO_SEND].add(int64_t(m->send_ts - m->ts));
+            stages_.h[A2_TO_MSGBUF].add(a2);
+            stages_.h[m->qlen ? A2_QPOS : A2_Q0].add(a2);
+            stages_.h[A3_MSGBUF_TO_DECODE].add(int64_t(t_start - m->msgbuf_ts));
+            stages_.h[G_DECODE_HANDLER].add(int64_t(t_end - t_start));
+            stages_.h[TOTAL].add(int64_t(t_end - m->ts));
+            static const char *const names[NSTAGES] = {"A1_read_to_send", "A2_to_msgbuf",
+                "A2_to_msgbuf_qlen0", "A2_to_msgbuf_qlenpos", "A3_msgbuf_to_decode",
+                "G_decode_handler", "TOTAL_t0_to_decoded"};
+            stages_.maybe_flush(t_end, name_, names);
         }
 
         // Low-rate control ops from MessageProcessor (gap / burstend / print_stats).
@@ -551,5 +578,6 @@ namespace mdp3
         feed_handler_if *cb;
         bool debug;
         char name_[256];
+        StageSet<NSTAGES> stages_;
     };
 }

@@ -1,3 +1,5 @@
+#include <pthread.h>
+#include <string>
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
  * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
@@ -127,6 +129,21 @@ void Manager::set_registry(const string& registry_endpoint,
   registry_client_->start_heartbeat_thread(get_name());
 }
 
+namespace
+{
+  // Name the OS thread after its actor so per-thread tools (top -H, /proc/*/comm,
+  // perf) can tell actors apart. Linux caps names at 15 chars; keep the first 4
+  // and last 11, which keeps channel and instance suffixes distinct
+  // ("310MessageProcessor" -> "310MgeProcessor").
+  void name_thread(std::thread *t, const char *name)
+  {
+    std::string n(name ? name : "");
+    if (n.size() > 15)
+      n = n.substr(0, 4) + n.substr(n.size() - 11);
+    pthread_setname_np(t->native_handle(), n.c_str());
+  }
+}
+
 void Manager::init()
 {
   for (auto actor : actor_list)
@@ -139,6 +156,7 @@ void Manager::init()
   for (auto actor : actor_list)
   {
     auto t = new std::thread([actor]() { (*actor)(); });
+    name_thread(t, actor->get_name());
     thread_list.push_back(t);
 
     if (!actor->affinity.empty())
@@ -434,6 +452,7 @@ void Manager::manage_and_start(actor_ptr actor, set<int> affinity, int priority,
 
   // Launch its thread
   auto t = new std::thread([actor]() { (*actor)(); });
+  name_thread(t, actor->get_name());
   thread_list.push_back(t);
 
   // Set affinity if specified

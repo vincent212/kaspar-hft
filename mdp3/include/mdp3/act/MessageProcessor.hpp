@@ -398,6 +398,8 @@ namespace mdp3
                     // copy is needed here; the reply carries rc + is_channel_reset.
                     msg::DecodePacket dp(&p->second.message[0], p->second.len, ts,
                                          p->second.qlen);
+                    dp.send_ts = p->second.send_ts;
+                    dp.msgbuf_ts = p->second.msgbuf_ts;
                     auto decode_reply = decoder->fast_send(&dp, this);
                     const auto *dr = static_cast<const msg::DecodeResult *>(decode_reply.get());
                     auto rc = dr->rc;

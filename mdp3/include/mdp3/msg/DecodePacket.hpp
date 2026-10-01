@@ -23,6 +23,9 @@ namespace mdp3::msg
     std::size_t len;
     uint64_t    ts;
     uint32_t    qlen; // ingress mailbox depth this packet queued behind
+    // Stage timing (epoch ns): reader send() and MsgBuf entry. 0 = not stamped.
+    uint64_t    send_ts = 0;
+    uint64_t    msgbuf_ts = 0;
 
     DecodePacket(const char *d, std::size_t l, uint64_t t, uint32_t q) noexcept
         : data(d), len(l), ts(t), qlen(q) {}
