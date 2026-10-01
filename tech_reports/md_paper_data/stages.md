@@ -1,4 +1,4 @@
-<!-- Generated 2026-10-01 14:09 EDT from /home/vincent/perf/mdperf/paper -->
+<!-- Generated 2026-10-01 14:14 EDT from /home/vincent/perf/mdperf/paper -->
 
 ## ES (310) -- median across 10 s windows of p1 / p10 / p50 / p99 / p999 (us); spike% = windows with p999 > 100 us
 | stage | base | fastsend | mbspin | fastsend_mbspin | p4s | base_A | fastsend_A | mbspin_A | fastsend_mbspin_A | p4s_A | fsmb_pin | rfs | rfs_pin | rfs_pin_A |

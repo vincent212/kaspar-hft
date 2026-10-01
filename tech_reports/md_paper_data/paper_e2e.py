@@ -166,3 +166,8 @@ for c in cfgs:
             continue
         print(f'| {c} | {lab} | {100*len(v)/len(allv):.2f}% | {len(v):,} | {pct(v,.5):.1f} | '
               f'{pct(v,.99):.1f} | {pct(v,.999):.1f} |')
+
+_disc = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'e2e_discussion.md')
+if os.path.exists(_disc):
+    print()
+    print(open(_disc).read())
