@@ -25,7 +25,7 @@ across 14 configurations of one C++ actor-based market-data path.
 
 ## Results as of 2026-10-01 13:00 (all passes pooled)
 
-37 valid runs, 08:56-13:00 ET, Onload solo mode, 8-10 minutes each, first
+26 valid runs, 08:56-13:00 ET, Onload solo mode, 8-10 minutes each, first
 120 s of each run dropped. One run (`x1_rfs`) is invalid: a stale library meant
 the feature was not active. It is excluded and listed in `runs.log`.
 
@@ -102,7 +102,7 @@ Each cell is p1 / p10 / p50 / p90 / p99 / p999. `runs` = runs pooled.
 5. **No packet loss, and no hidden queueing, from inlining.**
    - Onload `oflow_drop` and `mem_drop` were 0 on every socket in every run
      captured.
-   - Zero gaps and zero extra recoveries in all 37 valid runs, including all
+   - Zero gaps and zero extra recoveries in all 26 valid runs, including all
      feed-A-only runs.
    - Exchange SendingTime -> t0 (excess over the window minimum, X0) for `rfs`
      unpinned matches base: ES p50 / p999 6.8 / 29.5 vs 6.5 / 27.8 us. Running
@@ -118,7 +118,7 @@ Each cell is p1 / p10 / p50 / p90 / p99 / p999. `runs` = runs pooled.
      contention. Under `rfs`, A and B also serialize on MsgBuf's mutex.
    - Medians are about the same.
    - Cost: no arbitration. A drop on feed A becomes a gap and a recovery.
-     None were seen in 8 A-only runs (64 minutes).
+     None were seen in 7 A-only runs (about 55 minutes).
 
 ### F3. Threats to validity (specific to these runs)
 
