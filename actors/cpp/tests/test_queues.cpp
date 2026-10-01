@@ -239,6 +239,33 @@ TEST(LockFreeFull, PushBlocksWhenFullThenResumes)
   EXPECT_EQ(got, (std::vector<int>{0, 1, 2, 3, 99})) << "a message was lost across the full/resume path";
 }
 
+// consumer_spin: a spinning consumer must still deliver a message pushed while
+// it is polling, and once the spin budget runs out it must park and still be
+// woken by a later push (no hang, no loss).
+TEST(LockFreeSpin, SpinningConsumerReceivesAndStillParks)
+{
+  LockFreeMPSC<int> q(64);
+  EXPECT_EQ(q.consumer_spin(), 0u) << "spin must default off";
+  q.set_consumer_spin(1000);
+
+  std::future<int> f = std::async(std::launch::async, [&] { return std::get<0>(q.pop()); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(50)); // budget exhausted -> parked
+  q.push(7);
+  ASSERT_EQ(f.wait_for(std::chrono::seconds(5)), std::future_status::ready)
+      << "consumer parked after spinning and was never woken";
+  EXPECT_EQ(f.get(), 7);
+
+  q.set_consumer_spin(size_t(1) << 30);
+  std::future<std::vector<int>> g = std::async(std::launch::async, [&] {
+    std::vector<int> out;
+    q.pop_batch(out);
+    return out;
+  });
+  q.push(8);
+  ASSERT_EQ(g.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+  EXPECT_EQ(g.get(), (std::vector<int>{8}));
+}
+
 // FIX #3: each queue kind must have a sensible default size (the values
 // set_mailbox(kind, cap=0) maps to). Guards against the old default that forced
 // ACTOR_BQUEUE_SIZE (64) onto every kind — 64 *lanes* for ShardedBQueue.

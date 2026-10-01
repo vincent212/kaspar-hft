@@ -24,11 +24,15 @@ namespace mdp3
     class DataDecoderActor : public actors::Actor
     {
     public:
+        // spin > 0: busy-poll the mailbox that many times before parking, so a
+        // packet does not wait on a futex wakeup of this thread.
         DataDecoderActor(uint32_t chan, uint32_t worker, actor_ptr handler_actor,
-                         bool disable_mbo, uint32_t max_mbp_level)
+                         bool disable_mbo, uint32_t max_mbp_level, size_t spin = 0)
             : handler_actor_(handler_actor),
               dec_(&rec_, disable_mbo, max_mbp_level, /*debug=*/false, chan)
         {
+            if (spin)
+                set_mailbox(MailboxKind::LockFreeMPSC, 0, spin);
             snprintf(name_, sizeof(name_), "DataDecoderActor_%u_%u", chan, worker);
             MESSAGE_HANDLER(msg::ParDecodePacket, on_packet);
         }

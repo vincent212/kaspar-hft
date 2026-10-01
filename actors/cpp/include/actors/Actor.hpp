@@ -213,13 +213,21 @@ namespace actors
     // Pass cap = 0 (the default) to use each kind's own sensible default rather
     // than forcing one number across kinds — ACTOR_BQUEUE_SIZE for BQueue(Batched),
     // 8 lanes for ShardedBQueue, 1024 slots for LockFreeMPSC.
-    void set_mailbox(MailboxKind kind, size_t cap = 0)
+    //
+    // `consumer_spin` (LockFreeMPSC only): empty-ring polls before the consumer
+    // thread parks. 0 = park at once. Asserted 0 for the other kinds.
+    void set_mailbox(MailboxKind kind, size_t cap = 0, size_t consumer_spin = 0)
     {
+      assert((consumer_spin == 0 || kind == MailboxKind::LockFreeMPSC) &&
+             "consumer_spin is only implemented for LockFreeMPSC");
       switch (kind) {
         case MailboxKind::BQueue:        msgq.emplace<BQueue<MailboxMsg>>(cap ? cap : ACTOR_BQUEUE_SIZE); break;
         case MailboxKind::BQueueBatched: msgq.emplace<BQueueBatched<MailboxMsg>>(cap ? cap : ACTOR_BQUEUE_SIZE); break;
         case MailboxKind::ShardedBQueue: msgq.emplace<ShardedBQueue<MailboxMsg>>(cap ? cap : 8); break;
-        case MailboxKind::LockFreeMPSC:  msgq.emplace<LockFreeMPSC<MailboxMsg>>(cap ? cap : 1024); break;
+        case MailboxKind::LockFreeMPSC:
+          msgq.emplace<LockFreeMPSC<MailboxMsg>>(cap ? cap : 1024)
+              .set_consumer_spin(consumer_spin);
+          break;
       }
     }
 

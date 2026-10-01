@@ -519,6 +519,10 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     // the recorded calls into handler_if in packet order. The earlier parallel
     // decode was 2.0-2.2x slower at p50 (tech_reports/serial_vs_parallel_decode.md).
     const uint32_t nworkers = pt_chan.get<uint32_t>("cme_decode_workers", 0);
+    // cme_decode_spin true: workers and HandlerIfActor busy-poll their
+    // mailboxes instead of parking. Each burns a full core.
+    const bool decode_spin = pt_chan.get<bool>("cme_decode_spin", false);
+    const size_t spin_polls = decode_spin ? (size_t(1) << 30) : 0;
     if (nworkers & (nworkers - 1))
         throw std::runtime_error("chan " + chanstr + ": cme_decode_workers must be 0 or a power of two, got " +
                                  std::to_string(nworkers));
@@ -533,15 +537,17 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     }
     else
     {
-        std::cerr << "Kaspr: chan " << chanstr << " PARALLEL decode (" << nworkers << " workers)" << std::endl;
+        std::cerr << "Kaspr: chan " << chanstr << " PARALLEL decode (" << nworkers << " workers"
+                  << (decode_spin ? ", spinning" : "") << ")" << std::endl;
         // DataDecoder's constructor configures the handler; in parallel mode no
         // DataDecoder is built around the real handler, so configure it here.
         handler->set_max_mbp_level((uint32_t)maxmpblevel);
         handler->disable_mbo(disable_mbo);
-        handler_actor = new mdp3::HandlerIfActor((uint32_t)chan, handler);
+        handler_actor = new mdp3::HandlerIfActor((uint32_t)chan, handler, spin_polls);
         for (uint32_t i = 0; i < nworkers; ++i)
             workers.push_back(new mdp3::DataDecoderActor((uint32_t)chan, i, handler_actor,
-                                                         disable_mbo, (uint32_t)maxmpblevel));
+                                                         disable_mbo, (uint32_t)maxmpblevel,
+                                                         spin_polls));
         decoder = handler_actor;
     }
 

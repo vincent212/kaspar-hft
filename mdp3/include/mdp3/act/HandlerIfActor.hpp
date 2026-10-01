@@ -33,8 +33,11 @@ namespace mdp3
     class HandlerIfActor : public actors::Actor
     {
     public:
-        HandlerIfActor(uint32_t chan, feed_handler_if *cb) : cb_(cb)
+        // spin > 0: busy-poll the mailbox before parking (see DataDecoderActor).
+        HandlerIfActor(uint32_t chan, feed_handler_if *cb, size_t spin = 0) : cb_(cb)
         {
+            if (spin)
+                set_mailbox(MailboxKind::LockFreeMPSC, 0, spin);
             snprintf(name_, sizeof(name_), "HandlerIfActor_%u", chan);
             MESSAGE_HANDLER(msg::DecodedPacket, on_decoded);
             MESSAGE_HANDLER(msg::DecoderCmd, on_cmd);

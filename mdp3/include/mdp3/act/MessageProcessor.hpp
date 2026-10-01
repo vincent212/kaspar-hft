@@ -270,6 +270,7 @@ namespace mdp3
                 recovery_wait = true;
                 return;
             }
+            recovery_wait = false;
             do_data_recovery();
         }
 
@@ -447,7 +448,9 @@ namespace mdp3
 //#define INSTRECOVERYONGAP
 #ifdef INSTRECOVERYONGAP
                         log_inf("will do instr recovery");
-                        do_instr_recovery(); 
+                        // Not gated on inflight: would race HandlerIfActor.
+                        ASSERT(workers.empty(), "INSTRECOVERYONGAP is not supported with parallel decode");
+                        do_instr_recovery();
 #endif
                         log_inf("will do data recovery");
                         request_data_recovery();

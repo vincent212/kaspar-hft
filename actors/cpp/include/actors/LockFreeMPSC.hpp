@@ -85,6 +85,20 @@ namespace actors
 
     static constexpr int            kPushSpin = 1024;  // spin budget before blocking
 
+    // Consumer spin: polls of an empty ring before the consumer parks. 0 (the
+    // default) parks at once, as before. A busy-polling consumer burns its core
+    // but skips the futex wakeup, which is microseconds per message when the
+    // consumer was asleep.
+    size_t consumer_spin_ = 0;
+
+    bool spin_pop(T& v) noexcept {
+      for (size_t i = 0; i < consumer_spin_; ++i) {
+        if (try_pop(v)) return true;
+        cpu_relax();
+      }
+      return false;
+    }
+
     void notify_space() noexcept {
       if (producers_waiting_.load(std::memory_order_relaxed)) {
         std::lock_guard<std::mutex> lk(space_mtx_);
@@ -177,6 +191,12 @@ namespace actors
         T v;
         while (out.size() < kMaxDrain && try_pop(v)) out.push_back(v);
         if (!out.empty()) { notify_space(); return; }
+        if (spin_pop(v)) {
+          out.push_back(v);
+          while (out.size() < kMaxDrain && try_pop(v)) out.push_back(v);
+          notify_space();
+          return;
+        }
         // empty: park with a bounded safety-net wait
         std::unique_lock<std::mutex> lk(wait_mtx_);
         parked_.store(true, std::memory_order_relaxed);
@@ -196,7 +216,7 @@ namespace actors
     std::tuple<T, bool> pop() noexcept override {
       for (;;) {
         T v;
-        if (try_pop(v)) { notify_space(); return std::make_tuple(v, is_empty()); }
+        if (try_pop(v) || spin_pop(v)) { notify_space(); return std::make_tuple(v, is_empty()); }
         std::unique_lock<std::mutex> lk(wait_mtx_);
         parked_.store(true, std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_seq_cst);   // pairs w/ producer
@@ -224,6 +244,10 @@ namespace actors
       size_t d = dequeue_pos_.load(std::memory_order_relaxed);
       return e > d ? e - d : 0;
     }
+
+    // Set before the consumer thread starts.
+    void set_consumer_spin(size_t polls) noexcept { consumer_spin_ = polls; }
+    std::size_t consumer_spin() const noexcept { return consumer_spin_; }
 
     // Ring capacity in slots (power of two). Test/introspection helper.
     std::size_t capacity() const noexcept { return buf_.size(); }

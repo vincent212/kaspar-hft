@@ -25,6 +25,7 @@
 #include "mdp3/msg/DecodeDone.hpp"
 #include "mdp3/msg/DecodedPacket.hpp"
 #include "mdp3/msg/DoDataRecovery.hpp"
+#include "mdp3/msg/EndDataRecovery.hpp"
 #include "mdp3/msg/ParDecodePacket.hpp"
 #include "mcast_recv/msg/ProcessQ.hpp"
 #include "mdp3_sbe/ChannelReset4.h"
@@ -372,4 +373,33 @@ TEST_F(ParallelMessageProcessorTest, DecodeFailureBumpsEpochAndRecovers)
   delete dropped;
 
   EXPECT_TRUE(recovery.has_message_of_type<mdp3::msg::DoDataRecovery>());
+  EXPECT_EQ(recovery.message_count(), 1u);
+
+  // Recovery done: the next dispatch must carry the bumped epoch.
+  auto *end = new mdp3::msg::EndDataRecovery(2);
+  TestHelper::invoke_handler(&mp, end, nullptr);
+  delete end;
+  w0.clear();
+  w1.clear();
+  feed(3);
+  ASSERT_EQ(w0.message_count() + w1.message_count(), 1u);
+  const auto *pd = w0.message_count() ? w0.get_message<mdp3::msg::ParDecodePacket>(0)
+                                      : w1.get_message<mdp3::msg::ParDecodePacket>(0);
+  ASSERT_NE(pd, nullptr);
+  EXPECT_EQ(pd->epoch, 1u);
+  EXPECT_EQ(pd->sn, 3u);
+}
+
+// A gap wait and a decode failure both owe a recovery; it must start once.
+TEST_F(ParallelMessageProcessorTest, GapWaitPlusDecodeFailureRecoversExactlyOnce)
+{
+  feed(1);
+  feed(3);
+  feed(3);
+  feed(3); // gap exhausted while packet 1 is in flight -> recovery_wait
+  ASSERT_TRUE(mp.waiting_to_recover());
+
+  ack(0, 1, /*rc=*/false);
+  EXPECT_FALSE(mp.waiting_to_recover());
+  EXPECT_EQ(recovery.message_count(), 1u);
 }
