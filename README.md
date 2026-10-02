@@ -361,6 +361,34 @@ Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.su
 - [**The Lock-Free Illusion: Why CAS Storms Kill Actor Queues Under Contention**](https://vincentmayeski.substack.com/p/the-lock-free-illusion-why-cas-storms) — when a lock-free mailbox wins and when it tails worse than a mutex; the queue-selection matrix. *Code on the experimental [`sharded-mailbox`](https://github.com/vincent212/kaspar-hft/tree/sharded-mailbox) branch, not yet merged.*
 - [**Shadow POV Execution: Trade Where the Market Is Going to Trade**](https://vincentmayeski.substack.com/p/shadow-pov-execution-trade-where) — a percentage-of-volume algorithm that follows passive flow.
 
+## MD Handler Research
+
+How the CME MDP3 market-data handler spends its time from socket read to book
+update, and which design choices move the median and the tail. All
+measurements are from live CME futures (ES, NQ, ZN), message by message, with
+p1 to p99.9 reported for every configuration.
+
+Main results:
+
+- **Thread hops, not decode, set the latency.** SBE decode plus the book update
+  costs under 1 µs. Each hop into a sleeping thread costs 2–4 µs.
+- **The zero-hop path is the fastest at every percentile.** It runs socket
+  read, decode and book update on one thread: median about 1 µs, against
+  about 6–7 µs on the production path.
+- **The median-vs-tail trade of a hand-off depends on the receiving thread.**
+  An async `send` to a sleeping book trades median for tail. To a spinning
+  book it loses on both, because spinning threads get descheduled on a host
+  without isolated cores.
+- **Parallel decode loses at every percentile.** Packets carry about one
+  message, so there is little to parallelize. The stateful handler forces one
+  serial consumer, and the fan-out adds about 5–6 µs per packet.
+- **Pinning busy threads without CPU isolation makes the tail much worse.**
+
+Paper draft:
+[tech_reports/md_median_vs_tail_draft.md](tech_reports/md_median_vs_tail_draft.md).
+Data, configs and analysis scripts:
+[tech_reports/md_paper_data/](tech_reports/md_paper_data/).
+
 ## Decode Paths Research — serial vs parallel
 
 Motivation: working to reduce the latency tail 
