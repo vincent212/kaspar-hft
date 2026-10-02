@@ -415,8 +415,6 @@ All claims in Part IV are code-backed. Line numbers are from `main` as of 2026-0
   - Book p50: ES 7.1 µs, NQ 7.3 µs, ZN 7.1 µs. Book p99: ES 18.5, NQ 13.6, ZN 57.0 µs
     (`md_latency_article.md:54-61`).
   - Book-latency intercepts of 6.18 / 6.73 / 6.84 µs (`kaspr/perf/RESULT_qlen_vs_latency.md:76`).
-- **Do not cite yet:** "~100 µs tick-to-trade median, p99 < 1 ms"
-  (`tech_reports/kaspar_onepager.tex:186-188`). No raw data behind it was found.
 - **Slippage probe:** slippage is measured against mid, interval VWAP, same-side passive peers,
   and the touch (`sim/src/SlippageProbe.cpp:659-713`, definitions in
   `sim/include/sim/act/SlippageProbe.hpp:97-146`). The VWAP comparison separates drift from
