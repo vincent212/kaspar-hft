@@ -22,11 +22,12 @@
 
 - **Low Latency Actor Concurrency Model Framework:** No race conditions, no memory data races, almost no framework overhead.
 - **Backtest == production:** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live iLink 3; switching is a config change, so a backtest exercises the exact code path that will trade.
-- **CME-certified:** The MDP3 market-data handler and the iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
+- **CME-certified:** The MDP3 market-data handler and the iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle. MDP3 handler p50 latency is between .8 to 7 micros depending on channel.
 - **Shadow execution algorithm:** Efficient, production-grade, turn-key execution algorithm.
 - **Strategy authoring in C++ or Rust:** Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop.
 - **Two papers to dive deeper, more in the works:** The C++ actor framework design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
-- **Async vs sync (fast_send) communication fungibility** Allows for system latency optimization [arXiv:2609.32848](https://arxiv.org/abs/2609.32848v1)
+- **Async vs sync (fast_send) communication fungibility:** Allows for system latency optimization [arXiv:2609.32848](https://arxiv.org/abs/2609.32848v1)
+- **Formal fast_send semantics:** Formal extention of the actor modhel here [extended](https://github.com/vincent212/kaspar-hft/blob/feature/fpga-runtime/tech_reports/extended_actor_model/extended_actor_model.pdf)
 
 ---
 
