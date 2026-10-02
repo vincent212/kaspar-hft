@@ -257,24 +257,20 @@ chart above). Details: [perf README](actors/cpp/perf/README.md#d-fast_send-vs-a-
 ## Market-data latency (live CME MDP3)
 
 Socket-to-book latency measured on live CME futures (ES, NQ and ZN front month)
-on 2026-10-01, with Onload kernel bypass and one feed (feed B switched off).
-Measured per message from the socket read (`t0`, right after `recvfrom`) to the
-book publish (`t1`); time in the NIC and socket buffer is not included. Each row is
-the fastest setup for that stream. All figures in µs.
+on 2026-10-01, with Onload kernel bypass and one feed (feed B switched off). The
+socket reader thread decodes each packet and updates the book itself, with no
+thread hand-off, on a CPU core of its own. Measured per message from the socket
+read (`t0`, right after `recvfrom`) to the book publish (`t1`); time in the NIC and
+socket buffer is not included. All figures in µs.
 
-| stream | setup | messages | p1 | p10 | p50 | p90 | p99 | p99.9 |
-|---|---|---:|---:|---:|---:|---:|---:|---:|
-| ES book | one thread hand-off | 321,930 | 1.5 | 1.8 | 2.3 | 3.9 | 11.1 | 23.2 |
-| NQ book | no thread hand-off | 358,522 | 0.6 | 0.7 | 1.1 | 2.6 | 6.2 | 15.7 |
-| ZN book | no thread hand-off | 139,630 | 0.6 | 0.8 | 1.2 | 3.3 | 36.8 | 100.5 |
-| ES trade | one thread hand-off | 27,226 | 1.5 | 2.0 | 3.8 | 8.7 | 20.5 | 36.1 |
-| NQ trade | one thread hand-off | 11,070 | 1.5 | 1.7 | 2.4 | 4.5 | 12.2 | 34.0 |
-| ZN trade | one thread hand-off | 8,002 | 1.8 | 2.2 | 9.0 | 50.1 | 167.9 | 225.4 |
-
-- **No thread hand-off:** the socket reader thread decodes the packet and updates
-  the book itself, and has a CPU core to itself.
-- **One thread hand-off:** the socket reader passes the packet to a thread that
-  busy-polls for it, decodes it, and updates the book on the same thread.
+| stream | messages | p1 | p10 | p50 | p90 | p99 | p99.9 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| ES book | 249,085 | 0.6 | 0.8 | 1.2 | 4.0 | 16.6 | 42.8 |
+| NQ book | 358,522 | 0.6 | 0.7 | 1.1 | 2.6 | 6.2 | 15.7 |
+| ZN book | 139,630 | 0.6 | 0.8 | 1.2 | 3.3 | 36.8 | 100.5 |
+| ES trade | 33,589 | 0.5 | 0.8 | 3.4 | 11.2 | 48.1 | 86.1 |
+| NQ trade | 10,141 | 0.5 | 0.7 | 1.5 | 4.7 | 14.4 | 28.6 |
+| ZN trade | 13,304 | 0.5 | 0.9 | 8.5 | 53.6 | 97.8 | 140.7 |
 
 ## Shadow Execution Algo
 
