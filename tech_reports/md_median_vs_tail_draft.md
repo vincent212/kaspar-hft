@@ -836,6 +836,62 @@ How to test it:
 If the misses are near zero and the books match, the hypothesis holds, and this
 design is the one worth timing.
 
+**Alternative: shard by instrument.** Each worker owns a fixed set of
+contracts, and is the only thread that touches their state.
+
+- **State splits cleanly.** An order belongs to exactly one contract, so the
+  order map partitions by `securityID` with no sharing. Each shard keeps its own
+  slice of `orderid_to_securityid`, its own books, and (optionally) its own
+  `rptSeq` check. The FDF map is read-only on the hot path and can be
+  replicated.
+- **Order holds by construction.** All events of a contract go to one worker,
+  in arrival order. Per-instrument order is exactly what a book needs; order
+  across contracts does not matter to it. No resequencer, no locks.
+- **The book hand-off is unchanged:** each shard sends to its own TachBooks.
+
+Costs and complications:
+
+1. **The dispatcher must look inside packets.** One MDP3 message can carry
+   entries for several contracts (each `noMDEntries` entry has its own
+   `securityID`). Routing therefore needs at least a partial decode before
+   the fan-out, or splitting a packet across shards. The serial path pays
+   neither. How often a packet spans contracts that would land on different
+   shards was not measured.
+2. **Trade order entries carry no contract.** In
+   `MDIncrementalRefreshTradeSummary48`, the order-ID entries have an order ID
+   and quantity only, with no `securityID` and no index back to the trade
+   entry (`msg_decoder.hpp:217-232`). Today `handler_if` finds the contract by
+   looking the order up channel-wide (`handler_if.hpp:900`). A sharded design
+   has to either:
+   - send the order entries to every shard that owns a contract named in the
+     message's trade entries, and let each shard keep the ones it finds in its
+     own order map; or
+   - keep a shared order-to-contract index. That brings back the shared map
+     that sharding was meant to remove.
+3. **Load balance follows the market, not the shard count.** Most traffic is
+   in a few front contracts: on channel 318, NQZ6 alone. A shard that owns
+   one busy contract does nearly all the work, so sharding cannot speed up the
+   busiest contract at all. Its events are, by design, processed in sequence on
+   one thread.
+4. **Every packet still pays the dispatch hop (B, 0.9 us p50).** The
+   handler-side hop and the head-of-line wait (D and E) go away, as with the
+   direct-call design above.
+5. **Gaps and recovery become per channel across shards.** A gap or snapshot
+   recovery has to be signalled to every shard and completed by all of them
+   before live data resumes. That is the same kind of coordination as the
+   epoch and in-flight logic the parallel design already needed.
+
+**Assessment.** Sharding is the only design here that is correct by
+construction without a lock on the hot path. But on this feed its gain is
+capped twice:
+
+- by reason 2: packets rarely overlap, so there is little to parallelize;
+- by point 3: the busiest contract cannot be split.
+
+It is attractive mainly when one channel carries many active contracts with
+comparable traffic. The ZN channel (ZN, ZF, ZB, ZT, UB) is the closest case
+here.
+
 **Parallelism that works today is per channel.** Channels share no state and
 already run on separate threads.
 
