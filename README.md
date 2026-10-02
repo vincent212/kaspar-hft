@@ -263,14 +263,14 @@ of each run dropped. Measured per message from the socket read (`t0`, right afte
 included. The fastest configuration for each stream (lowest p90). All figures
 in µs.
 
-| stream | config | messages | p1 | p10 | p50 | p90 | p99 | p99.9 | max |
-|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| ES book | `fastsend_mbspin_A` | 321,930 | 1.5 | 1.8 | 2.3 | 3.9 | 11.1 | 23.2 | 153 |
-| NQ book | `rfs_pin_A` | 358,522 | 0.6 | 0.7 | 1.1 | 2.6 | 6.2 | 15.7 | 99 |
-| ZN book | `rfs_pin_A` | 139,630 | 0.6 | 0.8 | 1.2 | 3.3 | 36.8 | 100.5 | 157 |
-| ES trade | `fastsend_mbspin_A` | 27,226 | 1.5 | 2.0 | 3.8 | 8.7 | 20.5 | 36.1 | 56 |
-| NQ trade | `fastsend_mbspin_A` | 11,070 | 1.5 | 1.7 | 2.4 | 4.5 | 12.2 | 34.0 | 40 |
-| ZN trade | `fastsend_mbspin_A` | 8,002 | 1.8 | 2.2 | 9.0 | 50.1 | 167.9 | 225.4 | 231 |
+| stream | config | messages | p1 | p10 | p50 | p90 | p99 | p99.9 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| ES book | `fastsend_mbspin_A` | 321,930 | 1.5 | 1.8 | 2.3 | 3.9 | 11.1 | 23.2 |
+| NQ book | `rfs_pin_A` | 358,522 | 0.6 | 0.7 | 1.1 | 2.6 | 6.2 | 15.7 |
+| ZN book | `rfs_pin_A` | 139,630 | 0.6 | 0.8 | 1.2 | 3.3 | 36.8 | 100.5 |
+| ES trade | `fastsend_mbspin_A` | 27,226 | 1.5 | 2.0 | 3.8 | 8.7 | 20.5 | 36.1 |
+| NQ trade | `fastsend_mbspin_A` | 11,070 | 1.5 | 1.7 | 2.4 | 4.5 | 12.2 | 34.0 |
+| ZN trade | `fastsend_mbspin_A` | 8,002 | 1.8 | 2.2 | 9.0 | 50.1 | 167.9 | 225.4 |
 
 | config | what it is |
 |---|---|
