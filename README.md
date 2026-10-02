@@ -257,21 +257,21 @@ chart above). Details: [perf README](actors/cpp/perf/README.md#d-fast_send-vs-a-
 
 ## Market-data latency (live CME MDP3)
 
-Socket-to-book latency measured on live CME futures (ES, NQ and ZN front month)
-on 2026-10-01, with Onload kernel bypass and one feed (feed B switched off). The
-socket reader thread decodes each packet and updates the book itself, with no
-thread hand-off, on a CPU core of its own. Measured per message from the socket
-read (`t0`, right after `recvfrom`) to the book publish (`t1`); time in the NIC and
-socket buffer is not included. All figures in µs.
+Socket-to-book latency measured on live CME futures (ES, NQ and ZN) on
+2026-10-02: two 5-minute runs, the first 60 s of each dropped, Onload, one feed
+(feed B switched off), threads not pinned. The socket reader thread decodes each
+packet and updates the book itself, with no thread hand-off. Measured per message
+from the socket read (`t0`) to the book publish (`t1`); time in the NIC and socket
+buffer is not included. All figures in µs.
 
 | stream | messages | p1 | p10 | p50 | p90 | p99 | p99.9 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| ES book | 249,085 | 0.6 | 0.8 | 1.2 | 4.0 | 16.6 | 42.8 |
-| NQ book | 358,522 | 0.6 | 0.7 | 1.1 | 2.6 | 6.2 | 15.7 |
-| ZN book | 139,630 | 0.6 | 0.8 | 1.2 | 3.3 | 36.8 | 100.5 |
-| ES trade | 33,589 | 0.5 | 0.8 | 3.4 | 11.2 | 48.1 | 86.1 |
-| NQ trade | 10,141 | 0.5 | 0.7 | 1.5 | 4.7 | 14.4 | 28.6 |
-| ZN trade | 13,304 | 0.5 | 0.9 | 8.5 | 53.6 | 97.8 | 140.7 |
+| ES book | 401,462 | 0.5 | 0.7 | 1.1 | 2.7 | 9.9 | 24.1 |
+| NQ book | 581,010 | 0.4 | 0.5 | 0.8 | 1.9 | 4.7 | 8.8 |
+| ZN book | 141,972 | 0.4 | 0.6 | 1.0 | 2.5 | 20.6 | 69.3 |
+| ES trade | 45,733 | 0.5 | 0.7 | 2.5 | 8.8 | 36.2 | 70.1 |
+| NQ trade | 21,093 | 0.4 | 0.6 | 0.9 | 3.3 | 17.8 | 31.5 |
+| ZN trade | 13,282 | 0.4 | 0.7 | 6.6 | 41.5 | 90.5 | 124.0 |
 
 ## Shadow Execution Algo
 
