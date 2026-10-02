@@ -778,25 +778,63 @@ load. What would settle it:
 2. **Load.** At 260-1,950 packets/s per channel, packets almost never overlap.
    Even a design with no serial point would have little to parallelize.
 
-**Dropping the actor and locking `orderid_to_securityid`.** With only one
-shared map mutated per message, this is feasible.
+**Alternative: several decoders calling `handler_if` directly.** If message
+ordering is not an issue for the order book, the record/replay stage is not
+needed:
 
-- **The lock is cheap if uncontended:** about 20 ns. Contended, it costs
-  microseconds plus futex sleeps, with cache-line bouncing. At today's
-  overlap (about 1% of packets) contention would be rare.
-- **It removes the replay hop and the recording.** That is most of the
-  parallel overhead.
-- **What it does not handle is ordering.** Events would reach TachBook in
-  completion order, not exchange order. At this load that is at most about 1%
-  of packets on ES and NQ. Whether it corrupts the book is unmeasured. Bursts
-  are exactly when overlap, and so reordering, rises. Correctness
-  would need either:
-  - a per-instrument ordering check, using MDP3's `rptSeq`, which is read
-    today and ignored; or
-  - routing all events of an instrument to the same worker (sharding by
-    instrument, so order holds by construction, with no shared mutable state
-    at all).
-- It also does not remove the dispatch hop (B), the packet copy, or reason 2.
+- N decoder threads, each running `DataDecoder` on its own packets.
+- Each calls the real `handler_if` directly, as the serial path does. No
+  recording, no replay hop, no resequencer.
+- Two shared maps need protecting:
+  - **FDF map** (`securityid_to_asset_id`): written only by instrument
+    definitions, at startup and on recovery. On the hot path it is read-only,
+    so a reader-writer lock or copy-on-write swap makes it effectively free.
+  - **Order map** (`orderid_to_securityid`): written on nearly every book event.
+    This is the one contended lock. It costs about 20 ns uncontended; contended,
+    it costs microseconds plus futex sleeps and cache-line bouncing. At today's
+    overlap (at most about 1% of packets on ES and NQ), contention would be
+    rare.
+- Events reach TachBook in completion order, not exchange order.
+
+What it would remove, against the measured parallel path:
+
+| removed | measured, NQ p50 |
+|---|---|
+| D: hop to the handler thread | 0.8 us |
+| E: wait behind an earlier packet (head-of-line) | 0.1 us (p999 6.0 us) |
+| recording cost inside C | not split out; C is 1.3 us against 0.4 us inline |
+
+It would keep the dispatch hop (B, 0.9 us), the packet copy, and reason 2
+(little overlap at this load).
+
+**Hypothesis (the author's, untested): reordering is not a big issue for the
+order book.** In favour:
+
+- Out-of-order completion is rare here: at most about 1% of packets on ES and
+  NQ (5.4 above).
+- A reordered pair only matters if both packets touch the same order, and
+  arrive within the few microseconds that a decode overlap lasts.
+
+Against:
+
+- Under load, overlap rises, and so does reordering.
+- Fast add-then-cancel, and cancel-replace, on the same order are common, and
+  are exactly the pairs that break.
+- A miss is silent in TachBook today (`TachBook.hpp:656-658`). A delete that
+  arrives before its add leaves a phantom order that persists until something
+  removes it.
+- The book's uncross logic may hide some of these errors rather than expose
+  them.
+
+How to test it:
+
+1. Run the direct-call design with **no** resequencer.
+2. Count TachBook's unknown-order misses, and print them every 10 s.
+3. Compare the book with a serial book on the same tape, for example by
+   replaying a recorded `.bin` through both and diffing the top of book.
+
+If the misses are near zero and the books match, the hypothesis holds, and this
+design is the one worth timing.
 
 **Parallelism that works today is per channel.** Channels share no state and
 already run on separate threads.
