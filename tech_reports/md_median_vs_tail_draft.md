@@ -710,7 +710,7 @@ feed B off (`p4s_A`), there are three fewer polling readers. The handler's wait
 drops to 3 us p50, and p999 improves (NQ 31 vs 347 us). Contention is the
 lever.
 
-### 5.5 The serialization point: handler_if is stateful
+### 5.4 The serialization point: handler_if is stateful
 
 The parallel design fans **decode** out to N workers but funnels every packet
 back into **one** `HandlerIfActor`, which replays the decoded events into
@@ -785,7 +785,7 @@ it.**
 **Parallelism that does work today is per channel.** Channels share no state
 and already run on separate threads.
 
-### 5.4 Conclusion
+### 5.5 Conclusion
 
 Parallel decode fails here for structural reasons, not because of a bug.
 
