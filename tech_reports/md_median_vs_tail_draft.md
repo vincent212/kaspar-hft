@@ -728,11 +728,12 @@ back into **one** `HandlerIfActor`. That actor replays the decoded events into
   allocate a `std::vector` per incremental-book message, a heap allocation on
   the hot path.
 - **The book (TachBook):** keeps its own `orders` map. A modify or delete for an
-  unknown order is "order not found", which flags the publish as bad data and
-  drops it (`drop_baddata`).
+  unknown order returns silently, with no log line and no counter
+  (`TachBook.hpp:656-658`).
 
-This book check is where ordering matters. Applied out of order, a delete
-arriving before its add is dropped, and the add then leaves a phantom order.
+This is where ordering would matter. Applied out of order, a delete that
+arrives before its add is silently ignored, and the add then leaves a phantom
+order in the book.
 
 **How often ordering actually comes into play (measured).** The resequencer's
 wait (stage E) is non-zero exactly when a packet finishes decode before its
@@ -744,15 +745,22 @@ order.
 | E p90 | 0.1 us | 0.1 us | 0.1 us |
 | E p99 | 0.3 us | 0.2 us | 3.6 us |
 
-- About 1% of packets on ES and NQ, somewhat more on ZN, finished ahead of
-  their predecessor.
+- On ES and NQ, E stays at the histogram floor through p99, so out-of-order
+  completion is at most about 1% of packets, and possibly much less. On ZN, at
+  least 1% of packets waited 3.6 us or more for a predecessor.
 - **Not measured:** how many of those pairs touch the same order or
   instrument. Only those would corrupt the book.
-- With the resequencer in place, the parallel runs had `drop_baddata = 0`.
+- **Also not measured:** whether the book ever saw an unknown order. The only
+  counter (`drop_baddata`) is printed at shutdown, and the runs were stopped
+  with `kill -9`, so it never printed. The miss on an unknown order is silent
+  anyway.
 
-So reordering is real but rare at this load. Its true corruption rate is
-unknown. A per-packet log of reordered pairs and their order ids would settle
-it.
+So it is not established that ordering would be an actual problem at this
+load. What would settle it:
+
+- log each reordered pair with its securityIDs and orderIDs;
+- count unknown-order misses in TachBook;
+- print the counters periodically, not only at shutdown.
 
 **Amdahl.**
 
@@ -779,8 +787,9 @@ shared map mutated per message, this is feasible.
 - **It removes the replay hop and the recording.** That is most of the
   parallel overhead.
 - **What it does not handle is ordering.** Events would reach TachBook in
-  completion order, not exchange order. That affects about 1% of packets here,
-  but bursts are exactly when overlap, and so reordering, rises. Correctness
+  completion order, not exchange order. At this load that is at most about 1%
+  of packets on ES and NQ. Whether it corrupts the book is unmeasured. Bursts
+  are exactly when overlap, and so reordering, rises. Correctness
   would need either:
   - a per-instrument ordering check, using MDP3's `rptSeq`, which is read
     today and ignored; or
