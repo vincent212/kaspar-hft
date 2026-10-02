@@ -436,7 +436,29 @@ multi-dimensional message as a single token, while keeping continuous representa
 volume and time. It is designed as a general-purpose, fine-tunable foundation model, and reports
 leading performance on mid-price movement and next-message prediction with a shorter required
 context than earlier methods; it is trained and evaluated on Nasdaq ITCH message data for four
-large US stocks in 2015, with millisecond timestamps. A message-level encoder sees the difference between a cancellation
+large US stocks in 2015, with millisecond timestamps.
+
+\paragraph{What ``one message, one token'' means.} A sequence model such as BERT reads its input as
+a sequence of \emph{tokens}, and turns each token into a vector before processing the sequence. In a
+language model a token is a word or a piece of a word. For order-book data there is a choice of what
+a token should be, and it shapes what the model can see.
+\begin{itemize}[leftmargin=1.8em,itemsep=1pt]
+\item \emph{One token per field.} Each message is split into its fields --- event type, side,
+  price, size, time --- and each field becomes a token of its own. One book event then occupies
+  several consecutive positions in the sequence, and the model has to learn which positions belong
+  together. Numbers such as prices must also be cut into a fixed set of bins so that each fits a
+  token vocabulary, which loses precision.
+\item \emph{One token per message (LOBERT).} The whole message is a single token. Its discrete
+  fields, such as the event type and side, select one of 293 message tokens, and its price, volume
+  and time are attached to that token as continuous numbers rather than being binned
+  (Section~\ref{sec:foundation}).
+\end{itemize}
+With one token per message, every position in the model's input is one complete book event: a
+context of 512 positions covers 512 events, not a fraction of that many, and each event's price,
+size and time reach the model exactly as recorded. It also means the model reads a cancellation
+and an execution as two different tokens, rather than as the same change in queue size.
+
+A message-level encoder therefore sees the difference between a cancellation
 and an execution in Example~\ref{ex:qi}; a snapshot encoder, by construction, does not.
 
 % ================================================================
@@ -2040,6 +2062,7 @@ scenarios, not a substitute for flying.}
 \end{modelcard}
 
 \subsection{Foundation encoders and uncertainty}
+\label{sec:foundation}
 
 A \emph{foundation model} is pretrained once on a large, generic corpus and then adapted to many
 specific tasks. Two recent contributions from the same group illustrate a useful layering for LOB data.
