@@ -323,23 +323,6 @@ Each message's latency decomposes as **median ≈ floor + slope × idx**, where
 These runs are short, so p99.9 rests on few samples, especially for ZN and the
 trade streams.
 
-**What this says about the design.**
-
-- **Thread hops, not decode, set the latency.** SBE decode plus the book
-  update costs under 1 µs. The production path hands off to the message
-  buffer and to the book through two thread hops into sleeping threads. Each
-  hop costs 2–4 µs, which puts its median at about 6–7 µs (floor ≈ 7 µs in
-  [tech_reports/fast_send.pdf](https://arxiv.org/abs/2609.21173)).
-- **Removing the hops cuts the tail as well as the median.** Of the six
-  hand-off configurations measured that day, this one had the shortest tail.
-  Busy-polling hand-off threads remove the wake-up cost, but on a host
-  without isolated cores they are descheduled for milliseconds.
-- **The tail follows the arrival process.** Arrivals are **non-Poisson and
-  self-exciting** (Hawkes-like, branching ratio 0.85–0.97): 74–85% of
-  interarrival gaps are shorter than 1/10 of the mean, vs 9.5% for a Poisson
-  feed of the same rate. A burst lands as many messages in one packet, and
-  each pays the slope.
-
 ## Shadow Execution Algo
 
 Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow by following the orders other participants place.
