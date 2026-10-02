@@ -405,7 +405,7 @@ why:
 - **The handler is a single serial point.** `handler_if` mutates the
   order-id map on every message, so all packets funnel back through one
   thread.
-- **Extra threads lengthen the tail.** Twelve more busy-polling threads per
+- **Extra threads lengthen the tail.** Fifteen more busy-polling threads per
   host get descheduled, and they slow the shared socket → message-buffer hop.
 
 Full analysis: section 5 of
