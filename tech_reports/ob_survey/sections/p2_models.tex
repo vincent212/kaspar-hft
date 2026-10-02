@@ -467,6 +467,21 @@ where $u$ runs over time after $t$; $\tau^b$ is defined in the same way for the 
 \inwords{$\tau^a$ is how long from now until the best-ask queue is empty for the first time---the
 time at which a loop that polls the queue size would first see zero. ``First passage'' is the
 general name for the first time a wandering quantity reaches a level.}
+
+\noindent The notation, symbol by symbol:
+\begin{itemize}[leftmargin=1.8em,itemsep=1pt]
+\item $t$ is now, and $u$ is time elapsed after now, so $t+u$ is a moment in the future.
+\item $v^{a}_{1,t+u}$ is the number of lots resting at the best ask (ask level $\ell = 1$) at time
+  $t+u$; the superscript $a$ means the ask side.
+\item $\{u > 0 : v^{a}_{1,t+u} \le 0\}$ is the set of all future times at which that queue is
+  empty; the colon reads ``such that''.
+\item $\inf$, the infimum, is the greatest lower bound of that set: in effect the earliest such
+  time. It is written $\inf$ rather than $\min$ because in continuous time the set need not have a
+  smallest element, and because the set may be empty: if the queue never empties, $\tau^a =
+  \inf\emptyset = +\infty$ by convention.
+\item $\tau^a$, ``tau ask'', is the result: a random time, different on every run of the market.
+  $\tau^b$ is the same quantity for the best bid.
+\end{itemize}
 The race between the two queues is then
 \begin{equation}
   \P(\text{next mid move is up} \mid X_t) = \P(\tau^a < \tau^b \mid X_t),
