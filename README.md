@@ -90,7 +90,7 @@ Two things the quick start does not do:
 The actor framework provides a uniform concurrency model for the entire system. Coding agents will pick up the documentation and will write actor components for you. All you have to do is fill in
 your message handlers.
 
-- **Message passing** — `BQueue` mailbox per actor
+- **Message passing** — a mailbox per actor (`BQueue` by default; see below)
 - **Groups** — A `Group` runs multiple actors on a single thread with a single message queue. Enables deterministic simulation.
 - **Zero-copy fast path** — `fast_send()` executes the handler in the caller's thread for synchronous queries — no queue, no thread hop, message passed on the stack.
 - **C++/Rust interop** — Strategies can be coded in C++ or Rust.
@@ -175,7 +175,7 @@ Pick the best queue for your use case:
   actor's thread busy-polls its mailbox. The lowest hand-off latency between
   threads, at the cost of a whole core per actor; only worth it on isolated cores.
 
-**[Not All Queues Fit All in Low-Latency Systems](https://vincentmayeski.substack.com/p/not-all-queues-fit-all-in-low-latency)**.
+More on choosing: [**Not All Queues Fit All in Low-Latency Systems**](https://vincentmayeski.substack.com/p/not-all-queues-fit-all-in-low-latency).
 
 ## Monitoring
 
@@ -227,7 +227,7 @@ kaspr {
 | [CLAUDE_AGENT_GUIDE.md](actors/cpp/CLAUDE_AGENT_GUIDE.md) | Actor framework technical reference |
 | [actors/rust/README.md](actors/rust/README.md) | Rust actor-framework port — overview & quickstart |
 | [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) | Writing actors in the Rust port |
-| [tech_reports/fast_send.pdf](tech_reports/fast_send.pdf) | Technical report: `fast_send` synchronous message delivery |
+| [tech_reports/fast_send.pdf](tech_reports/fast_send.pdf) &middot; [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) | Technical report: `fast_send` synchronous message delivery |
 | [tech_reports/shadow_pov.pdf](tech_reports/shadow_pov.pdf) &middot; [arXiv:2609.18019](https://arxiv.org/abs/2609.18019) | Technical report: Shadow-POV passive execution |
 
 ## Performance Characteristics
@@ -254,63 +254,23 @@ stack input), on the same AMD EPYC 9374F: a direct, non-inlined call takes
 7.5 ns** per hop. A full `fast_send` round trip with a reply is about 30 ns (the
 chart above). Details: [perf README](actors/cpp/perf/README.md#d-fast_send-vs-a-bare-function-call).
 
-## Case study: tick-to-book latency (live CME MDP3)
+## Market-data latency (live CME MDP3)
 
-Socket-to-book ("tick-to-book") latency measured on a live CME MDP 3.0 feed for
-ES, NQ, and ZN futures — 8.29 M messages over a 53-minute afternoon session,
-timestamped from the socket read (`t0`) to the book publish (`t1`). This is
-software-timestamped socket-to-book, not wire-to-book. Full analysis in the
-`fast_send` paper ([arXiv:2609.21173](https://arxiv.org/abs/2609.21173)).
+Socket-to-book latency on the production path, measured on live CME futures
+(ES, NQ and ZN front month, channels 310, 318 and 344) on 2026-10-01, with
+Onload kernel bypass: four 8–10 minute runs pooled, the first 120 s of each run
+dropped. Measured per message from the socket read (`t0`, right after
+`recvfrom`) to the book publish (`t1`); time in the NIC and socket buffer is not
+included. All figures in µs.
 
-Each message's latency decomposes as **median ≈ floor + slope × idx**, where
-`idx` is the message's position inside its UDP packet:
-
-- **floor** ≈ 7 µs — socket read to book publish for a message first in its
-  packet (`idx = 0`).
-- **slope** 0.31–0.97 µs/msg — the in-packet serialization cost; message *k* pays
-  *k* × slope.
-
-**Hot-path floor** (first in packet, empty ring — no queue, no serialization):
-
-| stream | floor (µs) | samples |
-|---|---:|---:|
-| ES book | 7.01 | 1,781,767 |
-| NQ book | 7.24 | 1,841,447 |
-| ZN book | 6.89 | 671,271 |
-| ES trade | 7.62 | 1,008 |
-| NQ trade | 8.30 | 298 |
-| ZN trade | 7.96 | 474 |
-
-**Distribution** (unconditional, every message, µs):
-
-| stream | p50 | p90 | p99 | p99.9 | max |
-|---|---:|---:|---:|---:|---:|
-| ES book | 7.1 | 10.6 | 18.5 | 41.2 | 1148.4 |
-| NQ book | 7.3 | 9.9 | 13.6 | 24.7 | 5567.0 |
-| ZN book | 7.1 | 12.1 | 57.0 | 180.9 | 2458.2 |
-| ES trade | 9.0 | 15.3 | 38.0 | 127.7 | 421.5 |
-| NQ trade | 8.3 | 12.5 | 31.2 | 83.7 | 694.2 |
-| ZN trade | 15.4 | 69.3 | 219.4 | 409.5 | 504.8 |
-
-**What this says about the actor framework.** A `fast_send` hop (about 9 ns; a
-full round trip with a reply is about 30 ns) is **well under 1%** of the ~7 µs
-floor. The tail is set by the **arrival process**, not the framework or the
-queue:
-
-- Arrivals are **non-Poisson and self-exciting** (Hawkes-like, branching ratio
-  0.85–0.97): 74–85% of interarrival gaps are shorter than 1/10 of the mean, vs
-  9.5% for a Poisson feed of the same rate.
-- The mailbox **queue** is a rare event: the ring is empty for 87–99.7% of
-  messages, and queue depth ≥ 3 fires on ~0.08%. Its cost is real but small — and
-  it is the mailbox occupancy, not the actor framework, that moves latency.
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="tech_reports/img/queue_latency_dark.png">
-    <img src="tech_reports/img/queue_latency.png" width="600"
-         alt="Median latency vs mailbox queue occupancy for ES/NQ/ZN book: ~7us floor at qlen=0, rising convexly as the ring fills">
-  </picture>
-</p>
+| stream | messages | p1 | p10 | p50 | p90 | p99 | p99.9 | max |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| ES book | 671,850 | 3.9 | 4.7 | 6.6 | 11.0 | 23.1 | 65.6 | 633 |
+| NQ book | 1,001,584 | 3.6 | 4.3 | 6.3 | 8.9 | 12.6 | 21.9 | 10,087 |
+| ZN book | 370,252 | 3.9 | 4.6 | 7.3 | 12.0 | 63.0 | 138.0 | 2,730 |
+| ES trade | 71,733 | 4.5 | 5.6 | 9.3 | 18.0 | 89.3 | 432.5 | 483 |
+| NQ trade | 25,818 | 4.2 | 4.9 | 7.5 | 12.1 | 41.3 | 150.4 | 163 |
+| ZN trade | 38,632 | 4.2 | 6.6 | 16.8 | 78.4 | 226.1 | 329.0 | 351 |
 
 ## Shadow Execution Algo
 
