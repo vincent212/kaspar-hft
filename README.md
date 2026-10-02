@@ -369,10 +369,48 @@ Motivation: working to reduce the latency tail
 MDP3 packets are decoded serially, inline on the MessageProcessor thread via
 `mbo_data()`, straight into `handler_if`. A parallel decoder that fanned packets
 out to a `DecodeWorker` fleet was measured against it on live CME data and then
-removed: serial was faster at the median and at p99 on every book series, and
-CME packets carry 1.06–1.10 messages, so a fan-out has almost nothing to divide.
-The `cme_decode_workers` key in `cme.ini` is no longer read. The measurement is in
+removed. The `cme_decode_workers` key in `cme.ini` is no longer read. The first
+measurement is in
 [tech_reports/serial_vs_parallel_decode.md](tech_reports/serial_vs_parallel_decode.md).
+
+**Re-measured on 2026-10-01**, with a rebuilt parallel decoder:
+
+- four busy-polling decode workers per channel;
+- a resequencer that replays decoded packets into `handler_if` in exchange
+  order;
+- live CME, feeds A and B, Onload, unpinned;
+- two runs for parallel, four for serial;
+- first 120 s of each run dropped.
+
+**Socket-to-book latency, µs** (both paths `send` to the book):
+
+| book | path | p1 | p10 | p50 | p90 | p99 | p99.9 |
+|---|---|---:|---:|---:|---:|---:|---:|
+| ES | serial | 3.9 | 4.7 | 6.6 | 11.0 | 23.1 | 65.6 |
+| ES | parallel | 7.8 | 9.6 | 12.3 | 18.1 | 35.8 | 85.3 |
+| NQ | serial | 3.6 | 4.3 | 6.3 | 8.9 | 12.6 | 21.9 |
+| NQ | parallel | 6.5 | 8.2 | 11.0 | 15.6 | 22.6 | 346.8 |
+| ZN | serial | 3.9 | 4.6 | 7.3 | 12.0 | 63.0 | 138.0 |
+| ZN | parallel | 7.8 | 10.0 | 13.7 | 20.8 | 90.9 | 264.8 |
+
+Parallel loses at every percentile on every book. The per-stage timings show
+why:
+
+- **Little work to parallelize.** Decode plus handler work is 0.4–0.8 µs per
+  packet, and packets almost never overlap: the resequencer's wait is 0.1 µs
+  through p90.
+- **The fan-out costs more than it saves.** It adds about 5–6 µs per packet:
+  the dispatch, two cross-thread hops, and recording the handler calls so
+  they can be replayed.
+- **The handler is a single serial point.** `handler_if` mutates the
+  order-id map on every message, so all packets funnel back through one
+  thread.
+- **Extra threads lengthen the tail.** Twelve more busy-polling threads per
+  host get descheduled, and they slow the shared socket → message-buffer hop.
+
+Full analysis: section 5 of
+[`tech_reports/md_median_vs_tail_draft.md`](https://github.com/vincent212/kaspar-hft/blob/md-latency-experiments/tech_reports/md_median_vs_tail_draft.md)
+on branch `md-latency-experiments`.
 
 
 ## License
