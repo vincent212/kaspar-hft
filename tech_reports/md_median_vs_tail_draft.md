@@ -575,17 +575,156 @@ queues at the book's mailbox instead, and only the book's own updates wait.
 nearly every packet. The futex wakeup costs 2-4 us at p50. Spinning cuts it to
 about 0.8 us.)
 
-## 5. Result 2: why parallel decode has longer tails
+## 5. Result 2: why parallel decode does not work
 
-(TODO:
+Data:
 
-- stage breakdown
-- run-queue wait per thread role
-- spike buckets vs the waiting thread
-- the p1 floor gap
+- **Parallel:** two `p4s` runs, 4 decode workers per channel, workers and
+  HandlerIfActor busy-polling, about 75-81 steady 10 s windows per channel.
+- **Serial:** four `base` runs, 137-149 windows per channel.
+- First 12 windows (120 s) of each run dropped.
+- Each cell is the median across windows of that window's p1 / p10 / p50 / p90 /
+  p99 / p999, in us.
+- Source: `STAGE` lines logged by HandlerIfActor (parallel) and DataDecoder
+  (serial).
 
-Thesis: each extra hop adds a floor, and each extra thread adds a chance of
-being off-CPU when work arrives.)
+### 5.1 The pipelines being compared
+
+```
+serial (base)
+  sock reader  ==send==>  MsgBuf (sleeps) --fast_send--> MessageProcessor --fast_send--> DataDecoder --call--> handler_if
+  stages:      A1 read->send | A2 send->MsgBuf | A3 MsgBuf->decode | G decode+handler (inline)
+
+parallel (p4s)
+  sock reader  ==send==>  MsgBuf (sleeps) --fast_send--> MessageProcessor ==send==> worker k (spins) ==send==> HandlerIfActor (spins) --call--> handler_if
+  stages:      A1 | A2 | A3 MsgBuf->dispatch (incl. packet copy) | B ->worker | C decode+record | D ->handler | E reorder wait | F replay
+```
+
+Both end with the same send to TachBook, which is not part of these stages.
+
+### 5.2 Stage breakdown, NQ (318)
+
+ES and ZN show the same pattern; full tables are in `md_paper_data/stages.md`.
+
+| stage | serial base | parallel p4s |
+|---|---|---|
+| A1 reader read -> send | 0.1 / 0.2 / 0.3 / 1.1 / 3.6 / 6.2 | 0.1 / 0.2 / 0.3 / 1.0 / 3.5 / 5.5 |
+| A2 send -> MsgBuf | 0.6 / 1.6 / 1.9 / 3.4 / 4.8 / 7.2 | 0.8 / 1.6 / **3.3** / 4.1 / 5.5 / 9.8 |
+| A3 MsgBuf -> decode / dispatch | 0.2 / 0.2 / 0.3 / 0.4 / 0.8 / 1.1 | 0.4 / 0.8 / **1.1** / 1.7 / 3.1 / 5.5 |
+| G decode + handler (serial, inline) | 0.1 / 0.2 / **0.4** / 0.9 / 2.0 / 3.8 | - |
+| B hop to worker | - | 0.3 / 0.3 / 0.9 / 1.0 / 1.2 / 2.9 |
+| C decode + record (worker) | - | 0.4 / 0.6 / **1.3** / 2.3 / 4.8 / 7.6 |
+| D hop to handler | - | 0.2 / 0.3 / 0.8 / 1.0 / 2.7 / 5.0 |
+| E reorder wait | - | 0.1 / 0.1 / **0.1** / 0.1 / 0.2 / 6.0 |
+| F replay into handler | - | 0.1 / 0.2 / 0.4 / 1.1 / 2.1 / 3.8 |
+| **total, t0 -> decoded / replayed** | 1.4 / 2.2 / **2.8** / 5.0 / 7.9 / 11.6 | 4.8 / 5.9 / **7.9** / 10.4 / 14.8 / 21.9 |
+
+Same data at p50 for all three books:
+
+| stage, p50 | ES serial / parallel | NQ serial / parallel | ZN serial / parallel |
+|---|---|---|---|
+| A2 send -> MsgBuf | 2.1 / 2.5 | 1.9 / 3.3 | 2.9 / 3.4 |
+| A3 MsgBuf -> decode/dispatch | 0.3 / 1.3 | 0.3 / 1.1 | 0.3 / 1.3 |
+| decode + handler work (serial G; parallel C+F) | 0.8 / 2.5 | 0.4 / 1.7 | 0.6 / 3.5 |
+| hops B + D | - / 1.8 | - / 1.7 | - / 1.7 |
+| total | 3.9 / 9.1 | 2.8 / 7.9 | 4.4 / 10.3 |
+
+### 5.3 Why: four reasons, from the data
+
+**1. There is nothing to parallelize.**
+
+- The whole per-packet work (serial stage G: decode plus handler) is
+  0.4-0.8 us at p50.
+- Packets arrive at a median 261 (ES), 1,945 (NQ) and 1,016 (ZN) per second, one
+  every 0.5-4 ms. The decode stage is busy well under 0.1% of the time.
+- 84-88% of book events are the first event in their packet; a packet carries
+  about one message.
+- Parallelism only helps if a second packet arrives while the first is still
+  being decoded. On this feed that almost never happens.
+
+The reorder stage shows it directly: E is 0.1 us at p50 and p90. Packets
+practically never finish out of order, which means two of them are practically
+never in flight together. The four workers take turns doing work that one
+thread could do between packets.
+
+**2. Each packet pays a fixed hand-off cost that serial does not.**
+
+At p50, against serial:
+
+| item | added cost |
+|---|---|
+| A3: copy the packet and allocate a `ParDecodePacket` | +0.8-1.0 us |
+| B and D: two cross-thread hops, even into spinning threads | +1.7-1.8 us |
+| C + F: decode and handler work split across two threads | +1.3-2.9 us |
+
+The split costs 2-3x what the same work costs inline:
+
+- The worker records each handler callback as a heap-allocated `std::function`.
+- The packet bytes and the recording each move between cores (dispatcher ->
+  worker -> handler), with cache misses at each step.
+- ZN, which carries the most events per packet, pays the most: decode +
+  record p50 2.7 us and p99 9.2 us, against serial decode + handler 0.6 / 2.2.
+
+The extra costs show already at p1: 4.8-6.3 us parallel against 1.4-2.2 us
+serial. They are on every packet, not only in bursts.
+
+**3. The serial path's own hop gets worse.**
+
+Stage A2 (socket -> MsgBuf), which both designs share, rises from 1.9-2.9 to
+2.5-3.4 us at p50. MsgBuf's thread waits longer for a CPU, per 10 s sample:
+
+| thread | config | p50 | p99 | max |
+|---|---|---|---|---|
+| MsgBuf | base | 46 us | 831 us | 10 ms |
+| MsgBuf | p4s | 173 us | 4.9 ms | 13 ms |
+
+The 15 extra busy-polling threads (3 channels x 4 workers + 1 handler) compete
+for the same cores.
+
+**4. The tail comes from threads being off the CPU, and parallel has more of
+them.** Windows whose worst packet exceeded 100 us:
+
+| | ES | NQ | ZN |
+|---|---|---|---|
+| windows, of total | 20 of 81 | 42 of 74 | 26 of 75 |
+| worst packet in A2 (socket -> MsgBuf) | 9 | 29 | 14 |
+| worst packet in a parallel-only stage | 10 | 12 | 11 |
+| ... of which E (head-of-line blocking) | 4 | 3 | 4 |
+
+- **A2** is the hop serial also has, made worse by the contention above.
+- **The parallel-only stages** are B, C, D, E and F.
+- **E is head-of-line blocking.** When one worker is descheduled, every later
+  packet waits behind it, even if its own worker finished.
+
+Run-queue wait per 10 s sample, p4s:
+
+| thread | p99 | max |
+|---|---|---|
+| workers | 14.8 ms | 56 ms |
+| handler | 12.7 ms | 24 ms |
+| socket readers | 13.3 ms | 53 ms |
+
+In every config, 90 of 91 windows with a book message over 100 us had a
+hot-path thread waiting more than 100 us for a CPU (pass-1 analysis, P4). With
+feed B off (`p4s_A`), there are three fewer polling readers. The handler's wait
+drops to 3 us p50, and p999 improves (NQ 31 vs 347 us). Contention is the
+lever.
+
+### 5.4 Conclusion
+
+Parallel decode fails here for structural reasons, not because of a bug.
+
+- **The median is worse.** The fan-out adds a fixed hand-off cost of about
+  5-6 us per packet (5.1-5.9 us at p50) (copy, two hops, record and replay), to parallelize
+  0.4-0.8 us of work. On a feed of about one message per packet, at under 2,000
+  packets per second, that work never overlaps.
+- **The tail is worse.** It adds three places to stall (B, D, E) and 15
+  busy-polling threads. On a host without isolated cores, those threads get
+  descheduled, and they push the shared MsgBuf hop's CPU waits up as well.
+- **When it could pay:** parallel decode needs packets whose decode cost is
+  large compared with the hand-off (many messages per packet), or an arrival
+  rate high enough that packets overlap. It also needs isolated cores, so that
+  extra threads do not compete.
 
 ## 6. Feed A only vs A+B
 
