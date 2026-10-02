@@ -271,73 +271,60 @@ stack input):
 ## Case study: tick-to-book latency (live CME MDP3)
 
 Socket-to-book ("tick-to-book") latency measured on a live CME MDP 3.0 feed for
-ES, NQ and ZN futures. Each message is timestamped from the socket read (`t0`)
-to the book publish (`t1`). This is software-timestamped socket-to-book, not
-wire-to-book.
-
-**Path measured.** The whole path, socket read through SBE decode and handler
-to the TachBook update, runs on the socket reader's thread, with no thread hops:
-
-- the reader `fast_send`s into the message buffer (`cme_reader_fast_send true`);
-- the handler `fast_send`s into the book (`book_fast_send true`).
-
-**Setup:**
-
-- feed A only, Onload, threads not pinned;
-- 2026-10-02, two 5-minute runs between 09:00 and 10:08 ET;
-- first 60 s of each run dropped (snapshot recovery);
-- no packet loss, and no gaps after startup.
-
-Full write-up:
-[`tech_reports/md_median_vs_tail_draft.md`](https://github.com/vincent212/kaspar-hft/blob/md-latency-experiments/tech_reports/md_median_vs_tail_draft.md)
-on branch `md-latency-experiments`.
+ES, NQ, and ZN futures — 8.29 M messages over a 53-minute afternoon session,
+timestamped from the socket read (`t0`) to the book publish (`t1`). This is
+software-timestamped socket-to-book, not wire-to-book. Full analysis in
+[tech_reports/fast_send.pdf](https://arxiv.org/abs/2609.21173).
 
 Each message's latency decomposes as **median ≈ floor + slope × idx**, where
 `idx` is the message's position inside its UDP packet:
 
-- **floor** ≈ 0.8–1.0 µs: socket read, SBE decode and the order-book update,
-  for a message that is first in its packet (`idx = 0`).
-- **slope** 0.35–0.63 µs/msg on the book streams: the in-packet serialization
-  cost. Message *k* pays *k* × slope.
+- **floor** ≈ 7 µs — SBE decode + order-book mutation for a message first in its
+  packet (`idx = 0`).
+- **slope** 0.31–0.97 µs/msg — the in-packet serialization cost; message *k* pays
+  *k* × slope.
 
-**Hot-path floor** (first in packet, median):
+**Hot-path floor** (first in packet, empty ring — no queue, no serialization):
 
 | stream | floor (µs) | samples |
 |---|---:|---:|
-| ES book | 1.00 | 350,347 |
-| NQ book | 0.79 | 483,632 |
-| ZN book | 0.93 | 124,421 |
+| ES book | 7.01 | 1,781,767 |
+| NQ book | 7.24 | 1,841,447 |
+| ZN book | 6.89 | 671,271 |
+| ES trade | 7.62 | 1,008 |
+| NQ trade | 8.30 | 298 |
+| ZN trade | 7.96 | 474 |
 
 **Distribution** (unconditional, every message, µs):
 
-| stream | messages | p1 | p10 | p50 | p90 | p99 | p99.9 |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| ES book | 401,462 | 0.5 | 0.7 | 1.1 | 2.7 | 9.9 | 24.1 |
-| NQ book | 581,010 | 0.4 | 0.5 | 0.8 | 1.9 | 4.7 | 8.8 |
-| ZN book | 141,972 | 0.4 | 0.6 | 1.0 | 2.5 | 20.6 | 69.3 |
-| ES trade | 45,733 | 0.5 | 0.7 | 2.5 | 8.8 | 36.2 | 70.1 |
-| NQ trade | 21,093 | 0.4 | 0.6 | 0.9 | 3.3 | 17.8 | 31.5 |
-| ZN trade | 13,282 | 0.4 | 0.7 | 6.6 | 41.5 | 90.5 | 124.0 |
+| stream | p50 | p90 | p99 | p99.9 | max |
+|---|---:|---:|---:|---:|---:|
+| ES book | 7.1 | 10.6 | 18.5 | 41.2 | 1148.4 |
+| NQ book | 7.3 | 9.9 | 13.6 | 24.7 | 5567.0 |
+| ZN book | 7.1 | 12.1 | 57.0 | 180.9 | 2458.2 |
+| ES trade | 9.0 | 15.3 | 38.0 | 127.7 | 421.5 |
+| NQ trade | 8.3 | 12.5 | 31.2 | 83.7 | 694.2 |
+| ZN trade | 15.4 | 69.3 | 219.4 | 409.5 | 504.8 |
 
-These runs are short, so p99.9 rests on few samples, especially for ZN and the
-trade streams.
+**What this says about the actor framework.** The `fast_send` hop (~30 ns) is
+**under 1%** of the ~7 µs floor — the actor model is nowhere near the bottleneck.
+The floor is SBE decode + book work; the tail is set by the **arrival process**,
+not the framework or the queue:
 
-**What this says about the design.**
+- Arrivals are **non-Poisson and self-exciting** (Hawkes-like, branching ratio
+  0.85–0.97): 74–85% of interarrival gaps are shorter than 1/10 of the mean, vs
+  9.5% for a Poisson feed of the same rate.
+- The mailbox **queue** is a rare event: the ring is empty for 87–99.7% of
+  messages, and queue depth ≥ 3 fires on ~0.08%. Its cost is real but small — and
+  it is the mailbox occupancy, not the actor framework, that moves latency.
 
-- **Thread hops, not decode, set the latency.** SBE decode plus the book
-  update costs under 1 µs. The production path hands off to the message
-  buffer and to the book through two thread hops into sleeping threads. Each
-  hop costs 2–4 µs, which puts its median at about 6–7 µs (floor ≈ 7 µs in
-  [tech_reports/fast_send.pdf](https://arxiv.org/abs/2609.21173)).
-- **Removing the hops cuts the tail as well as the median.** Of the six
-  hand-off configurations measured that day, this one had the shortest tail.
-  Busy-polling hand-off threads remove the wake-up cost, but on a host
-  without isolated cores they are descheduled for milliseconds.
-- **The tail follows the arrival process.** Arrivals are **non-Poisson and
-  self-exciting** (Hawkes-like, branching ratio 0.85–0.97): 74–85% of
-  interarrival gaps are shorter than 1/10 of the mean, vs 9.5% for a Poisson
-  feed of the same rate. A burst lands as many messages in one packet, and
-  each pays the slope.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="tech_reports/img/queue_latency_dark.png">
+    <img src="tech_reports/img/queue_latency.png" width="600"
+         alt="Median latency vs mailbox queue occupancy for ES/NQ/ZN book: ~7us floor at qlen=0, rising convexly as the ring fills">
+  </picture>
+</p>
 
 ## Shadow Execution Algo
 
@@ -369,48 +356,10 @@ Motivation: working to reduce the latency tail
 MDP3 packets are decoded serially, inline on the MessageProcessor thread via
 `mbo_data()`, straight into `handler_if`. A parallel decoder that fanned packets
 out to a `DecodeWorker` fleet was measured against it on live CME data and then
-removed. The `cme_decode_workers` key in `cme.ini` is no longer read. The first
-measurement is in
+removed: serial was faster at the median and at p99 on every book series, and
+CME packets carry 1.06–1.10 messages, so a fan-out has almost nothing to divide.
+The `cme_decode_workers` key in `cme.ini` is no longer read. The measurement is in
 [tech_reports/serial_vs_parallel_decode.md](tech_reports/serial_vs_parallel_decode.md).
-
-**Re-measured on 2026-10-01**, with a rebuilt parallel decoder:
-
-- four busy-polling decode workers per channel;
-- a resequencer that replays decoded packets into `handler_if` in exchange
-  order;
-- live CME, feeds A and B, Onload, unpinned;
-- two runs for parallel, four for serial;
-- first 120 s of each run dropped.
-
-**Socket-to-book latency, µs** (both paths `send` to the book):
-
-| book | path | p1 | p10 | p50 | p90 | p99 | p99.9 |
-|---|---|---:|---:|---:|---:|---:|---:|
-| ES | serial | 3.9 | 4.7 | 6.6 | 11.0 | 23.1 | 65.6 |
-| ES | parallel | 7.8 | 9.6 | 12.3 | 18.1 | 35.8 | 85.3 |
-| NQ | serial | 3.6 | 4.3 | 6.3 | 8.9 | 12.6 | 21.9 |
-| NQ | parallel | 6.5 | 8.2 | 11.0 | 15.6 | 22.6 | 346.8 |
-| ZN | serial | 3.9 | 4.6 | 7.3 | 12.0 | 63.0 | 138.0 |
-| ZN | parallel | 7.8 | 10.0 | 13.7 | 20.8 | 90.9 | 264.8 |
-
-Parallel loses at every percentile on every book. The per-stage timings show
-why:
-
-- **Little work to parallelize.** Decode plus handler work is 0.4–0.8 µs per
-  packet, and packets almost never overlap: the resequencer's wait is 0.1 µs
-  through p90.
-- **The fan-out costs more than it saves.** It adds about 5–6 µs per packet:
-  the dispatch, two cross-thread hops, and recording the handler calls so
-  they can be replayed.
-- **The handler is a single serial point.** `handler_if` mutates the
-  order-id map on every message, so all packets funnel back through one
-  thread.
-- **Extra threads lengthen the tail.** Fifteen more busy-polling threads per
-  host get descheduled, and they slow the shared socket → message-buffer hop.
-
-Full analysis: section 5 of
-[`tech_reports/md_median_vs_tail_draft.md`](https://github.com/vincent212/kaspar-hft/blob/md-latency-experiments/tech_reports/md_median_vs_tail_draft.md)
-on branch `md-latency-experiments`.
 
 
 ## License
