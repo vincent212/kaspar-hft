@@ -256,28 +256,25 @@ chart above). Details: [perf README](actors/cpp/perf/README.md#d-fast_send-vs-a-
 
 ## Market-data latency (live CME MDP3)
 
-Socket-to-book latency measured on live CME futures (ES, NQ and ZN front month,
-channels 310, 318 and 344) on 2026-10-01, with Onload kernel bypass, first 120 s
-of each run dropped. Measured per message from the socket read (`t0`, right after
-`recvfrom`) to the book publish (`t1`); time in the NIC and socket buffer is not
-included. The fastest configuration for each stream (lowest p90). All figures
-in µs.
+Socket-to-book latency measured on live CME futures (ES, NQ and ZN front month)
+on 2026-10-01, with Onload kernel bypass and one feed (feed B switched off).
+Measured per message from the socket read (`t0`, right after `recvfrom`) to the
+book publish (`t1`); time in the NIC and socket buffer is not included. Each row is
+the fastest setup for that stream. All figures in µs.
 
-| stream | config | messages | p1 | p10 | p50 | p90 | p99 | p99.9 |
+| stream | setup | messages | p1 | p10 | p50 | p90 | p99 | p99.9 |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| ES book | `fastsend_mbspin_A` | 321,930 | 1.5 | 1.8 | 2.3 | 3.9 | 11.1 | 23.2 |
-| NQ book | `rfs_pin_A` | 358,522 | 0.6 | 0.7 | 1.1 | 2.6 | 6.2 | 15.7 |
-| ZN book | `rfs_pin_A` | 139,630 | 0.6 | 0.8 | 1.2 | 3.3 | 36.8 | 100.5 |
-| ES trade | `fastsend_mbspin_A` | 27,226 | 1.5 | 2.0 | 3.8 | 8.7 | 20.5 | 36.1 |
-| NQ trade | `fastsend_mbspin_A` | 11,070 | 1.5 | 1.7 | 2.4 | 4.5 | 12.2 | 34.0 |
-| ZN trade | `fastsend_mbspin_A` | 8,002 | 1.8 | 2.2 | 9.0 | 50.1 | 167.9 | 225.4 |
+| ES book | one thread hand-off | 321,930 | 1.5 | 1.8 | 2.3 | 3.9 | 11.1 | 23.2 |
+| NQ book | no thread hand-off | 358,522 | 0.6 | 0.7 | 1.1 | 2.6 | 6.2 | 15.7 |
+| ZN book | no thread hand-off | 139,630 | 0.6 | 0.8 | 1.2 | 3.3 | 36.8 | 100.5 |
+| ES trade | one thread hand-off | 27,226 | 1.5 | 2.0 | 3.8 | 8.7 | 20.5 | 36.1 |
+| NQ trade | one thread hand-off | 11,070 | 1.5 | 1.7 | 2.4 | 4.5 | 12.2 | 34.0 |
+| ZN trade | one thread hand-off | 8,002 | 1.8 | 2.2 | 9.0 | 50.1 | 167.9 | 225.4 |
 
-| config | what it is |
-|---|---|
-| `fastsend_mbspin` | the book update runs inline on the decode thread (`fast_send`), and the packet buffer busy-polls instead of sleeping: one thread hand-off, without a wakeup |
-| `rfs` | the socket reader itself runs the packet buffer, decode and book update inline: no thread hand-off |
-| `_pin` | the socket reader pinned alone on a physical core |
-| `_A` | feed A only (feed B switched off), one socket reader per channel |
+- **No thread hand-off:** the socket reader thread decodes the packet and updates
+  the book itself, and has a CPU core to itself.
+- **One thread hand-off:** the socket reader passes the packet to a thread that
+  busy-polls for it, decodes it, and updates the book on the same thread.
 
 ## Shadow Execution Algo
 
