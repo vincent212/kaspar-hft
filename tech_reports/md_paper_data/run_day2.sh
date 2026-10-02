@@ -70,6 +70,15 @@ run_one() {   # tag config seconds
 
 echo "$(date +%T) day2 start OUT=$OUT WINDOW=$WINDOW ROUNDS=$ROUNDS DEADLINE=$DEADLINE" >> $LOG
 (cd $M && kaspr/stop_kaspr.sh) >> $LOG 2>&1
+sleep 2
+if pgrep -x kaspr >/dev/null; then
+  # Do not measure next to a live recorder. Leave it running: clear the trap so
+  # exit does not start a second one.
+  trap - EXIT
+  echo "$(date +%T) ABORT recorder still running pid=$(pgrep -x kaspr)" >> $LOG
+  exit 1
+fi
+echo "$(date +%T) recorder stopped" >> $LOG
 
 if [ "$SKIP_SMOKE" != 1 ]; then
   for c in mbspin_tbspin_A rfs_tbspin_A rfs_A; do run_one smoke_$c $c 120; done
