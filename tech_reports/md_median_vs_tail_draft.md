@@ -710,80 +710,87 @@ feed B off (`p4s_A`), there are three fewer polling readers. The handler's wait
 drops to 3 us p50, and p999 improves (NQ 31 vs 347 us). Contention is the
 lever.
 
-### 5.4 The serialization point: handler_if is stateful
+### 5.4 The serialization point
 
-The parallel design fans **decode** out to N workers but funnels every packet
-back into **one** `HandlerIfActor`, which replays the decoded events into
-`handler_if` in exchange order. That actor is a single, ordered consumer.
-It is required by `handler_if`'s state
-(`mdp3/include/mdp3/handler_if.hpp`):
+The parallel design fans **decode** out to N workers, but funnels every packet
+back into **one** `HandlerIfActor`. That actor replays the decoded events into
+`handler_if` in exchange order: a single, ordered consumer.
 
-| member | written | read |
-|---|---|---|
-| `orderid_to_securityid` (flat hash map) | **every book event**: insert on new order, erase on delete, for every order on the channel | order-level trade entries |
-| `securityid_to_asset_id` (flat hash map) | instrument definitions | every book and trade message |
-| `mbo_order_books` (vector of book actors) | setup | every message |
-| `ingress_qlen_`, `pkt_entry_idx_` (counters) | every packet / event | stamped on each book record |
+**What state is actually on the path.** Shared and mutated per message:
 
-`orderid_to_securityid` is mutated on almost every message. It is correct only
-if events are applied in exchange order (an order's insert before its delete).
-The downstream book has the same requirement.
+- **`handler_if`:** `orderid_to_securityid`, a flat hash map. On every book
+  event it gets an insert on a new order or an erase on a delete
+  (`handler_if.hpp:749-752`). That is the only shared structure written per
+  message. `securityid_to_asset_id` is written only by instrument definitions;
+  the two counters (`ingress_qlen_`, `pkt_entry_idx_`) are diagnostics.
+- **Decoder** (`msg_decoder.hpp`): no state between packets. It reads each
+  entry's per-instrument `rptSeq` (`:119`) but never checks it. It does
+  allocate a `std::vector` per incremental-book message, a heap allocation on
+  the hot path.
+- **The book (TachBook):** keeps its own `orders` map. A modify or delete for an
+  unknown order is "order not found", which flags the publish as bad data and
+  drops it (`drop_baddata`).
+
+This book check is where ordering matters. Applied out of order, a delete
+arriving before its add is dropped, and the add then leaves a phantom order.
+
+**How often ordering actually comes into play (measured).** The resequencer's
+wait (stage E) is non-zero exactly when a packet finishes decode before its
+predecessor. Without the resequencer, that packet would be applied out of
+order.
+
+| | ES | NQ | ZN |
+|---|---|---|---|
+| E p90 | 0.1 us | 0.1 us | 0.1 us |
+| E p99 | 0.3 us | 0.2 us | 3.6 us |
+
+- About 1% of packets on ES and NQ, somewhat more on ZN, finished ahead of
+  their predecessor.
+- **Not measured:** how many of those pairs touch the same order or
+  instrument. Only those would corrupt the book.
+- With the resequencer in place, the parallel runs had `drop_baddata = 0`.
+
+So reordering is real but rare at this load. Its true corruption rate is
+unknown. A per-packet log of reordered pairs and their order ids would settle
+it.
 
 **Amdahl.**
 
 - Only decode runs in parallel: stage C, 1.3 us p50 on NQ, including the
   recording.
 - The replay is serial: stage F, 0.4 us.
-- Getting work to and from the serial point costs two hops (B 0.9 + D 0.8 us)
-  and exposes every packet to head-of-line blocking (E).
+- Reaching the serial point costs two hops (B 0.9 + D 0.8 us) and exposes
+  packets to head-of-line blocking (E).
 - The serial path does decode and handler together, inline, in 0.4 us p50.
-
-So the parallel design splits 0.4 us of work into a parallel and a serial part,
-and pays about 1.7 us of hops plus the recording to do it.
 
 **Two independent reasons it cannot win here:**
 
-1. **Structural.** The stateful handler forces one ordered consumer. Even under
-   load, at most the decode share can run in parallel. The replay, the book
-   update and the hand-offs stay serial, which caps any speed-up.
-2. **Load.** At 260-1,950 packets/s per channel, packets almost never overlap
-   (E is 0.1 us at p90). Even a design with no serial point would have little to
-   parallelize on this feed.
+1. **Structural.** One ordered consumer caps the speed-up at the decode share.
+   The replay, the book update and the hand-offs stay serial.
+2. **Load.** At 260-1,950 packets/s per channel, packets almost never overlap.
+   Even a design with no serial point would have little to parallelize.
 
-**Removing the actor and guarding the shared state with locks does not fix
-it.**
+**Dropping the actor and locking `orderid_to_securityid`.** With only one
+shared map mutated per message, this is feasible.
 
-- **A lock gives mutual exclusion, not order.** Workers would apply packet k+1
-  before packet k. The order map would see deletes before adds, and TachBook
-  would apply events out of exchange order. That corrupts the book silently.
-  Sequencing is still needed, per instrument (MDP3 carries `RptSeq` per
-  instrument) instead of globally.
-- **The guarded map becomes the new serial point.** `orderid_to_securityid` is
-  written on nearly every event. Four workers contend for one lock (about
-  20 ns uncontended, microseconds plus futex sleeps when contended), and its
-  cache lines bounce between cores. That is the same serialization with worse
-  tails.
-- **The book has the same problem.** With `send`, four workers' events reach
-  TachBook's mailbox in arbitrary order. With `fast_send`, TachBook's lock
-  serializes them but does not order them.
+- **The lock is cheap if uncontended:** about 20 ns. Contended, it costs
+  microseconds plus futex sleeps, with cache-line bouncing. At today's
+  overlap (about 1% of packets) contention would be rare.
+- **It removes the replay hop and the recording.** That is most of the
+  parallel overhead.
+- **What it does not handle is ordering.** Events would reach TachBook in
+  completion order, not exchange order. That affects about 1% of packets here,
+  but bursts are exactly when overlap, and so reordering, rises. Correctness
+  would need either:
+  - a per-instrument ordering check, using MDP3's `rptSeq`, which is read
+    today and ignored; or
+  - routing all events of an instrument to the same worker (sharding by
+    instrument, so order holds by construction, with no shared mutable state
+    at all).
+- It also does not remove the dispatch hop (B), the packet copy, or reason 2.
 
-**What would work: shard by instrument, no shared mutable state.**
-
-- Each worker owns a fixed set of contracts: its slice of the order map, its
-  books, and its per-instrument sequence check.
-- A packet's events are routed to the owning worker, so per-instrument order
-  holds by construction and the hot path has no locks.
-- Costs:
-  - A CME packet can carry several contracts, so the dispatcher must split
-    packets.
-  - Order-level trade entries must be resolved from the contract on the same
-    message, not a channel-wide map.
-  - Every packet still pays the dispatch hop.
-- On this feed it would still not beat inline decode (reason 2), but it would
-  remove the single-consumer cap.
-
-**Parallelism that does work today is per channel.** Channels share no state
-and already run on separate threads.
+**Parallelism that works today is per channel.** Channels share no state and
+already run on separate threads.
 
 ### 5.5 Conclusion
 
