@@ -1,7 +1,7 @@
 # Median vs tail in an HFT market-data path: inline vs hand-off, and why parallel decode loses
 
 *Draft for an arXiv paper. Experimental branch `md-latency-experiments`; not production code.*
-*Data: live CME MDP3, 2026-10-01, 08:56-13:00 ET (pre-open and RTH), kaspr on one AMD EPYC 9374F host.*
+*Data: live CME MDP3, 2026-10-01 08:56-13:00 ET and 2026-10-02 09:00-10:08 ET, kaspr on one AMD EPYC 9374F host.*
 
 ## Abstract
 
@@ -13,9 +13,16 @@ across 14 configurations of one C++ actor-based market-data path.
    costs 2-4 us on a sparse feed. Removing every hop between socket read and
    book publish cuts the median from 6.3 to 1.3 us, and p1 from 3.6 to 0.5 us,
    with no packet loss.
-2. **Inlining book work trades tail for median on some instruments.** Running
-   the book on the decode thread halves the median. It lengthens p999 by up to
-   2x on books with heavy per-event work (ZN, ES), not on NQ.
+2. **Whether inlining the book trades tail for median depends on whether the
+   book thread sleeps.**
+   - **Book sleeping between messages** (day 1): `fast_send` into the book halves
+     the median and lengthens p999 by up to 2x on ZN and ES, not on NQ.
+   - **Book spinning** (day 2): `fast_send` into the book wins on both median and
+     tail. Six busy-polling book threads compete for CPUs on an unisolated host:
+     their run-queue wait reached 16-17 ms per 10 s at p99.
+   - The fully inline path (zero hops, feed A) had the best p1 through p99 on
+     every book: NQ 0.4 / 0.5 / 0.8 / 1.9 / 4.7 / 8.8 us (p1 / p10 / p50 / p90 /
+     p99 / p999).
 3. **Parallel decode loses on both median and tail.** Packets carry about one
    message each, so fanning out adds two hops and a record/replay cost per
    packet for nothing. More threads also means more chances to be descheduled.
@@ -54,6 +61,8 @@ serial config. "Hop" means a `send` into another thread's mailbox.
 | `fastsend` | `book_fast_send true` (`kaspr.general`) | 1. Hop 2 removed: handler_if<UseFastSend=true> runs the book update inline on the MsgBuf thread. | book inline vs hand-off |
 | `mbspin` | `cme_msgbuf_mailbox lockfree_spin` (per channel) | 2. MsgBuf is a LockFreeMPSC whose consumer busy-polls, so hop 1 has no wakeup. | cost of the wakeup on hop 1 |
 | `fastsend_mbspin` | `fastsend` + `mbspin` keys | 1, no wakeup | both together |
+| `mbspin_tbspin` | `mbspin` + `tachbook_spin true` (`kaspr.general`) | 2, neither has a wakeup: the TachBook mailbox is a LockFreeMPSC whose consumer busy-polls | send to a spinning book |
+| `rfs_tbspin` | `cme_reader_fast_send true` + `tachbook_spin true`, book hand-off stays `send` | 1, into a spinning book | zero-hop decode, async spinning book |
 | `rfs` | `book_fast_send true` + `cme_reader_fast_send true` (per channel) | 0. The socket reader fast_sends into MsgBuf, so the whole path runs on the reader thread. Readers A and B serialize on MsgBuf's mutex. | no hops at all |
 | `p4s` | `cme_decode_workers 4` + `cme_decode_spin true` (per channel) | 4: MsgBuf, worker, HandlerIfActor, book. Hop 1 into a sleeping MsgBuf; workers and HandlerIfActor busy-poll. | parallel decode, 4 workers per channel |
 | `fsmb_pin` | `fastsend_mbspin` + `cme_cpus` per channel + `tachbook_cpus 54x6`; run under `taskset -c 0-15,24-47,56-63` | 1 | pinning busy threads on NUMA node 2 (not isolated) |
@@ -194,6 +203,155 @@ Each cell is p1 / p10 / p50 / p90 / p99 / p999. `runs` = runs pooled.
 - **Disturbed runs.** Three were touched by short rebuilds (`p2_p4s` 20 s,
   `x1_rfs_pin` 30 s, `x1_rfs_pin_A` 30 s), noted in `runs.log`.
 
+
+## Results, 2026-10-02: book hand-off on spinning paths (day 2)
+
+**Question:** does an async `send` to the book still cut the tail when the hops
+spin, rather than sleep?
+
+**Setup:**
+
+- Six configurations, all feed A only, unpinned, Onload.
+- Two rounds, 09:00-10:08 ET, 5 minutes per run. Round 2 ran in reverse order,
+  to balance the drift in market activity through the hour.
+- First 60 s of each run dropped: recovery is stamped per run in
+  `recovery.txt` and finished 4-45 s after start.
+- All 12 runs valid. No Onload drops. Two runs had a second snapshot recovery
+  on ES about 2 s after start; after that there were no gaps.
+- Spinning verified from mid-run CPU samples: MsgBuf spun in the four `mbspin` /
+  `rfs` configs where set; the six TachBook threads spun in the two `tbspin`
+  configs only.
+
+Tables: `md_paper_data/day2/`. Raw data: `/home/vincent/perf/mdperf/day2/`.
+
+| label | socket reader -> MsgBuf | -> TachBook |
+|---|---|---|
+| `base_A` | send, MsgBuf sleeps | send, book sleeps |
+| `mbspin_A` | send, MsgBuf spins | send, book sleeps |
+| `mbspin_tbspin_A` | send, MsgBuf spins | send, book spins |
+| `fastsend_mbspin_A` | send, MsgBuf spins | fast_send (inline on MsgBuf thread) |
+| `rfs_tbspin_A` | fast_send (inline on reader thread) | send, book spins |
+| `rfs_A` | fast_send (inline on reader thread) | fast_send (inline on reader thread) |
+
+### D1. End-to-end book latency, t1 - t0 (us), both runs pooled
+
+Each row is p1 / p10 / p50 / p90 / p99 / p999. Sorted by p99.
+
+**ES Z6 book**
+
+| config | messages | p1 | p10 | p50 | p90 | p99 | p999 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| rfs_A | 401,462 | 0.5 | 0.7 | 1.1 | 2.7 | 9.9 | 24.1 |
+| rfs_tbspin_A | 203,201 | 1.1 | 1.3 | 1.7 | 4.3 | 15.8 | 37.6 |
+| fastsend_mbspin_A | 175,462 | 1.5 | 1.8 | 2.4 | 5.1 | 18.1 | 150.6 |
+| mbspin_A | 216,439 | 3.2 | 3.6 | 4.4 | 7.7 | 18.9 | 47.1 |
+| base_A | 197,819 | 4.0 | 4.6 | 6.5 | 10.7 | 23.1 | 56.1 |
+| mbspin_tbspin_A | 227,792 | 1.7 | 2.2 | 3.1 | 7.0 | 27.6 | 75.6 |
+
+**NQ Z6 book**
+
+| config | messages | p1 | p10 | p50 | p90 | p99 | p999 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| rfs_A | 581,010 | 0.4 | 0.5 | 0.8 | 1.9 | 4.7 | 8.8 |
+| rfs_tbspin_A | 274,918 | 0.6 | 0.9 | 1.5 | 2.7 | 5.7 | 16.0 |
+| fastsend_mbspin_A | 233,802 | 0.7 | 1.1 | 2.1 | 3.3 | 6.7 | 19.3 |
+| mbspin_tbspin_A | 254,794 | 1.9 | 2.4 | 2.9 | 4.3 | 7.5 | 25.0 |
+| mbspin_A | 239,846 | 2.6 | 3.6 | 4.3 | 6.6 | 10.1 | 17.7 |
+| base_A | 221,899 | 3.8 | 4.2 | 5.8 | 8.8 | 12.0 | 22.2 |
+
+**ZN Z6 book**
+
+| config | messages | p1 | p10 | p50 | p90 | p99 | p999 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| rfs_A | 141,972 | 0.4 | 0.6 | 1.0 | 2.5 | 20.6 | 69.3 |
+| fastsend_mbspin_A | 117,232 | 1.5 | 1.8 | 2.2 | 4.2 | 36.7 | 96.1 |
+| base_A | 155,915 | 3.8 | 4.2 | 6.3 | 9.8 | 52.6 | 119.0 |
+| rfs_tbspin_A | 135,811 | 0.9 | 1.3 | 1.6 | 4.3 | 56.9 | 152.4 |
+| mbspin_tbspin_A | 107,522 | 2.2 | 2.5 | 3.0 | 5.3 | 58.9 | 151.9 |
+| mbspin_A | 144,642 | 3.0 | 3.5 | 4.8 | 9.4 | 125.7 | 178.2 |
+
+Per-run p50 / p99 / p999, as a consistency check:
+
+| config | ES run 1 | ES run 2 | NQ run 1 | NQ run 2 | ZN run 1 | ZN run 2 |
+|---|---|---|---|---|---|---|
+| rfs_A | 1.0 / 9.6 / 23 | 1.1 / 10.3 / 26 | 0.8 / 4.7 / 9 | 0.9 / 4.8 / 9 | 1.0 / 31.4 / 79 | 1.0 / 16.4 / 39 |
+| rfs_tbspin_A | 1.8 / 17.4 / 44 | 1.7 / 15.4 / 33 | 1.7 / 6.5 / 20 | 1.4 / 5.5 / 16 | 1.6 / 43.6 / 121 | 1.7 / 68.2 / 187 |
+| fastsend_mbspin_A | 2.6 / 14.5 / 28 | 2.4 / 19.4 / 156 | 2.2 / 6.7 / 12 | 2.1 / 6.7 / 22 | 2.3 / 28.3 / 60 | 2.2 / 46.7 / 101 |
+| mbspin_tbspin_A | 3.2 / 20.3 / 41 | 3.1 / 29.2 / 80 | 2.8 / 7.2 / 13 | 3.0 / 7.5 / 27 | 2.9 / 74.3 / 188 | 3.1 / 44.2 / 98 |
+| mbspin_A | 5.7 / 25.9 / 55 | 4.2 / 17.0 / 35 | 6.0 / 12.3 / 25 | 4.1 / 8.6 / 14 | 5.6 / 55.4 / 100 | 4.2 / 148.9 / 198 |
+| base_A | 6.9 / 21.8 / 56 | 6.3 / 23.7 / 56 | 6.0 / 12.4 / 23 | 5.6 / 11.7 / 22 | 6.4 / 54.4 / 119 | 6.2 / 50.0 / 119 |
+
+### D2. Findings
+
+1. **The fully inline path (`rfs_A`) is best at every percentile from p1 to
+   p999, on all three books, in both runs.** Its p50 is 0.8-1.1 us and its
+   p99 4.7-20.6 us.
+2. **With the book spinning, `send` to the book does not cut the tail. It
+   lengthens it.** Same upstream, book hand-off changed (p99 / p999, us):
+
+   | upstream | book hand-off | ES | NQ | ZN |
+   |---|---|---|---|---|
+   | reader inline | fast_send (`rfs_A`) | 9.9 / 24.1 | 4.7 / 8.8 | 20.6 / 69.3 |
+   | reader inline | send, book spins (`rfs_tbspin_A`) | 15.8 / 37.6 | 5.7 / 16.0 | 56.9 / 152.4 |
+   | MsgBuf spins | fast_send (`fastsend_mbspin_A`) | 18.1 / 150.6 | 6.7 / 19.3 | 36.7 / 96.1 |
+   | MsgBuf spins | send, book spins (`mbspin_tbspin_A`) | 27.6 / 75.6 | 7.5 / 25.0 | 58.9 / 151.9 |
+   | MsgBuf spins | send, book sleeps (`mbspin_A`) | 18.9 / 47.1 | 10.1 / 17.7 | 125.7 / 178.2 |
+
+   - `fast_send` wins 11 of 12 p99 / p999 comparisons against a spinning book.
+   - The exception is ES p999 with MsgBuf spinning (150.6 vs 75.6). It comes
+     from one run (156; the other run had 28).
+   - Against a sleeping book (`mbspin_A`), `fast_send` wins at p99 on all three
+     books. At p999 it wins on ZN, loses on NQ (19.3 vs 17.7) and loses on ES
+     (the same single-run 150.6).
+3. **Mechanism: spinning book threads are descheduled.** Run-queue wait per
+   10 s sample (us):
+
+   | thread role | config | p50 | p90 | p99 | max |
+   |---|---|---:|---:|---:|---:|
+   | TachBook | sleeping (`base_A`) | 5 | 66 | 242 | 1,404 |
+   | TachBook | spinning (`mbspin_tbspin_A`) | 9 | 5,686 | 16,422 | 55,144 |
+   | TachBook | spinning (`rfs_tbspin_A`) | 42 | 6,356 | 17,376 | 18,728 |
+
+   - Six spinning book threads add to the busy-polling threads already on an
+     unisolated host. When one is descheduled, its mailbox waits out the
+     scheduler slice: milliseconds, not microseconds.
+   - In the `tbspin` configs, the worst 10 s buckets name a TachBook thread as
+     the longest waiter. For example, `rfs_tbspin_A` run 1 had an 834 us book
+     message while TACHOB_NQH7 waited 17.4 ms for a CPU.
+   - Buckets with a book message over 100 us, out of about 48 per config:
+
+     | config | buckets |
+     |---|---:|
+     | rfs_A | 3 |
+     | fastsend_mbspin_A | 7 |
+     | mbspin_A | 8 |
+     | rfs_tbspin_A | 11 |
+     | base_A | 13 |
+     | mbspin_tbspin_A | 18 |
+
+4. **Correction to day 1 (F2, finding 2).**
+   - Day 1 found async `send` to a **sleeping** book shortens p999 on ES and
+     ZN, at the cost of median.
+   - Day 2 shows that this depends on the book thread costing no CPU while
+     idle. A spinning book removes the wake-up from the median but costs more
+     in the tail, through CPU contention, than it saves.
+   - The median-vs-tail trade of the hand-off is therefore a trade between
+     wake-up latency and contention, not between inline and async as such.
+5. **Spinning MsgBuf alone helps the median, not the tail.** `mbspin_A` vs
+   `base_A`: p50 drops 1.5-2.1 us. p99 is about the same on ES and NQ and
+   worse on ZN (125.7 vs 52.6), where MsgBuf's own run-queue wait reached
+   8.3 ms at p99.
+
+### D3. Threats to validity (day 2)
+
+- **Short runs:** 2 x 4 minutes per config after warm-up. p999 rests on about
+  110-580 samples per config. ZN p999 moved up to 2x between the two runs of
+  the same config. The rankings at p50 and p99 hold in both runs; p999
+  rankings are indicative.
+- **One morning, one hour:** 09:00-10:08 ET only, a busy but declining market.
+- **Unisolated host:** the result in D2.3 is specific to it. With isolated
+  cores, spinning threads would not be descheduled, and the comparison could
+  change.
 
 ## How to reproduce
 
@@ -561,7 +719,18 @@ dropped (snapshot recovery).
 
 ## 3. Result 1: inline book vs hand-off (median vs tail)
 
-(TODO tables: end-to-end p1..p999 per config; latency by ingress qlen.)
+Tables: F1 (day 1) and D1 (day 2) above.
+
+- **Sleeping book (day 1):** async `send` to the book costs median and saves
+  tail on ES and ZN. With inline book work, a burst queues at MsgBuf, behind
+  the book updates.
+- **Spinning book (day 2):** async `send` loses on both. The spinning book
+  threads are descheduled for milliseconds on an unisolated host (D2.3).
+- **Best overall:** zero hops (`rfs_A`), best from p1 to p999 on every book.
+- **The trade-off is wake-up latency against CPU contention.** An idle
+  receiver that sleeps costs a 2-4 us wake-up on every message, but no CPU. A
+  receiver that spins removes the wake-up, but on a shared host it occasionally
+  loses its CPU for milliseconds.
 
 Mechanism: with `fast_send`, the decode thread does the book update itself.
 During a burst, the next packet waits at MsgBuf until it finishes. The ingress

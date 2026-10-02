@@ -326,6 +326,45 @@ not the framework or the queue:
   </picture>
 </p>
 
+### Zero-hop path: socket read to book on one thread (2026-10-02)
+
+The same measurement on the experimental branch
+[`md-latency-experiments`](https://github.com/vincent212/kaspar-hft/tree/md-latency-experiments),
+with the whole path from socket read to book publish on the socket reader's
+thread:
+
+- **Settings:** `cme_reader_fast_send true` and `book_fast_send true`
+  (`rfs_A`). The reader `fast_send`s into MsgBuf, and the book update runs
+  inline, so there are no thread hops between `t0` and `t1`.
+- **Setup:**
+  - live CME MDP3, ES / NQ / ZN Z6
+  - feed A only, Onload, threads not pinned
+  - two 5-minute runs, 09:00-10:08 ET, first 60 s of each run dropped (snapshot
+    recovery)
+  - no packet loss and no gaps after startup
+
+**Distribution** (every message, µs):
+
+| stream | messages | p1 | p10 | p50 | p90 | p99 | p99.9 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| ES book | 401,462 | 0.5 | 0.7 | 1.1 | 2.7 | 9.9 | 24.1 |
+| NQ book | 581,010 | 0.4 | 0.5 | 0.8 | 1.9 | 4.7 | 8.8 |
+| ZN book | 141,972 | 0.4 | 0.6 | 1.0 | 2.5 | 20.6 | 69.3 |
+| ES trade | 45,733 | 0.5 | 0.7 | 2.5 | 8.8 | 36.2 | 70.1 |
+| NQ trade | 21,093 | 0.4 | 0.6 | 0.9 | 3.3 | 17.8 | 31.5 |
+| ZN trade | 13,282 | 0.4 | 0.7 | 6.6 | 41.5 | 90.5 | 124.0 |
+
+- **Median:** about 1 µs, against about 7 µs on the production path above.
+- **Tail:** this was also the shortest tail of the six hand-off configurations
+  tested that day.
+- **Why:** each thread hop costs more than the decode and book work it hands
+  off.
+- **Caveat:** these are short runs, so p99.9 rests on few samples, ZN and the
+  trade streams especially.
+
+Full write-up:
+[`tech_reports/md_median_vs_tail_draft.md`](https://github.com/vincent212/kaspar-hft/blob/md-latency-experiments/tech_reports/md_median_vs_tail_draft.md).
+
 ## Shadow Execution Algo
 
 Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow by following the orders other participants place.
