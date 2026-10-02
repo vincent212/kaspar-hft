@@ -10,8 +10,13 @@
 #
 # Phases:
 #   1. smoke: 120 s of each new config, checked for decoding, gaps and spinning
-#   2. main: ROUNDS rounds of all six configs, order rotated each round,
-#      WINDOW s each, until DEADLINE
+#   2. main: ROUNDS rounds of all six configs, WINDOW s each, until DEADLINE.
+#      Odd rounds run the list forward, even rounds in reverse, so a trend in
+#      market activity across the session hits every config about equally.
+#
+# One-hour variant (09:00-about 10:08), as used on 2026-10-02:
+#   SKIP_SMOKE=1 ROUNDS=2 WINDOW=300 DEADLINE=101000 OUT=... bash run_day2.sh
+# Analyse with a 30 s warm-up: SKIP_S=30 SKIPW=3 R=<OUT> bash paper_all.sh
 # The live recorder (m2_kspr) is stopped first and restarted on exit, including
 # Ctrl-C and errors.
 #
@@ -88,7 +93,7 @@ CFGS=(base_A mbspin_A mbspin_tbspin_A fastsend_mbspin_A rfs_tbspin_A rfs_A)
 n=${#CFGS[@]}
 for ((r=1; r<=ROUNDS; r++)); do
   for ((k=0; k<n; k++)); do
-    c=${CFGS[$(( (k + 2*(r-1)) % n ))]}
+    if (( r % 2 )); then c=${CFGS[$k]}; else c=${CFGS[$((n - 1 - k))]}; fi
     run_one d${r}_${c} $c $WINDOW
   done
 done
