@@ -334,23 +334,29 @@ TEST(Errors, NoHandler)
   EXPECT_EQ(err.msg, Start::id);
 }
 
+TEST(Errors, FastSendWithNoHandlerIsAnsweredWithTheError)
+{
+  Design d;
+  hls::stream<Envelope> from_host, to_pcie;
+  from_host.write(env(start(1), kPong, kHost, FAST));   // Pong has no Start handler
+  d.run(from_host, to_pcie);
+  auto out = drain(to_pcie);
+  ASSERT_EQ(out.size(), 1u);   // the answer carries the error; nothing else is sent
+  EXPECT_EQ(out[0].kind, FAST_REPLY);
+  EXPECT_EQ(as<Error>(out[0]).code, ERR_NO_HANDLER);
+}
+
+// A handler that runs but does not reply still releases the caller: id 0.
 TEST(Errors, FastSendWithoutReplyStillAnswers)
 {
   Design d;
   hls::stream<Envelope> from_host, to_pcie;
-  from_host.write(env(start(1), kPong, kHost, FAST));   // no handler, so no reply
+  from_host.write(env(start(1), kPing, kHost, FAST));   // Ping handles Start, replies nothing
   d.run(from_host, to_pcie);
-  auto out = drain(to_pcie);
-  ASSERT_EQ(out.size(), 2u);
-  bool saw_error = false, saw_empty_reply = false;
-  for (const auto &e : out)
-  {
-    if (e.id == Error::id && e.kind == SEND)
-      saw_error = true;
+  bool saw_empty_reply = false;
+  for (const auto &e : drain(to_pcie))
     if (e.kind == FAST_REPLY && e.id == 0)
       saw_empty_reply = true;
-  }
-  EXPECT_TRUE(saw_error);
   EXPECT_TRUE(saw_empty_reply);
 }
 

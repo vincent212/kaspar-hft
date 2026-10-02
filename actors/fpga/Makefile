@@ -35,8 +35,12 @@ test: check14 run_tests run_bridge_tests
 	./run_tests
 	./run_bridge_tests
 
-$(ACTORS_CPP)/libactors.a:
-	$(MAKE) -C $(ACTORS_CPP)
+# actors/cpp does not track header dependencies, so rebuild the whole library
+# (-B) whenever any of its headers or sources is newer than it: the FPGA bridge
+# adds an alternative to ActorRef, and a library built without it must not be
+# linked.
+$(ACTORS_CPP)/libactors.a: $(wildcard $(ACTORS_CPP)/include/actors/*.hpp) $(wildcard $(ACTORS_CPP)/*.cpp)
+	$(MAKE) -B -C $(ACTORS_CPP) libactors.a
 
 # CPU <-> FPGA: the bridge and the four-direction example.
 run_bridge_tests: tests/test_bridge.cpp host/*.hpp include/actors_fpga/*.hpp examples/cpu_fpga/*.hpp $(ACTORS_CPP)/libactors.a

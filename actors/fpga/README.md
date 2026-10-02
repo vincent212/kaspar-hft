@@ -10,8 +10,10 @@ inside one runtime.
 [FPGA_PROGRAMMERS_GUIDE.md](FPGA_PROGRAMMERS_GUIDE.md).** It also records the design
 decisions and the known limitations.
 
-Status: the runtime and the CPU-side bridge are written and tested on the host, with the
-FPGA design run in software threads. Nothing has been synthesized or run on a card yet.
+> **Experimental.** The FPGA runtime and its CPU bridge are a research prototype. They
+> are tested only in software: nothing has been synthesized or run on a card, the
+> interfaces may change, and they are not part of the production trading system. Do not
+> depend on them for anything live.
 
 ---
 

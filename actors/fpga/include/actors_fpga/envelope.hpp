@@ -68,7 +68,8 @@ enum ErrorCode : uint32_t
   ERR_WRONG_REPLY = 6,    // a fast_send was answered with message `msg`, not the type expected
   ERR_CYCLE = 7,          // a fast_send to the calling actor itself would wait on itself
   ERR_SELF_FULL = 8,      // an actor's queue of messages to itself is full
-  ERR_NOT_HERE = 9        // a message reached a process that holds no actor `dst`
+  ERR_NOT_HERE = 9,       // a message reached a process that holds no actor `dst`
+  ERR_STOPPING = 10       // the CPU side is shutting down and runs no more handlers
 };
 
 // ---- field encoding ------------------------------------------------------------

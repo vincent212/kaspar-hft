@@ -4,9 +4,11 @@ How to write FPGA actors and designs for the Kaspar-HFT FPGA runtime, how they t
 actors, and why the runtime is built the way it is. For an overview and how to run the
 examples, see [README.md](README.md).
 
-Status: everything here is written and tested on the host, with the FPGA design run in
-software threads. Nothing has been synthesized or run on a card yet (see
-[Known limitations](#known-limitations)).
+> **Experimental.** The FPGA runtime and its CPU bridge are a research prototype. They
+> are tested only in software: nothing has been synthesized or run on a card, the
+> interfaces may change, and they are not part of the production trading system. Do not
+> depend on them for anything live.
+> See [Known limitations](#known-limitations).
 
 ---
 
@@ -51,8 +53,9 @@ struct Ping
 };
 ```
 
-- `id` is fixed and unique. 1–15 are the framework's (`Error` is 1); applications use
-  300–399.
+- `id` is fixed and unique. 0 means "no reply" and 1–15 are the framework's (`Error` is
+  1); applications use 300–399. The CPU bridge refuses to register a message class with
+  an id below 16.
 - `KFPGA_FIELDS(...)` lists the fields that travel, in order.
 - Fields are integers, enums, `bool` or `char`, of 8 bytes or less. No pointers, no
   floating point, no arrays: the encoding is exact on the FPGA and on the CPU.
@@ -308,11 +311,25 @@ FPGA.
 sender that is not registered carries 0. A `fast_send` from such a sender gets its reply
 as usual; a reply to a `send` from it has nowhere to go and is reported.
 
-**Failures.** A CPU `fast_send` that fails throws: no route, unregistered message, an
-error from the FPGA, or a bridge that is not running. Called from a handler, that ends the
-process. Everything else is reported through `bridge->on_error` (stderr by default) and
-counted in `bridge->errors()`. `stop()` releases any CPU caller still waiting, with no
-reply, and reports it.
+**Failures.** A CPU `fast_send` that fails throws: no route, no handler on the FPGA
+actor, unregistered message, an error from the FPGA, or a bridge that is not running.
+Called from a handler, that ends the process. A `fast_send` that returns `nullptr` means
+the FPGA actor ran and chose not to reply; always check for it. Everything else is
+reported through `bridge->on_error` (stderr by default) and counted in
+`bridge->errors()`: a `send` while the bridge is not running is reported and dropped. A
+card write that fails on one of the bridge's own threads is reported and aborts the
+process, since the FPGA actor waiting on it could never be released. Calling `start()`
+twice throws.
+
+**Stopping.** `stop()` shuts down in an order that never strands a handler mid-call: new
+`fast_send`s from the FPGA are answered with an error; the CPU handlers already running
+for FPGA actors finish (and may still call the FPGA); then the reader stops; then any CPU
+caller still waiting for a reply is released with no reply, and reported.
+
+**Calling through `m->sender`.** A `fast_send` to the stand-in for an FPGA actor works,
+but goes through `Actor::fast_send`: calls through one stand-in run one at a time, and a
+failure ends the process. For concurrent calls, or to catch a failure, call through
+`bridge->ref(id)`.
 
 ---
 

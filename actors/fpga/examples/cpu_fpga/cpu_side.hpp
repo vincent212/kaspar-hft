@@ -105,8 +105,11 @@ private:
   {
     // 1. CPU -> FPGA fast_send: FpgaPong handles it now; the reply is returned.
     Ping p(1);
-    auto r = fpga_pong_.fast_send(&p, this);
-    line("1 CPU->FPGA fast_send  Ping(1) -> Pong(%u)", static_cast<const Pong *>(r.get())->count);
+    auto r = fpga_pong_.fast_send(&p, this);   // nullptr if FpgaPong did not reply
+    if (r)
+      line("1 CPU->FPGA fast_send  Ping(1) -> Pong(%u)", static_cast<const Pong *>(r.get())->count);
+    else
+      line("1 CPU->FPGA fast_send  Ping(1) -> no reply", 0);
 
     // 2. CPU -> FPGA send: the reply arrives later, in on_pong.
     fpga_pong_.send(new Ping(2), this);

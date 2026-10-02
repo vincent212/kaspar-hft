@@ -208,7 +208,20 @@ public:
     write_to<NE, K>(L_.freq, ep, e);
     const Envelope r = read_from<NE, K>(L_.frep, ep);
     if (r.id == Error::id)
-      return false;   // the call failed; whoever produced the Error has reported it
+    {
+      // The call failed. An Error from the host has been reported there; one from
+      // an actor on this chip is reported now.
+      if (ep != kHostEp)
+      {
+        Envelope err = r;
+        err.dst = kHost;
+        err.src = self_;
+        err.kind = SEND;
+        err.tag = 0;
+        error(err);
+      }
+      return false;
+    }
     return take_reply<Rep>(r, rep);
   }
 
@@ -330,16 +343,20 @@ bool actor_step(A &a, Links<NE> &L, const DiscoveryTable &rt, ActorPorts<NE> &st
 
   Ctx<NE, K> ctx(L, rt, st.self, e.dst, e.src, from, fast);
   const int r = dispatch_to(a, e, ctx, has_inner<A, Ctx<NE, K>>{});
-  if (r < 0)
-    L.msg[K][NE - 1].write(make_error(ERR_NOT_HERE, A::kId, e.id, e.dst));
-  else if (r == 0)
-    L.msg[K][NE - 1].write(make_error(ERR_NO_HANDLER, e.dst, e.id, e.dst));
+  const uint32_t code = r < 0 ? ERR_NOT_HERE : r == 0 ? ERR_NO_HANDLER : 0;
 
   if (fast)
   {
-    Envelope out = ctx.has_reply() ? ctx.reply_envelope() : make_no_reply(e);
+    // A failed call is answered with the Error itself, so the caller sees the
+    // failure; it is not also reported separately.
+    Envelope out = code ? make_fast_reply_error(e, code)
+                        : ctx.has_reply() ? ctx.reply_envelope() : make_no_reply(e);
     out.tag = e.tag;
     write_to<NE, K>(L.frep, from, out);
+  }
+  else if (code)
+  {
+    L.msg[K][NE - 1].write(make_error(code, r < 0 ? A::kId : e.dst, e.id, e.dst));
   }
   return true;
 }

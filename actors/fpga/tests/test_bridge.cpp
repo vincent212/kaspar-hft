@@ -123,18 +123,22 @@ TEST(Bridge, CpuFastSendToMissingActorThrows)
   EXPECT_THROW(ref.fast_send(&p, nullptr), std::runtime_error);
 }
 
-// fast_send to an FPGA actor with no handler for it returns no reply, and the
-// FPGA reports the missing handler.
-TEST(Bridge, CpuFastSendNoHandler)
+// fast_send to an FPGA actor with no handler for it fails: it throws, naming the
+// missing handler, rather than looking like a handler that chose not to reply.
+TEST(Bridge, CpuFastSendNoHandlerThrows)
 {
   Rig rig;
   auto ref = rig.bridge->ref(fpga_side::kFpgaPong);
   cpu_side::Go g(1, 0);   // FpgaPong has no handler for Go
-  EXPECT_EQ(ref.fast_send(&g, nullptr), nullptr);
-  ASSERT_TRUE(rig.wait_for_error());
-  const auto errs = rig.errors();
-  ASSERT_EQ(errs.size(), 1u);
-  EXPECT_NE(errs[0].find("no handler"), std::string::npos);
+  try
+  {
+    ref.fast_send(&g, nullptr);
+    FAIL() << "expected a throw";
+  }
+  catch (const std::runtime_error &e)
+  {
+    EXPECT_NE(std::string(e.what()).find("no handler"), std::string::npos);
+  }
 }
 
 namespace {
@@ -215,7 +219,8 @@ private:
   {
     cpu_side::Ping p(m->count);
     auto r = fpga_pong_.fast_send(&p, this);
-    reply(new cpu_side::Pong(static_cast<const cpu_side::Pong *>(r.get())->count));
+    if (r)
+      reply(new cpu_side::Pong(static_cast<const cpu_side::Pong *>(r.get())->count));
   }
   actors::ActorRef fpga_pong_;
 };
@@ -310,7 +315,10 @@ TEST(Bridge, StopReleasesWaitingCaller)
     cpu_side::Ping p(1);
     got_null.set_value(ref.fast_send(&p, nullptr) == nullptr);
   });
-  std::this_thread::sleep_for(50ms);
+  // The caller is waiting once its request has reached the (stopped) card.
+  for (int i = 0; i < 5000 && rig.design.from_host.empty(); ++i)
+    std::this_thread::sleep_for(1ms);
+  ASSERT_FALSE(rig.design.from_host.empty());
   rig.bridge->stop();
   auto f = got_null.get_future();
   ASSERT_EQ(f.wait_for(5s), std::future_status::ready);
@@ -455,4 +463,76 @@ TEST(Bridge, ThrowingWriteLeavesNoWaiter)
   std::lock_guard<std::mutex> lk(mu);
   ASSERT_EQ(errs.size(), 1u);
   EXPECT_NE(errs[0].find("no caller waiting"), std::string::npos);
+}
+
+// start() twice is refused.
+TEST(Bridge, StartTwiceThrows)
+{
+  Rig rig;
+  EXPECT_THROW(rig.bridge->start(), std::logic_error);
+}
+
+// A send while the bridge is not running is reported, not written to a card
+// nobody reads.
+TEST(Bridge, SendAfterStopIsReported)
+{
+  Rig rig;
+  rig.bridge->stop();
+  rig.bridge->ref(fpga_side::kFpgaPong).send(new cpu_side::Ping(1), nullptr);
+  const auto errs = rig.errors();
+  ASSERT_EQ(errs.size(), 1u);
+  EXPECT_NE(errs[0].find("not running"), std::string::npos);
+  EXPECT_TRUE(rig.design.from_host.empty());
+}
+
+namespace {
+// A CPU actor that, when an FPGA actor fast_sends it, calls back into the FPGA
+// after a pause, so that stop() can arrive while the handler is running.
+class SlowRelay : public actors::Actor
+{
+public:
+  explicit SlowRelay(actors::ActorRef fpga_pong) : fpga_pong_(fpga_pong)
+  {
+    std::strncpy(name, "SlowRelay", sizeof(name) - 1);
+    MESSAGE_HANDLER(cpu_side::Ping, on_ping);
+  }
+  std::atomic<bool> entered{false};
+  std::atomic<bool> finished{false};
+
+private:
+  void on_ping(const cpu_side::Ping *m)
+  {
+    entered = true;
+    std::this_thread::sleep_for(50ms);
+    cpu_side::Ping p(m->count);
+    auto r = fpga_pong_.fast_send(&p, this);
+    if (r)
+      reply(new cpu_side::Pong(static_cast<const cpu_side::Pong *>(r.get())->count));
+    finished = true;
+  }
+  actors::ActorRef fpga_pong_;
+};
+} // namespace
+
+// stop() while a CPU handler run for an FPGA actor is still calling the FPGA:
+// the handler finishes normally, and shutdown completes.
+TEST(Bridge, StopWaitsForRunningCpuHandlers)
+{
+  Rig rig;
+  auto *relay = new SlowRelay(rig.bridge->ref(fpga_side::kFpgaPong));
+  auto *sink = new DoneSink();
+  rig.bridge->add_cpu_actor(fpga_side::kCpuPong, relay);
+  rig.bridge->add_cpu_actor(fpga_side::kCpuDriver, sink);
+  actors::Manager mgr;
+  mgr.add_to_manage_q(relay);
+  mgr.add_to_manage_q(sink);
+  mgr.init();
+
+  rig.bridge->ref(fpga_side::kFpgaCaller).send(new cpu_side::Go(1, 1), nullptr);
+  for (int i = 0; i < 5000 && !relay->entered; ++i)
+    std::this_thread::sleep_for(1ms);
+  ASSERT_TRUE(relay->entered.load());
+  rig.bridge->stop();   // the handler is mid-pause, about to call the FPGA
+  EXPECT_TRUE(relay->finished.load());
+  mgr.end();
 }
