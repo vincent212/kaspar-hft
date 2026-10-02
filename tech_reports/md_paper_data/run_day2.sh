@@ -63,11 +63,18 @@ run_one() {   # tag config seconds
   echo "$(date +%T) START $tag pid=$P klog=$KLOG" >> $LOG
   python3 $S/schedsample.py "$P" $out/probe.out $out/sched.csv 10 &
   SP=$!
+  # kaspr log lines carry no wall time (00/00/0000), so stamp recovery
+  # milestones as they appear: epoch-seconds, then the log line. Lines written
+  # before this starts (~3 s after launch) get the time they were read.
+  ( tail -F -n +1 "$KLOG" 2>/dev/null | grep -a --line-buffered -E "recovery done|initiating" \
+      | while IFS= read -r l; do echo "$(date +%s.%N) $l"; done > $out/recovery.txt ) &
+  TP=$!
   sleep $((secs + 20))
   [ -n "$P" ] && onload_drops "$P" $out/onload.txt
   sleep 10
   pgrep -x md_perf_meter >/dev/null && pkill -9 -x md_perf_meter
   wait $RP 2>/dev/null; kill $SP 2>/dev/null
+  pkill -P $TP 2>/dev/null; kill $TP 2>/dev/null
   cp "$KLOG" $out/kaspr.log 2>/dev/null
   echo "$(date +%T) END $tag gaps=$(grep -acE 'have gap|waiting for gap' $out/kaspr.log) spinning_threads_in_last_sample=$(awk -F, -v t=$(tail -1 $out/sched.csv | cut -d, -f1) '$1==t && $4>9000' $out/sched.csv | wc -l)" >> $LOG
   sleep 5
