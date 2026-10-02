@@ -1,0 +1,309 @@
+\paragraph{About this part.} Part~III listed what a faithful simulation of execution requires. Part~IV
+shows one system built to meet those requirements, as a worked case study rather than an empirical
+result. It describes the overall architecture (Section~\ref{sec:kaspar}); how simulated orders are
+placed into, and filled from, a reconstructed queue of real orders (Section~\ref{sec:kaspar-fills});
+how recorded exchange data are turned into replayable input (Section~\ref{sec:kaspar-pipeline}); why a
+replay gives the same answer every time (Section~\ref{sec:kaspar-determinism}); how the same code runs
+in replay, paper and live trading (Section~\ref{sec:kaspar-equivalence}); a simple execution algorithm
+that serves as a model-free baseline (Section~\ref{sec:shadow}); and how latency is measured
+(Section~\ref{sec:kaspar-measurement}).
+
+% ================================================================
+\section{Architecture overview}
+\label{sec:kaspar}
+% ================================================================
+
+This part describes one system that implements the chain~\eqref{eq:chain} from market data to
+simulated or live execution: Kaspar, a trading and simulation system for CME futures (ES, NQ and
+treasury futures) built on a C++20 actor framework~\citep{maciejewski_actor}. It is included as a
+case study of the methodology argued for in Part~III, not as an empirical contribution; every
+statement below is a description of the design and code, and the few numbers quoted come from
+previously published measurements, attributed where they appear.
+
+The data path is
+\begin{center}\small
+CME MDP~3.0 multicast $\to$ socket reader $\to$ message buffer $\to$ decoder $\to$ feed handler
+$\to$ order book $\to$ strategy $\to$ simulated order manager $\to$ [exchange gateway $\mid$ simulated fill].
+\end{center}
+Every component is an actor: it owns its state and communicates only by messages. Actors can be
+placed in a \emph{group}, which runs several actors on one thread, processing one message at a time
+in arrival order. The simulated order manager (SOM) sits between the strategy and the venue. In
+live mode it forwards orders to the exchange gateway (CME iLink~3); in simulation mode it sends
+them into the reconstructed book, where they are matched against recorded order flow.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  node distance=4mm and 6mm,
+  box/.style={draw, rounded corners=2pt, minimum height=7mm, align=center, font=\small},
+  arr/.style={-{Stealth[length=2mm]}, thick}]
+\node[box] (md) at (0,0.7) {recorded MBO\\(replay)};
+\node[box] (live) at (0,-0.7) {live MDP 3.0\\multicast};
+\node[box] (ob) at (3.2,0) {order book\\(per order)};
+\node[box] (strat) at (5.6,0) {strategy\\(lights)};
+\node[box] (som) at (7.6,0) {SOM};
+\node[box] (sim) at (10.6,0.9) {fill in\\reconstructed queue};
+\node[box] (ilink) at (10.6,-0.9) {iLink 3\\gateway};
+\draw[arr] (md) -- (ob);
+\draw[arr] (live) -- (ob);
+\draw[arr] (ob) -- (strat);
+\draw[arr] (strat) -- (som);
+\draw[arr] (som) -- node[above left, font=\scriptsize]{sim} (sim);
+\draw[arr] (som) -- node[below left, font=\scriptsize]{live} (ilink);
+\draw[arr, dashed] (sim.north) |- ++(0,5mm) -| node[pos=0.25, above, font=\scriptsize]{simulated order enters the book} (ob.north);
+\end{tikzpicture}
+\caption{Kaspar data and order paths. Everything downstream of the market-data source is the same
+code in replay and live operation; the branch between simulated and live execution is a single
+decision in the simulated order manager.}
+\label{fig:kaspar}
+\end{figure}
+
+% ================================================================
+\section{Queue-exact simulated fills}
+\label{sec:kaspar-fills}
+% ================================================================
+
+The central requirement of Section~\ref{sec:replay} is that a simulated order should be filled only if
+a real order in its place would have been. This section explains how Kaspar meets it: simulated
+orders sit in the same per-order queue as real ones, reach the book after a modelled delay, and are
+filled only by real executions that reach them. Here and throughout, \emph{queue-exact} means exact
+with respect to the displayed order sequence carried by the input MBO feed and the documented matching
+rules; it does not imply knowledge of hidden liquidity or unobserved participants, and it does not model
+the market impact of the simulated orders.
+
+\subsection{The book holds every order}
+
+The simulator reconstructs a full market-by-order book from recorded exchange data. Each price
+level is a queue that holds every resting order individually, in arrival order, and simulated
+orders are held in the same queue alongside real ones. There is no estimated ``volume ahead''
+variable: a simulated order's queue position is its position in the list. This is the property
+that makes a fill inference definable at all~\citep{maciejewski_shadow}.
+
+\subsection{Placement and latency}
+
+In simulation mode the SOM turns a new order into a book \emph{add} message tagged with a
+simulated venue identifier and sends it to the order-book actor. The book does not insert it
+immediately. It holds the order on a delay queue until its modelled arrival time at the matching
+engine:
+\begin{lstlisting}[language=C++]
+auto order_engine_arrive_time =
+    order_leave_time
+      + uint64_t(feed_delay) * 1000
+      + uint64_t(std::max(40, eff_delay)) * 1000; // 40 us floor
+\end{lstlisting}
+The outbound order delay, the outbound cancel delay and the inbound feed delay are independent
+parameters. The feed delay is added because the strategy saw the market late by that amount, so a
+round trip is feed plus order, not order alone. When the order arrives it is appended at the tail
+of the queue at its price, behind all depth already resting there.
+
+\subsection{The fill rule}
+
+A recorded cancellation of a real order simply unlinks it, and every order behind it moves up. A
+recorded execution triggers simulated fills only when the executing real order is the first real
+order in the queue and a simulated order sits ahead of it:
+\begin{lstlisting}[language=C++]
+// fill sim orders only if the executing order is at the front
+if (o == q->get_head_no_sim())
+{
+  fill_prev_sim_order();
+  ...
+}
+\end{lstlisting}
+Any remaining executed quantity is carried forward to earlier simulated orders. This is the
+price--time-priority argument of Section~\ref{sec:replay} in code: an aggressor that reached a
+real order which arrived after the simulated order must have passed through the simulated order.
+Simulated orders are excluded from the best bid and offer that the strategy sees, so a strategy
+cannot react to its own quote. Market impact is not modelled~\citep{maciejewski_shadow}.
+
+\begin{example}[A fill, step by step]
+\label{ex:trace}
+Bid queue at 5000.00 over seven successive steps \#0--\#6, sizes in lots, real orders R1--R4 and
+one simulated order S:
+\begin{lstlisting}
+#0  resting:            R1(10) R2(5) R3(20)
+#1  S(3) arrives:       R1(10) R2(5) R3(20) S(3)      appended at tail
+#2  R2 cancels:         R1(10) R3(20) S(3)            S moves up
+#3  exec 10 vs R1:      R3(20) S(3)                   no sim order ahead of R1: no fill
+#4  exec 20 vs R3:      S(3)                          S is behind R3: no fill
+#5  R4(8) joins:        S(3) R4(8)
+#6  exec 5 vs R4:       R4 is head real, S ahead  ->  S filled 3 @ 5000.00
+\end{lstlisting}
+At step \#6 the aggressor reached R4, which arrived after S, so it must have passed through S. A
+``touch'' backtest would have filled S at step \#3, three recorded events earlier and before the
+queue ahead of it was consumed.
+\end{example}
+
+% ================================================================
+\section{The replay pipeline}
+\label{sec:kaspar-pipeline}
+% ================================================================
+
+A traditional backtester reads bars or trades from a file and applies a fill rule to a strategy's
+orders. A queue-exact replay must instead reproduce the market data exactly as the trading system
+would have received it, so that the same code path builds the same book. Kaspar supports three market-data
+sources, each feeding the same downstream code:
+
+\begin{center}\footnotesize
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.2\linewidth}}
+\toprule
+Source & Reader & Clock \\
+\midrule
+Live CME MDP~3.0 multicast & socket reader & real time \\
+Packet capture (\texttt{.pcap}) of the same multicast groups & PCAP reader & capture timestamps \\
+Decoded order-by-order record file & binary file reader, directly into the books & file timestamps \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  node distance=3mm,
+  box/.style={draw, rounded corners=2pt, minimum width=78mm, minimum height=6mm, align=center, font=\small},
+  arr/.style={-{Stealth[length=2mm]}, thick}]
+\node[box] (a) {recorded packet capture of MDP~3.0 multicast};
+\node[box, below=of a] (b) {PCAP reader: Ethernet $\to$ IP $\to$ UDP, capture and hardware timestamps};
+\node[box, below=of b] (c) {message buffer and decoder (Simple Binary Encoding templates)};
+\node[box, below=of c] (d) {feed handler: incremental book updates, order by order};
+\node[box, below=of d] (e) {order book with real and simulated orders in each FIFO queue};
+\node[box, below=of e] (f) {strategy and execution actors (lights)};
+\node[box, below=of f] (g) {simulated order manager: delays, then insertion at the queue tail};
+\foreach \x/\y in {a/b,b/c,c/d,d/e,e/f,f/g} \draw[arr] (\x) -- (\y);
+\draw[arr] (g.east) -- ++(7mm,0) |- node[pos=0.25, right, font=\scriptsize, align=left]{simulated\\orders} (e.east);
+\end{tikzpicture}
+\caption{The packet-level replay path. Every stage below the reader is the same code that runs on
+live data; only the reader and the final branch of the order manager differ.}
+\label{fig:pcap}
+\end{figure}
+
+The capture reader parses each packet down to the exchange payload, optionally strips a
+hardware-timestamp trailer added by capture equipment, and hands the payload to the same message
+buffer the live socket reader uses, with both the software and hardware timestamps. It reads one
+packet per message to itself, so replay is an ordinary actor loop rather than a blocking file read.
+Two limits are stated in the project documentation: capture replay performs no packet recovery or
+A/B feed arbitration, so a gap in the capture propagates to the book; and the decoded-record path
+bypasses decoding entirely and is the fast option for repeated backtests. In the distributed
+version, the capture and record readers are complete as libraries but not yet selectable from the
+trading binary's command line; the separate simulator program drives replay from decoded record
+files.
+
+The order book then holds every order individually (Section~\ref{sec:kaspar-fills}), so a simulated
+order's queue position is exact, and fills are decided by the recorded executions that follow.
+
+% ================================================================
+\section{Determinism}
+\label{sec:kaspar-determinism}
+% ================================================================
+
+In the replay configuration the file reader, the order book, the timer, the SOM, the strategy
+actors and the position manager all run in one actor group on one thread. The reader is added to
+the group last, so all consumers exist before the first market-data message is delivered. Three
+design choices then make a replay repeatable:
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{One message sequence.} A single thread processes every message---market data, orders,
+  acknowledgements, fills, timer events---in one total order.
+\item \textbf{Market time.} The timer actor is driven by market-data timestamps, not the wall
+  clock, so timeouts fire at the same point in the data on every run.
+\item \textbf{Seeded randomness.} Any randomised strategy decision uses a per-actor seeded
+  generator set in configuration.
+\end{enumerate}
+The property this implies, and the test that would check it, is that replaying the same recorded
+file twice with the same configuration yields byte-identical fill records. We argue the property
+from the design; we do not report the test here.
+
+Determinism addresses a common weakness of trading research: the research implementation and the
+production implementation are often different programs, and differences between them are
+discovered in production.
+
+% ================================================================
+\section{Replay, paper and live equivalence}
+\label{sec:kaspar-equivalence}
+% ================================================================
+
+Two choices are independent: where market data come from (recorded file or live multicast), and
+where orders go (reconstructed book or exchange). Everything downstream of the message buffer---the
+decoder, feed handler, order book, strategy and SOM---is the same code whichever source feeds it.
+The branch between simulated and live execution is a single condition in the SOM's new-order
+handler; both paths apply the same pre-trade reject checks, with one additional rule in live mode
+for cancels of orders not yet acknowledged by the exchange. The combination ``live data, simulated
+execution'' is paper trading: orders enter the live reconstructed book and are filled by the live
+order flow under the same rule as in replay.
+
+The live order-entry path implements CME's iLink~3 protocol: binary message encoding, HMAC request
+signing, sequence management, and failover between primary and secondary gateways. The project
+documentation states that both the market-data handler and the order-entry session have passed CME's
+automated certification. Strategies can be written as in-process actors in C++ or, through an
+in-process foreign-function interface, in Rust.
+
+Two qualifications keep the claim precise. Switching between simulated and live execution is a single
+flag in the SOM, but in the distributed build that flag is set in the program source rather than in a
+configuration file, and the distributed configuration runs in simulation mode; the equivalence
+demonstrated day to day is therefore between replay and paper trading, with the live path sharing all
+code up to the SOM branch. And equivalence of code is not equivalence of outcomes: replay assumes no
+market impact (Section~\ref{sec:kaspar-fills}) and models latency with configured delays, so a strategy
+that is profitable in replay can still behave differently live.
+
+% ================================================================
+\section{A model-free execution benchmark}
+\label{sec:shadow}
+% ================================================================
+
+\pov{} is the passive execution algorithm used in the case study~\citep{maciejewski_shadow}. It
+makes no prediction about book evolution. When a third-party limit order is added within a
+configured distance of the touch, the algorithm may place its own order at the same price, records
+that participant's exchange order identifier, and cancels when that order leaves the book. The
+placement decision is randomised at a configured rate; cancellation can be delayed by a grace
+period measured in events or time. The design comment for the grace period states the trade-off
+of Section~\ref{sec:adverse} directly: cancel too quickly and fills are given up; cancel too
+slowly and the order bears the adverse selection.
+
+\begin{table}[ht]
+\centering\small
+\caption{Representative \pov{} parameters (one of the configurations in the code repository).}
+\label{tab:shadow-params}
+\begin{tabular}{lll}
+\toprule
+Parameter & Value & Meaning \\
+\midrule
+\texttt{place\_rate\_bp} & 300 & place on 3\% of qualifying third-party adds \\
+\texttt{max\_dist} / \texttt{max\_dist\_cancel} & 10 / 12 & ticks from touch to place / to force cancel \\
+\texttt{delayed\_cancel\_events} & 5 & grace period after the shadowed order leaves \\
+\texttt{nlights\_per\_side} & 10 & number of lights per side; each holds one order at one price \\
+\texttt{rng\_seed} & 1 & seed for the placement decision \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Its role in this survey is as a null model for passive placement. It defines the bottom rung of a
+hierarchy:
+\begin{center}
+model-free placement $\;\to\;$ predictive placement $\;\to\;$ full predictive execution policy.
+\end{center}
+A predictive model that claims value for passive execution should beat the model-free benchmark
+\emph{in the same replay, under the same fill rule}, on slippage and on post-fill mark-outs. Any
+improvement measured against a naive backtest instead is confounded by the fill-inference bias
+of Section~\ref{sec:replay}.
+
+% ================================================================
+\section{Measurement}
+\label{sec:kaspar-measurement}
+% ================================================================
+
+Latency claims need their endpoints. In the published measurement of Kaspar's market-data
+handler, the start point is a software timestamp at the socket read and the end point is the order
+book being published; time spent in the network card and kernel before the read is outside the
+measurement, which is therefore socket-to-book, not wire-to-book. Measured on live CME multicast,
+the median is 8.0\,$\mu$s, with book-message medians of 7.1, 7.3 and 7.1\,$\mu$s for ES, NQ and ZN
+and 99th percentiles of 18.5, 13.6 and 57.0\,$\mu$s~\citep{maciejewski_mdlatency}. These numbers are
+quoted as an example of stating endpoints, not as a result of this paper.
+
+The simulator's slippage instrumentation measures execution cost for each fill against four
+references: the mid at decision time, the interval volume-weighted average price, same-side
+passive fills by other participants, and the touch. Comparing against the interval VWAP separates
+market drift from adverse selection. Post-fill mark-outs at fixed times and after a fixed number
+of book events provide the mark-out $R^{\text{fill}}_{h}$ of~\eqref{eq:markout} (the event-count version is
+its analogue on an event clock) and the adverse-selection quantity of Section~\ref{sec:adverse}.
+
+The order-flow signals of Part~II---OFI, queue imbalance, micro-price, fill-probability
+models---are not part of the system described here. They are the candidate inputs that
+Part~V proposes to search over, using this replay as the evaluator.

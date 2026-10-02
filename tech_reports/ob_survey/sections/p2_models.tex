@@ -1,0 +1,2306 @@
+\paragraph{About this part.} Part~II surveys the models of the order book, from the simplest to the
+most complex. It starts with the empirical facts any model must respect (Section~\ref{sec:facts});
+moves through hand-built signals computed from the book (order-flow imbalance, queue imbalance, the
+micro-price; Section~\ref{sec:ofi}); then to models of the queues themselves and the time until they
+empty (Section~\ref{sec:queue-models}); to Hawkes processes, which model how events trigger further
+events (Section~\ref{sec:hawkes}); to deep networks (Section~\ref{sec:deep}); to hybrids of the two
+(Section~\ref{sec:hybrid}); and finally to information from related instruments
+(Section~\ref{sec:cross}). Every model ends with a model card answering the same four questions.
+
+% ================================================================
+\section{Stylised facts a model should reproduce}
+\label{sec:facts}
+% ================================================================
+
+Before turning to models, it helps to list what any adequate model of the book must be consistent
+with. These regularities have been documented repeatedly across markets and periods.
+\begin{description}[leftmargin=1.5em,style=nextline,itemsep=2pt]
+\item[Events cluster] Order-book events arrive in bursts separated by quiet periods, and a large share
+  of events are triggered by earlier ones (Section~\ref{sec:hawkes}).
+\item[Long waits are common] Times between price changes have heavy tails; in a simple model of exactly
+  balanced queues the expected waiting time is even infinite~\citep{contlarrard2013}.
+\item[Order flow has long memory] The signs of successive market orders are positively correlated
+  over very long lags, with a Hurst exponent of about $0.7$, mainly because large orders are split into
+  many small ones~\citep{lillo2004,lillo2005}.
+\item[Prices nevertheless diffuse] Despite persistent order flow, prices are close to unpredictable
+  beyond short horizons, because limit orders absorb the pressure: the market is held near a critical
+  balance between the two~\citep{bouchaud2004}.
+\item[Short-horizon mean reversion] Measured volatility is higher over very short windows than over
+  longer ones (bid--ask bounce), and correlations between assets fall when measured over very short
+  windows (the Epps effect)~\citep{bacry2013}.
+\item[The average book is humped] Average depth is largest a few ticks away from the best price, not
+  at it~\citep{bouchaud2002}.
+\item[Impact is concave] The price impact of a large order executed in pieces grows less than linearly
+  with its size, close to a square-root law~\citep{bouchaud2018}; Hawkes models reproduce its concave, relaxing
+  shape~\citep{bacry2014}.
+\item[Order flow explains price changes] Over short windows, price changes are approximately linear in
+  order-flow imbalance, with a slope inversely related to depth~\citep{cks2014}.
+\item[Not only trades move prices] Roughly half of price-changing events are limit orders placed inside
+  the spread~\citep{eisler2012}, and the book beyond the best quotes carries part of the price
+  information~\citep{cao2009}.
+\item[Activity is seasonal] Intensities and volatility follow intraday patterns, so models fitted with a
+  constant baseline over a non-stationary period overstate how self-exciting the market is~\citep{filimonovsornette2015}.
+\end{description}
+Generative models are judged by how many of these they reproduce (Section~\ref{sec:deep-gen});
+predictive models are judged by whether they exploit them after costs.
+
+\paragraph{How each model is presented.} Every model in this part ends with a \emph{model card} that
+answers the same four questions: what has to be calibrated (the numbers estimated from data), how it is
+calibrated, what the fitted model is then used for, and a picture that makes it easy to remember and
+to teach. The cards summarise the section they close; the detail and the citations are in the text
+above each one.
+
+% ================================================================
+\section{Order-flow imbalance and queue imbalance}
+\label{sec:ofi}
+% ================================================================
+
+The simplest useful models of the book are single numbers computed directly from it. This section
+covers the two most important: \emph{order-flow imbalance}, which measures the net buying pressure
+from the stream of book events, and \emph{queue imbalance}, which measures how lopsided the two best
+queues are at an instant. It then refines queue imbalance into better estimates of the ``true'' price
+(the weighted mid and the micro-price) and describes features of the book's shape beyond the best
+level. These signals are cheap, interpretable and hard to beat, which makes them the baselines for
+everything that follows.
+
+\subsection{Order-flow imbalance}
+
+\paragraph{The idea.} Why does the price move? Look again at Figure~\ref{fig:book}. The best ask
+is 5000.25 with 14 lots waiting. If buyers take all 14 lots, or the sellers waiting there cancel,
+the best ask becomes 5000.50 and the mid rises. If instead more sellers join at 5000.25, the queue
+grows and a rise becomes harder. The same holds in mirror image on the bid side. So anything that
+\emph{grows the bid queue or shrinks the ask queue} pushes the price up, and anything that
+\emph{shrinks the bid queue or grows the ask queue} pushes it down. Order-flow imbalance (OFI)
+simply keeps a running score of these pushes~\citep{cks2014}.
+
+\paragraph{Measuring one event.} Visible changes at the best prices come from three event types:
+limit orders arriving, aggressive orders executing against waiting ones, and cancellations. For
+event number $n$, define
+\[
+  \Delta v^{b}_{n} = v^{b}_{1,t_n} - v^{b}_{1,t_n-},
+  \qquad
+  \Delta v^{a}_{n} = v^{a}_{1,t_n} - v^{a}_{1,t_n-}.
+\]
+Recall that $v^{b}_{1,t}$ is the number of lots waiting at the best bid at time $t$, and that
+$t_n-$ means ``just before event $n$''. So $\Delta v^{b}_{n}$ is \emph{the size of the best-bid
+queue just after event $n$ minus its size just before}: how many lots event $n$ added to the
+best-bid queue (positive) or removed from it (negative). $\Delta v^{a}_{n}$ is the same for the
+best-ask queue. In the book of Figure~\ref{fig:book}:
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item a new 20-lot buy order at 5000.00 gives $\Delta v^b_n = +20$ (29 lots become 49), and
+  $\Delta v^a_n = 0$;
+\item a sell market order for 10 lots trades against the front of the bid queue and gives
+  $\Delta v^b_n = -10$;
+\item a seller cancelling 3 lots at 5000.25 gives $\Delta v^a_n = -3$ (14 lots become 11).
+\end{itemize}
+
+\paragraph{Scoring and adding up.} While the best prices do not change, the score of event $n$
+and the order-flow imbalance over the last $w$ seconds are
+\begin{equation}
+  e_n = \Delta v^{b}_{n} - \Delta v^{a}_{n},
+  \qquad
+  \OFI^{(w)}_t = \sum_{n:\, t_n \in (t-w,\, t]} e_n .
+\end{equation}
+\inwords{$e_n$ is positive when event $n$ grew the bid queue or shrank the ask queue---a push up---and
+negative for a push down; subtracting $\Delta v^{a}_{n}$ is what turns a shrinking ask queue into a
+positive score. The sum runs over every event $n$ whose time $t_n$ falls in the last $w$ seconds,
+so $\OFI^{(w)}_t$ is the net buying pressure over that window, like the net flow into a tank: lots
+in on the buy side and out on the sell side count as inflow, the reverse as outflow.}
+
+When a best price \emph{does} change, the full definition of~\citet{cks2014} counts whole queues.
+If the best bid rises to a new, higher price, the entire new queue counts as added buying interest;
+if the best-bid level is emptied and the best bid falls, the entire old queue counts as removed. The
+ask side is treated symmetrically. This keeps the score meaningful across price changes.
+
+\paragraph{From pressure to price.} The associated short-horizon relation is a straight line,
+\begin{equation}
+  m_t - m_{t-w} = \beta\, \OFI^{(w)}_t + \varepsilon_t,
+\end{equation}
+where $\beta$ is the price-impact coefficient and $\varepsilon_t$ a residual.
+\inwords{over a short window, the mid moves roughly in proportion to the net buying pressure.
+$\beta$ converts lots of pressure into price: if $\beta$ is $0.01$ points per lot, a net 100 lots of
+pressure moves the mid by about one point. $\varepsilon_t$ is whatever the line does not explain.
+Fitting $\beta$ is an ordinary linear regression of price change on OFI.}
+\citet{cks2014} find that $\beta$ is inversely related to market depth: in a thin book a few lots
+empty a queue and move the price, while in a deep book the same lots barely dent it. OFI is
+low-dimensional, cheap to compute and easy to interpret, which makes it the natural baseline
+against which more complex models should be judged.
+
+\begin{example}[OFI by hand]
+\label{ex:ofi}
+Five events at unchanged best prices, all inside one window of length $w$:
+\begin{center}\small
+\begin{tabular}{clrrr}
+\toprule
+$n$ & event & $\Delta v^b_n$ & $\Delta v^a_n$ & $e_n$ \\
+\midrule
+1 & bid limit order, 20 lots & $+20$ & $0$ & $+20$ \\
+2 & ask cancel, 15 lots & $0$ & $-15$ & $+15$ \\
+3 & buy market order hits ask, 10 lots & $0$ & $-10$ & $+10$ \\
+4 & ask limit order, 30 lots & $0$ & $+30$ & $-30$ \\
+5 & bid cancel, 5 lots & $-5$ & $0$ & $-5$ \\
+\midrule
+ & & & $\OFI^{(w)}_t$ & $+10$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Events 2 and 3 enter through identical arithmetic, yet one is a cancellation and the other an
+aggressive trade. OFI does not distinguish them; Section~\ref{sec:events} returns to this.
+\end{example}
+
+\subsection{Evidence and extensions}
+
+\paragraph{How well OFI explains price changes.} On 50 US stocks, \citet{cks2014} find that the
+linear relation explains mid-price changes over short intervals with an average $R^2$ of about
+65\%---$R^2$, the coefficient of determination, being the fraction of the variance of price changes
+that the fitted line explains---against about 32\% for the imbalance of \emph{trades} alone; adding
+trade imbalance to OFI raises the average only to about 67\%. The slope is close to inversely
+proportional to average depth, $\beta \propto 1/\text{depth}$. The fit varies a great deal across
+stocks---from above 90\% for some to below 15\% for others---which is itself a warning against
+quoting a single number for ``the'' predictability of order flow. The lesson that limit orders and
+cancellations carry as much price information as trades is one of the most robust in the field.
+
+\paragraph{Looking deeper than the best level.} Information also sits beyond the best quotes. On
+the Australian Stock Exchange, \citet{cao2009} attribute about 22\% of price discovery to the book
+beyond the best bid and offer, and find that imbalances deeper in the book predict short-term
+returns even after controlling for the autocorrelation of returns, the inside spread and the imbalance
+of trades. \emph{Multi-level OFI} computes the
+imbalance separately at each of the first $L$ levels, giving a vector rather than a number; for six
+Nasdaq stocks, \citet{xu2019mlofi} find that the out-of-sample fit improves with every additional
+level included. \citet{contcucuringu2023} combine the level-wise imbalances into a single
+\emph{integrated OFI}, the first principal component of the multi-level vector, which captures over
+89\% of its variance. On the 100 largest S\&P~500 stocks over 2017--2019 the integrated OFI raises
+the average out-of-sample $R^2$ of the contemporaneous price-impact regression from about 65\%
+(best level only) to about 84\%.
+
+\paragraph{Order flow in other instruments.} The same study asks whether the order flow of
+\emph{other} stocks helps (cross-impact, Section~\ref{sec:cross}). Two answers are needed. For the
+\emph{contemporaneous} price change, once integrated OFI is used, adding other stocks' order flow
+does not improve the out-of-sample fit. For \emph{forecasting} the next minute's return, lagged
+order flow of other stocks does help significantly, although the out-of-sample $R^2$ of all the
+forecasting models remains slightly negative and the effect decays within minutes. Explaining the
+present and predicting the future are, again, different problems.
+
+\paragraph{Horizon and reversal.} The predictive content of order imbalance depends on the horizon.
+In Chinese equities, \citet{zhang2025oi} find that order imbalance predicts returns positively from
+5 to 30 minutes ahead and negatively from 60 to 120 minutes ahead, with no reversal for large or
+heavily traded stocks. The usual interpretation is that part of the price pressure from imbalance
+is temporary and is undone as liquidity is replenished. A signal must be used over the horizon on
+which it has the sign one assumes.
+
+\paragraph{Estimating the slope in real time.} Because $\beta$ moves with depth, it is re-estimated
+continuously in practice: by a rolling-window regression, by normalising OFI by recent average
+depth (a \emph{depth-normalised} OFI), or by treating $\beta_t$ as a hidden state that drifts over
+time and tracking it with a Kalman filter~\citep{kalman1960}, the standard recursive estimator for
+linear systems observed with noise.
+
+\paragraph{What OFI is used for.} The same quantity serves several decisions. As a directional
+signal, it predicts the sign of the next short-horizon move. For a market maker, it sets the
+\emph{skew} of quotes---leaning bids and offers in the direction of pressure---and informs inventory
+control~\citep{cartea2015}. For execution, it indicates when resting passively is likely to be
+rewarded and when the order book is about to move away.
+
+\begin{modelcard}{Order-flow imbalance}
+\cardrow{What you calibrate}{The price-impact slope $\beta$ for a chosen window $w$ (and, for
+multi-level OFI, one slope per level or the weights of the integrated OFI).}
+\cardrow{How}{An ordinary least-squares regression of mid changes on $\OFI^{(w)}_t$. Because $\beta$
+falls as depth rises, it is re-estimated on a rolling window, absorbed by dividing OFI by recent
+depth, or tracked as a drifting hidden state with a Kalman filter. Integrated OFI takes the first
+principal component of the level-wise OFIs.}
+\cardrow{What you do with it}{A baseline directional signal; the skew of a market maker's quotes; a
+warning, for a passive order, that the book is about to move away from it.}
+\cardrow{How to picture it}{Net flow into a tank: lots joining the bid or leaving the ask are inflow,
+lots joining the ask or leaving the bid are outflow; the level of the tank leads the price.}
+\end{modelcard}
+
+\subsection{Queue imbalance and richer book features}
+
+Queue imbalance compresses the top of book into one number,
+\begin{equation}
+  \QI_t = \frac{v^b_{1,t} - v^a_{1,t}}{v^b_{1,t} + v^a_{1,t}} \in [-1, 1].
+\end{equation}
+\inwords{the difference between the best-bid and best-ask queue sizes, divided by their total so
+the result does not depend on how busy the market is. It is $+1$ when only buyers are queued, $-1$
+when only sellers are, and $0$ when the two queues are equal.}
+
+\paragraph{Why imbalance predicts the next move: the thin side breaks first.}
+The mid moves when one of the two best queues is used up. If the book is skewed---many lots on one
+side, few on the other---the thin queue needs far less trading and cancelling to disappear than the
+thick one, so it is likely to be emptied first. The next price move is therefore more likely to be
+\emph{towards the thin side}: a thin ask is likely to be taken out, and the price ticks up; a thin
+bid is likely to be hit, and the price ticks down. Think of two piles of sand being removed at
+roughly the same rate: the smaller pile is gone first. Stochastic models of the book make this
+precise, computing the probability of an up move as a function of the two queue sizes~\citep{cst2010}.
+
+\begin{example}[Reading the imbalance in Figure~\ref{fig:book}]
+The best bid has 29 lots and the best ask 14, so
+$\QI_t = (29 - 14)/(29 + 14) \approx 0.35$: the book leans towards the buyers. The ask queue is the
+thinner one and is likely to break first, so the next change in the mid is more likely to be up
+than down. For a trader the skew has two consequences. A new passive buy
+order would join the back of the long 29-lot queue and probably wait while the price moves away
+from it. A new passive sell order would join the short ask queue and probably be filled---just
+before the up move that the imbalance predicted, which is adverse selection
+(Section~\ref{sec:adverse}).
+\end{example}
+
+\paragraph{A price that leans with the book.} The same intuition gives a better single-number price
+than the mid. The \emph{weighted mid} weights each side's price by the size on the \emph{other}
+side,
+\begin{equation}
+  m^{\text{wmid}}_t = \frac{v^b_{1,t}\, p^a_{1,t} + v^a_{1,t}\, p^b_{1,t}}{v^b_{1,t} + v^a_{1,t}},
+\end{equation}
+\inwords{when the bid queue is much larger than the ask queue, the price is pulled towards the ask,
+the side expected to break, and vice versa. With equal queues it equals the mid. In
+Figure~\ref{fig:book} it is $5000.00 + 0.25 \times 29/43 \approx 5000.169$, above the mid of
+5000.125.}
+
+\begin{modelcard}{Queue imbalance and weighted mid}
+\cardrow{What you calibrate}{Nothing for $\QI_t$ or $m^{\text{wmid}}_t$ themselves. To turn $\QI_t$
+into a probability, the coefficients of a logistic regression of the next mid-move direction on
+$\QI_t$~\citep{gould2016qi}.}
+\cardrow{How}{Count, over historical data, which way the mid moved next after each observed value
+of the imbalance, and fit the logistic curve by maximum likelihood; report it separately for
+large-tick and small-tick instruments, where its value differs.}
+\cardrow{What you do with it}{Predict the direction of the next mid change; decide which side a
+passive order should rest on and when it is likely to be adversely selected.}
+\cardrow{How to picture it}{Two piles of sand removed at about the same rate: the smaller pile is gone
+first, and the price moves towards the side whose pile disappeared.}
+\end{modelcard}
+
+\subsection{The micro-price}
+\label{sec:microprice}
+
+The weighted mid has three defects~\citep{stoikov2018}. It is not a \emph{martingale}---its
+expected future value is not its current value, so it is a biased estimate of where the price is
+going. It is noisy, especially when the spread widens. And it can move the wrong way: if the last
+lot on a thin ask is cancelled, the ask moves up a tick, yet the weighted mid can fall. The
+\emph{micro-price} of \citet{stoikov2018} replaces the ad hoc weighting by an estimate of the
+expected future mid itself.
+
+\paragraph{Definition.} Let $\eta_1 < \eta_2 < \cdots$ be the successive times after $t$ at which
+the mid changes, let $\iota_t = v^b_{1,t}/(v^b_{1,t} + v^a_{1,t}) = (1+\QI_t)/2 \in [0,1]$ be the
+imbalance rescaled to $[0,1]$, and let $s_t$ be the spread. The micro-price is the limit of the
+expected mid after more and more price changes,
+\begin{equation}
+  m^{\text{micro}}_t = \lim_{k\to\infty} \E\big[m_{\eta_k} \mid \iota_t, s_t\big].
+\end{equation}
+\inwords{start from the current imbalance and spread, and ask where the mid will be after the next
+price change, after the one after that, and so on. The answers settle down to a value; that value is
+the micro-price. By construction it is the best estimate, given the top of the book, of where the
+price is heading.}
+
+Two assumptions make it computable: the pair $(\iota_t, s_t)$ evolves as a Markov chain, and the
+dynamics do not depend on the price level itself. Then
+\begin{equation}
+  \begin{gathered}
+  m^{\text{micro}}_t = m_t + \sum_{k=1}^{\infty} g^{(k)}(\iota_t, s_t), \\
+  g^{(1)}(\iota, s) = \E\big[m_{\eta_1} - m_t \mid \iota, s\big], \qquad
+  g^{(k+1)}(\iota, s) = \E\big[g^{(k)}(\iota_{\eta_1}, s_{\eta_1}) \mid \iota, s\big].
+  \end{gathered}
+\end{equation}
+\inwords{the first term is the expected size of the next price change; each further term is the
+expected next change, averaged over the states the book can be in after the previous one. The
+micro-price is the mid plus the sum of all these expected adjustments.}
+
+\paragraph{Estimation.} In practice the imbalance is split into $n_\iota$ buckets (for example by
+quantiles) and the spread into $n_s$ values, so the bucketed state $(\iota, s)$ takes $n_\iota n_s$
+values. From data one counts three kinds of transition from each state: to another state with the mid
+unchanged, collected in a matrix $\mathbf{U}$; to each possible size of mid change, in a matrix
+$\mathbf{J}^{(1)}$; and to another state with the mid changed, in a matrix $\mathbf{J}^{(2)}$. With
+$\boldsymbol{\Delta}$ the vector of possible mid changes and $\mathbf{B} = (I -
+\mathbf{U})^{-1}\mathbf{J}^{(2)}$,
+\[
+  g^{(1)} = (I - \mathbf{U})^{-1} \mathbf{J}^{(1)} \boldsymbol{\Delta}, \qquad
+  g^{(k+1)} = \mathbf{B}\, g^{(k)}.
+\]
+The factor $(I-\mathbf{U})^{-1}$ sums over all the steps in which the book changes without
+the mid moving---the same geometric-series device used for the Hawkes model in Section~\ref{sec:hawkes}. The data
+are symmetrised before estimation (each observation is added again with bid and ask swapped and the
+price change negated), which guarantees that the series converges. Stoikov reports that a handful
+of terms suffices in practice, and that the micro-price predicts short-term price changes better
+than either the mid or the weighted mid, for both a large-tick and a small-tick stock.
+
+\begin{modelcard}{Micro-price}
+\cardrow{What you calibrate}{The transition matrices $\mathbf{U}$, $\mathbf{J}^{(1)}$,
+$\mathbf{J}^{(2)}$ between imbalance--spread buckets, after choosing the numbers of buckets $n_\iota$
+and $n_s$.}
+\cardrow{How}{Bucket the imbalance and spread, symmetrise the data, and count transitions; the
+adjustments $g^{(k)}$ then follow by matrix algebra, and a handful of terms suffices.}
+\cardrow{What you do with it}{A fair-value estimate to quote around in place of the mid, and a
+better reference than the mid or weighted mid for predicting short-term price changes.}
+\cardrow{How to picture it}{A weather forecast that starts from today's state and averages over
+every path the next few changes can take: the micro-price is where those paths land on average.}
+\end{modelcard}
+
+\subsection{The shape of the book}
+\label{sec:shape}
+
+Beyond the best level, several features summarise how liquidity is distributed:
+\begin{description}[leftmargin=1.5em,style=nextline,itemsep=2pt]
+\item[Multi-level imbalance] the queue imbalance computed with sizes summed over the best $\ell$
+  levels on each side, for several $\ell$.
+\item[Book slope] how fast cumulative depth grows with distance from the best price, usually the
+  fitted slope of cumulative size against price distance, separately for each side. A steep slope
+  means a deep book that absorbs large orders.
+\item[Curvature] the change of that slope with distance---whether depth is concentrated near the
+  touch or further out. Its empirical relevance is tied to the average shape of the book, which in
+  equities is humped: depth is usually largest a few ticks away from the best price, not at
+  it~\citep{bouchaud2002}.
+\item[Depth-weighted and volume-weighted prices] averages of the prices at the first $\ell$ levels,
+  weighted by their sizes; the weighted mid is the one-level case.
+\item[Resilience] how quickly the book refills after a large trade. \citet{large2007} measures it with
+  a ten-variate Hawkes model on an LSE stock and finds that when the book does refill, it does so
+  the impulse responses have half-lives under 20 seconds, but a resilient response follows a large
+  trade in under 40\% of cases.
+\item[Depth-normalised quantities] order-flow measures divided by recent average depth, motivated by
+  the inverse relation between price impact and depth.
+\end{description}
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{Classical order-book signals at a glance. Horizons are indicative of how the signals are
+used in the cited literature, not guarantees.}
+\label{tab:signals}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{l*{4}{>{\raggedright\arraybackslash}X}}
+\toprule
+Signal & What it measures & Typical horizon & How it is fitted & Known failure modes \\
+\midrule
+OFI, best level~\citep{cks2014} & net buying pressure at the touch & seconds to minutes (contemporaneous fit) & linear regression; slope re-estimated with depth & weak in thin, noisy names; distorted by spoofing \\
+Multi-level / integrated OFI~\citep{xu2019mlofi,contcucuringu2023} & pressure across the first levels & same & regression; principal components & more inputs to monitor; depth beyond the touch is less committed \\
+Queue imbalance~\citep{gould2016qi} & skew of the two best queues & next mid change & logistic regression & weak for small-tick names; misled by hidden size \\
+Weighted mid & price leaning toward the thin side & next mid change & none & noisy; not a martingale \\
+Micro-price~\citep{stoikov2018} & expected future mid given imbalance and spread & a few mid changes & Markov chain on imbalance and spread buckets & assumes Markov dynamics; needs symmetrised data \\
+Book slope, curvature & how liquidity is spread across levels & longer & descriptive & sensitive to transient deep orders \\
+Resilience~\citep{large2007} & speed of refill after trades & seconds & Hawkes impulse response & varies strongly across regimes \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Limits of the intuition.} Displayed size is not committed size. A thin queue may be
+refilled immediately by new orders; hidden or iceberg orders may make the thin side thicker than it
+looks; and orders placed only to be cancelled (spoofing, Section~\ref{sec:failures}) can create a
+skew that is not real. Imbalance is therefore a strong but noisy signal.
+
+\paragraph{Evidence.} \citet{gould2016qi} fit a logistic regression of the direction of the next
+mid move on queue imbalance for ten Nasdaq stocks. The relationship is strongly significant for
+every stock, but its value depends on the tick size: out of sample, queue imbalance improves binary
+classification over a null model by about 50--60\% for large-tick stocks and only about 10--30\% for
+small-tick stocks, and probabilistic classification by about 20--30\% against about 2--6\%. Queue
+imbalance is most informative exactly where queues are long and the price rarely moves---the
+large-tick regime that ES and ZN futures also belong to.
+
+\begin{example}[Same imbalance, different history]
+\label{ex:qi}
+Bid 300, ask 100 gives $\QI_t = (300-100)/(300+100) = 0.5$. In book~A the ask fell from 400 to 100
+because a 300-lot market buy lifted it. In book~B it fell because 300 lots were cancelled. Both
+books have the same snapshot and the same $\QI_t$. A trader who saw the messages knows that A
+contains an aggressive buyer and B does not.
+\end{example}
+
+\begin{modelcard}{Book shape}
+\cardrow{What you calibrate}{The number of levels $\ell$ to aggregate over; the slope and curvature
+of cumulative depth against distance; for resilience, the impulse response of a Hawkes model.}
+\cardrow{How}{Slope and curvature are least-squares fits of cumulative size against price distance,
+per side and per snapshot. Resilience is read off a fitted multivariate Hawkes model
+(Section~\ref{sec:hawkes}), as in~\citet{large2007}.}
+\cardrow{What you do with it}{Estimate how much a large order will move the price, normalise other
+signals by depth, and detect a book that is thinning out before the touch does.}
+\cardrow{How to picture it}{The profile of a hillside on each side of a valley: a steep hillside
+holds a lot of liquidity close to the price, a shallow one makes large orders walk far.}
+\end{modelcard}
+
+The central empirical question is not whether richer representations improve in-sample fit, but
+whether the improvement survives out-of-sample evaluation and execution costs.
+
+% ================================================================
+\section{Events rather than snapshots}
+\label{sec:events}
+% ================================================================
+
+The same reduction in displayed volume has different information content depending on its cause.
+A snapshot representation can make two states identical even when their histories differ
+(Example~\ref{ex:qi}). Market-by-order (L3) data carry the cause: every add, modify, cancel and
+execution, with an order identifier. On CME's MDP~3.0 feed, for instance, book updates for
+individual orders and trade summaries arrive as separate message templates, so the two books in
+Example~\ref{ex:qi} produce visibly different message sequences.
+
+Treating the three event types jointly is not optional. Price changes are often attributed to market
+orders, but in Nasdaq data roughly half of all price-changing events are limit orders placed
+\emph{inside} the spread, which improve the best price rather than consume it~\citep{eisler2012}.
+A model that sees only trades misses half of what moves the price.
+
+The case for message-level representation has recently been made directly in deep learning.
+LOBERT~\citep{linna2025lobert} adapts the BERT encoder to LOB data by treating each complete
+multi-dimensional message as a single token, while keeping continuous representations of price,
+volume and time. It is designed as a general-purpose, fine-tunable foundation model, and reports
+leading performance on mid-price movement and next-message prediction with a shorter required
+context than earlier methods; it is trained and evaluated on Nasdaq ITCH message data for four
+large US stocks in 2015, with millisecond timestamps. A message-level encoder sees the difference between a cancellation
+and an execution in Example~\ref{ex:qi}; a snapshot encoder, by construction, does not.
+
+% ================================================================
+\section{Queue depletion and first-passage models}
+\label{sec:queue-models}
+% ================================================================
+
+\paragraph{The idea: a queue is a bucket with a leak.} Think of the best-ask queue as a bucket of
+lots. New sell limit orders pour lots in; buy market orders that trade against it, and sellers who
+cancel, drain lots out. Each event adds or removes a random amount at a random time, so the level of
+the bucket wanders up and down like a random walk. The question this section asks is: \emph{how long
+until the bucket is empty?} That moment matters for three reasons.
+\begin{enumerate}[leftmargin=1.8em,itemsep=1pt]
+\item When the best-ask queue empties, the best ask moves up a tick, and so does the mid. Price
+  changes \emph{are} queue depletions.
+\item The direction of the next price move is a race between the two best queues: whichever empties
+  first decides it. This is the formal version of ``the thin side breaks first''
+  (Section~\ref{sec:ofi}).
+\item For a resting order, the wait until it is filled is the time until the volume \emph{ahead of
+  it} is used up---the same question, asked about part of a queue (Section~\ref{sec:queue-position}).
+\end{enumerate}
+
+\paragraph{The definition.} The depletion time of the best ask is the first-passage time
+\begin{equation}
+  \tau^a = \inf\{u > 0 : v^{a}_{1,t+u} \le 0\},
+\end{equation}
+where $u$ runs over time after $t$; $\tau^b$ is defined in the same way for the bid.
+\inwords{$\tau^a$ is how long from now until the best-ask queue is empty for the first time---the
+time at which a loop that polls the queue size would first see zero. ``First passage'' is the
+general name for the first time a wandering quantity reaches a level.}
+The race between the two queues is then
+\begin{equation}
+  \P(\text{next mid move is up} \mid X_t) = \P(\tau^a < \tau^b \mid X_t),
+\end{equation}
+\inwords{the price goes up next exactly when the ask queue empties before the bid queue does.}
+
+\paragraph{A first estimate.} If lots drain out at an average rate of $r_{\text{out}}$ lots per
+second and pour in at $r_{\text{in}}$, the bucket loses $r_{\text{out}} - r_{\text{in}}$ lots per
+second on average, and a best-ask queue of $v^a_{1,t}$ lots takes on average
+\[
+  \E[\tau^a] \approx \frac{v}{r_{\text{out}} - r_{\text{in}}}
+  \qquad (r_{\text{out}} > r_{\text{in}})
+\]
+seconds to empty: size divided by net drain rate, as for any bucket. Two warnings come with this
+formula. First, it is an average; the actual time is random and often far from it. Second, if
+inflow keeps up with outflow ($r_{\text{in}} \ge r_{\text{out}}$), the bucket has no net leak and the
+expected time can be very long or infinite.
+
+\paragraph{Models.} Stochastic models of the book~\citep{cst2010} treat arrivals, cancellations
+and executions as random event streams (point processes) and derive the distribution of
+first-passage times and the probability of a mid move in either direction, including the race above.
+Queue-reactive models~\citep{huang2015} go one step further and let the rates themselves depend on
+the current queue sizes---for example, orders may join or cancel at different rates when a queue is
+short than when it is long. That reproduces many observed regularities of large-tick assets.
+
+\subsection{The Cont--Stoikov--Talreja model}
+\label{sec:cst}
+
+The model of \citet{cst2010} is the foundation on which most later queue-based models of the
+order book are built, and it repays careful study. It was one of the first models of the whole book to
+satisfy three requirements at once: its parameters can be estimated directly from order-book
+data with simple counting; it reproduces important empirical features of the book without being tuned
+to do so; and it is simple enough that the probabilities a trader actually needs---will the price go
+up next, will my order be filled before the price moves---can be \emph{computed}, quickly and exactly,
+rather than estimated by simulation. Its central idea is that a limit order book is a queueing
+system: limit orders wait in line to be served by market orders, or leave the line by cancelling.
+
+\subsubsection{The model}
+
+\paragraph{State.} Prices live on a grid of ticks. The state of the book is the number of orders
+resting at every price on the grid, counted in units of the average limit-order size. Because most
+activity happens near the current price, the model measures position relative to the quotes: let
+$\mathcal{Q}^{\text{bid}}_{\bar\ell}(t)$ be the number of buy orders $\bar\ell$ ticks below the best
+ask, and $\mathcal{Q}^{\text{ask}}_{\bar\ell}(t)$ the number of sell orders $\bar\ell$ ticks above the
+best bid. Note the convention: distance is measured from the \emph{opposite} best quote. With a
+one-tick spread, the best bid is at distance $\bar\ell = 1$ from the best ask.
+
+\paragraph{Events and their rates.} Six kinds of event change the book, and each is modelled as an
+independent Poisson stream (Section~\ref{sec:hawkes} explains what that assumption means and where
+it fails):
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item a \textbf{limit buy} order arrives $\bar\ell$ ticks below the best ask, and a \textbf{limit sell}
+  order $\bar\ell$ ticks above the best bid, each at rate $r_L(\bar\ell)$;
+\item a \textbf{market buy} order removes one unit from the best ask, and a \textbf{market sell} order
+  one unit from the best bid, each at rate $r_M$;
+\item each resting order $\bar\ell$ ticks from the opposite quote is \textbf{cancelled} independently at
+  rate $r_c(\bar\ell)$, so a level holding $\mathcal{Q}$ orders loses orders to cancellation at total
+  rate $r_c(\bar\ell)\,\mathcal{Q}$.
+\end{itemize}
+Two modelling choices carry the economics. First, limit orders arrive more often near the current
+price; following earlier empirical work~\citep{bouchaud2002}, the arrival rate is a power law in
+distance,
+\begin{equation}
+  r_L(\bar\ell) = \frac{r_0}{\bar\ell^{\,\Xi}} ,
+\end{equation}
+with a scale $r_0$ and exponent $\Xi$ fitted to data.
+\inwords{the farther a price is from where trading happens, the fewer orders are placed there, and the
+fall-off follows a power law: doubling the distance divides the rate by $2^{\Xi}$.}
+Second, cancellations are proportional to queue size: each order has the same chance per second of
+being cancelled, so a long queue sheds orders faster than a short one. This single assumption is what
+keeps queues from growing without bound.
+
+Under these assumptions the book is a continuous-time Markov chain: its future depends only on the
+current queue sizes, not on how they were reached. The authors show that a book that starts with the
+bid below the ask always keeps that property, and that if every cancellation rate is positive the
+chain is \emph{ergodic}---it has a unique long-run distribution, so averages over a long simulated
+history converge to well-defined values, such as the average shape of the book.
+
+\subsubsection{Estimating the model}
+
+The estimation is deliberately elementary, which is part of the model's appeal. With the unit of size
+set to the average limit order:
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item the limit-order rate at each distance is the number of times the queue at that distance
+  \emph{increased}, divided by the trading time, $\widehat{r}_L(\bar\ell) = N_L(\bar\ell)/T_{\text{obs}}$,
+  and a power law is fitted to the first five distances by least squares to extrapolate further out;
+\item the market-order rate is the number of market orders that changed the best quotes, scaled by
+  the ratio of average market-order size to average limit-order size, divided by the trading time;
+\item the per-order cancellation rate at each distance is the number of decreases not caused by
+  trades, scaled by size, divided by the trading time \emph{and by the average queue size at that
+  distance}---because the model makes total cancellations proportional to queue size.
+\end{itemize}
+Here $N_L(\bar\ell)$ is the count of queue increases at distance $\bar\ell$ and $T_{\text{obs}}$ the
+total observed trading time. The authors use five levels of quotes and trades for Tokyo Stock Exchange
+stocks over 125 trading days (August to December 2006) and report estimates for Sky Perfect
+Communications (Table~\ref{tab:cst-est}).
+
+\begin{table}[ht]
+\centering\small
+\caption{Estimated Cont--Stoikov--Talreja parameters for Sky Perfect Communications, Tokyo Stock
+Exchange, 2006~\citep{cst2010}. Rates are per minute, in units of the average limit-order size.}
+\label{tab:cst-est}
+\begin{tabular}{lccccc}
+\toprule
+Distance from opposite quote $\bar\ell$ & 1 & 2 & 3 & 4 & 5 \\
+\midrule
+Limit-order rate $\widehat{r}_L(\bar\ell)$ & 1.85 & 1.51 & 1.09 & 0.88 & 0.77 \\
+Per-order cancellation rate $\widehat{r}_c(\bar\ell)$ & 0.71 & 0.81 & 0.68 & 0.56 & 0.47 \\
+\midrule
+\multicolumn{6}{l}{Market-order rate $\widehat{r}_M = 0.94$; power-law fit $\widehat{r}_0 = 1.92$, $\widehat{\Xi} = 0.52$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{The key simplification: two independent birth--death queues}
+
+The full book is a large Markov chain, but the questions a trader asks concern only the next price
+change, and until the price changes the quotes do not move. During that time the best-bid queue and
+the best-ask queue each evolve as a \emph{birth--death process}: a counter that goes up by one at a
+constant ``birth'' rate and down by one at a ``death'' rate that depends on its current value. If the
+spread is $s_t/\delta$ ticks, the best queues sit at distance $\bar\ell = s_t/\delta$ from the opposite
+quote, and a queue holding $x$ orders evolves as
+\begin{center}
+\begin{tikzpicture}[
+  st/.style={draw, circle, minimum size=8mm, font=\small},
+  arr/.style={-{Stealth[length=2mm]}, thick}]
+\node[st, fill=gray!15] (s0) at (0,0) {0};
+\node[st] (s1) at (2.4,0) {1};
+\node[st] (s2) at (4.8,0) {2};
+\node[st] (s3) at (7.2,0) {3};
+\node at (9.0,0) {$\cdots$};
+\draw[arr, bend left=30] (s2) to node[above, font=\scriptsize]{$r_L$} (s3);
+\draw[arr, bend left=30] (s1) to node[above, font=\scriptsize]{$r_L$} (s2);
+\draw[arr, bend left=30] (s3) to node[below, font=\scriptsize]{$r_M + 3r_c$} (s2);
+\draw[arr, bend left=30] (s2) to node[below, font=\scriptsize]{$r_M + 2r_c$} (s1);
+\draw[arr, bend left=30] (s1) to node[below, font=\scriptsize]{$r_M + r_c$} (s0);
+\end{tikzpicture}
+\end{center}
+with birth rate $r_L(s_t/\delta)$ and death rate $r_M + x\,r_c(s_t/\delta)$; reaching state $0$ (shaded) means
+the queue has been used up and the price moves, so the count stops there. The authors prove that, up to the first price change,
+the two best queues can be replaced by \emph{independent} birth--death processes with these rates. Every
+question about the next price move becomes a question about which of two independent counters hits
+zero first---the race of Section~\ref{sec:queue-models}, now with exact rates.
+
+\paragraph{Why Laplace transforms.} The time for a birth--death process starting at $x$ to reach zero is
+a sum of $x$ independent pieces: the time to go from $x$ to $x-1$, then from $x-1$ to $x-2$, and so on.
+Distributions of sums are awkward, but the \emph{Laplace transform} of a waiting time $\tau$,
+$\E[\mathrm{e}^{-\varpi \tau}]$ as a function of a variable $\varpi$, turns sums of independent waiting
+times into products of their transforms. For birth--death processes each one-step transform has a known
+closed form as a continued fraction~\citep{cst2010}, so the transform of the whole first-passage time is a
+product of known pieces. Probabilities such as ``queue A empties before queue B'' are then obtained by
+numerically inverting a transform built from these products---a computation that takes far less time than
+simulating thousands of paths of the book, and gives full distributions rather than only averages.
+\inwords{instead of simulating the book many times and counting how often the price went up, the model
+writes the answer as a formula in transform space and evaluates it directly. The transform is a
+book-keeping device that makes adding independent waiting times as easy as multiplying numbers.}
+
+\subsubsection{Three probabilities a trader needs}
+
+The paper computes three conditional probabilities, each given the current number of orders at the
+best bid, $v^b_{1,t}$, and at the best ask, $v^a_{1,t}$, and the spread.
+
+\paragraph{1. Will the next price move be up?} With a one-tick spread, the mid rises next if the ask
+queue empties before the bid queue. With a wider spread, a new order can also arrive inside the spread
+and move the mid first; the formula adds these arrivals as competing exponential clocks.
+Table~\ref{tab:cst-up} compares the model's answer with the empirical frequency in the data. The model
+captures the main pattern well---the probability rises with the bid queue and falls with the ask
+queue---though it understates how strongly a large ask queue pushes the price down, and some cells
+differ noticeably (for example 0.548 against an empirical 0.714 with four orders at the ask and five
+at the bid).
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{Probability that the next mid move is up, one-tick spread, Sky Perfect Communications:
+empirical frequency / Cont--Stoikov--Talreja model (Laplace-transform method)~\citep{cst2010}. Queue sizes
+in units of the average limit order.}
+\label{tab:cst-up}
+\begin{tabular}{lccccc}
+\toprule
+& \multicolumn{5}{c}{Orders at the best ask, $v^a_{1,t}$} \\
+\cmidrule(lr){2-6}
+Orders at the best bid, $v^b_{1,t}$ & 1 & 2 & 3 & 4 & 5 \\
+\midrule
+1 & 0.512 / 0.500 & 0.304 / 0.336 & 0.263 / 0.259 & 0.242 / 0.216 & 0.226 / 0.188 \\
+2 & 0.691 / 0.664 & 0.502 / 0.500 & 0.444 / 0.407 & 0.376 / 0.348 & 0.359 / 0.307 \\
+3 & 0.757 / 0.741 & 0.601 / 0.593 & 0.533 / 0.500 & 0.472 / 0.437 & 0.409 / 0.391 \\
+4 & 0.806 / 0.784 & 0.672 / 0.652 & 0.580 / 0.563 & 0.529 / 0.500 & 0.484 / 0.452 \\
+5 & 0.822 / 0.812 & 0.731 / 0.693 & 0.640 / 0.609 & 0.714 / 0.548 & 0.606 / 0.500 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{2. Will my order at the bid be filled before the price moves?} Suppose an order is placed at
+the back of the best bid, so that the bid queue holds $v^b_{1,t}$ orders including our own, and that it
+is never cancelled. It is filled when all orders ahead of it
+have been removed---by market sells, or by cancellation of the orders ahead---which is a pure-death
+process: with $x$ orders in line including our own, the line shortens at rate $r_M + (x-1)\,r_c$, since
+our own order is not cancelled. The order is filled before the price moves if this line empties before
+the ask queue does. Table~\ref{tab:cst-fill} gives the model's answers. The pattern is the execution
+problem of Part~III in numbers: an order alone at the bid, facing five orders at the ask, is filled before
+the price moves about 78\% of the time; the last of five orders at the bid, facing one at the ask, about
+12\%.
+The authors note that their data do not identify individual orders, so these probabilities could not be
+checked against data---exactly the gap that order-level data and queue-exact replay fill
+(Part~IV).
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{Probability that an order placed at the best bid is executed before the mid moves, one-tick
+spread, Cont--Stoikov--Talreja model (Laplace-transform method)~\citep{cst2010}.}
+\label{tab:cst-fill}
+\begin{tabular}{lccccc}
+\toprule
+& \multicolumn{5}{c}{Orders at the best ask, $v^a_{1,t}$} \\
+\cmidrule(lr){2-6}
+Orders at the best bid, $v^b_{1,t}$ & 1 & 2 & 3 & 4 & 5 \\
+\midrule
+1 & 0.497 & 0.641 & 0.709 & 0.749 & 0.776 \\
+2 & 0.302 & 0.449 & 0.535 & 0.591 & 0.631 \\
+3 & 0.206 & 0.336 & 0.422 & 0.483 & 0.528 \\
+4 & 0.152 & 0.263 & 0.344 & 0.404 & 0.452 \\
+5 & 0.118 & 0.213 & 0.287 & 0.346 & 0.393 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{3. Will I ``make the spread''?} A market maker places one order at the best bid and one at
+the best ask and earns the spread if both are filled before the price moves. The model computes this
+probability too. Its most interesting feature is that it is \emph{not} monotone: for a fixed number of
+orders at the ask, the probability first rises and then falls as the bid queue grows. With one order at
+the ask, it is about 0.27 with one order at the bid, peaks near 0.31 with two or three, and falls back
+to about 0.29 with five. A longer bid queue protects the bid from being exhausted, which helps, but also
+makes the bid order wait longer, which hurts; the balance gives an interior optimum.
+
+\subsubsection{What the model reproduces}
+
+Without any tuning for these purposes, the fitted model reproduces several features of the real book:
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item the \textbf{hump-shaped average book}: simulated average depth peaks two ticks from the opposite
+  quote, as observed empirically~\citep{bouchaud2002};
+\item the \textbf{order of magnitude of volatility}: over the first day of the sample the realised
+  volatility was 0.0219 after 370 trades, against $0.0228 \pm 0.0003$ in simulations of the same number
+  of trades---computed from order-flow rates alone;
+\item the \textbf{one-step behaviour of queues}: the probability that a queue grows at its next change,
+  as a function of its size and distance, is close to the empirical frequencies at all five distances.
+\end{itemize}
+
+\subsubsection{A trading test, and what it shows}
+
+The authors build a simple strategy on the probability of an up move. When the spread is one tick, there
+are at least three orders at the best bid, one at the best ask and at most one at the second ask, buy
+with a market order. If one order remained at the second ask, the book now has a two-tick spread, three
+or more orders at the bid and one at the ask, and the model gives a 0.62 probability that the next move
+is up. Exit with a market sell when the bid rises above the entry price, or when the bid queue falls to
+one order (a one-tick loss). In about 30 days of \emph{simulated} trading from the fitted model, the
+strategy made 2,376 round trips with an average profit of 0.068 ticks per trade, although fewer than
+half of the trades were winners---and without transaction costs.
+
+The test illustrates both the promise and the limits discussed throughout this survey. The decision is
+derived from a conditional probability of the book, which is exactly what an execution policy needs.
+But it is evaluated inside the model that generated the probability, not on recorded data, and without
+costs; a profit of 0.068 ticks per trade must also survive the half spread paid on entry and exit, the
+fees, and the latency between seeing the book and the market order arriving. These are the steps of the
+chain in Equation~(\ref{eq:chain}) that the model does not cover.
+
+\subsubsection{Limitations and descendants}
+
+The authors are explicit about what the model leaves out. Order arrivals are independent Poisson
+streams, so there is no clustering of events and none of the long memory of order flow
+(Section~\ref{sec:facts}); orders all have the same size; rates do not change through the day or with
+market conditions; and there is no strategic behaviour. Each limitation defines a line of later work:
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item \citet{contlarrard2013,contlarrard2012} reduce the book to the two best queues and obtain closed
+  forms and a diffusion limit (Section~\ref{sec:cdl});
+\item queue-reactive models let all rates depend on the current queue sizes~\citep{huang2015}, and their
+  neural extensions learn that dependence~\citep{deepqr};
+\item Hawkes models replace the Poisson streams by self-exciting ones (Section~\ref{sec:hawkes});
+\item the micro-price~\citep{stoikov2018} keeps the Markov-chain logic but estimates the transitions
+  directly from data rather than from a parametric model;
+\item queue-position valuation~\citep{moallemi2017} and fill-probability models~\citep{arroyo2024,kanformer}
+  extend the second probability above to individual orders, with adverse selection.
+\end{itemize}
+Finally, because the Laplace-transform method yields full distributions rather than single
+probabilities, it can answer latency questions directly---for example, the probability that the ask
+queue empties more than a given delay after the bid queue, which is what matters when an order takes
+time to reach the exchange~\citep{cst2010}.
+
+\begin{modelcard}{Cont--Stoikov--Talreja}
+\cardrow{What you calibrate}{The limit-order rates $r_L(\bar\ell)$, summarised by $r_0$ and $\Xi$; the
+market-order rate $r_M$; the per-order cancellation rates $r_c(\bar\ell)$; the unit of size (the
+average limit order).}
+\cardrow{How}{Counting: increases, decreases not caused by trades, and market orders at each distance,
+divided by trading time (and, for cancellations, by average queue size); a least-squares power-law fit
+for $r_L$.}
+\cardrow{What you do with it}{Compute, from the current two best queues, the probability that the next
+move is up, that a resting order fills before the price moves, and that a market maker earns the
+spread---fast and exactly, via Laplace transforms.}
+\cardrow{How to picture it}{Two counters racing to zero, each ticking up when an order joins and down
+when one is traded or cancelled; the first to hit zero decides the next price move.}
+\end{modelcard}
+
+\subsection{The Cont--de Larrard model}
+\label{sec:cdl}
+
+\citet{contlarrard2013} give the cleanest closed-form treatment of the race between the two best
+queues, and it is worth stating because every term has a direct trading meaning. The model assumes:
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item the spread is always one tick (true over 98\% of the time for the large-tick US stocks they
+  study);
+\item at each best queue, limit orders arrive at rate $r_L$, market orders at rate $r_M$ and
+  cancellations at rate $r_C$, all as independent Poisson streams of unit-size orders, so each queue
+  is a random walk that moves up at rate $r_L$ and down at rate $r_M + r_C$
+  (in the notation of the bucket picture, $r_{\text{in}} = r_L$ and $r_{\text{out}} = r_M + r_C$);
+\item when a queue empties, the price moves one tick and both new best queues are drawn afresh from a
+  distribution estimated from the data.
+\end{itemize}
+Empirically the rates nearly balance: $r_L$ is slightly below $r_M + r_C$ (for example a ratio of
+about $0.95$ for Citigroup in their data). Three results follow.
+
+\paragraph{Time to the next price change.} The waiting time has a closed-form distribution in terms
+of Bessel functions. Its tail is the important part: when inflow is slightly smaller than outflow,
+the probability that no price change has occurred after $u$ seconds decays like $1/u^2$; when they
+balance exactly, it decays like $1/u$, so the \emph{expected} waiting time is infinite. Long
+quiet periods punctuated by bursts are thus a direct consequence of (nearly) balanced queues, before
+any self-excitation is added.
+
+\paragraph{Probability that the next move is up.} In the balanced case the probability depends only
+on the two queue sizes, not on the rates---it is the probability that a symmetric two-dimensional
+random walk started at the queue sizes hits the ask axis first. In the companion heavy-traffic
+analysis~\citep{contlarrard2012}, with uncorrelated queue changes of equal size and intensity on the
+two sides, it takes the simple form
+\begin{equation}
+  \P(\text{next mid move is up} \mid v^b_{1,t}, v^a_{1,t}) =
+  \frac{2}{\pi}\arctan\!\left(\frac{v^b_{1,t}}{v^a_{1,t}}\right).
+\end{equation}
+\inwords{the probability rises from $0$ to $1$ as the bid queue grows relative to the ask queue,
+and equals $1/2$ when they are equal. It is the ``thin side breaks first'' rule of
+Section~\ref{sec:ofi}, made exact for this model. In Figure~\ref{fig:book}, with 29 lots bid and 14
+offered, it gives $(2/\pi)\arctan(29/14) \approx 0.71$.} (The general formula in the paper allows
+for correlated queue changes; its printed zero-correlation special case has the two queues
+interchanged, and the form above is the one implied by the paper's general expression.)
+
+\paragraph{From queues to volatility.} Over long horizons the price behaves like a random walk whose
+volatility, in the balanced case, is proportional to $\delta\sqrt{r_L / \Theta}$, where $\Theta$ is the average
+product of the bid and ask queue sizes just after a price change. Volatility rises with order
+activity and falls with the depth that reappears after each move---a microstructural explanation of
+why thin, busy markets are volatile. Across Dow Jones stocks the authors find ten-minute volatility
+roughly proportional to this quantity.
+
+\begin{example}[Why the rates must depend on the state]
+\label{ex:fpt}
+A best-ask queue holds 200 lots. Averaged over the day, net depletion (executions plus
+cancellations minus additions) runs at 40 lots per second, so the first estimate gives
+$200/40 = 5$ seconds. Now condition the rate on OFI. When buying pressure is in its top decile, the
+net drain is 90 lots per second and $\E[\tau^a] \approx 200/90 \approx 2.2$ s; in the bottom decile
+it is 15 lots per second and $\E[\tau^a] \approx 13$ s. The same queue has expected lifetimes six
+times apart, depending on what the rest of the market is doing. A model that uses one daily average
+rate would be wrong in both directions.
+\end{example}
+
+\paragraph{Depletion and adverse selection.} Queue depletion is also where adverse selection
+comes from. Consider a resting buy order at the back of the best-bid queue. It is filled only when
+everything ahead of it has been traded or cancelled. Because it is last in line, in practice it is
+filled mostly by a burst of selling large enough to empty the whole level. And an emptied bid level is, by point~1 above, a downward price move. The
+order is therefore filled at the very moment the price is moving against it: the buyer acquires
+the lots just as they become cheaper. The fill and the bad price move are not two unlucky events
+that happen to coincide; they are the same event.
+
+An order near the \emph{front} of the queue is in a different position. It can be filled by a small
+sell order that takes a few lots and leaves the rest of the queue, and the price, where they were.
+Such fills carry little information, so front-of-queue orders are less adversely selected. This is
+one source of the front--back value difference in \citet{moallemi2017}, whose model splits the value
+of an order into a static component---the spread earned minus adverse selection, which increases with
+queue position---and a dynamic component, the option value of holding the queue position.
+
+\begin{example}[Filled by the move]
+In Figure~\ref{fig:book} we join the best bid at 5000.00 with one lot, behind 29 lots. Suppose a
+30-lot sell market order arrives. It takes all 29 lots ahead of us and our lot, and the 5000.00
+level is gone: the best bid is now 4999.75 and the mid has fallen from 5000.125 to 5000.00 or below.
+We bought at 5000.00 and the market immediately values the contract lower. Had we been first in the
+queue, a 2-lot sell would have filled us and left 28 lots and the price untouched.
+\end{example}
+
+\begin{modelcard}{Cont--de Larrard}
+\cardrow{What you calibrate}{Three rates per best queue, $r_L$, $r_M$, $r_C$, and the distribution of
+the new best-queue sizes after a price change (which gives $\Theta$).}
+\cardrow{How}{Counting events at the best quotes over a sample, and the empirical distribution of queue
+sizes just after each price change.}
+\cardrow{What you do with it}{The probability that the next move is up, the distribution of time to
+the next price change, and a volatility estimate $\propto \delta\sqrt{r_L/\Theta}$ from order-flow rates
+alone.}
+\cardrow{How to picture it}{A drunkard's walk in two dimensions, starting at the point (bid size, ask
+size): whichever axis the walk hits first decides the price move.}
+\end{modelcard}
+
+\subsection{The queue-reactive model}
+\label{sec:qr}
+
+\paragraph{The idea.} Cont--Stoikov--Talreja make cancellations proportional to queue size and keep
+the other rates fixed. \citet{huang2015} ask the data instead: \emph{how do traders actually behave when
+a queue is short, and when it is long?} Their answer is the queue-reactive model, in which the rate of
+every kind of event at a queue is an arbitrary function of the current size of that queue (and, in
+richer versions, of the neighbouring queues), estimated without assuming a functional form.
+
+\paragraph{State and rates.} The book is described by the queues at the first few price levels on each
+side of a reference price $p_{\text{ref}}$ (the mid when the spread is an odd number of ticks; three
+levels in the paper, because levels four and five behave like level three). Queue sizes are counted in units of
+the average size of events at that level, so a queue of size $x$ holds about $x$ typical orders. In the
+basic version each queue is a birth--death process like those of Section~\ref{sec:cst}, but with
+size-dependent rates: limit orders arrive at rate $r_L(x)$, and cancellations and market orders remove
+units at rates $r_C(x)$ and $r_M(x)$, where $x$ is the current queue size.
+\inwords{the model writes down a separate arrival, cancellation and trading rate for each possible queue
+size, rather than one rate for all sizes. The data decide how the rates change with size.}
+
+\paragraph{Calibration by counting.} For every event at a queue, record the time since the previous
+event at that queue, the event type, and the queue size just before the event. The estimator of the
+paper is
+\[
+  \widehat{r}_L(x) = \frac{\#\{\text{limit orders that arrived while the queue held } x\}}
+  {\text{total time the queue spent at size } x},
+\]
+and likewise for cancellations and market orders. (The paper writes it as the inverse of the mean
+waiting time at size $x$, times the fraction of events at size $x$ that were limit orders; the two
+forms are algebraically equal.) Bid and ask are pooled by symmetry, and recording restarts whenever
+$p_{\text{ref}}$ moves.
+\inwords{to learn how fast orders arrive when a queue holds $x$ units, count the arrivals that happened
+while it held $x$ units and divide by how long it held $x$ units in total.}
+
+\paragraph{What the data show.} On France Telecom and Alcatel-Lucent (Euronext Paris, 2010--2012, five
+levels), the rates are far from those of the simpler models. At the best level, the limit-order rate
+is roughly constant in queue size (lower when the queue is empty); the cancellation rate increases
+concavely up to about 25 units and then flattens, rather than growing linearly as
+Cont--Stoikov--Talreja assume; and the market-order rate \emph{decreases} exponentially with the
+available volume---traders hit small queues. The long-run distribution of queue sizes implied by the
+fitted rates matches the empirical one closely, and better than a Poisson model with linear
+cancellation. Richer versions let the best-level rates depend on the opposite queue: insertion falls
+and market orders rise as the opposite queue grows.
+
+\paragraph{Prices.} The full queue-reactive model adds a price. When a best queue empties, the
+reference price moves one tick with probability $\pi_{\text{move}}$; and with probability $\pi_{\text{reinit}}$
+the whole book is redrawn from its long-run distribution around the new price, which the authors
+interpret as the share of price changes driven by outside information. ($\pi_{\text{reinit}} = 1$
+recovers the Cont--de Larrard assumption of Section~\ref{sec:cdl}.) The two probabilities are calibrated
+to the ten-minute volatility and to the ratio of price continuations to reversals; for France Telecom
+$\pi_{\text{move}} = 0.7$ and $\pi_{\text{reinit}} = 0.85$. Order-book dynamics alone, with no outside
+information, generate at most about 5 basis points of volatility against 14 observed, and far too much
+mean reversion; the authors use this gap to motivate the re-initialisation step, which stands for
+information arriving from outside the book.
+
+\paragraph{Uses and descendants.} The model is a simulator of large-tick books that reacts to the
+orders a trader adds: the paper uses it to compute execution probabilities and to compare placement
+tactics (``fire and forget'' against pegging) for a large order. Its neural extension learns the
+dependence of the rates on the book with networks~\citep{deepqr}, and queue-reactive Hawkes models add
+self-excitation to the size-dependent rates (Section~\ref{sec:hawkes-variants}).
+
+\begin{modelcard}{Queue-reactive model}
+\cardrow{What you calibrate}{The rate functions $r_L(x)$, $r_C(x)$, $r_M(x)$ for each of the first few
+levels (and, in richer versions, their dependence on neighbouring queues); the price-move
+probabilities $\pi_{\text{move}}$ and $\pi_{\text{reinit}}$.}
+\cardrow{How}{Count events by queue size and divide by the time spent at that size; calibrate $\pi_{\text{move}}$
+and $\pi_{\text{reinit}}$ to the observed volatility and to the continuation--reversal ratio.}
+\cardrow{What you do with it}{Simulate a large-tick book that responds to one's own orders; compute fill
+probabilities; compare placement tactics for a large order.}
+\cardrow{How to picture it}{A toll booth whose customers and attendant react to the line: when it is
+long, more drivers give up and leave; when it is short, cars are served faster.}
+\end{modelcard}
+
+\subsection{Decision rules from first-passage times}
+
+Depletion times translate directly into execution decisions.
+\begin{description}[leftmargin=1.5em,style=nextline,itemsep=2pt]
+\item[Limit or market] If the expected time for a passive order to reach the front and be filled is
+  longer than the horizon over which the trader's signal is valid, waiting forfeits the signal;
+  crossing the spread is then the better choice despite its cost.
+\item[When to cancel] If the estimated depletion time of the side on which an order rests collapses,
+  or the race of Section~\ref{sec:cdl} turns against it, the order is about to be filled just
+  before an adverse move, and should be cancelled or repriced.
+\item[What a queue position is worth] \citet{moallemi2017} split the value of a resting order into a
+  \emph{static} part---the spread earned at execution minus the adverse-selection cost, which grows
+  with queue position---and a \emph{dynamic} part---the option value of holding a place in the queue
+  that advances over time. They find that the front--back difference can be comparable to the
+  bid--ask spread for some large-tick US stocks (for example BAC and CSCO), and smaller for others.
+\item[Fill probability as survival] The time to fill is a waiting time that, for orders cancelled
+  first, is never observed; survival models~\citep{cox1972}, which handle such \emph{censored}
+  observations, are the natural statistical tool (Section~\ref{sec:deep-fill}).
+\end{description}
+
+Queue-depletion models thus serve execution in two ways: they estimate \emph{when} a resting order
+will be filled, and, because a depletion is a price move, they indicate \emph{how informative} the
+fill is likely to be. Section~\ref{sec:adverse} develops the second point. Depletion and price
+prediction are related but distinct: a depletion model answers \emph{when} a level empties, and says
+which way the price goes next only when it is used for the race between the two sides.
+
+% ================================================================
+\section{Hawkes processes}
+\label{sec:hawkes}
+% ================================================================
+
+\paragraph{Works in calm, fails in stress.} The queue models of Section~\ref{sec:queue-models} assume
+that orders arrive as independent streams at rates fixed over the sample. In a calm book that is a
+reasonable approximation: the Cont--Stoikov--Talreja up-move probabilities of Table~\ref{tab:cst-up}
+track the empirical frequencies closely. It breaks down exactly when it matters most. After a large
+trade or a news release, rates jump to several times their average for a few seconds, and a model
+that uses the day's average rate underestimates how fast queues empty (Example~\ref{ex:fpt}). The
+missing ingredient is that events cause events. This section introduces the standard model of that
+mechanism.
+
+\subsection{Why not a Poisson process?}
+
+The simplest model of events arriving at random times is the \emph{Poisson
+process}~\citep{daley2003}. Divide time into tiny slices and, independently in each slice, let an
+event happen with a small fixed probability; in the limit, events arrive at a constant average rate
+$\mu$ per second. The number $N(u)$ of events between time $0$ and time $u$---and likewise the
+number in any other interval of length $u$---has the distribution
+\begin{equation}
+  \P\big(N(u) = k\big) = \mathrm{e}^{-\mu u}\, \frac{(\mu u)^k}{k!}, \qquad k = 0, 1, 2, \dots
+\end{equation}
+\inwords{the chance of seeing exactly $k$ events in $u$ seconds depends only on the average rate
+and the length of the interval---not on when the interval starts, and not on anything that happened
+before it. The process has no memory: an event now makes the next one neither more nor less
+likely. The waiting times between events are independent and exponentially distributed, and the
+count in an interval has variance equal to its mean.}
+
+For order-book events these properties fail, in three ways that can be seen in any day of data.
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \textbf{Events cluster.} Activity comes in bursts. A large trade is followed by a flurry of
+  new orders, cancellations and further trades as other participants react; a news release does the
+  same on a larger scale. Between bursts the market can be quiet for long stretches. In a Poisson
+  process an event says nothing about the next one, so bursts can only arise by chance, and large
+  ones are vanishingly rare.
+\item \textbf{Counts vary far more than Poisson allows.} Because of clustering, the number of events
+  per second has a variance much larger than its mean, whereas a Poisson count has variance equal to
+  its mean~\citep{bacry2015}.
+\item \textbf{Event types trigger each other.} A buy market order makes further buy market orders
+  more likely, because large orders are split into many small ones and because other traders
+  follow; a trade that empties a level triggers cancellations and new limit orders around it. A
+  set of independent Poisson processes, one per event type, cannot represent any of this.
+\end{enumerate}
+A fourth, milder departure is that average activity changes predictably through the day, typically
+highest near the open and the close. A Poisson process with a time-varying rate (an
+\emph{inhomogeneous} Poisson process) can absorb that pattern, but it still cannot make events
+cause other events, which is the defining feature of order flow.
+
+\begin{example}[How rare is a burst under Poisson?]
+Suppose events arrive at an average rate of $\mu = 10$ per second. Under a Poisson model the
+probability of 30 or more events in a single second is about $2.5 \times 10^{-7}$. Over a 6.5-hour
+trading day of 23\,400 seconds, the expected number of such seconds is about $0.006$---roughly one
+every 170 trading days. In real order flow, seconds with several times the average activity occur
+routinely around large trades and announcements. A model that calls them once-a-year events will
+badly underestimate how quickly queues can empty (Section~\ref{sec:queue-models}).
+\end{example}
+
+A compact way to remember the difference: a Poisson process is \emph{drizzle}---drops fall
+independently at a steady rate, and one drop says nothing about the next. Order flow is a
+\emph{storm}---long dry spells broken by downpours, in which each burst of rain makes more rain likely
+for a while.
+
+Appendix~\ref{app:pp} gives a self-contained introduction to these ideas: the Poisson, renewal and
+Hawkes processes, the conditional intensity, the branching ratio, and the statistics that tell the
+three apart on real data, with simulated examples.
+
+The Hawkes process keeps what is convenient about the Poisson process---events at random times,
+described by a rate---but lets the rate \emph{rise after each event} and then decay back. It is the
+smallest change to the Poisson model that makes events cause events. When every kernel below is
+zero, it reduces to independent Poisson processes with rates $\mu_i$.
+
+\subsection{The multivariate model}
+
+Let $N_i(t)$ count events of type $i \in \{1,\dots,K\}$. A linear multivariate Hawkes
+process~\citep{hawkes1971} has conditional intensity
+\begin{equation}
+  \lambda_i(t) = \mu_i + \sum_{j=1}^{K} \int_0^t \phi_{ij}(t-t')\, dN_j(t'),
+\end{equation}
+with baseline rates $\mu_i$ and non-negative kernels $\phi_{ij}$. Here $\lambda_i(t)$ is the
+\emph{intensity}: the expected number of type-$i$ events per second at time $t$. The term
+$dN_j(t')$ is nonzero only at the instants $t'$ when a type-$j$ event occurred, so the integral is
+simply a sum over past events, and the formula can be read as
+$\lambda_i(t) = \mu_i + \sum_j \sum_{\text{past type-}j\text{ events at } t'} \phi_{ij}(t - t')$.
+\inwords{the current rate of type-$i$ events is a constant background rate $\mu_i$ plus a ``bump''
+for every past event; each bump fades as that event recedes into the past, with a shape set by the
+kernel $\phi_{ij}$. Events make further events more likely for a while, the way an earthquake
+raises the rate of aftershocks or a viral post triggers reposts.}
+The branching matrix $\Gamma_{ij} = \int_0^\infty \phi_{ij}(u)\,du$, the total area under a kernel,
+is the expected number of type-$i$ events directly triggered by one type-$j$ event. The process is stationary when the spectral radius
+$\rho(\Gamma) < 1$, the largest absolute eigenvalue of $\Gamma$. Then, with
+$\mu = (\mu_1, \dots, \mu_K)^\top$ and $I$ the $K \times K$ identity matrix, the stationary mean
+intensity vector $\bar\lambda = (\bar\lambda_1, \dots, \bar\lambda_K)^\top$ is
+\begin{equation}
+  \bar\lambda = (I - \Gamma)^{-1}\mu .
+\end{equation}
+\inwords{expand the inverse as a geometric series,
+$(I-\Gamma)^{-1}\mu = \mu + \Gamma\mu + \Gamma^2\mu + \cdots$. The long-run event rate is the
+background events, plus the events they trigger, plus the events \emph{those} trigger, and so on
+through every generation. The series converges---the cascade dies out---exactly when
+$\rho(\Gamma) < 1$. Readers who know discrete-time linear systems will recognise the condition:
+it is the stability condition for $\psi_{k+1} = \Gamma \psi_k + \mu$, a feedback loop whose gain must be
+below one.}
+
+\paragraph{A note on notation.} Much of the literature writes the exponential kernel as
+$\alpha\mathrm{e}^{-\beta u}$ and the (scalar) branching ratio as $n$. In this survey $\beta$ is
+reserved for price impact (Section~\ref{sec:ofi}) and $n$ for event indices, so the decay rate is
+written $\omega$ and the branching ratio $\Gamma$ (a $1 \times 1$ branching matrix). With
+$\phi(u) = \alpha\mathrm{e}^{-\omega u}$, the branching ratio is $\Gamma = \alpha/\omega$.
+Hawkes models have been applied extensively to order flow and price formation~\citep{bacry2015}.
+
+\begin{example}[Endogeneity in two dimensions]
+\label{ex:hawkes}
+Take buy and sell market orders with $\mu = (1, 1)$ events per second and
+\[
+  \Gamma = \begin{pmatrix} 0.6 & 0.2 \\ 0.2 & 0.6 \end{pmatrix}.
+\]
+The eigenvalues are $0.8$ and $0.4$, so $\rho(\Gamma) = 0.8 < 1$. Then
+$I - \Gamma = \begin{pmatrix} 0.4 & -0.2 \\ -0.2 & 0.4 \end{pmatrix}$ with determinant $0.12$, and
+\[
+  \bar\lambda = \frac{1}{0.12}\begin{pmatrix} 0.4 & 0.2 \\ 0.2 & 0.4 \end{pmatrix}
+  \begin{pmatrix} 1 \\ 1 \end{pmatrix} = \begin{pmatrix} 5 \\ 5 \end{pmatrix}.
+\]
+Only one event in five is exogenous. The model says a great deal about clustering and nothing, by
+itself, about direction: the two sides are symmetric.
+\end{example}
+
+\subsection{Reading the branching matrix}
+
+The branching matrix is the economically interesting output of a fitted Hawkes model. Take two
+event types, buy and sell market orders:
+\[
+  \Gamma = \begin{pmatrix} \Gamma_{BB} & \Gamma_{BS} \\ \Gamma_{SB} & \Gamma_{SS} \end{pmatrix}.
+\]
+$\Gamma_{BB}$ is the average number of further buy market orders directly triggered by one buy
+market order: buys beget buys, for example because a large order is being executed in pieces.
+$\Gamma_{SB}$ is the number of sell orders triggered by a buy: a cross effect, for example traders
+leaning against a move. A large diagonal relative to the off-diagonal means trends in order flow; a
+large off-diagonal means reversal. Asymmetry ($\Gamma_{BS} \ne \Gamma_{SB}$) means one side reacts
+more strongly to the other than vice versa. Linear Hawkes models allow only excitation; inhibition
+(an event making others \emph{less} likely) requires non-linear extensions. The shape of each kernel
+$\phi_{ij}$ says how long an influence lasts: an exponential kernel forgets quickly, a power-law
+kernel remembers for a long time.
+
+\paragraph{An analogy: acoustic feedback.} A microphone near a loudspeaker picks up each sound and
+plays it again, slightly quieter. If the loop gain is below one, every echo is fainter than the last
+and a clap dies away; the closer the gain is to one, the longer the ringing lasts. At a gain of one or
+more the echoes grow and the system howls. The branching ratio is that loop gain for order flow: the
+average number of events that one event triggers. At $0.8$, a single exogenous event produces on average
+$1/(1-0.8) = 5$ events in total, as in Example~\ref{ex:hawkes}; at $0.95$ it produces $20$.
+
+\begin{example}[A chain reaction in the book]
+\label{ex:chain}
+A stylised sequence at the best ask, all within a few milliseconds:
+\begin{center}\small
+\begin{tabular}{rl}
+\toprule
+time & event \\
+\midrule
+0.0\,ms & a buy market order takes 10 of the 14 lots at the best ask (exogenous) \\
+0.3\,ms & two sellers at the best ask cancel, fearing a move up (triggered) \\
+0.6\,ms & a buyer joins the best bid, leaning with the flow (triggered) \\
+0.9\,ms & a second buy market order takes the remaining lots; the best ask ticks up (triggered) \\
+1.2\,ms & new sellers post at the new best ask; buyers follow at the new bid (triggered) \\
+\bottomrule
+\end{tabular}
+\end{center}
+One outside event produced four more and a price move. In a Hawkes model each row raises the intensity
+of the event types in later rows---entries $\Gamma_{ij}$ for cancellation after trade, trade after
+trade, limit order after cancellation---and the fitted kernels say how quickly that influence fades.
+\end{example}
+
+\subsection{What Hawkes models are for}
+
+Hawkes models represent clustering, self- and cross-excitation, short-term persistence and the
+split between exogenous and endogenous activity. They are valuable for intensity forecasting and
+event simulation even when directional alpha is weak. A model can reproduce the temporal
+statistics of order flow very well while adding little information about the sign of the next
+price move. Hawkes models should therefore be evaluated separately for intensity forecasting,
+simulation, price prediction and execution prediction (Table~\ref{tab:three-problems}).
+
+An execution use deserves emphasis. The intensity of aggressive flow on one side is a natural
+input to a cancellation decision for a passive order on that side: a spike in sell-market-order
+intensity raises the probability that a resting bid is about to be filled at a bad time. This is
+an adverse-selection question (Section~\ref{sec:adverse}), not a direction question.
+
+\subsection{From events to prices}
+
+The simplest bridge from event counts to prices treats each mid move as an event. Let $N^{+}(t)$
+and $N^{-}(t)$ count the upward and downward mid moves up to time $t$, each of size $\delta_m$. Then
+\begin{equation}
+  m_t = m_0 + \delta_m\,\big(N^{+}(t) - N^{-}(t)\big).
+\end{equation}
+\inwords{the price is a running tally of up-ticks minus down-ticks; modelling the two counting
+processes models the price.}
+
+Write $\lambda^{+}(t)$ and $\lambda^{-}(t)$ for the intensities of $N^{+}$ and $N^{-}$: the expected
+numbers of up and down moves per second. \citet{bacry2013} make the two counts \emph{mutually}
+exciting: an up move raises the intensity of down moves and vice versa,
+\begin{equation}
+  \lambda^{+}(t) = \mu_0 + \int_0^t \alpha\,\mathrm{e}^{-\omega (t-t')}\, dN^{-}(t'), \qquad
+  \lambda^{-}(t) = \mu_0 + \int_0^t \alpha\,\mathrm{e}^{-\omega (t-t')}\, dN^{+}(t'),
+\end{equation}
+\inwords{each down move adds a bump of height $\alpha$ to the up-move rate, and vice versa; the bump
+decays at rate $\omega$. The background rate on each side is $\mu_0$.}
+The cross-kernel has total weight $\Gamma_{\times} = \alpha/\omega < 1$. This one mechanism
+produces the familiar microstructure effects. Measured over short windows, prices look very
+volatile because every up-tick tends to be followed by a down-tick (bid--ask bounce); over long
+windows that back-and-forth cancels. Writing $\sigma^2(w)$ for the variance of price changes per unit time
+measured over windows of length $w$, in units of ticks squared,
+\begin{equation}
+  \sigma^2(w) = \Lambda\left(\frac{1}{(1+\Gamma_\times)^2} + \Big(1-\frac{1}{(1+\Gamma_\times)^2}\Big)\,\frac{1 - \mathrm{e}^{-(\alpha+\omega) w}}{(\alpha+\omega)\,w}\right),
+  \qquad \Lambda = \frac{2\mu_0}{1-\Gamma_{\times}} .
+\end{equation}
+\inwords{$\Lambda$ is the total rate of price moves. For very short windows the measured variance is
+$\Lambda$---every move counts. For long windows it falls to $\Lambda/(1+\Gamma_\times)^2 = 2\mu_0/\big((1-\Gamma_\times)
+(1+\Gamma_\times)^2\big)$, because moves that are immediately reversed contribute nothing to the
+long-run change. The curve between the two is the ``signature plot'' that practitioners use to choose
+a sampling frequency for volatility estimates.} Here cross-excitation \emph{damps} long-run variance.
+Self-excitation, by contrast, inflates the variance of event \emph{counts} relative to their mean
+rate~\citep{bacry2014}; which effect dominates for prices depends on the structure of the kernel
+matrix, not on a single number. The two-dimensional version of the model also reproduces the Epps
+effect, the drop in measured correlation between two assets when it is computed over very short
+windows~\citep{bacry2013}.
+
+\citet{bacry2014} extend the construction to four kernels linking trades and price changes---trades
+exciting trades, prices reverting, trades moving prices, and prices triggering trades---and recover
+the concave, relaxing impact of large orders executed in pieces. The same machinery was used early to
+study book resilience~\citep{large2007} and to make a zero-intelligence order-book simulator produce
+realistic spreads~\citep{munitoke2011}.
+
+\subsection{What fitted Hawkes models find}
+
+\paragraph{Branching ratios.} Estimates of the branching ratio for financial event streams have
+been high since the mid-2000s, but the exact value is contested. On E-mini S\&P~500 futures,
+\citet{filimonovsornette2012} find it rising from about $0.3$ around 1998--2000 to $0.7$--$0.8$ after
+2007, with spikes to $0.9$. \citet{hardimanbercotbouchaud2013}, using power-law kernels, find the
+kernel integrating to approximately one---a market at criticality. \citet{filimonovsornette2015}
+argue that estimates near one are biased upward by outliers, kernel regularisation, edge effects
+and regime shifts---fitting a constant background rate to a period in which the true background
+varies; their
+re-estimation gives values that later fluctuate between about $0.8$ and $1.1$. On CME NQ market
+data, an exponential-kernel fit to packet arrivals gives about $0.80$ (Appendix~\ref{app:pp}).
+The defensible summary is that a large majority of events are endogenous, and that the precise
+number depends on the kernel family and on how non-stationarity is handled.
+
+\paragraph{Kernel shape and long memory.} Non-parametric estimation~\citep{bacry2016} finds kernels
+that decay roughly as power laws with exponent slightly above one (in simulation the method recovers
+power laws over six decades of time). In
+an eight-dimensional model of DAX and Bund futures (price moves, trades, limit orders and
+cancellations, each split by side), trades, limit orders and cancellations mainly excite events of
+the same type and side, while price moves on one side mainly excite price moves on the other---mean
+reversion. The persistence of order flow is a long-documented fact: the signs of market orders form a
+long-memory process with a Hurst exponent of about $0.7$~\citep{lillo2004}, explained mainly by the
+splitting of large orders into many small ones~\citep{lillo2005,bouchaud2009}. Power-law Hawkes
+kernels are the point-process expression of the same fact.
+
+\subsection{Near-criticality}
+
+When the branching ratio approaches one, appropriately rescaled Hawkes processes converge to
+continuous limits. With light-tailed kernels the limit is an integrated Cox--Ingersoll--Ross process,
+and the price model of \citet{bacry2013} converges to a Heston stochastic-volatility
+model~\citep{jaisson2015}. With heavy-tailed kernels---power laws with tail $\propto u^{-(1+\zeta)}$ with $\zeta \in
+(1/2, 1)$---the limit is a \emph{rough} fractional process with Hurst parameter $\zeta -
+1/2$~\citep{jaisson2016}, which the authors offer as a microstructural foundation for rough
+volatility. Empirically, log-volatility does behave like a fractional process with a Hurst exponent of
+order $0.1$---for example $0.125$ for DAX and $0.082$ for Bund futures~\citep{gatheral2018rough}. The lesson for LOB modelling is qualitative: strong endogenous excitation, together with
+long memory, generates volatility that is itself random and persistent. It is not that markets
+literally sit at a singularity, nor that a single scalar multiplies volatility.
+
+\subsection{State-dependent Hawkes models}
+
+The standard specification lets intensity depend on past events but not on the current book. A
+state-dependent form~\citep{morariupatrichi2022} couples the two; one convenient parametrisation is
+\begin{equation}
+  \tilde\lambda_i(t) = \lambda_i(t)\, \exp\!\left(\vartheta_i^\top X_{t-}\right),
+\end{equation}
+where $\tilde\lambda_i(t)$ is the state-dependent intensity, $\lambda_i(t)$ the Hawkes intensity
+defined above, $\vartheta_i$ a vector of coefficients,
+and the state $X_{t-}$ may contain the spread, queue imbalance, depth, volatility or cross-asset variables.
+\inwords{take the Hawkes rate and multiply it by a factor that depends on the current book. The
+dot product $\vartheta_i^\top X_{t-}$ is a weighted score of the book's features, as in logistic
+regression, and the exponential turns any score into a positive multiplier, so the rate can never
+go negative.}
+The gain is realism; the cost is more parameters and more work to fit them. The relevant question is whether state
+dependence provides incremental out-of-sample economic value sufficient to justify that cost.
+
+\begin{modelcard}{State-dependent Hawkes}
+\cardrow{What you calibrate}{Everything in the linear Hawkes model, plus the coefficient vector
+$\vartheta_i$ that scales each intensity by the current book state.}
+\cardrow{How}{Maximum likelihood, as for the linear model, with the book state $X_{t-}$ evaluated just
+before each event; more parameters, so more data and regularisation are needed.}
+\cardrow{What you do with it}{Intensity forecasts that react to the current spread, imbalance and
+depth, for simulation and for timing passive orders.}
+\cardrow{How to picture it}{The same aftershock model, with a dial set by the state of the book that
+turns every rate up or down.}
+\end{modelcard}
+
+\subsection{Fitting Hawkes models in practice}
+\label{sec:hawkes-fit}
+
+\paragraph{Maximum likelihood.} The standard method chooses the parameters that make the observed
+event times most probable~\citep{ozaki1979}. For a $K$-type process observed on $[0, t_{\text{end}}]$ the
+log-likelihood is a sum over types,
+\begin{equation}
+  \ln \mathrm{Lik} = \sum_{i=1}^{K} \Big( \sum_{n:\ \text{event } n \text{ of type } i} \ln \lambda_i(t_n)
+  - \int_0^{t_{\text{end}}} \lambda_i(t')\, dt' \Big),
+\end{equation}
+\inwords{for every type, reward the model for a high intensity at the moments type-$i$ events
+happened, and penalise it for the total number of type-$i$ events it expected.}
+Because $\lambda_i$ depends only on $\mu_i$ and on the kernels $\phi_{i1}, \dots, \phi_{iK}$ in row
+$i$ of the kernel matrix, the $i$-th term involves only those parameters. As long as no parameter is
+shared across rows, the fit splits into $K$ independent problems, one per target type, each with
+$1 + K$ kernels' worth of parameters~\citep{wu2019qrhawkes,bacry2015}. For exponential kernels each
+term is computed in one pass with a running sum (Appendix~\ref{app:pp-mle}), so the cost grows only
+linearly with the number of events~\citep{bacry2015}.
+
+Three practical rules follow. First, parameters have natural bounds---$\mu_i > 0$, jumps
+$\alpha_{ij} \ge 0$, decay $\omega > 0$---and the optimiser should enforce them. Second, nothing in the
+likelihood forces the fitted $\Gamma$ to satisfy $\rho(\Gamma) < 1$; it must be checked after fitting,
+and a fit at or above one read as a sign of non-stationarity or a wrong kernel rather than as a fact
+about the market (Appendix~\ref{app:pp-branching}). Third, the likelihood is not convex in the decay
+rates, but if the decays are fixed in advance---for example a few exponentials with chosen time
+scales---it becomes convex in the background rates and jumps~\citep{wu2019qrhawkes}, so the remaining
+fit has a single optimum.
+
+\paragraph{Expectation--maximisation.} Direct maximisation can be unstable because the likelihood is
+flat in some directions. The branching structure suggests a different route~\citep{veen2008em}: if we
+knew which earlier event triggered each event, or that it was a background event, the parameters would
+be simple averages. The EM algorithm alternates between guessing those parents probabilistically and
+re-estimating. For one type with kernel $\alpha\mathrm{e}^{-\omega u}$~\citep{lewis2011em}:
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item \emph{E step:} the probability that event $n$ was triggered by earlier event $n'$ is
+  $\alpha\mathrm{e}^{-\omega (t_n - t_{n'})}/\lambda(t_n)$, and the probability that it was a background
+  event is $\mu/\lambda(t_n)$;
+\item \emph{M step:} $\mu$ is the expected number of background events divided by $t_{\text{end}}$; $\Gamma$ is the
+  expected number of triggered events divided by the number of events; and $1/\omega$ is the
+  probability-weighted average of the parent--child delays $t_n - t_{n'}$; then $\alpha = \Gamma\omega$.
+\end{itemize}
+\inwords{give each event a fractional family tree, then count: how many events had no parent, how many
+children an event has on average, and how long children take to arrive.}
+
+\paragraph{Moments and cumulants.} A second family avoids the likelihood altogether and matches
+statistics of the counts. The Wiener--Hopf method estimates kernel shapes from the empirical
+second-order statistics of the event streams~\citep{bacrymuzy2016wh} (it underlies the non-parametric
+results of~\citet{bacry2016}); the cumulant method NPHC estimates only the integrated kernels---the
+branching matrix itself---from second- and third-order integrated cumulants, with no assumption on
+kernel shape~\citep{achab2018cumulants}; and method-of-moments calibration with closed-form moments
+can be rolled forward through time cheaply~\citep{dafonseca2014}.
+
+\paragraph{The branching ratio from count dispersion.} The simplest moment estimator needs only
+counts. Split the data into windows of length $w$, and compute the mean and variance of the number of
+events per window; their ratio is the Fano factor $D(w)$ of Appendix~\ref{app:pp-fano}. For a
+one-type Hawkes process whose correlations die out on time scales much shorter than $w$,
+\citet{hardiman2014branching} show that
+\begin{equation}
+  \Gamma \approx 1 - \sqrt{1/D(w)} .
+\end{equation}
+\inwords{self-excitation makes counts burstier than Poisson; the more bursty they are, the closer the
+branching ratio is to one. A Poisson stream ($D = 1$) gives $\Gamma = 0$.}
+The estimate is biased low for finite windows and exact only as $w$ grows without bound, and because
+the sample variance can be zero the authors report medians. Applied to the Fano factors of CME NQ
+packet data reported in Appendix~\ref{app:pp-fano}---about 52 at $w = 0.1$\,s and about a thousand at
+$w = 60$\,s---the formula gives $\Gamma \approx 0.86$ and $\Gamma \approx 0.97$, against $0.80$ from
+the exponential-kernel likelihood fit on the same kind of data. Two cautions make this a teaching
+example rather than a measurement. The estimate keeps rising with $w$, the same symptom that a slowly
+varying background rate produces~\citep{filimonovsornette2015}. And the same stream with its gaps
+shuffled---which destroys all self-excitation but keeps the gap distribution---has $D \approx 17$, for
+which the formula would still report $\Gamma \approx 0.76$: dispersion alone does not prove
+excitation, because a renewal process with very irregular gaps is also over-dispersed.
+
+\paragraph{Non-stationarity.} A single fit over a long window assumes a constant background rate.
+Because activity follows intraday patterns and changes across regimes, such fits overstate
+endogeneity~\citep{filimonovsornette2015}. In practice models are fitted over short windows, with a
+time-varying background, or with the background modelled explicitly.
+
+\paragraph{Online use.} With exponential kernels the intensity is updated in constant time per event,
+which makes Hawkes intensities usable inside a low-latency trading loop. The parameters change more
+slowly. One workable scheme, which we describe rather than cite, holds the decay rates fixed during a
+session and re-fits the background rates and jumps on a rolling window, starting each fit from the
+previous solution; with fixed decays each re-fit is a convex problem. Fully online estimators also
+exist: for example, \citet{yang2017online} update non-parametric kernels with projected gradient steps
+on a discretised, regularised likelihood, with regret growing only logarithmically in time. Whatever
+the scheme, the gradient of the log-likelihood contains the compensator term $-\int \lambda_i$ as well
+as the event term, so an update that looks only at the events (``the rate was high when events
+happened'') and ignores how many events the model expected will push the intensities up without limit.
+
+\paragraph{Goodness of fit: time rescaling.} A fitted point process can be checked with a classical
+transformation. Replace each event time $t_n$ by the expected number of events up to it under the
+fitted model, $\int_0^{t_n} \widehat\lambda(t')\,dt'$. If the model is right, the transformed times form
+a Poisson process with rate one, so the gaps between them are independent and exponential with mean
+one~\citep{ogata1988,brown2002}. A quantile--quantile plot of those gaps against the exponential
+distribution, or a Kolmogorov--Smirnov test, shows where the model fails---for example, too few very
+short gaps means the model underestimates clustering.
+
+\paragraph{Simulation.} Hawkes paths are generated by \emph{thinning}~\citep{ogata1981}: propose a
+candidate event using an upper bound on the current intensity, which is valid because exponential
+intensities only decay between events, and accept it with probability equal to the true intensity
+divided by the bound. Simulated paths are how a fitted model answers questions that have no closed
+form, such as the probability that a queue empties within a given latency.
+
+\paragraph{Software.} The open-source library tick~\citep{bacry2018tick} implements maximum-likelihood
+fits with exponential and sum-of-exponential kernels, EM, Wiener--Hopf and cumulant estimators, and
+simulation.
+
+\begin{modelcard}{Linear (multivariate) Hawkes}
+\cardrow{What you calibrate}{Background rates $\mu_i$; the kernels $\phi_{ij}$---for exponential kernels,
+the jumps $\alpha_{ij}$ and decay $\omega$---and hence the branching matrix $\Gamma$.}
+\cardrow{How}{Maximum likelihood, split into one problem per target type, with bounded parameters and
+a one-pass running sum for exponential kernels; or EM, Wiener--Hopf, cumulant and dispersion estimators.
+Fit on short or rolling windows, check $\rho(\Gamma) < 1$ afterwards, and test the fit by time
+rescaling.}
+\cardrow{What you do with it}{Forecast event intensities and, from them, drift, expected OFI and
+depletion times; simulate order flow by thinning; monitor how much activity is endogenous; raise a
+cancellation alarm when the aggressive intensity against a resting order spikes.}
+\cardrow{How to picture it}{Aftershocks after an earthquake, or acoustic feedback: each event raises
+the rate of further events, which fades; the branching ratio is the loop gain.}
+\end{modelcard}
+
+\subsection{From intensities to decisions}
+\label{sec:hawkes-decisions}
+
+A fitted Hawkes model gives, at every instant, the expected rate of each kind of event. Four
+quantities a trader can use follow directly; each is valid only over horizons short enough that the
+intensities do not change much, because they decay between events.
+
+\paragraph{Drift.} In the price model of the previous subsection, up and down moves of size
+$\delta_m$ arrive at rates $\lambda^+(t)$ and $\lambda^-(t)$, so over a short horizon $H$ the expected
+mid change is approximately
+\[
+  \E[m_{t+H} - m_t] \approx \delta_m\,\big(\lambda^+(t) - \lambda^-(t)\big)\, H .
+\]
+\inwords{if up moves are currently arriving faster than down moves, the price is expected to drift up,
+by one tick per surplus up move.}
+
+\paragraph{Expected order-flow imbalance.} Model six event types at the best quotes: limit orders,
+cancellations and market orders on each side, with intensities $\lambda^{L,b}$, $\lambda^{C,b}$,
+$\lambda^{M,b}$ (bid queue added to; bid queue cancelled; market \emph{buy}, which takes from the ask)
+and $\lambda^{L,a}$, $\lambda^{C,a}$, $\lambda^{M,a}$ (ask queue added to; ask queue cancelled; market
+\emph{sell}, which takes from the bid). With $\bar v$ the average event size and the best prices
+unchanged, the expected OFI per second is
+\[
+  \bar v\,\Big( \underbrace{\lambda^{L,b} - \lambda^{C,b} - \lambda^{M,a}}_{\text{net change of the bid queue}}
+  \;-\; \underbrace{\big(\lambda^{L,a} - \lambda^{C,a} - \lambda^{M,b}\big)}_{\text{net change of the ask queue}} \Big).
+\]
+\inwords{the same score as Section~\ref{sec:ofi}, but computed from expected rates instead of observed
+events: additions to the bid and removals from the ask count as buying pressure.} It is a forecast of
+OFI, which by the regression of Section~\ref{sec:ofi} is a forecast of the price change.
+
+\paragraph{Depletion time.} The bucket picture of Section~\ref{sec:queue-models} needs an inflow and
+an outflow. For the best ask, $r_{\text{in}} = \bar v\,\lambda^{L,a}$ and $r_{\text{out}} = \bar
+v\,(\lambda^{M,b} + \lambda^{C,a})$, so with the current intensities
+\[
+  \E[\tau^a] \approx \frac{v^a_{1,t}}{r_{\text{out}} - r_{\text{in}}}, \qquad r_{\text{out}} > r_{\text{in}} .
+\]
+When this falls below the trader's own latency $T_{\text{lat}}$, a sell order resting in that ask queue
+is in danger: if the trader decides to cancel, the level may be swept---filling the order just before
+the price moves up---before the cancellation arrives. The
+full probability $\P(\tau^a \le T_{\text{lat}})$ has no closed form under a Hawkes model, but can be
+estimated by simulating from the current state by thinning.
+
+\paragraph{A branching-ratio monitor.} Re-fitting $\Gamma$ on a rolling window gives a running
+measure of how much of current activity is self-generated. A rising value signals a market in which
+events are feeding on each other. Two cautions apply. A rise can be produced by a changing background
+rate rather than by more excitation~\citep{filimonovsornette2015}; and published estimates differ
+widely by instrument, period and method (Section~\ref{sec:hawkes}), so a fixed universal alarm level is
+not justified. A threshold should be set from the instrument's own history, and the monitor is a
+regime indicator, not a forecast of direction.
+
+\subsection{Variants of the Hawkes model}
+\label{sec:hawkes-variants}
+
+The linear model with exponential kernels is a starting point. Each variant below relaxes one of its
+assumptions; Table~\ref{tab:hawkes-variants} gives the model card for each.
+
+\paragraph{Sums of exponentials.} Power-law kernels capture long memory but lose the constant-time
+update. A power law can be approximated over many decades by a small number of exponentials with
+geometrically spaced decay rates---for an exponent of two, about 1.7 exponentials per decade
+\citep{bochud2007}---and each exponential keeps its own running sum, so the intensity is still updated
+in constant time per event. With the decay rates fixed, the likelihood is convex in the remaining
+parameters~\citep{wu2019qrhawkes}.
+
+\paragraph{Nonlinear and inhibitory kernels.} Linear Hawkes kernels can only excite. A nonlinear Hawkes
+process passes the sum through a function that keeps the intensity non-negative,
+$\lambda_i(t) = h\big(\mu_i + \sum_j \int \phi_{ij}(t-t')\, dN_j(t')\big)$, which allows negative
+kernels, that is, events that make others \emph{less} likely; general conditions for a stationary
+version were given by~\citet{bremaud1996}. In limit-order-book data, \citet{lu2018} observe inhibition
+effects that lead them to nonlinear Hawkes models, and \citet{rambaldi2017marked} find that limit orders
+(and cancellations) on one side inhibit the same type on the other side, which they read as a
+fair-price effect.
+
+\paragraph{Marks: the size of the event.} A 100-lot trade should excite more than a 1-lot trade, but
+the obvious fix---multiplying the kernel by a function of size---is rejected by the data: on Bund and
+DAX futures the kernels for different trade sizes have different \emph{shapes}~\citep{rambaldi2017marked}.
+The authors instead split events into volume classes and treat each class as its own event type. They
+find that large trades excite limit orders on the opposite side, and that large orders are more
+exogenous than small ones.
+
+\paragraph{Regimes.} In a Markov-modulated Hawkes process a hidden state switches among a few regimes,
+each with its own background rate and decay, and the parameters are fitted by EM~\citep{wang2012mmhp}.
+It was developed for earthquake sequences (main shocks, aftershocks, quiescence); the analogue for markets
+is a model whose quiet and busy regimes have different parameters, rather than one set of parameters
+averaged over both.
+
+\paragraph{Quadratic Hawkes and the Zumbach effect.} Volatility has a time asymmetry: past volatility
+measured over long horizons predicts future short-horizon volatility better than the reverse---the
+\emph{Zumbach effect}~\citep{zumbach2009}. A Hawkes intensity that depends only on past event counts
+cannot produce it. The quadratic Hawkes model of~\citet{blanc2017qhawkes} adds a term in the
+\emph{square} of a moving average of past signed price changes, so that a sequence of moves in the same
+direction raises activity more than the same number of moves that cancel out. Calibrated on five-minute
+bins of 133 NYSE stocks over 2000--2009, it reproduces the time asymmetry, and it generates long memory
+in volatility without requiring the process to be critical.
+
+\paragraph{Queue-reactive Hawkes.} \citet{wu2019qrhawkes} combine the two ideas of this part: the
+background rates depend on the current queue size, as in Section~\ref{sec:qr}, and events excite each
+other through sum-of-exponential kernels. On Bund and DAX futures the Hawkes term greatly improves the
+pure queue-reactive model, both in the distribution of times between events and in the distribution of
+queue sizes; market-order and price-change rates are mainly functions of the volume imbalance, while
+limit and cancellation rates are not.
+
+\paragraph{Cross-asset Hawkes.} Events in one instrument can excite events in another; this is the
+point-process form of lead--lag, discussed in Section~\ref{sec:cross}.
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{Model cards for the Hawkes variants.}
+\label{tab:hawkes-variants}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.14\linewidth}*{4}{>{\raggedright\arraybackslash}X}}
+\toprule
+Variant & What you calibrate & How & What you do with it & How to picture it \\
+\midrule
+Sum of exponentials & jumps per (pair of types, decay); decays fixed on a geometric grid & convex likelihood once decays are fixed & long memory with constant-time updates, in software or hardware & a power law drawn with a few rulers of different lengths \\
+Nonlinear / inhibitory & signed kernels; the link function & maximum likelihood (poorly convex) & represent events that discourage others & a thermostat as well as an amplifier \\
+Marked (volume classes) & one set of kernels per size class & as for a multivariate model, one type per class & let large trades matter more, with their own time profile & a big stone makes bigger, longer ripples \\
+Markov-modulated & per-regime background and decay; switching rates & EM over hidden regimes & separate quiet and busy regimes & weather that switches between drizzle and storm \\
+Quadratic (Zumbach) & self-excitation kernel; return-feedback kernel & on binned returns (GMM, then likelihood) & volatility forecasts with the right time asymmetry & a trend, not just activity, wakes the market up \\
+Queue-reactive Hawkes & size-dependent background; excitation kernels & maximum likelihood with fixed decays & simulate queues with realistic clustering & the toll booth of Section~\ref{sec:qr}, with rush hours \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Neural point processes}
+\label{sec:npp}
+
+\paragraph{Where we are.} Everything so far in this section has the same structure: the rate of
+type-$i$ events is a background rate plus a sum of bumps, one per past event, each with a fixed shape
+$\phi_{ij}$. The variants of Section~\ref{sec:hawkes-variants} change one ingredient at a time---the
+shape of the bump, its sign, its dependence on size or on the queue. A neural point process changes
+all of them at once: it keeps the idea of an intensity, but lets a neural network compute it from the
+history. This subsection explains what that means, step by step.
+
+\paragraph{What the Hawkes formula cannot say.} Three limitations of the linear Hawkes model motivate
+the step.
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \textbf{Effects only add.} Each past event contributes its own bump, independently of the
+  others. In the chain reaction of Example~\ref{ex:chain}, a trade followed by two cancellations at the
+  same level is far more alarming than either alone: together they say the level is about to go.
+  A sum of separate bumps cannot express ``A \emph{and then} B matters more than A plus B''.
+\item \textbf{The shape is fixed in advance.} The analyst chooses exponential, power law, or a sum of
+  exponentials, and the data only set the parameters.
+\item \textbf{The rate can only jump up and then decay.} Between events, a linear Hawkes intensity
+  with positive kernels can only fall. Real flow can do the opposite: after a sweep, new limit orders
+  may arrive slowly at first and then faster as participants re-quote.
+\end{enumerate}
+
+\paragraph{The recipe.} Every neural point process has three parts.
+\begin{description}[leftmargin=1.5em,style=nextline,itemsep=2pt]
+\item[1. Describe each event as a vector] Event $n$ is turned into a vector of numbers (an
+  embedding) built from its type, the time since the previous event $t_n - t_{n-1}$, and any marks
+  such as size or side.
+\item[2. Summarise the history] A sequence model reads the embeddings of events $1, \dots, n$ in order
+  and produces a \emph{history vector} $\mathbf{z}^{\text{hist}}(t)$ that summarises everything that
+  happened before time $t$. This is the role played in a Hawkes model by the running sums of decaying
+  bumps.
+\item[3. Turn the summary into intensities] For each event type $i$, the intensity is
+\end{description}
+\begin{equation}
+  \lambda_i(t) = \operatorname{softplus}\!\big(\langle \mathbf{o}_i, \mathbf{z}^{\text{hist}}(t)\rangle\big),
+  \qquad \operatorname{softplus}(y) = \ln\big(1 + \mathrm{e}^{y}\big),
+\end{equation}
+where $\mathbf{o}_i$ is a vector of learned output weights for type $i$ and $y$ stands for any real
+number.
+\inwords{score the current history with a weighted sum, one set of weights per event type, and pass
+the score through the softplus, a smooth function that is always positive and close to the score
+itself when the score is large. Rates must be positive; softplus guarantees it, as the exponential
+did in the state-dependent model.}
+A linear Hawkes model is the special case in which the ``summary'' is the vector of running sums
+$\sum \phi_{ij}(t - t_{n'})$ and the output step simply adds them to $\mu_i$. A neural model replaces
+the hand-written summary with a learned one.
+
+\paragraph{Training: the same likelihood as Hawkes.} The parameters---the network weights and the
+output weights $\mathbf{o}_i$---are fitted by maximising exactly the log-likelihood of
+Section~\ref{sec:hawkes-fit}: reward high intensity at the times events happened, penalise the
+total expected number of events $\int \lambda_i$. Gradient descent replaces the specialised
+optimisers, because the network has many parameters. One new difficulty appears. For an exponential
+kernel the integral $\int \lambda_i$ has a closed form; for a neural intensity it usually does not, and
+is estimated numerically---commonly by evaluating the intensity at randomly sampled times between
+events and averaging (Monte Carlo integration). Two lines of work remove this approximation:
+\citet{omi2019} model the \emph{integral} of the intensity with a network constrained to be increasing,
+and obtain the intensity as its derivative, so the likelihood is exact; \citet{shchur2020ifl} skip the
+intensity altogether and model the probability distribution of the time to the next event directly,
+for example as a mixture of simple distributions, which also makes sampling the next event exact.
+
+\paragraph{Three ways to summarise the history.} The models in the literature differ mainly in step 2.
+\begin{description}[leftmargin=1.5em,style=nextline,itemsep=2pt]
+\item[Recurrent networks] An early and widely cited model, RMTPP~\citep{du2016rmtpp}, updates a recurrent
+  network's state at each event and lets the intensity change between events through a fixed function
+  of the elapsed time. The \emph{neural Hawkes process}~\citep{mei2017} makes the recurrent state itself
+  evolve in continuous time: each memory cell of an LSTM decays exponentially between events towards a
+  target value set at the last event. Because the target can be above or below the current value, the
+  intensity can rise or fall between events, and one event can make another \emph{less} likely---the
+  inhibition that linear Hawkes cannot represent.
+\item[Attention] The Transformer Hawkes process~\citep{zuo2020thp} and the self-attentive Hawkes
+  process~\citep{zhang2020sahp} let each event attend to all earlier events, as in the
+  queries--keys--values box of Section~\ref{sec:deep}, with the time gaps encoded into the
+  embeddings. The attention weights play the part of the kernel: they say how much each past event
+  matters now, but are computed from the content of the events rather than fixed in advance.
+  \citeauthor{zhang2020sahp} argue that the attention weights also give an interpretable measure of
+  influence between event types.
+\item[State-space models] The Mamba Hawkes process~\citep{gao2024mhp} summarises the history with a
+  selective state-space model (Section~\ref{sec:deep}), which processes long sequences in time linear in
+  their length.
+\end{description}
+\citet{shchur2021} survey the family and its design choices.
+
+\begin{example}[What a learned summary can add]
+Take the chain reaction of Example~\ref{ex:chain}. A two-type Hawkes model of trades and ask
+cancellations gives the intensity of a further buy market order as background plus one bump for the
+trade and one for each cancellation, whatever their order. A neural model reads the sequence ``buy
+trade, cancel, cancel'' as a whole. If, in the training data, that particular pattern was usually
+followed within a millisecond by a sweep of the level, the model can raise the intensity of buy market
+orders far more than the sum of the separate bumps would, and leave it unchanged after the same three
+events in a different order. Whether it learns this depends entirely on whether the pattern is
+frequent enough in the data; the flexibility is useless without the examples.
+\end{example}
+
+\paragraph{Applications to order books.} The Transformer Hawkes process and the Mamba Hawkes process
+both report results on a data set of financial transactions (buy and sell events of a stock over a
+day), among other benchmarks~\citep{zuo2020thp,gao2024mhp}. Models built specifically for the book go
+further. \citet{shi2022sdpnhp} compute a separate intensity for each order-book event type with
+parallel continuous-time LSTMs and add an interaction between events and the state of the book; on
+five days of LOBSTER data for three US stocks it outperforms both classical and neural point-process
+baselines in likelihood, timing and event-type accuracy, and the authors note that their simulator
+settings remain simple. \citet{lalor2025nhp} drive a twelve-event-type order-book simulator with an
+LSTM-based neural Hawkes process and use it as the training environment for a reinforcement-learning
+market maker.
+
+\paragraph{What is lost.} The flexibility has three costs, and each matters in this survey's setting.
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item \textbf{Interpretability.} A linear Hawkes fit returns a branching matrix whose entries have a
+  meaning (Section~\ref{sec:hawkes}) and a branching ratio that can be monitored. A neural model returns
+  weights; quantities such as the fraction of endogenous events have no direct equivalent.
+\item \textbf{Speed.} An exponential Hawkes intensity is updated with a few multiplications per event.
+  A neural intensity needs a forward pass of a network per event, and more if the intensity is needed
+  between events---a cost that matters inside a trading loop (Section~\ref{sec:hardware}).
+\item \textbf{Guarantees.} The stability condition $\rho(\Gamma) < 1$ has no simple analogue, so a
+  simulated neural model can drift into regimes never seen in training.
+\end{itemize}
+The evaluation follows Principle~3. The baseline is a multivariate Hawkes model, ideally with
+sum-of-exponential kernels, fitted to the same events; the comparison is the held-out log-likelihood per
+event, the time-rescaling test of Section~\ref{sec:hawkes-fit} (which applies to any model that outputs
+an intensity), and, for a trading use, the economic value of the forecasts. A neural point process
+earns its place when it improves these by more than its cost in speed and interpretability.
+
+\begin{modelcard}{Neural point processes}
+\cardrow{What you calibrate}{The embedding of events, the weights of the sequence model that summarises
+the history (recurrent, continuous-time recurrent, attention or state-space), and the output weights
+$\mathbf{o}_i$ that turn the summary into an intensity for each event type.}
+\cardrow{How}{Gradient descent on the point-process log-likelihood, with the integral of the intensity
+estimated by Monte Carlo, or made exact by modelling the integral or the next-gap distribution
+directly. Compare on held-out likelihood and by time rescaling against a multivariate Hawkes baseline.}
+\cardrow{What you do with it}{Predict the type and time of the next event; simulate order flow,
+including as a training environment for execution or market-making agents; capture interactions
+between events that additive kernels miss.}
+\cardrow{How to picture it}{A Hawkes model whose bumps are drawn by a network that has read the whole
+history in order, instead of by a fixed formula: it can notice that ``trade, cancel, cancel'' means
+more than the three events separately.}
+\end{modelcard}
+
+% ================================================================
+\section{Deep learning for limit order books}
+\label{sec:deep}
+% ================================================================
+
+Deep learning entered LOB research around 2017 and now dominates the volume of published work. This
+section describes what the main families of models actually do, what the large benchmark studies
+have found when the models are re-tested, and which design choices matter. Readers new to the
+architectures will find short definitions of convolutional, recurrent and attention-based networks
+in the glossary (Appendix~\ref{app:glossary}) and textbook treatments in~\citet{goodfellow2016}.
+
+\subsection{Problem formulations}
+
+Most deep LOB papers solve one of six problems:
+\begin{description}[leftmargin=1.5em,style=nextline,itemsep=2pt]
+\item[Direction classification] predict whether the mid will be up, down or stationary after a horizon $H$
+  measured in events or seconds. Labels are usually built by comparing a smoothed future mid with the current one
+  against a threshold; the choice of smoothing and threshold changes the problem, and a recent paper
+  shows that coupling the smoothing window to the horizon biases the labels~\citep{berti2025tlob}.
+\item[Multi-horizon forecasting] predict returns, or their direction, over several horizons at
+  once---an ``alpha term structure''~\citep{kolm2023,zhangzohren2021}.
+\item[Next-event prediction] predict the type, side, price and size of the next message---the
+  natural task for message-level and point-process models~\citep{linna2025lobert}.
+\item[Full-book forecasting] predict the whole future book, prices and volumes at several
+  levels~\citep{arxiv240902277}.
+\item[Fill-time estimation] predict the distribution of the time until a resting order is filled
+  (Section~\ref{sec:deep-fill}).
+\item[Generation] produce synthetic message streams or book snapshots (Section~\ref{sec:deep-gen}).
+\end{description}
+
+\paragraph{The benchmark data set.} A large share of the literature reports results on FI-2010
+\citep{ntakaris2018}: five stocks from the Helsinki exchange over ten trading days in June 2010,
+about 4.5 million messages, ten levels, already normalised and downsampled into blocks of ten
+events. It made comparison possible, and it also made overfitting easy. The DeepLOB authors
+themselves describe it as ``far too short, downsampled and taken from a less liquid
+market''~\citep{zhang2019}. Results on it should be read with the comparability fields of
+Section~\ref{sec:comparable} in mind.
+
+\subsection{Convolutional and recurrent models}
+
+\paragraph{First models.} \citet{tsantekidis2017} applied a convolutional network to sequences of
+book snapshots, treating the book like an image whose two axes are time and price level. A
+companion paper used an LSTM with 40 hidden units on the last 100 snapshots, reporting F1 scores
+of about 61--66\% on FI-2010 against 48--56\% for a multilayer perceptron~\citep{tsantekidis2017lstm}.
+\citet{dixon2018} applied a recurrent network to E-mini S\&P~500 Level-2 data to classify the next
+price flip.
+
+\paragraph{DeepLOB.} \citet{zhang2019} combined the two ideas and became the most widely used
+reference architecture. Its input is the last 100 snapshots of ten levels (40 numbers each:
+price and size for bid and ask at each level). Small convolutions first combine price with size at
+each level, then bid with ask, then levels with each other; an Inception module applies parallel
+convolutions over several time scales; a 64-unit LSTM summarises the sequence; and a softmax outputs
+probabilities for down, stationary and up. On a year of London Stock Exchange data for five stocks it
+reports F1 of about 70\%, 63\% and 61\% at horizons of 20, 50 and 100 events, with similar numbers on
+five stocks not seen in training---evidence that it learns features that transfer. Its trading
+simulation, as the authors state, uses mid-prices without transaction costs and is ``not \ldots a fully
+developed, stand-alone trading strategy''.
+
+\paragraph{Learning across many stocks.} \citet{sirignano2019dl} introduced a ``spatial'' network that
+exploits the ordering of price levels to use information deep in the book with few parameters,
+trained on 489 US stocks over twenty months on a GPU cluster; it outperforms logistic regression and a
+standard network, especially in the tails of the distribution. \citet{sirignano2019} train a single
+model on many stocks and find that it outperforms stock-specific models, which they interpret as
+evidence of universal features of price formation.
+
+\paragraph{Lighter models and normalisation.} Not every gain needs more capacity. The temporal
+attention-augmented bilinear network (TABL) acts separately on the feature and time axes of the input
+matrix and reaches competitive FI-2010 results with about $10^4$ parameters~\citep{tran2019tabl}.
+Deep adaptive input normalisation (DAIN) learns how to normalise each input
+feature~\citep{passalis2020dain}; on FI-2010 it raises the macro-F1 of a simple MLP from about 55\%
+with standard z-scoring to about 68\%. Because the statistics of LOB data drift, how inputs are
+normalised is a modelling decision in its own right.
+
+\begin{modelcard}{Convolutional and recurrent models (DeepLOB family)}
+\cardrow{What you calibrate}{The network weights (from about $10^4$ to $10^5$ parameters for TABL and
+DeepLOB), and before that the input normalisation, the label threshold and the horizon.}
+\cardrow{How}{Supervised training with a cross-entropy loss on labelled windows of snapshots
+(down/stationary/up), with chronological train, validation and test splits.}
+\cardrow{What you do with it}{Short-horizon direction probabilities, used as a signal or as one input
+to an execution decision.}
+\cardrow{How to picture it}{The book as an image---time across, price levels down---scanned by small
+filters that find local patterns, followed by a memory that reads the patterns in order.}
+\end{modelcard}
+
+\subsection{Attention and spatial-temporal models}
+
+\paragraph{Attention.} An attention layer lets each element of a sequence form a weighted average of
+all the others, with weights computed from the data~\citep{vaswani2017}. Applied to LOBs, the
+sequence can run along time, along price levels, or along assets. A model that attends along more
+than one of these axes is called \emph{spatial-temporal}: ``space'' is the price ladder (and, in
+multi-asset models, the set of instruments), ``time'' is the sequence of snapshots or events.
+
+\begin{tcolorbox}[breakable, enhanced, colback=black!3, colframe=black!45, boxrule=0.5pt, arc=1.5pt,
+  fonttitle=\bfseries\small, title={Queries, keys and values on an order book}, fontupper=\small]
+Each event $n$ is first turned into a vector of numbers (its embedding). Three learned matrices turn
+that vector into a \emph{query} $\mathbf{z}^{\text{qry}}_n$ (``what am I looking for?''), a \emph{key}
+$\mathbf{z}^{\text{key}}_n$ (``what do I contain?'') and a \emph{value} $\mathbf{z}^{\text{val}}_n$
+(``what do I pass on?''), each of dimension $\dim_{\text{emb}}$. Event $n$ attends to earlier event
+$n'$ with weight
+\[
+  \mathrm{att}_{n n'} = \frac{\exp\big(\langle \mathbf{z}^{\text{qry}}_n, \mathbf{z}^{\text{key}}_{n'}\rangle/\sqrt{\dim_{\text{emb}}}\big)}
+  {\sum_{n'' \le n} \exp\big(\langle \mathbf{z}^{\text{qry}}_n, \mathbf{z}^{\text{key}}_{n''}\rangle/\sqrt{\dim_{\text{emb}}}\big)},
+  \qquad \text{output}_n = \sum_{n' \le n} \mathrm{att}_{n n'}\, \mathbf{z}^{\text{val}}_{n'} .
+\]
+\inwords{each event scores every earlier event by how well its key matches the query, turns the scores
+into weights that sum to one (the softmax), and takes the weighted average of their values.}
+
+\emph{A stylised sweep.} The current event is a buy market order that empties the best ask. If training
+has taught the model that sweeps matter when sellers have been leaving, the sweep's query matches the
+keys of the ask cancellations in the last few milliseconds, which receive most of the weight; the bid
+limit orders and the quiet stretch before them receive little. The output is, in effect, a summary
+``sellers were pulling before this sweep''---the chain reaction of Example~\ref{ex:chain}, read off by
+a learned look-up rather than a fixed kernel.
+\end{tcolorbox}
+
+\paragraph{TransLOB.} \citet{wallbridge2020} combined five dilated causal convolutions with two
+Transformer blocks using masked (causal) self-attention, and reported FI-2010 F1 of 81--92\% across
+horizons. An independent re-implementation obtained 59\% on the same data~\citep{prata2024}---the
+largest gap between claimed and reproduced performance among the fifteen models tested there, and a
+reminder that results on one small data set are fragile.
+
+\paragraph{Axial and dual attention.} Axial-LOB~\citep{kisiel2022axial} applies gated attention
+separately along the time and feature axes, keeping the parameter count below $10^4$. TLOB
+\citep{berti2025tlob} alternates temporal self-attention (across snapshots) with spatial
+self-attention (across the features of a snapshot); its companion MLPLOB replaces attention by
+multilayer perceptrons that mix along the two axes, and matches TLOB on several data sets. Three
+observations from TLOB are instructive. Performance on Nasdaq and Bitcoin data falls steeply with the
+horizon---for INTC, F1 drops from about 80\% at 10 events to about 50\% at 100---whereas on FI-2010 it
+\emph{rises} with the horizon, a sign of the data set's peculiarities. Predictability on the same stock
+declined between 2012 and 2015. And when the label threshold is set to the average spread, so that
+only moves large enough to pay for crossing count, F1 drops to 31--41\% (TSLA, horizons of 50 to 200
+events). The authors conclude that the
+methods ``are not sufficiently mature for practical deployment''.
+
+\paragraph{Patches, full books and many assets.} LiT~\citep{lit2025} cuts the book into structured
+patches---one side of the book over a short time window---as vision Transformers do with images, and
+applies it to Binance cryptocurrency data. \citet{arxiv240902277} forecast the entire five-level book
+with a sequence-to-sequence Transformer and a loss that penalises forecasts violating the ordering of
+prices; on one day of data a linear model is slightly better on the overall forecasting error and
+on volumes, but worse on the mid-price and much worse at respecting the ordering of prices. OF-MATNet
+\citep{ofmatnet} feeds multi-level order-flow imbalance from many Nasdaq assets into a Transformer
+that attends along time, assets and levels, choosing peer assets by rolling Granger-causality tests,
+and reports improvements in out-of-sample $R^2$ in over 90\% of cases on 110 assets. HLOB
+\citep{briola2025hlob} builds a graph over volume levels and processes it with a homological
+convolutional network.
+
+\paragraph{Multi-horizon models and training hardware.} \citet{zhangzohren2021} attach a
+sequence-to-sequence decoder with attention to the DeepLOB encoder to produce forecasts at several
+horizons at once, and report that training on Graphcore intelligence processing units took about
+15\% of the wall-clock time of a GPU.
+
+\begin{modelcard}{Attention and spatial-temporal Transformers}
+\cardrow{What you calibrate}{The query, key and value matrices of every attention layer, the feed-forward
+weights, and the choice of axes (time, levels, assets) along which to attend.}
+\cardrow{How}{Supervised training as for the convolutional models; reproduction studies show that the
+result depends heavily on the data set and labelling, so re-testing on new data is part of
+calibration.}
+\cardrow{What you do with it}{Direction and multi-horizon forecasts, full-book forecasts, and
+multi-asset models that choose which peers to read.}
+\cardrow{How to picture it}{Every event asks a question of every earlier event and listens most to the
+ones whose answers match.}
+\end{modelcard}
+
+\subsection{State-space models}
+
+Structured state-space sequence models such as S4~\citep{gu2022s4} and Mamba~\citep{gu2024mamba}
+process long sequences with a learned linear recurrence---the same mathematical object as the
+classical state-space model of control theory~\citep{kalman1960}---computed efficiently in parallel.
+They are attractive for event streams, which are long and irregular. Apart from a hardware-aware design for cryptocurrency tick data~\citep{popov2026ssm}, we could not
+identify a widely cited state-space model for LOB forecasting at the time of writing; this is an open
+direction rather than an established result (Section~\ref{sec:agenda}).
+
+\begin{modelcard}{State-space sequence models}
+\cardrow{What you calibrate}{The matrices of a learned linear recurrence and, for selective models such
+as Mamba, the functions that set its step size from the input.}
+\cardrow{How}{Supervised training by gradient descent, with the recurrence computed in parallel during
+training.}
+\cardrow{What you do with it}{Long-context forecasts on long, irregular event streams; for LOB data this
+is an open direction rather than an established result.}
+\cardrow{How to picture it}{A Kalman-style running state, updated at every event, whose rate of
+forgetting is learned.}
+\end{modelcard}
+
+\subsection{What the large benchmark studies show}
+\label{sec:benchmarks-dl}
+
+Individual model papers report results on their own terms. Two studies re-test many models under
+common conditions, and two more vary the input or the evaluation while holding the model fixed; their
+findings are more informative than any single paper.
+
+\paragraph{LOBCAST.} \citet{prata2024} re-implemented fifteen published models and tested them on
+FI-2010 and on new Nasdaq data from 2021 and 2022. Their headline is that ``all models exhibit a
+significant performance drop when exposed to new data'': F1 on the new data lies between 48\% and 61\%
+for every model. The best model on the new data, BiNCTABL, loses about a fifth of its FI-2010
+score. Five of the six best models use attention. A simple MLP ranks near the bottom but degrades the
+least. Parameter counts range from about $10^4$ to $10^7$, with no clear relation between size and
+degradation. A trading simulation shows that profitability ``is far from guaranteed''.
+
+\paragraph{Simple models on the same inputs.} \citet{briola2020} compare a random classifier,
+logistic regression, an MLP, LSTMs and a CNN--LSTM on identical inputs for one large-tick stock. The
+MLP matches or exceeds the CNN--LSTM at all three horizons, while logistic regression is clearly worse.
+Linear models are not generally competitive with deep ones on raw book inputs; small non-linear
+models often are.
+
+\paragraph{Representation.} \citet{lucchese2024} hold the DeepLOB architecture fixed and change only
+the input, on ten Nasdaq stocks. Models fed order-flow inputs or a new volume-on-a-price-grid
+representation ``considerably'' outperform those fed the raw level-by-level book, and predictability
+is detected up to about 50 order-book events ahead at the 99\% confidence level, using model
+confidence sets~\citep{hansen2011mcs} to compare models. The authors stress that mid-to-mid returns
+``are not tradable in practice''. \citet{kolm2023}, on 115 Nasdaq stocks, find that networks
+trained on order flow ``significantly outperform most models trained directly on order books'', and
+that the effective horizon of stock-specific forecasts is about two average price changes. In a later
+practitioner-oriented account, as reported in coverage of the authors' 2026 award, very deep models
+``don't really help'' for this task, and careful time-stamping and stationary transformations of inputs
+mattered more~\citep{kolm_westray}. \citet{wu2021robust} show that level-based inputs are fragile:
+adding orders in empty price ticks drops DeepLOB's accuracy from about 77\% to about 51\%, and they
+propose representations on a fixed price grid as an alternative.
+
+\paragraph{From forecasts to trades.} \citet{briola2024} retrain DeepLOB on fifteen Nasdaq stocks
+grouped by tick size and introduce a transaction-level score,
+\begin{equation}
+  \mathrm{TO} = \frac{N_{\text{correct}}}{N_{\text{possible}} + N_{\text{predicted}} - N_{\text{correct}}},
+\end{equation}
+where $N_{\text{possible}}$ counts the round-trip trades (open, then close) that the true price path
+would have allowed, $N_{\text{predicted}}$ those the forecasts would have triggered, and
+$N_{\text{correct}}$ those in both sets.
+\inwords{$\mathrm{TO}$, which its authors call $p_T$, is the overlap between the trades the model would make and the trades that were
+actually there to be made, as a fraction of their union---a score of 1 means the model traded exactly
+the available opportunities, 0 means no overlap.} The values are sobering: between about 0.01 and 0.19
+across stocks and horizons, and close to zero for small-tick stocks once a confidence threshold is
+applied, even where F1 is high. Predictability, by both F1-type and transaction-level measures, is
+higher for large-tick stocks---those whose average spread is below about 1.5 ticks---than for
+small-tick stocks, whose spread exceeds about 3 ticks. The authors conclude that ``high forecasting
+power does not necessarily correspond to actionable trading signals''.
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{Selected deep LOB models. F1 values are as reported by the authors on the data stated and
+are not comparable across rows (Section~\ref{sec:comparable}).}
+\label{tab:deep-models}
+\setlength{\tabcolsep}{2pt}
+\begin{tabularx}{\linewidth}{l*{4}{>{\raggedright\arraybackslash}X}}
+\toprule
+Model & Architecture & Data & Reported result & Independent re-test \\
+\midrule
+CNN~\citep{tsantekidis2017} & convolutions over time $\times$ levels & FI-2010 & F1 55--59\% & -- \\
+LSTM~\citep{tsantekidis2017lstm} & 40-unit LSTM & FI-2010 & F1 61--66\% & -- \\
+DeepLOB~\citep{zhang2019} & CNN + Inception + LSTM, $\sim$60k params & LSE, 5 stocks, 2017 & F1 61--70\% & re-trained on Nasdaq~\citep{briola2024}: $p_T$ 0.01--0.19 \\
+TABL~\citep{tran2019tabl} & bilinear + temporal attention, $\sim$10k params & FI-2010 & F1 73--74\% & 70\% on FI-2010, 60\% on 2021 data~\citep{prata2024} \\
+TransLOB~\citep{wallbridge2020} & dilated causal CNN + Transformer & FI-2010 & F1 81--92\% & 59\% on FI-2010~\citep{prata2024} \\
+Axial-LOB~\citep{kisiel2022axial} & axial attention, $<$10k params & FI-2010 & F1 76--86\% & 73\% on FI-2010~\citep{prata2024} \\
+TLOB~\citep{berti2025tlob} & dual spatial/temporal attention & FI-2010, Nasdaq, BTC & F1 to 93\% (FI-2010); 50--80\% (INTC) & -- \\
+LiT~\citep{lit2025} & structured patches + Transformer & Binance, 2024 & F1 59--66\% & -- \\
+OF-MATNet~\citep{ofmatnet} & multi-asset, multi-axis attention on OFI & 110 Nasdaq assets & $R^2$ gains in $>$90\% of cases & -- \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Representation versus architecture}
+
+The benchmark evidence suggests that the choice and treatment of inputs can matter as much as the
+network---a synthesis across studies, since none compares both systematically. Four decisions should be made, and reported, before capacity is increased.
+\begin{description}[leftmargin=1.5em,style=nextline,itemsep=2pt]
+\item[Representation] raw levels, order flow, volume on a price grid, or individual
+  messages~\citep{lucchese2024,kolm2023,wu2021robust,linna2025lobert}.
+\item[Normalisation] fixed statistics from the training set, rolling-window statistics, or a learned
+  normalisation~\citep{passalis2020dain}; the statistics of LOB data drift over days.
+\item[Target] label construction, threshold relative to the spread, and horizon~\citep{berti2025tlob}.
+\item[Clock] event time, a fixed number of book updates, or calendar time; and how events are
+  time-stamped~\citep{kolm_westray}.
+\end{description}
+
+\begin{quote}
+\textbf{Evaluation rule (strongest-baseline comparison).} A complex architecture should be compared
+not only against another complex architecture, but against the strongest reasonable low-capacity model
+on the best available representation.
+\end{quote}
+
+\begin{table}[ht]
+\centering\small
+\caption{The comparisons a deep-model study should include. Each row should be reported with
+out-of-sample log loss and out-of-sample net P\&L under the same execution model. The comparison
+that matters is row~3 against row~1, not row~3 against row~2.}
+\label{tab:baseline-template}
+\setlength{\tabcolsep}{4pt}\footnotesize
+\begin{tabular}{llll}
+\toprule
+Model & Input & Parameters & Typical inference latency \\
+\midrule
+Logistic & $\OFI^{(w)}_t$, $w = 1,\dots,5$\,s; $\QI_t$ & $\sim 10$ & ns \\
+CNN--LSTM (DeepLOB-type) & 10-level snapshots & $\sim 10^5$ & $\mu$s--ms \\
+Transformer & raw snapshots & $\sim 10^6$ & ms \\
+Transformer & message stream $+$ OFI & $\sim 10^6$ & ms \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Prediction targets}
+
+Superficially similar targets define different statistical problems:
+\[
+  \begin{gathered}
+  \P(\Delta m_{t,H} > 0 \mid X_t),\quad \E[\Delta m_{t,H} \mid X_t],\quad
+  \P(\Delta m_{t,H} > \theta \mid X_t),\\
+  \P(T_{\text{move}} \le H \mid X_t),\quad \P(\Fill \mid X_t),\quad \E[\Pi \mid X_t],
+  \end{gathered}
+\]
+where $\theta > 0$ is a move threshold and $T_{\text{move}} = \inf\{u > 0 : |m_{t+u} - m_t| \ge
+\delta\}$ is the time until the mid first moves by one tick.
+\inwords{in order: the probability that the mid goes up; the average size of the move; the
+probability that it goes up by more than $\theta$; the probability that it moves at all within $H$;
+the probability that our resting order is filled within $H$; and our expected profit. These are six
+different questions, and a model good at one need not be good at another.}
+They should not be compared as if interchangeable. Benchmark papers should report the target,
+horizon, sampling clock and intended execution interpretation.
+
+\subsection{Fill-probability models}
+\label{sec:deep-fill}
+
+Deep learning has also been applied to the execution problem directly. \citet{arroyo2024} estimate
+the full distribution of the time until a limit order is filled, using a convolutional-Transformer
+encoder of recent market activity and a decoder that outputs a monotone survival curve. Cancellations
+are treated as censored observations, and the models are trained and compared by the right-censored
+log-likelihood, a proper scoring rule; the authors explain why the Brier score and concordance index
+are unsuitable here, because their assumptions fail for limit orders. In their study, queue position
+enters through the data design---hypothetical orders placed at the back of the queue---rather than as an
+input. KANFormer~\citep{kanformer} adds the order's queue position and features of the agents
+placing orders as inputs, on CAC~40 index futures, and reports a large improvement in both the
+likelihood and discrimination measures over the earlier architecture, which it attributes to including
+agent-level information and queue position. The study covers one futures contract, but it is
+consistent with the claim of Section~\ref{sec:queue-position} that queue position is a first-class
+variable.
+
+\begin{modelcard}{Fill-probability (survival) models}
+\cardrow{What you calibrate}{A survival curve $\P(\tau_F > u \mid X_t)$ for a resting order: for deep
+models, the weights of an encoder and a decoder constrained to output a monotone curve.}
+\cardrow{How}{Maximise the right-censored log-likelihood, treating cancelled orders as censored
+observations; queue position enters as an input or through the design of hypothetical orders.}
+\cardrow{What you do with it}{Choose between a limit and a market order, set how long to wait before
+repricing, and weight expected profit by the probability of being filled.}
+\cardrow{How to picture it}{A waiting-room clock for the order, which runs faster when the queue ahead
+is short and the other side is aggressive.}
+\end{modelcard}
+
+\subsection{Generative and foundation models}
+\label{sec:deep-gen}
+
+\paragraph{Generators.} A growing literature generates synthetic order flow. \citet{nagy2023}
+tokenise LOB messages and train an autoregressive model that generates message streams, processed
+through a simulator; LOB-Bench~\citep{lobbench2025} standardises the evaluation of such generators.
+Conditional generative adversarial networks act as ``world agents'' that produce realistic, reactive
+order flow inside the ABIDES agent-based simulator~\citep{coletta2021,coletta2022,byrd2020abides}.
+Diffusion models---which learn to reverse a gradual noising process---generate future volume
+snapshots~\citep{diffvolume}, order flow conditioned on the book~\citep{berti2025trades}, and books
+conditioned on a chosen future regime for counterfactual analysis~\citep{wang2026difflob}. M3
+\citep{m3lob} trains an autoregressive model on a joint sequence of order events and book states for
+800 Chinese stocks and about 32 billion events, reporting a scaling law across model sizes,
+reproduction of stylised facts, and a square-root impact law when synthetic execution programmes are
+injected. Neural extensions of queue-reactive models~\citep{deepqr} reproduce square-root impact and
+cross-queue correlations on Bund futures.
+
+\paragraph{How to judge a generator.} A generator is useful for research only if it preserves the
+joint structure of orders, queues, executions and prices---not just marginal statistics such as the
+average spread. The evaluation criteria in this literature are: marginal distributions (spreads,
+depths, inter-event times); temporal dependence (clustering, long memory); cross-event dependence
+(how cancellations follow trades); price dynamics (volatility, signature plots); liquidity dynamics
+(queue depletion and refill); responsiveness to injected orders (market impact); and downstream
+utility---whether a model trained on generated data performs well on real data~\citep{lobbench2025,jain2024sim}.
+Consistent with Principle~1, this survey treats generators as tools for simulation and stress testing
+and evaluates trading models only on observed data.
+
+\begin{modelcard}{Generative models of order flow}
+\cardrow{What you calibrate}{The weights of an autoregressive, adversarial or diffusion network that
+produces messages or book states.}
+\cardrow{How}{Next-token likelihood for autoregressive models, an adversarial game against a
+discriminator for GANs, a denoising loss for diffusion models; then the generator is checked against
+the criteria above.}
+\cardrow{What you do with it}{Stress tests, counterfactual scenarios and training environments; not as
+evidence that a trading model works.}
+\cardrow{How to picture it}{A flight simulator for the order book: good for practice and rare
+scenarios, not a substitute for flying.}
+\end{modelcard}
+
+\subsection{Foundation encoders and uncertainty}
+
+A \emph{foundation model} is pretrained once on a large, generic corpus and then adapted to many
+specific tasks. Two recent contributions from the same group illustrate a useful layering for LOB data.
+
+\paragraph{LOBERT.} LOBERT is a pretrained, fine-tunable message-level encoder~\citep{linna2025lobert}.
+Each message is one token (293 distinct message tokens), with its price, volume and time kept as
+continuous values alongside; the context is 512 messages. It is pretrained by \emph{masked message
+modelling}---hiding messages and asking the model to fill them in, as BERT does with words---on Nasdaq
+ITCH data for AAPL, INTC, MSFT and FB from May to September 2015 (about 470 million messages, with
+millisecond time stamps). The next-message model has about 1.1 million parameters and predicts the
+complete next message correctly 27.8\% of the time, against 6.1\% for a state-space baseline of similar
+size. On mid-price direction the comparison with DeepLOB depends on how many forecasts are kept. At
+full coverage, 100 messages ahead, the two tie at a macro-F1 of 0.55. When each model forecasts only
+when its confidence exceeds 0.9, LOBERT reaches 0.88 on the 10\% of cases it keeps, and DeepLOB 0.61 on
+the 28\% it keeps---scores on different subsets, so not a like-for-like comparison. Inference is 53\%
+slower than DeepLOB (about 282 predictions per second on one V100 GPU with batch size one, 47\% of
+DeepLOB's throughput). The authors list as limitations that realistic long generated sequences are not
+established, that the model may lose track of order size and location when price levels move, that it
+does not model individual order identifiers, and that the data's millisecond resolution covers time
+only partly.
+
+\paragraph{Uncertainty layers.} UQ-LOB is an encoder-agnostic module
+that attaches to a pretrained LOB encoder and, in the spirit of attentive neural processes,
+conditions each forecast on a context set of recently completed windows whose outcomes are already
+known~\citep{manoharan2026uqlob}; the paper evaluates it with one encoder, a deep temporal
+attention bilinear network, on Kraken Level-2 and Level-3 data for seven cryptocurrency pairs.
+Its regression variant outputs a Gaussian over the future tick
+displacement and its classification variant a distribution over down, up and stationary; both
+expose a scalar confidence. On 5.2 billion events across seven cryptocurrency assets it reports
+near-nominal 68\% interval coverage.
+
+For this survey the point is the change of target: from a direction to a direction \emph{with a
+calibrated confidence}. That is precisely the input an execution policy needs, because the
+decision to place, keep or cancel a passive order depends on how sure the model is, not only on
+which way it leans (Sections~\ref{sec:tradeability} and~\ref{sec:passive}).
+
+\paragraph{General time-series foundation models.} A parallel line of work pretrains forecasters on
+very large collections of generic time series and applies them \emph{zero-shot}, without training on
+the target series. Chronos~\citep{chronos2024} scales each series by its mean absolute value, bins the
+values into 4096 tokens and trains a language-model architecture with a cross-entropy loss on about 84
+billion observations. TimesFM~\citep{timesfm2024} is a 200-million-parameter decoder over patches of 32
+time points, trained on about 100 billion points, most of them Wikipedia page views. Moirai
+\citep{moirai2024} is a masked encoder that outputs a mixture distribution, trained on 27 billion
+observations of which 0.1\% are economic or financial. Lag-Llama~\citep{lagllama2023} feeds a
+decoder with lagged values and outputs a Student-$t$ distribution. None of these is trained or
+evaluated on order-book data.
+
+Finance-specific versions change the corpus. Kronos~\citep{kronos2025} is pretrained on over 12
+billion candlestick bars (open, high, low, close, volume) from 45 exchanges and reports large gains
+over general models in zero-shot price forecasting; its data are bars from five minutes to a day, not
+messages. TradeFM~\citep{tradefm2026}, a 524-million-parameter preprint from J.P.\ Morgan AI Research,
+tokenises individual trade-flow events (inter-arrival time, price depth, volume, side, add or cancel)
+from more than 9{,}000 US equities and generates order flow inside a deterministic matching simulator.
+Its rollouts reproduce heavy tails and volatility clustering, with a smaller distance to the observed
+10-second return distribution than a compound Hawkes model (0.013 against 0.039), but the Hawkes model
+matches the distribution of spreads better. The evidence for general models on financial prediction is
+weak: on daily excess returns from 94 countries, Chronos and TimesFM used zero-shot have negative
+out-of-sample $R^2$ ($-1.37\%$ and $-2.80\%$) and lose to gradient-boosted trees, and pretraining from
+scratch on financial data closes much of the gap~\citep{rahimikia2025tsfm}. We found no fully reported
+study of zero-shot general models on intraday or tick-level order-book data.
+
+\begin{modelcard}{Foundation encoders and uncertainty layers}
+\cardrow{What you calibrate}{An encoder pretrained on large volumes of message data; then a small task
+head---and, for UQ-LOB, an uncertainty module---fine-tuned on the target task.}
+\cardrow{How}{Self-supervised pretraining (for example, predicting masked or next messages), followed by
+supervised fine-tuning; for the uncertainty layer, a context set of recently completed windows.}
+\cardrow{What you do with it}{Start new tasks from a pretrained representation, forecast only when
+confident (as in LOBERT's selective evaluation), and pass a calibrated confidence to an execution
+policy that can threshold it. General time-series foundation models serve as baselines rather than
+as LOB models.}
+\cardrow{How to picture it}{A reader who has studied a library of order flow before being asked a
+specific question, and who also says how sure the answer is.}
+\end{modelcard}
+
+% ================================================================
+\section{Hybrid models}
+\label{sec:hybrid}
+% ================================================================
+
+Hybrid models combine statistical microstructure structure with learned representations. The
+motivation is that a purely learned model must rediscover from noisy data facts that are already known:
+that events excite further events, that queues deplete and prices move when they do, that price impact
+is roughly linear in order flow over short windows. Supplying this structure explicitly should make a
+model more sample-efficient, more stable outside its training regime, and easier to interpret. These
+are hypotheses; the published evidence for them in LOB data is still thin, and each hybrid should be
+tested against its parts.
+
+\subsection{What the statistical layer supplies}
+
+The statistical models of the preceding sections provide low-dimensional, interpretable features that
+can be computed in real time:
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item Hawkes intensities $\lambda_i(t)$ for each event type, updated in constant time per event;
+\item best-level, multi-level and integrated OFI, and cross-asset OFI (Section~\ref{sec:ofi});
+\item queue imbalance, the micro-price adjustment $m^{\text{micro}}_t - m_t$, and book-shape features
+  (Section~\ref{sec:shape});
+\item estimated depletion times $\tau^a, \tau^b$ and the up-move probability of the queue race
+  (Section~\ref{sec:queue-models});
+\item for execution models, the order's own queue position $Q^{\text{ahead}}_t$.
+\end{itemize}
+
+\subsection{Ways to combine the two}
+
+\paragraph{Concatenation.} The simplest hybrid appends the statistical features to the network's
+input, or projects them into the same embedding space as the learned features. It is easy to test
+by ablation (below), and is the form most hybrids in the literature take.
+
+\paragraph{Hawkes-biased attention.} Attention computes, for each event $n$, a weighted average over
+earlier events $n'$, with weights proportional to the exponential of a score. A Hawkes kernel can be
+built into that score:
+\begin{equation}
+  \text{score}(n, n') = \frac{\langle \mathbf{z}^{\text{qry}}_n, \mathbf{z}^{\text{key}}_{n'} \rangle}{\sqrt{\dim_{\text{emb}}}}
+  + \ln \phi\big(t_n - t_{n'}\big), \qquad t_{n'} \le t_n ,
+\end{equation}
+where $\mathbf{z}^{\text{qry}}_n$ and $\mathbf{z}^{\text{key}}_{n'}$ are the query and key vectors of the
+two events and $\dim_{\text{emb}}$ their dimension, as in Section~\ref{sec:deep}.
+\inwords{because the softmax exponentiates the score, adding $\ln\phi$ \emph{multiplies} each
+attention weight by the Hawkes kernel: recent events get more weight, and the weight decays with
+elapsed time exactly as excitation does in a Hawkes process. With an exponential kernel
+$\phi(u) = \alpha \mathrm{e}^{-\omega u}$ the added term is $\ln\alpha - \omega\,(t_n - t_{n'})$, a penalty linear
+in elapsed time.} The network learns what to attend to; the kernel imposes how quickly influence
+fades. Transformer Hawkes processes~\citep{zuo2020thp,zhang2020sahp} encode time differently, through
+learned temporal encodings; the explicit kernel bias above is a design we propose for testing rather
+than a published LOB result. A minimal implementation:
+\begin{lstlisting}[language=Python]
+def hawkes_biased_attention(E, t, Wq, Wk, Wv, log_alpha, omega):
+    # E: one embedding row per event; t: event times (sorted)
+    Q, K, V = E @ Wq, E @ Wk, E @ Wv
+    scores = Q @ K.T / sqrt(Q.shape[1])
+    dt = t[:, None] - t[None, :]              # elapsed time from event n' to event n
+    scores = scores + (log_alpha - omega * dt)   # log of the exponential kernel
+    scores[dt < 0] = -inf                     # causal: no attention to later events
+    return softmax(scores, axis=1) @ V
+\end{lstlisting}
+The added cost over standard attention is one subtraction per pair of events.
+
+\paragraph{Intensity-conditioned state-space models.} Selective state-space models such as
+Mamba~\citep{gu2024mamba} let the step size of their recurrence depend on the input, so that the model
+decides how quickly to forget. Making that step depend on the current event intensity or OFI would let
+the model's memory shorten when the market is busy and lengthen when it is quiet---the same adaptation
+that event-time sampling achieves by construction. We know of no published LOB model of this kind.
+
+\paragraph{Residual gating.} A statistical model produces a baseline forecast $\widehat{Y}^{\text{stat}}_t$,
+a network produces $\widehat{Y}^{\text{deep}}_t$, and a gate $\nu_t \in [0,1]$---learned, or driven by
+volatility or intensity---mixes them:
+\begin{equation}
+  \widehat{Y}_t = \nu_t\, \widehat{Y}^{\text{stat}}_t + (1 - \nu_t)\, \widehat{Y}^{\text{deep}}_t .
+\end{equation}
+\inwords{when the gate is near 1 the forecast falls back on the simple, well-understood model; the
+network contributes only where it has earned trust. Setting $\nu_t$ by volatility gives a natural safety
+layer: in unusual conditions, defer to the model with fewer parameters.} A related form trains the
+network on the residuals of the statistical model, so that it learns only what the simple model misses.
+
+\subsection{Published hybrids}
+
+Neural point processes for LOB events are the most developed hybrid. \citet{shi2022sdpnhp} compute a
+separate intensity for each event type with parallel continuous-time LSTMs and add an interaction
+between events and book state; on three US stocks it outperforms classical and neural
+point-process baselines on likelihood and event prediction. \citet{lalor2025nhp} drive a twelve-event
+LOB simulator with an LSTM-based neural Hawkes process and use it as the environment for a
+reinforcement-learning market maker. The deep queue-reactive model of \citet{deepqr} keeps the
+queue-reactive structure of \citet{huang2015} but parameterises the state-dependent event intensities
+with neural networks. The uncertainty module UQ-LOB~\citep{manoharan2026uqlob} is hybrid in a different
+sense: it attaches a probabilistic, attentive neural-process layer to a pretrained encoder.
+
+\begin{modelcard}{Hybrid models}
+\cardrow{What you calibrate}{The statistical component (for example Hawkes parameters or an OFI slope),
+the network, and the way they are joined: a kernel bias in attention, or a gate $\nu_t$.}
+\cardrow{How}{Fit the statistical part first, then train the network on its features or residuals; or
+train end to end with the statistical part as a constrained layer. Always alongside the ablation
+below.}
+\cardrow{What you do with it}{Forecasts that need less data, behave more predictably outside the
+training regime, and fall back on the simple model when the gate says so.}
+\cardrow{How to picture it}{A trainee working under a checklist: the network adds judgement, the
+statistical model supplies rules it should not have to rediscover.}
+\end{modelcard}
+
+\begin{example}[The right ablation]
+Let $S_t$ be a Hawkes intensity computed from the same events already supplied to a
+neural model $M_0(X_t)$. The experiment is $M_0(X_t)$ against $M_1(X_t, S_t)$ with identical
+splits, seeds and economic evaluation, reporting $\Delta V$ with a confidence interval. We argue,
+but do not test here, that $\Delta V \approx 0$ when $S_t$ is a deterministic function of $X_t$ and
+the network sees enough context to compute it. A hybrid earns its place when $S_t$ brings
+information the network cannot reconstruct, or when it lets a much smaller network match a larger
+one.
+\end{example}
+
+% ================================================================
+\section{Cross-asset information}
+\label{sec:cross}
+% ================================================================
+
+The book of one instrument can carry information about related ones. A simple cross-impact form is
+\begin{equation}
+  m^{(\kappa)}_t - m^{(\kappa)}_{t-w} = \sum_{\kappa'} \beta_{\kappa \kappa'}\, \OFI^{(w,\kappa')}_t + \varepsilon^{(\kappa)}_t ,
+\end{equation}
+where the superscripts $(\kappa)$ and $(\kappa')$ index instruments, $m^{(\kappa)}_t$ is the mid of instrument $\kappa$,
+$\OFI^{(w,\kappa')}_t$ is the order-flow imbalance of instrument $\kappa'$, $\beta_{\kappa \kappa'}$ is the cross-impact
+of instrument $\kappa'$'s flow on instrument $\kappa$'s mid, and $\varepsilon^{(\kappa)}_t$ is a residual.
+\inwords{the same straight-line fit as before, except that each instrument's price change may
+respond to the buying pressure in \emph{every} instrument. The coefficients form a matrix; the
+diagonal is each instrument's own impact and the off-diagonal entries are the cross effects.} The form covers
+index constituents, ETF and constituents, futures and cash, correlated equities, related
+fixed-income contracts and cross-venue cryptocurrency markets.
+
+\begin{example}[Coefficients multiply]
+For NQ,
+\[
+  m^{(\text{NQ})}_t - m^{(\text{NQ})}_{t-w} = \beta_{\text{NQ},\text{NQ}}\OFI^{(w,\text{NQ})}_t +
+  \beta_{\text{NQ},\text{ES}}\OFI^{(w,\text{ES})}_t + \varepsilon^{(\text{NQ})}_t
+\]
+has two coefficients. Ten related instruments, each predicted from all ten OFIs at five lags, gives
+$10 \times 10 \times 5 = 500$ coefficients. At a 5\% level about 25 are ``significant'' under the
+null alone.
+\end{example}
+
+\paragraph{What the evidence says.} On the 100 largest S\&P~500 stocks, cross-asset order flow adds
+nothing to the \emph{contemporaneous} fit once multi-level order flow is integrated, but lagged
+cross-asset order flow does improve one-minute-ahead return forecasts, with an effect that decays
+within minutes~\citep{contcucuringu2023}. Multi-asset attention models such as OF-MATNet attend along
+the asset axis directly and choose which peers to use by Granger-causality tests~\citep{ofmatnet}. For
+futures, the natural cross-asset structure is economic rather than statistical: index futures and
+their constituents, related equity index futures (ES and NQ), and the Treasury futures curve.
+
+\paragraph{Lead--lag between futures and cash.} The clearest cross-asset structure in futures is that
+one market moves first. For the S\&P~500 and Nasdaq-100, most price discovery happens in the E-mini
+futures rather than in the cash index or ETF~\citep{hasbrouck2003}. At high frequency the lead is
+measured in milliseconds and is bounded by the physical distance between data centres. Between Chicago,
+where CME matches, and the New Jersey equity venues, the response of SPY to E-mini price changes took
+7.25--7.95\,ms in April 2010, fell after a straighter fibre route was built, and was estimated at 4.2--5.2\,ms
+over microwave links, against a speed-of-light minimum of 3.93\,ms; about 20\% of SPY trading could be
+identified as a direct response to E-mini moves~\citep{laughlin2014}. Measuring how often trades in two
+markets occur at a given time offset, \citet{dobrev2017} find activity peaks at $\pm 5$\,ms between
+10-year Treasury futures and cash Treasuries, with leadership running both ways, a clear lead of the
+E-mini over SPY at $+5$\,ms, and a lead of the E-mini over cash Treasuries but not the reverse. The
+order-flow link between SPY and the E-mini is ``positive, but short-lived'': beyond one second the
+correlations have little economic significance~\citep{garrison2019}.
+
+\paragraph{Estimating the lag.} Two markets trade at different, irregular times, so the usual
+correlation of returns sampled on a common grid is biased towards zero (the Epps effect). The
+Hayashi--Yoshida estimator avoids the grid by summing products of returns over every pair of
+overlapping intervals; shifting one series by a candidate lag and choosing the lag that maximises the
+estimated correlation gives a consistent lead--lag estimator~\citep{hoffmann2013leadlag}. On European data,
+\citet{huth2014} find with this method that the CAC~40 future leads a large constituent stock by about
+0.6 seconds on average, and that the leader's past alone predicts the direction of the lagger's next
+mid-quote move about 60\% of the time---yet a naive strategy that crosses the spread on that forecast
+does not make money.
+
+\paragraph{Cross-asset Hawkes models.} Point-process models express lead--lag as cross-excitation:
+events in one market raise the intensity of events in another. The two-asset model of
+\citet{bacry2013} reproduces the Epps effect on Euro-Bund and Euro-Bobl futures, and lead--lag
+can be read off its second-order properties; \citet{dafonseca2017} fit a multi-asset Hawkes model whose
+diffusive limit links high- and low-frequency correlation and which captures lead--lag on Eurex
+assets.
+
+\paragraph{The Treasury curve.} For interest-rate futures the related instruments are the points of the
+yield curve. On daily inter-dealer data from 1992 to 1999, order-flow imbalances explain up to 26\% of
+day-to-day yield changes on days without major announcements, and most of that effect comes from a
+factor common to all maturities: net buying across the whole curve says more about the level of yields
+than buying in one maturity~\citep{brandt2004}. At one-minute resolution, \citet{tomas2022} compare
+cross-impact models on 10-year Treasury note futures and E-mini futures jointly and find that
+models built on the covariance of returns and order flow, such as a multivariate Kyle model, fit out of
+sample far better than a model with only direct (own-instrument) impact. We found no published
+intraday cross-impact study covering the full Treasury futures curve.
+
+Cross-asset models should therefore report in-sample and out-of-sample improvement, incremental
+economic value, added latency, parameter count and stability across regimes.
+
+\begin{modelcard}{Cross-asset models}
+\cardrow{What you calibrate}{The cross-impact matrix $\beta_{\kappa\kappa'}$ and the lags at which it
+acts; for a cross-asset Hawkes model, the cross-excitation kernels between instruments.}
+\cardrow{How}{Regression of each instrument's price change on the order flow of all (with shrinkage or
+a factor structure to control the number of coefficients); lead--lag by maximising a Hayashi--Yoshida
+correlation over candidate lags; Hawkes cross-kernels by maximum likelihood.}
+\cardrow{What you do with it}{Use the leader's move to anticipate the lagger---mainly to protect resting
+orders in the lagging market from being picked off---and hedge across related contracts.}
+\cardrow{How to picture it}{Thunder after lightning: the futures move is the flash and the cash market
+the sound, a few milliseconds later; the lag is set by distance.}
+\end{modelcard}

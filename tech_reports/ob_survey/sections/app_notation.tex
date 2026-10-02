@@ -1,0 +1,132 @@
+% ================================================================
+\section{Symbols and acronyms}
+\label{app:notation}
+% ================================================================
+
+\subsection{Symbols}
+
+Global symbols are defined in Section~\ref{sec:notation}; the others are defined where they first
+appear. The table lists every symbol used in more than one place, and the main local ones, with the
+section that defines them.
+
+\begin{center}\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.27\linewidth}>{\raggedright\arraybackslash}p{0.53\linewidth}l}
+\toprule
+Symbol & Meaning & Defined in \\
+\midrule
+\endfirsthead
+\toprule
+Symbol & Meaning & Defined in \\
+\midrule
+\endhead
+\multicolumn{3}{l}{\emph{Time, book and prices}} \\
+$t$, $t_n$, $t-$ & time; time of event $n$; just before $t$ & \S\ref{sec:notation} \\
+$n$ & index of book events & \S\ref{sec:notation} \\
+$H$, $h$ & forecast or fill horizon; mark-out horizon after a fill & \S\ref{sec:notation} \\
+$\delta$ & tick size & \S\ref{sec:notation} \\
+$L$, $\ell$ & number of levels; level index & \S\ref{sec:intro} \\
+$p^{b}_{\ell,t}, v^{b}_{\ell,t}, p^{a}_{\ell,t}, v^{a}_{\ell,t}$ & price and size at bid / ask level $\ell$ & \S\ref{sec:intro} \\
+$m_t$, $s_t$ & mid-price; spread & \S\ref{sec:intro} \\
+$\Delta m_{t,H}$ & mid change over the next $H$ & \S\ref{sec:notation} \\
+$u$ & elapsed time after a reference time & \S\ref{sec:queue-models} \\
+\midrule
+\multicolumn{3}{l}{\emph{Information, actions and outcomes}} \\
+$X_t$, $Y_{t+H}$, $\widehat{Y}_t$ & observable information; target; prediction & \S\ref{sec:notation} \\
+$a_t$, $d$ & action; order side ($+1$ buy, $-1$ sell) & \S\ref{sec:notation} \\
+$Q^{\text{ahead}}_t$, $q$ & volume ahead of an order in its queue; a value of it & \S\ref{sec:notation} \\
+$\tau_F$, $t_F$, $p^{\text{fill}}$ & time to fill; fill time; fill price & \S\ref{sec:notation} \\
+$\Fill$, $\mathbb{1}_{\Fill}$ & event $\{\tau_F \le H\}$; its indicator & \S\ref{sec:notation} \\
+$\Pi$ & profit per lot & \S\ref{sec:notation} \\
+$\Pi^{\text{agg}}$, $\Pi^{\text{pass}}$ & aggressive and passive profit & \S\ref{sec:passive} \\
+$R^{\text{fill}}_{h}$, $R_{\text{rebate}}$ & post-fill mark-out; rebate & \S\ref{sec:passive} \\
+$C_{\text{spread}}, C_{\text{fees}}, C_{\text{impact}}$ & costs of crossing & \S\ref{sec:passive} \\
+$\mathrm{AS}(q,h)$ & adverse selection given queue position & \S\ref{sec:adverse} \\
+$V^{\text{sig}}$, $V^{\text{exec}}$ & signal value; execution value & \S\ref{sec:tradeability-framework} \\
+$T_{\text{lat}}$, $T_{\text{move}}$ & total latency; time to the next one-tick mid move & \S\ref{sec:latency}, \S\ref{sec:deep} \\
+$\theta$ & move threshold in prediction targets & \S\ref{sec:deep} \\
+\midrule
+\multicolumn{3}{l}{\emph{Signals}} \\
+$\Delta v^b_n$, $\Delta v^a_n$, $e_n$ & change in best sizes from event $n$; its OFI score & \S\ref{sec:ofi} \\
+$w$, $\OFI^{(w)}_t$ & window length; order-flow imbalance over it & \S\ref{sec:ofi} \\
+$\beta$, $\varepsilon_t$ & price-impact coefficient; residual & \S\ref{sec:ofi} \\
+$\QI_t$, $\iota_t$ & queue imbalance in $[-1,1]$; rescaled to $[0,1]$ & \S\ref{sec:ofi}, \S\ref{sec:microprice} \\
+$m^{\text{wmid}}_t$, $m^{\text{micro}}_t$ & weighted mid; micro-price & \S\ref{sec:ofi}, \S\ref{sec:microprice} \\
+$\eta_k$, $g^{(k)}$ & times of successive mid changes; expected adjustments & \S\ref{sec:microprice} \\
+$\mathbf{U}, \mathbf{J}^{(1)}, \mathbf{J}^{(2)}, \mathbf{B}, \boldsymbol{\Delta}$ & micro-price transition matrices and jump sizes & \S\ref{sec:microprice} \\
+$\beta_{\kappa\kappa'}$, $m^{(\kappa)}_t$ & cross-impact coefficient; mid of instrument $\kappa$ & \S\ref{sec:cross} \\
+\midrule
+\multicolumn{3}{l}{\emph{Queues}} \\
+$\tau^a$, $\tau^b$ & depletion time of the best ask / bid & \S\ref{sec:queue-models} \\
+$r_{\text{in}}$, $r_{\text{out}}$ & rates at which a queue fills and drains & \S\ref{sec:queue-models} \\
+$r_L$, $r_M$, $r_C$ & limit-order, market-order and cancellation rates & \S\ref{sec:cdl} \\
+$\Theta$ & average product of new best-queue sizes after a price change & \S\ref{sec:cdl} \\
+$\bar\ell$ & distance in ticks from the opposite best quote & \S\ref{sec:cst} \\
+$\mathcal{Q}^{\text{bid}}_{\bar\ell}$, $\mathcal{Q}^{\text{ask}}_{\bar\ell}$ & orders at distance $\bar\ell$ from the opposite quote & \S\ref{sec:cst} \\
+$r_L(\bar\ell)$, $r_c(\bar\ell)$, $r_0$, $\Xi$ & limit-order rate; per-order cancellation rate; power-law scale and exponent & \S\ref{sec:cst} \\
+$N_L(\bar\ell)$, $T_{\text{obs}}$ & count of queue increases; observed trading time & \S\ref{sec:cst} \\
+$\varpi$ & Laplace-transform variable & \S\ref{sec:cst} \\
+$x$ & number of orders (or units) in a queue & \S\ref{sec:cst}, \S\ref{sec:qr} \\
+$r_L(x)$, $r_C(x)$, $r_M(x)$ & queue-reactive rates at queue size $x$ & \S\ref{sec:qr} \\
+$p_{\text{ref}}$, $\pi_{\text{move}}$, $\pi_{\text{reinit}}$ & reference price; probability it moves when a best queue empties; probability the book is redrawn & \S\ref{sec:qr} \\
+\midrule
+\multicolumn{3}{l}{\emph{Point processes}} \\
+$N(t)$, $N_i(t)$ & counting process; for event type $i$ & \S\ref{sec:hawkes}, App.~\ref{app:pp} \\
+$\lambda(t)$, $\lambda_i(t)$, $\bar\lambda$ & conditional intensity; for type $i$; stationary mean & \S\ref{sec:hawkes} \\
+$\mu$, $\mu_i$, $\mu_0$ & Poisson or background rate; for type $i$; per side in the price model & \S\ref{sec:hawkes} \\
+$\phi$, $\phi_{ij}$, $K$ & kernel; between types; number of event types & \S\ref{sec:hawkes} \\
+$\Gamma$, $\rho(\Gamma)$, $I$ & branching matrix (scalar: branching ratio); spectral radius; identity & \S\ref{sec:hawkes} \\
+$\alpha$, $\omega$ & exponential-kernel jump and decay rate (decay often written $\beta$ elsewhere) & \S\ref{sec:hawkes}, App.~\ref{app:pp} \\
+$\tilde\lambda_i$, $\vartheta_i$ & state-dependent intensity; its coefficients & \S\ref{sec:hawkes} \\
+$N^{\pm}(t)$, $\lambda^{\pm}(t)$, $\delta_m$, $\Gamma_\times$ & up/down mid-move counts; their intensities; mid jump; cross-excitation weight & \S\ref{sec:hawkes} \\
+$\sigma^2(w)$, $\Lambda$ & variance per unit time at window $w$; total move rate & \S\ref{sec:hawkes} \\
+$\lambda^{L,b}, \lambda^{C,b}, \lambda^{M,b}$; $\lambda^{L,a}, \lambda^{C,a}, \lambda^{M,a}$ & intensities of limit orders and cancellations at the bid and ask, and of market buys ($M,b$) and sells ($M,a$) & \S\ref{sec:hawkes-decisions} \\
+$\bar v$ & average event size & \S\ref{sec:hawkes-decisions} \\
+$t_{\text{end}}$ & end of the observation window & \S\ref{sec:hawkes-fit}, App.~\ref{app:pp} \\
+$\zeta$ & power-law kernel tail exponent & \S\ref{sec:hawkes}, App.~\ref{app:pp} \\
+$\psi_k$ & state of a discrete-time linear system (stability analogy) & \S\ref{sec:hawkes} \\
+$D(w)$, $\mathcal{H}$ & Fano factor; Hurst exponent & App.~\ref{app:pp} \\
+$\Delta t_n$, $\Psi_n$ & gap between arrivals; running sum for the likelihood & App.~\ref{app:pp} \\
+\midrule
+\multicolumn{3}{l}{\emph{Models and evaluation}} \\
+$M$, $M_0$, $M_1$, $V(M)$, $\Delta V$ & model; baseline; candidate; out-of-sample value; its difference & \S\ref{sec:notation} \\
+$\mathcal{C}(M)$, $\chi$ & complexity vector; exchange rate between value and complexity & \S\ref{sec:parsimony} \\
+$N_{\text{trials}}$ & number of candidates evaluated & \S\ref{sec:lamd} \\
+$\mathrm{TO}$ & transaction-level overlap score (called $p_T$ by its authors) & \S\ref{sec:benchmarks-dl} \\
+$\mathrm{VC}$, $N_s$, $\varsigma$ & VC dimension; sample size; failure probability of a bound & \S\ref{sec:generalisation} \\
+$\sigma_{\text{SR}}$, $\text{SR}_0$, $N_{\text{obs}}$, $\gamma_E$ & spread of Sharpe estimates; null maximum; number of returns; Euler--Mascheroni constant & \S\ref{sec:generalisation} \\
+$\mathbf{z}^{\text{qry}}_n$, $\mathbf{z}^{\text{key}}_n$, $\mathbf{z}^{\text{val}}_n$, $\dim_{\text{emb}}$ & attention query, key and value; their dimension & \S\ref{sec:deep} \\
+$\mathrm{att}_{nn'}$ & attention weight of event $n$ on event $n'$ & \S\ref{sec:deep} \\
+$\mathbf{z}^{\text{hist}}(t)$, $\mathbf{o}_i$ & history vector of a neural point process; output weights for type $i$ & \S\ref{sec:npp} \\
+$\operatorname{softplus}(y)$ & $\ln(1+\mathrm{e}^{y})$, a smooth positive function; $y$ any real number & \S\ref{sec:npp} \\
+$\nu_t$, $S_t$ & gate; Hawkes-intensity input & \S\ref{sec:hybrid} \\
+$\P$, $\E$, $\Phi$ & probability; expectation; standard normal distribution function & \S\ref{sec:primer}, \S\ref{sec:generalisation} \\
+$A$, $B$, $Z$, $\mathbb{1}_A$ & generic events and random number in the primer; indicator & \S\ref{sec:primer} \\
+$R^2$ & coefficient of determination & \S\ref{sec:ofi} \\
+$\mathrm{e}$, $\ln$ & Euler's number; natural logarithm & -- \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\subsection{Acronyms}
+
+\begin{center}\footnotesize
+\begin{tabularx}{\linewidth}{lX@{\hspace{1em}}lX}
+\toprule
+AIC & Akaike information criterion & LOB & limit order book \\
+AUC & area under the ROC curve & LSTM & long short-term memory network \\
+BIC & Bayesian information criterion & MBO / MBP & market by order / by price \\
+CNN & convolutional neural network & MCC & Matthews correlation coefficient \\
+CRPS & continuous ranked probability score & MDP & CME Market Data Platform \\
+DSR & deflated Sharpe ratio & MLP & multilayer perceptron \\
+FIFO & first in, first out & OFI & order-flow imbalance \\
+FPGA & field-programmable gate array & OOS & out of sample \\
+GPU & graphics processing unit & P\&L & profit and loss \\
+HFT & high-frequency trading & QI & queue imbalance \\
+IOC / FOK & immediate-or-cancel / fill-or-kill & RNN & recurrent neural network \\
+ITCH & Nasdaq market-by-order data protocol & SOM & simulated order manager \\
+\lamd{} & LLM-assisted model discovery & SSM & state-space model \\
+LLM & large language model & VC & Vapnik--Chervonenkis \\
+\bottomrule
+\end{tabularx}
+\end{center}

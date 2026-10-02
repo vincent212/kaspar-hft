@@ -1,0 +1,359 @@
+\paragraph{About this part.} Every earlier part ends with the same question: \emph{is the model any
+good?} Part~VI answers it. Evaluation in this field fails in predictable ways---a metric that rewards
+the wrong thing, a test set that leaks information from the training set, or a winner chosen from
+thousands of tries that only looks good by chance---and each section addresses one of them. In order:
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item which \emph{statistical} scores measure forecast quality honestly, and why accuracy and F1 are
+  not enough (Section~\ref{sec:stat-metrics});
+\item how to measure \emph{economic} value---profit after costs, fills and adverse selection---which is
+  what a forecast is ultimately for (Section~\ref{sec:econ-metrics});
+\item how to split time-ordered data so that the test really is unseen (Section~\ref{sec:validation});
+\item why more complex models need more evidence, and how to correct for having tried many models
+  (Section~\ref{sec:generalisation});
+\item how to choose between models of different complexity, which turns Occam's razor (Principle~3)
+  into a procedure (Section~\ref{sec:parsimony});
+\item and what a benchmark result must report for others to compare and reproduce it
+  (Section~\ref{sec:benchmark}).
+\end{itemize}
+The thread through all six is the distinction of Part~I: a forecast is judged first as a forecast, then
+as a trading input, and the second judgement is the one that matters.
+
+% ================================================================
+\section{Statistical metrics}
+\label{sec:stat-metrics}
+% ================================================================
+
+The right statistical metric depends on the target (Table~\ref{tab:metrics}). These metrics
+measure predictive quality; none of them, by itself, measures trading value.
+
+\begin{table}[ht]
+\centering\small
+\caption{Statistical metrics by prediction target.}
+\label{tab:metrics}
+\begin{tabularx}{\linewidth}{lX}
+\toprule
+Target & Metrics \\
+\midrule
+Direction & log loss, Brier score~\citep{brier1950}, AUC~\citep{fawcett2006}, balanced accuracy, calibration error~\citep{guo2017} \\
+Direction with confidence & risk--coverage curves; F1 by confidence tier; interval coverage against
+  nominal (e.g.\ the 68\% coverage reported by~\citet{manoharan2026uqlob}) \\
+Return & MSE, MAE, CRPS~\citep{gneiting2007} \\
+Event time or fill & right-censored log-likelihood~\citep{arroyo2024}; calibration by queue-position bucket; concordance with caution \\
+Intensity & point-process log-likelihood; time-rescaling residual tests \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Proper scoring rules.} A scoring rule is \emph{proper} if a forecaster minimises the expected
+score by reporting their true beliefs~\citep{gneiting2007}. Log loss, the Brier score and the CRPS are
+proper; accuracy and F1 are not, because they reward only the side of a threshold a forecast falls on.
+For any model whose output will be used as a probability---for sizing, for the confidence gating of
+Section~\ref{sec:tradeability}, or for the fill-probability term of execution value---a proper score
+should be the primary statistical metric, and calibration should be checked directly (events forecast
+at 70\% should happen about 70\% of the time). For fill-time models, censoring by cancellations makes
+some familiar survival metrics improper; the right-censored log-likelihood is the safe
+choice~\citep{arroyo2024}.
+
+% ================================================================
+\section{Economic metrics}
+\label{sec:econ-metrics}
+% ================================================================
+
+Economic evaluation starts from the aggressive and passive returns of Section~\ref{sec:passive} and
+the decomposition $\E[\Pi^{\text{pass}}] = \P(\Fill)\,\E[\Pi^{\text{pass}} \mid \Fill]$, which separates execution probability
+from conditional execution quality. For passive strategies both factors should be reported, broken
+down by queue position where the data allow.
+
+Table~\ref{tab:metric-levels} orders evaluation metrics by how close they come to trading value. A
+study should say which levels it reaches; most LOB papers stop at the first or second.
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{Levels of evaluation, from statistical to economic.}
+\label{tab:metric-levels}
+\begin{tabularx}{\linewidth}{l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\toprule
+Level & Question & Typical metrics \\
+\midrule
+Prediction & Is the direction or value right? & accuracy, F1, AUC, MSE \\
+Probabilistic prediction & Are the stated probabilities right? & log loss, Brier, CRPS, calibration \\
+Execution & Will the order trade? & fill probability, fill-time likelihood \\
+Conditional execution & How good is the trade when it happens? & mark-outs, adverse selection by queue position \\
+Trading & Does it make money after costs? & net P\&L, Sharpe ratio, transaction-level overlap $\mathrm{TO}$~\citep{briola2024} \\
+Capacity & How much can be traded before impact erases it? & turnover, impact-adjusted P\&L \\
+Robustness & Does it survive new periods, assets and regimes? & out-of-sample by regime and asset \\
+Statistical validity & Could the result be luck given the search? & deflated Sharpe ratio, null maximum, backtest-overfitting probability \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Cost-aware directional metrics, which ask whether a predicted trade would have produced a favourable
+executable outcome rather than whether the mid moved in the predicted direction, are an improvement
+over raw accuracy. They are not a complete economic metric: they omit market impact, capacity,
+inventory, repeated trading, the distribution of latency, and queue position in detail. In
+Example~\ref{ex:as}, a metric that ignored $\P(\Fill)$ would misjudge the two positions. Such
+metrics should be reported alongside realised trading metrics, not instead of them.
+
+% ================================================================
+\section{Temporal validation}
+\label{sec:validation}
+% ================================================================
+
+Cross-validation with randomly assigned folds is inappropriate for most LOB problems because observations are
+dependent in time. A chronological split preserves the direction of information flow, and
+walk-forward evaluation repeats it. Where features and labels overlap in time, training samples
+whose information overlaps the test period must be purged and an embargo imposed after each test
+window~\citep{lopezdeprado2018}. The embargo should follow from the maximum look-back and the
+forecast horizon, not be chosen arbitrarily.
+
+\begin{example}[Sizing an embargo]
+Features use a 60-second look-back and labels a 10-second horizon. The embargo at each
+train/test boundary is at least 70 seconds. A walk-forward schedule might train on 20 sessions,
+validate on 5 and test on 5, then roll forward by 5.
+\end{example}
+
+When several models are compared on the same data, a \emph{model confidence set}~\citep{hansen2011mcs}
+identifies the subset that cannot be statistically distinguished from the best, at a stated
+confidence level; it is the honest alternative to declaring the model with the highest score the
+winner. Beyond a single test period, models should be stress-tested across volatility regimes, tick
+and fee changes, and assets of different tick size, since predictability differs systematically
+between large- and small-tick instruments~\citep{briola2024,gould2016qi}.
+
+LOB research has large implicit search spaces: feature definitions, look-backs, horizons,
+normalisations, thresholds, architectures, hyper-parameters, assets, sessions and execution
+assumptions. When thousands of configurations are tried, the best one looks good by chance. Model
+complexity and research-process complexity must be considered together
+(Section~\ref{sec:search}).
+
+% ================================================================
+\section{Capacity, generalisation and multiple testing}
+\label{sec:generalisation}
+% ================================================================
+
+A model that fits the training data well can still fail on new data, and the more flexible the
+model, or the more models were tried, the more likely that is. This section gives the theory behind
+that statement in three steps: why simpler model families generalise more reliably, how to correct a
+performance measure for the number of models tried, and why simple models are also easier to test
+honestly.
+
+\subsection{Why simpler models often generalise better}
+
+Statistical learning theory makes the intuition behind Occam's razor precise. For a classifier $M$ chosen
+from a family of models with \emph{VC dimension} $\mathrm{VC}$---roughly, the largest number of points
+the family can label in every possible way---and trained on $N_s$ independent examples, with probability
+at least $1-\varsigma$ the error rate on new data satisfies~\citep{vapnik1998}
+\begin{equation}
+  \text{err}(M) \le \widehat{\text{err}}_{N_s}(M) +
+  \sqrt{\frac{\mathrm{VC}\,\big(\ln(2N_s/\mathrm{VC}) + 1\big) - \ln(\varsigma/4)}{N_s}} .
+\end{equation}
+\inwords{error on new data is at most the training error plus a penalty that grows with the
+richness of the model family and shrinks with the amount of data. A richer family can fit more
+patterns, including patterns that are only noise, and needs more data before its training error can be
+trusted.} Rademacher complexity~\citep{bartlett2002}, which measures how well a model family can fit
+random noise on the data actually observed, gives bounds of the same form that are never much worse than the VC bounds and can be tighter.
+
+Two features of LOB data make the penalty bite. The signal is weak relative to the noise, so a family
+that can fit noise will. And observations are strongly dependent in time, so the \emph{effective}
+number of independent examples is far smaller than the number of events: a day of ES data has
+millions of messages but far fewer independent price moves.
+
+Two caveats keep the argument honest. Modern deep networks can fit even random labels perfectly and
+still generalise on real labels~\citep{zhang2017rethinking}, and test error can fall again as capacity
+grows past the point where the training data are fitted exactly (``double
+descent'')~\citep{belkin2019}. Classical capacity bounds therefore do not decide by themselves whether
+a deep model will generalise on LOB data. What decides it is out-of-sample evidence---which is why the
+benchmark studies of Section~\ref{sec:benchmarks-dl} carry more weight than any bound.
+
+\paragraph{Practical penalties.} Information criteria trade fit against parameter count explicitly:
+the Akaike criterion adds twice the number of parameters to minus twice the log-likelihood~\citep{akaike1974},
+and the Bayesian criterion adds the number of parameters times the logarithm of the sample
+size~\citep{schwarz1978}, penalising complexity more heavily in large samples. The lasso adds a penalty
+on the sum of absolute coefficients, which drives unhelpful coefficients exactly to zero and so selects
+features automatically~\citep{tibshirani1996}. All three are applied to a single fit; none accounts for
+the search that produced the model family in the first place, which is the subject of the next
+subsection.
+
+\subsection{Multiple testing and the deflated Sharpe ratio}
+
+If $N_{\text{trials}}$ strategies with no skill are tested, and their estimated Sharpe ratios have
+standard deviation $\sigma_{\text{SR}}$ across trials, the expected best estimate is
+approximately~\citep{bailey2014}
+\begin{equation}
+  \E\big[\max \widehat{\text{SR}}\big] \approx \sigma_{\text{SR}}
+  \left[(1-\gamma_E)\,\Phi^{-1}\!\left(1 - \frac{1}{N_{\text{trials}}}\right)
+  + \gamma_E\, \Phi^{-1}\!\left(1 - \frac{1}{N_{\text{trials}}\, \mathrm{e}}\right)\right],
+\end{equation}
+where $\Phi^{-1}$ is the inverse of the standard normal distribution function, $\gamma_E \approx 0.5772$
+is the Euler--Mascheroni constant and $\mathrm{e}$ is Euler's number.
+\inwords{this is the Sharpe ratio that the luckiest of $N_{\text{trials}}$ worthless strategies is
+expected to show. It grows with the number of trials, roughly like $\sqrt{2\ln N_{\text{trials}}}$; the
+example of Section~\ref{sec:search} used that rough form.} Write this expected maximum as
+$\text{SR}_0$. The \emph{deflated Sharpe ratio} is the probability that the selected strategy's true
+Sharpe ratio exceeds $\text{SR}_0$, given its estimate $\widehat{\text{SR}}$ from $N_{\text{obs}}$
+returns:
+\begin{equation}
+  \text{DSR} = \Phi\!\left(\frac{(\widehat{\text{SR}} - \text{SR}_0)\sqrt{N_{\text{obs}} - 1}}
+  {\sqrt{1 - \widehat{\text{skew}}\;\widehat{\text{SR}} + \frac{\widehat{\text{kurt}} - 1}{4}\,\widehat{\text{SR}}^{\,2}}}\right),
+\end{equation}
+where $\widehat{\text{skew}}$ and $\widehat{\text{kurt}}$ are the sample skewness and (raw, not excess)
+kurtosis of the returns and the Sharpe ratios are per period, not annualised.
+\inwords{the numerator asks how far the observed Sharpe ratio is above what luck alone would produce
+after this many trials; the denominator widens the uncertainty when returns are skewed or
+fat-tailed. A DSR near 1 means the result is unlikely to be luck; near 0.5 or below, it is
+indistinguishable from the best of a batch of noise.}
+
+The same authors turn this into a budget. For a given length of history there is a maximum number of
+configurations that can be tried before a strategy with no skill is expected to show an impressive
+in-sample Sharpe ratio; with five years of data, ``no more than forty-five independent model
+configurations should be tried'' if one wants to avoid an expected in-sample Sharpe ratio of 1 from a
+strategy whose out-of-sample expectation is zero~\citep{bailey2014pseudo}. The probability of backtest
+overfitting~\citep{bailey2014pbo}, White's reality check~\citep{white2000}, raised significance
+thresholds~\citep{harvey2016} and false-discovery-rate control~\citep{benjamini1995} address the same
+problem from different directions.
+
+\subsection{Backtestability}
+
+These tools favour simple models for a reason beyond generalisation: a simple model family is
+\emph{backtestable}. When the family is small, the number of effective trials can be counted or
+bounded, the null maximum can be computed, and the path from signal to decision can be audited. As the
+family grows---deep networks with many hyper-parameters, richly parameterised point processes, or
+automated search over model structures---the effective number of trials becomes hard to state, and with
+it the bar a result must clear. Parsimony is therefore a property of the research process as well as of
+the model.
+
+% ================================================================
+\section{Occam's razor as a model-selection principle}
+\label{sec:parsimony}
+% ================================================================
+
+This section makes Principle~3 operational. We do not propose a single scalar penalty for
+complexity. With $V(M)$ as in
+Section~\ref{sec:notation}, let
+\begin{equation}
+  \mathcal{C}(M) = \left(\mathcal{C}_{\text{param}}(M),\, \mathcal{C}_{\text{lat}}(M),\,
+  \mathcal{C}_{\text{fit}}(M),\, \mathcal{C}_{\text{mon}}(M),\, N_{\text{trials}}(M)\right)
+\end{equation}
+collect the dimensions of complexity: the number of fitted parameters, the inference latency, the
+effort to fit and refit its parameters, the effort to monitor in production, and the number of
+candidates $N_{\text{trials}}(M)$ searched to find the model (Section~\ref{sec:lamd}).
+\inwords{complexity is a list of separate costs, not one number: how many knobs the model has, how
+slow it is, how much work it is to tune and to watch, and how hard someone searched to find it.} A complex model
+$M_1$ should be preferred to a baseline $M_0$ only if $\Delta V = V(M_1) - V(M_0)$ is statistically
+credible and economically meaningful relative to $\Delta\mathcal{C} = \mathcal{C}(M_1) - \mathcal{C}(M_0)$. Because the
+components of $\mathcal{C}$ share no common unit, the framework asks for them to be reported separately
+(Table~\ref{tab:parsimony}), so the reader can judge whether the added complexity is justified.
+
+\begin{table}[ht]
+\centering\small
+\caption{Complexity dimensions of the model classes discussed in this survey, in orders of
+magnitude. A comparison should add, for each row, the out-of-sample Sharpe ratio, the deflated
+Sharpe ratio and the number of configurations tried, all under the same fill model.}
+\label{tab:parsimony}
+\begin{tabular}{llll}
+\toprule
+Model & Parameters & Typical inference latency & Fitting burden \\
+\midrule
+Model-free benchmark (\S\ref{sec:shadow}) & $\sim 10$ settings & $\mu$s & none \\
+OFI baseline & $\sim 10$ & ns--$\mu$s & low \\
+Shallow network & $10^3$--$10^4$ & $\mu$s & medium \\
+Transformer & $\sim 10^6$ & ms & high \\
+Hybrid & $\sim 10^6$ & ms & high \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{An explicit exchange rate.} When a decision must be made, the separate dimensions can be
+combined by stating, in advance, how much economic value each unit of added complexity must buy.
+Writing $\Delta\mathcal{C}$ as a weighted sum of its components with weights chosen by the user, the
+rule ``adopt $M_1$ only if $\Delta V > \chi\,\Delta\mathcal{C}$'' for a stated $\chi > 0$ makes
+the trade-off explicit and auditable. The value of the rule lies in stating the weights before the
+comparison, not in any particular choice of them.
+
+\paragraph{Where to start.} Table~\ref{tab:selection} orders candidate approaches by increasing
+complexity, with the condition under which each is the natural starting point. It is a guide to where
+the burden of proof lies, not a ranking of methods: a more complex row is justified when the simpler one
+above it has been tried, on the same data and fill model, and found wanting.
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{Starting points ordered by increasing complexity.}
+\label{tab:selection}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.24\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\toprule
+Situation & Start with & Why \\
+\midrule
+Decision needed within microseconds; large-tick instrument & linear OFI or queue imbalance; queue-race probability (Section~\ref{sec:cdl}) & few operations, deterministic latency, strongest evidence in large-tick names~\citep{gould2016qi,briola2024} \\
+Passive execution; fill probability matters & residual-volume and OFI baseline; then a survival model with queue position as an input~\citep{kanformer} & prices fill probability and adverse selection directly \\
+Decision within milliseconds; liquid instrument & small network on order-flow inputs~\citep{kolm2023,lucchese2024} & order-flow inputs carry most of the gain; in re-tests the simple MLP degraded least~\citep{prata2024} \\
+Several horizons at once & sequence model only if baselines fail deflated and purged tests & complexity must clear the multiple-testing bar \\
+Unusual volatility or liquidity & volatility gating of a simpler model & simple and robust when learned relations break \\
+Several related instruments & lagged cross-asset OFI~\citep{contcucuringu2023} & modest complexity; evidence of forecasting value \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{A parsimony checklist.} The contrast between an over-engineered and a parsimonious approach
+can be stated dimension by dimension (Table~\ref{tab:checklist}). The right-hand column is a default,
+to be departed from with evidence.
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{Over-engineered versus parsimonious defaults.}
+\label{tab:checklist}
+\begin{tabularx}{\linewidth}{l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\toprule
+Dimension & Over-engineered & Parsimonious default \\
+\midrule
+Features & many correlated indicators & a few interpretable drivers (OFI, imbalance, queue position) \\
+Model & deep network chosen first & linear, logistic or small network first \\
+Fitting criterion & in-sample fit & out-of-sample economic value, with information criteria or shrinkage \\
+Search & unrecorded trials & counted trials and a deflated result \\
+Regime behaviour & fragile under shocks & degrades gracefully; gated by volatility \\
+Diagnosis & opaque when it fails & failures traceable to an identifiable input \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ================================================================
+\section{Benchmarking standard and datasets}
+\label{sec:benchmark}
+% ================================================================
+
+A scientifically useful LOB benchmark should report at least the following.
+\begin{description}[leftmargin=1.5em,style=nextline]
+\item[Data] exchange; instrument; date range; number of sessions; L1, L2 or L3; event count; tick
+  size; spread; depth.
+\item[Prediction] target; horizon; sampling clock; feature look-back; normalisation.
+\item[Model] architecture; parameter count; training procedure; hyper-parameter search;
+  computational budget.
+\item[Validation] chronological split; walk-forward procedure; purging; embargo; number of trials.
+\item[Execution] latency; fees; spread; queue position; fill model; market-impact assumption.
+\item[Results] statistical metric; economic metric; confidence interval; null benchmark;
+  robustness across regimes.
+\end{description}
+
+Public datasets and frameworks each have limits (Table~\ref{tab:datasets}). No single benchmark
+represents ``the LOB''; the strongest evidence survives across datasets, assets and regimes.
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{Data sets and frameworks used in the literature surveyed.}
+\label{tab:datasets}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.22\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\toprule
+Resource & What it provides & Limits \\
+\midrule
+FI-2010~\citep{ntakaris2018} & 5 Helsinki stocks, 10 days of 2010, 10 levels, normalised and downsampled & short, one market, pre-processed; results do not transfer reliably~\citep{prata2024} \\
+LOBSTER~\citep{lobster} & Nasdaq books reconstructed from ITCH messages, any level, any period & commercial; Nasdaq only; one venue of a fragmented market \\
+Exchange MBO feeds (Nasdaq ITCH~\citep{itch50}, CME MDP~3.0~\citep{cme_mdp3}) & full message-level data, queue positions & require capture or purchase; large; hard to share \\
+Cryptocurrency exchange APIs & free, 24/7, many venues & different fees, participants and hours; often snapshots plus updates \\
+LOBCAST~\citep{prata2024} & re-implementations of 15 models, common protocol & classification focus \\
+LOBFrame~\citep{briola2024} & open framework with transaction-level evaluation & DeepLOB-centred \\
+LOB-Bench~\citep{lobbench2025} & evaluation suite for generative LOB models & generation, not trading \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A queue-exact replay can supply fields that a snapshot backtest cannot---queue position at entry,
+the fill rule, the three latencies, the impact assumption---and in doing so makes the
+\emph{Execution} block of the checklist concrete rather than nominal.

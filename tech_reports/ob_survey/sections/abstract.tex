@@ -1,0 +1,44 @@
+\begin{abstract}
+The limit order book (LOB) is the principal observable representation of liquidity in electronic
+markets. A large literature extracts predictive information from it: order-flow imbalance, queue
+imbalance and the micro-price; stochastic queue and first-passage models; Hawkes and neural point
+processes; and convolutional, recurrent, attention-based and spatial-temporal Transformer models,
+pretrained message-level encoders, generative models and hybrids that combine statistical structure
+with learned representations. A substantial part of that literature evaluates models primarily as statistical forecasters, and large
+independent re-tests find that many published deep models lose much of their accuracy on new data. This
+survey asks a different question: \emph{how does information contained in the limit order book
+become an executable trading decision, and how should prediction, queue dynamics, simulation and
+execution be evaluated together?}
+
+We organise the literature along four axes---representation, model class, prediction objective
+and economic role---and follow a single chain throughout:
+LOB state $\to$ representation $\to$ prediction $\to$ decision $\to$ queue $\to$ execution $\to$
+P\&L. Each link can destroy information or add uncertainty. We distinguish models that predict
+prices or events from models that estimate execution outcomes---fill probability, queue depletion,
+adverse selection---and argue that residual queue position and conditional execution value form
+the missing translation layer between LOB prediction research and trading.
+
+Two further parts are specific to this survey. First, we describe a deterministic, queue-exact
+replay architecture (the Kaspar system for CME futures) in which simulated orders enter the
+reconstructed historical first-in-first-out queue and are filled only by recorded executions that
+reach an order behind them; the same strategy and order-management code runs in replay and live
+modes. Second, we describe LLM-Assisted Model Discovery (\lamd), in which a language model proposes
+candidate models while fitting, replay on observed market data, validation and statistical
+certification remain external to the language model and reproducible under fixed inputs and
+procedures. We take the position that the market is observed, not generated: within the methodology
+proposed here, language models generate hypotheses and candidate models, not the market data used as
+evidence.
+
+Two criteria organise the evaluation: \emph{tradeability}, under which predictive performance is
+judged after latency, spread, fees, queue position and adverse selection; and \emph{Occam's
+razor}, under which each additional layer of complexity---model capacity, hardware, and the
+breadth of the search that produced the model---must earn incremental out-of-sample economic
+value. This is a theoretical and methodological paper: all numerical examples are stylised, and no
+new experiments are reported.
+
+\medskip
+\noindent\textbf{Keywords:} limit order book, market microstructure, order-flow imbalance, micro-price,
+Hawkes process, queue position, first-passage time, adverse selection, deterministic simulation, deep
+learning, spatial-temporal Transformer, foundation models, uncertainty quantification, multiple testing,
+deflated Sharpe ratio, Occam's razor, LLM-assisted model discovery.
+\end{abstract}
