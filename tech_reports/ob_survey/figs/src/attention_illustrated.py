@@ -8,7 +8,7 @@ import numpy as np
 def softmax(z): e = np.exp(z - z.max()); return e / e.sum()
 # (a) worked example
 fig, ax = plt.subplots(figsize=(6.5, 3.6))
-keys = np.array([[2, 0], [0, 1], [1, 1]]); q = np.array([1, 0]); vals = np.array([1, 0, 0.5])
+keys = np.array([[2, 0], [0, 1], [1, 1]]); q = np.array([1, 0]); vals = np.array([40, 0, 20])
 sc = keys @ q; w = softmax(sc); out = w @ vals
 x = np.arange(3)
 ax.bar(x - 0.2, sc, 0.38, color="#bbbbbb", label="match score (query · key)")
@@ -16,9 +16,9 @@ ax.bar(x + 0.2, w, 0.38, color="#d94801", label="weight after softmax")
 for i in range(3):
     ax.text(i - 0.2, sc[i] + 0.05, f"{sc[i]:.0f}", ha="center", fontsize=8)
     ax.text(i + 0.2, w[i] + 0.05, f"{w[i]:.2f}", ha="center", fontsize=8)
-ax.set_xticks(x, ["event 1\nkey (2,0)\nvalue 1", "event 2\nkey (0,1)\nvalue 0", "event 3\nkey (1,1)\nvalue 0.5"], fontsize=7)
+ax.set_xticks(x, ["event 1: cancel 40 at ask\nkey (2,0), value 40 lots", "event 2: limit buy 10 at bid\nkey (0,1), value 0 lots", "event 3: buy trade 20 at ask\nkey (1,1), value 20 lots"], fontsize=7.5)
 ax.set_ylim(0, 2.6); ax.legend(fontsize=7, frameon=False, loc="upper right")
-ax.set_title(f"Query (1,0): scores, weights, and the output = weighted average of values = {out:.2f}", fontsize=10)
+ax.set_title(f"Query (1,0), \"were sellers leaving?\": output = weighted average of values = {out:.1f} lots", fontsize=10)
 ax.spines[["top", "right"]].set_visible(False)
 fig.tight_layout(); fig.savefig("figs/attention_scores.png", dpi=200)
 # (b) same history, two queries

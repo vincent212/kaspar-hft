@@ -7466,12 +7466,42 @@ weighted average of the values---a ``soft'' look-up that mixes the best-matching
 a network the query, keys and values are all vectors computed from the events themselves by learned matrices; what
 is learned is \emph{how to ask and how to describe}, not which position matters.
 
-\textit{A worked example (illustrative numbers).} The current event's query is $(1, 0)$. Three earlier events have
-keys $(2, 0)$, $(0, 1)$ and $(1, 1)$ and values 1, 0 and 0.5. The match scores are the dot products of the query with
-each key: 2, 0 and 1. The softmax turns them into weights proportional to $e^2$, $e^0$ and $e^1$---that is, 7.39,
-1 and 2.72 out of a total of 11.11, or 0.67, 0.09 and 0.24. The output is the weighted average of the values,
-$0.67 \times 1 + 0.09 \times 0 + 0.24 \times 0.5 \approx 0.79$. The first event, whose key best matches the query,
-dominates; change the query and different events dominate.
+\textit{A worked example.} The current event is a buy market order that empties the best ask. Before predicting
+what happens next, the model asks one question of the recent past: \emph{were sellers leaving the ask?}
+
+In this hand-made example each key has two numbers with a meaning: how much the event is a sign of
+\emph{sellers leaving} the ask, and how much it is a sign of \emph{buyers arriving}. The query uses the same two
+numbers to say what the current event is looking for: $(1, 0)$, ``sellers leaving, and nothing else''. The value
+of each event is the number of lots it removed from the ask. (In a trained model, keys, queries and values are
+learned and their numbers usually have no simple meaning.)
+
+\begin{center}
+\footnotesize
+\begin{tabular}{clcc}
+\toprule
+Event & What happened & Key: (sellers leaving, & Value: lots \\
+      &               & buyers arriving)      & removed from ask \\
+\midrule
+1 & cancellation of 40 lots at the ask & $(2, 0)$ & 40 \\
+2 & limit buy of 10 lots at the bid & $(0, 1)$ & 0 \\
+3 & buy trade of 20 lots at the ask & $(1, 1)$ & 20 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \textbf{Score each event} by how well its key matches the query: multiply the two numbers pairwise and add.
+  Event 1: $1 \times 2 + 0 \times 0 = 2$. Event 2: $1 \times 0 + 0 \times 1 = 0$. Event 3: $1 \times 1 + 0 \times 1 = 1$.
+\item \textbf{Turn the scores into weights} that are positive and sum to one (the softmax): take $e^{\text{score}}$
+  for each event---7.39, 1.00 and 2.72---and divide each by their total, 11.11. The weights are 0.67, 0.09 and 0.24.
+\item \textbf{Average the values with these weights}: $0.67 \times 40 + 0.09 \times 0 + 0.24 \times 20 \approx 31.5$
+  lots (computed with unrounded weights).
+\end{enumerate}
+The result reads: ``about 31.5 lots have recently been taken away from the ask, counting mostly the events that
+look like sellers leaving''. The cancellation dominates because its key matches the question best; the limit buy
+at the bid, which says nothing about sellers, gets almost no weight. A different current event, with a different
+query, would weight the same three events differently.
+
 Figure~\ref{fig:attention-illustrated} draws the worked example. Figure~\ref{fig:attention-two-queries} shows what
 makes attention different from the other families: the same eight earlier events are weighted in two different ways
 depending on the current event. A buy that sweeps the ask puts most weight on the recent ask cancellations; a quiet
@@ -7481,8 +7511,9 @@ event, as it arrives, spreads its attention over the events before it.
 \begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.75\linewidth]{figs/attention_scores.png}
-\caption{The worked example above. Grey: the match score of the query $(1,0)$ with each key. Orange: the weights the
-softmax turns the scores into. The output is the weighted average of the values, 0.79. Illustrative numbers.}
+\caption{The worked example above. Grey: the score of each earlier event, the match of its key with the query
+$(1,0)$, ``were sellers leaving?''. Orange: the weights the softmax turns the scores into. The output is the weighted
+average of the values, 31.5 lots. Hand-made numbers.}
 \label{fig:attention-illustrated}
 \end{figure}
 
