@@ -25,8 +25,8 @@ split rather than from the network, with a small PyTorch example on a synthetic 
 The last part turns to the infrastructure that execution research depends on. We survey order-book
 simulators---historical replay, agent-based, model-based and generative---and compare them on the
 properties execution questions need: per-order queue position, explicit latency, determinism and a
-shared code path to live trading. The Kaspar system---a venue-independent design with handlers implemented for CME
-futures---serves as the worked example of a deterministic, queue-exact replay in which simulated orders enter the
+shared code path to live trading. The Kaspar system---a venue-independent system whose CME
+handlers are implemented---serves as the worked example of a deterministic, queue-exact replay in which simulated orders enter the
 reconstructed historical first-in-first-out queue and are filled only by recorded executions that reach an order
 behind them, and we show how an order-book model is added to it as an actor that publishes its predictions to a
 strategy.

@@ -468,9 +468,8 @@ Kaspar is a trading and simulation system built on a C++20 actor framework~\cite
 book, simulated order manager, strategy actors and replay are not tied to one exchange: a venue is connected through
 a market-data handler, which turns the venue's feed into book updates, and an order-entry gateway. The handlers
 implemented today are for CME---the MDP~3.0 market-by-order feed and the iLink~3 order-entry protocol---and are used for
-ES, NQ and Treasury futures. The design is that another market---equities, other futures exchanges, cryptocurrency
-venues---needs only its own pair of handlers, with the rest of the system reused; no handler for another venue has
-been written yet. It is described here as a worked example of a queue-exact replay; every
+ES, NQ and Treasury futures. Another market---equities, other futures exchanges, cryptocurrency venues---needs only
+its own pair of handlers; the rest of the system is reused unchanged. It is described here as a worked example of a queue-exact replay; every
 statement is a description of the design and code, and the few numbers quoted come from previously published
 measurements, attributed where they appear.
 
