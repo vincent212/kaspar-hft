@@ -1,4 +1,4 @@
-\begin{thebibliography}{430}
+\begin{thebibliography}{437}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -158,12 +158,20 @@ Nino Antulov-Fantulin, Tian Guo, and Fabrizio Lillo.
 \newblock \emph{Quantitative Finance}, 24\penalty0 (1):\penalty0 35--57, 2024.
 \newblock \doi{10.1080/14697688.2023.2286351}.
 
-\bibitem[{ATAS}(n.d.)]{atas_replay}
+\bibitem[{ATAS}(n.d.{\natexlab{a}})]{atas_auth}
+{ATAS}.
+\newblock Authorization window and platform version selection.
+\newblock
+  \url{https://help.atas.net/en/support/solutions/articles/72000602319-authorization-window-and-platform-version-selection},
+  n.d.{\natexlab{a}}.
+\newblock ATAS Help Center. Accessed 2026-10-04.
+
+\bibitem[{ATAS}(n.d.{\natexlab{b}})]{atas_replay}
 {ATAS}.
 \newblock Replay trading simulator in {ATAS}.
 \newblock
   \url{https://help.atas.net/en/support/solutions/articles/72000662219-replay-trading-simulator-in-atas},
-  n.d.
+  n.d.{\natexlab{b}}.
 \newblock ATAS help center. Accessed 2026-10-04.
 
 \bibitem[Avellaneda and Stoikov(2008)]{avellaneda2008}
@@ -386,6 +394,15 @@ Hamza Bodor and Laurent Carlier.
 \newblock Deep learning meets queue-reactive: A framework for realistic limit
   order book simulation, 2025.
 
+\bibitem[{Bookmap Ltd.}(2026)]{bookmap_sysreq}
+{Bookmap Ltd.}
+\newblock Bookmap system requirements.
+\newblock
+  \url{https://bookmap.com/knowledgebase/docs/KB-IntroductionToBookmap-SystemRequirements},
+  2026.
+\newblock Bookmap Knowledge Base, last updated 27 July 2026. Accessed
+  2026-10-04.
+
 \bibitem[{Bookmap Ltd.}(n.d.)]{bookmap_replay}
 {Bookmap Ltd.}
 \newblock Bookmap knowledge base: Select run mode; export and import bookmap
@@ -534,6 +551,14 @@ Prabir Burman, Edmond Chow, and Deborah Nolan.
 \newblock A cross-validatory method for dependent data.
 \newblock \emph{Biometrika}, 81\penalty0 (2):\penalty0 351--358, 1994.
 \newblock \doi{10.1093/biomet/81.2.351}.
+
+\bibitem[Byrd and Balch(n.d.)]{abides_repo}
+David Byrd and Tucker Balch.
+\newblock {ABIDES}: Agent-based interactive discrete event simulation.
+\newblock \url{https://github.com/abides-sim/abides}, n.d.
+\newblock Software repository, BSD-3-Clause; files config/parallel.py,
+  scripts/parallel.sh, scripts/marketreplay.sh. Commit c4bf157, 2020-11-19.
+  Accessed 2026-10-04.
 
 \bibitem[Byrd et~al.(2020)Byrd, Hybinette, and Balch]{byrd2020abides}
 David Byrd, Maria Hybinette, and Tucker~Hybinette Balch.
@@ -2031,6 +2056,15 @@ Luca Mucciante and Alessio Sancetta.
 \newblock \doi{10.1093/jjfinec/nbad021}.
 \newblock Published online 11 Aug 2023.
 
+\bibitem[{MultiCharts, LLC}(2017)]{multicharts_license2pc}
+{MultiCharts, LLC}.
+\newblock How to use your license on two computers at the same time.
+\newblock
+  \url{https://www.multicharts.com/trading-software/index.php/How_to_use_your_license_on_two_computers_at_the_same_time},
+  2017.
+\newblock MultiCharts wiki, last modified 30 May 2017. Read via web.archive.org
+  snapshot 2018-10-08. Accessed 2026-10-04.
+
 \bibitem[{MultiCharts, LLC}(n.d.)]{multicharts_sim}
 {MultiCharts, LLC}.
 \newblock How to use simulated trading; data playback.
@@ -2585,11 +2619,20 @@ Zijian Shi, Yu~Chen, and John Cartlidge.
   Intelligence}, volume~35, pages 548--556, 2021.
 \newblock \doi{10.1609/aaai.v35i1.16133}.
 
-\bibitem[{Sierra Chart}(n.d.)]{sierrachart_replay}
+\bibitem[{Sierra Chart}(n.d.{\natexlab{a}})]{sierrachart_purchase}
+{Sierra Chart}.
+\newblock Purchase information: Licensing / number of systems.
+\newblock
+  \url{https://www.sierrachart.com/index.php?page=doc/PurchaseInformation.php},
+  n.d.{\natexlab{a}}.
+\newblock Sierra Chart documentation. Accessed 2026-10-04.
+
+\bibitem[{Sierra Chart}(n.d.{\natexlab{b}})]{sierrachart_replay}
 {Sierra Chart}.
 \newblock Replaying charts.
 \newblock
-  \url{https://www.sierrachart.com/index.php?page=doc/ReplayChart.html}, n.d.
+  \url{https://www.sierrachart.com/index.php?page=doc/ReplayChart.html},
+  n.d.{\natexlab{b}}.
 \newblock Accessed 2026-10-04.
 
 \bibitem[Sirignano and Cont(2019)]{sirignano2019}
@@ -2815,21 +2858,39 @@ Mehdi Tomas, Iacopo Mastromatteo, and Michael Benzaquen.
 \newblock \doi{10.1080/14697688.2021.2020328}.
 
 \bibitem[{Trading Technologies International,
-  Inc.}(n.d.{\natexlab{a}})]{tt_piq}
+  Inc.}(n.d.{\natexlab{a}})]{tt_backtest_getstarted}
+{Trading Technologies International, Inc.}
+\newblock {TT Backtesting}: Getting started.
+\newblock
+  \url{https://library.tradingtechnologies.com/tt-backtesting/backtesting-algos/getting-started-3/},
+  n.d.{\natexlab{a}}.
+\newblock TT Help Library. Accessed 2026-10-04.
+
+\bibitem[{Trading Technologies International,
+  Inc.}(n.d.{\natexlab{b}})]{tt_backtest_run}
+{Trading Technologies International, Inc.}
+\newblock {TT Backtesting}: Running a backtest.
+\newblock
+  \url{https://library.tradingtechnologies.com/tt-backtesting/backtesting-algos/running-a-backtest/},
+  n.d.{\natexlab{b}}.
+\newblock TT Help Library. Accessed 2026-10-04.
+
+\bibitem[{Trading Technologies International,
+  Inc.}(n.d.{\natexlab{c}})]{tt_piq}
 {Trading Technologies International, Inc.}
 \newblock Position in queue ({PIQ}) overview.
 \newblock
   \url{https://library.tradingtechnologies.com/trade/viewing-market-data/position-in-queue-piq/position-in-queue-piq/},
-  n.d.{\natexlab{a}}.
+  n.d.{\natexlab{c}}.
 \newblock Accessed 2026-10-03.
 
 \bibitem[{Trading Technologies International,
-  Inc.}(n.d.{\natexlab{b}})]{tt_sim_env}
+  Inc.}(n.d.{\natexlab{d}})]{tt_sim_env}
 {Trading Technologies International, Inc.}
 \newblock Changing trading environments.
 \newblock
   \url{https://library.tradingtechnologies.com/trade/overview/workspace-windows/task-workspace-windows/changing-trading-environments/},
-  n.d.{\natexlab{b}}.
+  n.d.{\natexlab{d}}.
 \newblock TT Help Library. Accessed 2026-10-04.
 
 \bibitem[Tran et~al.(2019)Tran, Iosifidis, Kanniainen, and

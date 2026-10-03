@@ -482,6 +482,47 @@ paper and live trading against that exchange. We found no open-source or documen
 decodes MDP~3.0 itself. None of the commercial documentation we could read describes filling a simulated order by its
 exact place in a recorded order-level queue: the tools estimate the position, fill without a queue, or do not say.
 
+\paragraph{Running many days at once.} A Kaspar replay processes one trading day per run, from one packet capture or
+one decoded file, on one thread. Days are independent, so many days can be simulated at the same time as separate
+processes on one large machine---for example a large cloud instance---with one process per day and no licence limit on
+the number of runs. The other tools differ on this point (Table~\ref{tab:parallel}). The open-source replay tools allow
+the same: hftbacktest's examples run backtests in parallel processes~\citep{hftbacktest}, NautilusTrader recommends one
+process per backtest~\citep{nautilustrader}, and ABIDES ships a script that starts one replay process per
+date~\citep{abides_repo}; JAX-LOB instead runs up to a thousand environments in parallel on one GPU~\citep{frey2023}.
+Among the commercial tools, TT's backtests run only on TT's servers, are charged by run time, and cover at most one
+trading day each~\citep{tt_backtest_run,tt_backtest_getstarted}; Bookmap and ATAS allow one running copy or session per
+licence or account~\citep{bookmap_sysreq,atas_auth}; and a MultiCharts licence runs online on one computer at a
+time~\citep{multicharts_license2pc}. Sierra Chart is the exception: its licence allows many copies on one computer at the
+same time~\citep{sierrachart_purchase}. For NinjaTrader's depth replay, Deltix and lobsim the documentation does not
+say. Compared with the commercial replay tools, therefore, the ability to run many days in parallel on one's own
+hardware is an advantage of Kaspar shared only by Sierra Chart; among open-source tools it is common.
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{Running many replay simulations at once on one's own hardware, from documentation, licence terms and code.}
+\label{tab:parallel}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X}
+\toprule
+Tool & Parallel runs on own hardware & Restriction or evidence \\
+\midrule
+Kaspar & yes & one process per day; no licence limit \\
+hftbacktest & yes & examples use parallel processes \\
+NautilusTrader & yes & one backtest per process \\
+ABIDES & yes & script starts one replay process per date \\
+JAX-LOB & on one GPU & up to 1,000 parallel environments; GPU memory \\
+lobsim & not documented & open licence; no restriction found \\
+\midrule
+TT Backtesting & no & runs on TT's servers only; one trading day per backtest; charged by run time \\
+Bookmap & no & one running copy per licence \\
+ATAS & no & one active session per account \\
+MultiCharts & limited & online on one computer; a second computer offline for backtesting \\
+Sierra Chart & yes & many copies on one computer under one licence \\
+NinjaTrader (depth replay) & not documented & one replay connection per session described \\
+Deltix QuantOffice & not documented & cloud product lists a parallel runner; licence terms behind a login \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
 \subsection{Kaspar HFT}
 \label{sec:kaspar}
 
