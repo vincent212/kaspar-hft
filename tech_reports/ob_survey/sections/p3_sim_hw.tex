@@ -354,7 +354,7 @@ MarS & generative model & exact (simulated) & computation and communication dela
 TRADES & generative model in ABIDES & exact (simulated) & -- (as shipped) & yes & seeded & -- \\
 Queue-reactive & model & one tagged order, under stated assumptions & -- & yes, through queue sizes & -- & -- \\
 \midrule
-Kaspar (Section~\ref{sec:kaspar}) & replay (CME, native MDP~3.0) & exact (recorded) & separate order, cancel and feed delays & -- & single thread, market-time clock, seeded; argued, test not reported & live path shares all code up to one branch \\
+Kaspar (Section~\ref{sec:kaspar}) & replay (any venue with a feed handler; CME MDP~3.0 implemented) & exact (recorded) & separate order, cancel and feed delays & -- & single thread, market-time clock, seeded; argued, test not reported & live path shares all code up to one branch \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -364,20 +364,27 @@ the simulated orders, which replay cannot; but in them the queue is exact only i
 rates are only as realistic as the simulated order flow. Among replay tools, exact queue position in the recorded
 market requires order-level data and an order-level book: in the tools surveyed, hftbacktest with order-level data
 and Kaspar provide it, JAX-LOB approximates it, and NautilusTrader estimates it. Only hftbacktest, NautilusTrader and
-Kaspar run the same strategy code in simulation and live trading, and of these only Kaspar decodes CME's
-market-by-order feed natively; the other two reach CME data through a data vendor's files.
+Kaspar run the same strategy code in simulation and live trading. They differ in the venues they connect to
+today: hftbacktest trades live on two cryptocurrency exchanges, NautilusTrader connects to several venues and data
+vendors, and Kaspar has its own handlers for CME's market-by-order feed and order entry; the other two reach CME data
+only through a data vendor's files.
 
 \subsection{Kaspar HFT}
 \label{sec:kaspar}
 
-Kaspar is a trading and simulation system for CME futures (ES, NQ and Treasury futures) built on a C++20 actor
-framework~\citep{maciejewski_actor}. It is described here as a worked example of a queue-exact replay; every
+Kaspar is a trading and simulation system built on a C++20 actor framework~\citep{maciejewski_actor}. Its order
+book, simulated order manager, strategy actors and replay are not tied to one exchange: a venue is connected through
+a market-data handler, which turns the venue's feed into book updates, and an order-entry gateway. The handlers
+implemented today are for CME---the MDP~3.0 market-by-order feed and the iLink~3 order-entry protocol---and are used for
+ES, NQ and Treasury futures. The design is that another market---equities, other futures exchanges, cryptocurrency
+venues---needs only its own pair of handlers, with the rest of the system reused; no handler for another venue has
+been written yet. It is described here as a worked example of a queue-exact replay; every
 statement is a description of the design and code, and the few numbers quoted come from previously published
 measurements, attributed where they appear.
 
 The data path is
 \begin{center}\small
-CME MDP~3.0 multicast $\to$ socket reader $\to$ message buffer $\to$ decoder $\to$ feed handler
+exchange multicast (CME MDP~3.0 today) $\to$ socket reader $\to$ message buffer $\to$ decoder $\to$ feed handler
 $\to$ order book $\to$ strategy $\to$ simulated order manager $\to$ [exchange gateway $\mid$ simulated fill].
 \end{center}
 Every component is an actor: it owns its state and communicates only by messages. Actors can be
