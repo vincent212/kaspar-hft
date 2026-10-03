@@ -881,7 +881,11 @@ The book update is a search in an ordered set of price levels, followed by a cha
 standard ordered containers each search takes time proportional to the logarithm of the number of levels, and an
 industry preprint reports a specialised structure 9 to 15 times faster than the C++ standard library's ordered map on
 real market data~\citep{krapivensky2025glass}. We found no peer-reviewed measurement of the cost of book updates on
-CPUs. For Kaspar's software path, socket-to-book latency is reported in Section~\ref{sec:kaspar-measurement}.
+CPUs. On FPGAs the book itself has been built in hardware: a depth-of-book design for options averages about
+253\,ns per update, estimated from clock-cycle counts~\citep{dvorak2014book}; a later design reports 26 to 209\,ns,
+3.5 to 37.6 times faster than its software version~\citep{liu2024book}; and a complete trading system written in
+high-level synthesis---network stack, parsing, book and strategy---measured an on-board round trip below
+870\,ns~\citep{boutros2017build}. For Kaspar's software path, socket-to-book latency is reported in Section~\ref{sec:kaspar-measurement}.
 
 \paragraph{The model.} This is the stage that grows with model complexity. A linear score on a few order-flow
 features takes tens of multiply--add operations; DeepLOB has about 60,000 weights (Table~\ref{tab:deeplob-params}),
@@ -944,7 +948,9 @@ times more structural work than another was 15 times faster~\citep{hedges2026fro
 \toprule
 Source & Models and times & Conditions \\
 \midrule
-\citet{zhang2019} & DeepLOB 0.253\,ms; LSTM 0.061\,ms; CNN 0.025\,ms & batch size and device for the timing not stated \\
+\citet{zhang2019} & DeepLOB 0.253\,ms & batch size and device for the timing not stated \\
+\citet{tran2019tabl} & C(TABL) 0.025, CNN 0.061, LSTM 0.229\,ms & one sample, Intel i7-4790 CPU \\
+\citet{liu2026microsecond} & 8-bit integer 1D-CNN on FI-2010: 57\,\textmu s & FPGA (KU040), inference core only; from the abstract \\
 \citet{berti2025tlob} & MLP 0.08, LSTM 0.21, DeepLOB 1.31, TLOB 2.24, MLPLOB 4.79\,ms & RTX 3090 GPU; batch size not stated \\
 \citet{hedges2026frontier} & median at batch one: MLPLOB 2.1\,ms (CPU), 2.8\,ms (GPU); TLOB 22.8\,ms (CPU), 5.1\,ms (GPU) & Apple M3 Max, PyTorch, 32-bit floating point; forward pass only, no preprocessing or transfer \\
 \bottomrule
@@ -972,9 +978,11 @@ Putting the pipeline and the four effects together gives a short list.
   operations into fewer kernels and recording them as a CUDA graph~\citep{nvidia_cudagraphs_blog}; or keeping the whole
   model on the device that receives the data, to avoid PCIe transfers.
 \end{enumerate}
-We found no published FPGA implementation of DeepLOB, TransLOB or TLOB with a measured latency. The closest is a
-state-space model designed for an FPGA from the start, reported at 247\,\textmu s end to end on cryptocurrency order
-books~\citep{popov2026ssm}.
+We found no published FPGA implementation of DeepLOB, TransLOB or TLOB with a measured latency. The closest are an
+8-bit convolutional network for the FI-2010 data at 57\,\textmu s on an FPGA~\citep{liu2026microsecond}, a state-space
+model designed for an FPGA from the start, reported at 247\,\textmu s end to end on cryptocurrency order
+books~\citep{popov2026ssm}, and the audited LSTM results of Section~\ref{sec:hw-audited}, which reach a few
+microseconds for small generic LSTMs.
 
 \subsection{Determinism as a risk-control property}
 
@@ -988,24 +996,73 @@ optimisation.
 
 Two pipelines are often conflated. \emph{Book building}---parsing market data and maintaining the
 order book---is protocol-bound and highly regular. \emph{Inference}---evaluating a model on the
-book---depends on the model. Field-programmable gate arrays have long been used for the first: decoding market-data feeds in hardware is well
-documented~\citep{leber2011,lockwood2012}.
+book---depends on the model. Field-programmable gate arrays have long been used for the first: decoding market-data
+feeds in hardware is well documented~\citep{leber2011,morris2009fpga}, and so is building the
+book~\citep{dvorak2014book,liu2024book}.
 Placing models on the same fabric is more recent. Tool flows for fast neural-network inference on
 FPGAs~\citep{hls4ml} make small, quantised networks feasible with very low and fixed latency,
-but model capacity is bounded by the fabric. Vendor-audited benchmarks of FPGA trigger paths now
-report minimum trigger latencies on the order of ten nanoseconds~\citep{exegy_stac2024}, and
+but model capacity is bounded by the fabric. Independently audited benchmarks of FPGA network paths now
+report minimum latencies on the order of ten nanoseconds (Section~\ref{sec:hw-audited}), and
 hardware-aware sequence models designed for FPGA execution from the outset, rather than ported after
 training, have been proposed for cryptocurrency tick data~\citep{popov2026ssm}. The two numbers
 measure different pipelines---a trigger versus a learned model---and should not be compared
 directly.
+
+\subsection{Audited benchmarks}
+\label{sec:hw-audited}
+
+Most published latency figures for trading hardware come from vendors. The exception is the STAC benchmarks, run by
+an independent organisation to a published specification and audited, of which three bear on this survey
+(Table~\ref{tab:stac}). Their public summaries are chosen by the vendor that submitted the system, and the full
+reports require registration, so the figures below are those summaries.
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item \textbf{STAC-T0} measures network input and output only: the time from the last bit of the market-data packet
+  needed for a decision to the first bit of the order, with trivial decision logic.
+\item \textbf{STAC-T1} measures a whole tick-to-trade path on CME E-mini data: decode the feed, keep the state, decide,
+  and send the order.
+\item \textbf{STAC-ML Markets (Inference)} measures model inference alone, for three sizes of LSTM---the smallest
+  under 200,000 parameters, according to one vendor---and later for gradient-boosted trees. It excludes reading the
+  data and computing the features. One of its two suites sends each window as a whole; the other, \emph{Tacana},
+  slides the window by one step and allows earlier computation to be reused, which is the per-tick case of
+  Section~\ref{sec:hw-what}~\citep{stac_ml_wg,stac_ml_limits2025}.
+\end{itemize}
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{Audited STAC results relevant to order-book models, from STAC's public summaries. The three benchmarks
+measure different paths and must not be compared with one another. ML: 99th-percentile latency, one model
+instance, sliding-window (Tacana) suite.}
+\label{tab:stac}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.13\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.37\linewidth}}
+\toprule
+Benchmark & System & Result \\
+\midrule
+STAC-T0 & LDA network stack on an FPGA card (2020)~\citep{stac_xlx200514} & minimum 24.2\,ns; mean 27.9--29.2\,ns \\
+STAC-T0 & Exablaze ExaNIC V5P (2019)~\citep{stac_exa181106} & 31 to 44\,ns \\
+STAC-T1 & ADHOC appliance, AMD Versal FPGA (2024)~\citep{stac_adhc240918} & mean 115\,ns; 99th percentile 140\,ns \\
+STAC-T1 & Exegy Xero FPGA card (2019)~\citep{stac_exg191010} & mean 0.552\,\textmu s; 99th percentile 0.609\,\textmu s \\
+STAC-ML & NVIDIA A100 GPU (2023)~\citep{stac_ml_nvda2023} & smallest LSTM 35.2\,\textmu s; largest 640\,\textmu s \\
+STAC-ML & Myrtle VOLLO, Intel Agilex FPGAs (2023)~\citep{stac_ml_mrtl2023} & smallest LSTM 5.07\,\textmu s; largest 31.0\,\textmu s \\
+STAC-ML & NVIDIA GH200 (2025)~\citep{stac_ml_smc2025} & smallest LSTM 4.70\,\textmu s; largest 15.8\,\textmu s \\
+STAC-ML & Myrtle VOLLO, AMD Versal FPGA (2026)~\citep{stac_ml_mrtl2026} & smallest LSTM below 2\,\textmu s; largest below 8\,\textmu s \\
+STAC-ML & Xelera Silva, AMD Alveo V80 (2026)~\citep{stac_ml_xlra2026} & gradient-boosted trees (different suite): at most 1.95\,\textmu s for the two smaller models, 2.88\,\textmu s for the largest \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Three points follow. A complete tick-to-trade path on an FPGA, with simple decision logic, runs in about a tenth to
+half a microsecond. Inference of a small LSTM, in the sliding-window setting, now takes single-digit microseconds on
+both FPGAs and GPUs: in these results a GH200 GPU was slightly faster than the 2023 FPGA system and slower than the
+2026 one. And no audited benchmark yet combines building the book with evaluating a learned model on it, or uses a
+published order-book architecture.
 
 \subsection{The commercial FPGA landscape}
 \label{sec:hw-landscape}
 
 Most production hardware for trading is commercial, and most of its published figures are vendor
 claims rather than audited measurements. Table~\ref{tab:vendors} lists representative offerings with
-the figures their makers publish; the one independently audited result is the STAC-T0 benchmark of
-an Exegy framework on an AMD card~\citep{exegy_stac2024}. Two cautions apply when reading such
+the figures their makers publish; audited results are in Section~\ref{sec:hw-audited}, and the STAC-T0 result of an
+Exegy framework on an AMD card is shown here for reference~\citep{exegy_stac2024}. Two cautions apply when reading such
 numbers. They measure different things---a transceiver loopback, a trigger, a book build, a model
 inference---that must not be compared directly. And the AMD transceiver figure explicitly excludes
 protocol processing and programmable logic, so it is a lower bound on a component, not a
@@ -1024,7 +1081,7 @@ AMD Alveo UL3524 / UL3422~\citep{amd_ul3524,amd_ul3422} & FPGA cards built for t
 Exegy (incl.\ Enyx, acquired 2022)~\citep{exegy_enyx,exegy_stac2024} & FPGA feed handling, order entry and trigger frameworks & STAC-T0 audited trigger latency of the order of ten nanoseconds \\
 Algo-Logic~\citep{algologic} & CME tick-to-trade system on Alveo U50, with feed handler, book and TCP order entry & under 500\,ns tick-to-trade \\
 Magmio~\citep{magmio} & C++ strategies compiled to FPGA by high-level synthesis & under 100\,ns for triggers; under 350\,ns with book building \\
-Xelera Silva~\citep{xelera_silva} & tree-ensemble and small-network inference on FPGA & about 250\,ns (99th percentile) for a gradient-boosted model inline on UL3524; 1.1--1.3\,\textmu s as card offload \\
+Xelera Silva~\citep{xelera_silva} & tree-ensemble and small-network inference on FPGA & about 250\,ns (99th percentile) for a gradient-boosted model inline on UL3524; 1.1--1.3\,\textmu s as card offload; audited STAC-ML: at most 1.95\,\textmu s (Table~\ref{tab:stac}) \\
 Napatech + Xelera~\citep{napatech} & the same inference on FPGA network cards & 1.55\,\textmu s for a 1000-tree model with 100 features \\
 \bottomrule
 \end{tabularx}
@@ -1062,20 +1119,27 @@ of order-book dynamics parallelises well across paths; one vendor demonstration 
 14 to 114 times over a CPU~\citep{nvidia_numba2025}, though for simulated paths rather than a
 historical matching-engine backtest. Specialised processors also accelerate training: a multi-horizon
 DeepLOB variant trained in about 15\% of the GPU time on intelligence processing
-units~\citep{zhangzohren2021}. For single-event,
-latency-critical inference, batch-oriented accelerators are at a disadvantage; for signals whose
-useful life is measured in milliseconds or longer they are adequate.
+units~\citep{zhangzohren2021}. For single-event inference, GPUs used naively are slow (Section~\ref{sec:hw-why}),
+but with vendor-optimised code and a sliding window that reuses earlier computation, a GH200 reached 4.70\,\textmu s
+at the 99th percentile on the smallest audited LSTM (Table~\ref{tab:stac}).
 
 \subsection{Networks and distance}
 
-Latency is not only computation. The operating system's network stack adds microseconds;
+Latency is not only computation. A peer-reviewed measurement of the latency budget of a server gives medians of
+4.5\,\textmu s through the operating system's network stack, 946\,ns with kernel bypass, and 572\,ns for one small
+read across PCIe~\citep{zilberman2017where}. The operating system's network stack adds microseconds;
 \emph{kernel-bypass} libraries deliver packets directly to user space~\citep{dpdk}. Published figures for
 such stacks include half-round-trip times of about 3\,\textmu s on older 10-gigabit
 hardware~\citep{openonload} and about 1\,\textmu s for UDP~\citep{vma}. Physical distance sets a floor no
 software can remove: light in optical fibre takes about 5\,\textmu s per kilometre (about 4.9\,ns per
 metre)~\citep{corning_smf28,fiberlatency}, which is why trading systems are colocated in the
 exchange's data centre and why differences in relative speed translate into differences in trading
-performance~\citep{baron2019,budish2015}. At the extreme, application-specific chips fix a design in
+performance~\citep{baron2019,budish2015}.
+
+Computation can also move into the network itself. Programmable switches have filtered a Nasdaq ITCH feed by
+symbol, delivering all messages of a recorded trace within 50\,\textmu s against 300\,\textmu s for the software
+baseline~\citep{jepsen2018packet,jepsen2020forwarding}, and machine-learning models have been run inside switches on
+ITCH data~\citep{zheng2024planter}. We found no measured order book or matching engine built inside a switch. At the extreme, application-specific chips fix a design in
 silicon, trading the reprogrammability of an FPGA for speed and power~\citep{kuon2007}.
 
 \subsection{Workload placement}
@@ -1207,8 +1271,9 @@ live trading is open.
   state-dependent kernels map to pipelines, are open.
 \item Whether the statistical properties of a strategy developed on one hardware and latency profile
   survive deployment on another---the research--production gap of Section~\ref{sec:kaspar-determinism}, at the hardware layer.
-\item Public, auditable benchmarks that cover book building and inference together, rather than
-  isolated kernels or vendor-defined paths.
+\item Public, auditable benchmarks that cover book building and inference together: STAC-T1 audits a whole
+  tick-to-trade path with simple logic, and STAC-ML audits inference alone, excluding data ingestion and features;
+  neither evaluates a learned model on a book it has built.
 \end{itemize}
 
 % ================================================================

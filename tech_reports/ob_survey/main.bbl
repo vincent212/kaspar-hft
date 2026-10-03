@@ -1,4 +1,4 @@
-\begin{thebibliography}{403}
+\begin{thebibliography}{423}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -415,6 +415,14 @@ Victor~D. Bourgin, Ioana Bica, and Mihaela van~der Schaar.
 \newblock Model-attentive ensemble learning for sequence modeling.
 \newblock arXiv preprint 2102.11500, 2021.
 
+\bibitem[Boutros et~al.(2017)Boutros, Grady, Abbas, and Chow]{boutros2017build}
+Andrew Boutros, Brett Grady, Mustafa Abbas, and Paul Chow.
+\newblock Build fast, trade fast: {FPGA}-based high-frequency trading using
+  high-level synthesis.
+\newblock In \emph{2017 International Conference on ReConFigurable Computing
+  and FPGAs (ReConFig)}, pages 1--6. IEEE, 2017.
+\newblock \doi{10.1109/RECONFIG.2017.8279781}.
+
 \bibitem[Bradbury et~al.(2018)Bradbury, Frostig, Hawkins, Johnson, Katariya,
   Leary, Maclaurin, Necula, Paszke, Vander{P}las, Wanderman-{M}ilne, and
   Zhang]{bradbury2018jax}
@@ -481,6 +489,14 @@ Emery~N. Brown, Riccardo Barbieri, Val{\'e}rie Ventura, Robert~E. Kass, and
   data analysis.
 \newblock \emph{Neural Computation}, 14\penalty0 (2):\penalty0 325--346, 2002.
 \newblock \doi{10.1162/08997660252741149}.
+
+\bibitem[Buckland and {STAC}(2025)]{stac_ml_limits2025}
+Stuart Buckland and {STAC}.
+\newblock Testing the limits of machine learning inference in finance.
+\newblock
+  \url{https://stacresearch.com/news/testing-the-limits-of-machine-learning-inference-in-finance/},
+  2025.
+\newblock Published 2025-10-28. Accessed 2026-10-04.
 
 \bibitem[Budish et~al.(2015)Budish, Cramton, and Shim]{budish2015}
 Eric Budish, Peter Cramton, and John Shim.
@@ -917,6 +933,13 @@ J.~Duarte, S.~Han, P.~Harris, S.~Jindariani, E.~Kreinar, B.~Kreis, J.~Ngadiuba,
 \newblock \emph{Journal of Instrumentation}, 13\penalty0 (07):\penalty0 P07027,
   2018.
 \newblock \doi{10.1088/1748-0221/13/07/P07027}.
+
+\bibitem[Dvorak and Korenek(2014)]{dvorak2014book}
+Milan Dvorak and Jan Korenek.
+\newblock Low latency book handling in {FPGA} for high frequency trading.
+\newblock In \emph{17th International Symposium on Design and Diagnostics of
+  Electronic Circuits and Systems (DDECS)}, pages 175--178. IEEE, 2014.
+\newblock \doi{10.1109/DDECS.2014.6868785}.
 
 \bibitem[Easley et~al.(2021)Easley, L{\'o}pez~de Prado, O'Hara, and
   Zhang]{easley2021}
@@ -1471,6 +1494,24 @@ Thibault Jaisson and Mathieu Rosenbaum.
 \newblock \emph{The Annals of Applied Probability}, 26\penalty0 (5), 2016.
 \newblock \doi{10.1214/15-AAP1164}.
 
+\bibitem[Jepsen et~al.(2018)Jepsen, Moshref, Carzaniga, Foster, and
+  Soul{\'e}]{jepsen2018packet}
+Theo Jepsen, Masoud Moshref, Antonio Carzaniga, Nate Foster, and Robert
+  Soul{\'e}.
+\newblock Packet subscriptions for programmable {ASICs}.
+\newblock In \emph{Proceedings of the 17th ACM Workshop on Hot Topics in
+  Networks (HotNets)}, pages 176--183. ACM, 2018.
+\newblock \doi{10.1145/3286062.3286092}.
+
+\bibitem[Jepsen et~al.(2020)Jepsen, Fattaholmanan, Moshref, Foster, Carzaniga,
+  and Soul{\'e}]{jepsen2020forwarding}
+Theo Jepsen, Ali Fattaholmanan, Masoud Moshref, Nate Foster, Antonio Carzaniga,
+  and Robert Soul{\'e}.
+\newblock Forwarding and routing with packet subscriptions.
+\newblock In \emph{Proceedings of the 16th International Conference on emerging
+  Networking EXperiments and Technologies (CoNEXT)}, pages 282--294. ACM, 2020.
+\newblock \doi{10.1145/3386367.3431315}.
+
 \bibitem[Jerome et~al.(2023)Jerome, S{\'a}nchez-Betancourt, Savani, and
   Herdegen]{jerome2023mbtgym}
 Joseph Jerome, Leandro S{\'a}nchez-Betancourt, Rahul Savani, and Martin
@@ -1777,6 +1818,22 @@ Nick Littlestone and Manfred~K. Warmuth.
   212--261, 1994.
 \newblock \doi{10.1006/inco.1994.1009}.
 
+\bibitem[Liu(2026)]{liu2026microsecond}
+Siyuan Liu.
+\newblock Microsecond-latency, fully on-chip limit order book prediction on an
+  edge {FPGA}: A lightweight {INT8} {1D-CNN} hardware--software co-design.
+\newblock \emph{IEEE Access}, 14:\penalty0 141192--141215, 2026.
+\newblock \doi{10.1109/ACCESS.2026.3732942}.
+
+\bibitem[Liu et~al.(2024)Liu, Chen, Ma, Yang, and Wan]{liu2024book}
+Yao Liu, Shiyang Chen, Long Ma, Guolong Yang, and Kun Wan.
+\newblock Real-time order book building and snapshot generating for high
+  frequency trading on {FPGA}.
+\newblock In \emph{2024 IEEE 35th International Conference on
+  Application-specific Systems, Architectures and Processors (ASAP)}, pages
+  71--76. IEEE, 2024.
+\newblock \doi{10.1109/ASAP61560.2024.00025}.
+
 \bibitem[Lockwood et~al.(2012)Lockwood, Gupte, Mehta, Blott, English, and
   Vissers]{lockwood2012}
 John~W. Lockwood, Adwait Gupte, Nishit Mehta, Michaela Blott, Tom English, and
@@ -1924,6 +1981,13 @@ Maxime Morariu-Patrichi and Mikko~S. Pakkanen.
 \newblock \emph{Quantitative Finance}, 22\penalty0 (3):\penalty0 563--583,
   2022.
 \newblock \doi{10.1080/14697688.2021.1983199}.
+
+\bibitem[Morris et~al.(2009)Morris, Thomas, and Luk]{morris2009fpga}
+Gareth~W. Morris, David~B. Thomas, and Wayne Luk.
+\newblock {FPGA} accelerated low-latency market data feed processing.
+\newblock In \emph{2009 17th IEEE Symposium on High Performance Interconnects
+  (HOTI)}, pages 83--89. IEEE, 2009.
+\newblock \doi{10.1109/HOTI.2009.17}.
 
 \bibitem[Mucciante and Sancetta(2024)]{mucciante2024}
 Luca Mucciante and Alessio Sancetta.
@@ -2543,12 +2607,89 @@ Satyam Srivastava, Akhil Arunkumar, Nithesh Kurella, Amrit Panda, Gaurav Jain,
 \newblock \emph{IEEE Micro}, 45\penalty0 (5):\penalty0 30--42, 2025.
 \newblock \doi{10.1109/MM.2025.3593444}.
 
-\bibitem[{STAC}(2024)]{exegy_stac2024}
+\bibitem[{STAC}(2019{\natexlab{a}})]{stac_exa181106}
+{STAC}.
+\newblock Stac reports: Exablaze under stac-t0 (tick-to-trade network i/o) and
+  stac-ts.pse (sut id exa181106).
+\newblock STAC news post (Internet Archive copy), audited STAC-T0,
+  2019{\natexlab{a}}.
+\newblock URL
+  \url{https://web.archive.org/web/20191021141855/https://stacresearch.com/news/2019/10/08/EXA181106}.
+\newblock Posted October 7, 2019. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2019{\natexlab{b}})]{stac_exg191010}
+{STAC}.
+\newblock Stac report: Cme tick-to-trade with exegy xero fpga card (sut id
+  exg191010).
+\newblock STAC news post, audited STAC-T1, 2019{\natexlab{b}}.
+\newblock URL \url{https://docs.stacresearch.com/news/EXG191010}.
+\newblock Posted October 15, 2019. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2020)]{stac_xlx200514}
+{STAC}.
+\newblock Stac report: New lda/xilinx solution under stac-t0 (tick-to-trade
+  network i/o) (sut id xlx200514).
+\newblock STAC news post, audited STAC-T0, 2020.
+\newblock URL \url{https://docs.stacresearch.com/news/XLX200514}.
+\newblock Posted May 25, 2020. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2023{\natexlab{a}})]{stac_ml_mrtl2023}
+{STAC}.
+\newblock {STAC} report: {STAC-ML} {Tacana} suite on {Myrtle.ai} {VOLLO} ({SUT}
+  {ID} {MRTL230426}).
+\newblock \url{https://stacresearch.com/news/mrtl230426/}, 2023{\natexlab{a}}.
+\newblock Audited, Tacana suite. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2023{\natexlab{b}})]{stac_ml_nvda2023}
+{STAC}.
+\newblock {STAC} reports: {STAC-ML} on an {NVIDIA} {A100} in a {Supermicro}
+  server ({SUT} {ID} {NVDA221118}).
+\newblock \url{https://stacresearch.com/news/nvda221118/}, 2023{\natexlab{b}}.
+\newblock Audited; SUT pages https://docs.stacresearch.com/NVDA221118a,
+  NVDA221118b, NVDA221118c. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2024{\natexlab{a}})]{exegy_stac2024}
 {STAC}.
 \newblock {STAC} report: New {STAC-T0} results with an {Exegy}/{AMD} {FPGA}
   solution.
-\newblock STAC Research news, 2024.
+\newblock STAC Research news, 2024{\natexlab{a}}.
 \newblock URL \url{https://docs.stacresearch.com/news/AMD240422}.
+
+\bibitem[{STAC}(2024{\natexlab{b}})]{stac_adhc240918}
+{STAC}.
+\newblock Stac report: Stac-t1 with adhoc teknoloji hfft-02a (versal premium)
+  based ultra low latency hft solution (sut id adhc240918).
+\newblock STAC news post, audited STAC-T1, 2024{\natexlab{b}}.
+\newblock URL \url{https://docs.stacresearch.com/news/ADHC240918}.
+\newblock Posted October 16, 2024. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2025)]{stac_ml_smc2025}
+{STAC}.
+\newblock {STAC-ML} markets (inference) on a {Supermicro} {ARS-111GL-NHR} with
+  {NVIDIA} {GH200} {Grace} {Hopper} superchip ({SUT} {ID} {SMC250910}).
+\newblock \url{https://docs.stacresearch.com/SMC250910}, 2025.
+\newblock Audited. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2026{\natexlab{a}})]{stac_ml_mrtl2026}
+{STAC}.
+\newblock {STAC-ML} pack for {myrtle.ai} {VOLLO} (rev c) with {Silicom}
+  {Artena} ({AMD} {VP1802} {FPGA}) on {Supermicro} {AS-2015CS-TNR} ({SUT} {ID}
+  {MRTL260323}).
+\newblock \url{https://docs.stacresearch.com/MRTL260323}, 2026{\natexlab{a}}.
+\newblock Audited, Tacana suite. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2026{\natexlab{b}})]{stac_ml_wg}
+{STAC}.
+\newblock {STAC-ML} working group.
+\newblock \url{https://docs.stacresearch.com/ml}, 2026{\natexlab{b}}.
+\newblock Accessed 2026-10-04.
+
+\bibitem[{STAC}(2026{\natexlab{c}})]{stac_ml_xlra2026}
+{STAC}.
+\newblock {STAC-ML} pack for {Xelera} {Silva} with {AMD} {Alveo} {V80} on an
+  {HPE} {ProLiant} {DL385} {Gen10} plus v2 server ({SUT} {ID} {XLRA260312}).
+\newblock \url{https://docs.stacresearch.com/XLRA260312}, 2026{\natexlab{c}}.
+\newblock Audited, GBT (El Popo) suite. Accessed 2026-10-04.
 
 \bibitem[Stock and Watson(2004)]{stockwatson2004}
 James~H. Stock and Mark~W. Watson.
@@ -2991,9 +3132,20 @@ Ban Zheng, Eric Moulines, and Fr{\'e}d{\'e}ric Abergel.
   242--255, 2013.
 \newblock \doi{10.4236/jmf.2013.32024}.
 
-\bibitem[Zheng et~al.(2024)Zheng, Li, Ouyang, Liang, and Shao]{zheng2024lobdif}
+\bibitem[Zheng et~al.(2024{\natexlab{a}})Zheng, Zang, Hong, Perreault,
+  Bensoussane, Vargaftik, Ben-Itzhak, and Zilberman]{zheng2024planter}
+Changgang Zheng, Mingyuan Zang, Xinpeng Hong, Liam Perreault, Riyad
+  Bensoussane, Shay Vargaftik, Yaniv Ben-Itzhak, and Noa Zilberman.
+\newblock Planter: Rapid prototyping of in-network machine learning inference.
+\newblock \emph{ACM SIGCOMM Computer Communication Review}, 54\penalty0
+  (1):\penalty0 2--21, 2024{\natexlab{a}}.
+\newblock \doi{10.1145/3687230.3687232}.
+
+\bibitem[Zheng et~al.(2024{\natexlab{b}})Zheng, Li, Ouyang, Liang, and
+  Shao]{zheng2024lobdif}
 Zetao Zheng, Guoan Li, Deqiang Ouyang, Decui Liang, and Jie Shao.
-\newblock Limit order book event stream prediction with diffusion model, 2024.
+\newblock Limit order book event stream prediction with diffusion model,
+  2024{\natexlab{b}}.
 \newblock Journal version: Zheng, Li, Liang and Shao, Data Science and
   Engineering 11(3):706--723, 2026, doi:10.1007/s41019-025-00328-4 (not read).
 
@@ -3009,6 +3161,15 @@ Muyao Zhong, Yushi Lin, and Peng Yang.
 \newblock Representation learning of limit order book: A comprehensive study
   and benchmarking, 2025{\natexlab{b}}.
 \newblock Preprint.
+
+\bibitem[Zilberman et~al.(2017)Zilberman, Grosvenor, Popescu, Manihatty-Bojan,
+  Antichi, W{\'o}jcik, and Moore]{zilberman2017where}
+Noa Zilberman, Matthew Grosvenor, Diana~Andreea Popescu, Neelakandan
+  Manihatty-Bojan, Gianni Antichi, Marcin W{\'o}jcik, and Andrew~W. Moore.
+\newblock Where has my time gone?
+\newblock In \emph{Passive and Active Measurement (PAM 2017)}, Lecture Notes in
+  Computer Science, pages 201--214. Springer, 2017.
+\newblock \doi{10.1007/978-3-319-54328-4_15}.
 
 \bibitem[Zumbach(2009)]{zumbach2009}
 Gilles Zumbach.
