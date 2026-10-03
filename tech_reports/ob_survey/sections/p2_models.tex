@@ -708,7 +708,8 @@ already symmetrised:
 import numpy as np
 
 def fit_microprice(x, y, dm, n_states, jumps, n_terms=6):
-    # x, y: state before / after each step; dm: mid change; jumps: sorted nonzero mid changes
+    # x, y: state before / after each step; dm: mid change;
+    # jumps: sorted nonzero mid changes
     U  = np.zeros((n_states, n_states))
     J1 = np.zeros((n_states, len(jumps)))
     J2 = np.zeros((n_states, n_states))
@@ -718,16 +719,17 @@ def fit_microprice(x, y, dm, n_states, jumps, n_terms=6):
         else:
             J1[xi, np.searchsorted(jumps, d)] += 1
             J2[xi, yi] += 1
-    total = U.sum(1) + J1.sum(1)                 # all transitions out of each state
-    U, J1, J2 = U / total[:, None], J1 / total[:, None], J2 / total[:, None]
-    A = np.linalg.inv(np.eye(n_states) - U)      # sums over steps with no mid change
-    g = A @ J1 @ jumps                           # g^(1)
+    total = U.sum(1) + J1.sum(1)       # all transitions out of each state
+    U, J1, J2 = (M / total[:, None] for M in (U, J1, J2))
+    # A sums over steps with no mid change
+    A = np.linalg.inv(np.eye(n_states) - U)
+    g = A @ J1 @ jumps                 # g^(1)
     B = A @ J2
     g_star = g.copy()
     for _ in range(n_terms - 1):
-        g = B @ g                                # g^(k+1) = B g^(k)
+        g = B @ g                      # g^(k+1) = B g^(k)
         g_star += g
-    return g_star                                # one adjustment per state
+    return g_star                      # one adjustment per state
 
 # online, at every book update:
 #   micro = mid + g_star[state(iota, spread)]
@@ -787,20 +789,22 @@ import numpy as np
 rng = np.random.default_rng(0)
 
 def microprice_mc(x0, U, Jk, jumps, n_changes=6, n_paths=100_000):
-    # U[x, y]: P(go to y, mid unchanged); Jk[j][x, y]: P(mid changes by jumps[j], go to y)
+    # U[x, y]: P(go to y, mid unchanged)
+    # Jk[j][x, y]: P(mid changes by jumps[j], go to y)
     n = U.shape[0]
-    P = np.hstack([U] + list(Jk))        # one row = all possible next steps from x
+    P = np.hstack([U] + list(Jk))   # row x: all possible next steps from x
     total = 0.0
     for _ in range(n_paths):
         x, dm, changes = x0, 0.0, 0
         while changes < n_changes:
             c = rng.choice(P.shape[1], p=P[x])
-            block, x = divmod(c, n)      # block 0: no mid change; block j: jump jumps[j-1]
+            # block 0: no mid change; block j: jump jumps[j-1]
+            block, x = divmod(c, n)
             if block > 0:
                 dm += jumps[block - 1]
                 changes += 1
         total += dm
-    return total / n_paths               # estimate of g_star[x0]
+    return total / n_paths          # estimate of g_star[x0]
 \end{lstlisting}
 Simulation needs one extra estimate the closed form does not: the joint probability of a jump of a given
 size \emph{and} the state the book lands in, which is $\mathbf{J}^{(2)}$ split by jump size. The two
@@ -6185,9 +6189,9 @@ def hawkes_biased_attention(E, t, Wq, Wk, Wv, log_alpha, omega):
     # E: one embedding row per event; t: event times (sorted)
     Q, K, V = E @ Wq, E @ Wk, E @ Wv
     scores = Q @ K.T / sqrt(Q.shape[1])
-    dt = t[:, None] - t[None, :]              # elapsed time from event n' to event n
-    scores = scores + (log_alpha - omega * dt)   # log of the exponential kernel
-    scores[dt < 0] = -inf                     # causal: no attention to later events
+    dt = t[:, None] - t[None, :]     # time from event n' to event n
+    scores = scores + (log_alpha - omega * dt)  # log of exp. kernel
+    scores[dt < 0] = -inf            # causal: no attention to later events
     return softmax(scores, axis=1) @ V
 \end{lstlisting}
 The added cost over standard attention is one subtraction per pair of events.
@@ -7002,7 +7006,7 @@ day to day, so each input is standardised---its mean subtracted, divided by its 
 must come only from the past: DeepLOB normalises each day with the mean and standard deviation of the previous five
 days, separately for each stock. Using statistics from the whole sample would leak future information into the
 inputs. How inputs are normalised turns out to matter a great deal (Section~\ref{sec:deep-cnn}).
-\lstinputlisting[style=pycode, firstline=3, lastline=12, caption={Normalising each day with the previous five
+\lstinputlisting[style=pycode, firstline=3, lastline=13, caption={Normalising each day with the previous five
 days.}, label=lst:norm]{code/deep_lob_example/lob_normalise.py}
 
 \paragraph{Step 3: windows and labels.} Each training example pairs an input window with a target. The input $X_t$ is
@@ -7033,7 +7037,7 @@ when to stop, and tests on the last three. The split must follow time: shuffling
 almost identical, overlapping windows into both training and test sets, and reports skill the model does not have.
 Several published studies made this mistake (Section~\ref{sec:deep-real}). The example trains on 9 days,
 validates on 3 and tests on the last 3, after the first 5 days are used only for the normalisation statistics.
-\lstinputlisting[style=pycode, firstline=14, lastline=16, caption={Splitting by time.}, label=lst:split]{code/deep_lob_example/lob_normalise.py}
+\lstinputlisting[style=pycode, firstline=15, lastline=19, caption={Splitting by time.}, label=lst:split]{code/deep_lob_example/lob_normalise.py}
 
 \paragraph{Step 5: train.} The network outputs three probabilities, $\hat p_{\text{down}}$, $\hat p_{\text{stat}}$ and
 $\hat p_{\text{up}}$. Training adjusts the weights to make the probability of the observed label as high as

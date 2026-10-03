@@ -484,7 +484,7 @@ one simulated order S:
 #0  resting:            R1(10) R2(5) R3(20)
 #1  S(3) arrives:       R1(10) R2(5) R3(20) S(3)      appended at tail
 #2  R2 cancels:         R1(10) R3(20) S(3)            S moves up
-#3  exec 10 vs R1:      R3(20) S(3)                   no sim order ahead of R1: no fill
+#3  exec 10 vs R1:      R3(20) S(3)                   none ahead of R1: no fill
 #4  exec 20 vs R3:      S(3)                          S is behind R3: no fill
 #5  R4(8) joins:        S(3) R4(8)
 #6  exec 5 vs R4:       R4 is head real, S ahead  ->  S filled 3 @ 5000.00
@@ -673,24 +673,44 @@ the model actor, the \texttt{Prediction} message and its handler in the strategy
 \end{enumerate}
 
 In outline (the full sketch, with the file and line of every call used, is in the notes accompanying this survey):
-\begin{lstlisting}[language=C++, basicstyle=\ttfamily\footnotesize]
-struct Prediction : actors::MessageT<Prediction> {          // new message type
-  uint sym; uint64_t market_time; double value; };
+\begin{lstlisting}[language=C++]
+namespace ob_msg  = frame::ob::msg;
+namespace mda_msg = frame::mda::msg;
 
-class ImbalanceModel : public actors::Actor {               // new model actor
-  actor_ptr ob; std::vector<actor_ptr> lights;
+// New message type: the model's output for one book update.
+struct Prediction : actors::MessageT<Prediction> {
+  uint     sym;          // instrument
+  uint64_t market_time;  // time of the book update it came from
+  double   value;        // e.g. queue imbalance in [-1, 1]
+  Prediction(uint s, uint64_t t, double v)
+      : sym(s), market_time(t), value(v) {}
+};
+
+// New actor: subscribes to the book, publishes one prediction per update.
+class ImbalanceModel : public actors::Actor {
+  actor_ptr ob;                    // the order book it reads
+  std::vector<actor_ptr> lights;   // the strategy actors it feeds
+
  public:
-  ImbalanceModel(actor_ptr ob_, std::vector<actor_ptr> l, const char* nm) : ob(ob_), lights(l) {
+  ImbalanceModel(actor_ptr ob_, std::vector<actor_ptr> lights_)
+      : ob(ob_), lights(std::move(lights_)) {
     MESSAGE_HANDLER(actors::msg::Start, on_start);
-    MESSAGE_HANDLER(frame::ob::msg::EndOfBurst, on_book); }
+    MESSAGE_HANDLER(ob_msg::EndOfBurst, on_book);
+  }
+
   void on_start(const actors::msg::Start*) {
-    ob->send(new frame::mda::msg::Subscribe(frame::mda::msg::Subscribe::HI), this); }
-  void on_book(const frame::ob::msg::EndOfBurst* m) {
-    const auto& p = m->payload->point_;                     // up to 16 levels per side
-    double b = p.bid_sz[0], a = p.ask_sz[0];
+    ob->send(new mda_msg::Subscribe(mda_msg::Subscribe::HI), this);
+  }
+
+  void on_book(const ob_msg::EndOfBurst* m) {
+    const auto& pl = m->payload;          // the book after the burst
+    double b = pl->point_.bid_sz[0];      // size at the best bid
+    double a = pl->point_.ask_sz[0];      // size at the best ask
     if (a + b <= 0) return;
-    for (auto l : lights)                                   // one new message per recipient
-      l->send(new Prediction{.., (b - a) / (b + a)}, this); }
+    double imb = (b - a) / (b + a);
+    for (auto l : lights)                 // a new message per recipient
+      l->send(new Prediction(pl->sym, pl->txtim_epoch, imb), this);
+  }
 };
 \end{lstlisting}
 

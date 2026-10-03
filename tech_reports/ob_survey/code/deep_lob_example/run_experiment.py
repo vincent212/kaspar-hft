@@ -15,8 +15,9 @@ torch.manual_seed(0)
 DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
 RELATIVE = len(sys.argv) > 1 and sys.argv[1] == "relative"     # price input variant
 raw = make_days(n_days=20, n_events=3000, seed=1)
-days = normalise_days(raw)                                       # 5 days used for statistics
-days = [(b, m, rb) for (b, m), (rb, _) in zip(days, raw[5:])]    # keep raw prices for the variant
+days = normalise_days(raw)              # 5 days used for statistics
+# keep raw prices for the relative-price variant
+days = [(b, m, rb) for (b, m), (rb, _) in zip(days, raw[5:])]
 tr, va, te = split_by_time(days, n_train=9, n_val=3)             # 9 / 3 / 3 days
 
 def build(part, past_average, theta):
@@ -31,22 +32,26 @@ def build(part, past_average, theta):
         # baselines, using only information available at time t
         past_mean = np.array([mid[i - H + 1:i + 1].mean() for i in tk])
         r = to_class((mid[tk] - past_mean) / past_mean, theta)
-        prev = np.concatenate([np.full(H, 1), y[:-H]])   # label of t - H (flat before it exists)
+        # label of t - H (flat before it exists)
+        prev = np.concatenate([np.full(H, 1), y[:-H]])
         Xs.append(X); ys.append(y); rule.append(r); last.append(prev)
     cat = np.concatenate
     return (torch.tensor(cat(Xs), dtype=torch.float32), torch.tensor(cat(ys)),
             cat(rule), cat(last))
 
 for past_average in (True, False):
-    name = "smoothed label (past average)" if past_average else "leak-free label (current mid)"
-    print(f"\n=== {name}; prices {'relative to last mid' if RELATIVE else 'z-scored by day'} ===")
+    name = ("smoothed label (past average)" if past_average
+            else "leak-free label (current mid)")
+    prices = "relative to last mid" if RELATIVE else "z-scored by day"
+    print(f"\n=== {name}; prices {prices} ===")
     # threshold: set on the training days so that about a third of labels are 'flat'
     ch = np.concatenate([smoothed_change(m, H, past_average)[1] for _, m, _ in tr])
     theta = np.quantile(np.abs(ch), 1 / 3)
     X_tr, y_tr, _, _ = build(tr, past_average, theta)
     X_va, y_va, _, _ = build(va, past_average, theta)
     X_te, y_te, rule_te, last_te = build(te, past_average, theta)
-    print("class shares (test):", np.bincount(y_te.numpy(), minlength=3) / len(y_te))
+    shares = np.bincount(y_te.numpy(), minlength=3) / len(y_te)
+    print("class shares (test):", shares)
     model = train(DeepLOB(), X_tr, y_tr, X_va, y_va, device=DEVICE)
     score("DeepLOB", y_te.numpy(), predict(model, X_te, DEVICE).numpy())
     score("past-only rule", y_te.numpy(), rule_te)

@@ -2,14 +2,17 @@ import copy
 import torch
 from torch import nn
 
-def train(model, X_tr, y_tr, X_va, y_va, lr=1e-4, batch=128, max_epochs=30, patience=5, device="cpu"):
+def train(model, X_tr, y_tr, X_va, y_va, lr=1e-4, batch=128,
+          max_epochs=30, patience=5, device="cpu"):
     model.to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
-    loss_fn = nn.CrossEntropyLoss()              # softmax + minus log-probability of the true class
+    # softmax + minus log-probability of the true class
+    loss_fn = nn.CrossEntropyLoss()
     best, best_val, bad = None, float("inf"), 0
     for epoch in range(max_epochs):
         model.train()
-        order = torch.randperm(len(X_tr))        # shuffle batches within the training period only
+        # shuffle batches within the training period only
+        order = torch.randperm(len(X_tr))
         for i in range(0, len(order), batch):
             j = order[i:i + batch]
             loss = loss_fn(model(X_tr[j].to(device)), y_tr[j].to(device))
@@ -21,18 +24,22 @@ def train(model, X_tr, y_tr, X_va, y_va, lr=1e-4, batch=128, max_epochs=30, pati
         else:
             bad += 1
             if bad >= patience:
-                break                            # stop: validation has not improved
-    model.load_state_dict(best)                  # keep the best weights seen
+                break                    # stop: validation has not improved
+    model.load_state_dict(best)          # keep the best weights seen
     return model
 
 @torch.no_grad()
 def validation_loss(model, X, y, loss_fn, device, batch=1024):
     model.eval()
-    total = sum(loss_fn(model(X[i:i + batch].to(device)), y[i:i + batch].to(device)).item() * len(X[i:i + batch])
-                for i in range(0, len(X), batch))
+    total = 0.0
+    for i in range(0, len(X), batch):
+        xb, yb = X[i:i + batch].to(device), y[i:i + batch].to(device)
+        total += loss_fn(model(xb), yb).item() * len(xb)
     return total / len(X)
 
 @torch.no_grad()
 def predict(model, X, device="cpu", batch=1024):
     model.eval()
-    return torch.cat([model(X[i:i + batch].to(device)).argmax(1).cpu() for i in range(0, len(X), batch)])
+    out = [model(X[i:i + batch].to(device)).argmax(1).cpu()
+           for i in range(0, len(X), batch)]
+    return torch.cat(out)
