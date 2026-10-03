@@ -258,8 +258,9 @@ A replay that can answer the execution questions of this part needs:
 \end{enumerate}
 
 \begin{lstlisting}
-replay:  signal at t -> order leaves at t
-         -> arrives at t + feed delay + order delay
+replay:  strategy sees the book at market time t
+         (the feed reached it a feed delay after the exchange event)
+         -> order arrives at the exchange at t + feed delay + order delay
          -> appended at the tail of the real FIFO queue at its price
          -> filled only when recorded executions reach an order behind it
          -> P&L from the actual (simulated) fill time and price
@@ -730,6 +731,9 @@ class ImbalanceModel : public actors::Actor {
 
   void on_book(const ob_msg::EndOfBurst* m) {
     const auto& pl = m->payload;          // the book after the burst
+    // skip bad data and bursts sent while the book is being rebuilt
+    // after a gap, as the strategy actors do
+    if (!pl || pl->point_.baddata || pl->recovery) return;
     double b = pl->point_.bid_sz[0];      // size at the best bid
     double a = pl->point_.ask_sz[0];      // size at the best ask
     if (a + b <= 0) return;
@@ -862,8 +866,8 @@ bandwidth~\citep{nvidia_cuda_bpg}; a single small transfer over PCIe has been me
 (for a network card, not a GPU)~\citep{neugebauer2018pcie}.
 
 \paragraph{Measured latencies of order-book models.} Table~\ref{tab:lob-latency} collects the published inference
-times we found. They are in milliseconds, three or more orders of magnitude above the microseconds of the book
-update. They are not comparable across rows: devices, software and, in two of the three sources, the batch size
+times we found. They range from about 25\,\textmu s to about 23\,ms---from about 3 to about 3,000 times the roughly
+8\,\textmu s socket-to-book latency of Section~\ref{sec:kaspar-measurement}, and most are in milliseconds. They are not comparable across rows: devices, software and, in two of the three sources, the batch size
 differ or are not stated. Latency also does not follow operation counts: in one study a gradient-boosted model with 23
 times more structural work than another was 15 times faster~\citep{hedges2026frontier}.
 

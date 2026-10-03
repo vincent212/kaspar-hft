@@ -1,4 +1,5 @@
 import numpy as np
+from synthetic_book import TICK
 
 def smoothed_change(mid, H, past_average):
     """Relative change of the average of the next H mids, measured from
@@ -31,5 +32,5 @@ def relative_prices(X, raw_windows):
     last = raw_windows[:, -1, :]
     mid_last = (last[:, 0] + last[:, 2]) / 2  # (best ask + best bid) / 2
     for col in range(0, 40, 2):               # columns 0, 2, ... are prices
-        X[:, :, col] = (raw_windows[:, :, col] - mid_last[:, None]) / 0.25
+        X[:, :, col] = (raw_windows[:, :, col] - mid_last[:, None]) / TICK
     return X

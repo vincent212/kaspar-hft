@@ -7050,17 +7050,20 @@ days.}, label=lst:norm]{code/deep_lob_example/lob_normalise.py}
 \paragraph{Step 3: windows and labels.} Each training example pairs an input window with a target. The input $X_t$ is
 the last 100 snapshots of the book, each with 40 numbers---price and size, bid and ask, at ten levels---so a $100
 \times 40$ matrix. The target is the direction of the mid-price $m_t$ over the next $H$ events. Because the mid
-changes in small, noisy steps, labels are usually smoothed: with $m^+_t$ the average of the next $H$ mid-prices,
+changes in small, noisy steps, the future price is usually averaged: with $m^+_t$ the average of the next $H$
+mid-prices,
 \begin{equation}
-\ell_t = \frac{m^+_t - m_t}{m_t},
+\mathrm{chg}_t = \frac{m^+_t - m_t}{m_t},
 \qquad
-y_t = \begin{cases} \text{up} & \ell_t > \theta,\\ \text{down} & \ell_t < -\theta,\\ \text{stationary} & \text{otherwise,}\end{cases}
+y_t = \begin{cases} \text{up} & \mathrm{chg}_t > \theta,\\ \text{down} & \mathrm{chg}_t < -\theta,\\ \text{stationary} & \text{otherwise,}\end{cases}
 \label{eq:deep-label}
 \end{equation}
 \inwords{compare the average price over the next $H$ events with the price now; call it up or down if the
-percentage change exceeds a threshold $\theta$, and stationary otherwise.} DeepLOB uses this label, or a variant that
-replaces $m_t$ by the average of the previous $H$ mid-prices, with $H = 20$, 50 and 100 events. The threshold sets
-how many examples fall in each class. Both choices change the problem: smoothing the past as well as the future
+percentage change exceeds a threshold $\theta$, and stationary otherwise.} This label averages only the future; it
+is measured from the current price. DeepLOB uses it, or a variant that also averages the past, replacing $m_t$ by the
+average of the previous $H$ mid-prices; this survey calls that variant the \emph{smoothed label}. DeepLOB uses
+$H = 20$, 50 and 100 events. The threshold sets
+how many examples fall in each class. Both choices change the problem: averaging the past as well as the future
 makes the label partly predictable from the past, which inflates accuracy~\citep{lee2024predictability}
 (Section~\ref{sec:deep-real}).
 
@@ -7099,8 +7102,7 @@ Listing~\ref{lst:model} is DeepLOB in PyTorch, following the description of Sect
 its parameter count gives 60,947: the same as Table~\ref{tab:deeplob-params} stage by stage, except the LSTM,
 where PyTorch keeps two bias vectors per gate instead of one ($4 \times 64 = 256$ more). Listing~\ref{lst:train}
 is the training loop. It uses Adam with a learning rate of 0.0001 and batches of 128, the values in the authors'
-public TensorFlow notebook, which differ from the 0.01 and 32 stated in the paper; with 0.01 our run predicted a
-single class for the first two epochs, and we did not pursue it. To keep the run short, training stops after 5
+public TensorFlow notebook, which differ from the 0.01 and 32 stated in the paper. To keep the run short, training stops after 5
 epochs without improvement instead of 20, and after 30 epochs at most.
 \lstinputlisting[style=pycode, caption={DeepLOB in PyTorch.}, label=lst:model]{code/deep_lob_example/lob_model.py}
 \lstinputlisting[style=pycode, caption={Training with early stopping on the validation days.}, label=lst:train]{code/deep_lob_example/lob_train.py}
@@ -7151,8 +7153,8 @@ What the table shows:
   the label that is already known at $t$ (Equation~\eqref{eq:label-leak}) and matches the past-only rule. Every
   point above one in three comes from the label, none from the book.
 \item \textbf{Smoothed label, z-scored prices: the network learns nothing.} Z-scored with five days of statistics, the
-  price columns mostly record where the price is relative to the previous days (average size 2.1 units). The
-  movement within a window is much smaller: the median change over 20 events is 0.039 units. In these runs the
+  price columns mostly record where the price is relative to the previous days (average size 2.1 units on the 3 test
+  days). The movement within a window is much smaller: the median change over 20 events on those days is 0.039 units. In these runs the
   network did not pick it up and predicted the most common class. Measuring prices from the current mid makes the
   movement visible. The input normalisation decided whether this network could use the information at all, a
   small instance of the finding of Section~\ref{sec:deep-cnn} that normalisation matters as much as architecture.
@@ -7285,11 +7287,13 @@ $\E[\Pi \mid X_t]$ & what do I expect to earn? & the decision itself \\
 \end{table}
 
 Two published results show that these really are different problems. In \citet{lee2024predictability}, splitting
-DeepLOB's 53.6\% accuracy on Apple into its parts, the network was right 69.4\% of the time about \emph{whether}
+the 53.6\% accuracy of DeepLOB's level-1 variant (best prices and sizes only, label measured from the current price)
+on Apple into its parts, the network was right 69.4\% of the time about \emph{whether}
 the price would move, and 71.1\% of the time about the direction when it correctly predicted a move; with only the
-best prices as input, its accuracy on direction fell to about 50\%. Whether the price moves and which way it moves
+best prices as input, without their sizes, its accuracy on direction fell to about 50\%. Whether the price moves and which way it moves
 are different questions, with different answers in the data. And in the re-test of DeepLOB on fifteen Nasdaq stocks
-by \citet{briola2024}, the highest F1 score for direction, 0.79 (one stock, one horizon), came with a score of 0.00
+by \citet{briola2024}, the highest F1 score for direction, 0.79 (one large-tick stock, one horizon, counting only predictions made
+with confidence of at least 0.9), came with a score of 0.00
 on a measure of correctly executed round-trip trades---a buy followed by a sell, or the reverse; the measure is
 described in Section~\ref{sec:benchmarks-dl}---at the same setting: a high classification score did not
 translate into trades that could be executed correctly (Section~\ref{sec:benchmarks-dl}). Comparing models scored on different targets in
@@ -7572,7 +7576,7 @@ DeepLOB), and before that the input normalisation, the label threshold and the h
 (down/stationary/up), with chronological train, validation and test splits.}
 \cardrow{What you do with it}{Short-horizon direction probabilities, used as a signal or as one input
 to an execution decision.}
-\cardrow{How to picture it}{The book as an image---time across, price levels down---scanned by small
+\cardrow{How to picture it}{The book as an image---time down the rows, the book's columns across---scanned by small
 filters that find local patterns, followed by a memory that reads the patterns in order.}
 \end{modelcard}
 
@@ -7630,8 +7634,9 @@ Event & What happened & Key: (sellers leaving, & Value: lots \\
 \item \textbf{Average the values with these weights}: $0.67 \times 40 + 0.09 \times 0 + 0.24 \times 20 \approx 31.5$
   lots (computed with unrounded weights).
 \end{enumerate}
-The result reads: ``about 31.5 lots have recently been taken away from the ask, counting mostly the events that
-look like sellers leaving''. The cancellation dominates because its key matches the question best; the limit buy
+The result is a weighted average of the lots each event removed, about 31.5 lots per event, in which the events
+that look like sellers leaving count most. It is not a total: the three events together removed 60 lots, and a
+weighted average can never exceed the largest single value, 40. The cancellation dominates because its key matches the question best; the limit buy
 at the bid, which says nothing about sellers, gets almost no weight. A different current event, with a different
 query, would weight the same three events differently.
 
@@ -8682,8 +8687,8 @@ $N_{\text{correct}}$ those in both sets.
 \inwords{$\mathrm{TO}$, which its authors call $p_T$, is the overlap between the trades the model would make and the trades that were
 actually there to be made, as a fraction of their union---a score of 1 means the model traded exactly
 the available opportunities, 0 means no overlap.} The values are sobering: between about 0.01 and 0.19
-across stocks and horizons, and close to zero for small-tick stocks once a confidence threshold is
-applied, even where F1 is high. Predictability, by both F1-type and transaction-level measures, is
+across stocks and horizons at the lowest confidence threshold, and close to zero for small-tick stocks at
+thresholds of 0.5 and above; even where F1 is high, as at the highest threshold, the score can be zero. Predictability, by both F1-type and transaction-level measures, is
 higher for large-tick stocks---those whose average spread is below about 1.5 ticks---than for
 small-tick stocks, whose spread exceeds about 3 ticks. The authors conclude that ``high forecasting
 power does not necessarily correspond to actionable trading signals''.

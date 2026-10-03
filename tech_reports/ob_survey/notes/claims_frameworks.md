@@ -80,3 +80,8 @@ Note: `main.tex` line 116 `\bibliography{...}` does not include `bib/refs_framew
 - **bradbury2018jax** — VERIFIED against the "Citing JAX" section of github.com/jax-ml/jax README: `@software{jax2018github, ...}`, 12 authors in alphabetical order (Bradbury ... Zhang), title "{JAX}: composable transformations of {P}ython+{N}um{P}y programs", url http://github.com/jax-ml/jax, version 0.3.13, year 2018. README says year = open-source release and version should match `jax/version.py`. Converted to `@misc` (plainnat does not know `@software`).
 - **chollet2015keras** — VERIFIED against keras.io FAQ BibTeX (`@misc{chollet2015keras, title={Keras}, author={Chollet, Fran\c{c}ois and others}, year={2015}, howpublished={\url{https://keras.io}}}`) and keras-team/keras `CITATION.cff` (Chollet, François + "others"/"Keras Contributors", date-released 2015-03-27, url https://keras.io).
 - **pedregosa2011sklearn** — VERIFIED against jmlr.org page and its BibTeX: 16 authors (Pedregosa ... Duchesnay), "Scikit-learn: Machine Learning in Python", JMLR 12(85):2825–2830, 2011, ISSN 1533-7928. No DOI.
+
+### DeepLOB public notebook hyper-parameters (checked 2026-10-03, raw files from the repo's master branch)
+- `jupyter_tensorflow/run_train_tensorflow-version1.ipynb`: `adam = keras.optimizers.Adam(lr=0.0001)`; `model.fit(..., epochs=200, batch_size=128, ...)`.
+- `jupyter_pytorch/run_train_pytorch.ipynb`: `batch_size = 64`; the model uses `nn.BatchNorm2d(32)` layers (not in the paper's description).
+- The paper (zhang2019) states learning rate 0.01 and mini-batches of 32. The survey's example uses the TF notebook's 0.0001 and 128.
