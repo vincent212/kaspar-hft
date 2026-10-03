@@ -6,8 +6,9 @@ empty (Section~\ref{sec:queue-models}); to Hawkes processes, which model how eve
 events (Section~\ref{sec:hawkes}). It then adds learning in three steps of decreasing structure:
 meta-models, which feed the outputs of the classical models to a learner (Section~\ref{sec:meta});
 structural hybrids, which build classical structure inside a network (Section~\ref{sec:hybrid}); and deep
-networks that learn from the book with little imposed structure (Section~\ref{sec:deep}). It ends with
-information from related instruments (Section~\ref{sec:cross}). Every model ends with a model card answering the same four questions.
+networks that learn from the book with little imposed structure (Section~\ref{sec:deep}). Information from
+related instruments is treated with the signals (Section~\ref{sec:cross}), with Hawkes models and with deep models,
+rather than in a separate section. Every model ends with a model card answering the same four questions.
 
 % ================================================================
 \section{Stylised facts a model should reproduce}
@@ -64,7 +65,7 @@ from the stream of book events, and \emph{queue imbalance}, which measures how l
 queues are at an instant. It then describes further features of the book's shape beyond the best
 level, and shows how a few such features can be mapped to a state from which the expected future price
 is calibrated---the micro-price, a better estimate of the ``true'' price than the mid or the weighted
-mid. These signals are cheap, interpretable and hard to beat, which makes them the baselines for
+mid. It ends with order flow across related instruments and the lead--lag between futures and cash. These signals are cheap, interpretable and hard to beat, which makes them the baselines for
 everything that follows.
 
 \paragraph{Snapshot models.} Everything in this section is built from \emph{snapshots} of the book:
@@ -187,14 +188,6 @@ level included. \citet{contcucuringu2023} combine the level-wise imbalances into
 89\% of its variance. On the 100 largest S\&P~500 stocks over 2017--2019 the integrated OFI raises
 the average out-of-sample $R^2$ of the contemporaneous price-impact regression from about 65\%
 (best level only) to about 84\%.
-
-\paragraph{Order flow in other instruments.} The same study asks whether the order flow of
-\emph{other} stocks helps (cross-impact, Section~\ref{sec:cross}). Two answers are needed. For the
-\emph{contemporaneous} price change, once integrated OFI is used, adding other stocks' order flow
-does not improve the out-of-sample fit. For \emph{forecasting} the next minute's return, lagged
-order flow of other stocks does help significantly, although the out-of-sample $R^2$ of all the
-forecasting models remains slightly negative and the effect decays within minutes. Explaining the
-present and predicting the future are, again, different problems.
 
 \paragraph{Horizon and reversal.} The predictive content of order imbalance depends on the horizon.
 In Chinese equities, \citet{zhang2025oi} find that order imbalance predicts returns positively from
@@ -842,6 +835,97 @@ better reference than the mid or weighted mid for predicting short-term price ch
 every path the next few changes can take: the micro-price is where those paths land on average.}
 \end{modelcard}
 
+\subsection{Order flow across instruments}
+\label{sec:cross}
+
+The signals above use the book of one instrument. Related instruments---an index future and its constituents, ES
+and NQ, futures and the cash market, the points of the Treasury curve---trade on related information, so the book of
+one can carry information about another. This subsection extends OFI to several instruments, summarises the evidence
+on stocks and on the Treasury curve, and then turns to lead--lag between futures and cash, the form in which
+cross-instrument information is mainly used in execution. Cross-asset Hawkes models are in
+Section~\ref{sec:hawkes-variants} and multi-asset deep models in Section~\ref{sec:deep-multi}.
+
+\paragraph{Cross-impact regression.} A simple cross-impact form is
+\begin{equation}
+  m^{(\kappa)}_t - m^{(\kappa)}_{t-w} = \sum_{\kappa'} \beta_{\kappa \kappa'}\, \OFI^{(w,\kappa')}_t + \varepsilon^{(\kappa)}_t ,
+\end{equation}
+where the superscripts $(\kappa)$ and $(\kappa')$ index instruments, $m^{(\kappa)}_t$ is the mid of instrument $\kappa$,
+$\OFI^{(w,\kappa')}_t$ is the order-flow imbalance of instrument $\kappa'$, $\beta_{\kappa \kappa'}$ is the cross-impact
+of instrument $\kappa'$'s flow on instrument $\kappa$'s mid, and $\varepsilon^{(\kappa)}_t$ is a residual.
+\inwords{the same straight-line fit as before, except that each instrument's price change may
+respond to the buying pressure in \emph{every} instrument. The coefficients form a matrix; the
+diagonal is each instrument's own impact and the off-diagonal entries are the cross effects.} The form covers
+index constituents, ETF and constituents, futures and cash, correlated equities, related
+fixed-income contracts and cross-venue cryptocurrency markets.
+
+\begin{example}[Coefficients multiply]
+For NQ,
+\[
+  m^{(\text{NQ})}_t - m^{(\text{NQ})}_{t-w} = \beta_{\text{NQ},\text{NQ}}\OFI^{(w,\text{NQ})}_t +
+  \beta_{\text{NQ},\text{ES}}\OFI^{(w,\text{ES})}_t + \varepsilon^{(\text{NQ})}_t
+\]
+has two coefficients. Ten related instruments, each predicted from all ten OFIs at five lags, gives
+$10 \times 10 \times 5 = 500$ coefficients. At a 5\% level about 25 are ``significant'' under the
+null alone.
+\end{example}
+
+\paragraph{Evidence on stocks.} \citet{contcucuringu2023}, on the 100 largest S\&P~500 stocks over 2017--2019, ask whether the order flow of
+\emph{other} stocks helps. Two answers are needed. For the
+\emph{contemporaneous} price change, once integrated OFI is used, adding other stocks' order flow
+does not improve the out-of-sample fit. For \emph{forecasting} the next minute's return, lagged
+order flow of other stocks does help significantly, although the out-of-sample $R^2$ of all the
+forecasting models remains slightly negative and the effect decays within minutes. Explaining the
+present and predicting the future are, again, different problems.
+
+\paragraph{The Treasury curve.} For interest-rate futures the related instruments are the points of the
+yield curve. On daily inter-dealer data from 1992 to 1999, order-flow imbalances explain up to 26\% of
+day-to-day yield changes on days without major announcements, and most of that effect comes from a
+factor common to all maturities: net buying across the whole curve says more about the level of yields
+than buying in one maturity~\citep{brandt2004}. At one-minute resolution, \citet{tomas2022} compare
+cross-impact models on 10-year Treasury note futures and E-mini futures jointly and find that
+models built on the covariance of returns and order flow, such as a multivariate Kyle model, fit out of
+sample far better than a model with only direct (own-instrument) impact. We found no published
+intraday cross-impact study covering the full Treasury futures curve.
+
+\paragraph{Lead--lag between futures and cash.} The clearest cross-asset structure in futures is that
+one market moves first. For the S\&P~500 and Nasdaq-100, most price discovery happens in the E-mini
+futures rather than in the cash index or ETF~\citep{hasbrouck2003}. At high frequency the lead is
+measured in milliseconds and is bounded by the physical distance between data centres. Between Chicago,
+where CME matches, and the New Jersey equity venues, the response of SPY to E-mini price changes took
+7.25--7.95\,ms in April 2010, fell after a straighter fibre route was built, and was estimated at 4.2--5.2\,ms
+over microwave links, against a speed-of-light minimum of 3.93\,ms; about 20\% of SPY trading could be
+identified as a direct response to E-mini moves~\citep{laughlin2014}. Measuring how often trades in two
+markets occur at a given time offset, \citet{dobrev2017} find activity peaks at $\pm 5$\,ms between
+10-year Treasury futures and cash Treasuries, with leadership running both ways, a clear lead of the
+E-mini over SPY at $+5$\,ms, and a lead of the E-mini over cash Treasuries but not the reverse. The
+order-flow link between SPY and the E-mini is ``positive, but short-lived'': beyond one second the
+correlations have little economic significance~\citep{garrison2019}.
+
+\paragraph{Estimating the lag.} Two markets trade at different, irregular times, so the usual
+correlation of returns sampled on a common grid is biased towards zero (the Epps effect). The
+Hayashi--Yoshida estimator avoids the grid by summing products of returns over every pair of
+overlapping intervals; shifting one series by a candidate lag and choosing the lag that maximises the
+estimated correlation gives a consistent lead--lag estimator~\citep{hoffmann2013leadlag}. On European data,
+\citet{huth2014} find with this method that the CAC~40 future leads a large constituent stock by about
+0.6 seconds on average, and that the leader's past alone predicts the direction of the lagger's next
+mid-quote move about 60\% of the time---yet a naive strategy that crosses the spread on that forecast
+does not make money.
+
+Cross-asset models should therefore report in-sample and out-of-sample improvement, incremental
+economic value, added latency, parameter count and stability across regimes.
+
+\begin{modelcard}{Cross-asset models}
+\cardrow{What you calibrate}{The cross-impact matrix $\beta_{\kappa\kappa'}$ and the lags at which it
+acts; for a cross-asset Hawkes model, the cross-excitation kernels between instruments.}
+\cardrow{How}{Regression of each instrument's price change on the order flow of all (with shrinkage or
+a factor structure to control the number of coefficients); lead--lag by maximising a Hayashi--Yoshida
+correlation over candidate lags; Hawkes cross-kernels by maximum likelihood.}
+\cardrow{What you do with it}{Use the leader's move to anticipate the lagger---mainly to protect resting
+orders in the lagging market from being picked off---and hedge across related contracts.}
+\cardrow{How to picture it}{Thunder after lightning: the futures move is the flash and the cash market
+the sound, a few milliseconds later; the lag is set by distance.}
+\end{modelcard}
+
 \paragraph{The signals at a glance.} Table~\ref{tab:signals} summarises the signals of this
 section.
 
@@ -862,6 +946,8 @@ Weighted mid & price leaning toward the thin side & next mid change & none & noi
 Micro-price~\citep{stoikov2018} & expected future mid given imbalance and spread & a few mid changes & Markov chain on imbalance and spread buckets & assumes Markov dynamics; needs symmetrised data \\
 Book slope, curvature & how liquidity is spread across levels & longer & descriptive & sensitive to transient deep orders \\
 Resilience~\citep{large2007} & speed of refill after trades & seconds & Hawkes impulse response & varies strongly across regimes \\
+Cross-asset OFI~\citep{contcucuringu2023} & pressure in related instruments & lagged: about a minute & regression with shrinkage & many coefficients; gain decays within minutes \\
+Lead--lag~\citep{huth2014} & which market moves first & milliseconds to seconds & Hayashi--Yoshida correlation over lags & one test: not profitable after crossing the spread \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -3735,7 +3821,11 @@ queue sizes; market-order and price-change rates are mainly functions of the vol
 limit and cancellation rates are not.
 
 \paragraph{Cross-asset Hawkes.} Events in one instrument can excite events in another; this is the
-point-process form of lead--lag, discussed in Section~\ref{sec:cross}. For interest rates, the verified
+point-process form of lead--lag, discussed in Section~\ref{sec:cross}. The two-asset model of
+\citet{bacry2013} reproduces the Epps effect on Euro-Bund and Euro-Bobl futures, and lead--lag
+can be read off its second-order properties; \citet{dafonseca2017} fit a multi-asset Hawkes model whose
+diffusive limit links high- and low-frequency correlation and which captures lead--lag on Eurex
+assets. For interest rates, the verified
 Hawkes studies use European government-bond futures---Bund and Bobl~\citep{bacry2013,bacry2016,rambaldi2017marked}.
 We found no Hawkes study of US Treasury futures, of the BrokerTec cash market, or of lead--lag between
 Treasury cash and futures; the main microstructure study of BrokerTec we found uses a vector
@@ -8802,96 +8892,3 @@ contributions are richer conditioning, pooling across instruments, more flexible
 distributions---advances in what can be estimated. Attention is the one new idea about \emph{how} past
 information should be weighted, and on order-book data its value is still an open question. Section~\ref{sec:hybrid}
 described the designs that try to combine the two traditions directly.
-
-% ================================================================
-\section{Cross-asset information}
-\label{sec:cross}
-% ================================================================
-
-The book of one instrument can carry information about related ones. A simple cross-impact form is
-\begin{equation}
-  m^{(\kappa)}_t - m^{(\kappa)}_{t-w} = \sum_{\kappa'} \beta_{\kappa \kappa'}\, \OFI^{(w,\kappa')}_t + \varepsilon^{(\kappa)}_t ,
-\end{equation}
-where the superscripts $(\kappa)$ and $(\kappa')$ index instruments, $m^{(\kappa)}_t$ is the mid of instrument $\kappa$,
-$\OFI^{(w,\kappa')}_t$ is the order-flow imbalance of instrument $\kappa'$, $\beta_{\kappa \kappa'}$ is the cross-impact
-of instrument $\kappa'$'s flow on instrument $\kappa$'s mid, and $\varepsilon^{(\kappa)}_t$ is a residual.
-\inwords{the same straight-line fit as before, except that each instrument's price change may
-respond to the buying pressure in \emph{every} instrument. The coefficients form a matrix; the
-diagonal is each instrument's own impact and the off-diagonal entries are the cross effects.} The form covers
-index constituents, ETF and constituents, futures and cash, correlated equities, related
-fixed-income contracts and cross-venue cryptocurrency markets.
-
-\begin{example}[Coefficients multiply]
-For NQ,
-\[
-  m^{(\text{NQ})}_t - m^{(\text{NQ})}_{t-w} = \beta_{\text{NQ},\text{NQ}}\OFI^{(w,\text{NQ})}_t +
-  \beta_{\text{NQ},\text{ES}}\OFI^{(w,\text{ES})}_t + \varepsilon^{(\text{NQ})}_t
-\]
-has two coefficients. Ten related instruments, each predicted from all ten OFIs at five lags, gives
-$10 \times 10 \times 5 = 500$ coefficients. At a 5\% level about 25 are ``significant'' under the
-null alone.
-\end{example}
-
-\paragraph{Published evidence.} On the 100 largest S\&P~500 stocks, cross-asset order flow adds
-nothing to the \emph{contemporaneous} fit once multi-level order flow is integrated, but lagged
-cross-asset order flow does improve one-minute-ahead return forecasts, with an effect that decays
-within minutes~\citep{contcucuringu2023}. Multi-asset attention models such as OF-MATNet attend along
-the asset axis directly and choose which peers to use by Granger-causality tests~\citep{ofmatnet}. For
-futures, the natural cross-asset structure is economic rather than statistical: index futures and
-their constituents, related equity index futures (ES and NQ), and the Treasury futures curve.
-
-\paragraph{Lead--lag between futures and cash.} The clearest cross-asset structure in futures is that
-one market moves first. For the S\&P~500 and Nasdaq-100, most price discovery happens in the E-mini
-futures rather than in the cash index or ETF~\citep{hasbrouck2003}. At high frequency the lead is
-measured in milliseconds and is bounded by the physical distance between data centres. Between Chicago,
-where CME matches, and the New Jersey equity venues, the response of SPY to E-mini price changes took
-7.25--7.95\,ms in April 2010, fell after a straighter fibre route was built, and was estimated at 4.2--5.2\,ms
-over microwave links, against a speed-of-light minimum of 3.93\,ms; about 20\% of SPY trading could be
-identified as a direct response to E-mini moves~\citep{laughlin2014}. Measuring how often trades in two
-markets occur at a given time offset, \citet{dobrev2017} find activity peaks at $\pm 5$\,ms between
-10-year Treasury futures and cash Treasuries, with leadership running both ways, a clear lead of the
-E-mini over SPY at $+5$\,ms, and a lead of the E-mini over cash Treasuries but not the reverse. The
-order-flow link between SPY and the E-mini is ``positive, but short-lived'': beyond one second the
-correlations have little economic significance~\citep{garrison2019}.
-
-\paragraph{Estimating the lag.} Two markets trade at different, irregular times, so the usual
-correlation of returns sampled on a common grid is biased towards zero (the Epps effect). The
-Hayashi--Yoshida estimator avoids the grid by summing products of returns over every pair of
-overlapping intervals; shifting one series by a candidate lag and choosing the lag that maximises the
-estimated correlation gives a consistent lead--lag estimator~\citep{hoffmann2013leadlag}. On European data,
-\citet{huth2014} find with this method that the CAC~40 future leads a large constituent stock by about
-0.6 seconds on average, and that the leader's past alone predicts the direction of the lagger's next
-mid-quote move about 60\% of the time---yet a naive strategy that crosses the spread on that forecast
-does not make money.
-
-\paragraph{Cross-asset Hawkes models.} Point-process models express lead--lag as cross-excitation:
-events in one market raise the intensity of events in another. The two-asset model of
-\citet{bacry2013} reproduces the Epps effect on Euro-Bund and Euro-Bobl futures, and lead--lag
-can be read off its second-order properties; \citet{dafonseca2017} fit a multi-asset Hawkes model whose
-diffusive limit links high- and low-frequency correlation and which captures lead--lag on Eurex
-assets.
-
-\paragraph{The Treasury curve.} For interest-rate futures the related instruments are the points of the
-yield curve. On daily inter-dealer data from 1992 to 1999, order-flow imbalances explain up to 26\% of
-day-to-day yield changes on days without major announcements, and most of that effect comes from a
-factor common to all maturities: net buying across the whole curve says more about the level of yields
-than buying in one maturity~\citep{brandt2004}. At one-minute resolution, \citet{tomas2022} compare
-cross-impact models on 10-year Treasury note futures and E-mini futures jointly and find that
-models built on the covariance of returns and order flow, such as a multivariate Kyle model, fit out of
-sample far better than a model with only direct (own-instrument) impact. We found no published
-intraday cross-impact study covering the full Treasury futures curve.
-
-Cross-asset models should therefore report in-sample and out-of-sample improvement, incremental
-economic value, added latency, parameter count and stability across regimes.
-
-\begin{modelcard}{Cross-asset models}
-\cardrow{What you calibrate}{The cross-impact matrix $\beta_{\kappa\kappa'}$ and the lags at which it
-acts; for a cross-asset Hawkes model, the cross-excitation kernels between instruments.}
-\cardrow{How}{Regression of each instrument's price change on the order flow of all (with shrinkage or
-a factor structure to control the number of coefficients); lead--lag by maximising a Hayashi--Yoshida
-correlation over candidate lags; Hawkes cross-kernels by maximum likelihood.}
-\cardrow{What you do with it}{Use the leader's move to anticipate the lagger---mainly to protect resting
-orders in the lagging market from being picked off---and hedge across related contracts.}
-\cardrow{How to picture it}{Thunder after lightning: the futures move is the flash and the cash market
-the sound, a few milliseconds later; the lag is set by distance.}
-\end{modelcard}
