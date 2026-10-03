@@ -265,8 +265,46 @@ Figure~\ref{fig:book} it is $5000.00 + 0.25 \times 29/43 \approx 5000.169$, abov
 
 \paragraph{Limits of the intuition.} Displayed size is not committed size. A thin queue may be
 refilled immediately by new orders; hidden or iceberg orders may make the thin side thicker than it
-looks; and orders placed only to be cancelled (spoofing, Section~\ref{sec:failures}) can create a
+looks; and orders placed only to be cancelled (spoofing, below) can create a
 skew that is not real. Imbalance is therefore a strong but noisy signal.
+
+\paragraph{Spoofing and layering.}\label{sec:spoofing} Displayed liquidity is not necessarily committed liquidity.
+Manipulative orders do not falsify OFI---OFI still measures observed changes---but they alter the
+mapping from displayed flow to future executable prices, and they distort queue-imbalance, depth
+and depletion estimates.
+
+\paragraph{Documented cases.} Manipulation of the order book is not hypothetical. On the Korea Exchange,
+\citet{lee2013spoof} document traders placing large orders away from the market to create imbalance and
+withdrawing them. A trader in the E-mini S\&P~500 was charged with layering over five years, conduct the
+CFTC alleged contributed to the conditions of the May 2010 flash crash~\citep{cftc2015sarao}. In 2020
+JPMorgan paid \$920 million over spoofing in precious-metals and US Treasury futures over at least eight
+years~\citep{cftc2020jpm}. In a spoofing episode in Ultra Treasury bond futures, \citet{debie2023} measure ask-side
+liquidity costs falling from about 10.4 to about 8 basis points when the spoof order was placed and
+recovering after it was cancelled---a displayed improvement in liquidity that was not real.
+\citet{cartea2020spoof} model spoofing as an optimal-control problem in which the spoofer trades the gain
+from skewing the order imbalance against the expected regulatory penalty. Quote stuffing---bursts of
+order messages---affected over 74\% of US-listed securities at least once in 2010, with lower liquidity
+and higher short-term volatility during episodes~\citep{egginton2016}.
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{How contamination affects order-book signals.}
+\label{tab:contamination}
+\begin{tabularx}{\linewidth}{l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\toprule
+Form & Signature in the data & Effect on signals \\
+\midrule
+Spoofing & large orders away from the touch, cancelled quickly & OFI and imbalance point the wrong way \\
+Layering & several non-genuine orders at successive levels & distorts depth, slope and multi-level OFI \\
+Quote stuffing & bursts of submissions and cancellations & inflates event counts; breaks event-clock assumptions \\
+Icebergs and hidden orders & repeated executions at one price with stable visible size & displayed depth understates liquidity; depletion and fill estimates biased \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Mitigations include down-weighting orders that are cancelled within a short time, features built from
+cancellation rates and from the ratio of trades to orders, and detection of iceberg refills. They reduce
+but do not remove the problem.
 
 \paragraph{Evidence.} \citet{gould2016qi} fit a logistic regression of the direction of the next
 mid move on queue imbalance for ten Nasdaq stocks. The relationship is strongly significant for

@@ -3,8 +3,8 @@ turn a prediction into a tested trading decision. It sets out what a simulator m
 questions---queue position, adverse selection and latency (Section~\ref{sec:sim-needs}); surveys the order-book
 simulators available and compares them with the Kaspar system, including how an order-book model is added to Kaspar
 as an actor that publishes its predictions to a strategy (Section~\ref{sec:simulators}); explains why order-book
-models are slow at inference and what hardware can accelerate (Section~\ref{sec:hardware}); and closes with failure
-modes, open problems and the survey's conclusion (Sections~\ref{sec:failures}--\ref{sec:conclusion}).
+models are slow at inference and what hardware can accelerate (Section~\ref{sec:hardware}); and closes with open
+problems and the survey's conclusion (Sections~\ref{sec:agenda} and~\ref{sec:conclusion}).
 
 % ================================================================
 \section{What a simulator must capture}
@@ -277,6 +277,32 @@ market fixed and produces only the counterfactual outcome of the researcher's ow
 simulators such as JAX-LOB~\citep{frey2023} move the matching engine onto accelerators to speed up
 reinforcement-learning training; the concern here is not throughput but the fidelity of the fill
 inference. Section~\ref{sec:kaspar} describes one implementation of a queue-exact replay.
+
+\subsubsection{Limits of replay fidelity}
+\label{sec:replay-limits}
+
+A queue-exact replay is exact only with respect to what the feed shows. Two gaps remain.
+
+\paragraph{Hidden liquidity.} Iceberg orders make executable liquidity exceed displayed liquidity,
+so a model trained on displayed volume misestimates depletion, impact and fill probability. In
+E-mini S\&P~500 futures, one detection study estimates that about 9\% of book volume is iceberg
+orders~\citep{christensen2013}; when participants detect an iceberg they trade against it actively, and
+icebergs create an adverse-selection cost for other limit orders~\citep{frey2017iceberg}. In a replay, an
+iceberg's hidden size is invisible until it trades, so the queue ahead of a simulated order can be longer than the
+reconstructed one, and fills are overstated by an amount that cannot be measured from displayed data alone.
+
+\paragraph{Feed and timestamp errors.} At high frequency, data quality is part of the model:
+timestamp synchronisation, packet loss, sequence gaps, book reconstruction, exchange-specific event
+semantics, stale snapshots, duplicates, and clock differences between market-data and execution
+systems.
+
+\begin{example}[A sequence gap]
+On a feed with sequence numbers, a missed packet leaves the reconstructed book wrong until the
+handler recovers from a snapshot. A model trained on rows from that interval learns
+reconstruction error, not market behaviour, and a replay that runs through it fills orders against a book that never
+existed. No number of parameters compensates for it; the gap
+has to be detected and the interval excluded or repaired.
+\end{example}
 
 \subsection{Existing simulators compared}
 \label{sec:sim-survey}
@@ -1030,7 +1056,76 @@ The design sequence that follows is: identify the horizon and value of the signa
 execution; choose the simplest model that captures that value; only then choose the hardware tier
 whose latency and jitter preserve it after costs.
 
-\subsection{Open questions in hardware}
+% ================================================================
+\section{Research agenda}
+\label{sec:agenda}
+
+The survey has identified places where the literature stops short of what a trader needs. They are grouped below
+by the part of the survey they come from.
+
+\subsection{Models}
+
+\paragraph{Execution-aware objectives.} Most prediction models stop at
+an estimate of $\P(\Delta m_{t,H} > 0 \mid X_t)$. The more useful objective is an estimate of
+$\E[\Pi \mid a_t, X_t]$, the expected profit of each available action,
+combining prediction, fill probability, queue position and adverse selection. Calibrated
+confidence~\citep{manoharan2026uqlob} is a step toward it: it tells an execution policy when to act.
+
+\paragraph{Message-level foundation models for execution.} Pretrained message-level encoders have
+so far been evaluated mainly on mid-price and next-message prediction~\citep{linna2025lobert}.
+Fine-tuning them for fill probability and conditional mark-outs, evaluated in queue-exact replay,
+is an open direction.
+
+\paragraph{State-space and long-context models for event streams.} State-space sequence models are well
+suited to long, irregular event streams, yet apart from one hardware-oriented design~\citep{popov2026ssm} we found no established LOB forecaster built on them.
+Testing them against simple baselines on the same inputs---not against each other---is a clear
+next step.
+
+\paragraph{Near-criticality and learned models.} Estimated branching ratios of order flow are high,
+from about $0.7$--$0.8$ to about one depending on method. How deep sequence
+models behave on near-critical, long-memory inputs, and whether Hawkes structure built into them
+(Section~\ref{sec:hybrid}) improves robustness, is untested.
+
+\paragraph{A parsimony audit.} For each widely cited deep LOB model, re-estimate its incremental
+economic value and deflated performance against the best low-capacity baseline on the same data and
+fill model. Such a meta-study would directly test the central claim of this survey.
+
+\subsection{Execution and simulation}
+
+\paragraph{Queue-aware benchmarks.} Queue position should be a first-class state variable.
+Benchmarks should report performance conditional on queue rank, residual volume, spread and expected
+depletion time, and should measure the size of the queue-rank effect on fill probability and on
+conditional mark-outs across assets and regimes, rather than take a single model estimate as
+given.
+
+\paragraph{End-to-end signal and execution.} Most models output a forecast and leave execution to a
+separate rule. Models whose output is the decision itself---quote, keep, cancel, cross---and whose
+training objective is execution value would close the gap that this survey describes. Reinforcement
+learning in LOB simulators~\citep{lalor2025nhp,frey2023} is one route, ideally validated in queue-exact replay; its results must be
+judged against model-free benchmarks in the same simulator.
+
+\paragraph{Causal rather than predictive questions.} The questions that matter for execution are
+causal: what happens to the queue and the price \emph{if} an order is placed here? Replay with a
+no-impact assumption answers this only for small orders. Models of the market's response to one's own
+orders, and ways to validate them without live experiments, remain open.
+
+\paragraph{Generative evaluation.} Generators should be evaluated by market invariants and downstream
+utility rather than by visual or marginal similarity alone~\citep{lobbench2025}.
+
+\paragraph{Cross-asset information after costs.} When does cross-asset information remain valuable
+after costs, latency, multiple testing and parameter instability?
+
+\paragraph{Simulators against live fills.} The simulators of Table~\ref{tab:simulators} have not been compared on the
+same orders. Running one strategy through several of them and through paper trading, and comparing fill rates and
+post-fill mark-outs with the live fills, would measure how much each simulator's assumptions---estimated queue
+position, simulated order flow, no market impact---cost in accuracy.
+
+\paragraph{Replay with a reacting market.} Replay cannot measure the market's response to one's own orders; a
+model-based simulator can, mechanically (Section~\ref{sec:kaspar-fills}). Combining the two---recorded flow for the
+rest of the market, a fitted model for the response to the strategy's orders---and validating the response against
+live trading is open.
+
+\subsection{Hardware}
 
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
 \item Training objectives that penalise expected inference latency and resource use on a target
@@ -1046,153 +1141,6 @@ whose latency and jitter preserve it after costs.
 \item Public, auditable benchmarks that cover book building and inference together, rather than
   isolated kernels or vendor-defined paths.
 \end{itemize}
-
-% ================================================================
-\section{Failure modes}
-\label{sec:failures}
-% ================================================================
-
-Models are fitted to the past and run in the future. This section lists the ways that gap breaks
-them in practice: the market changes regime, liquidity disappears in stress, other participants place
-orders designed to mislead, displayed size hides real size, and the data themselves are wrong. For each
-it states what goes wrong and, where one exists, how it can be detected or guarded against.
-
-\paragraph{Regime change and state invalidation.} A model fitted in one liquidity regime can
-fail after volatility shocks, tick-size or fee changes, market-structure changes, scheduled
-announcements or liquidity withdrawal. A signal can be statistically valid for the regime in which
-it was estimated and economically stale after a transition.
-
-\paragraph{Volatility and liquidity withdrawal.} Queue-based signals rely on the book looking roughly
-the same when a decision is executed as when the signal was computed. In a volatility burst, best-level
-depth can vanish and the intensities that drive depletion change on the same time scale as the queues
-themselves, so first-passage estimates become unreliable. A simple defence is to reduce size or disable
-microstructure signals when short-term realised volatility is unusually high; it should be compared
-against more elaborate regime models before those are adopted.
-
-\paragraph{Spoofing and layering.} Displayed liquidity is not necessarily committed liquidity.
-Manipulative orders do not falsify OFI---OFI still measures observed changes---but they alter the
-mapping from displayed flow to future executable prices, and they distort queue-imbalance, depth
-and depletion estimates.
-
-\paragraph{Documented cases.} Manipulation of the order book is not hypothetical. On the Korea Exchange,
-\citet{lee2013spoof} document traders placing large orders away from the market to create imbalance and
-withdrawing them. A trader in the E-mini S\&P~500 was charged with layering over five years, conduct the
-CFTC alleged contributed to the conditions of the May 2010 flash crash~\citep{cftc2015sarao}. In 2020
-JPMorgan paid \$920 million over spoofing in precious-metals and US Treasury futures over at least eight
-years~\citep{cftc2020jpm}. In a spoofing episode in Ultra Treasury bond futures, \citet{debie2023} measure ask-side
-liquidity costs falling from about 10.4 to about 8 basis points when the spoof order was placed and
-recovering after it was cancelled---a displayed improvement in liquidity that was not real.
-\citet{cartea2020spoof} model spoofing as an optimal-control problem in which the spoofer trades the gain
-from skewing the order imbalance against the expected regulatory penalty. Quote stuffing---bursts of
-order messages---affected over 74\% of US-listed securities at least once in 2010, with lower liquidity
-and higher short-term volatility during episodes~\citep{egginton2016}.
-
-\paragraph{Hidden liquidity.} Iceberg orders make executable liquidity exceed displayed liquidity,
-so a model trained on displayed volume misestimates depletion, impact and fill probability. In
-E-mini S\&P~500 futures, one detection study estimates that about 9\% of book volume is iceberg
-orders~\citep{christensen2013}; when participants detect an iceberg they trade against it actively, and
-icebergs create an adverse-selection cost for other limit orders~\citep{frey2017iceberg}. This is one
-reason message-level and trade data are valuable even for book-based models.
-
-\begin{table}[!htbp]
-\centering\footnotesize
-\caption{How contamination affects order-book signals.}
-\label{tab:contamination}
-\begin{tabularx}{\linewidth}{l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
-\toprule
-Form & Signature in the data & Effect on signals \\
-\midrule
-Spoofing & large orders away from the touch, cancelled quickly & OFI and imbalance point the wrong way \\
-Layering & several non-genuine orders at successive levels & distorts depth, slope and multi-level OFI \\
-Quote stuffing & bursts of submissions and cancellations & inflates event counts; breaks event-clock assumptions \\
-Icebergs and hidden orders & repeated executions at one price with stable visible size & displayed depth understates liquidity; depletion and fill estimates biased \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-Mitigations include down-weighting orders that are cancelled within a short time, features built from
-cancellation rates and from the ratio of trades to orders, and detection of iceberg refills. They reduce
-but do not remove the problem; robustness to each form of contamination belongs in a serious
-evaluation.
-
-\paragraph{Feed and timestamp errors.} At high frequency, data quality is part of the model:
-timestamp synchronisation, packet loss, sequence gaps, book reconstruction, exchange-specific event
-semantics, stale snapshots, duplicates, and clock differences between market-data and execution
-systems.
-
-\begin{example}[A sequence gap]
-On a feed with sequence numbers, a missed packet leaves the reconstructed book wrong until the
-handler recovers from a snapshot. A model trained on rows from that interval learns
-reconstruction error, not market behaviour. No number of parameters compensates for it; the gap
-has to be detected and the interval excluded or repaired.
-\end{example}
-
-% ================================================================
-\section{Research agenda}
-\label{sec:agenda}
-% ================================================================
-
-The survey has identified several places where the literature stops short of what a trader needs.
-This section collects them as open research questions.
-
-\paragraph{Execution-aware objectives.} Most prediction models stop at
-an estimate of $\P(\Delta m_{t,H} > 0 \mid X_t)$. The more useful objective is an estimate of
-$\E[\Pi \mid a_t, X_t]$, the expected profit of each available action,
-combining prediction, fill probability, queue position and adverse selection. Calibrated
-confidence~\citep{manoharan2026uqlob} is a step toward it: it tells an execution policy when to act.
-
-\paragraph{Queue-aware benchmarks.} Queue position should be a first-class state variable.
-Benchmarks should report performance conditional on queue rank, residual volume, spread and expected
-depletion time, and should measure the size of the queue-rank effect on fill probability and on
-conditional mark-outs across assets and regimes, rather than take a single model estimate as
-given.
-
-\paragraph{Message-level foundation models for execution.} Pretrained message-level encoders have
-so far been evaluated mainly on mid-price and next-message prediction~\citep{linna2025lobert}.
-Fine-tuning them for fill probability and conditional mark-outs, evaluated in queue-exact replay,
-is an open direction.
-
-\paragraph{Cross-asset information after costs.} When does cross-asset information remain valuable
-after costs, latency, multiple testing and parameter instability?
-
-\paragraph{Robustness to structural change.} Models should be tested across volatility regimes,
-tick and fee changes, market-structure changes and extreme events.
-
-\paragraph{End-to-end signal and execution.} Most models output a forecast and leave execution to a
-separate rule. Models whose output is the decision itself---quote, keep, cancel, cross---and whose
-training objective is execution value would close the gap that this survey describes. Reinforcement
-learning in LOB simulators~\citep{lalor2025nhp,frey2023} is one route, ideally validated in queue-exact replay; its results must be
-judged against model-free benchmarks in the same simulator.
-
-\paragraph{Causal rather than predictive questions.} The questions that matter for execution are
-causal: what happens to the queue and the price \emph{if} an order is placed here? Replay with a
-no-impact assumption answers this only for small orders. Models of the market's response to one's own
-orders, and ways to validate them without live experiments, remain open.
-
-\paragraph{State-space and long-context models for event streams.} State-space sequence models are well
-suited to long, irregular event streams, yet apart from one hardware-oriented design~\citep{popov2026ssm} we found no established LOB forecaster built on them.
-Testing them against simple baselines on the same inputs---not against each other---is a clear
-next step.
-
-\paragraph{Near-criticality and learned models.} Estimated branching ratios of order flow are high,
-from about $0.7$--$0.8$ to about one depending on method. How deep sequence
-models behave on near-critical, long-memory inputs, and whether Hawkes structure built into them
-(Section~\ref{sec:hybrid}) improves robustness, is untested.
-
-\paragraph{Contamination-robust features.} Features that remain informative in the presence of spoofing
-and hidden liquidity---based on order lifetimes, cancellation behaviour and refill patterns---and
-evaluation protocols that test robustness explicitly.
-
-\paragraph{Generative evaluation.} Generators should be evaluated by market invariants and downstream
-utility rather than by visual or marginal similarity alone~\citep{lobbench2025}.
-
-\paragraph{A parsimony audit.} For each widely cited deep LOB model, re-estimate its incremental
-economic value and deflated performance against the best low-capacity baseline on the same data and
-fill model. Such a meta-study would directly test the central claim of this survey.
-
-\paragraph{Correlated signals and systemic risk.} If many participants deploy similar order-book signals,
-their trades become correlated, and so do their withdrawals of liquidity under stress. The market-wide
-consequences of widely shared LOB alphas are largely unstudied.
 
 % ================================================================
 \section{Conclusion}
