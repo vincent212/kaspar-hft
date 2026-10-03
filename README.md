@@ -56,26 +56,10 @@ Kaspar's market-data and order-entry stacks are complete session implementations
 ```bash
 ./build.sh schema        # generate the CME SBE codecs (pinned versions)
 ./build.sh               # libraries (== make all)
-./build.sh -C kaspr/src  # the kaspr binary -- see note below
+./build.sh -C kaspr/src  # the kaspr binary
 ./build.sh debug         # debug build
 ./build.sh -C actors/cpp # build just one component
 ```
-
-Two things the quick start does not do:
-
-- **`./build.sh` alone does not build the `kaspr` binary.** The default target
-  builds the libraries and exits 0, so a missing executable looks like success.
-  Build it explicitly with `./build.sh -C kaspr/src`, and add
-  `USE_TACHBOOK=1` if you need TachBook MBO L3 books or the latency probe
-  (without that define `create_probes()` is not compiled in at all and a probe
-  run writes no samples).
-- **`./build.sh schema` needs network access to CME** (`sftpng.cmegroup.com`,
-  plus Java and Python `paramiko`). Without it the codecs cannot be generated
-  and the build stops before compiling anything. The codecs are pinned — MDP3
-  v12, iLink 3 v8 — and are not committed; if you already have a generated set,
-  copying it into `mdp3_sbe/` and `ilink3_sbe/` is enough. Verify
-  `SBE_SCHEMA_VERSION = 12` before trusting the result: CME's current templates
-  are v13 and regenerating against "latest" breaks the pin.
 
 ## Operating Modes
 
