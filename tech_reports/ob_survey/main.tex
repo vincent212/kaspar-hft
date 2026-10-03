@@ -67,7 +67,7 @@
 \newcommand{\pov}{\textsc{Shadow-PPOV}}
 
 \title{\textbf{From Limit-Order-Book Information to Executable Decisions:}\\[2pt]
-\Large Signals, Queues, Deterministic Simulation, and LLM-Assisted Model Discovery}
+\Large Signals, Queues, Simulation, and Hardware Acceleration}
 
 \author{%
   Vincent Maciejewski\\
@@ -91,20 +91,8 @@
 \part{Models of the Limit Order Book}
 \input{sections/p2_models}
 
-\part{From Prediction to Execution}
-\input{sections/p3_execution}
-
-\part{Case Study: The Kaspar HFT Architecture}
-\input{sections/p4_kaspar}
-
-\part{LLM-Assisted Model Discovery}
-\input{sections/p5_lamd}
-
-\part{Evaluation}
-\input{sections/p6_eval}
-
-\part{Hardware, Failure Modes, and Outlook}
-\input{sections/p7_outlook}
+\part{Simulation and Hardware Acceleration}
+\input{sections/p3_sim_hw}
 
 \FloatBarrier
 \appendix
@@ -113,6 +101,6 @@
 
 \FloatBarrier
 \bibliographystyle{plainnat}
-\bibliography{refs,bib/refs_classic,bib/refs_dl,bib/refs_eval,bib/refs_fm,bib/refs_hawkes2,bib/refs_meta,bib/refs_mix,bib/refs_tok,bib/refs_deep2,bib/refs_hawkes3,bib/refs_nncomb,bib/refs_predhybrid,bib/refs_attncomb,bib/refs_marks_regimes,bib/refs_frameworks}
+\bibliography{refs,bib/refs_classic,bib/refs_dl,bib/refs_eval,bib/refs_fm,bib/refs_hawkes2,bib/refs_meta,bib/refs_mix,bib/refs_tok,bib/refs_deep2,bib/refs_hawkes3,bib/refs_nncomb,bib/refs_predhybrid,bib/refs_attncomb,bib/refs_marks_regimes,bib/refs_frameworks,bib/refs_sim,bib/refs_hwaccel}
 
 \end{document}

@@ -1,4 +1,4 @@
-\begin{thebibliography}{376}
+\begin{thebibliography}{387}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -119,6 +119,16 @@ Robert Almgren and Neil Chriss.
   \url{https://www.amd.com/content/dam/amd/en/documents/products/accelerators/alveo/ul3422/alveo-ul3422-product-brief.pdf}.
 \newblock Launch press release 2024-10-14.
 
+\bibitem[Amrouni et~al.(2021)Amrouni, Moulin, Vann, Vyetrenko, Balch, and
+  Veloso]{amrouni2021abidesgym}
+Selim Amrouni, Aymeric Moulin, Jared Vann, Svitlana Vyetrenko, Tucker Balch,
+  and Manuela Veloso.
+\newblock {ABIDES-Gym}: Gym environments for multi-agent discrete event
+  simulation and application to financial markets.
+\newblock In \emph{Proceedings of the Second ACM International Conference on AI
+  in Finance (ICAIF '21)}, pages 1--9, New York, NY, USA, 2021. ACM.
+\newblock \doi{10.1145/3490354.3494433}.
+
 \bibitem[Ansari et~al.(2024)Ansari, Stella, Turkmen, Zhang, Mercado, Shen,
   Shchur, Rangapuram, Pineda~Arango, Kapoor, Zschiegner, Maddix, Wang, Mahoney,
   Torkkola, Wilson, Bohlke-Schneider, and Wang]{chronos2024}
@@ -209,16 +219,6 @@ David~H. Bailey and Marcos L{\'o}pez~de Prado.
   94--107, 2014.
 \newblock \doi{10.3905/jpm.2014.40.5.094}.
 
-\bibitem[Bailey et~al.(2014)Bailey, Borwein, L{\'o}pez~de Prado, and
-  Zhu]{bailey2014pseudo}
-David~H. Bailey, Jonathan~M. Borwein, Marcos L{\'o}pez~de Prado, and Qiji~Jim
-  Zhu.
-\newblock Pseudo-mathematics and financial charlatanism: The effects of
-  backtest overfitting on out-of-sample performance.
-\newblock \emph{Notices of the American Mathematical Society}, 61\penalty0
-  (5):\penalty0 458--471, 2014.
-\newblock \doi{10.1090/noti1105}.
-
 \bibitem[Bailey et~al.(2017)Bailey, Borwein, L{\'o}pez~de Prado, and
   Zhu]{bailey2014pbo}
 David~H. Bailey, Jonathan~M. Borwein, Marcos L{\'o}pez~de Prado, and Qiji~Jim
@@ -273,6 +273,14 @@ J.~M. Bates and C.~W.~J. Granger.
   451--468, 1969.
 \newblock \doi{10.2307/3008764}.
 \newblock Also registered as doi:10.1057/jors.1969.103.
+
+\bibitem[Belcak et~al.(2022)Belcak, Calliess, and Zohren]{belcak2022maxe}
+Peter Belcak, Jan-Peter Calliess, and Stefan Zohren.
+\newblock Fast agent-based simulation framework with applications to
+  reinforcement learning and the study of trading latency effects.
+\newblock In \emph{Multi-Agent-Based Simulation XXII}, Lecture Notes in
+  Computer Science, pages 42--56, Cham, 2022. Springer.
+\newblock \doi{10.1007/978-3-030-94548-0_4}.
 
 \bibitem[Belkin et~al.(2019)Belkin, Hsu, Ma, and Mandal]{belkin2019}
 Mikhail Belkin, Daniel Hsu, Siyuan Ma, and Soumik Mandal.
@@ -772,6 +780,14 @@ D.~J. Daley and D.~Vere-Jones.
 \newblock ISBN 0387955410.
 \newblock \doi{10.1007/b97277}.
 
+\bibitem[Dao et~al.(2022)Dao, Fu, Ermon, Rudra, and
+  R{\'e}]{dao2022flashattention}
+Tri Dao, Daniel~Y. Fu, Stefano Ermon, Atri Rudra, and Christopher R{\'e}.
+\newblock {FlashAttention}: Fast and memory-efficient exact attention with
+  {IO}-awareness.
+\newblock In \emph{Advances in Neural Information Processing Systems 35
+  (NeurIPS 2022)}, pages 16344--16359, 2022.
+
 \bibitem[Das et~al.(2024)Das, Kong, Sen, and Zhou]{timesfm2024}
 Abhimanyu Das, Weihao Kong, Rajat Sen, and Yichen Zhou.
 \newblock A decoder-only foundation model for time-series forecasting.
@@ -1094,6 +1110,16 @@ John Geweke and Gianni Amisano.
   2011.
 \newblock \doi{10.1016/j.jeconom.2011.02.017}.
 
+\bibitem[Gholami et~al.(2022)Gholami, Kim, Dong, Yao, Mahoney, and
+  Keutzer]{gholami2022quant}
+Amir Gholami, Sehoon Kim, Zhen Dong, Zhewei Yao, Michael~W. Mahoney, and Kurt
+  Keutzer.
+\newblock A survey of quantization methods for efficient neural network
+  inference.
+\newblock In \emph{Low-Power Computer Vision}, pages 291--326. Chapman and
+  Hall/CRC, 2022.
+\newblock \doi{10.1201/9781003162810-13}.
+
 \bibitem[Glosten and Milgrom(1985)]{glosten1985}
 Lawrence~R. Glosten and Paul~R. Milgrom.
 \newblock Bid, ask and transaction prices in a specialist market with
@@ -1147,6 +1173,12 @@ Clive W.~J. Granger and Ramu Ramanathan.
   1984.
 \newblock \doi{10.1002/for.3980030207}.
 
+\bibitem[Gray(2019)]{nvidia_cudagraphs_blog}
+Alan Gray.
+\newblock Getting started with {CUDA} graphs.
+\newblock NVIDIA Technical Blog, September 2019.
+\newblock URL \url{https://developer.nvidia.com/blog/cuda-graphs/}.
+
 \bibitem[Gruver et~al.(2023)Gruver, Finzi, Qiu, and Wilson]{gruver2023llmtime}
 Nate Gruver, Marc Finzi, Shikai Qiu, and Andrew~Gordon Wilson.
 \newblock Large language models are zero-shot time series forecasters.
@@ -1192,6 +1224,16 @@ Donatien Hainaut.
 \newblock A bivariate {H}awkes process for interest rate modeling.
 \newblock \emph{Economic Modelling}, 57:\penalty0 180--196, 2016.
 \newblock \doi{10.1016/j.econmod.2016.04.016}.
+
+\bibitem[Han et~al.(2017)Han, Kang, Mao, Hu, Li, Li, Xie, Luo, Yao, Wang, Yang,
+  and Dally]{han2017ese}
+Song Han, Junlong Kang, Huizi Mao, Yiming Hu, Xin Li, Yubin Li, Dongliang Xie,
+  Hong Luo, Song Yao, Yu~Wang, Huazhong Yang, and William~J. Dally.
+\newblock {ESE}: Efficient speech recognition engine with sparse {LSTM} on
+  {FPGA}.
+\newblock In \emph{Proceedings of the 2017 ACM/SIGDA International Symposium on
+  Field-Programmable Gate Arrays (FPGA '17)}, pages 75--84. ACM, 2017.
+\newblock \doi{10.1145/3020078.3021745}.
 
 \bibitem[Hansen et~al.(2011)Hansen, Lunde, and Nason]{hansen2011mcs}
 Peter~R. Hansen, Asger Lunde, and James~M. Nason.
@@ -1389,6 +1431,16 @@ Thibault Jaisson and Mathieu Rosenbaum.
 \newblock \emph{The Annals of Applied Probability}, 26\penalty0 (5), 2016.
 \newblock \doi{10.1214/15-AAP1164}.
 
+\bibitem[Jerome et~al.(2023)Jerome, S{\'a}nchez-Betancourt, Savani, and
+  Herdegen]{jerome2023mbtgym}
+Joseph Jerome, Leandro S{\'a}nchez-Betancourt, Rahul Savani, and Martin
+  Herdegen.
+\newblock Mbt-gym: Reinforcement learning for model-based limit order book
+  trading.
+\newblock In \emph{Proceedings of the 4th ACM International Conference on AI in
+  Finance (ICAIF '23)}, pages 619--627. ACM, 2023.
+\newblock \doi{10.1145/3604237.3626873}.
+
 \bibitem[Jordan and Jacobs(1994)]{jordan1994hme}
 Michael~I. Jordan and Robert~A. Jacobs.
 \newblock Hierarchical mixtures of experts and the {EM} algorithm.
@@ -1454,6 +1506,17 @@ Alec~N. Kercheval and Yuan Zhang.
   2015.
 \newblock \doi{10.1080/14697688.2015.1032546}.
 
+\bibitem[Khoda et~al.(2023)Khoda, Rankin, Teixeira~de Lima, Harris, Hauck, Hsu,
+  Kagan, Loncar, Paikara, Rao, Summers, Vernieri, and Wang]{khoda2023rnn}
+Elham~E. Khoda, Dylan Rankin, Rafael Teixeira~de Lima, Philip Harris, Scott
+  Hauck, Shih-Chieh Hsu, Michael Kagan, Vladimir Loncar, Chaitanya Paikara,
+  Richa Rao, Sioni Summers, Caterina Vernieri, and Aaron Wang.
+\newblock Ultra-low latency recurrent neural network inference on {FPGAs} for
+  physics applications with hls4ml.
+\newblock \emph{Machine Learning: Science and Technology}, 4\penalty0
+  (2):\penalty0 025004, 2023.
+\newblock \doi{10.1088/2632-2153/acc0d7}.
+
 \bibitem[Kim et~al.(2019)Kim, Mnih, Schwarz, Garnelo, Eslami, Rosenbaum,
   Vinyals, and Teh]{kim2019anp}
 Hyunjik Kim, Andriy Mnih, Jonathan Schwarz, Marta Garnelo, Ali Eslami, Dan
@@ -1462,6 +1525,13 @@ Hyunjik Kim, Andriy Mnih, Jonathan Schwarz, Marta Garnelo, Ali Eslami, Dan
 \newblock In \emph{International Conference on Learning Representations
   (ICLR)}, 2019.
 \newblock URL \url{https://openreview.net/forum?id=SkE6PjC9KX}.
+
+\bibitem[Kim et~al.(2023)Kim, Hooper, Wattanawong, Kang, Yan, Genc, Dinh,
+  Huang, Keutzer, Mahoney, Shao, and Gholami]{kim2023fullstack}
+Sehoon Kim, Coleman Hooper, Thanakul Wattanawong, Minwoo Kang, Ruohan Yan,
+  Hasan Genc, Grace Dinh, Qijing Huang, Kurt Keutzer, Michael~W. Mahoney,
+  Yakun~Sophia Shao, and Amir Gholami.
+\newblock Full stack optimization of transformer inference: a survey, 2023.
 
 \bibitem[Kisiel and Gorse(2022)]{kisiel2022axial}
 Damian Kisiel and Denise Gorse.
@@ -1493,15 +1563,9 @@ Gary Koop and Dimitris Korobilis.
   867--886, 2012.
 \newblock \doi{10.1111/j.1468-2354.2012.00704.x}.
 
-\bibitem[Kou et~al.(2025)Kou, Yu, Luo, Peng, Li, Liu, Dai, Chen, Han, and
-  Guo]{kou2025strategy}
-Zhizhuo Kou, Holam Yu, Junyu Luo, Jingshu Peng, Xujia Li, Chengzhong Liu,
-  Juntao Dai, Lei Chen, Sirui Han, and Yike Guo.
-\newblock Automate strategy finding with {LLM} in quant investment.
-\newblock In \emph{Findings of the Association for Computational Linguistics:
-  EMNLP 2025}, pages 18517--18533. Association for Computational Linguistics,
-  2025.
-\newblock \doi{10.18653/v1/2025.findings-emnlp.1005}.
+\bibitem[Krapivensky(2025)]{krapivensky2025glass}
+Viktor Krapivensky.
+\newblock glass: ordered set data structure for client-side order books, 2025.
 
 \bibitem[Kumar(2024)]{kumar2024deephawkes}
 Pankaj Kumar.
@@ -1747,26 +1811,15 @@ Ymir M{\"a}kinen, Juho Kanniainen, Moncef Gabbouj, and Alexandros Iosifidis.
   2019.
 \newblock \doi{10.1080/14697688.2019.1634277}.
 
-\bibitem[Mayeski(2026{\natexlab{a}})]{mayeski2026abduction}
-Vincent Mayeski.
-\newblock Search versus abduction: Why {LLMs} cannot invent new alpha.
-\newblock Substack, September 2026{\natexlab{a}}.
-\newblock URL
-  \url{https://vincentmayeski.substack.com/p/search-versus-abduction-why-llms}.
-
-\bibitem[Mayeski(2026{\natexlab{b}})]{mayeski2026agent}
-Vincent Mayeski.
-\newblock Using {AI} in trading strategy development: the {AI} quant agent.
-\newblock Substack, September 2026{\natexlab{b}}.
-\newblock URL
-  \url{https://vincentmayeski.substack.com/p/using-ai-in-trading-strategy-development}.
-
-\bibitem[Mayeski(2026{\natexlab{c}})]{mayeski_latss}
-Vincent Mayeski.
-\newblock {LLM}-assisted trading strategy search ({LATSS}).
-\newblock Substack, 2026{\natexlab{c}}.
-\newblock URL
-  \url{https://vincentmayeski.substack.com/p/llm-assisted-trading-strategy-search}.
+\bibitem[Mascioli et~al.(2024)Mascioli, Gu, Wang, Chakraborty, and
+  Wellman]{mascioli2024pymarketsim}
+Chris Mascioli, Anri Gu, Yongzhao Wang, Mithun Chakraborty, and Michael
+  Wellman.
+\newblock A financial market simulation environment for trading agents using
+  deep reinforcement learning.
+\newblock In \emph{Proceedings of the 5th ACM International Conference on AI in
+  Finance (ICAIF '24)}, pages 117--125. ACM, 2024.
+\newblock \doi{10.1145/3677052.3698639}.
 
 \bibitem[Mei and Eisner(2017)]{mei2017}
 Hongyuan Mei and Jason Eisner.
@@ -1883,12 +1936,36 @@ Peer Nagy, Sascha Frey, Kang Li, Bidipta Sarkar, Svitlana Vyetrenko, Stefan
   \url{https://www.nasdaqtrader.com/content/technicalsupport/specifications/dataproducts/NQTVITCHSpecification_5.0.pdf}.
 \newblock Version 5.0, 03/06/2015.
 
+\bibitem[{Nautech Systems}(2018)]{nautilustrader}
+{Nautech Systems}.
+\newblock {NautilusTrader}.
+\newblock \url{https://github.com/nautechsystems/nautilus_trader}, 2018.
+\newblock LGPL-3.0. Documentation at \url{https://nautilustrader.io/docs/}.
+  Accessed 2026-10-03 (develop, v2.0.0rc6).
+
+\bibitem[Neugebauer et~al.(2018)Neugebauer, Antichi, Zazo, Audzevich,
+  L{\'o}pez-Buedo, and Moore]{neugebauer2018pcie}
+Rolf Neugebauer, Gianni Antichi, Jos{\'e}~Fernando Zazo, Yury Audzevich, Sergio
+  L{\'o}pez-Buedo, and Andrew~W. Moore.
+\newblock Understanding {PCIe} performance for end host networking.
+\newblock In \emph{Proceedings of the 2018 Conference of the ACM Special
+  Interest Group on Data Communication (SIGCOMM '18)}, pages 327--341. ACM,
+  2018.
+\newblock \doi{10.1145/3230543.3230560}.
+
 \bibitem[Niculescu-Mizil and Caruana(2005)]{niculescu2005}
 Alexandru Niculescu-Mizil and Rich Caruana.
 \newblock Predicting good probabilities with supervised learning.
 \newblock In \emph{Proceedings of the 22nd International Conference on Machine
   Learning (ICML '05)}, pages 625--632, 2005.
 \newblock \doi{10.1145/1102351.1102430}.
+
+\bibitem[{nkaz001}(2022)]{hftbacktest}
+{nkaz001}.
+\newblock {HftBacktest}: High-frequency trading and market-making backtesting
+  and trading bot.
+\newblock \url{https://github.com/nkaz001/hftbacktest}, 2022.
+\newblock MIT License. Accessed 2026-10-03 (commit 5f3ec40).
 
 \bibitem[Nousi et~al.(2019)Nousi, Tsantekidis, Passalis, Ntakaris, Kanniainen,
   Tefas, Gabbouj, and Iosifidis]{nousi2019}
@@ -1930,6 +2007,21 @@ Adamantios Ntakaris, Juho Kanniainen, Moncef Gabbouj, and Alexandros Iosifidis.
   and quantitative indicators.
 \newblock \emph{PLOS ONE}, 15\penalty0 (6):\penalty0 e0234107, 2020.
 \newblock \doi{10.1371/journal.pone.0234107}.
+
+\bibitem[{NVIDIA}(2024{\natexlab{a}})]{nvidia_cuda_bpg}
+{NVIDIA}.
+\newblock \emph{{CUDA} {C++} Best Practices Guide, Release 12.4}.
+\newblock NVIDIA Corporation, 2024{\natexlab{a}}.
+\newblock URL
+  \url{https://docs.nvidia.com/cuda/archive/12.4.0/cuda-c-best-practices-guide/index.html}.
+
+\bibitem[{NVIDIA}(2024{\natexlab{b}})]{nvidia_cuda_guide}
+{NVIDIA}.
+\newblock \emph{{CUDA} {C++} Programming Guide, Release 12.4, Section 3.2.8.7
+  ({CUDA} Graphs)}.
+\newblock NVIDIA Corporation, 2024{\natexlab{b}}.
+\newblock URL
+  \url{https://docs.nvidia.com/cuda/archive/12.4.0/cuda-c-programming-guide/index.html}.
 
 \bibitem[Ogata(1981)]{ogata1981}
 Yosihiko Ogata.
@@ -2040,6 +2132,14 @@ John~C. Platt.
 \newblock \doi{10.7551/mitpress/1113.003.0008}.
 \newblock Preprint (1999): ``Probabilistic Outputs for Support Vector Machines
   and Comparisons to Regularized Likelihood Methods''.
+
+\bibitem[Pope et~al.(2023)Pope, Douglas, Chowdhery, Devlin, Bradbury, Heek,
+  Xiao, Agrawal, and Dean]{pope2023scaling}
+Reiner Pope, Sholto Douglas, Aakanksha Chowdhery, Jacob Devlin, James Bradbury,
+  Jonathan Heek, Kefan Xiao, Shivani Agrawal, and Jeff Dean.
+\newblock Efficiently scaling transformer inference.
+\newblock In \emph{Proceedings of Machine Learning and Systems 5 (MLSys 2023)},
+  pages 606--624, 2023.
 
 \bibitem[Popov and Huber(2026)]{popov2026ssm}
 Andrei Popov and Martina Huber.
@@ -2173,16 +2273,6 @@ Kylie-Anne Richards, William T.~M. Dunsmuir, and Gareth~W. Peters.
   20\penalty0 (3):\penalty0 3037--3052, 2025.
 \newblock \doi{10.1007/s41060-024-00644-4}.
 \newblock Published online 10 October 2024.
-
-\bibitem[Romera-Paredes et~al.(2024)Romera-Paredes, Barekatain, Novikov, Balog,
-  Kumar, Dupont, Ruiz, Ellenberg, Wang, Fawzi, Kohli, and Fawzi]{romera2024}
-Bernardino Romera-Paredes, Mohammadamin Barekatain, Alexander Novikov, Matej
-  Balog, M.~Pawan Kumar, Emilien Dupont, Francisco J.~R. Ruiz, Jordan~S.
-  Ellenberg, Pengming Wang, Omar Fawzi, Pushmeet Kohli, and Alhussein Fawzi.
-\newblock Mathematical discoveries from program search with large language
-  models.
-\newblock \emph{Nature}, 625\penalty0 (7995):\penalty0 468--475, 2024.
-\newblock \doi{10.1038/s41586-023-06924-6}.
 
 \bibitem[Roueff and von Sachs(2019)]{roueffvonsachs2019}
 Fran{\c{c}}ois Roueff and Rainer von Sachs.
@@ -2598,6 +2688,15 @@ Halbert White.
 \newblock \emph{Econometrica}, 68\penalty0 (5):\penalty0 1097--1126, 2000.
 \newblock \doi{10.1111/1468-0262.00152}.
 
+\bibitem[Williams et~al.(2009)Williams, Waterman, and
+  Patterson]{williams2009roofline}
+Samuel Williams, Andrew Waterman, and David Patterson.
+\newblock Roofline: An insightful visual performance model for multicore
+  architectures.
+\newblock \emph{Communications of the ACM}, 52\penalty0 (4):\penalty0 65--76,
+  2009.
+\newblock \doi{10.1145/1498765.1498785}.
+
 \bibitem[Wolpert(1992)]{wolpert1992}
 David~H. Wolpert.
 \newblock Stacked generalization.
@@ -2721,14 +2820,6 @@ Ilia Zaznov, Julian Kunkel, Alfonso Dufour, and Atta Badii.
   survey.
 \newblock \emph{Mathematics}, 10\penalty0 (8):\penalty0 1234, 2022.
 \newblock \doi{10.3390/math10081234}.
-
-\bibitem[Zhang et~al.(2017)Zhang, Bengio, Hardt, Recht, and
-  Vinyals]{zhang2017rethinking}
-Chiyuan Zhang, Samy Bengio, Moritz Hardt, Benjamin Recht, and Oriol Vinyals.
-\newblock Understanding deep learning requires rethinking generalization.
-\newblock In \emph{International Conference on Learning Representations
-  (ICLR)}, 2017.
-\newblock URL \url{https://openreview.net/forum?id=Sy8gdB9xx}.
 
 \bibitem[Zhang et~al.(2020)Zhang, Lipani, Kirnap, and Yilmaz]{zhang2020sahp}
 Qiang Zhang, Aldo Lipani, Omer Kirnap, and Emine Yilmaz.

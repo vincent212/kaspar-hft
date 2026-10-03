@@ -181,12 +181,12 @@ def remove(o):
 \end{lstlisting}
 Three details matter later in this survey. First, an execution message names the waiting order
 that traded, so the feed reveals \emph{which} order in the queue was hit---the information needed
-to reconstruct queue positions (Part~IV). Second, a replace carries a new reference number, so in
+to reconstruct queue positions (Section~\ref{sec:simulators}). Second, a replace carries a new reference number, so in
 the reconstructed book the order leaves its place and rejoins at the back. Third, hidden orders
 produce only \texttt{P} messages and never enter the book: the book a feed lets you build is the
 \emph{displayed} book. ITCH is delivered over a sequenced UDP multicast protocol (MoldUDP64), so a
 receiver can detect lost packets by gaps in the sequence numbers. CME's MDP~3.0 market-by-order feed,
-used by the system in Part~IV, follows the same pattern with its own binary
+used by the Kaspar system of Section~\ref{sec:kaspar}, follows the same pattern with its own binary
 encoding~\citep{cme_mdp3}.
 
 At time $t$, an $L$-level description of the book is
@@ -308,7 +308,7 @@ Figure~\ref{fig:book}, where at time $t$ we decide to place a passive buy order 
   \emph{What it means:} $\Delta V$ answers ``is the new model worth it, compared with the simple
   one, on data it has never seen?''\\
   \emph{Example:} if a linear model earns 0.010 points per trade after costs and a neural network
-  earns 0.012, then $\Delta V = 0.002$ points per trade; Principle~3 below asks whether that is
+  earns 0.012, then $\Delta V = 0.002$ points per trade; Principle~2 below asks whether that is
   real and whether it pays for the extra complexity.
 
 \item[Operators]
@@ -446,8 +446,8 @@ apart. \emph{Generative market simulation} draws new market paths from a model o
 simulators, agent-based markets and the generative networks of Section~\ref{sec:deep-gen}.
 \emph{Historical replay} does not draw paths at all: it reconstructs the one path that was recorded,
 event by event, and evaluates the counterfactual outcome of the researcher's own orders against it---an
-estimate of~(5) on observed data. The Kaspar system of Part~IV is a replay system, not a generative
-simulator.
+estimate of~(5) on observed data. The Kaspar system of Section~\ref{sec:kaspar} is a replay system, not a generative
+simulator; Section~\ref{sec:simulators} compares the kinds of simulator.
 They are related but not interchangeable. A Hawkes process can generate realistic clustered order
 flow without producing directional alpha. A survival model can give accurate fill probabilities
 while playing no role in price prediction. A Transformer can predict short-horizon returns without
@@ -469,21 +469,14 @@ Classifier & $\P(\Delta m_{t,H} > 0 \mid X_t)$ & log loss, AUC, then net P\&L & 
 \end{tabularx}
 \end{table}
 
-\subsection{Three fixed positions}
+\subsection{Two fixed positions}
 
-Three positions recur throughout the paper.
+Two positions recur throughout the paper.
 
 \begin{principle}[The market is observed, not generated]
 Recorded exchange data are the ground truth. A replay simulator reconstructs the historical book
 from those data; it does not invent market behaviour. The only counterfactual it produces is the
 execution outcome of the researcher's own orders.
-\end{principle}
-
-\begin{principle}[Language models generate hypotheses, not data]
-In LLM-assisted model discovery the language model proposes candidate models. Fitting, replay,
-validation and certification are carried out outside the language model, by fixed procedures that are
-reproducible given the same data, configuration and random seeds. The language model does not generate
-the market data used as evidence.
 \end{principle}
 
 \begin{principle}[Occam's razor: complexity is an empirical hypothesis]
@@ -495,7 +488,7 @@ that survives realistic execution assumptions and the multiple-testing burden of
 
 \noindent Occam's razor is applied here to economic value, not to statistical fit alone: a more
 complex model is not rejected for being complex, but it carries the burden of showing that its
-extra value is real. Section~\ref{sec:parsimony} makes this operational.
+extra value is real.
 
 \subsection{Development of the field}
 \label{sec:history}
@@ -544,16 +537,14 @@ book~\citep{zaznov2022}, generative simulation of order books~\citep{jain2024sim
 large language models and autonomous agents in financial
 trading~\citep{ding2024llmtrading,dong2025llmfinance,hua2026agentic}. These works provide taxonomies of
 models and applications, but generally treat LOB modelling, trading prediction, execution and queue
-position, market simulation, and automated hypothesis search as separate topics. We are not aware of a
+position, market simulation and the hardware that runs the models as separate topics. We are not aware of a
 survey that brings these strands together around the question of how information extracted from the
 LOB survives the complete translation from statistical prediction to executable trading. That question
 is also this survey's criterion for selecting literature: a model or method is included when it bears
 on one link of the chain---representation, prediction, calibration, decision, queue position,
-execution, replay, economic value, model search and multiple testing, and LLM-assisted hypothesis
-generation. The individual subjects are not new; the integration, and the criterion that connects
-them, are. Two distinctions follow from it and recur throughout: historical replay is distinguished
-from generative market simulation, and language models are treated as generators of hypotheses, not
-as sources of market data or of validation.
+execution, simulation, inference hardware and economic value. The individual subjects are not new; the
+integration, and the criterion that connects them, are. One distinction follows from it and recurs
+throughout: historical replay is distinguished from generative market simulation.
 
 \paragraph{Generative LOB simulation versus historical replay.} The closest neighbouring review, on
 LOB simulation~\citep{jain2024sim}, classifies, by methodology, models that \emph{generate} order-book dynamics, and evaluates them by their ability
@@ -569,15 +560,9 @@ To decide whether an order would have executed against the historical market, th
 need to be generated, only reconstructed. This survey is concerned primarily with the second question;
 generative models are covered in Section~\ref{sec:deep-gen} as tools for simulation and stress testing.
 
-\paragraph{Language models: hypothesis generator, not trading agent.} The surveys of LLMs in trading
-review systems in which the language model reads market information, reasons about it and produces
-trading decisions that are then backtested~\citep{ding2024llmtrading,hua2026agentic}. This survey does not
-review that architecture. In the loop of Part~V the language model proposes a candidate model from a
-fixed vocabulary of primitives; in the worked implementation it never receives market
-prices~\citep{mayeski_latss}. Data enter only when an external, reproducible research engine compiles
-the candidate, fits it, evaluates it out of sample and corrects for the number of candidates tried. The
-implementation described there works on daily data; for order-book strategies the design adds replay
-of each candidate's orders against the recorded book, which is the role of Part~IV.
+\paragraph{Language models.} The surveys of LLMs in trading review systems in which the language model
+reads market information, reasons about it and produces trading decisions that are then
+backtested~\citep{ding2024llmtrading,hua2026agentic}. This survey does not review that architecture.
 
 The purpose here is therefore not another catalogue of architectures, but an organisation of the
 literature around the translation from information to decision. Three questions recur: what representation contains the useful information;
@@ -596,10 +581,10 @@ Work & Focus & Not covered there \\
 \citet{abergel2016}, \citet{bouchaud2018} & books on empirical properties, models and simulation of order books and impact & recent deep and generative models; model-search statistics \\
 \citet{tripathi2020} & systematic review of 103 articles (1981--2018) on the LOB as a trading mechanism and its implications for market efficiency, classified by sub-area, market, method and LOB measure & deep-learning prediction (named there only as a future direction); execution value; queue position \\
 \citet{jain2024sim} & review of LOB simulation models and the stylised facts used to validate them & prediction and trading value \\
-\citet{ding2024llmtrading}, \citet{dong2025llmfinance}, \citet{hua2026agentic} & surveys of LLMs as trading and financial agents: architectures, inputs, workflows, benchmarks, backtests, deployment & LOB microstructure; separation of hypothesis generation from evidence \\
+\citet{ding2024llmtrading}, \citet{dong2025llmfinance}, \citet{hua2026agentic} & surveys of LLMs as trading and financial agents: architectures, inputs, workflows, benchmarks, backtests, deployment & LOB microstructure; execution \\
 \citet{zaznov2022} & survey of price-change prediction from the LOB & classical point-process and queue models; execution \\
 \citet{prata2024}, \citet{briola2024} & benchmark re-tests of deep models; transaction-level evaluation & classical models; queue position; search statistics \\
-This survey & information-to-decision chain: classical and deep models, queue position, deterministic replay, automated model discovery, evaluation & -- \\
+This survey & information-to-decision chain: classical and deep models, queue position, simulators and deterministic replay, hardware acceleration & -- \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -610,19 +595,17 @@ This survey & information-to-decision chain: classical and deep models, queue po
   classical and learned models in one framework;
 \item a treatment of queue position, fill probability and adverse selection as modelling targets in
   their own right, with the signal-value/execution-value distinction (Section~\ref{sec:tradeability-framework});
-\item a description of queue-exact deterministic replay as the evaluation instrument for execution
-  claims (Part~IV);
-\item an account of LLM-assisted model discovery as a statistical search process (Part~V);
-\item evaluation standards that combine proper scoring, economic metrics, temporal validation and
-  search-aware significance (Part~VI);
+\item a survey of order-book simulators, with queue-exact deterministic replay as the evaluation
+  instrument for execution claims (Part~III);
+\item an account of why order-book models are slow at inference and what hardware can accelerate
+  (Part~III);
 \item a reader-oriented apparatus: notation, a probability primer, plain-language explanations of every
   equation, a glossary, and a from-scratch introduction to point processes (Section~\ref{sec:hawkes}).
 \end{enumerate}
 
 \paragraph{Reading order.} Readers new to markets should read Part~I in full and use the
 glossary. Readers interested mainly in models should read Part~II, then Section~\ref{sec:benchmarks-dl}.
-Practitioners concerned with execution should read Parts~III and IV and Section~\ref{sec:parsimony}.
-Readers interested in automated research should read Parts~V and VI. Readers new to point processes
+Practitioners concerned with execution, simulation or hardware should read Part~III. Readers new to point processes
 should start Section~\ref{sec:hawkes} at its beginning, which introduces them from scratch.
 
 \subsubsection*{Four axes for locating a piece of work}
@@ -657,8 +640,8 @@ direction accuracy are not competitors, however often they appear in the same ta
 
 \emph{Second, to organise the paper.} Part~II moves along the model-class axis, from linear models
 to pretrained encoders, and Section~\ref{sec:events} along the representation axis. Part~III moves
-along the objective axis from direction to fill probability and adverse selection. Parts~IV and V
-fix the economic role---passive execution---and ask what each objective is worth for it.
+along the objective axis from direction to fill probability and adverse selection, and asks how
+simulators and hardware support the economic role of passive execution.
 
 \emph{Third, to expose a gap.} Table~\ref{tab:axes} places the main works discussed in this survey
 on the four axes. The economic-role column is where the literature is thinnest: many of the
@@ -738,7 +721,7 @@ the book), \emph{execution} (deciding how to place, keep and cancel orders), or 
 models, which derive prices from the optimal behaviour of rational traders, and agent-based models,
 which simulate many rule-following traders, appear only where they help explain an LOB model; they
 are not fitted to the data the rest of the paper is about. Synthetic market data produced by
-learned generative models are discussed in Section~\ref{sec:three-uses}, but, following Principle~1,
+learned generative models are discussed in Section~\ref{sec:deep-gen}, but, following Principle~1,
 they play no part in the methodology the survey recommends.
 
 \subsection{Source selection}
@@ -776,7 +759,7 @@ reader should ask of every claim which kind it is.
   those papers did not study.
 \item[Methodological recommendation] A proposed standard, argued for rather than proved.
   \emph{Example:} every result should report how many model configurations were tried
-  (Section~\ref{sec:search}). Its justification is a statistical argument, not a measurement.
+  \citep{white2000,harvey2016}. Its justification is a statistical argument, not a measurement.
 \item[Open hypothesis] Plausible, but the evidence is incomplete or conflicting. \emph{Example:}
   adding Hawkes intensities to a large network that already sees the same events adds little value
   (Section~\ref{sec:hybrid}). The survey argues for it; nobody has shown it.
@@ -820,11 +803,11 @@ Horizon and target & Predicting the sign of the next mid change is a different p
 Class balance & If most samples belong to one class, a model that always predicts that class
   scores high accuracy while knowing nothing (Example~\ref{ex:imbalance}). \\
 Train/test protocol & A random split lets the model train on data from after its test period; a
-  chronological split does not (Section~\ref{sec:validation}). \\
+  chronological split does not (Section~\ref{sec:deep-real}). \\
 Costs, latency and execution model & The same forecast is profitable or unprofitable depending on
   whether the spread, fees and delays are counted (Section~\ref{sec:tradeability}). \\
 Number of configurations tried & The best of many tries looks good by chance
-  (Section~\ref{sec:search}). \\
+  \citep{white2000,harvey2016}. \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -858,9 +841,9 @@ cannot answer them has not yet shown that its result is useful for trading.
 \item \textbf{What exactly is predicted, over what horizon, on what clock?} (Section~\ref{sec:deep})
 \item \textbf{What does a trivial model score on the same data?} Always guessing the most common
   class, or a linear model on order-flow imbalance (Section~\ref{sec:ofi}).
-\item \textbf{Was the test period strictly after the training period?} (Section~\ref{sec:validation})
+\item \textbf{Was the test period strictly after the training period?} (Section~\ref{sec:deep-real})
 \item \textbf{How many models or settings were tried before this one was reported?}
-  (Section~\ref{sec:search})
+  The best of many tries looks good by chance~\citep{white2000,harvey2016}.
 \item \textbf{What decision would the prediction drive, and was that decision evaluated after
   spread, fees and latency?} (Sections~\ref{sec:tradeability} and~\ref{sec:passive})
 \item \textbf{If the decision uses passive orders, how were fills decided?} A fill rule that ignores

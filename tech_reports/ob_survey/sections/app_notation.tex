@@ -106,17 +106,13 @@ $t_{\text{end}}$, $N_{\text{end}}$ & end of the observation window; number of ar
 \midrule
 \multicolumn{3}{l}{\emph{Models and evaluation}} \\
 $M$, $M_0$, $M_1$, $V(M)$, $\Delta V$ & model; baseline; candidate; out-of-sample value; its difference & \S\ref{sec:notation} \\
-$\mathcal{C}(M)$, $\chi$ & complexity vector; exchange rate between value and complexity & \S\ref{sec:parsimony} \\
-$N_{\text{trials}}$ & number of candidates evaluated & \S\ref{sec:lamd} \\
 $\mathrm{TO}$ & transaction-level overlap score (called $p_T$ by its authors) & \S\ref{sec:benchmarks-dl} \\
-$\mathrm{VC}$, $N_s$, $\varsigma$ & VC dimension; sample size; failure probability of a bound & \S\ref{sec:generalisation} \\
-$\sigma_{\text{SR}}$, $\text{SR}_0$, $N_{\text{obs}}$, $\gamma_E$ & spread of Sharpe estimates; null maximum; number of returns; Euler--Mascheroni constant & \S\ref{sec:generalisation} \\
 $\mathbf{z}^{\text{qry}}_n$, $\mathbf{z}^{\text{key}}_n$, $\mathbf{z}^{\text{val}}_n$, $\dim_{\text{emb}}$ & attention query, key and value; their dimension & \S\ref{sec:deep} \\
 $\mathrm{att}_{nn'}$ & attention weight of event $n$ on event $n'$ & \S\ref{sec:deep} \\
 $\mathbf{z}^{\text{hist}}(t)$, $\mathbf{o}_i$ & history vector of a neural point process; output weights for type $i$ & \S\ref{sec:npp} \\
 $\operatorname{softplus}(y)$ & $\ln(1+\mathrm{e}^{y})$, a smooth positive function; $y$ any real number & \S\ref{sec:npp} \\
 $\nu_t$, $S_t$ & gate; Hawkes-intensity input & \S\ref{sec:hybrid} \\
-$\P$, $\E$, $\Phi$ & probability; expectation; standard normal distribution function & \S\ref{sec:primer}, \S\ref{sec:generalisation} \\
+$\P$, $\E$ & probability; expectation & \S\ref{sec:primer} \\
 $A$, $B$, $Z$, $\mathbb{1}_A$ & generic events and random number in the primer; indicator & \S\ref{sec:primer} \\
 $R^2$ & coefficient of determination & \S\ref{sec:ofi} \\
 $f_{n,k}$, $\beta_k$, $\varrho$ & input $k$ at observation $n$; its regression weight; lasso penalty strength & \S\ref{sec:meta-learner} \\

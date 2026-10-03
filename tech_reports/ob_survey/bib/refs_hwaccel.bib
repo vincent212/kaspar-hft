@@ -1,0 +1,147 @@
+% refs_hwaccel.bib -- why LOB models are slow at batch-1 inference, and what hardware accelerates.
+% Verified 2026-10-03 against arXiv PDFs, Crossref, NeurIPS / MLSys proceedings pages and NVIDIA docs.
+% Reused keys (already in refs.bib or bib/*.bib, NOT repeated here): vaswani2017, zhang2019,
+% hochreiter1997, jacob2018, hls4ml, leber2011, lockwood2012, lighttrader, famous,
+% exegy_stac2024, popov2026ssm, pauliano_hftfpga, hedges2026frontier, hong2026lobin,
+% berti2025tlob, makinde2026tkan, zhangzohren2021.
+% Fields not confirmed from a source are omitted.
+
+% ---------------- Performance models: roofline, memory-bound inference ----------------
+
+@article{williams2009roofline,
+  author  = {Williams, Samuel and Waterman, Andrew and Patterson, David},
+  title   = {Roofline: An Insightful Visual Performance Model for Multicore Architectures},
+  journal = {Communications of the ACM},
+  year    = {2009},
+  volume  = {52},
+  number  = {4},
+  pages   = {65--76},
+  doi     = {10.1145/1498765.1498785}
+}
+
+@inproceedings{dao2022flashattention,
+  author    = {Dao, Tri and Fu, Daniel Y. and Ermon, Stefano and Rudra, Atri and R{\'e}, Christopher},
+  title     = {{FlashAttention}: Fast and Memory-Efficient Exact Attention with {IO}-Awareness},
+  booktitle = {Advances in Neural Information Processing Systems 35 (NeurIPS 2022)},
+  year      = {2022},
+  pages     = {16344--16359},
+  eprint        = {2205.14135},
+  archivePrefix = {arXiv}
+}
+
+@inproceedings{pope2023scaling,
+  author    = {Pope, Reiner and Douglas, Sholto and Chowdhery, Aakanksha and Devlin, Jacob and Bradbury, James and Heek, Jonathan and Xiao, Kefan and Agrawal, Shivani and Dean, Jeff},
+  title     = {Efficiently Scaling Transformer Inference},
+  booktitle = {Proceedings of Machine Learning and Systems 5 (MLSys 2023)},
+  year      = {2023},
+  pages     = {606--624},
+  eprint        = {2211.05102},
+  archivePrefix = {arXiv}
+}
+
+@misc{kim2023fullstack,
+  author        = {Kim, Sehoon and Hooper, Coleman and Wattanawong, Thanakul and Kang, Minwoo and Yan, Ruohan and Genc, Hasan and Dinh, Grace and Huang, Qijing and Keutzer, Kurt and Mahoney, Michael W. and Shao, Yakun Sophia and Gholami, Amir},
+  title         = {Full Stack Optimization of Transformer Inference: a Survey},
+  year          = {2023},
+  eprint        = {2302.14017},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL}
+}
+
+% ---------------- Model compression ----------------
+
+@incollection{gholami2022quant,
+  author    = {Gholami, Amir and Kim, Sehoon and Dong, Zhen and Yao, Zhewei and Mahoney, Michael W. and Keutzer, Kurt},
+  title     = {A Survey of Quantization Methods for Efficient Neural Network Inference},
+  booktitle = {Low-Power Computer Vision},
+  publisher = {Chapman and Hall/CRC},
+  year      = {2022},
+  pages     = {291--326},
+  doi       = {10.1201/9781003162810-13},
+  eprint        = {2103.13630},
+  archivePrefix = {arXiv}
+}
+
+% ---------------- Recurrent networks on FPGAs ----------------
+
+@inproceedings{han2017ese,
+  author    = {Han, Song and Kang, Junlong and Mao, Huizi and Hu, Yiming and Li, Xin and Li, Yubin and Xie, Dongliang and Luo, Hong and Yao, Song and Wang, Yu and Yang, Huazhong and Dally, William J.},
+  title     = {{ESE}: Efficient Speech Recognition Engine with Sparse {LSTM} on {FPGA}},
+  booktitle = {Proceedings of the 2017 ACM/SIGDA International Symposium on Field-Programmable Gate Arrays (FPGA '17)},
+  publisher = {ACM},
+  year      = {2017},
+  pages     = {75--84},
+  doi       = {10.1145/3020078.3021745},
+  eprint        = {1612.00694},
+  archivePrefix = {arXiv}
+}
+
+@article{khoda2023rnn,
+  author  = {Khoda, Elham E. and Rankin, Dylan and Teixeira de Lima, Rafael and Harris, Philip and Hauck, Scott and Hsu, Shih-Chieh and Kagan, Michael and Loncar, Vladimir and Paikara, Chaitanya and Rao, Richa and Summers, Sioni and Vernieri, Caterina and Wang, Aaron},
+  title   = {Ultra-low latency recurrent neural network inference on {FPGAs} for physics applications with hls4ml},
+  journal = {Machine Learning: Science and Technology},
+  year    = {2023},
+  volume  = {4},
+  number  = {2},
+  pages   = {025004},
+  doi     = {10.1088/2632-2153/acc0d7},
+  eprint        = {2207.00559},
+  archivePrefix = {arXiv}
+}
+
+% ---------------- GPU overheads: kernel launch, host-device transfer ----------------
+
+@misc{nvidia_cudagraphs_blog,
+  author       = {Gray, Alan},
+  title        = {Getting Started with {CUDA} Graphs},
+  howpublished = {NVIDIA Technical Blog},
+  year         = {2019},
+  month        = sep,
+  url          = {https://developer.nvidia.com/blog/cuda-graphs/}
+}
+
+@manual{nvidia_cuda_guide,
+  author       = {{NVIDIA}},
+  title        = {{CUDA} {C++} Programming Guide, Release 12.4, Section 3.2.8.7 ({CUDA} Graphs)},
+  organization = {NVIDIA Corporation},
+  year         = {2024},
+  url          = {https://docs.nvidia.com/cuda/archive/12.4.0/cuda-c-programming-guide/index.html}
+}
+
+@manual{nvidia_cuda_bpg,
+  author       = {{NVIDIA}},
+  title        = {{CUDA} {C++} Best Practices Guide, Release 12.4},
+  organization = {NVIDIA Corporation},
+  year         = {2024},
+  url          = {https://docs.nvidia.com/cuda/archive/12.4.0/cuda-c-best-practices-guide/index.html}
+}
+
+@inproceedings{neugebauer2018pcie,
+  author    = {Neugebauer, Rolf and Antichi, Gianni and Zazo, Jos{\'e} Fernando and Audzevich, Yury and L{\'o}pez-Buedo, Sergio and Moore, Andrew W.},
+  title     = {Understanding {PCIe} Performance for End Host Networking},
+  booktitle = {Proceedings of the 2018 Conference of the ACM Special Interest Group on Data Communication (SIGCOMM '18)},
+  publisher = {ACM},
+  year      = {2018},
+  pages     = {327--341},
+  doi       = {10.1145/3230543.3230560}
+}
+
+% ---------------- Order-book building and market-data hardware ----------------
+
+@misc{krapivensky2025glass,
+  author        = {Krapivensky, Viktor},
+  title         = {glass: ordered set data structure for client-side order books},
+  year          = {2025},
+  eprint        = {2506.13991},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.DS}
+}
+
+@inproceedings{denholm2014arb,
+  author    = {Denholm, Stewart and Inoue, Hiroaki and Takenaka, Takashi and Becker, Tobias and Luk, Wayne},
+  title     = {Low Latency {FPGA} Acceleration of Market Data Feed Arbitration},
+  booktitle = {2014 IEEE 25th International Conference on Application-Specific Systems, Architectures and Processors (ASAP)},
+  year      = {2014},
+  pages     = {36--40},
+  doi       = {10.1109/ASAP.2014.6868628}
+}

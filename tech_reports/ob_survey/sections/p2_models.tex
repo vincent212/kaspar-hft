@@ -391,7 +391,7 @@ Two features are a choice, not a requirement. Any of the shape features of
 Section~\ref{sec:shape}---second-level depth, slope---or recent order flow could be added to the state.
 Each addition multiplies the number of states and leaves fewer observations per state, so the estimates
 become noisier: the same trade-off between richer description and evidence that runs through this
-survey (Principle~3).
+survey (Principle~2).
 
 
 The weighted mid has three defects~\citep{stoikov2018}. It is not a \emph{martingale}---its
@@ -1492,7 +1492,7 @@ matters is the fill probability together with what the price does after the fill
 \end{figure}
 The authors note that their data do not identify individual orders, so these probabilities could not be
 checked against data---exactly the gap that order-level data and queue-exact replay fill
-(Part~IV).
+(Section~\ref{sec:kaspar}).
 
 \begin{table}[!htbp]
 \centering\footnotesize
@@ -1909,7 +1909,7 @@ produces, event by event, a stream of limit orders, cancellations and market ord
 levels, the resulting queue sizes, and the price moves they cause---an artificial trading day that
 looks statistically like the real ones. It is a \emph{generative} simulator in the sense of
 Section~\ref{sec:three-problems}: it invents new market paths from a model, rather than replaying a
-recorded one as the Kaspar system of Part~IV does. Two features make it useful. The paths it generates
+recorded one as the Kaspar system of Section~\ref{sec:kaspar} does. Two features make it useful. The paths it generates
 reproduce the observed behaviour of queues; and because every rate depends on the current state of the
 book, a trader's own simulated order changes what the simulated market does next, so tactics can be
 tested against a market that reacts. The book it generates is coarse: queues are counts of orders of
@@ -2206,12 +2206,12 @@ Intuition and teaching & Switch features on and off---resets, state dependence--
 \end{table}
 
 \paragraph{Place among the evaluation tools.} The simulator and historical replay
-(Section~\ref{sec:replay}, Part~IV) are complementary. Replay uses the real market but cannot react: a
+(Section~\ref{sec:replay}) are complementary. Replay uses the real market but cannot react: a
 simulated order sits in the recorded queue, and the market behaves exactly as it did, whatever the order
 does. A queue-reactive simulator reacts, but its market is synthetic. A sensible workflow uses each for what
 it does well: explore and narrow down execution settings in the reactive simulator, where trying many
 variants is cheap; evaluate the survivors in queue-exact replay on recorded data, counting every variant
-tried (Section~\ref{sec:search}); and only then trade them on paper and live. The simulator's results are
+tried~\citep{white2000,harvey2016}; and only then trade them on paper and live. The simulator's results are
 never the final evidence.
 
 \paragraph{Ingredients for building a queue-reactive simulator.} The ingredients follow the steps of this subsection:
@@ -2312,7 +2312,7 @@ this section.
   observations, are the natural statistical tool (Section~\ref{sec:deep-fill}).
 \item[How to test tactics] A reactive simulator such as the queue-reactive model is the place to compare
   execution tactics cheaply; queue-exact replay on recorded data is the place to evaluate the survivors
-  (Part~IV).
+  (Section~\ref{sec:kaspar}).
 \end{description}
 Queue models thus serve execution in two ways: they estimate \emph{when} a resting order will be filled,
 and, because a depletion is a price move, \emph{how informative} the fill is likely to be
@@ -4306,7 +4306,7 @@ intensity must be updated in a few operations per event inside a trading system,
 \item \textbf{Guarantees.} The stability condition $\rho(\Gamma) < 1$ has no simple analogue, so a
   simulated neural model can drift into regimes never seen in training.
 \end{itemize}
-The evaluation follows Principle~3. The baseline is a multivariate Hawkes model, ideally with
+The evaluation follows Principle~2. The baseline is a multivariate Hawkes model, ideally with
 sum-of-exponential kernels, fitted to the same events; the comparison is the held-out log-likelihood per
 event, the time-rescaling test of Section~\ref{sec:hawkes-fit} (which applies to any model that outputs
 an intensity), and, for a trading use, the economic value of the forecasts. A neural point process
@@ -4625,7 +4625,7 @@ greater risk of fitting noise (Section~\ref{sec:meta-train}).
 Figure~\ref{fig:meta-arch} shows the structure. Each classical model runs on the same event stream and is
 updated as the book changes. Their outputs are collected, at each decision time, into one feature vector.
 The learner maps that vector to a forecast, which is calibrated so that it can be read as a probability
-(Section~\ref{sec:stat-metrics}), and the forecast feeds the execution decision of Part~III.
+(Section~\ref{sec:deep-real}), and the forecast feeds the execution decision of Part~III.
 
 \begin{figure}[!htbp]
 \centering
@@ -4724,7 +4724,7 @@ verified study in which a flexible learner on classical inputs clearly outperfor
 on the same inputs. A penalised linear model---lasso~\citep{tibshirani1996}, which also sets the weights of
 unhelpful inputs to zero---is therefore the natural first meta-model and the baseline any more flexible
 learner must beat. Whatever the learner, its output must be calibrated, because the execution decision uses
-it as a probability (Section~\ref{sec:stat-metrics}).
+it as a probability.
 
 \paragraph{The lasso.} The lasso~\citep{tibshirani1996} is least-squares regression with a limit on
 the total size of the coefficients. Write $f_{n,k}$ for input $k$ at observation $n$---for example the OFI
@@ -4747,7 +4747,7 @@ regression) gives a disc instead, which has no corners, so weights become small 
 classification target the same penalty is added to the log-likelihood of a logistic regression. Two
 practical points follow from the form of the penalty. Inputs must be put on a common scale first, since the
 penalty treats a unit of every weight alike; and $\varrho$ is chosen by validation---for market data,
-time-ordered validation (Section~\ref{sec:validation})---usually as the value giving the best out-of-sample
+time-ordered validation (Section~\ref{sec:deep-real})---usually as the value giving the best out-of-sample
 error. For a meta-model, the lasso therefore answers directly which classical inputs earn a place: in the
 study of \citet{aitsahalia2026}, the inputs it selected most often were signed transaction volume and past
 returns, ahead of book imbalance.
@@ -4877,10 +4877,10 @@ Section~\ref{sec:deep}, and a combination earns its place only if it beats all f
   forecast---for instance the model-free benchmark of Section~\ref{sec:shadow}---under the same execution
   model and costs.
 \end{enumerate}
-The comparison should use a proper score for the forecast (Section~\ref{sec:stat-metrics}) and net profit for
+The comparison should use a proper score for the forecast and net profit for
 the decision, on data used for nothing else, and the winner should be reported with a model confidence
 set~\citep{hansen2011mcs} rather than as the single best score, counting every combination tried
-(Section~\ref{sec:search}).
+\citep{white2000,harvey2016}.
 
 \paragraph{Learned combiners.} Yes: that is approach~(b), stacking, with the combiner
 itself a learned model---a regression, a logistic model, boosted trees or a neural network---trained on the
@@ -5303,7 +5303,7 @@ time-ordering of market data, in different ways:
 \item \citet{bieganowski2026} use walk-forward validation with a gap between training and test data, and
   tune hyperparameters by an inner time-series cross-validation.
 \end{itemize}
-These are instances of the general requirements of Section~\ref{sec:validation}---chronological splits,
+These are instances of the general requirements of Section~\ref{sec:deep-real}---chronological splits,
 purging and embargo~\citep{lopezdeprado2018}. The statistics literature on cross-validation for dependent data
 reaches the same place by another route. \emph{h-block} cross-validation removes the $h$ observations before and
 after each test observation from the training data~\citep{burman1994}, and \citet{racine2000} proposes
@@ -5311,9 +5311,9 @@ after each test observation from the training data~\citep{burman1994}, and \cite
 predictors. On 62 real and 3 synthetic series, \citet{cerqueira2020} find that cross-validation works for
 stationary series, but that when the series is non-stationary the most accurate estimates of performance come
 from out-of-sample methods that keep the observations in time order. A meta-model adds one more set of choices to count: every
-combination of inputs, windows and learners tried is a trial in the sense of Section~\ref{sec:search}, and
-the final choice should be assessed with the tools of Section~\ref{sec:generalisation}. The question of
-which inputs earn their place is Principle~3 applied input by input; as noted in
+combination of inputs, windows and learners tried is a trial that must be counted~\citep{white2000,harvey2016}, and
+the final choice should be assessed out of sample. The question of
+which inputs earn their place is Principle~2 applied input by input; as noted in
 Section~\ref{sec:meta-evidence}, no study we found reports that ablation in economic terms.
 
 \subsection{Summary}
@@ -5354,7 +5354,7 @@ Section~\ref{sec:meta-evidence}, no study we found reports that ablation in econ
 \cardrow{What you calibrate}{First, each classical model (OFI slopes, micro-price tables, Hawkes parameters,
 queue-model rates); then the learner that combines their outputs, and a calibration map for its forecasts.}
 \cardrow{How}{Train the learner only on out-of-sample predictions of the classical models, as stacking
-requires~\citep{breiman1996stack}; use chronological splits with purging (Section~\ref{sec:validation});
+requires~\citep{breiman1996stack}; use chronological splits with purging (Section~\ref{sec:deep-real});
 count every input set and learner tried.}
 \cardrow{What you do with it}{Produce a calibrated forecast---P(up), expected move, P(fill)---from many
 partial views of the book at once, for the execution decisions of Part~III; measure, by ablation, which
@@ -6947,7 +6947,7 @@ re-tests come from (Section~\ref{sec:benchmarks-dl}). This subsection walks thro
 DeepLOB~\citep{zhang2019} on its London Stock Exchange data set as a concrete example (Figure~\ref{fig:deep-train}).
 
 \paragraph{Software.} Deep LOB models are written with general-purpose deep-learning libraries. Each library
-stores the data as arrays (\emph{tensors}), runs the arithmetic on a CPU or a GPU, and computes the gradients that
+stores the data as arrays (\emph{tensors}), runs the arithmetic on a CPU or a GPU (a graphics processor, built for many arithmetic operations in parallel), and computes the gradients that
 training needs automatically, so the modeller writes only the forward computation. The main ones are:
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
 \item \textbf{PyTorch}~\citep{paszke2019pytorch}: used by the public code of LOBCAST~\citep{prata2024},
@@ -7050,8 +7050,8 @@ descent; the \emph{learning rate} sets the size of each step; a \emph{batch} is 
 averaged for one step; an \emph{epoch} is one pass over all the training data. (``Weights'' and ``parameters'' are used
 interchangeably.) DeepLOB uses Adam with a learning rate of 0.01, batches of 32 examples, and stops when accuracy on
 the validation months has not improved for 20 epochs (about 40 epochs in all). The trained network has about 60,000
-weights and takes about a quarter of a millisecond per prediction on a GPU (a graphics processor, used for fast
-parallel arithmetic).
+weights and takes about a quarter of a millisecond per prediction; the paper does not state the device or the
+batch size used for that timing (Section~\ref{sec:hw-why}).
 
 Listing~\ref{lst:model} is DeepLOB in PyTorch, following the description of Section~\ref{sec:deeplob}. Printing
 its parameter count gives 60,947: the same as Table~\ref{tab:deeplob-params} stage by stage, except the LSTM,
@@ -7068,7 +7068,7 @@ horizons, and similar numbers on five stocks it had not seen. Three further chec
 good-looking one, and the later subsections show each one failing in published work: compare with simple
 baselines on the same inputs, including a naive forecast of the label (Section~\ref{sec:deep-real}); re-test on a
 later period and on other instruments (Section~\ref{sec:benchmarks-dl}); and measure what a trader would make
-after costs, not only classification accuracy (Section~\ref{sec:benchmarks-dl} and Part~VI).
+after costs, not only classification accuracy (Sections~\ref{sec:benchmarks-dl} and~\ref{sec:passive}).
 
 \paragraph{Step 6 in the example: results on a market with nothing to predict.} The example trains the network
 four times: two labels (smoothed, leak-free) times two ways of presenting prices (z-scored by day as in Step~2, or
@@ -7133,7 +7133,7 @@ common one. Papers report these as percentages (70\%) or as fractions (0.70); th
 \emph{model confidence set} is a statistical test that, given several models, keeps those that cannot be shown to
 be worse than the best; ``among the statistically best'' means kept by such a test~\citep{hansen2011mcs}. None of
 these scores says anything about money: a model can classify most windows correctly and still not make a profit
-once trades are costed (the end of this subsection, and Part~VI).
+once trades are costed (the end of this subsection, and Section~\ref{sec:passive}).
 
 \paragraph{Two sources of inflated accuracy: the label and the split.} A reported accuracy measures what the
 network learned only if the label and the data split do not leak information. Two published re-tests show that in
@@ -7475,7 +7475,8 @@ Total & 60,691 & \\
 stages 1--3 encode how a book is organised---prices belong with their sizes, asks with bids at the same level, and
 levels with each other---so that the network cannot mix unrelated numbers and needs few weights to read the book.
 What it learns is how to weigh these combinations, which time scales matter, and how to accumulate them into a
-forecast. It runs a forward pass---one evaluation on one input---in about a quarter of a millisecond on a GPU.
+forecast. The authors report a forward pass---one evaluation on one input---of about a quarter of a millisecond,
+without stating the device or batch size.
 
 \paragraph{Reported results and later re-tests.} On a year of London Stock Exchange data for five stocks, it reports
 F1 scores of about 70\%, 63\% and 61\% at horizons of 20, 50 and 100 events, with similar numbers on five stocks not

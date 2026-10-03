@@ -18,27 +18,26 @@ prices or events from models that estimate execution outcomes---fill probability
 adverse selection---and argue that residual queue position and conditional execution value form
 the missing translation layer between LOB prediction research and trading.
 
-Two further parts are specific to this survey. First, we describe a deterministic, queue-exact
-replay architecture (the Kaspar system for CME futures) in which simulated orders enter the
-reconstructed historical first-in-first-out queue and are filled only by recorded executions that
-reach an order behind them; the same strategy and order-management code runs in replay and live
-modes. Second, we describe LLM-Assisted Model Discovery (\lamd), in which a language model proposes
-candidate models while fitting, replay on observed market data, validation and statistical
-certification remain external to the language model and reproducible under fixed inputs and
-procedures. We take the position that the market is observed, not generated: within the methodology
-proposed here, language models generate hypotheses and candidate models, not the market data used as
-evidence.
+The last part turns to the infrastructure that execution research depends on. We survey order-book
+simulators---historical replay, agent-based, model-based and generative---and compare them on the
+properties execution questions need: per-order queue position, explicit latency, determinism and a
+shared code path to live trading. The Kaspar system for CME futures serves as the worked example of a
+deterministic, queue-exact replay in which simulated orders enter the reconstructed historical
+first-in-first-out queue and are filled only by recorded executions that reach an order behind them, and
+we show how an order-book model is added to it as an actor that publishes its predictions to a strategy.
+We then explain why order-book models are slow at inference---book building, sequential recurrence,
+attention whose cost grows with the square of the sequence length, and memory-bound evaluation at batch
+size one---and which stages can be accelerated on FPGAs, GPUs and other processors.
 
 Two criteria organise the evaluation: \emph{tradeability}, under which predictive performance is
 judged after latency, spread, fees, queue position and adverse selection; and \emph{Occam's
-razor}, under which each additional layer of complexity---model capacity, hardware, and the
-breadth of the search that produced the model---must earn incremental out-of-sample economic
-value. This is a theoretical and methodological paper: all numerical examples are stylised, and no
+razor}, under which each additional layer of complexity---model capacity and hardware---must earn
+incremental out-of-sample economic value. This is a theoretical and methodological paper: all numerical examples are stylised, and no
 new experiments are reported.
 
 \medskip
 \noindent\textbf{Keywords:} limit order book, market microstructure, order-flow imbalance, micro-price,
 Hawkes process, queue position, first-passage time, adverse selection, deterministic simulation, deep
 learning, spatial-temporal Transformer, foundation models, uncertainty quantification, multiple testing,
-deflated Sharpe ratio, Occam's razor, LLM-assisted model discovery.
+Occam's razor, market simulation, hardware acceleration, FPGA.
 \end{abstract}

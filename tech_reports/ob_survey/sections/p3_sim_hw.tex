@@ -1,0 +1,1231 @@
+\paragraph{About this part.} Part~II asked what the book predicts. Part~III is about the infrastructure needed to
+turn a prediction into a tested trading decision. It sets out what a simulator must capture for execution
+questions---queue position, adverse selection and latency (Section~\ref{sec:sim-needs}); surveys the order-book
+simulators available and compares them with the Kaspar system, including how an order-book model is added to Kaspar
+as an actor that publishes its predictions to a strategy (Section~\ref{sec:simulators}); explains why order-book
+models are slow at inference and what hardware can accelerate (Section~\ref{sec:hardware}); and closes with failure
+modes, open problems and the survey's conclusion (Sections~\ref{sec:failures}--\ref{sec:conclusion}).
+
+% ================================================================
+\section{What a simulator must capture}
+\label{sec:sim-needs}
+
+A simulator for execution research has to reproduce the mechanics that decide whether an order trades and what
+the trade is worth. This section sets out those mechanics: the difference between crossing the spread and
+waiting in the queue, how queue position determines whether a passive order is filled, why the fills it does get
+are biased towards bad ones, and how latency eats into a signal. Section~\ref{sec:simulators} then asks which
+simulators model them.
+
+\subsection{Passive and aggressive execution}
+\label{sec:passive}
+
+Consider one unit traded on side $d$ at time $t$. For an aggressive order, which executes
+immediately, a simplified realised profit is
+\begin{equation}
+  \Pi^{\text{agg}} = d\,\Delta m_{t,H} - C_{\text{spread}} - C_{\text{fees}} - C_{\text{impact}},
+\end{equation}
+where $C_{\text{spread}} = s_t/2$ is the half spread paid to cross, $C_{\text{fees}}$ the exchange
+and clearing fees, and $C_{\text{impact}}$ the additional price concession from walking the book.
+\inwords{profit from trading immediately is the price move in our favour---multiplying by $d$
+flips the sign for a sell, so a falling price is good for a seller---minus what it cost to get in:
+half the spread, the fees, and any extra paid for consuming more than the best level.}
+A passive order placed at $t$ trades only if it is filled, at time $t_F$ and price
+$p^{\text{fill}}$. Define its post-fill mark-out over horizon $h$ as
+\begin{equation}
+  R^{\text{fill}}_{h} = d\left(m_{t_F+h} - p^{\text{fill}}\right).
+  \label{eq:markout}
+\end{equation}
+\inwords{once our order has traded, look at the mid $h$ seconds later and ask how far it is from
+the price we got, counted positive when it is in our favour. A large positive mark-out means we
+bought cheaply; a negative one means the market moved against us right after we traded.}
+For a passive buy filled at the bid, the mark-out is the half spread at the fill time,
+$s_{t_F}/2$, plus the mid move after the fill. The passive profit is
+\begin{equation}
+  \Pi^{\text{pass}} = \mathbb{1}_{\Fill}\left(R^{\text{fill}}_{h} + R_{\text{rebate}}\right),
+\end{equation}
+where $R_{\text{rebate}}$ is any liquidity-provision rebate net of fees.
+\inwords{if the order is filled, the profit is its mark-out plus any rebate the exchange pays for
+providing liquidity; if it is never filled, the indicator is zero and so is the profit.} The passive profit exists
+only conditional on execution, which gives the decomposition
+\begin{equation}
+  \E[\Pi^{\text{pass}}] = \P(\Fill)\; \E[\Pi^{\text{pass}} \mid \Fill].
+  \label{eq:decomp}
+\end{equation}
+\inwords{the average profit of a passive order equals the chance it is filled times the average
+profit when it is. This is the identity $\E[Z\,\mathbb{1}_A] = \P(A)\,\E[Z \mid A]$ of
+Section~\ref{sec:primer}, with $A$ the fill.}
+Equation~\eqref{eq:decomp} separates two quantities that a directional forecast conflates: how
+likely the order is to trade, and how good the trade is when it does. The rest of this part is
+about the two factors. Market-making models~\citep{avellaneda2008,cartea2015} and optimal-execution
+models~\citep{almgren2001} give the surrounding control problems; here we focus on the inputs
+those problems need from the book.
+
+\subsubsection{Signal value and execution value}
+\label{sec:tradeability-framework}
+
+The decomposition gives tradeability a precise meaning. A directional model estimates the
+\emph{signal value}
+\begin{equation}
+  V^{\text{sig}}(X_t) = \E[\Delta m_{t,H} \mid X_t],
+\end{equation}
+the expected price move given what is known. A passive execution decision is worth its
+\emph{execution value}
+\begin{equation}
+  V^{\text{exec}}(X_t, a_t) = \P(\Fill \mid X_t, a_t)\; \E\big[\Pi^{\text{pass}} \mid \Fill, X_t, a_t\big],
+\end{equation}
+which depends on the action through where the order is placed and therefore on its queue position.
+\inwords{signal value asks ``which way will the price go?''; execution value asks ``if I act on that
+view with this order, how likely am I to trade, and how good will the trade be when I do?'' A model
+can be excellent at the first and useless at the second.}
+
+The two can even point in opposite directions. A forecast of a falling price is most confident when
+the book is already one-sided---a thin bid, heavy selling. That is exactly when a resting buy order is
+most likely to be filled and least likely to be worth having: the fill and the adverse move arrive
+together (Section~\ref{sec:queue-models}). Conditioning on the fill reverses the apparent value of the
+signal. This is why the survey treats $\P(\Fill \mid \cdot)$ and $\E[\,\cdot \mid \Fill]$ as separate
+modelling targets, and why evaluation must use the conditional quantities rather than unconditional
+accuracy.
+
+Who earns the execution value in practice is documented. A large high-frequency market maker studied
+by \citet{menkveld2013} traded passively in about four of every five trades, earning the spread while
+losing on its inventory; across high-frequency firms, differences in relative speed explain large
+differences in trading performance~\citep{baron2019}.
+
+\subsection{Queue position and fill probability}
+\label{sec:queue-position}
+
+A passive order is filled only when everything ahead of it in its queue has been traded or
+cancelled. This section shows why that makes queue position a variable in its own right: two orders
+at the same price, with the same forecast behind them, can have very different chances of being
+filled.
+
+\subsubsection{Residual queue position}
+
+For a resting order, the displayed size at its price does not determine its fill probability. Let
+$Q^{\text{ahead}}_t$ be the volume ahead of the order at the same price. Under price--time
+priority the order cannot execute until that volume has been removed by executions or
+cancellations. Two orders at the same price can therefore have very different values, and queue
+position has been modelled explicitly as a source of value~\citep{moallemi2017}.
+
+For a passive order with $q$ ahead of it, the probability of a fill within horizon $H$ is
+$\P(\Fill \mid Q^{\text{ahead}}_t = q,\, X_t)$. It must be distinguished from
+$\P(\Delta m_{t,H} > 0 \mid X_t)$. A model can predict direction excellently and still have poor
+trading value if the predicted moves happen mainly when the passive order is unlikely to execute.
+
+\begin{example}[Same forecast, different orders]
+\label{ex:queue}
+Two resting bids at the same price have 20 and 480 lots ahead of them. Net depletion runs at 40
+lots per second. The naive time to reach the front is $0.5$ s for the first and $12$ s for the
+second. Both carry the same $\P(\Delta m_{t,H} > 0 \mid X_t)$. Over a five-second horizon the first
+almost surely fills and the second almost surely does not.
+\end{example}
+
+\subsection{Adverse selection}
+\label{sec:adverse}
+
+Being filled is not always good news. A passive order tends to be filled exactly when someone better
+informed wants to trade against it, so the fills it gets are, on average, followed by price moves
+against it. This section defines that cost precisely and shows how it depends on queue position.
+
+\subsubsection{Conditioning on the fill}
+
+Using the mark-out $R^{\text{fill}}_{h}$ of~\eqref{eq:markout}, define the conditional
+adverse-selection component for an order that had $q$ ahead of it when placed as
+\begin{equation}
+  \mathrm{AS}(q, h) = -\E\left[R^{\text{fill}}_{h} - \tfrac{s_{t_F}}{2} \,\middle|\, \Fill,\, Q^{\text{ahead}}_t = q\right],
+\end{equation}
+the expected mid move against the order after it is filled, excluding the half spread it earns.
+\inwords{among orders that started with $q$ lots ahead of them \emph{and were filled}, how far,
+on average, did the price then move against us? It is a form of the winner's curse: in an auction,
+the times your low bid wins are disproportionately the times when others knew something you did
+not. A passive order is most likely to be filled just when an informed trader wants to trade the
+other way.}
+The conditioning on the fill is essential. Without it, the quantity measures the unconditional
+drift of the market rather than the information in the event that the order actually traded.
+Classical models make the mechanism explicit: a liquidity provider who trades with a better-informed
+counterparty loses on average~\citep{glosten1985,kyle1985}.
+
+\subsubsection{Queue position as an information variable}
+
+Queue position affects both the probability of execution and the information content of
+execution. \citet{moallemi2017} model both effects and find that a position at the front of the
+queue is always worth more than one at the back: in their model adverse selection increases with queue
+position, because an order at the end of a long queue tends to be filled only by a large aggressive
+order, which is more likely to be informed. For some large-tick US stocks they estimate the front--back
+value difference to be comparable to the bid--ask spread. The direction of the effect is therefore
+supported by a model; its size is an empirical object that can depend on asset, tick regime,
+spread, order-flow state, horizon and cancellation behaviour, and execution-aware benchmarks should
+report it directly (Section~\ref{sec:agenda}).
+
+\begin{example}[The decomposition at two positions]
+\label{ex:as}
+All values in ticks; fill window $H = 10$ s, mark-out horizon $h = 10$ s, one-tick spread, no
+rebate. Here ``$\mid q$'' abbreviates $\mid Q^{\text{ahead}}_t = q$, and
+
+\[
+  \E[\Pi^{\text{pass}} \mid \Fill, q] = s_{t_F}/2 - \mathrm{AS}(q,h):
+\]
+
+\begin{center}\small
+\begin{tabular}{lccccc}
+\toprule
+Position & $\P(\Fill \mid q)$ & $s_{t_F}/2$ & $-\mathrm{AS}(q,h)$ & $\E[\Pi^{\text{pass}} \mid \Fill, q]$ & $\E[\Pi^{\text{pass}} \mid q]$ \\
+\midrule
+Front & 0.80 & $+0.5$ & $-0.20$ & $+0.30$ & $+0.24$ \\
+Back  & 0.25 & $+0.5$ & $-0.45$ & $+0.05$ & $+0.0125$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+The table shows the arithmetic of~\eqref{eq:decomp}; the ordering of the two rows matches the
+direction found by~\citet{moallemi2017}, with stylised magnitudes. A metric that looked
+only at direction or only at fill rate would rank the two positions without seeing the product.
+\end{example}
+
+\subsection{Latency and signal decay}
+\label{sec:latency}
+
+A prediction at horizon $H$ is useful only if its information survives until the decision is
+executed. Write the total latency as
+\begin{equation}
+  T_{\text{lat}} = T_{\text{signal}} + T_{\text{decision}} + T_{\text{network}} + T_{\text{exchange}},
+\end{equation}
+the times taken to compute the signal, to decide on an action, to transmit the order, and for the
+exchange to process it.
+\inwords{total delay from seeing the data to the order being live at the exchange is the sum of
+the stage delays, just as the latency of a processor pipeline is the sum of its stages.}
+A signal whose value decays materially before $T_{\text{lat}}$ is not economically equivalent to
+one of the same accuracy with longer persistence. The relevant object is not
+$\E[\Delta m_{t,H} \mid X_t]$ but
+\begin{equation}
+  \E\left[\Pi \mid X_t,\, T_{\text{lat}},\, \text{execution policy}\right],
+\end{equation}
+the expected profit given the information, the latency, and the rule that maps forecasts to orders.
+\inwords{the quantity that matters is not ``will the price go up?'' but ``how much do we expect to
+make, given what we knew, how slow we are, and what we do with the forecast?''}
+Competition on latency is itself an economic phenomenon~\citep{budish2015,hasbrouck2013}.
+
+\begin{example}[Half-life against latency]
+Let a signal's value decay exponentially with a half-life of 2 ms, so a fraction
+$2^{-T_{\text{lat}}/2\,\mathrm{ms}}$ of it remains after a delay $T_{\text{lat}}$. At $100\,\mu$s total latency
+$2^{-0.05} \approx 97\%$ of its value remains; at 5 ms only $2^{-2.5} \approx 18\%$ does. The same
+forecast accuracy yields very different economics.
+\end{example}
+
+%
+
+% ================================================================
+\section{Order-book simulators}
+\label{sec:simulators}
+% ================================================================
+
+An order-book simulator answers ``what would have happened to my orders?'' Simulators differ in where the market comes
+from and in how faithfully they model the mechanics of Section~\ref{sec:sim-needs}. This section first shows why a
+naive backtest is not a simulator for passive orders and what a queue-exact replay requires; it then surveys the
+simulators in use for research, compares them on those requirements, and describes the Kaspar system in detail,
+including how an order-book model is added to it.
+
+\subsection{Naive backtests and queue-exact replay}
+\label{sec:replay}
+
+The questions of this part---will the order fill, and is the fill a good one---cannot be answered by
+a backtest that assumes orders fill when the price touches them. This section shows how such a
+backtest misleads and lists what a simulation must model to give trustworthy answers;
+Section~\ref{sec:kaspar} describes a system built to those requirements.
+
+\subsubsection{Assumptions of a naive backtest}
+
+A common backtest of a passive signal assumes that a limit order placed at the bid is filled when
+the signal fires, or when the price touches the order's level:
+\begin{lstlisting}
+naive:   signal at t -> assume filled at bid -> P&L = m(t+H) - bid
+\end{lstlisting}
+This fills every order, including those the market would never have reached. The orders it wrongly
+fills are exactly the ones where the price moved away before the queue was consumed---the fills a
+real passive order does not get, and which would have been profitable. The naive backtest is
+therefore biased toward adverse-selection-free fills that do not exist.
+
+\subsubsection{Requirements of a queue-exact replay}
+
+A replay that can answer the execution questions of this part needs:
+\begin{enumerate}[leftmargin=1.5em]
+\item market-by-order data, so that queue position is defined at all;
+\item an order-level reconstructed book in which the simulated order occupies a place in the
+  first-in-first-out queue;
+\item explicit, independent latencies for outbound orders, outbound cancels and inbound market
+  data;
+\item an explicit fill rule stated in terms of recorded events;
+\item a stated assumption about market impact.
+\end{enumerate}
+
+\begin{lstlisting}
+replay:  signal at t -> order leaves at t
+         -> arrives at t + feed delay + order delay
+         -> appended at the tail of the real FIFO queue at its price
+         -> filled only when recorded executions reach an order behind it
+         -> P&L from the actual (simulated) fill time and price
+\end{lstlisting}
+
+The fill rule rests on price--time priority: if a recorded aggressor reached a resting order that
+arrived later than the simulated order at the same price, it must have passed through the
+simulated order first. The standard simplifying assumption is \emph{no market impact}: the
+recorded market is replayed as it happened, as though the simulated order had not been there. Every
+cost measured this way is a cost before the market's reaction to the order.
+
+Replay and generative simulation answer different questions. Generative simulators produce new
+market trajectories and are judged on how realistic they are; a replay simulator keeps the recorded
+market fixed and produces only the counterfactual outcome of the researcher's own orders. GPU
+simulators such as JAX-LOB~\citep{frey2023} move the matching engine onto accelerators to speed up
+reinforcement-learning training; the concern here is not throughput but the fidelity of the fill
+inference. Section~\ref{sec:kaspar} describes one implementation of a queue-exact replay.
+
+\subsection{Existing simulators compared}
+\label{sec:sim-survey}
+
+\paragraph{Four kinds of simulator.} Simulators differ first in where the market comes from.
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item \textbf{Historical replay.} The recorded market is played back event by event, and the researcher's orders are
+  matched against it. The market is real but cannot react to those orders.
+\item \textbf{Agent-based.} Many simulated traders, each following a rule, send orders to a simulated exchange. The
+  market reacts, but it is only as realistic as the agents.
+\item \textbf{Model-based.} A fitted stochastic model of the book---such as the queue-reactive model of
+  Section~\ref{sec:qr}---generates order flow. The market reacts mechanically, through the model's rates.
+\item \textbf{Generative.} A network trained on order data generates order flow, often conditioned on the
+  researcher's orders (Section~\ref{sec:deep-gen}).
+\end{itemize}
+\citet{jain2024sim} review the model-based and generative approaches and the stylised facts used to validate them.
+For execution questions the type matters less than five properties: whether the simulated order has an exact
+position in a queue of individual orders; whether latency is modelled; whether the simulated order changes the
+market; whether a run can be repeated exactly; and whether the same code can trade live.
+
+\paragraph{The simulators.} Table~\ref{tab:simulators} compares the simulators most used in research, as documented
+in their papers and code.
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item \textbf{ABIDES}~\citep{byrd2020abides} and its reinforcement-learning interface
+  \textbf{ABIDES-Gym}~\citep{amrouni2021abidesgym} are discrete-event agent-based simulators in Python. The exchange
+  keeps every order in first-in-first-out queues, and messages between agents and the exchange carry modelled
+  network and processing delays.
+\item \textbf{MAXE}~\citep{belcak2022maxe} is an agent-based simulator in C++ with a Python interface, with
+  price--time and pro-rata matching and message and processing delays.
+\item \textbf{PyMarketSim}~\citep{mascioli2024pymarketsim} is an agent-based environment in Python for
+  reinforcement learning.
+\item \textbf{JAX-LOB}~\citep{frey2023} replays Nasdaq order messages (LOBSTER) on a GPU, so that many simulations run
+  in parallel for reinforcement-learning training. It starts each episode from a snapshot in which each price
+  level is a single synthetic order, so the agent's position relative to orders that were resting at the start is
+  approximate, and it re-submits the agent's orders at each step.
+\item \textbf{mbt\_gym}~\citep{jerome2023mbtgym} simulates the price and fills from parametric models, without a
+  book; fills depend on the distance of the quote from the mid.
+\item \textbf{hftbacktest}~\citep{hftbacktest} replays market-by-price or market-by-order data, mainly from
+  cryptocurrency venues. With market-by-order data it keeps every order in a first-in-first-out queue and fills
+  the simulated order when an execution reaches an order behind it---the same rule as Kaspar; with price-level
+  data it estimates the volume ahead. It models feed latency from the data's timestamps and order latency from
+  recorded live latencies, and the same Rust strategy code can trade live on two cryptocurrency exchanges.
+\item \textbf{NautilusTrader}~\citep{nautilustrader} is an event-driven backtester and live-trading platform in Rust
+  and Python. It tracks an estimate of the displayed quantity ahead of a simulated order, models order-entry
+  delays, and runs the same strategy code in backtest and live trading.
+\item \textbf{MarS}~\citep{li2025mars} generates order flow with a large generative model trained on Chinese
+  equity orders and matches it in an order-level exchange; the generated market responds to injected orders.
+\item \textbf{TRADES}~\citep{berti2025trades}, released in the DeepMarket framework, generates orders with a
+  diffusion model inside ABIDES.
+\item \textbf{The queue-reactive model}~\citep{huang2015} and its neural extension~\citep{deepqr} are model-based
+  simulators of the queues at the first five levels (Section~\ref{sec:qr}).
+\end{itemize}
+
+\begin{table}[!htbp]
+\centering\scriptsize
+\caption{Order-book simulators compared on the properties execution research needs, from their papers, documentation
+and code; citations are in the list above. Queue position: \emph{exact (recorded)} means the simulated order sits in a reconstructed queue of the
+recorded individual orders; \emph{exact (simulated)} means a queue of individual orders in a simulated market;
+\emph{estimated} means a model of the volume ahead. ``--'': not provided.}
+\label{tab:simulators}
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.13\linewidth}>{\raggedright\arraybackslash}p{0.12\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.1\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.11\linewidth}}
+\toprule
+Simulator & Market from & Own-order queue position & Latency model & Market reacts & Repeatable runs & Same code live \\
+\midrule
+ABIDES & agents & exact (simulated) & network and processing delays & yes & same seed, same run (ties within a nanosecond in arbitrary order) & -- \\
+ABIDES-Gym & agents & exact (simulated) & pairwise delays & yes & seeded & -- \\
+MAXE & agents & exact (simulated); price--time or pro-rata & message and processing delays & yes & not seeded & -- \\
+PyMarketSim & agents & price--time book; agents withdraw orders on arrival & -- & yes & partly seeded & -- \\
+JAX-LOB & replay (Nasdaq) & approximate: initial levels are one synthetic order each; agent orders re-queued each step & one observation-to-action delay (default 0) & -- & random keys; no claim & -- \\
+mbt\_gym & model & no book; fill probability from quote depth & -- & parametric impact & seeded & -- \\
+hftbacktest & replay (mainly crypto; CME via vendor files) & exact (recorded) with order-level data; estimated with price-level data & feed latency from data; order latency constant or from recorded live latencies & -- & no claim found & yes (two crypto venues) \\
+NautilusTrader & replay & estimated volume ahead & order-entry delays & -- & deterministic runtime claimed; seeded fill model & yes \\
+MarS & generative model & exact (simulated) & computation and communication delays & yes & seeded sampling & -- \\
+TRADES & generative model in ABIDES & exact (simulated) & -- (as shipped) & yes & seeded & -- \\
+Queue-reactive & model & one tagged order, under stated assumptions & -- & yes, through queue sizes & -- & -- \\
+\midrule
+Kaspar (Section~\ref{sec:kaspar}) & replay (CME, native MDP~3.0) & exact (recorded) & separate order, cancel and feed delays & -- & single thread, market-time clock, seeded; argued, test not reported & live path shares all code up to one branch \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{What the comparison shows.} Agent-based, model-based and generative simulators let the market react to
+the simulated orders, which replay cannot; but in them the queue is exact only inside a simulated market, so fill
+rates are only as realistic as the simulated order flow. Among replay tools, exact queue position in the recorded
+market requires order-level data and an order-level book: in the tools surveyed, hftbacktest with order-level data
+and Kaspar provide it, JAX-LOB approximates it, and NautilusTrader estimates it. Only hftbacktest, NautilusTrader and
+Kaspar run the same strategy code in simulation and live trading, and of these only Kaspar decodes CME's
+market-by-order feed natively; the other two reach CME data through a data vendor's files.
+
+\subsection{Kaspar HFT}
+\label{sec:kaspar}
+
+Kaspar is a trading and simulation system for CME futures (ES, NQ and Treasury futures) built on a C++20 actor
+framework~\citep{maciejewski_actor}. It is described here as a worked example of a queue-exact replay; every
+statement is a description of the design and code, and the few numbers quoted come from previously published
+measurements, attributed where they appear.
+
+The data path is
+\begin{center}\small
+CME MDP~3.0 multicast $\to$ socket reader $\to$ message buffer $\to$ decoder $\to$ feed handler
+$\to$ order book $\to$ strategy $\to$ simulated order manager $\to$ [exchange gateway $\mid$ simulated fill].
+\end{center}
+Every component is an actor: it owns its state and communicates only by messages. Actors can be
+placed in a \emph{group}, which runs several actors on one thread, processing one message at a time
+in arrival order. The simulated order manager (SOM) sits between the strategy and the venue. In
+live mode it forwards orders to the exchange gateway (CME iLink~3); in simulation mode it sends
+them into the reconstructed book, where they are matched against recorded order flow.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  node distance=4mm and 6mm,
+  box/.style={draw, rounded corners=2pt, minimum height=7mm, align=center, font=\small},
+  arr/.style={-{Stealth[length=2mm]}, thick}]
+\node[box] (md) at (0,0.7) {recorded MBO\\(replay)};
+\node[box] (live) at (0,-0.7) {live MDP 3.0\\multicast};
+\node[box] (ob) at (3.2,0) {order book\\(per order)};
+\node[box] (strat) at (5.6,0) {strategy\\(lights)};
+\node[box] (som) at (7.6,0) {SOM};
+\node[box] (sim) at (10.6,0.9) {fill in\\reconstructed queue};
+\node[box] (ilink) at (10.6,-0.9) {iLink 3\\gateway};
+\draw[arr] (md) -- (ob);
+\draw[arr] (live) -- (ob);
+\draw[arr] (ob) -- (strat);
+\draw[arr] (strat) -- (som);
+\draw[arr] (som) -- node[above left, font=\scriptsize]{sim} (sim);
+\draw[arr] (som) -- node[below left, font=\scriptsize]{live} (ilink);
+\draw[arr, dashed] (sim.north) |- ++(0,5mm) -| node[pos=0.25, above, font=\scriptsize]{simulated order enters the book} (ob.north);
+\end{tikzpicture}
+\caption{Kaspar data and order paths. Everything downstream of the market-data source is the same
+code in replay and live operation; the branch between simulated and live execution is a single
+decision in the simulated order manager.}
+\label{fig:kaspar}
+\end{figure}
+
+
+\subsubsection{Queue-exact simulated fills}
+\label{sec:kaspar-fills}
+
+The central requirement of Section~\ref{sec:replay} is that a simulated order should be filled only if
+a real order in its place would have been. This section explains how Kaspar meets it: simulated
+orders sit in the same per-order queue as real ones, reach the book after a modelled delay, and are
+filled only by real executions that reach them. Here and throughout, \emph{queue-exact} means exact
+with respect to the displayed order sequence carried by the input MBO feed and the documented matching
+rules; it does not imply knowledge of hidden liquidity or unobserved participants, and it does not model
+the market impact of the simulated orders.
+
+\paragraph{The book holds every order.}
+
+The simulator reconstructs a full market-by-order book from recorded exchange data. Each price
+level is a queue that holds every resting order individually, in arrival order, and simulated
+orders are held in the same queue alongside real ones. There is no estimated ``volume ahead''
+variable: a simulated order's queue position is its position in the list. This is the property
+that makes a fill inference definable at all~\citep{maciejewski_shadow}.
+
+\paragraph{Placement and latency.}
+
+In simulation mode the SOM turns a new order into a book \emph{add} message tagged with a
+simulated venue identifier and sends it to the order-book actor. The book does not insert it
+immediately. It holds the order on a delay queue until its modelled arrival time at the matching
+engine:
+\begin{lstlisting}[language=C++]
+auto order_engine_arrive_time =
+    order_leave_time
+      + uint64_t(feed_delay) * 1000
+      + uint64_t(std::max(40, eff_delay)) * 1000; // 40 us floor
+\end{lstlisting}
+The outbound order delay, the outbound cancel delay and the inbound feed delay are independent
+parameters. The feed delay is added because the strategy saw the market late by that amount, so a
+round trip is feed plus order, not order alone. When the order arrives it is appended at the tail
+of the queue at its price, behind all depth already resting there.
+
+\paragraph{The fill rule.}
+
+A recorded cancellation of a real order simply unlinks it, and every order behind it moves up. A
+recorded execution triggers simulated fills only when the executing real order is the first real
+order in the queue and a simulated order sits ahead of it:
+\begin{lstlisting}[language=C++]
+// fill sim orders only if the executing order is at the front
+if (o == q->get_head_no_sim())
+{
+  fill_prev_sim_order();
+  ...
+}
+\end{lstlisting}
+Any remaining executed quantity is carried forward to earlier simulated orders. This is the
+price--time-priority argument of Section~\ref{sec:replay} in code: an aggressor that reached a
+real order which arrived after the simulated order must have passed through the simulated order.
+Simulated orders are excluded from the best bid and offer that the strategy sees, so a strategy
+cannot react to its own quote. Market impact is not modelled~\citep{maciejewski_shadow}.
+
+\begin{example}[A fill, step by step]
+\label{ex:trace}
+Bid queue at 5000.00 over seven successive steps \#0--\#6, sizes in lots, real orders R1--R4 and
+one simulated order S:
+\begin{lstlisting}
+#0  resting:            R1(10) R2(5) R3(20)
+#1  S(3) arrives:       R1(10) R2(5) R3(20) S(3)      appended at tail
+#2  R2 cancels:         R1(10) R3(20) S(3)            S moves up
+#3  exec 10 vs R1:      R3(20) S(3)                   no sim order ahead of R1: no fill
+#4  exec 20 vs R3:      S(3)                          S is behind R3: no fill
+#5  R4(8) joins:        S(3) R4(8)
+#6  exec 5 vs R4:       R4 is head real, S ahead  ->  S filled 3 @ 5000.00
+\end{lstlisting}
+At step \#6 the aggressor reached R4, which arrived after S, so it must have passed through S. A
+``touch'' backtest would have filled S at step \#3, three recorded events earlier and before the
+queue ahead of it was consumed.
+\end{example}
+
+\paragraph{Market impact: a limitation of replay, and a possible extension.} Because the recorded
+market behaves exactly as it did, whatever the simulated orders do, replay answers ``would my order have
+been filled against this market?'' but not ``how would the market have moved because of my order?''. A
+simulated order never consumes liquidity that real traders would have reacted to. Market impact is
+therefore outside what this architecture measures, and it is not implemented.
+
+One way to add a reacting market, which we describe as possible future work rather than a feature, is a
+second market-data source: a queue-reactive simulator (Section~\ref{sec:qr}) in place of the recorded feed.
+The separation between the source of market data and the book, order manager and strategy actors means
+the rest of the pipeline would not change. The generator produces queue counts rather than individual
+orders, so its events would have to be turned into synthetic order-level messages---order identifiers and
+first-in-first-out placement---for the existing book. The researcher's orders would then change queue
+sizes, the simulator's rates would respond, and the price response to the strategy's own trading could be
+measured.
+
+What such an extension would estimate is limited, and should be stated with it.
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item It would capture \emph{mechanical} impact: queues consumed by the strategy's orders, refilling at
+  state-dependent rates, and price moves when a queue empties. Neural extensions of the queue-reactive
+  model reproduce the square-root law of impact on Bund futures~\citep{deepqr}, so this part can be
+  realistic.
+\item It would not capture \emph{informational} impact: other participants inferring that a large buyer is
+  present and repricing. In the queue-reactive model this sits in the random resets of the book, which do
+  not respond to the strategy, and for large orders it is a substantial part of real impact.
+\item Its impact would be a property of the simulator, and would need checking against impact measured on
+  real trading---post-fill mark-outs from paper or live fills, or published impact laws---before being
+  relied on.
+\end{itemize}
+The resulting division of labour would be: queue-exact replay for fill realism on the real market, without
+impact; a reactive simulator for mechanical impact and for comparing tactics in a market that responds;
+and paper and live trading as the ground truth for both.
+
+
+\subsubsection{Determinism}
+\label{sec:kaspar-determinism}
+
+In the replay configuration the file reader, the order book, the timer, the SOM, the strategy
+actors and the position manager all run in one actor group on one thread. The reader is added to
+the group last, so all consumers exist before the first market-data message is delivered. Three
+design choices then make a replay repeatable:
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{One message sequence.} A single thread processes every message---market data, orders,
+  acknowledgements, fills, timer events---in one total order.
+\item \textbf{Market time.} The timer actor is driven by market-data timestamps, not the wall
+  clock, so timeouts fire at the same point in the data on every run.
+\item \textbf{Seeded randomness.} Any randomised strategy decision uses a per-actor seeded
+  generator set in configuration.
+\end{enumerate}
+The property this implies, and the test that would check it, is that replaying the same recorded
+file twice with the same configuration yields byte-identical fill records. We argue the property
+from the design; we do not report the test here.
+
+Determinism addresses a common weakness of trading research: the research implementation and the
+production implementation are often different programs, and differences between them are
+discovered in production.
+
+
+\subsubsection{Replay, paper and live trading from the same code}
+\label{sec:kaspar-equivalence}
+
+Two choices are independent: where market data come from (recorded file or live multicast), and
+where orders go (reconstructed book or exchange). Everything downstream of the message buffer---the
+decoder, feed handler, order book, strategy and SOM---is the same code whichever source feeds it.
+The branch between simulated and live execution is a single condition in the SOM's new-order
+handler; both paths apply the same pre-trade reject checks, with one additional rule in live mode
+for cancels of orders not yet acknowledged by the exchange. The combination ``live data, simulated
+execution'' is paper trading: orders enter the live reconstructed book and are filled by the live
+order flow under the same rule as in replay.
+
+The live order-entry path implements CME's iLink~3 protocol: binary message encoding, HMAC request
+signing, sequence management, and failover between primary and secondary gateways. The project
+documentation states that both the market-data handler and the order-entry session have passed CME's
+automated certification. Strategies can be written as in-process actors in C++ or, through an
+in-process foreign-function interface, in Rust.
+
+Two qualifications keep the claim precise. Switching between simulated and live execution is a single
+flag in the SOM, but in the distributed build that flag is set in the program source rather than in a
+configuration file, and the distributed configuration runs in simulation mode; the equivalence
+demonstrated day to day is therefore between replay and paper trading, with the live path sharing all
+code up to the SOM branch. And equivalence of code is not equivalence of outcomes: replay assumes no
+market impact (Section~\ref{sec:kaspar-fills}) and models latency with configured delays, so a strategy
+that is profitable in replay can still behave differently live.
+
+
+\subsubsection{A model-free execution benchmark}
+\label{sec:shadow}
+
+\pov{} is the passive execution algorithm used in the case study~\citep{maciejewski_shadow}. It
+makes no prediction about book evolution. When a third-party limit order is added within a
+configured distance of the touch, the algorithm may place its own order at the same price, records
+that participant's exchange order identifier, and cancels when that order leaves the book. The
+placement decision is randomised at a configured rate; cancellation can be delayed by a grace
+period measured in events or time. The design comment for the grace period states the trade-off
+of Section~\ref{sec:adverse} directly: cancel too quickly and fills are given up; cancel too
+slowly and the order bears the adverse selection.
+
+Its role in this survey is as a null model for passive placement. It defines the bottom rung of a
+hierarchy:
+\begin{center}
+model-free placement $\;\to\;$ predictive placement $\;\to\;$ full predictive execution policy.
+\end{center}
+A predictive model that claims value for passive execution should beat the model-free benchmark
+\emph{in the same replay, under the same fill rule}, on slippage and on post-fill mark-outs. Any
+improvement measured against a naive backtest instead is confounded by the fill-inference bias
+of Section~\ref{sec:replay}.
+
+
+\subsubsection{Measurement}
+\label{sec:kaspar-measurement}
+
+Latency claims need their endpoints. In the published measurement of Kaspar's market-data
+handler, the start point is a software timestamp at the socket read and the end point is the order
+book being published; time spent in the network card and kernel before the read is outside the
+measurement, which is therefore socket-to-book, not wire-to-book. Measured on live CME multicast,
+the median is 8.0\,$\mu$s, with book-message medians of 7.1, 7.3 and 7.1\,$\mu$s for ES, NQ and ZN
+and 99th percentiles of 18.5, 13.6 and 57.0\,$\mu$s~\citep{maciejewski_mdlatency}. These numbers are
+quoted as an example of stating endpoints, not as a result of this paper.
+
+The simulator's slippage instrumentation measures execution cost for each fill against four
+references: the mid at decision time, the interval volume-weighted average price, same-side
+passive fills by other participants, and the touch. Comparing against the interval VWAP separates
+market drift from adverse selection. Post-fill mark-outs at fixed times and after a fixed number
+of book events provide the mark-out $R^{\text{fill}}_{h}$ of~\eqref{eq:markout} (the event-count version is
+its analogue on an event clock) and the adverse-selection quantity of Section~\ref{sec:adverse}.
+
+\subsection{Adding an order-book model to Kaspar}
+\label{sec:kaspar-actor}
+
+Any model of Part~II can be added to Kaspar as one more actor between the order book and the strategy. The actor
+subscribes to the book, computes its prediction each time the book changes, and sends the prediction to the
+strategy actors as a message (Figure~\ref{fig:kaspar-actor}). Because it is an actor like the others, the same model
+runs in replay, paper trading and live trading. The description below follows the code; the parts marked
+\emph{new} do not exist in the repository and would have to be written.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, scale=0.86, transform shape,
+  a/.style={draw, rounded corners=2pt, align=center, minimum height=10mm, text width=22mm},
+  n/.style={a, fill=orange!15, very thick, text width=28mm},
+  arr/.style={-{Stealth[length=1.6mm]}, thick}]
+\node[a, fill=gray!10] (feed) at (0,0) {market data\\(replay or live)};
+\node[a, fill=blue!10] (ob) at (3.3,0) {order book\\actor (OB)};
+\node[n] (pred) at (8.8,0) {\textbf{model actor} (new):\\queue imbalance, a Hawkes\\intensity, a network};
+\node[a, fill=green!12] (light) at (13.4,0) {strategy actors\\(lights)};
+\node[a, fill=gray!10] (som) at (13.4,-2.2) {simulated order\\manager (SOM)};
+\draw[arr] (feed) -- (ob);
+\draw[arr] (ob) -- node[above]{\texttt{EndOfBurst}} node[below, align=center]{book, 16 levels,\\after each update} (pred);
+\draw[arr] (pred) -- node[above]{\texttt{Prediction}} node[below]{(new message)} (light);
+\draw[arr] (ob.north) to[out=35, in=145] node[above]{\texttt{EndOfBurst} (existing subscription)} (light.north);
+\draw[arr] (light) -- node[right]{orders} (som);
+\draw[arr] (pred.south) -- ++(0,-0.9) -| node[pos=0.25, below]{\texttt{Subscribe(HI)}, sent once at start} (ob.south);
+\end{tikzpicture}
+\caption{An order-book model added to Kaspar as an actor. It subscribes to the order book, receives the book after
+each burst of updates, and sends a prediction message to each strategy actor. Message names are those in the code;
+the model actor, the \texttt{Prediction} message and its handler in the strategy are new.}
+\label{fig:kaspar-actor}
+\end{figure}
+
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \textbf{Define the message.} A new message type derives from \texttt{actors::MessageT<Prediction>}, which
+  assigns it a unique identifier automatically; it carries the instrument, the market time of the book update it
+  was computed from, and the predicted value.
+\item \textbf{Define the actor.} The model actor derives from \texttt{actors::Actor} and registers two handlers
+  with \texttt{MESSAGE\_HANDLER}: one for \texttt{Start}, sent by the framework when the system starts, and one for
+  \texttt{EndOfBurst}, the message the order book sends after each burst of updates. In its \texttt{Start} handler it
+  sends \texttt{Subscribe(HI)} to the order book---the same call the strategy actors and the simulator's slippage
+  probe already make.
+\item \textbf{Compute and publish.} On each \texttt{EndOfBurst} it reads the prices and sizes of up to 16 levels
+  from the message, computes the prediction, and sends a \emph{new} \texttt{Prediction} message to each strategy
+  actor; the framework does not allow one message object to be sent twice.
+\item \textbf{Use the prediction in the strategy} (new). The strategy actor registers a handler for
+  \texttt{Prediction}, stores the latest value, and uses it in its placement decision---for example as an extra
+  condition before it places an order.
+\item \textbf{Wire it in.} In the replay simulator the actor is added to the single actor group before the
+  market-data reader, so that it exists before the first message arrives; in the trading binary it is added
+  alongside the strategy actors of the same order book.
+\end{enumerate}
+
+In outline (the full sketch, with the file and line of every call used, is in the notes accompanying this survey):
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\footnotesize]
+struct Prediction : actors::MessageT<Prediction> {          // new message type
+  uint sym; uint64_t market_time; double value; };
+
+class ImbalanceModel : public actors::Actor {               // new model actor
+  actor_ptr ob; std::vector<actor_ptr> lights;
+ public:
+  ImbalanceModel(actor_ptr ob_, std::vector<actor_ptr> l, const char* nm) : ob(ob_), lights(l) {
+    MESSAGE_HANDLER(actors::msg::Start, on_start);
+    MESSAGE_HANDLER(frame::ob::msg::EndOfBurst, on_book); }
+  void on_start(const actors::msg::Start*) {
+    ob->send(new frame::mda::msg::Subscribe(frame::mda::msg::Subscribe::HI), this); }
+  void on_book(const frame::ob::msg::EndOfBurst* m) {
+    const auto& p = m->payload->point_;                     // up to 16 levels per side
+    double b = p.bid_sz[0], a = p.ask_sz[0];
+    if (a + b <= 0) return;
+    for (auto l : lights)                                   // one new message per recipient
+      l->send(new Prediction{.., (b - a) / (b + a)}, this); }
+};
+\end{lstlisting}
+
+Three properties of the present code matter for anyone doing this.
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item \textbf{Ordering and determinism.} In the replay simulator every actor runs in one group, on one thread, in
+  one message order, so a replay with the model actor added is still deterministic. From reading the code (not
+  tested), a prediction sent with \texttt{send} for a book update reaches the strategy after the strategy has acted
+  on that update and before the next one; the framework's synchronous \texttt{fast\_send} would deliver it first.
+  In the trading binary each actor has its own thread, and the order in which the book update and the prediction
+  reach the strategy is not fixed.
+\item \textbf{Which book.} The model actor should subscribe to the price-level book (OB). The order-level book
+  (TachBook) accepts high-priority subscribers only under specific names, and in the trading binary it receives
+  data only in a measurement mode that starves the other consumers.
+\item \textbf{What is missing.} There is no general publish--subscribe bus: a model actor must hold a pointer to
+  the book and to each strategy actor. The strategy has no input for an external signal today; its only numeric
+  input sets a position target.
+\end{itemize}
+
+% ================================================================
+\section{Hardware acceleration of order-book models}
+\label{sec:hardware}
+% ================================================================
+
+Hardware interacts directly with both organising principles. The economic value of a signal
+depends on the latency and the determinism of the infrastructure that evaluates it, and richer
+models tend to raise both latency and jitter:
+\begin{equation}
+  \text{model complexity} \uparrow \;\Rightarrow\; \text{inference latency} \uparrow \;\Rightarrow\;
+  \text{signal value at execution} \downarrow .
+\end{equation}
+\inwords{a bigger model takes longer to evaluate, and by the time it answers, some of what it
+predicted has already happened.}
+
+This section explains where the time goes when an order-book model is evaluated on each market event, why
+recurrent networks and Transformers are slow at that task, and which stages can be moved to which hardware. It then
+reviews the hardware itself.
+
+\subsection{Where the time goes}
+\label{sec:hw-pipeline}
+
+Between a market-data packet arriving and an order leaving, a model-driven system runs a pipeline
+(Figure~\ref{fig:hw-pipeline}): decode the exchange message; update the book; compute the model's inputs; evaluate the
+model; decide; send the order. Each stage has a different cost structure, and each is accelerated in a different way.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, scale=0.92, transform shape,
+  s/.style={draw, rounded corners=2pt, align=center, text width=19mm, minimum height=13mm},
+  arr/.style={-{Stealth[length=1.5mm]}, thick}]
+\node[s, fill=blue!10] (a) at (0,0) {\textbf{decode}\\packet $\to$ message fields};
+\node[s, fill=blue!10] (b) at (2.4,0) {\textbf{book update}\\find level and order, change it};
+\node[s, fill=green!12] (c) at (4.8,0) {\textbf{features}\\window of snapshots, OFI, \ldots};
+\node[s, fill=orange!20] (d) at (7.2,0) {\textbf{model}\\forward pass};
+\node[s, fill=gray!10] (e) at (9.6,0) {\textbf{decide}\\place, keep, cancel};
+\node[s, fill=gray!10] (f) at (12.0,0) {\textbf{order out}\\encode, send};
+\foreach \x/\y in {a/b,b/c,c/d,d/e,e/f} \draw[arr] (\x) -- (\y);
+\node[align=center, text width=40mm, anchor=north] at (1.2,-0.9) {regular, protocol-bound;\\one message at a time};
+\node[align=center, text width=22mm, anchor=north] at (4.8,-0.9) {few operations;\\memory access};
+\node[align=center, text width=22mm, anchor=north] at (7.2,-0.9) {tens to millions of\\operations, by model};
+\node[align=center, text width=40mm, anchor=north] at (10.8,-0.9) {simple logic;\\must be deterministic};
+\end{tikzpicture}
+\caption{The per-event pipeline of a model-driven trading system. The model stage is the only one whose cost depends
+on the modeller's choices. Schematic.}
+\label{fig:hw-pipeline}
+\end{figure}
+
+\paragraph{Decoding and book update.} These stages are fixed by the exchange protocol and are the same for every
+model. Decoding market-data feeds on FPGAs is well documented: \citet{leber2011} decode Ethernet, IP, UDP and the
+FAST protocol in hardware with a fourfold latency reduction over software, and \citet{lockwood2012} report a fixed
+end-to-end latency of 1\,\textmu s at 10\,Gb/s line rate for a library of networking and protocol-parsing blocks.
+The book update is a search in an ordered set of price levels, followed by a change to one level or one order; with
+standard ordered containers each search takes time proportional to the logarithm of the number of levels, and an
+industry preprint reports a specialised structure 9 to 15 times faster than the C++ standard library's ordered map on
+real market data~\citep{krapivensky2025glass}. We found no peer-reviewed measurement of the cost of book updates on
+CPUs. For Kaspar's software path, socket-to-book latency is reported in Section~\ref{sec:kaspar-measurement}.
+
+\paragraph{The model.} This is the stage that grows with model complexity. A linear score on a few order-flow
+features takes tens of multiply--add operations; DeepLOB has about 60,000 weights (Table~\ref{tab:deeplob-params}),
+and each forward pass uses each of them at least once. The next subsection explains why such models are slower than
+their operation count suggests.
+
+\subsection{Why recurrent networks and Transformers are slow per event}
+\label{sec:hw-why}
+
+Training processes many examples at once, and graphics processors are built for that. A trading system needs one
+prediction for the event that has just arrived---a \emph{batch} of one---and as soon as possible. Four effects make
+that case slow.
+
+\paragraph{1. Recurrence is sequential.} A recurrent network computes its memory at step $t$ from its memory at step
+$t-1$ (Section~\ref{sec:deep-families}), so the 100 steps of a window must be computed one after another; this
+``inherently sequential nature precludes parallelization within training examples''~\citep{vaswani2017}. A layer needs
+a number of sequential steps that grows with the sequence length $n$, where self-attention needs a constant
+number~\citep{vaswani2017}. On an FPGA, a recurrent layer built from one reused block has a latency that grows linearly
+with the sequence length; unrolling it over time steps removes that growth but multiplies the hardware used by the
+sequence length~\citep{khoda2023rnn}.
+
+\paragraph{2. Attention grows with the square of the window.} Self-attention compares every element of the sequence
+with every other, so its cost per layer grows as $n^2 d$, where $n$ is the sequence length and $d$ the size of each
+element's vector~\citep{vaswani2017}; ``the time and memory complexity of self-attention are quadratic in sequence
+length''~\citep{dao2022flashattention}. Doubling the window from 100 to 200 events doubles the work of most layers but
+quadruples that of attention.
+
+\paragraph{3. Small batches are limited by memory, not arithmetic.} A processor can only compute as fast as it is fed
+with data. The \emph{roofline} model makes this precise: attainable speed is the smaller of the peak arithmetic rate
+and the memory bandwidth times the number of operations performed per byte loaded~\citep{williams2009roofline}. With a
+batch of one, each weight loaded from memory is used for about one multiplication and one addition, so the
+computation is limited by memory bandwidth~\citep{kim2023fullstack}; for large language models ``at small batch sizes
+\ldots\ the time to load weights dominates''~\citep{pope2023scaling}. Attention is itself mostly limited by memory
+traffic, which FlashAttention reduces by keeping blocks of the computation in on-chip memory~\citep{dao2022flashattention}.
+These measurements are for large models; whether weight loading dominates for a model as small as DeepLOB, whose
+weights fit in on-chip memory, has not been measured. One measured case shows the batch effect directly: an LSTM on a
+V100 GPU processed 660 events per second at batch one, about 7,700 at batch ten and about 30,000 at batch
+100~\citep{khoda2023rnn}.
+
+\paragraph{4. Fixed overheads per operation.} Each operation sent to a GPU costs a launch overhead of the order of
+microseconds. In NVIDIA's measurement a kernel that ran for 2.9\,\textmu s cost 9.6\,\textmu s per launch when each
+launch waited for the previous one, 3.8\,\textmu s when launches overlapped, and 3.4\,\textmu s when the sequence was
+recorded once as a \emph{CUDA graph} and replayed~\citep{nvidia_cudagraphs_blog}; graphs pay off only when the same
+sequence is reused many times~\citep{nvidia_cuda_guide}. A network of many small layers is many small kernels. Moving
+the input to the GPU and the result back crosses the PCIe bus, whose bandwidth is far below the GPU's own memory
+bandwidth~\citep{nvidia_cuda_bpg}; a single small transfer over PCIe has been measured at about half a microsecond
+(for a network card, not a GPU)~\citep{neugebauer2018pcie}.
+
+\paragraph{Measured latencies of order-book models.} Table~\ref{tab:lob-latency} collects the published inference
+times we found. They are in milliseconds, three or more orders of magnitude above the microseconds of the book
+update. They are not comparable across rows: devices, software and, in two of the three sources, the batch size
+differ or are not stated. Latency also does not follow operation counts: in one study a gradient-boosted model with 23
+times more structural work than another was 15 times faster~\citep{hedges2026frontier}.
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{Published inference times of order-book models. Each row is as reported by the source.}
+\label{tab:lob-latency}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.33\linewidth}}
+\toprule
+Source & Models and times & Conditions \\
+\midrule
+\citet{zhang2019} & DeepLOB 0.253\,ms; LSTM 0.061\,ms; CNN 0.025\,ms & batch size and device for the timing not stated \\
+\citet{berti2025tlob} & MLP 0.08, LSTM 0.21, DeepLOB 1.31, TLOB 2.24, MLPLOB 4.79\,ms & RTX 3090 GPU; batch size not stated \\
+\citet{hedges2026frontier} & median at batch one: MLPLOB 2.1\,ms (CPU), 2.8\,ms (GPU); TLOB 22.8\,ms (CPU), 5.1\,ms (GPU) & Apple M3 Max, PyTorch, 32-bit floating point; forward pass only, no preprocessing or transfer \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{What has to be accelerated}
+\label{sec:hw-what}
+
+Putting the pipeline and the four effects together gives a short list.
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \textbf{Decoding and the book update}, for every model. They are regular and protocol-bound, and FPGAs handle
+  them well (Section~\ref{sec:hw-landscape}).
+\item \textbf{The input window, incrementally.} A window of the last 100 snapshots changes by one row per event.
+  Keeping it as a ring buffer and updating only the new row, rather than rebuilding it, removes work that does not
+  depend on the model. (Our observation; we found no paper that measures it.)
+\item \textbf{The sequential part of recurrent models.} Either shorten the sequence, keep the recurrent state from
+  the previous event so that only one new step is computed per event (possible when the window slides by one), or
+  move the recurrence to hardware that runs it as a pipeline~\citep{khoda2023rnn}.
+\item \textbf{Attention over long windows.} Shorter windows, attention that reuses the keys and values of earlier
+  events rather than recomputing them, and memory-aware kernels such as FlashAttention~\citep{dao2022flashattention}.
+\item \textbf{Memory traffic and launch overhead at batch one.} Smaller, lower-precision weights: integer
+  quantisation can cut memory and latency by a factor of 4 to 8 in practice~\citep{gholami2022quant,jacob2018}, and
+  pruning plus quantisation compressed a speech LSTM twentyfold with negligible loss of accuracy~\citep{han2017ese}; fusing
+  operations into fewer kernels and recording them as a CUDA graph~\citep{nvidia_cudagraphs_blog}; or keeping the whole
+  model on the device that receives the data, to avoid PCIe transfers.
+\end{enumerate}
+We found no published FPGA implementation of DeepLOB, TransLOB or TLOB with a measured latency. The closest is a
+state-space model designed for an FPGA from the start, reported at 247\,\textmu s end to end on cryptocurrency order
+books~\citep{popov2026ssm}.
+
+\subsection{Determinism as a risk-control property}
+
+General-purpose processors, even with kernel-bypass networking, introduce jitter from caches,
+branch prediction, interrupts and scheduling. A strategy that is profitable at its average latency
+can lose money if latency spikes during the volatile episodes when its signal matters most.
+Deterministic, fixed-cycle execution is therefore a risk-control property, not only a speed
+optimisation.
+
+\subsection{Book-building latency versus inference latency}
+
+Two pipelines are often conflated. \emph{Book building}---parsing market data and maintaining the
+order book---is protocol-bound and highly regular. \emph{Inference}---evaluating a model on the
+book---depends on the model. Field-programmable gate arrays have long been used for the first: decoding market-data feeds in hardware is well
+documented~\citep{leber2011,lockwood2012}.
+Placing models on the same fabric is more recent. Tool flows for fast neural-network inference on
+FPGAs~\citep{hls4ml} make small, quantised networks feasible with very low and fixed latency,
+but model capacity is bounded by the fabric. Vendor-audited benchmarks of FPGA trigger paths now
+report minimum trigger latencies on the order of ten nanoseconds~\citep{exegy_stac2024}, and
+hardware-aware sequence models designed for FPGA execution from the outset, rather than ported after
+training, have been proposed for cryptocurrency tick data~\citep{popov2026ssm}. The two numbers
+measure different pipelines---a trigger versus a learned model---and should not be compared
+directly.
+
+\subsection{The commercial FPGA landscape}
+\label{sec:hw-landscape}
+
+Most production hardware for trading is commercial, and most of its published figures are vendor
+claims rather than audited measurements. Table~\ref{tab:vendors} lists representative offerings with
+the figures their makers publish; the one independently audited result is the STAC-T0 benchmark of
+an Exegy framework on an AMD card~\citep{exegy_stac2024}. Two cautions apply when reading such
+numbers. They measure different things---a transceiver loopback, a trigger, a book build, a model
+inference---that must not be compared directly. And the AMD transceiver figure explicitly excludes
+protocol processing and programmable logic, so it is a lower bound on a component, not a
+tick-to-trade time.
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{Representative commercial hardware for trading and the figures published by the vendors.
+Except for the STAC result, figures are vendor claims without independent audit.}
+\label{tab:vendors}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\toprule
+Offering & What it is & Published figure \\
+\midrule
+AMD Alveo UL3524 / UL3422~\citep{amd_ul3524,amd_ul3422} & FPGA cards built for trading, 64 low-latency transceivers & under 3\,ns transceiver latency, raw loopback excluding logic and protocol \\
+Exegy (incl.\ Enyx, acquired 2022)~\citep{exegy_enyx,exegy_stac2024} & FPGA feed handling, order entry and trigger frameworks & STAC-T0 audited trigger latency of the order of ten nanoseconds \\
+Algo-Logic~\citep{algologic} & CME tick-to-trade system on Alveo U50, with feed handler, book and TCP order entry & under 500\,ns tick-to-trade \\
+Magmio~\citep{magmio} & C++ strategies compiled to FPGA by high-level synthesis & under 100\,ns for triggers; under 350\,ns with book building \\
+Xelera Silva~\citep{xelera_silva} & tree-ensemble and small-network inference on FPGA & about 250\,ns (99th percentile) for a gradient-boosted model inline on UL3524; 1.1--1.3\,\textmu s as card offload \\
+Napatech + Xelera~\citep{napatech} & the same inference on FPGA network cards & 1.55\,\textmu s for a 1000-tree model with 100 features \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Between FPGA and GPU}
+
+A class of accelerators aims at the gap between FPGA determinism and GPU flexibility.
+LightTrader~\citep{lighttrader}, from KAIST and the chip designer Rebellions, combines an FPGA for
+market data and orders with dedicated AI processors and a scheduler that manages workload and power;
+back-tested on CME data, it reports speed-ups of about 14 times over a GPU-based and 7 times over an
+FPGA-based system for AI inference. Corsair~\citep{corsair2025} is an in-memory-computing chiplet
+design for large-language-model inference; it is not a trading product, but it illustrates the
+direction of the hardware industry. Network cards with programmable logic carry inference into the
+network path itself~\citep{napatech}.
+
+\subsection{Transformers on FPGAs}
+
+Mapping attention to FPGAs is an active research topic outside finance. FAMOUS~\citep{famous}
+accelerates dense multi-head attention on a data-centre FPGA, at 0.6 to 0.94\,ms per attention layer for sequences
+of 64 elements; its comparison with a V100 GPU uses a figure taken from another paper rather than measured.
+ELiTeFormer~\citep{eliteformer} co-designs a ternary-weight Transformer with linear attention for an adaptive SoC.
+Neither is a trading system, and we found no measured FPGA implementation of an order-book Transformer. Small,
+quantised attention models are candidates for programmable logic; full spatial-temporal Transformers remain GPU
+workloads.
+Quantisation---integer rather than floating-point arithmetic---is the enabling
+technique~\citep{jacob2018}.
+
+\subsection{GPUs: throughput for research}
+
+Graphics processors excel at data-parallel workloads: training, large-scale simulation, and models
+whose memory footprint or operator mix exceeds practical FPGA budgets. JAX-LOB~\citep{frey2023}
+moves LOB matching onto accelerators for reinforcement-learning training. Monte Carlo simulation
+of order-book dynamics parallelises well across paths; one vendor demonstration reports speed-ups of
+14 to 114 times over a CPU~\citep{nvidia_numba2025}, though for simulated paths rather than a
+historical matching-engine backtest. Specialised processors also accelerate training: a multi-horizon
+DeepLOB variant trained in about 15\% of the GPU time on intelligence processing
+units~\citep{zhangzohren2021}. For single-event,
+latency-critical inference, batch-oriented accelerators are at a disadvantage; for signals whose
+useful life is measured in milliseconds or longer they are adequate.
+
+\subsection{Networks and distance}
+
+Latency is not only computation. The operating system's network stack adds microseconds;
+\emph{kernel-bypass} libraries deliver packets directly to user space~\citep{dpdk}. Published figures for
+such stacks include half-round-trip times of about 3\,\textmu s on older 10-gigabit
+hardware~\citep{openonload} and about 1\,\textmu s for UDP~\citep{vma}. Physical distance sets a floor no
+software can remove: light in optical fibre takes about 5\,\textmu s per kilometre (about 4.9\,ns per
+metre)~\citep{corning_smf28,fiberlatency}, which is why trading systems are colocated in the
+exchange's data centre and why differences in relative speed translate into differences in trading
+performance~\citep{baron2019,budish2015}. At the extreme, application-specific chips fix a design in
+silicon, trading the reprogrammability of an FPGA for speed and power~\citep{kuon2007}.
+
+\subsection{Workload placement}
+
+\begin{table}[!htbp]
+\centering\small
+\caption{A qualitative guide to workload placement. It reflects the general division of labour
+between platforms, not measured results.}
+\label{tab:placement}
+\begin{tabularx}{\linewidth}{lXX}
+\toprule
+Workload & Preferred platform & Rationale \\
+\midrule
+Market-data parsing, book maintenance & FPGA & regular, protocol-bound, deterministic \\
+Linear OFI, queue imbalance, simple triggers & FPGA or CPU & few operations; easy to pipeline \\
+Small quantised networks or tree ensembles on the critical path & FPGA & feasible when capacity is
+  constrained by design \\
+Pre-trade risk checks, mass cancel & FPGA & must be deterministic and next to order generation \\
+Multi-horizon or cross-sectional deep models, full Transformers & GPU or other accelerator &
+  memory and operator mix exceed FPGA budgets \\
+Large-scale simulation, training, hyper-parameter search & GPU & throughput dominates \\
+Strategy logic that changes often & CPU with kernel bypass & flexibility outweighs nanoseconds \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The guiding rule is Occam's razor (Principle~2) again: place a computation on the most constrained, and
+therefore most deterministic, hardware that still delivers the required economic performance.
+Moving a model to faster hardware is justified only when the reduction in latency and jitter
+measurably improves post-cost performance.
+
+\subsection{Hardware cannot extend signal lifetime}
+
+Simpler models have a structural advantage on deterministic hardware: fewer parameters and
+simpler data flow map onto fixed-point, branch-free pipelines. Acceleration can rescue part of a
+complex model's value by removing engineering latency, but it cannot extend the statistical
+lifetime of the signal.
+
+\begin{example}[Second-order latency]
+A logistic score on five OFI windows and queue imbalance takes a few tens of multiply--add
+operations. If the signal's half-life is 5 ms, evaluating it in 50\,$\mu$s rather than 500\,ns
+keeps $2^{-0.01} \approx 99.3\%$ of its value rather than essentially all of it. The difference is
+second-order; the binding constraint is the quality and horizon of the signal itself.
+\end{example}
+
+The design sequence that follows is: identify the horizon and value of the signal under idealised
+execution; choose the simplest model that captures that value; only then choose the hardware tier
+whose latency and jitter preserve it after costs.
+
+\subsection{Open questions in hardware}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item Training objectives that penalise expected inference latency and resource use on a target
+  device, so that models trade accuracy against deployability explicitly.
+\item Which components of spatial-temporal LOB models survive mapping to programmable logic without
+  losing their economic value.
+\item Hawkes intensities in hardware: exponential kernels update in constant time and suit pipelines,
+  and a power-law kernel can be approximated by a few exponentials, each with its own running
+  sum~\citep{bochud2007}; how many are needed at the precision of fixed-point hardware, and how
+  state-dependent kernels map to pipelines, are open.
+\item Whether the statistical properties of a strategy developed on one hardware and latency profile
+  survive deployment on another---the research--production gap of Section~\ref{sec:kaspar-determinism}, at the hardware layer.
+\item Public, auditable benchmarks that cover book building and inference together, rather than
+  isolated kernels or vendor-defined paths.
+\end{itemize}
+
+% ================================================================
+\section{Failure modes}
+\label{sec:failures}
+% ================================================================
+
+Models are fitted to the past and run in the future. This section lists the ways that gap breaks
+them in practice: the market changes regime, liquidity disappears in stress, other participants place
+orders designed to mislead, displayed size hides real size, and the data themselves are wrong. For each
+it states what goes wrong and, where one exists, how it can be detected or guarded against.
+
+\paragraph{Regime change and state invalidation.} A model fitted in one liquidity regime can
+fail after volatility shocks, tick-size or fee changes, market-structure changes, scheduled
+announcements or liquidity withdrawal. A signal can be statistically valid for the regime in which
+it was estimated and economically stale after a transition.
+
+\paragraph{Volatility and liquidity withdrawal.} Queue-based signals rely on the book looking roughly
+the same when a decision is executed as when the signal was computed. In a volatility burst, best-level
+depth can vanish and the intensities that drive depletion change on the same time scale as the queues
+themselves, so first-passage estimates become unreliable. A simple defence is to reduce size or disable
+microstructure signals when short-term realised volatility is unusually high; it should be compared
+against more elaborate regime models before those are adopted.
+
+\paragraph{Spoofing and layering.} Displayed liquidity is not necessarily committed liquidity.
+Manipulative orders do not falsify OFI---OFI still measures observed changes---but they alter the
+mapping from displayed flow to future executable prices, and they distort queue-imbalance, depth
+and depletion estimates.
+
+\paragraph{Documented cases.} Manipulation of the order book is not hypothetical. On the Korea Exchange,
+\citet{lee2013spoof} document traders placing large orders away from the market to create imbalance and
+withdrawing them. A trader in the E-mini S\&P~500 was charged with layering over five years, conduct the
+CFTC alleged contributed to the conditions of the May 2010 flash crash~\citep{cftc2015sarao}. In 2020
+JPMorgan paid \$920 million over spoofing in precious-metals and US Treasury futures over at least eight
+years~\citep{cftc2020jpm}. In a spoofing episode in Ultra Treasury bond futures, \citet{debie2023} measure ask-side
+liquidity costs falling from about 10.4 to about 8 basis points when the spoof order was placed and
+recovering after it was cancelled---a displayed improvement in liquidity that was not real.
+\citet{cartea2020spoof} model spoofing as an optimal-control problem in which the spoofer trades the gain
+from skewing the order imbalance against the expected regulatory penalty. Quote stuffing---bursts of
+order messages---affected over 74\% of US-listed securities at least once in 2010, with lower liquidity
+and higher short-term volatility during episodes~\citep{egginton2016}.
+
+\paragraph{Hidden liquidity.} Iceberg orders make executable liquidity exceed displayed liquidity,
+so a model trained on displayed volume misestimates depletion, impact and fill probability. In
+E-mini S\&P~500 futures, one detection study estimates that about 9\% of book volume is iceberg
+orders~\citep{christensen2013}; when participants detect an iceberg they trade against it actively, and
+icebergs create an adverse-selection cost for other limit orders~\citep{frey2017iceberg}. This is one
+reason message-level and trade data are valuable even for book-based models.
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{How contamination affects order-book signals.}
+\label{tab:contamination}
+\begin{tabularx}{\linewidth}{l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\toprule
+Form & Signature in the data & Effect on signals \\
+\midrule
+Spoofing & large orders away from the touch, cancelled quickly & OFI and imbalance point the wrong way \\
+Layering & several non-genuine orders at successive levels & distorts depth, slope and multi-level OFI \\
+Quote stuffing & bursts of submissions and cancellations & inflates event counts; breaks event-clock assumptions \\
+Icebergs and hidden orders & repeated executions at one price with stable visible size & displayed depth understates liquidity; depletion and fill estimates biased \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Mitigations include down-weighting orders that are cancelled within a short time, features built from
+cancellation rates and from the ratio of trades to orders, and detection of iceberg refills. They reduce
+but do not remove the problem; robustness to each form of contamination belongs in a serious
+evaluation.
+
+\paragraph{Feed and timestamp errors.} At high frequency, data quality is part of the model:
+timestamp synchronisation, packet loss, sequence gaps, book reconstruction, exchange-specific event
+semantics, stale snapshots, duplicates, and clock differences between market-data and execution
+systems.
+
+\begin{example}[A sequence gap]
+On a feed with sequence numbers, a missed packet leaves the reconstructed book wrong until the
+handler recovers from a snapshot. A model trained on rows from that interval learns
+reconstruction error, not market behaviour. No number of parameters compensates for it; the gap
+has to be detected and the interval excluded or repaired.
+\end{example}
+
+% ================================================================
+\section{Research agenda}
+\label{sec:agenda}
+% ================================================================
+
+The survey has identified several places where the literature stops short of what a trader needs.
+This section collects them as open research questions.
+
+\paragraph{Execution-aware objectives.} Most prediction models stop at
+an estimate of $\P(\Delta m_{t,H} > 0 \mid X_t)$. The more useful objective is an estimate of
+$\E[\Pi \mid a_t, X_t]$, the expected profit of each available action,
+combining prediction, fill probability, queue position and adverse selection. Calibrated
+confidence~\citep{manoharan2026uqlob} is a step toward it: it tells an execution policy when to act.
+
+\paragraph{Queue-aware benchmarks.} Queue position should be a first-class state variable.
+Benchmarks should report performance conditional on queue rank, residual volume, spread and expected
+depletion time, and should measure the size of the queue-rank effect on fill probability and on
+conditional mark-outs across assets and regimes, rather than take a single model estimate as
+given.
+
+\paragraph{Message-level foundation models for execution.} Pretrained message-level encoders have
+so far been evaluated mainly on mid-price and next-message prediction~\citep{linna2025lobert}.
+Fine-tuning them for fill probability and conditional mark-outs, evaluated in queue-exact replay,
+is an open direction.
+
+\paragraph{Cross-asset information after costs.} When does cross-asset information remain valuable
+after costs, latency, multiple testing and parameter instability?
+
+\paragraph{Robustness to structural change.} Models should be tested across volatility regimes,
+tick and fee changes, market-structure changes and extreme events.
+
+\paragraph{End-to-end signal and execution.} Most models output a forecast and leave execution to a
+separate rule. Models whose output is the decision itself---quote, keep, cancel, cross---and whose
+training objective is execution value would close the gap that this survey describes. Reinforcement
+learning in LOB simulators~\citep{lalor2025nhp,frey2023} is one route, ideally validated in queue-exact replay; its results must be
+judged against model-free benchmarks in the same simulator.
+
+\paragraph{Causal rather than predictive questions.} The questions that matter for execution are
+causal: what happens to the queue and the price \emph{if} an order is placed here? Replay with a
+no-impact assumption answers this only for small orders. Models of the market's response to one's own
+orders, and ways to validate them without live experiments, remain open.
+
+\paragraph{State-space and long-context models for event streams.} State-space sequence models are well
+suited to long, irregular event streams, yet apart from one hardware-oriented design~\citep{popov2026ssm} we found no established LOB forecaster built on them.
+Testing them against simple baselines on the same inputs---not against each other---is a clear
+next step.
+
+\paragraph{Near-criticality and learned models.} Estimated branching ratios of order flow are high,
+from about $0.7$--$0.8$ to about one depending on method. How deep sequence
+models behave on near-critical, long-memory inputs, and whether Hawkes structure built into them
+(Section~\ref{sec:hybrid}) improves robustness, is untested.
+
+\paragraph{Contamination-robust features.} Features that remain informative in the presence of spoofing
+and hidden liquidity---based on order lifetimes, cancellation behaviour and refill patterns---and
+evaluation protocols that test robustness explicitly.
+
+\paragraph{Generative evaluation.} Generators should be evaluated by market invariants and downstream
+utility rather than by visual or marginal similarity alone~\citep{lobbench2025}.
+
+\paragraph{A parsimony audit.} For each widely cited deep LOB model, re-estimate its incremental
+economic value and deflated performance against the best low-capacity baseline on the same data and
+fill model. Such a meta-study would directly test the central claim of this survey.
+
+\paragraph{Correlated signals and systemic risk.} If many participants deploy similar order-book signals,
+their trades become correlated, and so do their withdrawals of liquidity under stress. The market-wide
+consequences of widely shared LOB alphas are largely unstudied.
+
+% ================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% ================================================================
+
+The literature on limit-order-book modelling has moved from low-dimensional queue and order-flow
+models to expressive sequence architectures and pretrained message-level encoders. Statistical
+prediction has improved. Statistical prediction and executable trading remain different problems.
+The translation between them is
+\[
+  \boxed{\ \text{LOB state} \to \text{representation} \to \text{prediction} \to \text{decision} \to
+  \text{queue} \to \text{execution} \to \text{P\&L}\ }
+\]
+and each link can destroy information or add uncertainty.
+
+Order-flow imbalance, queue imbalance, Hawkes intensities and first-passage models give
+interpretable low-dimensional descriptions of market dynamics. Deep and pretrained models give
+representational capacity and, increasingly, calibrated confidence. Hybrid models offer a route to
+combine them. The conclusion is not that simple models are superior. It is that complexity is an
+empirical hypothesis: a more complex model is justified when it delivers incremental out-of-sample
+economic value that survives realistic execution, temporal validation, and the multiple-testing
+burden of its own selection.
+
+Two kinds of infrastructure make that standard testable. A deterministic, queue-exact replay turns the
+execution questions into measurements on observed data. Hardware decides how much of a signal's value
+survives to the moment of execution, and it cannot rescue a signal whose life is shorter than the
+pipeline that computes it.
+
+For a reader who must choose a model, the survey's guidance reduces to an order of operations.
+Decide first what the output is for---aggressive trading, passive execution, market making or
+simulation---and therefore which of the targets of Section~\ref{sec:deep} matters. Establish the
+strongest simple baseline on the best available representation: order-flow imbalance, queue
+imbalance, the micro-price, the queue race, and for passive orders the volume ahead. Evaluate it with
+proper scores and economic metrics in a queue-exact replay, counting every configuration tried. Only
+then add capacity---a shallow network, a sequence model, a hybrid---and keep it only if the increment
+survives the same test.
+
+A useful future literature should therefore report not only whether a model predicts the market,
+but what information it extracts, what decision it changes, how that decision is executed, and
+whether the incremental value survives a properly constructed null.
+
+\begin{table}[!htbp]
+\centering\small
+\caption{Evidence status of the main claims in this survey.}
+\label{tab:evidence}
+\begin{tabularx}{\linewidth}{Xl}
+\toprule
+Claim & Status \\
+\midrule
+Short-horizon mid changes are approximately linear in OFI, with slope inversely related to
+  depth~\citep{cks2014} & established \\
+Hawkes stationarity when $\rho(\Gamma) < 1$ and $\bar\lambda = (I-\Gamma)^{-1}\mu$ & established \\
+Input representation can matter as much as the architecture & synthesis \\
+Naive ``touch'' backtests overstate passive fills relative to queue-exact replay & synthesis;
+  argued from price--time priority \\
+Front-of-queue positions are worth more than back-of-queue positions, with adverse selection
+  increasing in queue position~\citep{moallemi2017} & established in a model; size across regimes open \\
+Hybrid inputs derived from the same stream add little to a sufficiently large network & open
+  hypothesis \\
+\bottomrule
+\end{tabularx}
+\end{table}
