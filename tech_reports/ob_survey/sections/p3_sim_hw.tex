@@ -396,6 +396,71 @@ today: hftbacktest trades live on two cryptocurrency exchanges, NautilusTrader c
 vendors, and Kaspar has its own handlers for CME's market-by-order feed and order entry; the other two reach CME data
 only through a data vendor's files.
 
+\paragraph{Historical-replay backtesters in detail.} Kaspar belongs to the first kind, so it is compared here with
+the other tools that replay recorded order-book data and fill a researcher's orders against it.
+Table~\ref{tab:replay-tools} lists every such tool we found with enough documentation or code to classify it,
+grouped by how they place the simulated order in the queue.
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item \textbf{Exact position in the recorded queue, recorded market unchanged.} Besides hftbacktest and Kaspar,
+  \textbf{lobsim}~\citep{lobsim}, a C++20 library, replays order-level data and counts exactly how much recorded
+  quantity is ahead of each simulated order; it has optional order latency, states that it is deterministic, and has
+  no live-trading path. \citet{moallemi2017} use the same rule as a method on Nasdaq ITCH data, without software: a
+  simulated order counts as filled once a later order at its price is filled.
+\item \textbf{Exact position, but the simulated orders change the recorded book.} Two open-source engines insert the
+  researcher's orders into the replayed order-level book and match them there, so the orders consume liquidity that
+  the recorded market then lacks~\citep{chasemetoyer_bte,koteyevlev_mm}. Neither models latency.
+\item \textbf{Estimated position.} Most replay tools work from price-level data and estimate the volume ahead:
+  the market-making simulators of \citet{spooner2018} and \citet{sadighian2019}, one open-source backtester for
+  cryptocurrency data~\citep{evgerher_hft}, the CME execution model of \citet{dixon2018exec}---which notes that
+  order-level data would make the position exact---and \citet{vyetrenko2019}, who add latency taken from historical
+  profiles and a synthetic market response. A widely cited note by \citet{rigtorp2013queue} describes the usual
+  estimation rule. Among commercial tools, TT's simulation environment states that queue position is estimated
+  for all markets~\citep{tt_piq}.
+\item \textbf{No queue at all.} Some tools fill an order only when the price crosses it~\citep{tribeca}, and
+  retail platforms replay depth for display but fill from the last price or the best quotes~\citep{sierrachart_tradesim}.
+\end{itemize}
+Bar-level backtesters, which see only open, high, low and close prices over fixed intervals or the best quotes, are
+outside the scope of this comparison: for example LEAN~\citep{lean}, Jesse~\citep{jesse} and the backtesters of
+Hummingbot~\citep{hummingbot} and Barter~\citep{barter}.
+
+\begin{table}[!htbp]
+\centering\scriptsize
+\caption{Historical-replay backtesters at order-book level, from their papers, documentation and code. ``Recorded
+market unchanged'': the simulated orders do not alter the replayed book (no market impact). ``--'': not provided;
+``not stated'': documentation silent. Commercial entries are from vendor documentation.}
+\label{tab:replay-tools}
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}p{0.12\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.1\linewidth}>{\raggedright\arraybackslash}p{0.11\linewidth}>{\raggedright\arraybackslash}p{0.14\linewidth}}
+\toprule
+Tool & Data & Own-order queue position & Latency & Recorded market unchanged & Same code live & Feeds \\
+\midrule
+Kaspar & order-level & exact, in the recorded queue & order, cancel and feed delays & yes & yes & CME MDP~3.0 (own handler) \\
+hftbacktest & order- or price-level & exact with order-level data; estimated otherwise & feed from data; order constant or recorded & yes & yes (crypto) & crypto; CME via vendor files \\
+lobsim & order-level & exact count of recorded quantity ahead & optional order delay & yes & -- & Coinbase, LOBSTER files \\
+NautilusTrader & order- or price-level & estimated & order-entry delays & yes & yes & several venues; CME via vendor files \\
+Moallemi--Yuan method & order-level (ITCH) & exact (fill when a later order fills) & -- & yes & -- & Nasdaq \\
+Backtesting-Engine & order-level & exact; own orders matched in the replayed book & -- & no & not stated & crypto (CoinAPI) \\
+Market\-Making\-ML\-Algo & order log & exact; recorded trades re-matched & -- & no & -- & one equity order log \\
+\citet{spooner2018} & price-level, 5 levels & estimated: back of queue, proportional cancels & coded but unused & yes & -- & European equities \\
+\citet{sadighian2019} & price-level snapshots & estimated: volume ahead less trades & -- & yes & -- & crypto \\
+\citet{dixon2018exec} & price-level & estimated (exact with order-level data) & zero in backtest & not stated & -- & CME ES \\
+\citet{vyetrenko2019} & price-level & estimated: back of queue & historical latency profiles & no: synthetic response & -- & futures \\
+hft-backtesting & price-level & estimated, probabilistic & single delay & yes & -- & BitMEX \\
+TT Backtesting & book and trades & estimated in TT's simulation & not stated & not stated & yes (TT algos) & TT-connected exchanges \\
+NinjaTrader Playback & price-level & not stated & -- & not stated & yes & data-provider dependent \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Where Kaspar sits.} Of the replay tools found, three place the simulated order in the recorded queue
+without changing the recorded market: hftbacktest, lobsim and Kaspar. Of these, lobsim has no live-trading path;
+hftbacktest trades live on two cryptocurrency exchanges and reads CME data only from a data vendor's pre-processed
+files. Kaspar is the only one we found that decodes an exchange's own market-by-order feed (CME MDP~3.0, from live
+multicast or packet captures), models order, cancel and feed delays separately, and runs the same code in replay,
+paper and live trading against that exchange. We found no open-source or documented commercial backtester that
+decodes MDP~3.0 itself; the commercial tools we could read either estimate queue position or do not document how
+they treat it.
+
 \subsection{Kaspar HFT}
 \label{sec:kaspar}
 

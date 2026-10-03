@@ -1,4 +1,4 @@
-\begin{thebibliography}{387}
+\begin{thebibliography}{403}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -256,6 +256,13 @@ Matthew Baron, Jonathan Brogaard, Bj{\"o}rn Hagstr{\"o}mer, and Andrei
 \newblock \emph{Journal of Financial and Quantitative Analysis}, 54\penalty0
   (3):\penalty0 993--1024, 2019.
 \newblock \doi{10.1017/S0022109018001096}.
+
+\bibitem[{Barter contributors}(2026)]{barter}
+{Barter contributors}.
+\newblock Barter: Rust framework for live-trading, paper-trading and
+  back-testing systems.
+\newblock \url{https://github.com/barter-rs/barter-rs}, 2026.
+\newblock Rust, MIT. Accessed 2026-10-03.
 
 \bibitem[Bartlett and Mendelson(2002)]{bartlett2002}
 Peter~L. Bartlett and Shahar Mendelson.
@@ -562,6 +569,12 @@ Raffaele~G. Cestari, Filippo Barchi, Riccardo Busetto, Daniele Marazzina, and
   2025.
 \newblock \doi{10.23919/ECC65951.2025.11187051}.
 
+\bibitem[{chasemetoyer}(2026)]{chasemetoyer_bte}
+{chasemetoyer}.
+\newblock Backtesting-engine: {L3} order book replay and backtesting.
+\newblock \url{https://github.com/chasemetoyer/Backtesting-Engine}, 2026.
+\newblock Rust/Python, MIT. Accessed 2026-10-03.
+
 \bibitem[Chen and Hall(2013)]{chenhall2013seppvb}
 Feng Chen and Peter Hall.
 \newblock Inference for a nonstationary self-exciting point process with an
@@ -836,12 +849,20 @@ Han Ding, Yinheng Li, Junhao Wang, Hang Chen, Doudou Guo, and Yunbai Zhang.
 \newblock Journal reference on arXiv: International Conference on Computers in
   Management and Business 2026.
 
-\bibitem[Dixon(2018)]{dixon2018}
+\bibitem[Dixon(2018{\natexlab{a}})]{dixon2018}
 Matthew Dixon.
 \newblock Sequence classification of the limit order book using recurrent
   neural networks.
-\newblock \emph{Journal of Computational Science}, 24:\penalty0 277--286, 2018.
+\newblock \emph{Journal of Computational Science}, 24:\penalty0 277--286,
+  2018{\natexlab{a}}.
 \newblock \doi{10.1016/j.jocs.2017.08.018}.
+
+\bibitem[Dixon(2018{\natexlab{b}})]{dixon2018exec}
+Matthew Dixon.
+\newblock A high-frequency trade execution model for supervised learning.
+\newblock \emph{High Frequency}, 1\penalty0 (1):\penalty0 32--52,
+  2018{\natexlab{b}}.
+\newblock \doi{10.1002/hf2.10016}.
 
 \bibitem[Dobrev and Schaumburg(2017)]{dobrev2017}
 Dobrislav Dobrev and Ernst Schaumburg.
@@ -964,6 +985,12 @@ Graham Elliott and Allan Timmermann.
 \newblock \emph{International Economic Review}, 46\penalty0 (4):\penalty0
   1081--1102, 2005.
 \newblock \doi{10.1111/j.1468-2354.2005.00361.x}.
+
+\bibitem[{evgerher}(2020)]{evgerher_hft}
+{evgerher}.
+\newblock Hft-backtesting.
+\newblock \url{https://github.com/evgerher/hft-backtesting}, 2020.
+\newblock Python, Apache-2.0. Accessed 2026-10-03.
 
 \bibitem[{Exegy}(2022)]{exegy_enyx}
 {Exegy}.
@@ -1179,6 +1206,13 @@ Alan Gray.
 \newblock NVIDIA Technical Blog, September 2019.
 \newblock URL \url{https://developer.nvidia.com/blog/cuda-graphs/}.
 
+\bibitem[Grosner(2018)]{tribeca}
+Michael Grosner.
+\newblock tribeca: A high frequency, market making cryptocurrency trading
+  platform.
+\newblock \url{https://github.com/michaelgrosner/tribeca}, 2018.
+\newblock TypeScript, ISC. Accessed 2026-10-03.
+
 \bibitem[Gruver et~al.(2023)Gruver, Finzi, Qiu, and Wilson]{gruver2023llmtime}
 Nate Gruver, Marc Finzi, Shikai Qiu, and Andrew~Gordon Wilson.
 \newblock Large language models are zero-shot time series forecasters.
@@ -1368,6 +1402,12 @@ John~C. Hull.
 \newblock Pearson, 11th edition, 2022.
 \newblock ISBN 9780136939917.
 
+\bibitem[{Hummingbot Foundation}(2026)]{hummingbot}
+{Hummingbot Foundation}.
+\newblock Hummingbot.
+\newblock \url{https://github.com/hummingbot/hummingbot}, 2026.
+\newblock Python/Cython, Apache-2.0. Accessed 2026-10-03.
+
 \bibitem[Huth and Abergel(2014)]{huth2014}
 Nicolas Huth and Fr{\'e}d{\'e}ric Abergel.
 \newblock High frequency lead/lag relationships -- empirical facts.
@@ -1440,6 +1480,13 @@ Joseph Jerome, Leandro S{\'a}nchez-Betancourt, Rahul Savani, and Martin
 \newblock In \emph{Proceedings of the 4th ACM International Conference on AI in
   Finance (ICAIF '23)}, pages 619--627. ACM, 2023.
 \newblock \doi{10.1145/3604237.3626873}.
+
+\bibitem[{Jesse.Trade}(2026)]{jesse}
+{Jesse.Trade}.
+\newblock Jesse: Algorithmic trading framework.
+\newblock \url{https://github.com/jesse-ai/jesse}, 2026.
+\newblock Python, MIT; live trading via a separate licensed plugin. Accessed
+  2026-10-03.
 
 \bibitem[Jordan and Jacobs(1994)]{jordan1994hme}
 Michael~I. Jordan and Robert~A. Jacobs.
@@ -1562,6 +1609,18 @@ Gary Koop and Dimitris Korobilis.
 \newblock \emph{International Economic Review}, 53\penalty0 (3):\penalty0
   867--886, 2012.
 \newblock \doi{10.1111/j.1468-2354.2012.00704.x}.
+
+\bibitem[{koteyevlev}(2021)]{koteyevlev_mm}
+{koteyevlev}.
+\newblock Marketmakingmlalgo: Market making backtest on a full order log.
+\newblock \url{https://github.com/koteyevlev/MarketMakingMLAlgo}, 2021.
+\newblock Python, MIT. Accessed 2026-10-03.
+
+\bibitem[{kpetridis24}(2026)]{lobsim}
+{kpetridis24}.
+\newblock lobsim: {L3} limit order book replay and paper execution simulator.
+\newblock \url{https://github.com/kpetridis24/lobsim}, 2026.
+\newblock C++20/Python, Apache-2.0. Accessed 2026-10-03.
 
 \bibitem[Krapivensky(2025)]{krapivensky2025glass}
 Viktor Krapivensky.
@@ -2158,6 +2217,12 @@ Matteo Prata, Giuseppe Masi, Leonardo Berti, Viviana Arrigoni, Andrea Coletta,
 \newblock \emph{Artificial Intelligence Review}, 57\penalty0 (5), 2024.
 \newblock \doi{10.1007/s10462-024-10715-4}.
 
+\bibitem[{QuantConnect}(2026)]{lean}
+{QuantConnect}.
+\newblock {LEAN} algorithmic trading engine.
+\newblock \url{https://github.com/QuantConnect/Lean}, 2026.
+\newblock C\#/Python, Apache-2.0. Accessed 2026-10-03.
+
 \bibitem[Racine(2000)]{racine2000}
 Jeff Racine.
 \newblock Consistent cross-validatory model-selection for dependent data:
@@ -2274,11 +2339,23 @@ Kylie-Anne Richards, William T.~M. Dunsmuir, and Gareth~W. Peters.
 \newblock \doi{10.1007/s41060-024-00644-4}.
 \newblock Published online 10 October 2024.
 
+\bibitem[Rigtorp(2013)]{rigtorp2013queue}
+Erik Rigtorp.
+\newblock Estimating order queue position.
+\newblock
+  \url{https://rigtorp.se/2013/06/08/estimating-order-queue-position.html},
+  2013.
+\newblock Blog post, dated 2013-06-08.
+
 \bibitem[Roueff and von Sachs(2019)]{roueffvonsachs2019}
 Fran{\c{c}}ois Roueff and Rainer von Sachs.
 \newblock Time-frequency analysis of locally stationary {H}awkes processes.
 \newblock \emph{Bernoulli}, 25\penalty0 (2), 2019.
 \newblock \doi{10.3150/18-BEJ1023}.
+
+\bibitem[Sadighian(2019)]{sadighian2019}
+Jonathan Sadighian.
+\newblock Deep reinforcement learning in cryptocurrency market making, 2019.
 
 \bibitem[Schwarz(1978)]{schwarz1978}
 Gideon Schwarz.
@@ -2395,6 +2472,13 @@ Zijian Shi, Yu~Chen, and John Cartlidge.
   Intelligence}, volume~35, pages 548--556, 2021.
 \newblock \doi{10.1609/aaai.v35i1.16133}.
 
+\bibitem[{Sierra Chart}()]{sierrachart_tradesim}
+{Sierra Chart}.
+\newblock Trade simulation; replay chart.
+\newblock
+  \url{https://www.sierrachart.com/index.php?page=doc/TradeSimulation.html}.
+\newblock Accessed 2026-10-03.
+
 \bibitem[Sirignano and Cont(2019)]{sirignano2019}
 Justin Sirignano and Rama Cont.
 \newblock Universal features of price formation in financial markets:
@@ -2433,6 +2517,14 @@ Trent Spears, Stefan Zohren, and Stephen Roberts.
 \newblock \emph{The Journal of Financial Data Science}, 3\penalty0
   (1):\penalty0 57--73, 2021.
 \newblock \doi{10.3905/jfds.2020.1.049}.
+
+\bibitem[Spooner et~al.(2018)Spooner, Fearnley, Savani, and
+  Koukorinis]{spooner2018}
+Thomas Spooner, John Fearnley, Rahul Savani, and Andreas Koukorinis.
+\newblock Market making via reinforcement learning.
+\newblock In \emph{Proceedings of the 17th International Conference on
+  Autonomous Agents and MultiAgent Systems (AAMAS 2018)}, pages 434--442,
+  Stockholm, Sweden, 2018. IFAAMAS.
 
 \bibitem[Srivastava et~al.(2025)Srivastava, Arunkumar, Kurella, Panda, Jain,
   Kamath, Wutzke, Tiruvur, Gupta, Soloveychik, Darsi, Dalal, Patankar, Dudyala,
@@ -2532,6 +2624,13 @@ Mehdi Tomas, Iacopo Mastromatteo, and Michael Benzaquen.
   2022.
 \newblock \doi{10.1080/14697688.2021.2020328}.
 
+\bibitem[{Trading Technologies International, Inc.}()]{tt_piq}
+{Trading Technologies International, Inc.}
+\newblock Position in queue ({PIQ}) overview.
+\newblock
+  \url{https://library.tradingtechnologies.com/trade/viewing-market-data/position-in-queue-piq/position-in-queue-piq/}.
+\newblock Accessed 2026-10-03.
+
 \bibitem[Tran et~al.(2019)Tran, Iosifidis, Kanniainen, and
   Gabbouj]{tran2019tabl}
 Dat~Thanh Tran, Alexandros Iosifidis, Juho Kanniainen, and Moncef Gabbouj.
@@ -2627,6 +2726,11 @@ Alejandro Veen and Frederic~P. Schoenberg.
 Ekaterina Vinkovskaya.
 \newblock \emph{A Point Process Model for the Dynamics of Limit Order Books}.
 \newblock PhD thesis, Columbia University, 2014.
+
+\bibitem[Vyetrenko and Xu(2019)]{vyetrenko2019}
+Svitlana Vyetrenko and Shaojie Xu.
+\newblock Risk-sensitive compact decision trees for autonomous execution in
+  presence of simulated market response, 2019.
 
 \bibitem[Wallbridge(2020)]{wallbridge2020}
 James Wallbridge.
