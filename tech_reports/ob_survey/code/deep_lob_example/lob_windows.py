@@ -19,3 +19,13 @@ def windows(book, t, length=100):
     keep = t >= length - 1
     idx = t[keep][:, None] + np.arange(-length + 1, 1)[None, :]
     return book[idx], keep                           # shape (N, length, 40)
+
+def relative_prices(X, raw_windows):
+    """Replace the price columns of each window by (price - mid at the window's last event), in ticks.
+    Sizes keep their day-level normalisation."""
+    X = X.copy()
+    last = raw_windows[:, -1, :]
+    mid_last = (last[:, 0] + last[:, 2]) / 2                  # (best ask + best bid) / 2
+    for col in range(0, 40, 2):                               # columns 0, 2, 4, ... are prices
+        X[:, :, col] = (raw_windows[:, :, col] - mid_last[:, None]) / 0.25
+    return X

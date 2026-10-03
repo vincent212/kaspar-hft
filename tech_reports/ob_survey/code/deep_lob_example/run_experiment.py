@@ -4,7 +4,7 @@ import sys
 import numpy as np
 import torch
 from synthetic_book import make_days
-from lob_windows import smoothed_change, to_class, windows
+from lob_windows import smoothed_change, to_class, windows, relative_prices
 from lob_normalise import normalise_days, split_by_time
 from lob_model import DeepLOB
 from lob_train import train, predict
@@ -13,15 +13,20 @@ from lob_evaluate import score
 H, LEN = 20, 100
 torch.manual_seed(0)
 DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
-days = normalise_days(make_days(n_days=20, n_events=3000, seed=1))   # 5 days used for statistics
-tr, va, te = split_by_time(days, n_train=9, n_val=3)                    # 9 / 3 / 3 days
+RELATIVE = len(sys.argv) > 1 and sys.argv[1] == "relative"     # price input variant
+raw = make_days(n_days=20, n_events=3000, seed=1)
+days = normalise_days(raw)                                       # 5 days used for statistics
+days = [(b, m, rb) for (b, m), (rb, _) in zip(days, raw[5:])]    # keep raw prices for the variant
+tr, va, te = split_by_time(days, n_train=9, n_val=3)             # 9 / 3 / 3 days
 
 def build(part, past_average, theta):
     Xs, ys, rule, last = [], [], [], []
-    for book, mid in part:
+    for book, mid, raw_book in part:
         t, ch = smoothed_change(mid, H, past_average)
         y = to_class(ch, theta)
         X, keep = windows(book, t, LEN)
+        if RELATIVE:
+            X = relative_prices(X, windows(raw_book, t, LEN)[0])
         y, tk = y[keep], t[keep]
         # baselines, using only information available at time t
         past_mean = np.array([mid[i - H + 1:i + 1].mean() for i in tk])
@@ -34,9 +39,9 @@ def build(part, past_average, theta):
 
 for past_average in (True, False):
     name = "smoothed label (past average)" if past_average else "leak-free label (current mid)"
-    print(f"\n=== {name} ===")
+    print(f"\n=== {name}; prices {'relative to last mid' if RELATIVE else 'z-scored by day'} ===")
     # threshold: set on the training days so that about a third of labels are 'flat'
-    ch = np.concatenate([smoothed_change(m, H, past_average)[1] for _, m in tr])
+    ch = np.concatenate([smoothed_change(m, H, past_average)[1] for _, m, _ in tr])
     theta = np.quantile(np.abs(ch), 1 / 3)
     X_tr, y_tr, _, _ = build(tr, past_average, theta)
     X_va, y_va, _, _ = build(va, past_average, theta)

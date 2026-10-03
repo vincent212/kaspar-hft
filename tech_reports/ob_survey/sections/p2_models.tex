@@ -6640,14 +6640,16 @@ Section~\ref{sec:comparable} in mind.
 \subsection{The families of network}
 \label{sec:deep-families}
 
-\paragraph{Role of the architecture.} Any large enough network can in principle represent any function, so the
-choice of architecture is not about what can be learned but about what is learned \emph{easily} from limited, noisy
-data. Each family builds in an assumption about the input---an \emph{inductive bias}. A convolutional network
-assumes that the same small pattern means the same thing wherever it appears; a recurrent network assumes the order
-of the inputs matters and keeps a running memory; an attention network assumes that what matters is which earlier
-inputs resemble the present one. Choosing a family is choosing which assumption to make about the book.
-Table~\ref{tab:deep-families} lists the families used for order books, what each assumes, and where each is
-discussed; Figure~\ref{fig:deep-families} sketches how each reads the same input.
+\paragraph{Role of the architecture.} All the families below are trained in the same way (Section~\ref{sec:deep-train}).
+They differ in how the weights connect the input to the output. In principle a large enough network of any family
+can represent any rule from input to output. In practice the data are limited and noisy, and a family learns some
+rules from fewer examples than others, depending on how its weights are arranged. This built-in preference is
+called the family's \emph{inductive bias}. Example: a convolutional network uses the same weights at every price
+level, so a pattern learned at level~1 is also recognised at level~5 without separate examples; a fully connected
+network has separate weights for each level and must learn the pattern at each one.
+Table~\ref{tab:deep-families} lists the families used for order books. The figures below show the five main ones on
+the same small input: a window of 6 snapshots (time, left to right) of 4 numbers each (rows), drawn as a grid; a real
+model such as DeepLOB uses 100 snapshots of 40 numbers.
 
 \begin{table}[!htbp]
 \centering\footnotesize
@@ -6672,40 +6674,170 @@ Generative (GAN, diffusion, autoregressive; Section~\ref{sec:deep-gen}) & the go
 \end{tabularx}
 \end{table}
 
+
+\paragraph{Fully connected network (multilayer perceptron, MLP).} The grid is unrolled into one long list of
+$6 \times 4 = 24$ numbers. Each unit of the next layer computes a weighted sum of all 24, with its own 24 weights,
+followed by a simple non-linear function (Figure~\ref{fig:fam-mlp}). Nothing is shared: the weight that links ``size
+at level~1, three events ago'' to a unit is unrelated to the weight for ``size at level~1, two events ago''. The
+network has no notion of time or level; it must learn every relation from data.
+
 \begin{figure}[!htbp]
 \centering
-\begin{tikzpicture}[font=\scriptsize]
-\def\grid#1#2{\foreach \i in {0,...,5} \foreach \j in {0,...,3} {\pgfmathsetmacro{\gv}{15+mod(7*\i+11*\j,40)} \fill[blue!\gv] (#1+0.28*\i,#2+0.28*\j) rectangle ++(0.26,0.26);}}
-\begin{scope}
-  \grid{0}{0}
-  \draw[red!70!black, very thick] (0.56,0.28) rectangle ++(0.54,0.54);
-  \node[align=center, anchor=north] at (0.83,-0.2) {\textbf{CNN}\\a small filter slides\\over time and levels};
-\end{scope}
-\begin{scope}[xshift=3.1cm]
-  \grid{0}{0}
-  \foreach \i in {0,...,5} \draw[-{Stealth[length=1.2mm]}, orange!80!black, thick] (0.28*\i+0.13,1.25) -- ++(0.2,0);
-  \node[align=center, anchor=north] at (0.83,-0.2) {\textbf{RNN / LSTM}\\reads one time step\\at a time, with memory};
-\end{scope}
-\begin{scope}[xshift=6.2cm]
-  \grid{0}{0}
-  \foreach \i/\w in {0/0.3,1/1.2,2/0.4,3/0.9,4/0.5} \draw[-{Stealth[length=1.2mm]}, red!60!black, line width=\w pt] (1.53,1.25) to[bend right=35] (0.28*\i+0.13,1.15);
-  \node[align=center, anchor=north] at (0.83,-0.2) {\textbf{Attention}\\the latest step weighs\\every earlier one};
-\end{scope}
-\begin{scope}[xshift=9.3cm]
-  \grid{0}{0}
-  \draw[green!50!black, very thick, -{Stealth[length=1.4mm]}] (-0.1,0.55) -- (1.75,0.55);
-  \draw[violet, very thick, -{Stealth[length=1.4mm]}] (0.83,-0.12) -- (0.83,1.25);
-  \node[align=center, anchor=north] at (0.83,-0.2) {\textbf{Bilinear}\\mixes along time and\\along features separately};
-\end{scope}
-\begin{scope}[xshift=12.4cm]
-  \grid{0}{0}
-  \fill[gray!60] (0,0) rectangle ++(1.66,1.1); \node[white, font=\tiny] at (0.83,0.55) {flatten};
-  \node[align=center, anchor=north] at (0.83,-0.2) {\textbf{MLP}\\the window becomes\\one long vector};
-\end{scope}
+\begin{tikzpicture}[font=\scriptsize, scale=0.92, transform shape, cell/.style={draw, minimum size=4mm, inner sep=0, fill=blue!12}]
+\foreach \t in {1,...,6} \foreach \f in {1,...,4} \node[cell] (g\t\f) at (0.45*\t,0.45*\f) {};
+\node[anchor=north] at (1.575,0.15) {input window $6 \times 4$};
+\node[anchor=south] at (1.575,2.05) {time $\rightarrow$};
+\draw[-{Stealth[length=1.6mm]}, thick] (3.1,1.1) -- (3.9,1.1) node[midway, above] {unroll};
+\foreach \k in {1,...,24} \node[circle, draw, fill=blue!12, minimum size=1.6mm, inner sep=0] (u\k) at (4.4,2.85-0.1*\k) {};
+\node[anchor=north, align=center] at (4.4,0.3) {24 numbers};
+\foreach \h/\y in {1/2.2,2/1.6,3/1.0,4/0.4} {
+  \node[circle, draw, fill=orange!25, minimum size=4mm] (h\h) at (7.0,\y+0.3) {};
+  \foreach \k in {1,...,24} \draw[gray!50, line width=0.15pt] (u\k) -- (h\h);
+}
+\node[anchor=north, align=center] at (7.0,0.3) {hidden units};
+\foreach \o/\lab/\y in {1/down/1.9,2/flat/1.3,3/up/0.7} {
+  \node[circle, draw, fill=green!20, minimum size=4mm] (o\o) at (8.9,\y) {};
+  \node[anchor=west] at (9.05,\y) {P(\lab)};
+  \foreach \h in {1,...,4} \draw[gray!60, line width=0.2pt] (h\h) -- (o\o);
+}
+\node[align=left, anchor=west, text width=34mm] at (10.4,1.3) {every line is a separate weight:\\$24 \times 4 = 96$ here;\\with $100 \times 40$ inputs, 4{,}000 per hidden unit};
 \end{tikzpicture}
-\caption{How five families read the same input, a window of the book with time across and price levels up. Schematic.}
-\label{fig:deep-families}
+\caption{A fully connected network on a window of the book. The window is unrolled into a list, and every input is
+connected to every hidden unit by its own weight. Schematic.}
+\label{fig:fam-mlp}
 \end{figure}
+
+\paragraph{Convolutional network (CNN).} A \emph{filter} is a small grid of weights, here $2 \times 2$: two
+consecutive events by two adjacent rows. It is placed on the input, the four numbers under it are multiplied by its
+four weights and added, and the result is one number of the output. The filter is then moved one step and the
+calculation repeated, until it has visited every position (Figure~\ref{fig:fam-cnn}). The same four weights are used
+everywhere: the network has 4 weights for this filter however large the input is, and a pattern that the filter
+detects (for example ``the size at a level fell'') is detected wherever it occurs. A layer has many filters, each
+learning a different pattern. DeepLOB's filters are described in Section~\ref{sec:deeplob}.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, cell/.style={draw, minimum size=6mm, inner sep=0}]
+\foreach \t in {1,...,6} \foreach \f in {1,...,4} {\pgfmathtruncatemacro{\v}{mod(3*\t+5*\f,9)} \node[cell, fill=blue!10] at (0.6*\t,0.6*\f) {\v};}
+\draw[red!70!black, very thick] (0.3,0.3) rectangle (1.5,1.5);
+\draw[orange!90!black, very thick, dashed] (2.1,1.5) rectangle (3.3,2.7);
+\node[anchor=north] at (2.1,0.2) {input $6 \times 4$};
+\node[anchor=south] at (2.1,2.75) {time $\rightarrow$};
+\begin{scope}[xshift=5.0cm, yshift=1.1cm]
+\node[anchor=south] at (0.6,0.95) {filter (4 weights)};
+\foreach \a/\b/\w in {0/0/0.5,1/0/-0.5,0/1/0.5,1/1/-0.5} \node[cell, fill=red!12] at (0.6*\a+0.3,0.6*\b) {\w};
+\end{scope}
+\draw[-{Stealth[length=1.6mm]}, thick] (3.9,1.5) -- (4.9,1.5);
+\draw[-{Stealth[length=1.6mm]}, thick] (6.5,1.5) -- (7.5,1.5) node[midway, above] {slide};
+\begin{scope}[xshift=7.4cm]
+\foreach \t in {1,...,5} \foreach \f in {1,...,3} \node[cell, fill=green!10] at (0.6*\t,0.6*\f+0.3) {};
+\node[cell, fill=red!25] at (0.6,0.9) {};
+\node[cell, fill=orange!30] at (2.4,2.1) {};
+\node[anchor=north] at (1.8,0.2) {output $5 \times 3$};
+\end{scope}
+\node[align=left, anchor=west, text width=36mm] at (11.0,1.5) {solid box: the filter at one position gives one output cell;\\dashed box: the same 4 weights at another position};
+\end{tikzpicture}
+\caption{A convolution. One $2 \times 2$ filter of weights is applied at every position of the input; each position
+gives one number of the output. Numbers are illustrative. Schematic.}
+\label{fig:fam-cnn}
+\end{figure}
+
+\paragraph{Recurrent network (RNN, LSTM).} The network reads the window one snapshot at a time, in order. It keeps a
+\emph{memory} vector $\mathbf{h}$. At each step one \emph{cell} takes the new snapshot and the memory from the
+previous step and computes an updated memory (Figure~\ref{fig:fam-rnn}). The cell has one set of weights, used at
+every step. After the last snapshot, the memory summarises the whole window and a final layer turns it into the
+prediction. An LSTM is a recurrent cell with gates that decide how much of the memory to keep and how much of the
+new snapshot to add (Section~\ref{sec:deep-families}, building blocks).
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, cell/.style={draw, minimum size=4mm, inner sep=0, fill=blue!12},
+  c/.style={draw, rounded corners=2pt, fill=orange!25, minimum width=9mm, minimum height=7mm},
+  arr/.style={-{Stealth[length=1.5mm]}, thick}]
+\node[anchor=east] at (-0.2,2.4) {memory $\mathbf{h}_0 = 0$};
+\foreach \t in {1,...,6} {
+  \foreach \f in {1,...,4} \node[cell] at (1.7*\t-1.0,0.42*\f-0.4) {};
+  \node[anchor=north] at (1.7*\t-1.0,-0.25) {snapshot $\t$};
+  \node[c] (c\t) at (1.7*\t-1.0,2.4) {cell};
+  \draw[arr] (1.7*\t-1.0,1.35) -- (c\t.south);
+}
+\draw[arr] (-0.2,2.4) -- (c1.west);
+\foreach \t/\u in {1/2,2/3,3/4,4/5,5/6} \draw[arr] (c\t.east) -- (c\u.west) node[midway, above] {$\mathbf{h}_{\t}$};
+\node[draw, rounded corners=2pt, fill=green!20, align=center] (out) at (11.6,2.4) {P(down), P(flat),\\P(up)};
+\draw[arr] (c6.east) -- (out.west) node[midway, above] {$\mathbf{h}_6$};
+\node[align=center] at (4.95,3.35) {the same cell, with the same weights, at every step};
+\end{tikzpicture}
+\caption{A recurrent network reads the snapshots in order. One cell, with one set of weights, updates a memory
+vector at each step; the memory after the last snapshot is used for the prediction. Schematic.}
+\label{fig:fam-rnn}
+\end{figure}
+
+\paragraph{Bilinear layer.} The window is kept as a matrix $\mathbf{X}$ with one row per snapshot and one column per
+number. A bilinear layer multiplies it by two weight matrices: $\mathbf{W}_1$ on the left combines snapshots (each
+output row is a weighted mix of time steps), and $\mathbf{W}_2$ on the right combines numbers within a snapshot (each
+output column is a weighted mix of features):
+\begin{equation}
+\mathbf{Y} = \mathbf{W}_1 \, \mathbf{X} \, \mathbf{W}_2 .
+\end{equation}
+\inwords{first mix over time, then mix over features, with one small matrix for each.}
+Because time and features are mixed separately, the layer needs far fewer weights than a fully connected layer
+with the same input and output sizes (Figure~\ref{fig:fam-bilinear}). TABL~\citep{tran2019tabl} adds an attention
+weighting over time steps to this layer.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, m/.style={draw, align=center}]
+\node[m, fill=violet!15, minimum width=16mm, minimum height=7mm] (w1) at (0,0) {$\mathbf{W}_1$\\$10 \times 100$};
+\node at (1.2,0) {$\times$};
+\node[m, fill=blue!12, minimum width=22mm, minimum height=24mm] (x) at (2.8,0) {$\mathbf{X}$\\$100 \times 40$\\[2pt]rows: snapshots\\cols: features};
+\node at (4.35,0) {$\times$};
+\node[m, fill=green!15, minimum width=10mm, minimum height=14mm] (w2) at (5.2,0) {$\mathbf{W}_2$\\$40 \times 20$};
+\node at (6.05,0) {$=$};
+\node[m, fill=orange!20, minimum width=12mm, minimum height=7mm] (y) at (6.9,0) {$\mathbf{Y}$\\$10 \times 20$};
+\node[anchor=north, align=center] at (0,-0.55) {mixes\\time steps};
+\node[anchor=north, align=center] at (5.2,-0.85) {mixes\\features};
+\node[align=left, anchor=west, text width=50mm] at (7.8,0) {weights: $10 \cdot 100 + 40 \cdot 20 = 1{,}800$.\\A fully connected layer from the same 4{,}000 inputs to the same 200 outputs: $4{,}000 \times 200 = 800{,}000$ weights.\\(Sizes illustrative, our arithmetic.)};
+\end{tikzpicture}
+\caption{A bilinear layer: the window matrix is multiplied on the left by a matrix that mixes time steps and on the
+right by a matrix that mixes features. Schematic.}
+\label{fig:fam-bilinear}
+\end{figure}
+
+\paragraph{Attention.} For the latest snapshot, attention computes a weight for every earlier snapshot: how well the
+two match, as judged by learned matrices (the queries and keys of Section~\ref{sec:deep-attn}). The weights are
+positive and sum to one. The output is the weighted average of the earlier snapshots' contents (Figure~\ref{fig:fam-attn}).
+Unlike the recurrent network, it does not pass a memory along; it looks back at every earlier snapshot directly, and
+which ones it weights depends on the content of the current one, not on their position.
+Section~\ref{sec:deep-attn} builds this step by step with numbers.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, cell/.style={draw, minimum size=4mm, inner sep=0, fill=blue!12},
+  arr/.style={-{Stealth[length=1.5mm]}}]
+\foreach \t in {1,...,6} {
+  \foreach \f in {1,...,4} \node[cell] at (1.5*\t,0.42*\f) {};
+  \node[anchor=north] at (1.5*\t,0.1) {$\t$};
+}
+\node[anchor=north] at (9.0,-0.2) {(current)};
+\node[anchor=north] at (4.5,-0.3) {snapshot};
+\foreach \f in {1,...,4} \node[cell, fill=red!15] at (9.0,0.42*\f) {};
+\foreach \t/\w in {1/0.05,2/0.40,3/0.05,4/0.35,5/0.15} {
+  \pgfmathsetmacro{\lw}{0.4+6*\w}
+  \draw[arr, red!60!black, line width=\lw pt] (9.0,2.0) to[out=150, in=60] (1.5*\t,2.45);
+  \node[inner sep=1pt] at (1.5*\t,2.2) {\w};
+}
+\node[align=left, anchor=west, text width=40mm] at (10.0,1.2) {weights from the current snapshot to each earlier one (sum $=1$);\\output $= 0.05\,\mathbf{v}_1 + 0.40\,\mathbf{v}_2 + \dots + 0.15\,\mathbf{v}_5$, where $\mathbf{v}_n$ is the value vector of snapshot $n$};
+\end{tikzpicture}
+\caption{Attention: the current snapshot weights every earlier snapshot by how well they match, and takes the
+weighted average of their values. Line width shows the weight; numbers are illustrative. Schematic.}
+\label{fig:fam-attn}
+\end{figure}
+
+The remaining families of Table~\ref{tab:deep-families} are variants or combinations of these. A state-space model
+is a recurrent memory with a particular, efficient update (Section~\ref{sec:deep-ssm}). A graph network applies the
+same weights along the links of a graph, as a convolution does along a grid. A neural point process uses a
+recurrent or attention memory to compute event intensities (Section~\ref{sec:npp}).
+
 
 \paragraph{Building blocks used across families.} Most published models combine several families. DeepLOB, the most
 widely used reference, is a convolutional front end followed by an LSTM (Figure~\ref{fig:deeplob}). Three blocks
@@ -6847,6 +6979,54 @@ good-looking one, and the later subsections show each one failing in published w
 baselines on the same inputs, including a naive forecast of the label (Section~\ref{sec:deep-real}); re-test on a
 later period and on other instruments (Section~\ref{sec:benchmarks-dl}); and measure what a trader would make
 after costs, not only classification accuracy (Section~\ref{sec:benchmarks-dl} and Part~VI).
+
+\paragraph{Step 6 in the example: results on a market with nothing to predict.} The example trains the network
+four times: two labels (smoothed, leak-free) times two ways of presenting prices (z-scored by day as in Step~2, or
+measured in ticks from the mid at the window's last event, the function \texttt{relative\_prices} in
+Listing~\ref{lst:windows}). Each run is scored on the 3 test days against three rules that use no network
+(Listing~\ref{lst:eval}): the past-only rule of Section~\ref{sec:deep-real} (is the mid now above or below its average over the last 20
+events?), repeating the most recent label that is already known at $t$ (the label of $t - 20$), and always
+predicting the most common class. Table~\ref{tab:example-results} gives the results; \texttt{run\_output\_zscore.txt}
+and \texttt{run\_output\_relative.txt} hold the full output.
+\lstinputlisting[style=pycode, caption={Scoring.}, label=lst:eval]{code/deep_lob_example/lob_evaluate.py}
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{The example of this subsection: test-day scores on a synthetic market in which the price is a random walk,
+so that nothing can be predicted. Prices: z-scored by day, or relative to the mid at the window's last event. One
+run per configuration (seed 0); simulation, not market data.}
+\label{tab:example-results}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcccc}
+\toprule
+Label & Prices & DeepLOB & Past-only & Repeat last & Most common \\
+& & & rule & label & class \\
+\midrule
+\multicolumn{6}{l}{\emph{each cell: accuracy / macro-F1}} \\
+Smoothed & z-scored & 0.389 / 0.187 & 0.560 / 0.565 & 0.406 / 0.401 & 0.389 / 0.187 \\
+Smoothed & relative & \textbf{0.576 / 0.576} & 0.560 / 0.565 & 0.406 / 0.401 & 0.389 / 0.187 \\
+Leak-free & z-scored & 0.358 / 0.176 & 0.328 / 0.326 & 0.337 / 0.335 & 0.358 / 0.176 \\
+Leak-free & relative & 0.358 / 0.176 & 0.328 / 0.326 & 0.337 / 0.335 & 0.358 / 0.176 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+What the table shows:
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item \textbf{Leak-free label: nothing works}, as it should on a random walk. Every method is near one in three;
+  DeepLOB predicts the most common class for every example (macro-F1 0.176).
+\item \textbf{Smoothed label, relative prices: 57.6\% on an unpredictable market.} The network learns the part of
+  the label that is already known at $t$ (Equation~\eqref{eq:label-leak}) and matches the past-only rule. Every
+  point above one in three comes from the label, none from the book.
+\item \textbf{Smoothed label, z-scored prices: the network learns nothing.} Z-scored with five days of statistics, the
+  price columns mostly record where the price is relative to the previous days (average size 2.1 units). The
+  movement within a window is much smaller: the median change over 20 events is 0.039 units. In these runs the
+  network did not pick it up and predicted the most common class. Measuring prices from the current mid makes the
+  movement visible. The input normalisation decided whether this network could use the information at all, a
+  small instance of the finding of Section~\ref{sec:deep-cnn} that normalisation matters as much as architecture.
+\end{itemize}
+These are single runs on one synthetic data set, meant to show the steps and the label effect, not to rank
+methods.
 
 \subsection{Scoring, label construction, data splits and targets}
 \label{sec:deep-real}
@@ -7292,22 +7472,37 @@ each key: 2, 0 and 1. The softmax turns them into weights proportional to $e^2$,
 1 and 2.72 out of a total of 11.11, or 0.67, 0.09 and 0.24. The output is the weighted average of the values,
 $0.67 \times 1 + 0.09 \times 0 + 0.24 \times 0.5 \approx 0.79$. The first event, whose key best matches the query,
 dominates; change the query and different events dominate.
-Figure~\ref{fig:attention-illustrated} draws these ideas. Panel~(a) is the worked example above. Panel~(b) shows what
+Figure~\ref{fig:attention-illustrated} draws the worked example. Figure~\ref{fig:attention-two-queries} shows what
 makes attention different from the other families: the same eight earlier events are weighted in two different ways
-depending on the current event---a buy that sweeps the ask puts most weight on the recent ask cancellations, a quiet
-limit order on the other limit orders. Panel~(c) shows a whole attention layer: every event, as it arrives, spreads
-its attention over the events before it.
+depending on the current event. A buy that sweeps the ask puts most weight on the recent ask cancellations; a quiet
+limit order puts it on the other limit orders. Figure~\ref{fig:attention-matrix} shows a whole attention layer: every
+event, as it arrives, spreads its attention over the events before it.
 
 \begin{figure}[!htbp]
 \centering
-\includegraphics[width=\linewidth]{figs/attention_illustrated.png}
-\caption{Attention, illustrated. (a) The worked example: the match scores of a query with three keys, the weights
-the softmax turns them into, and the output, the weighted average of the values. (b) The same eight earlier
-order-book events, weighted by the current event's query: when the current event is a buy sweep (orange), the ask
-cancellations receive most of the weight; when it is a quiet limit order (blue), the other limit orders do. (c) The
-attention weights of a whole sequence: row $n$ shows how event $n$ divides its attention among events $1,\dots,n$;
-each row sums to one, and later events are excluded (masked, explained below). Hand-specified vectors, not a trained model.}
+\includegraphics[width=0.75\linewidth]{figs/attention_scores.png}
+\caption{The worked example above. Grey: the match score of the query $(1,0)$ with each key. Orange: the weights the
+softmax turns the scores into. The output is the weighted average of the values, 0.79. Illustrative numbers.}
 \label{fig:attention-illustrated}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.95\linewidth]{figs/attention_two_queries.png}
+\caption{The same eight earlier order-book events, weighted by two different queries. Orange: the current event is a
+buy sweep, whose query looks for sellers leaving; the ask cancellations receive most of the weight. Blue: the
+current event is a quiet limit order, whose query looks for other limit orders. Hand-specified vectors, not a
+trained model.}
+\label{fig:attention-two-queries}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.62\linewidth]{figs/attention_matrix.png}
+\caption{The attention weights of a whole sequence. Row $n$ shows how event $n$ divides its attention among events
+$1,\dots,n$; each row sums to one. Cells to the right of the diagonal are blank because an event may not attend to
+later events (masking, explained below). Hand-specified vectors, not a trained model.}
+\label{fig:attention-matrix}
 \end{figure}
 
 
@@ -7486,7 +7681,22 @@ order-book events, and then writes it as a formula.
 a vector $\mathbf{x}_n$, its \emph{embedding}. It can be built from the event's attributes---its type and side, its
 size, its distance from the best price, the time since the previous event---by a learned table or a learned matrix.
 In the example below the embedding has three numbers: whether the event is a cancellation at the ask, whether it is
-a limit order at the bid, and its size, scaled to between 0 and 1.
+a limit order at the bid, and its size, scaled to between 0 and 1 (Figure~\ref{fig:qkv-step1}).
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, c/.style={draw, minimum width=11mm, minimum height=5mm}]
+\foreach \j/\h in {0/{ask\\cancel?},1/{bid\\limit?},2/{size}} \node[font=\scriptsize\bfseries, align=center] at (3.0+1.4*\j,0.75) {\h};
+\foreach \i/\ev/\a/\b/\c/\col in {1/{1: ask cancellation, size 0.5}/1/0/0.5/gray!10, 2/{2: bid limit order, size 0.2}/0/1/0.2/gray!10, 3/{3: ask cancellation, size 0.8}/1/0/0.8/gray!10, 4/{4 (current): buy sweep, size 1.0}/0.5/0.5/1.0/red!12} {
+  \node[anchor=east] at (2.4,-0.6*\i+0.55) {\ev};
+  \foreach \j/\v in {0/\a,1/\b,2/\c} \node[c, fill=\col] at (3.0+1.4*\j,-0.6*\i+0.55) {\v};
+  \node[anchor=west] at (6.6,-0.6*\i+0.55) {$= \mathbf{x}_{\i}$};
+}
+\end{tikzpicture}
+\caption{Step 1: each event becomes a vector of three numbers, its embedding $\mathbf{x}_n$. Illustrative numbers,
+used in the worked example below.}
+\label{fig:qkv-step1}
+\end{figure}
 
 \textit{Step 2: each event gets three roles.} Three learned matrices, $\mathbf{W}^{\text{qry}}$,
 $\mathbf{W}^{\text{key}}$ and $\mathbf{W}^{\text{val}}$, turn the embedding into three shorter vectors:
@@ -7499,6 +7709,33 @@ $\mathbf{W}^{\text{key}}$ and $\mathbf{W}^{\text{val}}$, turn the embedding into
 \inwords{the same event plays three parts. Its \emph{query} says what it is looking for in the past (``were sellers
 leaving?''). Its \emph{key} is how it advertises itself to later events (``I am a cancellation at the ask''). Its
 \emph{value} is the information it hands over when it is chosen (``I was this large'').}
+Figure~\ref{fig:qkv-step2} shows the multiplication for the example's matrices.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize,
+  m/.style={draw, align=center, inner sep=3pt},
+  r/.style={draw, rounded corners=2pt, align=center, text width=40mm, inner sep=3pt},
+  arr/.style={-{Stealth[length=1.5mm]}}]
+\node[m, fill=gray!10] (x1) at (0,1.2) {$\mathbf{x}_1 = (1,\,0,\,0.5)$};
+\node[m, fill=blue!12] (wk) at (4.0,2.0) {$\mathbf{W}^{\text{key}} = \begin{pmatrix}1&0&0\\0&1&0\end{pmatrix}$};
+\node[m, fill=green!15] (wv) at (4.0,0.4) {$\mathbf{W}^{\text{val}} = \begin{pmatrix}0&0&1\\1&0&0\end{pmatrix}$};
+\node[r, fill=blue!12] (k1) at (8.6,2.0) {key $\mathbf{z}^{\text{key}}_1 = (1,\,0)$\\``I am an ask cancellation''};
+\node[r, fill=green!15] (v1) at (8.6,0.4) {value $\mathbf{z}^{\text{val}}_1 = (0.5,\,1)$\\``size 0.5; ask cancellation''};
+\draw[arr] (x1.east) -- (wk.west); \draw[arr] (x1.east) -- (wv.west); \draw[arr] (wk) -- (k1); \draw[arr] (wv) -- (v1);
+\node[m, fill=red!12] (x4) at (0,-1.3) {$\mathbf{x}_4 = (0.5,\,0.5,\,1)$};
+\node[m, fill=orange!20] (wq) at (4.0,-1.3) {$\mathbf{W}^{\text{qry}} = \begin{pmatrix}1&0&1\\0&1&0\end{pmatrix}$};
+\node[r, fill=orange!20] (q4) at (8.6,-1.3) {query $\mathbf{z}^{\text{qry}}_4 = (1.5,\,0.5)$\\``looking mostly for ask cancellations''};
+\draw[arr] (x4) -- (wq); \draw[arr] (wq) -- (q4);
+\node[align=center] at (4.0,-2.75) {all earlier events: \quad
+\begin{tabular}{@{}llll@{}} event & 1 & 2 & 3\\ key & $(1,0)$ & $(0,1)$ & $(1,0)$\\ value & $(0.5,1)$ & $(0.2,0)$ & $(0.8,1)$\end{tabular}};
+\end{tikzpicture}
+\caption{Step 2: each event's embedding is multiplied by three learned matrices. The earlier events supply keys and
+values (top, for event 1; the table lists all three). The current event supplies the query (bottom). Example:
+$\mathbf{W}^{\text{key}}\mathbf{x}_1 = (1\cdot1 + 0\cdot0 + 0\cdot0.5,\; 0\cdot1 + 1\cdot0 + 0\cdot0.5) = (1, 0)$.}
+\label{fig:qkv-step2}
+\end{figure}
+
 Keeping the key and the value separate lets an event be \emph{found} for one reason and \emph{pass on} something
 else: a cancellation can be found because it is a cancellation at the ask, and pass on its size. A library is a
 useful picture: the query is your search terms, the key is a book's catalogue entry, and the value is the book.
@@ -7513,6 +7750,28 @@ one: each weight is the exponential of a score, divided by the sum of the expone
 
 \textit{Step 5: average the values.} The output for the current event is the weighted average of the earlier events'
 values. It is a new vector that summarises the past \emph{from the current event's point of view}.
+Figure~\ref{fig:qkv-steps345} carries the example through steps 3 to 5.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, c/.style={draw, minimum width=15mm, minimum height=5.5mm}]
+\foreach \j/\h in {0/{3. score $\mathbf{z}^{\text{qry}}_4\!\cdot\!\mathbf{z}^{\text{key}}_n$},1/{3. $\div\sqrt{2}$},2/{4. softmax weight},3/{5. weight $\times$ value}} \node[font=\scriptsize\bfseries, text width=24mm, align=center] at (2.2+2.6*\j,0.75) {\h};
+\foreach \i/\ev/\s/\d/\w/\wv/\col in {1/{event 1: ask cancel}/{$1.5\cdot1+0.5\cdot0=1.5$}/1.06/0.40/{$0.40\,(0.5,1)$}/orange!35, 2/{event 2: bid limit}/{$1.5\cdot0+0.5\cdot1=0.5$}/0.35/0.20/{$0.20\,(0.2,0)$}/orange!12, 3/{event 3: ask cancel}/{$1.5\cdot1+0.5\cdot0=1.5$}/1.06/0.40/{$0.40\,(0.8,1)$}/orange!35} {
+  \node[anchor=east] at (0.7,-0.65*\i+0.75) {\ev};
+  \node[c, minimum width=24mm] at (2.2,-0.65*\i+0.75) {\s};
+  \node[c] at (4.8,-0.65*\i+0.75) {\d};
+  \node[c, fill=\col] at (7.4,-0.65*\i+0.75) {\w};
+  \node[c, minimum width=20mm] at (10.0,-0.65*\i+0.75) {\wv};
+}
+\node at (7.4,-1.65) {total $=1$};
+\node[c, minimum width=20mm, fill=green!15] at (10.0,-1.75) {sum: $(0.56,\,0.80)$};
+\end{tikzpicture}
+\caption{Steps 3 to 5 for the worked example. The query of the buy sweep, $(1.5, 0.5)$, is scored against each key,
+the scores are scaled and turned into weights, and the values are averaged with those weights. The two ask
+cancellations receive 0.80 of the weight. Output: average size $0.4\cdot0.5 + 0.2\cdot0.2 + 0.4\cdot0.8 = 0.56$;
+share of ask cancellations $0.4 + 0 + 0.4 = 0.80$.}
+\label{fig:qkv-steps345}
+\end{figure}
 
 Written as one formula, event $n$ attends to earlier event $n'$ with weight
 \begin{equation}
