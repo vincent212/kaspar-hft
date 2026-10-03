@@ -2536,11 +2536,12 @@ Zijian Shi, Yu~Chen, and John Cartlidge.
   Intelligence}, volume~35, pages 548--556, 2021.
 \newblock \doi{10.1609/aaai.v35i1.16133}.
 
-\bibitem[{Sierra Chart}()]{sierrachart_tradesim}
+\bibitem[{Sierra Chart}(n.d.)]{sierrachart_tradesim}
 {Sierra Chart}.
 \newblock Trade simulation; replay chart.
 \newblock
-  \url{https://www.sierrachart.com/index.php?page=doc/TradeSimulation.html}.
+  \url{https://www.sierrachart.com/index.php?page=doc/TradeSimulation.html},
+  n.d.
 \newblock Accessed 2026-10-03.
 
 \bibitem[Sirignano and Cont(2019)]{sirignano2019}
@@ -2765,11 +2766,12 @@ Mehdi Tomas, Iacopo Mastromatteo, and Michael Benzaquen.
   2022.
 \newblock \doi{10.1080/14697688.2021.2020328}.
 
-\bibitem[{Trading Technologies International, Inc.}()]{tt_piq}
+\bibitem[{Trading Technologies International, Inc.}(n.d.)]{tt_piq}
 {Trading Technologies International, Inc.}
 \newblock Position in queue ({PIQ}) overview.
 \newblock
-  \url{https://library.tradingtechnologies.com/trade/viewing-market-data/position-in-queue-piq/position-in-queue-piq/}.
+  \url{https://library.tradingtechnologies.com/trade/viewing-market-data/position-in-queue-piq/position-in-queue-piq/},
+  n.d.
 \newblock Accessed 2026-10-03.
 
 \bibitem[Tran et~al.(2019)Tran, Iosifidis, Kanniainen, and
