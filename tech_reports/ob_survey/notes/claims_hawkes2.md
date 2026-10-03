@@ -531,3 +531,28 @@ All three entries are based on abstracts only (Crossref); the papers were not re
 - `daley2003` p. 21, as cited by Wu et al. for the likelihood form: page not checked.
 - Da Fonseca papers: abstracts only.
 - Huang et al.: the published JASA version was not compared with arXiv v2.
+
+---
+
+## Added 2026-10-03: full-text reads for §7.19 (neural point processes)
+
+**zuo2020thp** — Transformer Hawkes Process, arXiv 2002.09291 (v of Feb 2021), FULL TEXT.
+- Embedding X = UY + Z: type embedding + sinusoidal temporal encoding of the timestamp (Eq. 2–3). Masked multi-head self-attention, stacked (Eq. 4), position-wise FFN gives h(t_j) (Eq. 5).
+- Intensity (Eq. 6): λ_k(t) = f_k(α_k (t−t_j)/t_j + w_kᵀ h(t_j) + b_k) on [t_j, t_{j+1}), f_k softplus with softness β_k.
+- Integral: Monte Carlo (Eq. 9) or trapezoidal (Eq. 10). Prediction (Sec. 5.4): extra softmax type layer and linear time layer, trained with CE + MSE added to −loglik.
+- Financial Transactions dataset (Du et al. 2016): 2 types (buy/sell), 414,800 events, avg length 2,074 (Table 1). Hyper-parameter Set 2 (6 heads, 6 layers, M=128).
+- Table 4 loglik (Financial): RMTPP −3.89, NHP −3.60, THP −1.11. Table 5 accuracy (FIN): RMTPP 61.95, NHP 62.20, TSES 62.17, THP 62.64. Table 6 RMSE (FIN): 1.56, 1.56, 1.50, THP 0.93.
+- Motivation (Sec. 1): RNNs weak on long-term dependencies, hard to train, sequential.
+
+**zhang2020sahp** — Self-Attentive Hawkes Process, arXiv 1907.07561, FULL TEXT.
+- Attention over history gives per-type μ, η (gelu) and γ (softplus) (Eqs. 12–14); intensity λ_u(t) = softplus(μ + (η − μ) exp(−γ (t − t_i))) (Eq. 15): starts at η, converges to μ, speed γ; "capture both excitation and inhibition".
+- Time via phase shifts of sinusoidal positional encodings.
+- Datasets: synthetic, Retweets, StackOverflow, MIMIC-II (Table 1). NO financial dataset.
+- Table 2 NLL per event: e.g. RT: HP 9.84, RMTPP 7.43, CTLSTM 6.95, FullyNN 6.23, LogNormMix 5.32, SAHP 4.56.
+
+**gao2024mhp** — Mamba Hawkes Process, arXiv 2407.05302v1 ("Preprint. In Progress."), FULL TEXT.
+- Selective SSM with Δ_i = t_i − t_{i−1} (Eq. 9–11): z_i = exp(Δ_i A) z_{i−1} + B̄(t_i) x_i; B, C depend on event embedding. Intensity as THP (Eq. 13). MHP-E = Mamba layers then Transformer layers.
+- Prop. 4.1: N=1, A=−1, B=1 gives z_i = g z_{i−1} + (1−g) x_i with g = exp(t_{i−1} − t_i).
+- Architecture: d_state 16, 4 layers; Financial d_model 128.
+- Table 3 loglik Financial: RMTPP −3.89, NHP −3.6, THP −1.11, MHP 0.974, MHP-E 0.966. Table 4 accuracy Financial: RMTPP 61.95, NHP 62.20, THP 62.23 (vs 62.64 in THP paper), MHP 62.5, MHP-E 62.7. Table 5 RMSE Financial: 1.56, 1.56, 0.93, 0.592, 0.556.
+- No error bars in tables; limitation: designed for Hawkes, general TPPs may need modification.

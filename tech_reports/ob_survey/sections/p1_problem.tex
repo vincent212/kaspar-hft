@@ -27,6 +27,19 @@ trade without moving the price---is supplied by resting limit orders and consume
 orders, and the visible limit order book records the outcome at a resolution that ranges from
 individual messages to aggregated price levels~\citep{gould2013,bouchaud2018}.
 
+Limit order books match buyers and sellers in more than half of the world's financial
+markets~\citep{gould2013}. In their survey, \citet{gould2013} review the empirical regularities of order
+books and the models proposed to explain them, and conclude that many of those models resemble real books
+poorly and that several well-established facts have yet to be reproduced. The economic theory of why
+quotes are set where they are is older. In the model of \citet{glosten1985}, a market maker who trades
+with a mixture of better-informed and uninformed traders quotes a positive spread between bid and ask even
+with no transaction costs and no expected profit: the spread is what the market maker needs to recover,
+from the uninformed, what it loses to the informed. The idea that order flow carries information about
+value is the economic reason the book is worth modelling at all: its stream of orders, cancellations and
+trades---thousands of events a second in active markets---explains a large part of short-horizon price
+changes~\citep{cks2014}, and the predictive models of this survey try to extract what it says about the
+next few seconds~\citep{sirignano2019,zhang2019,lucchese2024}.
+
 This survey is written for readers with a computer-science or electrical-engineering background
 and no prior finance. Market, statistical and machine-learning terms are explained where they first
 appear, and Appendix~\ref{app:glossary} collects them with references. Most examples use
@@ -106,7 +119,7 @@ or changing the price sends it to the back of the queue~\citep{cme_matching}. Th
 ahead of an order is its \emph{queue position}; much of this survey is about why that number
 matters.
 
-\paragraph{What a market-data feed shows.}
+\paragraph{Contents of a market-data feed.}
 Exchanges publish the book through market-data feeds at three levels of detail. \emph{Level~1}
 gives only the best bid and ask and their sizes. \emph{Level~2}, or \emph{market by price} (MBP),
 gives the total size at each of the best few price levels. \emph{Level~3}, or \emph{market by
@@ -315,7 +328,11 @@ are the following; a first course in probability covers all of them.
   the fraction of moments after which the mid is higher $H$ seconds later.
 \item[{$\P(A \mid B)$, ``the probability of $A$ given $B$''}] The same fraction, but counted only
   over the cases where $B$ is true. The vertical bar is read ``given''. Example:
-  $\P(\Delta m_{t,H} > 0 \mid \text{bid queue much larger than ask queue})$ asks: of all the moments
+  
+\[
+  \P(\Delta m_{t,H} > 0 \mid \text{bid queue much larger than ask queue})
+\]
+asks: of all the moments
   when buyers were queued much more heavily than sellers, what fraction were followed by a rise?
   Writing $\mid X_t$ means ``given everything we can observe at time $t$''---it is what a
   prediction model computes: a function from the current inputs $X_t$ to a probability.
@@ -436,7 +453,7 @@ flow without producing directional alpha. A survival model can give accurate fil
 while playing no role in price prediction. A Transformer can predict short-horizon returns without
 modelling queue dynamics. Each model must be evaluated against the problem it solves.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\small
 \caption{One event stream (a day of ES market-by-order data), three models, three evaluation
 criteria. Using the wrong column is a common source of misleading comparisons.}
@@ -480,7 +497,7 @@ that survives realistic execution assumptions and the multiple-testing burden of
 complex model is not rejected for being complex, but it carries the burden of showing that its
 extra value is real. Section~\ref{sec:parsimony} makes this operational.
 
-\subsection{How the field developed}
+\subsection{Development of the field}
 \label{sec:history}
 
 The modelling of order books has passed through five overlapping stages.
@@ -567,7 +584,7 @@ literature around the translation from information to decision. Three questions 
 what model extracts it; and does the result produce incremental economic value after execution
 constraints?
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\footnotesize
 \caption{Existing surveys, books and benchmark studies, and what this survey adds.}
 \label{tab:prior-surveys}
@@ -599,14 +616,14 @@ This survey & information-to-decision chain: classical and deep models, queue po
 \item evaluation standards that combine proper scoring, economic metrics, temporal validation and
   search-aware significance (Part~VI);
 \item a reader-oriented apparatus: notation, a probability primer, plain-language explanations of every
-  equation, a glossary and a point-process appendix.
+  equation, a glossary, and a from-scratch introduction to point processes (Section~\ref{sec:hawkes}).
 \end{enumerate}
 
-\paragraph{How to read this survey.} Readers new to markets should read Part~I in full and use the
+\paragraph{Reading order.} Readers new to markets should read Part~I in full and use the
 glossary. Readers interested mainly in models should read Part~II, then Section~\ref{sec:benchmarks-dl}.
 Practitioners concerned with execution should read Parts~III and IV and Section~\ref{sec:parsimony}.
-Readers interested in automated research should read Parts~V and VI. The appendix on point processes
-supports Section~\ref{sec:hawkes}.
+Readers interested in automated research should read Parts~V and VI. Readers new to point processes
+should start Section~\ref{sec:hawkes} at its beginning, which introduces them from scratch.
 
 \subsubsection*{Four axes for locating a piece of work}
 
@@ -648,7 +665,7 @@ on the four axes. The economic-role column is where the literature is thinnest: 
 learned models are evaluated on accuracy alone, and the decision their output would drive is left
 unspecified. The rest of the paper is about filling that column.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\footnotesize
 \caption{Selected works placed on the four axes. ``Unspecified'' means the work evaluates
 statistical accuracy without stating or evaluating a trading decision. \pov{} (Shadow Passive
@@ -690,7 +707,7 @@ The survey covers limit order books in four kinds of market. They share the mech
 Section~\ref{sec:intro} but differ in ways that change what a model can learn and whether a result
 carries over from one to another.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\small
 \caption{The markets covered, and how they differ in ways that matter for LOB models.}
 \label{tab:markets}
@@ -724,7 +741,7 @@ are not fitted to the data the rest of the paper is about. Synthetic market data
 learned generative models are discussed in Section~\ref{sec:three-uses}, but, following Principle~1,
 they play no part in the methodology the survey recommends.
 
-\subsection{How the sources were chosen}
+\subsection{Source selection}
 
 This is a \emph{narrative} survey, not a \emph{systematic review}. A systematic review fixes a
 search query and a list of databases in advance, screens every result against written criteria, and
@@ -743,7 +760,7 @@ peer-reviewed work and to widely cited preprints; recent preprints are included 
 only source for an idea, and are identified as preprints in the bibliography. Every reference was
 checked against the publisher, the preprint server or the official documentation.
 
-\subsection{How strongly to believe a claim}
+\subsection{Strength of evidence for a claim}
 
 Not all statements in a survey deserve the same confidence. We distinguish four kinds, and the
 reader should ask of every claim which kind it is.
@@ -770,7 +787,7 @@ and a result established under one set of conditions is at best a hypothesis und
 Table~\ref{tab:evidence} in Section~\ref{sec:conclusion} classifies the main claims of this paper
 in these terms.
 
-\subsection{What makes two LOB studies comparable?}
+\subsection{Conditions for comparing two LOB studies}
 \label{sec:comparable}
 
 Papers in this field routinely report a single headline number---an accuracy, an F1 score, a
@@ -779,7 +796,7 @@ meaningful only when the studies agree on the conditions that produced the numbe
 Table~\ref{tab:comparable} lists the conditions that matter most and explains how each one can
 change the headline number on its own, with no change to the model.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\small
 \caption{Fields a study must report before its results can be compared with another's.}
 \label{tab:comparable}

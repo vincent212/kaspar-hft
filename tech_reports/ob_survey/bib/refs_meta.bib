@@ -1,0 +1,333 @@
+% refs_meta.bib -- meta-models / stacking / engineered-feature learners for LOB prediction.
+% Metadata checked against Crossref (and arXiv API where an arXiv id is given) on 2026-10-03.
+% Keys reused from refs.bib and NOT redefined here: kolm2023, lucchese2024, contcucuringu2023,
+% lopezdeprado2018, prata2024, briola2020, briola2024, gould2016qi, stoikov2018, xu2019mlofi,
+% ntakaris2018, tsantekidis2017, sirignano2019, zhang2019, kolm_westray, bailey2014pbo.
+% See notes/claims_meta.md for what was read (full text vs abstract) for each entry.
+
+% ---------------------------------------------------------------------------
+% Engineered/handcrafted LOB features + classical or deep learners
+% ---------------------------------------------------------------------------
+
+@article{kercheval2015,
+  author  = {Kercheval, Alec N. and Zhang, Yuan},
+  title   = {Modelling High-Frequency Limit Order Book Dynamics with Support Vector Machines},
+  journal = {Quantitative Finance},
+  year    = {2015},
+  volume  = {15},
+  number  = {8},
+  pages   = {1315--1329},
+  doi     = {10.1080/14697688.2015.1032546}
+}
+
+@article{ntakaris2020plos,
+  author  = {Ntakaris, Adamantios and Kanniainen, Juho and Gabbouj, Moncef and Iosifidis, Alexandros},
+  title   = {Mid-Price Prediction Based on Machine Learning Methods with Technical and Quantitative Indicators},
+  journal = {PLOS ONE},
+  year    = {2020},
+  volume  = {15},
+  number  = {6},
+  pages   = {e0234107},
+  doi     = {10.1371/journal.pone.0234107},
+  eprint  = {1907.09452},
+  archivePrefix = {arXiv}
+}
+
+@article{ntakaris2019access,
+  author  = {Ntakaris, Adamantios and Mirone, Giorgio and Kanniainen, Juho and Gabbouj, Moncef and Iosifidis, Alexandros},
+  title   = {Feature Engineering for Mid-Price Prediction With Deep Learning},
+  journal = {IEEE Access},
+  year    = {2019},
+  volume  = {7},
+  pages   = {82390--82412},
+  doi     = {10.1109/ACCESS.2019.2924353},
+  eprint  = {1904.05384},
+  archivePrefix = {arXiv}
+}
+
+@article{nousi2019,
+  author  = {Nousi, Paraskevi and Tsantekidis, Avraam and Passalis, Nikolaos and Ntakaris, Adamantios and Kanniainen, Juho and Tefas, Anastasios and Gabbouj, Moncef and Iosifidis, Alexandros},
+  title   = {Machine Learning for Forecasting Mid-Price Movements Using Limit Order Book Data},
+  journal = {IEEE Access},
+  year    = {2019},
+  volume  = {7},
+  pages   = {64722--64736},
+  doi     = {10.1109/ACCESS.2019.2916793},
+  eprint  = {1809.07861},
+  archivePrefix = {arXiv}
+}
+
+@article{tsantekidis2020stationary,
+  author  = {Tsantekidis, Avraam and Passalis, Nikolaos and Tefas, Anastasios and Kanniainen, Juho and Gabbouj, Moncef and Iosifidis, Alexandros},
+  title   = {Using Deep Learning for Price Prediction by Exploiting Stationary Limit Order Book Features},
+  journal = {Applied Soft Computing},
+  year    = {2020},
+  volume  = {93},
+  pages   = {106401},
+  doi     = {10.1016/j.asoc.2020.106401},
+  eprint  = {1810.09965},
+  archivePrefix = {arXiv}
+}
+
+@article{zheng2013jump,
+  author  = {Zheng, Ban and Moulines, Eric and Abergel, Fr{\'e}d{\'e}ric},
+  title   = {Price Jump Prediction in a Limit Order Book},
+  journal = {Journal of Mathematical Finance},
+  year    = {2013},
+  volume  = {3},
+  number  = {2},
+  pages   = {242--255},
+  doi     = {10.4236/jmf.2013.32024},
+  eprint  = {1204.1381},
+  archivePrefix = {arXiv}
+}
+
+@article{palguna2016,
+  author  = {Palguna, Deepan and Pollak, Ilya},
+  title   = {Mid-Price Prediction in a Limit Order Book},
+  journal = {IEEE Journal of Selected Topics in Signal Processing},
+  year    = {2016},
+  volume  = {10},
+  number  = {6},
+  pages   = {1083--1092},
+  doi     = {10.1109/JSTSP.2016.2593060}
+}
+
+@article{tashiro2019,
+  author  = {Tashiro, Daigo and Matsushima, Hiroyasu and Izumi, Kiyoshi and Sakaji, Hiroki},
+  title   = {Encoding of High-Frequency Order Information and Prediction of Short-Term Stock Price by Deep Learning},
+  journal = {Quantitative Finance},
+  year    = {2019},
+  volume  = {19},
+  number  = {9},
+  pages   = {1499--1506},
+  doi     = {10.1080/14697688.2019.1622314}
+}
+
+% ---------------------------------------------------------------------------
+% Classical microstructure measures fed to ML (random forest, LASSO, GBT, NN)
+% ---------------------------------------------------------------------------
+
+@article{easley2021,
+  author  = {Easley, David and L{\'o}pez de Prado, Marcos and O'Hara, Maureen and Zhang, Zhibai},
+  title   = {Microstructure in the Machine Age},
+  journal = {The Review of Financial Studies},
+  year    = {2021},
+  volume  = {34},
+  number  = {7},
+  pages   = {3316--3363},
+  doi     = {10.1093/rfs/hhaa078}
+}
+
+% NBER WP 30366 (Aug 2022) lists the fourth author as Yifeng Zhou; Crossref lists the
+% Management Science version's fourth author as Xiaonan Zhu. Numbers in the notes are from the NBER WP.
+@article{aitsahalia2026,
+  author  = {A{\"i}t-Sahalia, Yacine and Fan, Jianqing and Xue, Lirong and Zhu, Xiaonan},
+  title   = {How and When Are High-Frequency Stock Returns Predictable?},
+  journal = {Management Science},
+  year    = {2026},
+  volume  = {72},
+  number  = {9},
+  pages   = {7792--7815},
+  doi     = {10.1287/mnsc.2022.02435},
+  note    = {Earlier version: NBER Working Paper 30366 (2022), doi:10.3386/w30366}
+}
+
+@misc{rahimikia2020ml,
+  author       = {Rahimikia, Eghbal and Poon, Ser-Huang},
+  title        = {Machine Learning for Realised Volatility Forecasting},
+  year         = {2020},
+  howpublished = {SSRN Working Paper 3707796},
+  doi          = {10.2139/ssrn.3707796}
+}
+
+@article{rahimikia2026altdata,
+  author  = {Rahimikia, Eghbal and Poon, Ser-Huang},
+  title   = {Alternative Data for Realised Volatility Forecasting: Limit Order Book and News Stories},
+  journal = {International Journal of Finance \& Economics},
+  year    = {2026},
+  doi     = {10.1002/ijfe.70239},
+  note    = {Online 8 June 2026; volume/pages not yet assigned in Crossref}
+}
+
+@inproceedings{guo2018btcvol,
+  author    = {Guo, Tian and Bifet, Albert and Antulov-Fantulin, Nino},
+  title     = {Bitcoin Volatility Forecasting with a Glimpse into Buy and Sell Orders},
+  booktitle = {2018 IEEE International Conference on Data Mining (ICDM)},
+  year      = {2018},
+  pages     = {989--994},
+  doi       = {10.1109/ICDM.2018.00123},
+  eprint    = {1802.04065},
+  archivePrefix = {arXiv}
+}
+
+@misc{bieganowski2026,
+  author        = {Bieganowski, Bartosz and {\'S}lepaczuk, Robert},
+  title         = {Explainable Patterns in Cryptocurrency Microstructure},
+  year          = {2026},
+  eprint        = {2602.00776},
+  archivePrefix = {arXiv},
+  doi           = {10.2139/ssrn.6159346}
+}
+
+@misc{wang2025cryptolob,
+  author        = {Wang, Haochuan},
+  title         = {Exploring Microstructural Dynamics in Cryptocurrency Limit Order Books: Better Inputs Matter More Than Stacking Another Hidden Layer},
+  year          = {2025},
+  eprint        = {2506.05764},
+  archivePrefix = {arXiv}
+}
+
+% ---------------------------------------------------------------------------
+% Point-process (Hawkes / Cox) intensities as inputs to a predictor
+% ---------------------------------------------------------------------------
+
+@article{munitoke2020ratio,
+  author  = {Muni Toke, Ioane and Yoshida, Nakahiro},
+  title   = {Analyzing Order Flows in Limit Order Books with Ratios of {Cox}-Type Intensities},
+  journal = {Quantitative Finance},
+  year    = {2020},
+  volume  = {20},
+  number  = {1},
+  pages   = {81--98},
+  doi     = {10.1080/14697688.2019.1637927},
+  eprint  = {1805.06682},
+  archivePrefix = {arXiv}
+}
+
+@misc{fabre2025spoof,
+  author        = {Fabre, Timoth{\'e}e and Challet, Damien},
+  title         = {Learning the Spoofability of Limit Order Books With Interpretable Probabilistic Neural Networks},
+  year          = {2025},
+  eprint        = {2504.15908},
+  archivePrefix = {arXiv}
+}
+
+@inproceedings{cestari2025hawkes,
+  author    = {Cestari, Raffaele G. and Barchi, Filippo and Busetto, Riccardo and Marazzina, Daniele and Formentin, Simone},
+  title     = {Univariate {Hawkes}-Based Cryptocurrency Forecasting via Limit Order Book Data},
+  booktitle = {2025 European Control Conference (ECC)},
+  year      = {2025},
+  pages     = {1943--1948},
+  doi       = {10.23919/ECC65951.2025.11187051},
+  eprint    = {2312.16190},
+  archivePrefix = {arXiv}
+}
+
+@article{raffaelli2026mhp,
+  author  = {Raffaelli, Davide and Cestari, Raffaele Giuseppe and Marazzina, Daniele and Formentin, Simone},
+  title   = {Forecasting {Bitcoin} Price Movements Using Multivariate {Hawkes} Processes and Limit Order Book Data},
+  journal = {Decisions in Economics and Finance},
+  year    = {2026},
+  doi     = {10.1007/s10203-026-00570-z},
+  note    = {Online 17 April 2026}
+}
+
+@inproceedings{yadav2026hawkes,
+  author    = {Yadav, Vaddarapu Karthik and Nagarjuna, Vallabhaneni and Lal, Anisha M.},
+  title     = {When Not to Trade: {Hawkes} Intensity Burst Detection for Regime-Aware Limit Order Book Prediction},
+  booktitle = {Artificial Intelligence Applications and Innovations (AIAI 2026)},
+  series    = {IFIP Advances in Information and Communication Technology},
+  publisher = {Springer},
+  year      = {2026},
+  pages     = {223--236},
+  doi       = {10.1007/978-3-032-30809-2_16}
+}
+
+% ---------------------------------------------------------------------------
+% Ensembles / stacking of LOB models
+% ---------------------------------------------------------------------------
+
+@article{zhanglimzohren2021mbo,
+  author  = {Zhang, Zihao and Lim, Bryan and Zohren, Stefan},
+  title   = {Deep Learning for Market by Order Data},
+  journal = {Applied Mathematical Finance},
+  year    = {2021},
+  volume  = {28},
+  number  = {1},
+  pages   = {79--95},
+  doi     = {10.1080/1350486X.2021.1967767},
+  eprint  = {2102.08811},
+  archivePrefix = {arXiv}
+}
+
+@article{bileki2022,
+  author  = {Bileki, Guilherme A. and Barboza, Fl{\'a}vio and Silva, Luiz Henrique C. and Bonato, Vanderlei},
+  title   = {Order Book Mid-Price Movement Inference by {CatBoost} Classifier from Convolutional Feature Maps},
+  journal = {Applied Soft Computing},
+  year    = {2022},
+  volume  = {116},
+  pages   = {108274},
+  doi     = {10.1016/j.asoc.2021.108274}
+}
+
+% ---------------------------------------------------------------------------
+% Stacking theory and time-series validation protocol
+% ---------------------------------------------------------------------------
+
+@article{wolpert1992,
+  author  = {Wolpert, David H.},
+  title   = {Stacked Generalization},
+  journal = {Neural Networks},
+  year    = {1992},
+  volume  = {5},
+  number  = {2},
+  pages   = {241--259},
+  doi     = {10.1016/S0893-6080(05)80023-1}
+}
+
+@article{breiman1996stack,
+  author  = {Breiman, Leo},
+  title   = {Stacked Regressions},
+  journal = {Machine Learning},
+  year    = {1996},
+  volume  = {24},
+  number  = {1},
+  pages   = {49--64},
+  doi     = {10.1007/BF00117832}
+}
+
+@article{burman1994,
+  author  = {Burman, Prabir and Chow, Edmond and Nolan, Deborah},
+  title   = {A Cross-Validatory Method for Dependent Data},
+  journal = {Biometrika},
+  year    = {1994},
+  volume  = {81},
+  number  = {2},
+  pages   = {351--358},
+  doi     = {10.1093/biomet/81.2.351}
+}
+
+@article{racine2000,
+  author  = {Racine, Jeff},
+  title   = {Consistent Cross-Validatory Model-Selection for Dependent Data: hv-Block Cross-Validation},
+  journal = {Journal of Econometrics},
+  year    = {2000},
+  volume  = {99},
+  number  = {1},
+  pages   = {39--61},
+  doi     = {10.1016/S0304-4076(00)00030-0}
+}
+
+@article{bergmeir2012,
+  author  = {Bergmeir, Christoph and Ben{\'i}tez, Jos{\'e} M.},
+  title   = {On the Use of Cross-Validation for Time Series Predictor Evaluation},
+  journal = {Information Sciences},
+  year    = {2012},
+  volume  = {191},
+  pages   = {192--213},
+  doi     = {10.1016/j.ins.2011.12.028}
+}
+
+@article{cerqueira2020,
+  author  = {Cerqueira, Vitor and Torgo, Luis and Mozeti{\v{c}}, Igor},
+  title   = {Evaluating Time Series Forecasting Models: An Empirical Study on Performance Estimation Methods},
+  journal = {Machine Learning},
+  year    = {2020},
+  volume  = {109},
+  number  = {11},
+  pages   = {1997--2028},
+  doi     = {10.1007/s10994-020-05910-7},
+  eprint  = {1905.11744},
+  archivePrefix = {arXiv}
+}

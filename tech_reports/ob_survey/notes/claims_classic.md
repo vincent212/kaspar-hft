@@ -317,3 +317,18 @@ At criticality, jaisson2015 and jaisson2016 give Heston or rough (fractional CIR
 - bacry2016: "In all former studies where non parametric estimations of Hawkes kernels involved in the dynamics of order flows were performed [2, 4, 19], power-law kernels with exponents close to 1 have been observed. This property can be directly linked to the strong persistence of the order flow dynamics, see [25], mainly caused by the splitting of large orders and, to a lesser extent, to the herding behavior of agents." It also says the diagonal T, L and C kernels "loosely behave as a power law of exponent slightly higher than one".
 - hardimanbercotbouchaud2013 reports a mid-price-change kernel exponent of about −1.15 below roughly 10³ s and about −1.45 from 10³ to 10⁶ s.
 - Correction: Lillo and Farmer (2004) establish the long memory (ACF ~ τ^{−0.6}, H ≈ 0.7) but do not attribute it to splitting in their abstract. The splitting explanation is Lillo, Mike and Farmer (2005, `lillo2005`), which is what bacry2016 cites ([29]). bouchaud2009 states the same mechanism ("large orders … can only be traded incrementally … As a result order flow is a highly persistent long-memory process").
+
+---
+
+## Addendum (2026-10-03): Cont–de Larrard tail claim, checked numerically
+
+- Their Prop. 1 gives P[σ^a > t | x] = ((μ+θ)/λ)^{x/2} ∫_t^∞ (x/u) I_x(2√(λ(μ+θ)) u) e^{−u(λ+μ+θ)} du.
+  We evaluated this with scipy (normalisation at t=0 verified, value 1.000) and checked it against a Monte Carlo
+  of the continuous-time random walk (in=0.6, out=1, x=3): t=5 MC 0.467 / exact 0.470; t=20 0.073 / 0.073;
+  t=50 0.0056 / 0.0059; t=100 0.00022 / 0.00020.
+- For λ < μ+θ the tail is exponential, with rate of order (√(μ+θ) − √λ)², as expected for a random walk drifting to 0
+  (Bessel asymptotics). The paper's eq. (5), a 1/t² Pareto tail, comes from a Tauberian step applied to
+  L(s,x) ~ 1 − c·s, which only implies a finite mean. Treat the 1/t² statement as an intermediate-range description,
+  not the ultimate tail. The survey text (§6.2) states this.
+- Prop. 2 (balanced up-probability φ(n,p)) was evaluated numerically: φ(1,1)=φ(3,3)=0.5, φ(2,1)=0.6977 (arctan 0.7048),
+  φ(29,14)=0.7136 (arctan 0.7137). This confirms the arctan form as a close approximation and the bid/ask orientation.

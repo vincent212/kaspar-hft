@@ -52,13 +52,17 @@ $w$, $\OFI^{(w)}_t$ & window length; order-flow imbalance over it & \S\ref{sec:o
 $\beta$, $\varepsilon_t$ & price-impact coefficient; residual & \S\ref{sec:ofi} \\
 $\QI_t$, $\iota_t$ & queue imbalance in $[-1,1]$; rescaled to $[0,1]$ & \S\ref{sec:ofi}, \S\ref{sec:microprice} \\
 $m^{\text{wmid}}_t$, $m^{\text{micro}}_t$ & weighted mid; micro-price & \S\ref{sec:ofi}, \S\ref{sec:microprice} \\
-$\eta_k$, $g^{(k)}$ & times of successive mid changes; expected adjustments & \S\ref{sec:microprice} \\
+$\eta_k$, $g^{(k)}$, $g^{\star}$ & times of successive mid changes; expected adjustments; their sum & \S\ref{sec:microprice} \\
+$n_\iota$, $n_s$ & numbers of imbalance buckets and spread values & \S\ref{sec:microprice} \\
+$N_{\text{paths}}$ & number of simulated paths in a Monte Carlo estimate & \S\ref{sec:microprice} \\
 $\mathbf{U}, \mathbf{J}^{(1)}, \mathbf{J}^{(2)}, \mathbf{B}, \boldsymbol{\Delta}$ & micro-price transition matrices and jump sizes & \S\ref{sec:microprice} \\
 $\beta_{\kappa\kappa'}$, $m^{(\kappa)}_t$ & cross-impact coefficient; mid of instrument $\kappa$ & \S\ref{sec:cross} \\
 \midrule
 \multicolumn{3}{l}{\emph{Queues}} \\
 $\tau^a$, $\tau^b$ & depletion time of the best ask / bid & \S\ref{sec:queue-models} \\
-$r_{\text{in}}$, $r_{\text{out}}$ & rates at which a queue fills and drains & \S\ref{sec:queue-models} \\
+$r_{\text{in}}$, $r_{\text{out}}$, $r_{\text{out}}(x)$ & rates at which a queue fills and drains; drain rate at size $x$ & \S\ref{sec:queue-models}, \S\ref{sec:cst} \\
+$\tau_x$, $\mathcal{L}_x(\varpi)$ & time for a queue to go from $x$ to $x-1$ orders; its Laplace transform & \S\ref{sec:cst} \\
+$\tau^{\text{fill}}$ & time until an order at the back of the best bid is filled & \S\ref{sec:cst} \\
 $r_L$, $r_M$, $r_C$ & limit-order, market-order and cancellation rates & \S\ref{sec:cdl} \\
 $\Theta$ & average product of new best-queue sizes after a price change & \S\ref{sec:cdl} \\
 $\bar\ell$ & distance in ticks from the opposite best quote & \S\ref{sec:cst} \\
@@ -68,25 +72,37 @@ $N_L(\bar\ell)$, $T_{\text{obs}}$ & count of queue increases; observed trading t
 $\varpi$ & Laplace-transform variable & \S\ref{sec:cst} \\
 $x$ & number of orders (or units) in a queue & \S\ref{sec:cst}, \S\ref{sec:qr} \\
 $r_L(x)$, $r_C(x)$, $r_M(x)$ & queue-reactive rates at queue size $x$ & \S\ref{sec:qr} \\
+$a_k$, $\ell_k$, $v_k$, $\mathbf{y}_k$ & type, level, size and state before event $k$ (deep queue-reactive model) & \S\ref{sec:hybrid-dqr} \\
+$\mathbf{W}$, $r^{\mathbf{W}}_{a,\ell}(\mathbf{y})$, $R^{\mathbf{W}}(\mathbf{y})$ & network weights; learned rate of type $a$ at level $\ell$; their sum & \S\ref{sec:hybrid-dqr} \\
+$\widehat{Y}^{(m)}_t$, $a_{m,t}$ & forecast of component model $m$; its attention weight & \S\ref{sec:meta-attn} \\
+$J_k$, $\bar J$, $\sigma_J$, $p$ & size of the $k$-th mid move in a compound Hawkes model; its long-run average; its variance constant; probability a move repeats the previous direction & \S\ref{sec:hawkes-prices} \\
+$R(x)$, $p^{\mathbf{W}}(v\mid\cdot)$ & total queue-reactive rate; learned order-size probability & \S\ref{sec:hybrid-dqr} \\
+$c(t)$, $\bar c$, $d$, $h_i(t)$ & memory cell of a continuous-time LSTM; its target; its decay rate; output for type $i$ & \S\ref{sec:hybrid-nhp} \\
+$\mathrm{sgn}_i$, $J^{\text{mid}}$ & direction of the mid move caused by event type $i$; size of the move in ticks & \S\ref{sec:hybrid-nhp} \\
+$Q_t$, $\text{Cash}_t$, $\varkappa$ & market maker's inventory; cash; inventory penalty & \S\ref{sec:hybrid-nhp} \\
 $p_{\text{ref}}$, $\pi_{\text{move}}$, $\pi_{\text{reinit}}$ & reference price; probability it moves when a best queue empties; probability the book is redrawn & \S\ref{sec:qr} \\
 \midrule
 \multicolumn{3}{l}{\emph{Point processes}} \\
-$N(t)$, $N_i(t)$ & counting process; for event type $i$ & \S\ref{sec:hawkes}, App.~\ref{app:pp} \\
+$N(t)$, $N_i(t)$ & counting process; for event type $i$ & \S\ref{sec:hawkes} \\
 $\lambda(t)$, $\lambda_i(t)$, $\bar\lambda$ & conditional intensity; for type $i$; stationary mean & \S\ref{sec:hawkes} \\
 $\mu$, $\mu_i$, $\mu_0$ & Poisson or background rate; for type $i$; per side in the price model & \S\ref{sec:hawkes} \\
 $\phi$, $\phi_{ij}$, $K$ & kernel; between types; number of event types & \S\ref{sec:hawkes} \\
 $\Gamma$, $\rho(\Gamma)$, $I$ & branching matrix (scalar: branching ratio); spectral radius; identity & \S\ref{sec:hawkes} \\
-$\alpha$, $\omega$ & exponential-kernel jump and decay rate (decay often written $\beta$ elsewhere) & \S\ref{sec:hawkes}, App.~\ref{app:pp} \\
-$\tilde\lambda_i$, $\vartheta_i$ & state-dependent intensity; its coefficients & \S\ref{sec:hawkes} \\
+$\alpha$, $\omega$ & exponential-kernel jump and decay rate (decay often written $\beta$ elsewhere) & \S\ref{sec:hawkes} \\
+$X(t)$, $\pi_j(x'\mid x)$, $\phi_{ij}(u, x)$ & state of the book in a state-dependent Hawkes model; probability it moves from $x$ to $x'$ after a type-$j$ event; kernel when the triggering event occurred in state $x$ & \S\ref{sec:hawkes-sd} \\
 $N^{\pm}(t)$, $\lambda^{\pm}(t)$, $\delta_m$, $\Gamma_\times$ & up/down mid-move counts; their intensities; mid jump; cross-excitation weight & \S\ref{sec:hawkes} \\
 $\sigma^2(w)$, $\Lambda$ & variance per unit time at window $w$; total move rate & \S\ref{sec:hawkes} \\
 $\lambda^{L,b}, \lambda^{C,b}, \lambda^{M,b}$; $\lambda^{L,a}, \lambda^{C,a}, \lambda^{M,a}$ & intensities of limit orders and cancellations at the bid and ask, and of market buys ($M,b$) and sells ($M,a$) & \S\ref{sec:hawkes-decisions} \\
 $\bar v$ & average event size & \S\ref{sec:hawkes-decisions} \\
-$t_{\text{end}}$ & end of the observation window & \S\ref{sec:hawkes-fit}, App.~\ref{app:pp} \\
-$\zeta$ & power-law kernel tail exponent & \S\ref{sec:hawkes}, App.~\ref{app:pp} \\
+$\zeta$ & power-law kernel tail exponent & \S\ref{sec:hawkes} \\
 $\psi_k$ & state of a discrete-time linear system (stability analogy) & \S\ref{sec:hawkes} \\
-$D(w)$, $\mathcal{H}$ & Fano factor; Hurst exponent & App.~\ref{app:pp} \\
-$\Delta t_n$, $\Psi_n$ & gap between arrivals; running sum for the likelihood & App.~\ref{app:pp} \\
+$D(w)$, $\mathcal{H}$ & Fano factor; Hurst exponent & \S\ref{sec:pp-signatures} \\
+$\Delta t_n$, $\Psi_n$ & gap between arrivals; running sum for the likelihood & \S\ref{sec:pp-canon}, \S\ref{sec:pp-mle} \\
+$\Omega$, $\mathcal{A}$ & sample space; collection of events with probabilities & \S\ref{sec:pp-language} \\
+$\mathcal{I}_t$, $\mathcal{I}_{t-}$ & information up to and including $t$; strictly before $t$ & \S\ref{sec:pp-language} \\
+$N_w$, $N_{w,\upsilon}$, $\Upsilon$ & count in a window of length $w$; in window $\upsilon$; number of windows & \S\ref{sec:pp-poisson}, \S\ref{sec:pp-signatures} \\
+$u_0$ & time scale of the power-law kernel & \S\ref{sec:hawkes-one} \\
+$t_{\text{end}}$, $N_{\text{end}}$ & end of the observation window; number of arrivals in it & \S\ref{sec:pp-mle} \\
 \midrule
 \multicolumn{3}{l}{\emph{Models and evaluation}} \\
 $M$, $M_0$, $M_1$, $V(M)$, $\Delta V$ & model; baseline; candidate; out-of-sample value; its difference & \S\ref{sec:notation} \\
@@ -103,6 +119,7 @@ $\nu_t$, $S_t$ & gate; Hawkes-intensity input & \S\ref{sec:hybrid} \\
 $\P$, $\E$, $\Phi$ & probability; expectation; standard normal distribution function & \S\ref{sec:primer}, \S\ref{sec:generalisation} \\
 $A$, $B$, $Z$, $\mathbb{1}_A$ & generic events and random number in the primer; indicator & \S\ref{sec:primer} \\
 $R^2$ & coefficient of determination & \S\ref{sec:ofi} \\
+$f_{n,k}$, $\beta_k$, $\varrho$ & input $k$ at observation $n$; its regression weight; lasso penalty strength & \S\ref{sec:meta-learner} \\
 $\mathrm{e}$, $\ln$ & Euler's number; natural logarithm & -- \\
 \bottomrule
 \end{longtable}

@@ -53,7 +53,7 @@ inference---that must not be compared directly. And the AMD transceiver figure e
 protocol processing and programmable logic, so it is a lower bound on a component, not a
 tick-to-trade time.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\footnotesize
 \caption{Representative commercial hardware for trading and the figures published by the vendors.
 Except for the STAC result, figures are vendor claims without independent audit.}
@@ -124,7 +124,7 @@ silicon, trading the reprogrammability of an FPGA for speed and power~\citep{kuo
 
 \subsection{Workload placement}
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\small
 \caption{A qualitative guide to workload placement. It reflects the general division of labour
 between platforms, not measured results.}
@@ -235,7 +235,7 @@ orders~\citep{christensen2013}; when participants detect an iceberg they trade a
 icebergs create an adverse-selection cost for other limit orders~\citep{frey2017iceberg}. This is one
 reason message-level and trade data are valuable even for book-based models.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\footnotesize
 \caption{How contamination affects order-book signals.}
 \label{tab:contamination}
@@ -378,14 +378,14 @@ simulation---and therefore which of the targets of Section~\ref{sec:deep} matter
 strongest simple baseline on the best available representation: order-flow imbalance, queue
 imbalance, the micro-price, the queue race, and for passive orders the volume ahead. Evaluate it with
 proper scores and economic metrics in a queue-exact replay, counting every configuration tried. Only
-then add capacity---a small network, a sequence model, a hybrid---and keep it only if the increment
+then add capacity---a shallow network, a sequence model, a hybrid---and keep it only if the increment
 survives the same test (Table~\ref{tab:selection}).
 
 A useful future literature should therefore report not only whether a model predicts the market,
 but what information it extracts, what decision it changes, how that decision is executed, and
 whether the incremental value survives a properly constructed null.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\small
 \caption{Evidence status of the main claims in this survey.}
 \label{tab:evidence}

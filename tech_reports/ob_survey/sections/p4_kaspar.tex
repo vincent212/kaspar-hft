@@ -133,6 +133,38 @@ At step \#6 the aggressor reached R4, which arrived after S, so it must have pas
 queue ahead of it was consumed.
 \end{example}
 
+\paragraph{Market impact: a limitation of replay, and a possible extension.} Because the recorded
+market behaves exactly as it did, whatever the simulated orders do, replay answers ``would my order have
+been filled against this market?'' but not ``how would the market have moved because of my order?''. A
+simulated order never consumes liquidity that real traders would have reacted to. Market impact is
+therefore outside what this architecture measures, and it is not implemented.
+
+One way to add a reacting market, which we describe as possible future work rather than a feature, is a
+second market-data source: a queue-reactive simulator (Section~\ref{sec:qr}) in place of the recorded feed.
+The separation between the source of market data and the book, order manager and strategy actors means
+the rest of the pipeline would not change. The generator produces queue counts rather than individual
+orders, so its events would have to be turned into synthetic order-level messages---order identifiers and
+first-in-first-out placement---for the existing book. The researcher's orders would then change queue
+sizes, the simulator's rates would respond, and the price response to the strategy's own trading could be
+measured.
+
+What such an extension would estimate is limited, and should be stated with it.
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item It would capture \emph{mechanical} impact: queues consumed by the strategy's orders, refilling at
+  state-dependent rates, and price moves when a queue empties. Neural extensions of the queue-reactive
+  model reproduce the square-root law of impact on Bund futures~\citep{deepqr}, so this part can be
+  realistic.
+\item It would not capture \emph{informational} impact: other participants inferring that a large buyer is
+  present and repricing. In the queue-reactive model this sits in the random resets of the book, which do
+  not respond to the strategy, and for large orders it is a substantial part of real impact.
+\item Its impact would be a property of the simulator, and would need checking against impact measured on
+  real trading---post-fill mark-outs from paper or live fills, or published impact laws---before being
+  relied on.
+\end{itemize}
+The resulting division of labour would be: queue-exact replay for fill realism on the real market, without
+impact; a reactive simulator for mechanical impact and for comparing tactics in a market that responds;
+and paper and live trading as the ground truth for both.
+
 % ================================================================
 \section{The replay pipeline}
 \label{sec:kaspar-pipeline}
@@ -257,7 +289,7 @@ period measured in events or time. The design comment for the grace period state
 of Section~\ref{sec:adverse} directly: cancel too quickly and fills are given up; cancel too
 slowly and the order bears the adverse selection.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\small
 \caption{Representative \pov{} parameters (one of the configurations in the code repository).}
 \label{tab:shadow-params}

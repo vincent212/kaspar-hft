@@ -157,7 +157,11 @@ report it directly (Section~\ref{sec:agenda}).
 \label{ex:as}
 All values in ticks; fill window $H = 10$ s, mark-out horizon $h = 10$ s, one-tick spread, no
 rebate. Here ``$\mid q$'' abbreviates $\mid Q^{\text{ahead}}_t = q$, and
-$\E[\Pi^{\text{pass}} \mid \Fill, q] = s_{t_F}/2 - \mathrm{AS}(q,h)$:
+
+\[
+  \E[\Pi^{\text{pass}} \mid \Fill, q] = s_{t_F}/2 - \mathrm{AS}(q,h):
+\]
+
 \begin{center}\small
 \begin{tabular}{lccccc}
 \toprule
@@ -215,7 +219,7 @@ a backtest that assumes orders fill when the price touches them. This section sh
 backtest misleads and lists what a simulation must model to give trustworthy answers; Part~IV
 describes a system built to those requirements.
 
-\subsection{What a naive backtest assumes}
+\subsection{Assumptions of a naive backtest}
 
 A common backtest of a passive signal assumes that a limit order placed at the bid is filled when
 the signal fires, or when the price touches the order's level:
@@ -227,7 +231,7 @@ fills are exactly the ones where the price moved away before the queue was consu
 real passive order does not get, and which would have been profitable. The naive backtest is
 therefore biased toward adverse-selection-free fills that do not exist.
 
-\subsection{What a queue-exact replay requires}
+\subsection{Requirements of a queue-exact replay}
 
 A replay that can answer the execution questions of this part needs:
 \begin{enumerate}[leftmargin=1.5em]

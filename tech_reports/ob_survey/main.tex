@@ -24,7 +24,7 @@
 \usepackage{cancel}
 \usepackage{listings}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc,decorations.pathreplacing}
 \usepackage[font=small,labelfont=bf,skip=4pt]{caption}
 \usepackage{placeins}
 \usepackage[most]{tcolorbox}
@@ -37,6 +37,8 @@
 \lstset{basicstyle=\ttfamily\small, columns=fullflexible, keepspaces=true,
         frame=single, framerule=0.3pt, xleftmargin=1em, xrightmargin=1em,
         breaklines=true}
+\lstdefinestyle{pycode}{language=Python, basicstyle=\ttfamily\footnotesize, numbers=none,
+        commentstyle=\color{black!60}\itshape, keywordstyle=\bfseries}
 
 % Boxes for worked examples and intuition notes
 \newtheoremstyle{example}{6pt}{6pt}{\normalfont}{}{\bfseries}{.}{0.5em}{}
@@ -51,6 +53,9 @@
 \newtcolorbox{modelcard}[1]{breakable, enhanced, colback=black!3, colframe=black!45,
   boxrule=0.5pt, arc=1.5pt, left=5pt, right=5pt, top=3pt, bottom=3pt,
   fonttitle=\bfseries\small, title={Model card: #1}, fontupper=\small}
+\newtcolorbox{featurecard}[1]{breakable, enhanced, colback=black!3, colframe=black!45,
+  boxrule=0.5pt, arc=1.5pt, left=5pt, right=5pt, top=3pt, bottom=3pt,
+  fonttitle=\bfseries\small, title={Feature card: #1}, fontupper=\small}
 \newcommand{\cardrow}[2]{\par\noindent\textbf{#1.}\enspace #2\par\smallskip}
 
 \newcommand{\E}{\mathbb{E}}
@@ -105,10 +110,9 @@
 \appendix
 \input{sections/app_notation}
 \input{sections/glossary}
-\input{sections/app_pointprocess}
 
 \FloatBarrier
 \bibliographystyle{plainnat}
-\bibliography{refs,bib/refs_classic,bib/refs_dl,bib/refs_eval,bib/refs_fm,bib/refs_hawkes2}
+\bibliography{refs,bib/refs_classic,bib/refs_dl,bib/refs_eval,bib/refs_fm,bib/refs_hawkes2,bib/refs_meta,bib/refs_mix,bib/refs_tok,bib/refs_deep2,bib/refs_hawkes3,bib/refs_nncomb,bib/refs_predhybrid,bib/refs_attncomb,bib/refs_marks_regimes,bib/refs_frameworks}
 
 \end{document}

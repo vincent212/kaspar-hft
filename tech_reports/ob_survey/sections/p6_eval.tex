@@ -26,7 +26,7 @@ as a trading input, and the second judgement is the one that matters.
 The right statistical metric depends on the target (Table~\ref{tab:metrics}). These metrics
 measure predictive quality; none of them, by itself, measures trading value.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\small
 \caption{Statistical metrics by prediction target.}
 \label{tab:metrics}
@@ -60,14 +60,18 @@ choice~\citep{arroyo2024}.
 % ================================================================
 
 Economic evaluation starts from the aggressive and passive returns of Section~\ref{sec:passive} and
-the decomposition $\E[\Pi^{\text{pass}}] = \P(\Fill)\,\E[\Pi^{\text{pass}} \mid \Fill]$, which separates execution probability
+the decomposition 
+\[
+  \E[\Pi^{\text{pass}}] = \P(\Fill)\,\E[\Pi^{\text{pass}} \mid \Fill],
+\]
+which separates execution probability
 from conditional execution quality. For passive strategies both factors should be reported, broken
 down by queue position where the data allow.
 
 Table~\ref{tab:metric-levels} orders evaluation metrics by how close they come to trading value. A
 study should say which levels it reaches; most LOB papers stop at the first or second.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\footnotesize
 \caption{Levels of evaluation, from statistical to economic.}
 \label{tab:metric-levels}
@@ -136,7 +140,7 @@ that statement in three steps: why simpler model families generalise more reliab
 performance measure for the number of models tried, and why simple models are also easier to test
 honestly.
 
-\subsection{Why simpler models often generalise better}
+\subsection{Generalisation of simpler models}
 
 Statistical learning theory makes the intuition behind Occam's razor precise. For a classifier $M$ chosen
 from a family of models with \emph{VC dimension} $\mathrm{VC}$---roughly, the largest number of points
@@ -239,11 +243,15 @@ candidates $N_{\text{trials}}(M)$ searched to find the model (Section~\ref{sec:l
 \inwords{complexity is a list of separate costs, not one number: how many knobs the model has, how
 slow it is, how much work it is to tune and to watch, and how hard someone searched to find it.} A complex model
 $M_1$ should be preferred to a baseline $M_0$ only if $\Delta V = V(M_1) - V(M_0)$ is statistically
-credible and economically meaningful relative to $\Delta\mathcal{C} = \mathcal{C}(M_1) - \mathcal{C}(M_0)$. Because the
+credible and economically meaningful relative to 
+\[
+  \Delta\mathcal{C} = \mathcal{C}(M_1) - \mathcal{C}(M_0).
+\]
+Because the
 components of $\mathcal{C}$ share no common unit, the framework asks for them to be reported separately
 (Table~\ref{tab:parsimony}), so the reader can judge whether the added complexity is justified.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\small
 \caption{Complexity dimensions of the model classes discussed in this survey, in orders of
 magnitude. A comparison should add, for each row, the out-of-sample Sharpe ratio, the deflated
@@ -269,12 +277,12 @@ rule ``adopt $M_1$ only if $\Delta V > \chi\,\Delta\mathcal{C}$'' for a stated $
 the trade-off explicit and auditable. The value of the rule lies in stating the weights before the
 comparison, not in any particular choice of them.
 
-\paragraph{Where to start.} Table~\ref{tab:selection} orders candidate approaches by increasing
+\paragraph{Starting points ordered by complexity.} Table~\ref{tab:selection} orders candidate approaches by increasing
 complexity, with the condition under which each is the natural starting point. It is a guide to where
 the burden of proof lies, not a ranking of methods: a more complex row is justified when the simpler one
 above it has been tried, on the same data and fill model, and found wanting.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\footnotesize
 \caption{Starting points ordered by increasing complexity.}
 \label{tab:selection}
@@ -284,7 +292,7 @@ Situation & Start with & Why \\
 \midrule
 Decision needed within microseconds; large-tick instrument & linear OFI or queue imbalance; queue-race probability (Section~\ref{sec:cdl}) & few operations, deterministic latency, strongest evidence in large-tick names~\citep{gould2016qi,briola2024} \\
 Passive execution; fill probability matters & residual-volume and OFI baseline; then a survival model with queue position as an input~\citep{kanformer} & prices fill probability and adverse selection directly \\
-Decision within milliseconds; liquid instrument & small network on order-flow inputs~\citep{kolm2023,lucchese2024} & order-flow inputs carry most of the gain; in re-tests the simple MLP degraded least~\citep{prata2024} \\
+Decision within milliseconds; liquid instrument & neural network on order-flow inputs~\citep{kolm2023,lucchese2024} & order-flow inputs carry most of the gain; in re-tests the simple MLP degraded least~\citep{prata2024} \\
 Several horizons at once & sequence model only if baselines fail deflated and purged tests & complexity must clear the multiple-testing bar \\
 Unusual volatility or liquidity & volatility gating of a simpler model & simple and robust when learned relations break \\
 Several related instruments & lagged cross-asset OFI~\citep{contcucuringu2023} & modest complexity; evidence of forecasting value \\
@@ -296,7 +304,7 @@ Several related instruments & lagged cross-asset OFI~\citep{contcucuringu2023} &
 can be stated dimension by dimension (Table~\ref{tab:checklist}). The right-hand column is a default,
 to be departed from with evidence.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\footnotesize
 \caption{Over-engineered versus parsimonious defaults.}
 \label{tab:checklist}
@@ -305,7 +313,7 @@ to be departed from with evidence.
 Dimension & Over-engineered & Parsimonious default \\
 \midrule
 Features & many correlated indicators & a few interpretable drivers (OFI, imbalance, queue position) \\
-Model & deep network chosen first & linear, logistic or small network first \\
+Model & deep network chosen first & linear or logistic model first, then a shallow network \\
 Fitting criterion & in-sample fit & out-of-sample economic value, with information criteria or shrinkage \\
 Search & unrecorded trials & counted trials and a deflated result \\
 Regime behaviour & fragile under shocks & degrades gracefully; gated by volatility \\
@@ -335,7 +343,7 @@ A scientifically useful LOB benchmark should report at least the following.
 Public datasets and frameworks each have limits (Table~\ref{tab:datasets}). No single benchmark
 represents ``the LOB''; the strongest evidence survives across datasets, assets and regimes.
 
-\begin{table}[ht]
+\begin{table}[!htbp]
 \centering\footnotesize
 \caption{Data sets and frameworks used in the literature surveyed.}
 \label{tab:datasets}

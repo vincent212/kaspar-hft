@@ -1,0 +1,263 @@
+% refs_attncomb.bib -- attention / Transformer mechanisms used as COMBINERS of several models' forecasts
+% (plus adjacent items and frequently-mistaken non-combiners). Metadata from arXiv API and Crossref (2026-10-03).
+% Existing keys reused, NOT repeated here: zhao2020for2for, mafildes2021, felici2026mtl, montero2020fforma,
+% prata2024, zhanglimzohren2021mbo, jacobs1991, jordan1994hme, guo2018btcvol, antulov2021tme, wolpert1992,
+% chronos2024, timesfm2024, moirai2024, vaswani2017, li2024moeexec, ye2026rgresmoe.
+% See notes/claims_attncomb.md for what each paper does and what was verified.
+
+% ---------------------------------------------------------------- A. attention used as the combiner
+
+@misc{bourgin2021maes,
+  author        = {Bourgin, Victor D. and Bica, Ioana and van der Schaar, Mihaela},
+  title         = {Model-Attentive Ensemble Learning for Sequence Modeling},
+  year          = {2021},
+  howpublished  = {arXiv preprint 2102.11500},
+  eprint        = {2102.11500},
+  archivePrefix = {arXiv}
+}
+
+@misc{patel2023attnpool,
+  author        = {Patel, Dhruvit and Wikner, Alexander},
+  title         = {Attention-Based Ensemble Pooling for Time Series Forecasting},
+  year          = {2023},
+  howpublished  = {arXiv preprint 2310.16231},
+  eprint        = {2310.16231},
+  archivePrefix = {arXiv}
+}
+
+@misc{chen2025e3former,
+  author        = {Chen, Jiadong and He, Xiao and Ye, Hengyu and Jiang, Fuxin and Zhang, Tieying and Chen, Jianjun and Gao, Xiaofeng},
+  title         = {Online Ensemble Transformer for Accurate Cloud Workload Forecasting in Predictive Auto-Scaling},
+  year          = {2025},
+  howpublished  = {arXiv preprint 2508.12773},
+  eprint        = {2508.12773},
+  archivePrefix = {arXiv}
+}
+
+@article{yao2026asde,
+  author  = {Yao, Hanxue and Koprinska, Irena},
+  title   = {Attention Score-Based Dynamic Ensemble for Time Series Forecasting with an Importance Greedy Diversity Model Selection},
+  journal = {Information Fusion},
+  year    = {2027},
+  volume  = {137},
+  pages   = {104656},
+  doi     = {10.1016/j.inffus.2026.104656},
+  note    = {Crossref issue date January 2027}
+}
+
+@inproceedings{chen2024attnensload,
+  author    = {Chen, Hao and Li, Nanyan and Li, Mingyong and Sun, Zhigang and Meng, Fanlin and Su, Jinya},
+  title     = {Ensemble Learning with Additive Attention Mechanism for Short-Term Load Forecasting},
+  booktitle = {Proceedings of the 43rd Chinese Control Conference (CCC)},
+  year      = {2024},
+  pages     = {7113--7118},
+  publisher = {IEEE},
+  doi       = {10.23919/CCC63176.2024.10661985}
+}
+
+@inproceedings{liu2025windattnens,
+  author    = {Liu, Jinhua and Leng, Zhiyuan and Chen, Lu and Zhang, Fahong and Liu, Fanqian and Shen, Qixu},
+  title     = {Medium-Term Wind Speed Ensemble Forecasting Using {ICEEMDAN} and Dual Attention Mechanism},
+  booktitle = {Fourth International Conference on Computer Vision, Application, and Algorithm (CVAA 2024)},
+  series    = {Proc. SPIE},
+  publisher = {SPIE},
+  year      = {2025},
+  doi       = {10.1117/12.3055723}
+}
+
+@article{liu2020taxiens,
+  author  = {Liu, Yang and Liu, Zhiyuan and Lyu, Cheng and Ye, Jieping},
+  title   = {Attention-Based Deep Ensemble Net for Large-Scale Online Taxi-Hailing Demand Prediction},
+  journal = {IEEE Transactions on Intelligent Transportation Systems},
+  year    = {2020},
+  volume  = {21},
+  number  = {11},
+  pages   = {4798--4807},
+  doi     = {10.1109/TITS.2019.2947145}
+}
+
+@misc{ren2025llmcomb,
+  author        = {Ren, Yinuo and Wang, Jue},
+  title         = {Can {LLM} Improve for Expert Forecast Combination? Evidence from the European Central Bank Survey},
+  year          = {2025},
+  howpublished  = {arXiv preprint 2506.23154},
+  eprint        = {2506.23154},
+  archivePrefix = {arXiv}
+}
+
+@article{shobha2025attnmeta,
+  author  = {Shobha, Shobha and Narasimhaiah, Nalini},
+  title   = {Meta-Model Integration with Attention Mechanisms for Advanced Decision-Level Fusion in Machine Learning},
+  journal = {Indonesian Journal of Electrical Engineering and Computer Science},
+  year    = {2025},
+  volume  = {40},
+  number  = {3},
+  pages   = {1325--1336},
+  doi     = {10.11591/ijeecs.v40.i3.pp1325-1336}
+}
+
+@article{gao2025transfusion,
+  author  = {Gao, Hailong and Su, Lingdong and Zheng, Yongmao and Zhang, Yurou and Ju, Yun},
+  title   = {Load Forecasting Method Based on Transformer Multi-Model Fusion},
+  journal = {Journal of Computational Methods in Sciences and Engineering},
+  year    = {2025},
+  doi     = {10.1177/14727978251341480}
+}
+
+@article{pang2024windsa,
+  author  = {Pang, Junheng and Dong, Sheng},
+  title   = {A Novel Ensemble System for Short-Term Wind Speed Forecasting Based on Hybrid Decomposition Approach and Artificial Intelligence Models Optimized by Self-Attention Mechanism},
+  journal = {Energy Conversion and Management},
+  year    = {2024},
+  volume  = {307},
+  pages   = {118343},
+  doi     = {10.1016/j.enconman.2024.118343}
+}
+
+% ---------------------------------------------------------------- B. attention across ensemble members of one NWP system (post-processing)
+
+@misc{finn2021saet,
+  author        = {Finn, Tobias Sebastian},
+  title         = {Self-Attentive Ensemble Transformer: Representing Ensemble Interactions in Neural Networks for Earth System Models},
+  year          = {2021},
+  howpublished  = {arXiv preprint 2106.13924; ICML 2021 workshop ``Tackling Climate Change with Machine Learning''},
+  eprint        = {2106.13924},
+  archivePrefix = {arXiv}
+}
+
+@article{benbouallegue2024poet,
+  author  = {Ben Bouall{\`e}gue, Zied and Weyn, Jonathan A. and Clare, Mariana C. A. and Dramsch, Jesper and Dueben, Peter and Chantry, Matthew},
+  title   = {Improving Medium-Range Ensemble Weather Forecasts with Hierarchical Ensemble Transformers},
+  journal = {Artificial Intelligence for the Earth Systems},
+  year    = {2024},
+  volume  = {3},
+  number  = {1},
+  doi     = {10.1175/AIES-D-23-0027.1},
+  eprint  = {2303.17195},
+  archivePrefix = {arXiv}
+}
+
+@article{hohlein2024perminv,
+  author  = {H{\"o}hlein, Kevin and Schulz, Benedikt and Westermann, R{\"u}diger and Lerch, Sebastian},
+  title   = {Postprocessing of Ensemble Weather Forecasts Using Permutation-Invariant Neural Networks},
+  journal = {Artificial Intelligence for the Earth Systems},
+  year    = {2024},
+  volume  = {3},
+  number  = {1},
+  doi     = {10.1175/AIES-D-23-0070.1},
+  eprint  = {2309.04452},
+  archivePrefix = {arXiv}
+}
+
+@article{vanpoecke2025saet,
+  author  = {Van Poecke, Aaron and Finn, Tobias Sebastian and Meng, Ruoke and Van den Bergh, Joris and Smet, Geert and Demaeyer, Jonathan and Termonia, Piet and Tabari, Hossein and Hellinckx, Peter},
+  title   = {Self-Attentive Transformer for Fast and Accurate Postprocessing of Temperature and Wind Speed Forecasts},
+  journal = {Artificial Intelligence for the Earth Systems},
+  year    = {2025},
+  volume  = {4},
+  number  = {3},
+  doi     = {10.1175/AIES-D-24-0127.1},
+  eprint  = {2412.13957},
+  archivePrefix = {arXiv}
+}
+
+% ---------------------------------------------------------------- C. attention-gated / routed mixtures of experts (jointly trained)
+
+@inproceedings{schwab2019ame,
+  author    = {Schwab, Patrick and Miladinovic, Djordje and Karlen, Walter},
+  title     = {Granger-Causal Attentive Mixtures of Experts: Learning Important Features with Neural Networks},
+  booktitle = {Proceedings of the AAAI Conference on Artificial Intelligence},
+  year      = {2019},
+  volume    = {33},
+  number    = {01},
+  pages     = {4846--4853},
+  doi       = {10.1609/aaai.v33i01.33014846},
+  eprint    = {1802.02195},
+  archivePrefix = {arXiv}
+}
+
+@misc{yemets2025gatets,
+  author        = {Yemets, Kyrylo and Lukashchuk, Mykola and Izonin, Ivan},
+  title         = {{GateTS}: Versatile and Efficient Forecasting via Attention-Inspired Routed Mixture-of-Experts},
+  year          = {2025},
+  howpublished  = {arXiv preprint 2508.17515},
+  eprint        = {2508.17515},
+  archivePrefix = {arXiv}
+}
+
+@inproceedings{shi2025timemoe,
+  author    = {Shi, Xiaoming and Wang, Shiyu and Nie, Yuqi and Li, Dianqi and Ye, Zhou and Wen, Qingsong and Jin, Ming},
+  title     = {{Time-MoE}: Billion-Scale Time Series Foundation Models with Mixture of Experts},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2025},
+  eprint    = {2409.16040},
+  archivePrefix = {arXiv}
+}
+
+@misc{liu2024moiraimoe,
+  author        = {Liu, Xu and Liu, Juncheng and Woo, Gerald and Aksu, Taha and Liang, Yuxuan and Zimmermann, Roger and Liu, Chenghao and Savarese, Silvio and Xiong, Caiming and Sahoo, Doyen},
+  title         = {{Moirai-MoE}: Empowering Time Series Foundation Models with Sparse Mixture of Experts},
+  year          = {2024},
+  howpublished  = {arXiv preprint 2410.10469},
+  eprint        = {2410.10469},
+  archivePrefix = {arXiv}
+}
+
+% ---------------------------------------------------------------- D. non-attention combiners of foundation models (contrast)
+
+@misc{ning2026timerouter,
+  author        = {Ning, Kanghui and Jiang, Yushan and Rasul, Kashif and Schneider, Anderson and Nevmyvaka, Yuriy and Song, Dongjin},
+  title         = {{TimeRouter}: Efficient and Adaptive Routing of Time-Series Foundation Models},
+  year          = {2026},
+  howpublished  = {arXiv preprint 2606.11625},
+  eprint        = {2606.11625},
+  archivePrefix = {arXiv}
+}
+
+@misc{das2025synapse,
+  author        = {Das, Sarkar Snigdha Sarathi and Goyal, Palash and Parmar, Mihir and Song, Yiwen and Le, Long T. and Miculicich, Lesly and Yoon, Jinsung and Zhang, Rui and Palangi, Hamid and Pfister, Tomas},
+  title         = {Synapse: Adaptive Arbitration of Complementary Expertise in Time Series Foundational Models},
+  year          = {2025},
+  howpublished  = {arXiv preprint 2511.05460},
+  eprint        = {2511.05460},
+  archivePrefix = {arXiv}
+}
+
+% ---------------------------------------------------------------- E. frequently mistaken for attention combiners (attention is inside the members)
+
+@misc{ali2021seaice,
+  author        = {Ali, Sahara and Huang, Yiyi and Huang, Xin and Wang, Jianwu},
+  title         = {Sea Ice Forecasting using Attention-based Ensemble {LSTM}},
+  year          = {2021},
+  howpublished  = {arXiv preprint 2108.00853; ICML 2021 workshop ``Tackling Climate Change with Machine Learning''},
+  eprint        = {2108.00853},
+  archivePrefix = {arXiv}
+}
+
+@misc{bui2025haelt,
+  author        = {Bui, Thanh Dan},
+  title         = {{HAELT}: A Hybrid Attentive Ensemble Learning Transformer Framework for High-Frequency Stock Price Forecasting},
+  year          = {2025},
+  howpublished  = {arXiv preprint 2506.13981},
+  eprint        = {2506.13981},
+  archivePrefix = {arXiv}
+}
+
+@misc{li2024masaat,
+  author        = {Li, Zhenglong and Tam, Vincent},
+  title         = {Developing An Attention-Based Ensemble Learning Framework for Financial Portfolio Optimisation},
+  year          = {2024},
+  howpublished  = {arXiv preprint 2404.08935},
+  eprint        = {2404.08935},
+  archivePrefix = {arXiv}
+}
+
+@article{iqbal2025abhef,
+  author  = {Iqbal, Muhammad Ali and Gil, Joon-Min and Kim, Soo Kyun},
+  title   = {Attention-Driven Hybrid Ensemble Approach With {Bayesian} Optimization for Accurate Energy Forecasting in {Jeju} Island's Renewable Energy System},
+  journal = {IEEE Access},
+  year    = {2025},
+  volume  = {13},
+  pages   = {7986--8010},
+  doi     = {10.1109/ACCESS.2025.3526943}
+}

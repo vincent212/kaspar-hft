@@ -225,8 +225,10 @@ point processes~\citet{daley2003}.
   that takes.
 \gl{Logit / logistic regression} The log-odds $\ln\big(\P(A)/(1-\P(A))\big)$ of an event $A$; logistic regression models it as a
   linear function of the inputs~\citep{hastie2009}.
+\gl{Meta-model} A model whose inputs are the outputs of other models; here, a learner that combines the outputs of classical order-book models.
 \gl{Model capacity} How complex a function a model can represent; roughly, its number of
   parameters.
+\gl{Out-of-sample predictions (for stacking)} Predictions of a first-stage model on data it was not fitted on; a second-stage model must be trained on these, not on in-sample predictions, or it learns from the first stage's overfitting~\citep{breiman1996stack}.
 \gl{Pretraining} Training a model on a generic task before adapting it to a specific one.
 \gl{Query, key, value} The three vectors an attention layer computes for each element: the query is
   matched against every key to set the weights, and the output is the weighted average of the values.
@@ -236,6 +238,7 @@ point processes~\citet{daley2003}.
 \gl{Selective state-space model} A state-space model, such as Mamba, whose recurrence parameters depend on the current input~\citep{gu2024mamba}.
 \gl{Softmax} A function that turns a vector of scores into probabilities that are positive and sum to one.
 \gl{Softplus} The function $\ln(1+\mathrm{e}^{y})$: smooth, always positive, and close to $y$ when $y$ is large; used to keep predicted rates positive.
+\gl{Stacking} Training a second-stage model on the predictions of several first-stage models~\citep{wolpert1992,breiman1996stack}.
 \gl{State-space model} A model with a hidden state updated by a (learned) linear
   recurrence~\citep{kalman1960}; recent neural versions such as Mamba handle long sequences
   efficiently~\citep{gu2024mamba}.
@@ -265,6 +268,7 @@ point processes~\citet{daley2003}.
   of future events~\citep{hawkes1971,bacry2015}. Section~\ref{sec:hawkes}.
 \gl{Heston model} A stochastic-volatility model in which variance follows a Cox--Ingersoll--Ross process.
 \gl{Hurst exponent} A measure of long memory: $0.5$ for no memory, above $0.5$ for persistence.
+\gl{Infimum ($\inf$)} The greatest lower bound of a set; for a set of times, the earliest one. By convention the infimum of an empty set is $+\infty$.
 \gl{Intensity} The instantaneous expected rate of events.
 \gl{Kalman filter} A recursive estimator of a hidden state that evolves linearly and is observed with noise~\citep{kalman1960}.
 \gl{Laplace transform} For a waiting time $\tau$, the function $\varpi \mapsto \E[\mathrm{e}^{-\varpi\tau}]$; it turns sums of independent waiting times into products, which is why it is used for first-passage problems.
