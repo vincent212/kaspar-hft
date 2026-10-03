@@ -86,11 +86,11 @@ Aur{\'e}lien Alfonsi and Pierre Blanc.
 \newblock \doi{10.1007/s00780-015-0282-y}.
 \newblock Published online 6 Nov 2015.
 
-\bibitem[{Algo-Logic Systems} and {AMD}()]{algologic}
+\bibitem[{Algo-Logic Systems} and {AMD}(n.d.)]{algologic}
 {Algo-Logic Systems} and {AMD}.
 \newblock {AMD} {Alveo} {U50} with {HLS}: {FPGA} accelerated {CME}
   tick-to-trade (solution brief).
-\newblock Solution brief.
+\newblock Solution brief, n.d.
 \newblock URL
   \url{https://www.amd.com/content/dam/amd/en/documents/products/accelerators/alveo/u50/algo-logic-t2t-product-brief.pdf}.
 
@@ -339,7 +339,7 @@ Leonardo Berti, Bardh Prenkaj, and Paola Velardi.
 \newblock {TRADES}: Generating realistic market simulations with diffusion
   models.
 \newblock In \emph{ECAI 2025}, Frontiers in Artificial Intelligence and
-  Applications, 2025.
+  Applications, pages 3703--3710, 2025.
 \newblock \doi{10.3233/FAIA251249}.
 
 \bibitem[Bieganowski and {\'S}lepaczuk(2026)]{bieganowski2026}
@@ -1903,10 +1903,10 @@ Costis Maglaras, Ciamac~C. Moallemi, and Muye Wang.
   2022.
 \newblock \doi{10.1080/14697688.2022.2124189}.
 
-\bibitem[{Magmio}()]{magmio}
+\bibitem[{Magmio}(n.d.)]{magmio}
 {Magmio}.
 \newblock Magmio: {FPGA} system for ultra-low latency trading.
-\newblock Vendor website.
+\newblock Vendor website, n.d.
 \newblock URL \url{https://www.magmio.com/product}.
 \newblock Accessed 2026-10-02.
 
@@ -2566,11 +2566,11 @@ Eric Smith, J.~Doyne Farmer, L{\'a}szl{\'o} Gillemot, and Supriya
 \newblock \emph{Quantitative Finance}, 3\penalty0 (6):\penalty0 481--514, 2003.
 \newblock \doi{10.1088/1469-7688/3/6/307}.
 
-\bibitem[{Solarflare Communications} and {Arista Networks}()]{openonload}
+\bibitem[{Solarflare Communications} and {Arista Networks}(n.d.)]{openonload}
 {Solarflare Communications} and {Arista Networks}.
 \newblock 10{Gb} {Ethernet}: The foundation for low-latency, real-time
   financial services applications and other, latency-sensitive applications.
-\newblock Solution brief (Solarflare/Arista joint paper).
+\newblock Solution brief (Solarflare/Arista joint paper), n.d.
 \newblock URL
   \url{https://www.arista.com/assets/data/pdf/JointPapers/Arista_Solarflare_Low_Latency_10GbE.pdf}.
 
@@ -2966,11 +2966,11 @@ Yufei Wu, Mahmoud Mahfouz, Daniele Magazzeni, and Manuela Veloso.
 \newblock Towards robust representation of limit orders books for deep learning
   models, 2021.
 
-\bibitem[{Xelera Technologies}()]{xelera_silva}
+\bibitem[{Xelera Technologies}(n.d.)]{xelera_silva}
 {Xelera Technologies}.
 \newblock Xelera {Silva}: Low-latency inference for gradient-boosted trees and
   neural networks.
-\newblock Product page.
+\newblock Product page, n.d.
 \newblock URL \url{https://www.xelera.io/products/silva}.
 \newblock Accessed 2026-10-02.
 
