@@ -1,4 +1,4 @@
-\begin{thebibliography}{423}
+\begin{thebibliography}{430}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -157,6 +157,14 @@ Nino Antulov-Fantulin, Tian Guo, and Fabrizio Lillo.
   fill probabilities with convolutional-transformers.
 \newblock \emph{Quantitative Finance}, 24\penalty0 (1):\penalty0 35--57, 2024.
 \newblock \doi{10.1080/14697688.2023.2286351}.
+
+\bibitem[{ATAS}(n.d.)]{atas_replay}
+{ATAS}.
+\newblock Replay trading simulator in {ATAS}.
+\newblock
+  \url{https://help.atas.net/en/support/solutions/articles/72000662219-replay-trading-simulator-in-atas},
+  n.d.
+\newblock ATAS help center. Accessed 2026-10-04.
 
 \bibitem[Avellaneda and Stoikov(2008)]{avellaneda2008}
 Marco Avellaneda and Sasha Stoikov.
@@ -377,6 +385,15 @@ Thierry Bochud and Damien Challet.
 Hamza Bodor and Laurent Carlier.
 \newblock Deep learning meets queue-reactive: A framework for realistic limit
   order book simulation, 2025.
+
+\bibitem[{Bookmap Ltd.}(n.d.)]{bookmap_replay}
+{Bookmap Ltd.}
+\newblock Bookmap knowledge base: Select run mode; export and import bookmap
+  files; {API} general info.
+\newblock
+  \url{https://bookmap.com/knowledgebase/docs/KB-GettingStarted-SelectRunMode},
+  n.d.
+\newblock Accessed 2026-10-04.
 
 \bibitem[Bouchaud et~al.(2002)Bouchaud, M{\'e}zard, and Potters]{bouchaud2002}
 Jean-Philippe Bouchaud, Marc M{\'e}zard, and Marc Potters.
@@ -834,6 +851,22 @@ Philippe Debie, Cornelis Gardebroek, Stephan Hageboeck, Paul van Leeuwen,
 \newblock \emph{European Financial Management}, 29\penalty0 (1):\penalty0
   288--326, 2023.
 \newblock \doi{10.1111/eufm.12353}.
+
+\bibitem[{Deltix}(n.d.{\natexlab{a}})]{deltix_exsim}
+{Deltix}.
+\newblock Exchange simulator.
+\newblock
+  \url{https://web.archive.org/web/20240208125153/https://www.deltixlab.com/products/exchange-simulator/},
+  n.d.{\natexlab{a}}.
+\newblock Archived vendor page (2024-02-08). Accessed 2026-10-04.
+
+\bibitem[{Deltix}(n.d.{\natexlab{b}})]{deltix_qo_sheet}
+{Deltix}.
+\newblock {QuantOffice} product data sheet.
+\newblock
+  \url{http://www.deltixlab.com/wp-content/uploads/2015/08/QuantOfficeProductSheet.pdf},
+  n.d.{\natexlab{b}}.
+\newblock Read via web.archive.org. Accessed 2026-10-04.
 
 \bibitem[Deschatre and Gruet(2022)]{deschatre2022electricity}
 Thomas Deschatre and Pierre Gruet.
@@ -1998,6 +2031,15 @@ Luca Mucciante and Alessio Sancetta.
 \newblock \doi{10.1093/jjfinec/nbad021}.
 \newblock Published online 11 Aug 2023.
 
+\bibitem[{MultiCharts, LLC}(n.d.)]{multicharts_sim}
+{MultiCharts, LLC}.
+\newblock How to use simulated trading; data playback.
+\newblock
+  \url{https://www.multicharts.com/trading-software/index.php?title=How_to_Use_Simulated_Trading},
+  n.d.
+\newblock MultiCharts wiki, read via web.archive.org snapshot 2024-09-10.
+  Accessed 2026-10-04.
+
 \bibitem[Muni~Toke(2011)]{munitoke2011}
 Ioane Muni~Toke.
 \newblock ``{M}arket making'' in an order book model and its impact on the
@@ -2082,6 +2124,13 @@ Alexandru Niculescu-Mizil and Rich Caruana.
 \newblock In \emph{Proceedings of the 22nd International Conference on Machine
   Learning (ICML '05)}, pages 625--632, 2005.
 \newblock \doi{10.1145/1102351.1102430}.
+
+\bibitem[{NinjaTrader, LLC}(n.d.)]{ninjatrader_playback}
+{NinjaTrader, LLC}.
+\newblock {NinjaTrader 8} help guide: Playback connection; simulator.
+\newblock \url{https://ninjatrader.com/support/helpGuides/nt8/playback.htm},
+  n.d.
+\newblock Read via web.archive.org 2025 snapshot. Accessed 2026-10-03.
 
 \bibitem[{nkaz001}(2022)]{hftbacktest}
 {nkaz001}.
@@ -2536,13 +2585,12 @@ Zijian Shi, Yu~Chen, and John Cartlidge.
   Intelligence}, volume~35, pages 548--556, 2021.
 \newblock \doi{10.1609/aaai.v35i1.16133}.
 
-\bibitem[{Sierra Chart}(n.d.)]{sierrachart_tradesim}
+\bibitem[{Sierra Chart}(n.d.)]{sierrachart_replay}
 {Sierra Chart}.
-\newblock Trade simulation; replay chart.
+\newblock Replaying charts.
 \newblock
-  \url{https://www.sierrachart.com/index.php?page=doc/TradeSimulation.html},
-  n.d.
-\newblock Accessed 2026-10-03.
+  \url{https://www.sierrachart.com/index.php?page=doc/ReplayChart.html}, n.d.
+\newblock Accessed 2026-10-04.
 
 \bibitem[Sirignano and Cont(2019)]{sirignano2019}
 Justin Sirignano and Rama Cont.
@@ -2766,13 +2814,23 @@ Mehdi Tomas, Iacopo Mastromatteo, and Michael Benzaquen.
   2022.
 \newblock \doi{10.1080/14697688.2021.2020328}.
 
-\bibitem[{Trading Technologies International, Inc.}(n.d.)]{tt_piq}
+\bibitem[{Trading Technologies International,
+  Inc.}(n.d.{\natexlab{a}})]{tt_piq}
 {Trading Technologies International, Inc.}
 \newblock Position in queue ({PIQ}) overview.
 \newblock
   \url{https://library.tradingtechnologies.com/trade/viewing-market-data/position-in-queue-piq/position-in-queue-piq/},
-  n.d.
+  n.d.{\natexlab{a}}.
 \newblock Accessed 2026-10-03.
+
+\bibitem[{Trading Technologies International,
+  Inc.}(n.d.{\natexlab{b}})]{tt_sim_env}
+{Trading Technologies International, Inc.}
+\newblock Changing trading environments.
+\newblock
+  \url{https://library.tradingtechnologies.com/trade/overview/workspace-windows/task-workspace-windows/changing-trading-environments/},
+  n.d.{\natexlab{b}}.
+\newblock TT Help Library. Accessed 2026-10-04.
 
 \bibitem[Tran et~al.(2019)Tran, Iosifidis, Kanniainen, and
   Gabbouj]{tran2019tabl}
