@@ -4,8 +4,9 @@ markets. A large literature extracts predictive information from it: order-flow 
 imbalance and the micro-price; stochastic queue and first-passage models; Hawkes and neural point
 processes; and convolutional, recurrent, attention-based and spatial-temporal Transformer models,
 pretrained message-level encoders, generative models and hybrids that combine statistical structure
-with learned representations. A substantial part of that literature evaluates models primarily as statistical forecasters, and large
-independent re-tests find that many published deep models lose much of their accuracy on new data. This
+with learned representations. A substantial part of that literature evaluates models primarily as statistical
+forecasters, and large independent re-tests find that many published deep models lose much of their accuracy on new
+data. This
 survey asks a different question: \emph{how does information contained in the limit order book
 become an executable trading decision, and how should prediction, queue dynamics, simulation and
 execution be evaluated together?}
@@ -16,25 +17,28 @@ LOB state $\to$ representation $\to$ prediction $\to$ decision $\to$ queue $\to$
 P\&L. Each link can destroy information or add uncertainty. We distinguish models that predict
 prices or events from models that estimate execution outcomes---fill probability, queue depletion,
 adverse selection---and argue that residual queue position and conditional execution value form
-the missing translation layer between LOB prediction research and trading.
+the missing translation layer between LOB prediction research and trading. For the learned models we explain, from
+first principles, how they are built and trained, take apart meta-models and structural hybrids that combine them
+with classical models, and show how much reported accuracy can come from the construction of the label and the data
+split rather than from the network, with a small PyTorch example on a synthetic market.
 
 The last part turns to the infrastructure that execution research depends on. We survey order-book
 simulators---historical replay, agent-based, model-based and generative---and compare them on the
 properties execution questions need: per-order queue position, explicit latency, determinism and a
-shared code path to live trading. The Kaspar system, a venue-independent design with handlers implemented for CME futures, serves as the worked
-example of a
-deterministic, queue-exact replay in which simulated orders enter the reconstructed historical
-first-in-first-out queue and are filled only by recorded executions that reach an order behind them, and
-we show how an order-book model is added to it as an actor that publishes its predictions to a strategy.
+shared code path to live trading. The Kaspar system---a venue-independent design with handlers implemented for CME
+futures---serves as the worked example of a deterministic, queue-exact replay in which simulated orders enter the
+reconstructed historical first-in-first-out queue and are filled only by recorded executions that reach an order
+behind them, and we show how an order-book model is added to it as an actor that publishes its predictions to a
+strategy.
 We then explain why order-book models are slow at inference---book building, sequential recurrence,
 attention whose cost grows with the square of the sequence length, and memory-bound evaluation at batch
 size one---and which stages can be accelerated on FPGAs, GPUs and other processors.
 
-Two criteria organise the evaluation: \emph{tradeability}, under which predictive performance is
+Two criteria run through the survey: \emph{tradeability}, under which predictive performance is
 judged after latency, spread, fees, queue position and adverse selection; and \emph{Occam's
 razor}, under which each additional layer of complexity---model capacity and hardware---must earn
-incremental out-of-sample economic value. This is a theoretical and methodological paper: all numerical examples are stylised, and no
-new experiments are reported.
+incremental out-of-sample economic value. This is a survey and a methodological paper. Its numerical examples are
+stylised, and its only computations are illustrations on synthetic data; it reports no new results on market data.
 
 \medskip
 \noindent\textbf{Keywords:} limit order book, market microstructure, order-flow imbalance, micro-price,

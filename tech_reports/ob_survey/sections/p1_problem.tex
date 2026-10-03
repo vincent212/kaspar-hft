@@ -1,7 +1,7 @@
 \paragraph{About this part.} Part~I sets up the problem before any model appears. It explains what a
 limit order book is and how it is built from exchange messages, fixes the notation and the probability
 used throughout, and makes the survey's central distinction: predicting the next price move is not the
-same as making money from it. Section~\ref{sec:intro} covers the market, the notation and the three
+same as making money from it. Section~\ref{sec:intro} covers the market, the notation and the two
 principles that organise the survey; Section~\ref{sec:method} explains how the literature was chosen
 and how strongly each kind of claim should be believed.
 
@@ -14,7 +14,7 @@ This section introduces the object of study and the language used to describe it
 electronic market matches buyers and sellers through a limit order book, what the book looks like as
 data, and how exchanges publish it; then fixes the notation and the few ideas from probability that
 the rest of the survey needs. It ends with the survey's main argument---prediction, execution and
-simulation are different problems---and the three principles and four axes used to organise the
+simulation are different problems---and the two principles and four axes used to organise the
 literature.
 
 \subsection{The limit order book as a dynamic market state}
@@ -213,7 +213,9 @@ levels, the sequence of events that produced the current state, and the queue po
 individual order.
 
 Throughout, numerical examples use stylised values chosen to make the arithmetic visible. They are
-not empirical estimates, and this paper reports no new experiments.
+not empirical estimates. The only computations the paper reports are illustrations on synthetic data---simulated
+point processes, a simulated random-walk market, and the small PyTorch example of Section~\ref{sec:deep-train}; it
+reports no new results on market data.
 
 \begin{example}[Same mid, different market]
 Two E-mini S\&P 500 (ES) books have the same mid (5000.125) and the same one-tick spread (tick
@@ -595,8 +597,13 @@ This survey & information-to-decision chain: classical and deep models, queue po
   classical and learned models in one framework;
 \item a treatment of queue position, fill probability and adverse selection as modelling targets in
   their own right, with the signal-value/execution-value distinction (Section~\ref{sec:tradeability-framework});
+\item an account of deep LOB models from first principles---inputs, targets, network families, training and
+  scoring, with a runnable PyTorch example---and of how label construction and data splits can inflate reported
+  accuracy (Section~\ref{sec:deep});
+\item a treatment of the two ways of combining classical and learned models, meta-models and structural hybrids,
+  with published examples taken apart step by step (Sections~\ref{sec:meta} and~\ref{sec:hybrid});
 \item a survey of order-book simulators, with queue-exact deterministic replay as the evaluation
-  instrument for execution claims (Part~III);
+  instrument for execution claims, and a description of how a model is added to one as an actor (Part~III);
 \item an account of why order-book models are slow at inference and what hardware can accelerate
   (Part~III);
 \item a reader-oriented apparatus: notation, a probability primer, plain-language explanations of every
@@ -717,10 +724,10 @@ Fixed income & Government bond futures on futures exchanges; cash bonds on elect
 Within these markets the survey includes work whose main object is one of four things:
 \emph{prediction} (forecasting prices or events), \emph{signal extraction} (building features from
 the book), \emph{execution} (deciding how to place, keep and cancel orders), or \emph{simulation}
-(reproducing the market for research). Two adjacent areas are deliberately left out. Equilibrium
-models, which derive prices from the optimal behaviour of rational traders, and agent-based models,
-which simulate many rule-following traders, appear only where they help explain an LOB model; they
-are not fitted to the data the rest of the paper is about. Synthetic market data produced by
+(reproducing the market for research). Equilibrium models, which derive prices from the optimal behaviour of
+rational traders, are deliberately left out except where they help explain an LOB model. Agent-based models, which
+simulate many rule-following traders, are covered as simulators (Section~\ref{sec:simulators}), not as models fitted
+to the data. Synthetic market data produced by
 learned generative models are discussed in Section~\ref{sec:deep-gen}, but, following Principle~1,
 they play no part in the methodology the survey recommends.
 

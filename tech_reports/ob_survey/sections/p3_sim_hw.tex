@@ -1211,16 +1211,34 @@ and each link can destroy information or add uncertainty.
 
 Order-flow imbalance, queue imbalance, Hawkes intensities and first-passage models give
 interpretable low-dimensional descriptions of market dynamics. Deep and pretrained models give
-representational capacity and, increasingly, calibrated confidence. Hybrid models offer a route to
-combine them. The conclusion is not that simple models are superior. It is that complexity is an
+representational capacity and, increasingly, calibrated confidence; most of them are learned analogues of
+the classical signal models rather than of the mechanistic ones (Section~\ref{sec:deep-adds}). Meta-models and
+structural hybrids combine the two, either by feeding classical outputs to a learner or by building classical
+structure inside a network. Much of the accuracy reported for deep models depends on how the label and the data
+split are built: with a label that averages past prices, a re-test of DeepLOB on Apple was right 65.9\% of the time
+and 54.6\% with a label measured from the current price~\citep{lee2024predictability}, and in our synthetic example a
+network reached 57.6\% on a market with nothing to predict (Section~\ref{sec:deep-train}). The choice of input
+matters as much: with the network fixed, order-flow inputs were among the best in 89\% of cases and raw snapshots in
+11\%~\citep{lucchese2024}. The conclusion is not that simple models are superior. It is that complexity is an
 empirical hypothesis: a more complex model is justified when it delivers incremental out-of-sample
 economic value that survives realistic execution, temporal validation, and the multiple-testing
 burden of its own selection.
 
-Two kinds of infrastructure make that standard testable. A deterministic, queue-exact replay turns the
-execution questions into measurements on observed data. Hardware decides how much of a signal's value
-survives to the moment of execution, and it cannot rescue a signal whose life is shorter than the
-pipeline that computes it.
+Two kinds of infrastructure make that standard testable. The first is the simulator. Agent-based, model-based and
+generative simulators let the market react to the researcher's orders, but their queues are only as realistic as the
+simulated order flow; a replay keeps the real market but cannot react. Exact queue position in the recorded market
+needs order-level data and an order-level book, and among the simulators compared only hftbacktest (with
+order-level data) and Kaspar provide it (Section~\ref{sec:sim-survey}). In a replay built from actors, a model of
+Part~II becomes one more actor that reads the book and sends its predictions to the strategy, and the same code runs
+in replay, paper and live trading (Section~\ref{sec:kaspar-actor}).
+
+The second is hardware. Book updates take microseconds; published inference times of deep order-book models are in
+milliseconds (Table~\ref{tab:lob-latency}). The causes are known---recurrence that must run step by step, attention
+whose cost grows with the square of the window, and single-event evaluation that is limited by memory traffic and
+fixed overheads rather than arithmetic---and so are the remedies: shorter or incremental windows, smaller and
+lower-precision models, fused kernels, and moving the regular stages to FPGAs (Section~\ref{sec:hw-what}). Hardware
+decides how much of a signal's value survives to the moment of execution, but it cannot rescue a signal whose life is
+shorter than the pipeline that computes it.
 
 For a reader who must choose a model, the survey's guidance reduces to an order of operations.
 Decide first what the output is for---aggressive trading, passive execution, market making or
@@ -1253,6 +1271,14 @@ Front-of-queue positions are worth more than back-of-queue positions, with adver
   increasing in queue position~\citep{moallemi2017} & established in a model; size across regimes open \\
 Hybrid inputs derived from the same stream add little to a sufficiently large network & open
   hypothesis \\
+Labels that average past prices inflate reported direction accuracy~\citep{lee2024predictability} & one re-test on
+  real data; reproduced on synthetic data here \\
+Order-flow inputs beat raw snapshots with the network held fixed~\citep{lucchese2024} & established in one study
+  (10 stocks) \\
+Published deep LOB models take milliseconds per inference, far above book-update times & measured in three studies
+  under different conditions \\
+Exact own-order queue position in the recorded market requires order-level data and an order-level book &
+  synthesis; argued from price--time priority \\
 \bottomrule
 \end{tabularx}
 \end{table}
