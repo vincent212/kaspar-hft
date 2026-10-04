@@ -1,0 +1,620 @@
+% refs_mix.bib -- combining several models' forecasts (forecast combination, stacking, pools,
+% model averaging, mixture of experts, online aggregation, residual learning, calibration).
+% Metadata checked against Crossref (api.crossref.org) or the arXiv API on 2026-10-03,
+% except where a note says otherwise. Notes per entry: notes/claims_mix.md.
+% Reused existing keys (NOT redefined here): breiman1996stack, wolpert1992, guo2018btcvol,
+% rahimikia2020ml, zhanglimzohren2021mbo, prata2024, cestari2025hawkes, raffaelli2026mhp,
+% gneiting2007, hansen2011mcs.
+
+% ---------------------------------------------------------------- A. point-forecast combination
+
+@article{bates1969,
+  author  = {Bates, J. M. and Granger, C. W. J.},
+  title   = {The Combination of Forecasts},
+  journal = {Operational Research Quarterly},
+  year    = {1969},
+  volume  = {20},
+  number  = {4},
+  pages   = {451--468},
+  doi     = {10.2307/3008764},
+  note    = {Also registered as doi:10.1057/jors.1969.103}
+}
+
+@article{granger1984,
+  author  = {Granger, Clive W. J. and Ramanathan, Ramu},
+  title   = {Improved Methods of Combining Forecasts},
+  journal = {Journal of Forecasting},
+  year    = {1984},
+  volume  = {3},
+  number  = {2},
+  pages   = {197--204},
+  doi     = {10.1002/for.3980030207}
+}
+
+@article{clemen1989,
+  author  = {Clemen, Robert T.},
+  title   = {Combining Forecasts: A Review and Annotated Bibliography},
+  journal = {International Journal of Forecasting},
+  year    = {1989},
+  volume  = {5},
+  number  = {4},
+  pages   = {559--583},
+  doi     = {10.1016/0169-2070(89)90012-5}
+}
+
+@incollection{timmermann2006,
+  author    = {Timmermann, Allan},
+  title     = {Forecast Combinations},
+  booktitle = {Handbook of Economic Forecasting},
+  editor    = {Elliott, Graham and Granger, Clive W. J. and Timmermann, Allan},
+  volume    = {1},
+  chapter   = {4},
+  publisher = {Elsevier},
+  address   = {Amsterdam},
+  year      = {2006},
+  pages     = {135--196},
+  doi       = {10.1016/S1574-0706(05)01004-9}
+}
+
+@article{stockwatson2004,
+  author  = {Stock, James H. and Watson, Mark W.},
+  title   = {Combination Forecasts of Output Growth in a Seven-Country Data Set},
+  journal = {Journal of Forecasting},
+  year    = {2004},
+  volume  = {23},
+  number  = {6},
+  pages   = {405--430},
+  doi     = {10.1002/for.928}
+}
+
+@article{dieboldpauly1987,
+  author  = {Diebold, Francis X. and Pauly, Peter},
+  title   = {Structural Change and the Combination of Forecasts},
+  journal = {Journal of Forecasting},
+  year    = {1987},
+  volume  = {6},
+  number  = {1},
+  pages   = {21--40},
+  doi     = {10.1002/for.3980060103}
+}
+
+@article{aiolfi2006,
+  author  = {Aiolfi, Marco and Timmermann, Allan},
+  title   = {Persistence in Forecasting Performance and Conditional Combination Strategies},
+  journal = {Journal of Econometrics},
+  year    = {2006},
+  volume  = {135},
+  number  = {1--2},
+  pages   = {31--53},
+  doi     = {10.1016/j.jeconom.2005.07.015}
+}
+
+@article{genre2013,
+  author  = {Genre, V{\'e}ronique and Kenny, Geoff and Meyler, Aidan and Timmermann, Allan},
+  title   = {Combining Expert Forecasts: Can Anything Beat the Simple Average?},
+  journal = {International Journal of Forecasting},
+  year    = {2013},
+  volume  = {29},
+  number  = {1},
+  pages   = {108--121},
+  doi     = {10.1016/j.ijforecast.2012.06.004}
+}
+
+@article{smith2009puzzle,
+  author  = {Smith, Jeremy and Wallis, Kenneth F.},
+  title   = {A Simple Explanation of the Forecast Combination Puzzle},
+  journal = {Oxford Bulletin of Economics and Statistics},
+  year    = {2009},
+  volume  = {71},
+  number  = {3},
+  pages   = {331--355},
+  doi     = {10.1111/j.1468-0084.2008.00541.x}
+}
+
+@article{claeskens2016,
+  author  = {Claeskens, Gerda and Magnus, Jan R. and Vasnev, Andrey L. and Wang, Wendun},
+  title   = {The Forecast Combination Puzzle: A Simple Theoretical Explanation},
+  journal = {International Journal of Forecasting},
+  year    = {2016},
+  volume  = {32},
+  number  = {3},
+  pages   = {754--762},
+  doi     = {10.1016/j.ijforecast.2015.12.005}
+}
+
+@article{wallis2011,
+  author  = {Wallis, Kenneth F.},
+  title   = {Combining Forecasts -- Forty Years Later},
+  journal = {Applied Financial Economics},
+  year    = {2011},
+  volume  = {21},
+  number  = {1--2},
+  pages   = {33--41},
+  doi     = {10.1080/09603107.2011.523179}
+}
+
+@article{wang2023review,
+  author        = {Wang, Xiaoqian and Hyndman, Rob J. and Li, Feng and Kang, Yanfei},
+  title         = {Forecast Combinations: An Over 50-Year Review},
+  journal       = {International Journal of Forecasting},
+  year          = {2023},
+  volume        = {39},
+  number        = {4},
+  pages         = {1518--1547},
+  doi           = {10.1016/j.ijforecast.2022.11.005},
+  eprint        = {2205.04216},
+  archivePrefix = {arXiv}
+}
+
+% ---------------------------------------------------------------- B. probability / density combination
+
+@article{hallmitchell2007,
+  author  = {Hall, Stephen G. and Mitchell, James},
+  title   = {Combining Density Forecasts},
+  journal = {International Journal of Forecasting},
+  year    = {2007},
+  volume  = {23},
+  number  = {1},
+  pages   = {1--13},
+  doi     = {10.1016/j.ijforecast.2006.08.001}
+}
+
+@article{geweke2011,
+  author  = {Geweke, John and Amisano, Gianni},
+  title   = {Optimal Prediction Pools},
+  journal = {Journal of Econometrics},
+  year    = {2011},
+  volume  = {164},
+  number  = {1},
+  pages   = {130--141},
+  doi     = {10.1016/j.jeconom.2011.02.017}
+}
+
+@article{ranjan2010,
+  author  = {Ranjan, Roopesh and Gneiting, Tilmann},
+  title   = {Combining Probability Forecasts},
+  journal = {Journal of the Royal Statistical Society: Series B (Statistical Methodology)},
+  year    = {2010},
+  volume  = {72},
+  number  = {1},
+  pages   = {71--91},
+  doi     = {10.1111/j.1467-9868.2009.00726.x}
+}
+
+@article{gneiting2013combining,
+  author        = {Gneiting, Tilmann and Ranjan, Roopesh},
+  title         = {Combining Predictive Distributions},
+  journal       = {Electronic Journal of Statistics},
+  year          = {2013},
+  volume        = {7},
+  pages         = {1747--1782},
+  doi           = {10.1214/13-EJS823},
+  eprint        = {1106.1638},
+  archivePrefix = {arXiv}
+}
+
+@article{yao2018stacking,
+  author        = {Yao, Yuling and Vehtari, Aki and Simpson, Daniel and Gelman, Andrew},
+  title         = {Using Stacking to Average {B}ayesian Predictive Distributions (with Discussion)},
+  journal       = {Bayesian Analysis},
+  year          = {2018},
+  volume        = {13},
+  number        = {3},
+  pages         = {917--1007},
+  doi           = {10.1214/17-BA1091},
+  eprint        = {1704.02030},
+  archivePrefix = {arXiv}
+}
+
+@article{berrisch2023crps,
+  author        = {Berrisch, Jonathan and Ziel, Florian},
+  title         = {{CRPS} Learning},
+  journal       = {Journal of Econometrics},
+  year          = {2023},
+  volume        = {237},
+  number        = {2},
+  pages         = {105221},
+  doi           = {10.1016/j.jeconom.2021.11.008},
+  eprint        = {2102.00968},
+  archivePrefix = {arXiv}
+}
+
+% ---------------------------------------------------------------- C. stacking / super learner / level-one data
+
+@article{leblanc1996,
+  author  = {LeBlanc, Michael and Tibshirani, Robert},
+  title   = {Combining Estimates in Regression and Classification},
+  journal = {Journal of the American Statistical Association},
+  year    = {1996},
+  volume  = {91},
+  number  = {436},
+  pages   = {1641--1650},
+  doi     = {10.1080/01621459.1996.10476733}
+}
+
+@article{ting1999,
+  author        = {Ting, Kai Ming and Witten, Ian H.},
+  title         = {Issues in Stacked Generalization},
+  journal       = {Journal of Artificial Intelligence Research},
+  year          = {1999},
+  volume        = {10},
+  pages         = {271--289},
+  doi           = {10.1613/jair.594},
+  eprint        = {1105.5466},
+  archivePrefix = {arXiv}
+}
+
+@article{vanderlaan2007,
+  author  = {van der Laan, Mark J. and Polley, Eric C. and Hubbard, Alan E.},
+  title   = {Super Learner},
+  journal = {Statistical Applications in Genetics and Molecular Biology},
+  year    = {2007},
+  volume  = {6},
+  number  = {1},
+  pages   = {Article 25},
+  doi     = {10.2202/1544-6115.1309}
+}
+
+@article{tibshirani2002preval,
+  author  = {Tibshirani, Robert J. and Efron, Bradley},
+  title   = {Pre-Validation and Inference in Microarrays},
+  journal = {Statistical Applications in Genetics and Molecular Biology},
+  year    = {2002},
+  volume  = {1},
+  number  = {1},
+  pages   = {Article 1},
+  doi     = {10.2202/1544-6115.1000}
+}
+
+% ---------------------------------------------------------------- D. model averaging
+
+@article{hoeting1999,
+  author  = {Hoeting, Jennifer A. and Madigan, David and Raftery, Adrian E. and Volinsky, Chris T.},
+  title   = {{B}ayesian Model Averaging: A Tutorial},
+  journal = {Statistical Science},
+  year    = {1999},
+  volume  = {14},
+  number  = {4},
+  pages   = {382--417},
+  doi     = {10.1214/ss/1009212519}
+}
+
+@article{raftery2010dma,
+  author  = {Raftery, Adrian E. and K{\'a}rn{\'y}, Miroslav and Ettler, Pavel},
+  title   = {Online Prediction Under Model Uncertainty via Dynamic Model Averaging: Application to a Cold Rolling Mill},
+  journal = {Technometrics},
+  year    = {2010},
+  volume  = {52},
+  number  = {1},
+  pages   = {52--66},
+  doi     = {10.1198/TECH.2009.08104}
+}
+
+@article{koop2012dma,
+  author  = {Koop, Gary and Korobilis, Dimitris},
+  title   = {Forecasting Inflation Using Dynamic Model Averaging},
+  journal = {International Economic Review},
+  year    = {2012},
+  volume  = {53},
+  number  = {3},
+  pages   = {867--886},
+  doi     = {10.1111/j.1468-2354.2012.00704.x}
+}
+
+% ---------------------------------------------------------------- E. mixture of experts / regime-dependent combination
+
+@article{jacobs1991,
+  author  = {Jacobs, Robert A. and Jordan, Michael I. and Nowlan, Steven J. and Hinton, Geoffrey E.},
+  title   = {Adaptive Mixtures of Local Experts},
+  journal = {Neural Computation},
+  year    = {1991},
+  volume  = {3},
+  number  = {1},
+  pages   = {79--87},
+  doi     = {10.1162/neco.1991.3.1.79}
+}
+
+@article{jordan1994hme,
+  author  = {Jordan, Michael I. and Jacobs, Robert A.},
+  title   = {Hierarchical Mixtures of Experts and the {EM} Algorithm},
+  journal = {Neural Computation},
+  year    = {1994},
+  volume  = {6},
+  number  = {2},
+  pages   = {181--214},
+  doi     = {10.1162/neco.1994.6.2.181}
+}
+
+@article{yuksel2012,
+  author  = {Yuksel, Seniha Esen and Wilson, Joseph N. and Gader, Paul D.},
+  title   = {Twenty Years of Mixture of Experts},
+  journal = {IEEE Transactions on Neural Networks and Learning Systems},
+  year    = {2012},
+  volume  = {23},
+  number  = {8},
+  pages   = {1177--1193},
+  doi     = {10.1109/TNNLS.2012.2200299}
+}
+
+@article{weigend1995,
+  author  = {Weigend, Andreas S. and Mangeas, Morgan and Srivastava, Ashok N.},
+  title   = {Nonlinear Gated Experts for Time Series: Discovering Regimes and Avoiding Overfitting},
+  journal = {International Journal of Neural Systems},
+  year    = {1995},
+  volume  = {6},
+  number  = {4},
+  pages   = {373--399},
+  doi     = {10.1142/S0129065795000251}
+}
+
+@article{weigendshi2000,
+  author  = {Weigend, Andreas S. and Shi, Shanming},
+  title   = {Predicting Daily Probability Distributions of {S\&P500} Returns},
+  journal = {Journal of Forecasting},
+  year    = {2000},
+  volume  = {19},
+  number  = {4},
+  pages   = {375--392},
+  doi     = {10.1002/1099-131X(200007)19:4<375::AID-FOR779>3.0.CO;2-U}
+}
+
+@article{elliott2005,
+  author  = {Elliott, Graham and Timmermann, Allan},
+  title   = {Optimal Forecast Combination Under Regime Switching},
+  journal = {International Economic Review},
+  year    = {2005},
+  volume  = {46},
+  number  = {4},
+  pages   = {1081--1102},
+  doi     = {10.1111/j.1468-2354.2005.00361.x}
+}
+
+% ---------------------------------------------------------------- F. online / adaptive weighting
+
+@article{littlestone1994,
+  author  = {Littlestone, Nick and Warmuth, Manfred K.},
+  title   = {The Weighted Majority Algorithm},
+  journal = {Information and Computation},
+  year    = {1994},
+  volume  = {108},
+  number  = {2},
+  pages   = {212--261},
+  doi     = {10.1006/inco.1994.1009}
+}
+
+@article{freund1997,
+  author  = {Freund, Yoav and Schapire, Robert E.},
+  title   = {A Decision-Theoretic Generalization of On-Line Learning and an Application to Boosting},
+  journal = {Journal of Computer and System Sciences},
+  year    = {1997},
+  volume  = {55},
+  number  = {1},
+  pages   = {119--139},
+  doi     = {10.1006/jcss.1997.1504}
+}
+
+@book{cesabianchi2006,
+  author    = {Cesa-Bianchi, Nicol{\`o} and Lugosi, G{\'a}bor},
+  title     = {Prediction, Learning, and Games},
+  publisher = {Cambridge University Press},
+  address   = {Cambridge},
+  year      = {2006},
+  doi       = {10.1017/CBO9780511546921}
+}
+
+@article{wintenberger2017,
+  author        = {Wintenberger, Olivier},
+  title         = {Optimal Learning with {B}ernstein Online Aggregation},
+  journal       = {Machine Learning},
+  year          = {2017},
+  volume        = {106},
+  number        = {1},
+  pages         = {119--141},
+  doi           = {10.1007/s10994-016-5592-6},
+  eprint        = {1404.1356},
+  archivePrefix = {arXiv}
+}
+
+@article{devaine2013,
+  author        = {Devaine, Marie and Gaillard, Pierre and Goude, Yannig and Stoltz, Gilles},
+  title         = {Forecasting Electricity Consumption by Aggregating Specialized Experts},
+  journal       = {Machine Learning},
+  year          = {2013},
+  volume        = {90},
+  number        = {2},
+  pages         = {231--260},
+  doi           = {10.1007/s10994-012-5314-7},
+  eprint        = {1207.1965},
+  archivePrefix = {arXiv}
+}
+
+@incollection{gaillard2015,
+  author    = {Gaillard, Pierre and Goude, Yannig},
+  title     = {Forecasting Electricity Consumption by Aggregating Experts; How to Design a Good Set of Experts},
+  booktitle = {Modeling and Stochastic Learning for Forecasting in High Dimensions},
+  series    = {Lecture Notes in Statistics},
+  publisher = {Springer},
+  address   = {Cham},
+  year      = {2015},
+  pages     = {95--115},
+  doi       = {10.1007/978-3-319-18732-7_6}
+}
+
+@article{remlinger2023,
+  author        = {Remlinger, Carl and Alasseur, Cl{\'e}mence and Bri{\`e}re, Marie and Mikael, Joseph},
+  title         = {Expert Aggregation for Financial Forecasting},
+  journal       = {The Journal of Finance and Data Science},
+  year          = {2023},
+  volume        = {9},
+  pages         = {100108},
+  doi           = {10.1016/j.jfds.2023.100108},
+  eprint        = {2111.15365},
+  archivePrefix = {arXiv}
+}
+
+% ---------------------------------------------------------------- G. residual learning / boosting / HAR vs ML
+
+@article{zhang2003hybrid,
+  author  = {Zhang, G. Peter},
+  title   = {Time Series Forecasting Using a Hybrid {ARIMA} and Neural Network Model},
+  journal = {Neurocomputing},
+  year    = {2003},
+  volume  = {50},
+  pages   = {159--175},
+  doi     = {10.1016/S0925-2312(01)00702-0}
+}
+
+@article{friedman2001,
+  author  = {Friedman, Jerome H.},
+  title   = {Greedy Function Approximation: A Gradient Boosting Machine},
+  journal = {The Annals of Statistics},
+  year    = {2001},
+  volume  = {29},
+  number  = {5},
+  pages   = {1189--1232},
+  doi     = {10.1214/aos/1013203451}
+}
+
+@article{christensen2023mlvol,
+  author  = {Christensen, Kim and Siggaard, Mathias and Veliyev, Bezirgen},
+  title   = {A Machine Learning Approach to Volatility Forecasting},
+  journal = {Journal of Financial Econometrics},
+  year    = {2023},
+  volume  = {21},
+  number  = {5},
+  pages   = {1680--1727},
+  doi     = {10.1093/jjfinec/nbac020}
+}
+
+@article{chassot2026hard,
+  author        = {Chassot, Jonathan and Audrino, Francesco},
+  title         = {{HARd} to Beat: The Overlooked Impact of Rolling Windows in the Era of Machine Learning},
+  journal       = {International Journal of Forecasting},
+  year          = {2026},
+  volume        = {42},
+  number        = {2},
+  pages         = {330--343},
+  doi           = {10.1016/j.ijforecast.2025.06.003},
+  eprint        = {2406.08041},
+  archivePrefix = {arXiv}
+}
+
+@article{clements2024harpuzzle,
+  author  = {Clements, Adam and Vasnev, Andrey L.},
+  title   = {Forecast Combination Puzzle in the {HAR} Model},
+  journal = {Journal of Forecasting},
+  year    = {2024},
+  volume  = {43},
+  number  = {1},
+  pages   = {118--137},
+  doi     = {10.1002/for.3029}
+}
+
+% ---------------------------------------------------------------- H. finance / high-frequency / LOB
+
+@article{beckerclements2008,
+  author  = {Becker, Ralf and Clements, Adam E.},
+  title   = {Are Combination Forecasts of {S\&P} 500 Volatility Statistically Superior?},
+  journal = {International Journal of Forecasting},
+  year    = {2008},
+  volume  = {24},
+  number  = {1},
+  pages   = {122--133},
+  doi     = {10.1016/j.ijforecast.2007.09.001}
+}
+
+@article{rapach2010,
+  author  = {Rapach, David E. and Strauss, Jack K. and Zhou, Guofu},
+  title   = {Out-of-Sample Equity Premium Prediction: Combination Forecasts and Links to the Real Economy},
+  journal = {Review of Financial Studies},
+  year    = {2010},
+  volume  = {23},
+  number  = {2},
+  pages   = {821--862},
+  doi     = {10.1093/rfs/hhp063}
+}
+
+@article{pattonsheppard2009,
+  author  = {Patton, Andrew J. and Sheppard, Kevin},
+  title   = {Optimal Combinations of Realised Volatility Estimators},
+  journal = {International Journal of Forecasting},
+  year    = {2009},
+  volume  = {25},
+  number  = {2},
+  pages   = {218--238},
+  doi     = {10.1016/j.ijforecast.2009.01.011}
+}
+
+@article{wang2016dmarv,
+  author  = {Wang, Yudong and Ma, Feng and Wei, Yu and Wu, Chongfeng},
+  title   = {Forecasting Realized Volatility in a Changing World: A Dynamic Model Averaging Approach},
+  journal = {Journal of Banking \& Finance},
+  year    = {2016},
+  volume  = {64},
+  pages   = {136--149},
+  doi     = {10.1016/j.jbankfin.2015.12.010}
+}
+
+@article{antulov2021tme,
+  author        = {Antulov-Fantulin, Nino and Guo, Tian and Lillo, Fabrizio},
+  title         = {Temporal Mixture Ensemble Models for Probabilistic Forecasting of Intraday Cryptocurrency Volume},
+  journal       = {Decisions in Economics and Finance},
+  year          = {2021},
+  volume        = {44},
+  number        = {2},
+  pages         = {905--940},
+  doi           = {10.1007/s10203-021-00344-9},
+  eprint        = {2005.09356},
+  archivePrefix = {arXiv}
+}
+
+@misc{ye2026rgresmoe,
+  author        = {Ye, Junyi and Borde, Gargi Vijay},
+  title         = {Regime-Gated Residual Mixture-of-Experts for Cross-Sectional Volatility Forecasting},
+  year          = {2026},
+  howpublished  = {arXiv preprint 2608.12251},
+  eprint        = {2608.12251},
+  archivePrefix = {arXiv}
+}
+
+@inproceedings{li2024moeexec,
+  author    = {Li, Kang and Cucuringu, Mihai and S{\'a}nchez-Betancourt, Leandro and Willi, Timon},
+  title     = {Mixtures of Experts for Scaling up Neural Networks in Order Execution},
+  booktitle = {Proceedings of the 5th ACM International Conference on AI in Finance (ICAIF '24)},
+  year      = {2024},
+  pages     = {669--676},
+  doi       = {10.1145/3677052.3698691}
+}
+
+% ---------------------------------------------------------------- I. calibration
+
+@incollection{platt1999,
+  author    = {Platt, John C.},
+  title     = {Probabilities for {SV} Machines},
+  booktitle = {Advances in Large Margin Classifiers},
+  editor    = {Smola, Alexander J. and Bartlett, Peter L. and Sch{\"o}lkopf, Bernhard and Schuurmans, Dale},
+  publisher = {MIT Press},
+  address   = {Cambridge, MA},
+  year      = {2000},
+  pages     = {61--74},
+  doi       = {10.7551/mitpress/1113.003.0008},
+  note      = {Preprint (1999): ``Probabilistic Outputs for Support Vector Machines and Comparisons to Regularized Likelihood Methods''}
+}
+
+@inproceedings{zadrozny2002,
+  author    = {Zadrozny, Bianca and Elkan, Charles},
+  title     = {Transforming Classifier Scores into Accurate Multiclass Probability Estimates},
+  booktitle = {Proceedings of the Eighth ACM SIGKDD International Conference on Knowledge Discovery and Data Mining},
+  year      = {2002},
+  pages     = {694--699},
+  doi       = {10.1145/775047.775151}
+}
+
+@inproceedings{niculescu2005,
+  author    = {Niculescu-Mizil, Alexandru and Caruana, Rich},
+  title     = {Predicting Good Probabilities with Supervised Learning},
+  booktitle = {Proceedings of the 22nd International Conference on Machine Learning (ICML '05)},
+  year      = {2005},
+  pages     = {625--632},
+  doi       = {10.1145/1102351.1102430}
+}

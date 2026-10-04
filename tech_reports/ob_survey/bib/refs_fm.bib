@@ -1,0 +1,232 @@
+% refs_fm.bib -- foundation models, TSFMs on financial data, cross-asset lead-lag /
+% cross-impact. Verified 2026-10-02 against arXiv abstract pages / PDFs, PMLR,
+% AAAI OJS, Crossref and OpenAlex. Fields not confirmed from those sources are omitted.
+% Keys already in ../refs.bib or other bib/*.bib (linna2025lobert, bacry2013,
+% budish2015, contcucuringu2023, hasbrouck2007, vaswani2017) are NOT repeated.
+
+% ---------------- Time-series foundation models ----------------
+
+@article{chronos2024,
+  author  = {Ansari, Abdul Fatir and Stella, Lorenzo and Turkmen, Caner and Zhang, Xiyuan and Mercado, Pedro and Shen, Huibin and Shchur, Oleksandr and Rangapuram, Syama Sundar and Pineda Arango, Sebastian and Kapoor, Shubham and Zschiegner, Jasper and Maddix, Danielle C. and Wang, Hao and Mahoney, Michael W. and Torkkola, Kari and Wilson, Andrew Gordon and Bohlke-Schneider, Michael and Wang, Yuyang},
+  title   = {Chronos: Learning the Language of Time Series},
+  journal = {Transactions on Machine Learning Research},
+  year    = {2024},
+  url     = {https://openreview.net/forum?id=gerNCVqqtR},
+  eprint        = {2403.07815},
+  archivePrefix = {arXiv}
+}
+
+@inproceedings{timesfm2024,
+  author    = {Das, Abhimanyu and Kong, Weihao and Sen, Rajat and Zhou, Yichen},
+  title     = {A Decoder-Only Foundation Model for Time-Series Forecasting},
+  booktitle = {Proceedings of the 41st International Conference on Machine Learning},
+  series    = {Proceedings of Machine Learning Research},
+  volume    = {235},
+  pages     = {10148--10167},
+  publisher = {PMLR},
+  year      = {2024},
+  eprint        = {2310.10688},
+  archivePrefix = {arXiv}
+}
+
+@inproceedings{moirai2024,
+  author    = {Woo, Gerald and Liu, Chenghao and Kumar, Akshat and Xiong, Caiming and Savarese, Silvio and Sahoo, Doyen},
+  title     = {Unified Training of Universal Time Series Forecasting Transformers},
+  booktitle = {Proceedings of the 41st International Conference on Machine Learning},
+  series    = {Proceedings of Machine Learning Research},
+  volume    = {235},
+  pages     = {53140--53164},
+  publisher = {PMLR},
+  year      = {2024},
+  eprint        = {2402.02592},
+  archivePrefix = {arXiv}
+}
+
+@misc{lagllama2023,
+  author        = {Rasul, Kashif and Ashok, Arjun and Williams, Andrew Robert and Ghonia, Hena and Bhagwatkar, Rishika and Khorasani, Arian and Darvishi Bayazi, Mohammad Javad and Adamopoulos, George and Riachi, Roland and Hassen, Nadhir and Bilo{\v{s}}, Marin and Garg, Sahil and Schneider, Anderson and Chapados, Nicolas and Drouin, Alexandre and Zantedeschi, Valentina and Nevmyvaka, Yuriy and Rish, Irina},
+  title         = {{Lag-Llama}: Towards Foundation Models for Probabilistic Time Series Forecasting},
+  year          = {2023},
+  eprint        = {2310.08278},
+  archivePrefix = {arXiv}
+}
+
+% ---------------- Financial / market-microstructure foundation models ----------------
+
+@inproceedings{kronos2025,
+  author    = {Shi, Yu and Fu, Zongliang and Chen, Shuo and Zhao, Bohan and Xu, Wei and Zhang, Changshui and Li, Jian},
+  title     = {Kronos: A Foundation Model for the Language of Financial Markets},
+  booktitle = {Proceedings of the AAAI Conference on Artificial Intelligence},
+  note      = {Vol.~40, no.~30},
+  pages     = {25366--25373},
+  year      = {2026},
+  doi       = {10.1609/aaai.v40i30.39730},
+  eprint        = {2508.02739},
+  archivePrefix = {arXiv}
+}
+
+@misc{tradefm2026,
+  author        = {Kawawa-Beaudan, Maxime and Sood, Srijan and Papasotiriou, Kassiani and Borrajo, Daniel and Veloso, Manuela},
+  title         = {{TradeFM}: A Generative Foundation Model for Trade-flow and Market Microstructure},
+  year          = {2026},
+  eprint        = {2602.23784},
+  archivePrefix = {arXiv}
+}
+
+% ---------------- Evidence on general TSFMs applied to financial data ----------------
+
+@misc{rahimikia2025tsfm,
+  author        = {Rahimikia, Eghbal and Ni, Hao and Wang, Weiguan},
+  title         = {Re(Visiting) Time Series Foundation Models in Finance},
+  year          = {2025},
+  eprint        = {2511.18578},
+  archivePrefix = {arXiv}
+}
+
+@misc{brini2026rv,
+  author        = {Brini, Alessio},
+  title         = {Forecasting Realized Volatility with Time Series Foundation Models: A Comparison with Econometric Benchmarks},
+  year          = {2026},
+  eprint        = {2607.05291},
+  archivePrefix = {arXiv}
+}
+
+@misc{alonso2026tsfm,
+  author        = {Noguer i Alonso, Miquel and Franklin, Rodolfo Pereira},
+  title         = {Pretrained Time-Series Foundation Models for Financial Return Forecasting},
+  year          = {2026},
+  eprint        = {2606.27100},
+  archivePrefix = {arXiv}
+}
+
+% ---------------- Futures / cash lead-lag at high frequency ----------------
+
+@article{laughlin2014,
+  author  = {Laughlin, Gregory and Aguirre, Anthony and Grundfest, Joseph},
+  title   = {Information Transmission between Financial Markets in {Chicago} and {New York}},
+  journal = {Financial Review},
+  year    = {2014},
+  volume  = {49},
+  number  = {2},
+  pages   = {283--312},
+  doi     = {10.1111/fire.12036},
+  eprint        = {1302.5966},
+  archivePrefix = {arXiv}
+}
+
+@article{hasbrouck2003,
+  author  = {Hasbrouck, Joel},
+  title   = {Intraday Price Formation in {U.S.} Equity Index Markets},
+  journal = {The Journal of Finance},
+  year    = {2003},
+  volume  = {58},
+  number  = {6},
+  pages   = {2375--2400},
+  doi     = {10.1046/j.1540-6261.2003.00609.x}
+}
+
+@article{huth2014,
+  author  = {Huth, Nicolas and Abergel, Fr{\'e}d{\'e}ric},
+  title   = {High Frequency Lead/Lag Relationships -- Empirical Facts},
+  journal = {Journal of Empirical Finance},
+  year    = {2014},
+  volume  = {26},
+  pages   = {41--58},
+  doi     = {10.1016/j.jempfin.2014.01.003},
+  eprint        = {1111.7103},
+  archivePrefix = {arXiv}
+}
+
+@techreport{dobrev2017,
+  author      = {Dobrev, Dobrislav and Schaumburg, Ernst},
+  title       = {High-Frequency Cross-Market Trading: Model Free Measurement and Applications},
+  institution = {Federal Reserve Board of Governors},
+  type        = {Working paper (version of October 15, 2017)},
+  year        = {2017},
+  url         = {https://www.aeaweb.org/conference/2018/preliminary/paper/QdkHkBSZ}
+}
+
+@techreport{garrison2019,
+  author      = {Garrison, Robert and Jain, Pankaj and Paddrik, Mark},
+  title       = {Cross-Asset Market Order Flow, Liquidity, and Price Discovery},
+  institution = {Office of Financial Research},
+  type        = {OFR Working Paper},
+  number      = {19-04},
+  year        = {2019},
+  url         = {https://www.financialresearch.gov/working-papers/files/OFRwp-19_04_cross-asset-market-order-flow-liquidity-and-price-discovery.pdf}
+}
+
+% ---------------- Cross-impact / order flow across the rates curve ----------------
+
+@article{brandt2004,
+  author  = {Brandt, Michael W. and Kavajecz, Kenneth A.},
+  title   = {Price Discovery in the {U.S.} Treasury Market: The Impact of Orderflow and Liquidity on the Yield Curve},
+  journal = {The Journal of Finance},
+  year    = {2004},
+  volume  = {59},
+  number  = {6},
+  pages   = {2623--2654},
+  doi     = {10.1111/j.1540-6261.2004.00711.x}
+}
+
+@article{tomas2022,
+  author  = {Tomas, Mehdi and Mastromatteo, Iacopo and Benzaquen, Michael},
+  title   = {How to Build a Cross-Impact Model from First Principles: Theoretical Requirements and Empirical Results},
+  journal = {Quantitative Finance},
+  year    = {2022},
+  volume  = {22},
+  number  = {6},
+  pages   = {1017--1036},
+  doi     = {10.1080/14697688.2021.2020328},
+  eprint        = {2004.01624},
+  archivePrefix = {arXiv}
+}
+
+% ---------------- Multivariate Hawkes lead-lag ----------------
+
+@article{dafonseca2017,
+  author  = {Da Fonseca, Jos{\'e} and Zaatour, Riadh},
+  title   = {Correlation and Lead--Lag Relationships in a {Hawkes} Microstructure Model},
+  journal = {Journal of Futures Markets},
+  year    = {2017},
+  volume  = {37},
+  number  = {3},
+  pages   = {260--285},
+  doi     = {10.1002/fut.21800}
+}
+
+@misc{ding2024llmtrading,
+  author        = {Ding, Han and Li, Yinheng and Wang, Junhao and Chen, Hang and Guo, Doudou and Zhang, Yunbai},
+  title         = {Large Language Model Agent in Financial Trading: A Survey},
+  year          = {2024},
+  eprint        = {2408.06361},
+  archivePrefix = {arXiv},
+  note          = {International Conference on Computers in Management and Business 2026}
+}
+
+@inproceedings{dong2025llmfinance,
+  author    = {Dong, Yifei and Wu, Fengyi and Zhang, Kunlin and Dai, Yilong and Zhang, Sanjian and Ye, Wanghao and Chen, Sihan and Cheng, Zhi-Qi},
+  title     = {Large Language Model Agents in Finance: A Survey Bridging Research, Practice, and Real-World Deployment},
+  booktitle = {Findings of the Association for Computational Linguistics: EMNLP 2025},
+  pages     = {17889--17907},
+  year      = {2025},
+  publisher = {Association for Computational Linguistics},
+  doi       = {10.18653/v1/2025.findings-emnlp.972}
+}
+
+@inproceedings{kou2025strategy,
+  author    = {Kou, Zhizhuo and Yu, Holam and Luo, Junyu and Peng, Jingshu and Li, Xujia and Liu, Chengzhong and Dai, Juntao and Chen, Lei and Han, Sirui and Guo, Yike},
+  title     = {Automate Strategy Finding with {LLM} in Quant Investment},
+  booktitle = {Findings of the Association for Computational Linguistics: EMNLP 2025},
+  pages     = {18517--18533},
+  year      = {2025},
+  publisher = {Association for Computational Linguistics},
+  doi       = {10.18653/v1/2025.findings-emnlp.1005}
+}
+
+@misc{hua2026agentic,
+  author        = {Hua, Fengrui and Yang, Hengyi and Hao, Xinlei and Zhang, Haohan and Cao, Bokai and Qi, Yiyan and Li, Jia and Guo, Jian},
+  title         = {Agentic Quantitative Trading: A Survey of Workflows, Systems, and Evaluation},
+  year          = {2026},
+  eprint        = {2608.31041},
+  archivePrefix = {arXiv}
+}

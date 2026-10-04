@@ -1,0 +1,102 @@
+\documentclass[11pt]{article}
+
+% ---------------------------------------------------------------
+% A Survey of Limit-Order-Book Models, Simulators and Hardware Acceleration
+% Survey. Computations are illustrations on synthetic data only.
+% ---------------------------------------------------------------
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{geometry}
+\usepackage[authoryear,round]{natbib}
+\usepackage{xurl}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc,decorations.pathreplacing}
+\usepackage[font=small,labelfont=bf,skip=4pt]{caption}
+\usepackage{placeins}
+\usepackage[most]{tcolorbox}
+
+\geometry{margin=1in}
+\setlength{\emergencystretch}{2em}
+\hypersetup{colorlinks=true, linkcolor=blue!50!black, citecolor=blue!50!black,
+            urlcolor=blue!50!black}
+
+
+% Boxes for worked examples and intuition notes
+\newtheoremstyle{example}{6pt}{6pt}{\normalfont}{}{\bfseries}{.}{0.5em}{}
+\theoremstyle{example}
+\newtheorem{example}{Example}[section]
+\newtheorem{principle}{Principle}
+% Plain-language reading of an equation, for undergraduate readers
+\newcommand{\inwords}[1]{\par\smallskip\noindent\textit{In words:} #1\par\smallskip}
+
+% Four-question model card used at the end of each model in Part II
+\newtcolorbox{modelcard}[1]{breakable, enhanced, colback=black!3, colframe=black!45,
+  boxrule=0.5pt, arc=1.5pt, left=5pt, right=5pt, top=3pt, bottom=3pt,
+  fonttitle=\bfseries\small, title={Model card: #1}, fontupper=\small}
+\newtcolorbox{featurecard}[1]{breakable, enhanced, colback=black!3, colframe=black!45,
+  boxrule=0.5pt, arc=1.5pt, left=5pt, right=5pt, top=3pt, bottom=3pt,
+  fonttitle=\bfseries\small, title={Feature card: #1}, fontupper=\small}
+\newcommand{\cardrow}[2]{\par\noindent\textbf{#1.}\enspace #2\par\smallskip}
+
+\newcommand{\E}{\mathbb{E}}
+\renewcommand{\P}{\mathbb{P}}
+\newcommand{\OFI}{\mathrm{OFI}}
+\newcommand{\QI}{\mathrm{QI}}
+\newcommand{\Fill}{\mathrm{Fill}}
+\newcommand{\lamd}{\textsc{lamd}}
+\newcommand{\ev}[1]{\penalty50\textsuperscript{\,\textsf{#1}}}
+\newcommand{\kasparhft}{\textsc{Kaspar-HFT}}
+\newcommand{\pov}{\textsc{Shadow-PPOV}}
+
+\title{\textbf{A Survey of Limit-Order-Book Models,\\ Simulators and Hardware Acceleration}}
+
+\author{%
+  Vincent Maciejewski\\
+  \small M2 Technologies\\
+  \small \texttt{mayeski@gmail.com}
+}
+
+\date{October 2026}
+
+\begin{document}
+\maketitle
+
+\input{sections/abstract}
+
+\tableofcontents
+\newpage
+
+\part{Background and Scope}
+\input{sections/p1_problem}
+
+\part{Models of the Limit Order Book}
+\input{sections/p2_models}
+
+\part{Simulation and Hardware Acceleration}
+\input{sections/p3_sim_hw}
+
+\part{Open Problems and Conclusion}
+\input{sections/p4_conclusion}
+
+\FloatBarrier
+\appendix
+\input{sections/app_notation}
+\input{sections/glossary}
+
+\FloatBarrier
+\bibliographystyle{plainnat}
+\bibliography{refs,bib/refs_classic,bib/refs_dl,bib/refs_eval,bib/refs_fm,bib/refs_hawkes2,bib/refs_meta,bib/refs_mix,bib/refs_tok,bib/refs_deep2,bib/refs_hawkes3,bib/refs_nncomb,bib/refs_predhybrid,bib/refs_attncomb,bib/refs_marks_regimes,bib/refs_frameworks,bib/refs_sim,bib/refs_hwaccel,bib/refs_sim2,bib/refs_hwaccel2,bib/refs_sim3,bib/refs_parallel,bib/refs_companies,bib/refs_rl,bib/refs_impact,bib/refs_coverage,bib/refs_mamba}
+
+\end{document}

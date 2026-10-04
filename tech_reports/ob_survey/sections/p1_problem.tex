@@ -1,0 +1,1108 @@
+\paragraph{About this part.} Part~I gives the background the rest of the survey relies on and states its
+scope. It explains what a
+limit order book is and how it is built from exchange messages, fixes the notation and the probability
+used throughout, and makes the survey's central distinction: predicting the next price move is not the
+same as making money from it. Section~\ref{sec:intro} covers the market, the notation and the three
+principles that organise the survey; Section~\ref{sec:method} explains how the literature was chosen
+and how strongly each kind of claim should be believed.
+
+% ================================================================
+\section{Introduction}
+\label{sec:intro}
+% ================================================================
+
+This section introduces the object of study and the language used to describe it. It explains how an
+electronic market matches buyers and sellers through a limit order book, what the book looks like as
+data, and how exchanges publish it; then fixes the notation and the few ideas from probability that
+the rest of the survey needs. It also explains why models, simulators and hardware are covered together, separates prediction, execution and
+simulation, and sets out the three principles and four axes used to organise the literature.
+
+\subsection{The limit order book as a dynamic market state}
+
+Modern electronic markets operate as \emph{continuous double auctions}: buyers and sellers may
+submit orders at any moment, and a trade happens whenever a buy price meets a sell price. The study
+of how these trading mechanisms turn orders and information into prices is called \emph{market
+microstructure}~\citep{ohara1995,harris2003,hasbrouck2007}. \emph{Liquidity}---how easily one can
+trade without moving the price---is supplied by resting limit orders and consumed by aggressive
+orders, and the visible limit order book records the outcome at a resolution that ranges from
+individual messages to aggregated price levels~\citep{gould2013,bouchaud2018}.
+
+Limit order books match buyers and sellers in more than half of the world's financial
+markets~\citep{gould2013}. In their survey, \citet{gould2013} review the empirical regularities of order
+books and the models proposed to explain them, and conclude that many of those models do not yet reproduce
+several features of real books, and that some well-established facts remain unexplained. The economic theory of why
+quotes are set where they are is older. In the model of \citet{glosten1985}, a market maker who trades
+with a mixture of better-informed and uninformed traders quotes a positive spread between bid and ask even
+with no transaction costs and no expected profit: the spread is what the market maker needs to recover,
+from the uninformed, what it loses to the informed. The idea that order flow carries information about
+value is the economic reason the book is worth modelling at all: its stream of orders, cancellations and
+trades explains a large part of short-horizon price
+changes~\citep{cks2014}, and the predictive models of this survey try to extract what it says about the
+next few seconds~\citep{sirignano2019,zhang2019,lucchese2024}.
+
+This survey is written for students with a computer-science or electrical-engineering background
+and no prior finance, and for practitioners. Market, statistical and machine-learning terms are explained where they first
+appear, and Appendix~\ref{app:glossary} collects them with references. Most examples use
+\emph{futures}: standardised exchange-traded contracts to buy or sell an asset at a set future
+date~\citep{hull}. The running examples are the E-mini S\&P~500 future (ES, on an index of 500
+large US stocks), the E-mini Nasdaq-100 future (NQ) and the 10-year US Treasury note future (ZN),
+all traded on CME Group's electronic platform. Each such contract is an \emph{instrument}.
+
+\paragraph{Three surveys in one, from theory to production.} The survey covers three subjects that are usually
+treated separately: order-book models, order-book simulators, and the hardware that runs a trading system. They are
+put together because they are the three stages a model passes through on its way to production, and the survey is
+arranged in that order.
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \textbf{Theory (Part~II).} The models of the book: how each is built, what its properties are, what it predicts,
+  and how well it does so.
+\item \textbf{Simulation (Part~III, Sections~\ref{sec:sim-needs}--\ref{sec:kaspar}).} How a model is turned into a
+  trading strategy and tested before any money is at risk: what a simulator must capture, which simulators exist, and
+  how a model is added to one and scored.
+\item \textbf{Deployment (Part~III, Section~\ref{sec:hardware}).} How a strategy that works in simulation is run on
+  hardware fast enough for it: where the time goes, what can be accelerated, and why a model too slow for the hot path
+  (the chain of processing every market-data message passes through) cannot be deployed there at all.
+\end{enumerate}
+Figure~\ref{fig:theory-to-production} shows the process.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, scale=0.95, transform shape,
+  st/.style={draw, rounded corners=3pt, align=left, text width=44mm, inner sep=4pt, minimum height=38mm, anchor=north},
+  arr/.style={-{Stealth[length=1.8mm]}, thick},
+  back/.style={-{Stealth[length=1.6mm]}, dashed}]
+\node[st, fill=orange!10] (t) at (0,0) {\textbf{1. Theory} \hfill Part~II\\[3pt]
+  \emph{Question:} what does the book predict?\\[3pt]
+  choose the representation and the target;\\
+  build the model;\\
+  compare it with simple baselines on proper scores\\[3pt]
+  \emph{Output:} a forecast};
+\node[st, fill=blue!8] (s) at (5.6,0) {\textbf{2. Simulation} \hfill \S\ref{sec:sim-needs}--\ref{sec:kaspar}\\[3pt]
+  \emph{Question:} does the forecast survive the queue, the fill and the latency?\\[3pt]
+  add the model to a strategy;\\
+  replay recorded days with exact queue position and delays;\\
+  score against the model-free benchmark\\[3pt]
+  \emph{Output:} a tested strategy};
+\node[st, fill=green!10] (d) at (11.2,0) {\textbf{3. Deployment} \hfill \S\ref{sec:hardware}\\[3pt]
+  \emph{Question:} is it fast enough to run?\\[3pt]
+  paper trading (live data, simulated orders), then live;\\
+  keep the model within the hot-path budget;\\
+  place each stage on a central processor (CPU), field-programmable gate array (FPGA) or graphics processor (GPU)\\[3pt]
+  \emph{Output:} a strategy in production};
+\draw[arr] (t.east) -- (s.west);
+\draw[arr] (s.east) -- (d.west);
+\draw[back] (s.north) -- ++(0,0.45) -| node[pos=0.25, above]{fails after costs: change the model or the target} (t.north);
+\draw[back] (d.north) -- ++(0,0.95) -| node[pos=0.25, above]{too slow for the hot path: a smaller model, or off the hot path} ([xshift=-8mm]t.north);
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}] ([yshift=-2mm]s.south west) -- ([yshift=-2mm]d.south east)
+  node[midway, below=6pt, align=center]{\kasparhft{}: the same code in replay, paper and live trading;\\
+  moving from simulation to deployment is a configuration setting};
+\end{tikzpicture}
+\caption{The path from theory to production that the survey follows. Each stage asks its own question and passes on
+its output only if the answer is yes; a strategy that fails in simulation, or a model too slow for the hot path, goes
+back to the first stage.}
+\label{fig:theory-to-production}
+\end{figure}
+A practitioner or student who wants to take a model from a paper to a trading server needs all three: theory,
+simulation and deployment. Each part can be read on its own.
+
+\paragraph{\kasparhft{}, the system used as the worked example.} Throughout the survey, questions about simulation and
+execution are made concrete with \kasparhft{}~\citep{kaspar_hft}, an open-source trading system and order-book simulator
+written by the author. It rebuilds the book order by order from the exchange's own market-data feed, replays recorded
+trading days with the researcher's simulated orders placed in the real queues, and runs the same code in replay, paper
+and live trading on CME futures. It has been used to evaluate an execution method on a full year of E-mini S\&P~500
+data~\citep{maciejewski_shadow}. Section~\ref{sec:kaspar} describes it in detail.
+
+\paragraph{Orders and order types.}
+An \emph{order} is an instruction to buy or sell a quantity of a contract. The quantity is counted
+in \emph{lots} (one futures contract, or one share), and prices are restricted to multiples of the
+\emph{tick}, the smallest allowed price step. The main order types are the
+following~\citep{harris2003}.
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item A \emph{limit order} says ``buy (or sell) up to this many lots, at this price or better''.
+  Whatever cannot trade immediately waits in the book. Waiting buy orders are \emph{bids}; waiting
+  sell orders are \emph{asks} (or \emph{offers}).
+\item A \emph{market order} says ``buy (or sell) this many lots now, at whatever price is
+  available''. It trades immediately against waiting orders and never waits itself. A limit order
+  priced to trade immediately (a buy at or above the best ask) behaves the same way; both are called
+  \emph{aggressive}, and the trader is said to \emph{cross the spread}. A trader whose limit order
+  waits in the book is \emph{passive}.
+\item A \emph{cancel} removes a waiting order, completely or partly; a \emph{modify} (or
+  \emph{replace}) changes its price or quantity.
+\item \emph{Time-in-force} qualifiers say how long an order may wait: a \emph{day} order waits
+  until the session ends; an \emph{immediate-or-cancel} (IOC) order trades what it can at once and
+  cancels the rest; a \emph{fill-or-kill} (FOK) order trades in full at once or not at all.
+\item An \emph{iceberg} order shows only part of its quantity; when the visible part trades,
+  more appears. A fully \emph{hidden} order shows nothing. Both trade but are partly or wholly
+  invisible in the book.
+\end{itemize}
+
+\paragraph{The book is a data structure.}
+The \emph{limit order book} (LOB) is the set of all waiting orders for one instrument. Each side is
+naturally implemented as an ordered map from price to a queue of orders: bids sorted from highest
+price down, asks from lowest price up, with a hash map from order identifier to order so that a
+cancel can find its order in constant time. The \emph{best bid} is the highest bid price, the
+\emph{best ask} the lowest ask price. When an aggressive buy arrives, the exchange's
+\emph{matching engine} trades it against the best ask, then the next price up, and so on until the
+buy is filled or its limit price is reached; trading through several price levels is called
+\emph{walking the book}. Figure~\ref{fig:book} shows the structure.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  ord/.style={draw, minimum width=9mm, minimum height=5mm, font=\scriptsize, inner sep=1pt},
+  px/.style={font=\small, anchor=east}]
+\node[px] at (0,2.4) {ask 5000.75};
+\node[px] at (0,1.8) {ask 5000.50};
+\node[px] at (0,1.2) {ask 5000.25};
+\node[px] at (0,0.0) {bid 5000.00};
+\node[px] at (0,-0.6) {bid 4999.75};
+\node[ord, fill=red!10] at (0.7,2.4) {12};
+\node[ord, fill=red!10] at (0.7,1.8) {4};\node[ord, fill=red!10] at (1.7,1.8) {9};
+\node[ord, fill=red!10] at (0.7,1.2) {3};\node[ord, fill=red!10] at (1.7,1.2) {10};\node[ord, fill=red!10] at (2.7,1.2) {1};
+\node[ord, fill=blue!10] at (0.7,0.0) {7};\node[ord, fill=blue!10] at (1.7,0.0) {2};\node[ord, fill=blue!10] at (2.7,0.0) {15};\node[ord, fill=blue!10] at (3.7,0.0) {5};
+\node[ord, fill=blue!10] at (0.7,-0.6) {20};\node[ord, fill=blue!10] at (1.7,-0.6) {6};
+\draw[dashed] (-2.2,0.6) -- (4.4,0.6) node[right, font=\scriptsize] {spread $=1$ tick};
+\draw[-{Stealth}] (0.25,-1.15) -- node[below, font=\scriptsize]{front of queue trades first} (3.9,-1.15);
+\end{tikzpicture}
+\caption{A small book. Each box is one waiting order and the number is its size in lots. Orders at
+the same price form a first-in-first-out queue, front on the left. The best bid is 5000.00 with
+$7+2+15+5 = 29$ lots; the best ask is 5000.25 with $14$ lots; the spread is one tick of 0.25.}
+\label{fig:book}
+\end{figure}
+
+\paragraph{Queues and priority.}
+Which waiting order trades first is decided by the venue's \emph{priority rule}. Most venues use
+\emph{price--time priority}~\citep{harris2003}: better prices trade first, and among orders at the same price the one
+that arrived first trades first. Each price level is then exactly a FIFO queue. Some products use
+\emph{pro-rata} allocation instead, in which an incoming order is split among the waiting orders in
+proportion to their sizes; at CME, for example, most futures match first-in-first-out while SOFR (Secured Overnight Financing Rate)
+interest-rate futures use a pro-rata or allocation algorithm~\citep{cme_matching}. Under
+price--time priority an order's place in the queue matters, and the rules for keeping it matter
+too: on CME Globex, decreasing an order's quantity keeps its place, while increasing the quantity
+or changing the price sends it to the back of the queue~\citep{cme_matching}. The volume waiting
+ahead of an order is its \emph{queue position}; much of this survey is about why that number
+matters.
+
+\paragraph{Contents of a market-data feed.}
+Exchanges publish the book through market-data feeds at three levels of detail. \emph{Level~1}
+gives only the best bid and ask and their sizes. \emph{Level~2}, or \emph{market by price} (MBP),
+gives the total size at each of the best few price levels. \emph{Level~3}, or \emph{market by
+order} (MBO), reports every individual order: each addition, execution, cancellation and
+modification, with an order identifier. MBO data provide the information needed to
+reconstruct the displayed order-level queues, and therefore to estimate queue positions, subject to the
+venue's matching rules and feed semantics; hidden liquidity and feed gaps remain outside what any feed
+shows.
+
+The three levels, and the forms in which the data reach models, are not equivalent information sets
+(Table~\ref{tab:representations}). Each step down the table keeps something the step above discards.
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{Representations of the book and the information each carries. ``Queue position'' is the place of one order
+in the queue at its price. Models named here are defined in Part~II. Our synthesis of Sections~\ref{sec:intro},
+\ref{sec:events} and~\ref{sec:deep-io}.}
+\label{tab:representations}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}cccc>{\raggedright\arraybackslash}X}
+\toprule
+Representation & Order identity & Queue position & Event type & Event timing & Typical models \\
+\midrule
+Level 1 (best quotes) & no & no & no & at quote changes & queue imbalance, weighted mid \\
+Level 2 / MBP snapshots & no & estimated only & no (net change only) & per update & OFI, micro-price, DeepLOB \\
+Level 3 / MBO book & yes & exact & yes & per message & queue models, queue-exact replay \\
+MBO message sequence & yes & exact & yes & exact & Hawkes, neural point processes, LOBERT \\
+Trades only & no & no & trades only & exact & Hawkes models of trades \\
+Derived features & varies & varies & varies & varies & meta-models, many deep models \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Example: building the book from Nasdaq ITCH.}
+Nasdaq's TotalView-ITCH~5.0 feed is a widely used MBO protocol and a clear example of how a book is
+built from messages~\citep{itch50}. Every message is a small fixed-layout binary record with a
+one-character type, a timestamp in nanoseconds since midnight, and, for order messages, an 8-byte
+\emph{order reference number} that identifies the order for the rest of the day. The order
+messages are:
+
+\begin{center}\footnotesize
+\begin{tabular}{cll}
+\toprule
+Type & Name & Effect on the book \\
+\midrule
+\texttt{A}, \texttt{F} & Add Order & new order (side, shares, price) joins the back of its queue \\
+\texttt{E} & Order Executed & order traded; reduce its shares by the executed amount \\
+\texttt{C} & Order Executed With Price & as \texttt{E}, at a price different from the order's own \\
+\texttt{X} & Order Cancel & partial cancel; reduce its shares \\
+\texttt{D} & Order Delete & order cancelled; remove it \\
+\texttt{U} & Order Replace & remove the old order; add a new one with a new reference number \\
+\texttt{P} & Trade (non-cross) & an execution against a non-displayed order; no book change \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Building the book needs two structures: for each side, an ordered map from price to a first-in-first-out
+queue of orders, and a table from reference number to order. Each message updates them as the table says: an add
+appends the order to the back of the queue at its price and records it in the table; an execution or partial cancel
+finds the order by its reference number and reduces its shares, removing it at zero; a delete removes it; a replace
+removes the old order and adds a new one at the back of the queue. An empty price level is removed from the map.
+Three details matter later in this survey. First, an execution message names the waiting order
+that traded, so the feed reveals \emph{which} order in the queue was hit---the information needed
+to reconstruct queue positions (Section~\ref{sec:simulators}). Second, a replace carries a new reference number, so in
+the reconstructed book the order leaves its place and rejoins at the back. Third, hidden orders
+produce only \texttt{P} messages and never enter the book: the book a feed lets you build is the
+\emph{displayed} book. ITCH is delivered over a sequenced UDP multicast protocol (MoldUDP64), so a
+receiver can detect lost packets by gaps in the sequence numbers. CME's MDP~3.0 market-by-order feed,
+used by the \kasparhft{} system of Section~\ref{sec:kaspar}, follows the same pattern with its own binary
+encoding~\citep{cme_mdp3}.
+
+At time $t$, an $L$-level description of the book is
+\begin{equation}
+  \mathcal{L}_t = \left\{ p^{b}_{\ell,t},\, v^{b}_{\ell,t},\, p^{a}_{\ell,t},\, v^{a}_{\ell,t}
+  \right\}_{\ell=1}^{L},
+  \label{eq:lob-state}
+\end{equation}
+where $p^{b}_{\ell,t}$ and $v^{b}_{\ell,t}$ are the price and displayed volume at the $\ell$-th best
+bid level ($\ell = 1$ is the best bid), and $p^{a}_{\ell,t}$, $v^{a}_{\ell,t}$ the same on the ask side.
+\inwords{this is the market-by-price view of the book: a table with $L$ rows per side, each row a
+price and the total number of lots waiting there. It can be computed from the order-level book by
+summing each queue. It is the state of the market, and it changes every time an order arrives,
+trades or is cancelled.}
+The mid-price and
+spread,
+\begin{equation}
+  m_t = \tfrac12\left(p^{a}_{1,t}+p^{b}_{1,t}\right), \qquad s_t = p^{a}_{1,t}-p^{b}_{1,t},
+\end{equation}
+\inwords{the mid $m_t$ is halfway between the best price anyone will buy at and the best price
+anyone will sell at; it is the usual single-number ``price'' of the market. The spread $s_t$ is the
+gap between them: buying and immediately selling back costs one spread.}
+These are convenient summaries that discard most of the book: the distribution of liquidity across
+levels, the sequence of events that produced the current state, and the queue position of any
+individual order.
+
+Throughout, numerical examples use stylised values chosen to make the arithmetic visible. They are
+not empirical estimates. The paper's own computations are illustrations on simulated data (queue models and point processes).
+Market-data figures come from cited studies, including the author's, and from measurements of \kasparhft{}.
+
+\begin{example}[Two books with the same mid]
+Two E-mini S\&P 500 (ES) books have the same mid (5000.125) and the same one-tick spread (tick
+$=0.25$). In the first, 12 lots rest at the best ask; in the second, 900. Buying 100 lots
+aggressively costs several ticks more in the first book than in the second. Mid and spread do not
+distinguish them.
+\end{example}
+
+In our view, three properties make LOB modelling hard. The data are \emph{event-driven}: orders arrive,
+execute and cancel at irregular times. The state is \emph{high-dimensional} even when only a few
+levels are observed. And the statistical properties are \emph{non-stationary} across time of day,
+assets, volatility regimes and market-structure changes. A model that performs well for one
+representation, horizon or market is therefore not, by that fact, a model of order-book dynamics.
+
+\subsection{Notation}
+\label{sec:notation}
+
+This subsection fixes the symbols used throughout, and explains what each one means for a trader
+watching the book. Symbols used in only one section are defined where they first appear. To make
+the symbols concrete, each group is followed by its value in one running example: the book of
+Figure~\ref{fig:book}, where at time $t$ we decide to place a passive buy order for one lot at
+5000.00.
+
+\begin{description}[leftmargin=1.5em,style=nextline,itemsep=4pt]
+\item[Time and events]
+  $t$ is time. Book events (additions, cancellations, executions) are numbered $n = 1, 2, \dots$
+  and happen at times $t_1 \le t_2 \le \cdots$. A quantity written with subscript $t$ is its value
+  just after everything that happened up to and including $t$; $t-$ means ``just before $t$''.
+  $H > 0$ is a horizon---how far ahead we look---and $\delta$ is the tick size.\\
+  \emph{What it means:} the market is a stream of events, and we look at it as a sequence of
+  snapshots taken whenever we like. $H$ is the question ``how long am I willing to wait?''\\
+  \emph{Example:} $\delta = 0.25$ (one ES tick), and we look $H = 1$ s ahead.
+
+\item[Book]
+  $p^{b}_{\ell,t}$, $v^{b}_{\ell,t}$, $p^{a}_{\ell,t}$, $v^{a}_{\ell,t}$, the mid $m_t$ and the
+  spread $s_t$ are as defined in Section~\ref{sec:intro}. The change in the mid over the next $H$
+  seconds is $\Delta m_{t,H} = m_{t+H} - m_t$.\\
+  \emph{What it means:} $\Delta m_{t,H}$ is ``how much did the price go up (or down, if negative)
+  while I waited''. Almost every prediction model in the literature targets some function of it.\\
+  \emph{Example:} $p^b_{1,t} = 5000.00$, $v^b_{1,t} = 29$, $p^a_{1,t} = 5000.25$, $v^a_{1,t} = 14$,
+  so $m_t = 5000.125$ and $s_t = 0.25$. If one second later the best bid and ask are 4999.75 and
+  5000.00, then $m_{t+H} = 4999.875$ and $\Delta m_{t,H} = -0.25$: the price fell one tick.
+
+\item[Information and prediction]
+  $X_t$ is everything observable at $t$ that a model may use: the book, recent events, and anything
+  derived from them. $Y_{t+H}$ is the quantity we want to predict, which becomes known only at
+  $t+H$; $\widehat{Y}_t$ is a model's prediction of it, made at $t$.\\
+  \emph{What it means:} $X_t$ is the model's input vector and $\widehat{Y}_t$ its output. The rule
+  is that $X_t$ may contain only what was really known at $t$---no peeking at the future.\\
+  \emph{Example:} $X_t$ could be the sizes of the five best levels on each side; $Y_{t+H}$ could be
+  ``did the mid rise within one second?'', and $\widehat{Y}_t = 0.6$ a model's estimate that it
+  will.
+
+\item[Actions and orders]
+  $a_t$ is what we do at $t$: place an order, keep it, cancel it, or cross the spread. $d$ is the
+  side of an order, $d = +1$ for a buy and $d = -1$ for a sell. For a waiting order,
+  $Q^{\text{ahead}}_t$ is the displayed volume ahead of it in its queue, and $q$ stands for a
+  particular value of $Q^{\text{ahead}}_t$.\\
+  \emph{What it means:} $d$ lets one formula serve both buyers and sellers, since a rising price is
+  good for a buyer and bad for a seller. $Q^{\text{ahead}}_t$ is ``how many people are in line in
+  front of me''.\\
+  \emph{Example:} $a_t$ = place a bid at 5000.00, $d = +1$. The new order joins the back of the
+  5000.00 queue, so $Q^{\text{ahead}}_t = 29$.
+
+\item[Fills]
+  $\tau_F$ is how long after $t$ the order is filled ($\tau_F = \infty$ if it never is),
+  $t_F = t + \tau_F$ is the clock time of the fill, and $p^{\text{fill}}$ is the price received.
+  $\Fill$ is the event ``the order was filled within the horizon'', $\{\tau_F \le H\}$, and
+  $\mathbb{1}_{\Fill}$ is $1$ if that happened and $0$ otherwise.\\
+  \emph{What it means:} a passive order is a bet that someone will come and trade with it; these
+  symbols record whether, when and at what price they did.\\
+  \emph{Example:} sellers trade through the whole 5000.00 queue 0.4 s later and reach our order:
+  $\tau_F = 0.4$ s, $p^{\text{fill}} = 5000.00$, and since $0.4 \le 1$, $\mathbb{1}_{\Fill} = 1$.
+
+\item[Profit]
+  $\Pi$ is the profit per lot of an order decided at $t$, in price points unless stated otherwise
+  (some examples use ticks); it is defined precisely in Section~\ref{sec:passive}. A passive order
+  that is never filled makes $\Pi = 0$. $h > 0$ is the \emph{mark-out horizon}: how long after a
+  fill we wait before scoring it.\\
+  \emph{What it means:} $\Pi$ is the number we actually care about; every other symbol is a step
+  on the way to it.\\
+  \emph{Example:} with $h = 1$ s, if the mid one second after our fill is 4999.875, our buy at
+  5000.00 is worth $4999.875 - 5000.00 = -0.125$: we were filled, and then the price moved against
+  us. This is \emph{adverse selection} (Section~\ref{sec:adverse}), and it is why a fill is not
+  automatically good news.
+
+\item[Models]
+  $M$ denotes a model, $M_0$ a baseline (usually the simplest reasonable one) and $M_1$ a candidate.
+  $V(M)$ is how much money-relevant value $M$ delivers \emph{out of sample} (OOS)---on data that were
+  not used to build it, as opposed to \emph{in sample}---for example net profit after costs, or a Sharpe ratio (average return divided
+  by the standard deviation of return~\citep{sharpe1994}). $\Delta V = V(M_1) - V(M_0)$.\\
+  \emph{What it means:} $\Delta V$ answers ``is the new model worth it, compared with the simple
+  one, on data it has never seen?''\\
+  \emph{Example:} if a linear model earns 0.010 points per trade after costs and a neural network
+  earns 0.012, then $\Delta V = 0.002$ points per trade; Principle~2 below asks whether that is
+  real and whether it pays for the extra complexity.
+
+\item[Operators]
+  $\P$ is ``the probability of'', $\E$ is ``the average of'', and a vertical bar means ``given''.
+  Section~\ref{sec:primer} explains these in plain terms.
+\end{description}
+
+\subsection{A short probability primer}
+\label{sec:primer}
+
+Most equations in this paper are statements about probabilities and averages. The few ideas needed
+are the following; a first course in probability covers all of them.
+
+\begin{description}[leftmargin=1.5em,style=nextline,itemsep=2pt]
+\item[{$\P(A)$, ``the probability of $A$''}] A number between 0 and 1: the fraction of times event
+  $A$ would happen if the situation were repeated many times. Example: $\P(\Delta m_{t,H} > 0)$ is
+  the fraction of moments after which the mid is higher $H$ seconds later.
+\item[{$\P(A \mid B)$, ``the probability of $A$ given $B$''}] The same fraction, but counted only
+  over the cases where $B$ is true. The vertical bar is read ``given''. Example:
+  
+\[
+  \P(\Delta m_{t,H} > 0 \mid \text{bid queue much larger than ask queue})
+\]
+asks: of all the moments
+  when buyers were queued much more heavily than sellers, what fraction were followed by a rise?
+  Writing $\mid X_t$ means ``given everything we can observe at time $t$''---it is what a
+  prediction model computes: a function from the current inputs $X_t$ to a probability.
+\item[{$\E[Z]$, ``the expected value of $Z$''}] The long-run average of a random number $Z$. If a
+  trade makes $+2$ with probability $0.6$ and $-1$ with probability $0.4$, then
+  $\E[Z] = 0.6 \times 2 + 0.4 \times (-1) = 0.8$.
+\item[{$\E[Z \mid B]$}] The average of $Z$ over only the cases where $B$ is true.
+\item[{$\mathbb{1}_A$, the indicator of $A$}] Equal to $1$ if $A$ happens and $0$ otherwise, like a
+  Boolean cast to an integer. Its average is the probability: $\E[\mathbb{1}_A] = \P(A)$. A useful
+  consequence, used in Section~\ref{sec:passive}, is
+  $\E[Z\,\mathbb{1}_A] = \P(A)\,\E[Z \mid A]$: the average of ``$Z$ if $A$ happened, else 0'' equals
+  how often $A$ happens times the average of $Z$ when it does.
+\item[{$\inf\{u > 0 : \text{condition}\}$}] ``The earliest time $u$ after now at which the condition
+  holds''---the time a \texttt{while} loop that polls the condition would exit.
+\item[{A hat, as in $\widehat{Y}_t$}] An estimate produced by a model, as opposed to the true value.
+\item[{$\lambda_i(t)$, the intensity of events of type $i$}] The expected number of events of type $i$ per second at
+  time $t$, given what has happened before $t$.
+\item[{$\arg\max_a f(a)$}] The action $a$ that gives the largest value of $f(a)$, as opposed to $\max_a f(a)$, which
+  is that largest value.
+\end{description}
+
+\subsection{Prediction versus tradeability}
+\label{sec:tradeability}
+
+Suppose a model estimates $\P(\Delta m_{t,H} > 0 \mid X_t)$, the probability that the mid rises over
+the next $H$. That
+number describes directional predictability. It does not say whether a trader can monetise it. An
+aggressive buy pays the offer and must overcome the half spread and fees. A passive buy avoids the
+spread but may never execute, and the event that makes it execute may itself carry information
+about the next price move. The economically relevant sequence is
+\begin{equation}
+  \begin{gathered}
+  \text{LOB state} \;\to\; X_t \;\to\; \widehat{Y}_t \;\to\; a_t \;\to\; Q^{\text{ahead}}_t\\
+  \;\to\; \text{execution} \;\to\; \text{realised profit and loss (P\&L)}.
+  \end{gathered}
+  \label{eq:chain}
+\end{equation}
+\inwords{the book is turned into the model's inputs $X_t$ (the representation); the model makes a forecast
+$\widehat{Y}_t$ (the prediction); the forecast is turned into a decision $a_t$ (buy, sell, wait, cancel), which is
+sent as an order; the order takes a place $Q^{\text{ahead}}_t$ in a queue; whether and when it trades depends on that
+place; and only then is money made or lost. A forecast can be right and still be lost at any later arrow.}
+
+\paragraph{The thesis of this survey.} Predictive accuracy is not the natural end point of order-book modelling. The
+quantity that matters for trading is the expected profit of an action $a_t$ given the market state $X_t$ and the
+order's place in the queue $Q^{\text{ahead}}_t$,
+\begin{equation}
+  \E\big[\Pi \mid X_t,\, Q^{\text{ahead}}_t,\, a_t\big],
+  \label{eq:thesis}
+\end{equation}
+\inwords{how much, on average, this particular order will make, given what the book looks like now and where the
+order would stand in its queue.}
+A model is useful only if the information it extracts survives every arrow of~\eqref{eq:chain}---LOB state $\to$
+representation $\to$ prediction $\to$ decision $\to$ queue $\to$ execution $\to$ P\&L---to positive out-of-sample
+value; latency acts between prediction and execution (Section~\ref{sec:hardware}). The rest of the survey
+is organised as evidence for or against that proposition: Part~II asks what information the models extract, and
+Part~III asks what survives simulation, execution and deployment. Figure~\ref{fig:survey-map} maps the survey onto the chain.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, scale=0.95, transform shape,
+  c/.style={draw, rounded corners=2pt, align=center, minimum width=44mm, minimum height=8mm, fill=gray!8},
+  s/.style={draw, rounded corners=2pt, align=center, text width=17mm, minimum height=9mm, fill=blue!6},
+  side/.style={draw, rounded corners=3pt, align=left, text width=44mm, inner sep=4pt},
+  arr/.style={-{Stealth[length=1.6mm]}, thick}]
+\node[c, fill=gray!20] (lob) at (0,0) {\textbf{limit order book}\\exchange messages (Section~\ref{sec:intro})};
+\node[s] (r1) at (-2.4,-1.5) {snapshots\\(Level 1, 2)};
+\node[s] (r2) at (0,-1.5) {order flow};
+\node[s] (r3) at (2.4,-1.5) {order-level\\messages (Level 3)};
+\node[s, fill=orange!10] (m1) at (-3.6,-3.1) {signals\\OFI, imbalance,\\micro-price};
+\node[s, fill=orange!10] (m2) at (-1.2,-3.1) {queue models};
+\node[s, fill=orange!10] (m3) at (1.2,-3.1) {Hawkes and\\neural point\\processes};
+\node[s, fill=orange!10] (m4) at (3.6,-3.1) {deep networks,\\meta-models,\\hybrids};
+\node[c] (pred) at (0,-4.7) {\textbf{prediction}: market state, price or event,\\event intensities};
+\node[c] (dec) at (0,-6.0) {\textbf{decision} $a_t$: place, keep, cancel, cross};
+\node[c] (q) at (0,-7.1) {\textbf{queue position} $Q^{\text{ahead}}_t$};
+\node[c] (ex) at (0,-8.2) {\textbf{execution}: fill, adverse selection};
+\node[c, fill=green!12] (pl) at (0,-9.3) {\textbf{profit and loss} $\E[\Pi \mid X_t, Q^{\text{ahead}}_t, a_t]$};
+\foreach \r in {r1,r2,r3} \draw[arr] (lob) -- (\r);
+\draw[arr] (r1) -- (m1); \draw[arr] (r2) -- (m1); \draw[arr] (r1) -- (m2); \draw[arr] (r3) -- (m2);
+\draw[arr] (r3) -- (m3); \draw[arr] (r2) -- (m4); \draw[arr] (r3) -- (m4);
+\foreach \m in {m1,m2,m3,m4} \draw[arr] (\m) -- (pred);
+\draw[arr] (pred) -- (dec); \draw[arr] (dec) -- (q); \draw[arr] (q) -- (ex); \draw[arr] (ex) -- (pl);
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}] (-5.0,-0.9) -- (-5.0,-5.2)
+  node[midway, left=6pt, align=right]{\textbf{Part II}\\what information\\the models extract};
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}] (-5.0,-5.6) -- (-5.0,-9.8)
+  node[midway, left=6pt, align=right]{\textbf{Part III}\\what survives\\to execution};
+\node[side, fill=blue!5] (sim) at (6.6,-7.6) {\textbf{Simulation} (Sections~\ref{sec:sim-needs}--\ref{sec:kaspar})\\
+  tests decision $\to$ queue $\to$ execution $\to$ P\&L on recorded markets; \kasparhft{} replays the
+  exchange's own feed with exact queue position};
+\node[side, fill=red!5] (hw) at (6.6,-5.1) {\textbf{Hardware} (Section~\ref{sec:hardware})\\
+  sets the latency between prediction and execution, and so how much of a short-lived signal survives};
+\draw[dashed, thick] (sim.west) -- ++(-0.6,0) |- (dec.east);
+\draw[dashed, thick] (sim.west) -- ++(-0.6,0) |- (pl.east);
+\draw[dashed, thick] (hw.west) -- ++(-0.6,0) |- (pred.east);
+\draw[dashed, thick] (hw.west) -- ++(-0.6,0) |- (dec.east);
+\end{tikzpicture}
+\caption{A map of the survey. The limit order book reaches models through one of three representations; the models
+produce predictions; a decision turns a prediction into an order, which takes a place in a queue and may be filled.
+Part~II covers the upper half, Part~III the lower half, with simulation and hardware attached where they act.}
+\label{fig:survey-map}
+\end{figure}
+
+\begin{example}[A 55\% classifier after the spread]
+\label{ex:untradeable}
+In ES (tick $0.25$ points, one-tick spread), a classifier is right on the sign of the next mid
+move 55\% of the time, and the typical move is half a tick ($0.125$ points). The expected move per
+trade in the predicted direction is
+\[
+  (0.55 - 0.45)\times 0.125 = 0.0125 \text{ points},
+\]
+while an aggressive entry costs the half spread, $0.125$ points, before fees. The expected directional edge is
+one tenth of the half-spread cost, so it does not cover even the cost of entry. The accuracy is real, and the strategy loses money. The same signal used to decide
+\emph{which resting passive order to keep and which to cancel} pays no spread; whether it helps is
+an execution question (Part~III), not an accuracy question.
+\end{example}
+
+A related line of work asks not only for a forecast but for a measure of \emph{when the forecast
+can be trusted}. UQ-LOB~\citep{manoharan2026uqlob} attaches an uncertainty module to a pretrained
+LOB encoder. It outputs a \emph{calibrated} distribution together with a single confidence number. A calibrated
+distribution is one whose stated probabilities match observed frequencies: events given 70\% happen about 70\% of
+the time~\citep{guo2017}. In UQ-LOB's regression variant, keeping only the most confident tenth (\emph{decile}) of
+predictions raises directional macro-F1 by 0.11--0.15, across seven cryptocurrency assets at 5, 10 and 15 second
+horizons. (F1 is high only if the model's ``up'' calls are mostly right and it catches most of the real ``ups'';
+\emph{macro}-F1 averages it over the classes ``up'', ``down'' and ``stationary''; Section~\ref{sec:deep-real}.) Selective
+prediction changes the tradeability arithmetic directly: if a confident tier moved accuracy from
+55\% to 70\% on a tenth of the signals, the expected edge per trade in
+Example~\ref{ex:untradeable} would rise from $0.10$ to $0.40$ of the typical move, with one tenth
+as many trades. Whether that clears the half spread still depends on the size of the moves in the
+confident tier. UQ-LOB itself stops at directional reliability: its authors state that they
+evaluate reliability, not profitability, and that a trading simulation with realistic execution
+and fees is required before any claim about returns~\citep{manoharan2026uqlob}. That is the step
+this survey is about.
+
+The central question of the survey is:
+
+\begin{quote}
+\emph{Which information extracted from the limit order book survives the complete translation from
+statistical prediction to executable trading?}
+\end{quote}
+
+It changes how models should be compared. A model that improves classification accuracy by a
+fraction of a percentage point is not more useful than a linear model if the improvement vanishes
+after latency and costs. A model with modest directional accuracy may still be valuable if it
+improves the timing or selection of passive executions.
+
+\subsection{Prediction, execution and simulation are different problems}
+\label{sec:three-problems}
+
+Three different questions arise in LOB research, and the survey keeps them apart. Each is written below as a
+probability or an expected value (Section~\ref{sec:primer}). The big $\P$ is ``the probability
+of'', $\E$ is ``the average of'', and the vertical bar is read ``given'': everything to the right of
+the bar is what we already know, everything to the left is what we want to know.
+\begin{align}
+  \text{Prediction:} &\quad \P(Y_{t+H} \mid X_t), \label{eq:prediction}\\
+  \text{Execution:}  &\quad \P(\Fill \mid X_t, Q^{\text{ahead}}_t, a_t)
+                        \ \text{or}\ \E[\Pi \mid X_t, Q^{\text{ahead}}_t, a_t], \label{eq:execution}\\
+  \text{Simulation:} &\quad \P\big(\{X_u\}_{u \in (t,\,t+H]} \mid X_t\big). \label{eq:simulation}
+\end{align}
+\inwords{
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item \emph{Prediction}~\eqref{eq:prediction}: given what we can see now, how likely is each possible value of some
+  future quantity $Y$---for example, ``will the mid be higher in one second?'' It is a question
+  about the market, and our own orders play no part in it.
+\item \emph{Execution}~\eqref{eq:execution}: given what we can see now, how much volume is ahead of our order, and
+  what we chose to do, how likely is our order to be filled within $H$ seconds---or, in the second
+  form, how much do we expect to earn? It is a question about \emph{our} order, and its answer
+  changes with our action $a_t$.
+\item \emph{Simulation}~\eqref{eq:simulation}: given what we can see now, how likely is each possible \emph{whole
+  future path} of the market over the next $H$ seconds? A simulator draws sample paths from this
+  distribution. The difference from~\eqref{eq:prediction} is the difference between a weather simulator, which
+  produces whole plausible tomorrows, and a forecast of tomorrow's maximum temperature.
+\end{itemize}}
+Two different activities are both called ``simulation'' in this literature, and the survey keeps them
+apart. \emph{Generative market simulation} draws new market paths from a model of~\eqref{eq:simulation}: Hawkes
+simulators, agent-based markets and the generative networks of Section~\ref{sec:deep-gen}.
+\emph{Historical replay} does not draw paths at all: it reconstructs the one path that was recorded,
+event by event, and evaluates the counterfactual outcome of the researcher's own orders against it---an
+estimate of~\eqref{eq:execution} on observed data. The \kasparhft{} system of Section~\ref{sec:kaspar} is a replay system, not a generative
+simulator; Section~\ref{sec:simulators} compares the kinds of simulator.
+They are related but not interchangeable. A Hawkes process can generate realistic clustered order
+flow without predicting price direction. A survival model can give accurate fill probabilities
+while playing no role in price prediction. A Transformer can predict short-horizon returns without
+modelling queue dynamics. Each model must be evaluated against the problem it solves.
+
+\begin{table}[!htbp]
+\centering\small
+\caption{One event stream (for example, a day of ES market-by-order data), three models, three evaluation
+criteria. A metric from another column scores a model on a target it was not built for.}
+\label{tab:three-problems}
+\begin{tabularx}{\linewidth}{lXXX}
+\toprule
+Model & Target & Appropriate metric & Inappropriate metric \\
+\midrule
+Hawkes, 4 event types & event intensity & point-process log-likelihood; time-rescaling residual test & directional accuracy \\
+Survival model & $\P(\tau_F \le 1\,\mathrm{s} \mid Q^{\text{ahead}}_t = q)$ & survival likelihood; calibration by queue bucket & mid-move AUC \\
+Classifier & $\P(\Delta m_{t,H} > 0 \mid X_t)$ & log loss, AUC, then net P\&L & fill rate \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{A hierarchy of prediction objectives.} The three questions above are points on a longer ladder. Each
+level asks for more than the one before, and only the last is a decision (Figure~\ref{fig:objective-ladder}):
+\begin{align*}
+  &\text{1. Market state:} && \P(X_{t+H} \mid X_t) \\
+  &\text{2. Price or event:} && \P(\Delta m_{t,H} > 0 \mid X_t) \\
+  &\text{3. Event dynamics:} && \lambda_i(t), \text{ the intensity of each event type given the history} \\
+  &\text{4. Execution:} && \P(\Fill \mid X_t, Q^{\text{ahead}}_t, a_t) \\
+  &\text{5. Conditional economics:} && \E[\Pi \mid X_t, Q^{\text{ahead}}_t, a_t] \\
+  &\text{6. Policy:} && a^*_t = \arg\max_{a}\, \E[\Pi \mid X_t, Q^{\text{ahead}}_t, a]
+\end{align*}
+\inwords{levels 1 to 3 are about the market and do not involve our order; levels 4 and 5 are about the consequence
+of a particular order; level 6 chooses the order. Forecasting the market is not the same problem as forecasting the
+consequence of acting in it.}
+This ladder is our synthesis. Most of the literature reviewed in Part~II works at levels 2 and 3; the thesis of this
+survey (Equation~\eqref{eq:thesis}) is that trading value is decided at levels 4 to 6. Table~\ref{tab:objective-matrix}
+places each model family of Part~II on the ladder, with the evaluation that fits its target.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize,
+  l/.style={draw, rounded corners=2pt, minimum width=38mm, minimum height=7mm, align=center},
+  arr/.style={-{Stealth[length=1.5mm]}, thick}]
+\foreach \i/\t/\c/\ex in {
+  1/{1. market state $\P(X_{t+H}\mid X_t)$}/blue!8/{generative models},
+  2/{2. price or event $\P(\Delta m > 0 \mid X_t)$}/blue!8/{OFI, queue imbalance, deep classifiers},
+  3/{3. event intensities $\lambda_i(t)$}/blue!8/{Hawkes, neural point processes},
+  4/{4. fill $\P(\Fill \mid X_t, Q, a_t)$}/orange!15/{queue models, fill-probability models},
+  5/{5. profit $\E[\Pi \mid X_t, Q, a_t]$}/orange!15/{execution value; Section~\ref{sec:tradeability-framework}},
+  6/{6. policy $a^*_t$}/green!15/{market making, execution, reinforcement learning}} {
+  \node[l, fill=\c] (n\i) at (0,-0.95*\i) {\t};
+  \node[anchor=west, text width=55mm] at (2.3,-0.95*\i) {\ex};
+}
+\foreach \i/\j in {1/2,2/3,3/4,4/5,5/6} \draw[arr] (n\i) -- (n\j);
+\draw[decorate, decoration={brace, amplitude=4pt, mirror}] (-2.2,-0.6) -- (-2.2,-3.2) node[midway, left=5pt, align=right]{about the\\market};
+\draw[decorate, decoration={brace, amplitude=4pt, mirror}] (-2.2,-3.45) -- (-2.2,-5.1) node[midway, left=5pt, align=right]{about our\\order};
+\draw[decorate, decoration={brace, amplitude=4pt, mirror}] (-2.2,-5.35) -- (-2.2,-6.1) node[midway, left=5pt]{decision};
+\end{tikzpicture}
+\caption{The hierarchy of prediction objectives, with the model families that work at each level. Our synthesis.}
+\label{fig:objective-ladder}
+\end{figure}
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{The model families of this survey by what they read, what they predict, and how that prediction should be
+evaluated. ``Level'' refers to the hierarchy of Figure~\ref{fig:objective-ladder}. Our synthesis of Part~II and
+Part~III.}
+\label{tab:objective-matrix}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.14\linewidth}>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}p{0.13\linewidth}c>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}X}
+\toprule
+Family & Reads & Predicts & Level & Trading use & Evaluation that fits \\
+\midrule
+Order-flow imbalance (\S\ref{sec:ofi}) & recent changes in queue sizes & price change over a window & 2 & directional filter; quote skew & out-of-sample $R^2$, then net profit \\
+Queue imbalance, micro-price (\S\ref{sec:ofi}) & best queue sizes, spread & next mid move; expected mid & 2 & fair price; passive placement & calibration, log loss \\
+Queue models (\S\ref{sec:queue-models}) & queue sizes and rates & next move; depletion time; fill & 2, 4 & placement; fill estimate & calibration against fills, by queue position \\
+Hawkes, neural point processes (\S\ref{sec:hawkes}) & event times and types & intensities & 3 & activity forecast; simulation & log-likelihood; time-rescaling residuals \\
+Meta-models (\S\ref{sec:meta}) & classical outputs & the learner's target & 2--5 & combined signal & proper score against the equal-weight average and the best single model \\
+Deep classifiers (\S\ref{sec:deep}) & snapshots, order flow or messages & direction & 2 & signal & macro-F1 against a persistence baseline on a leak-free label, then net profit \\
+Fill-probability models (\S\ref{sec:deep-fill}) & book and queue position & time to fill & 4 & passive placement & survival likelihood; calibration \\
+Generative models (\S\ref{sec:deep-gen}) & event history & future paths & 1 & model of the book; scenarios not in the record & stylised facts (statistical regularities seen across markets, Section~\ref{sec:facts}); usefulness for a downstream task \\
+Policies (\S\ref{sec:policy}) & state & action & 6 & execution; market making & economic reward in replay, against a model-free benchmark \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Three principles}
+\label{sec:principles}
+
+Three principles recur throughout the survey.
+
+\begin{principle}[The market is observed, not generated]
+Recorded exchange data are the ground truth. A replay simulator reconstructs the historical book
+from those data; it does not invent market behaviour. The only counterfactual it produces is the
+execution outcome of the researcher's own orders.
+\end{principle}
+
+\begin{principle}[Occam's razor: complexity is an empirical hypothesis]
+Among models that deliver the same out-of-sample economic value, prefer the simplest. Each added
+layer---model capacity, specialised hardware, and the breadth of the search that produced the
+model---is a hypothesis that it adds value, and must earn incremental out-of-sample economic value
+that survives realistic execution assumptions and the multiple-testing burden of its own selection.
+\end{principle}
+
+\noindent Occam's razor is applied here to economic value, not to statistical fit alone: a more
+complex model is not rejected for being complex, but it carries the burden of showing that its
+extra value is real.
+\begin{principle}[Representation before architecture]
+A more expressive architecture cannot recover information that the representation has discarded. Representations
+should be compared first, and architectures only on the best available representation.
+\end{principle}
+
+\noindent The evidence of Part~II supports this ordering. With the network held fixed, the choice of input decided
+most of the result in one large comparison~\citep{lucchese2024}: the best order-flow variant was among the best in 89\% of
+cases, the simpler order-flow variant in 22\%, and raw snapshots in 11\%. Summing messages into order flow loses the event types, which no later network can recover
+(Section~\ref{sec:deep-io}). Comparisons of architectures---convolutional, recurrent, Transformer---are more common in the papers we reviewed
+than comparisons of representations---snapshots, order flow, queues, messages.
+
+\paragraph{A ladder of baselines.} Principles~2 and~3 imply a fixed order of comparison. A new model has not shown an
+advantage until it beats each of the following, on the same data, label and split (our synthesis):
+\begin{enumerate}[leftmargin=1.8em,itemsep=1pt]
+\setcounter{enumi}{-1}
+\item a naive forecast: always the most common class, or repeating the last known label;
+\item a single book feature: queue imbalance or the micro-price;
+\item a linear or logistic model on order-flow imbalance and queue imbalance;
+\item a classical model of the same target: a queue model, or a Hawkes model for event targets;
+\item a small network on the same inputs as the candidate;
+\end{enumerate}
+and then only if the improvement survives costs, latency and the queue (Part~III).
+
+
+\subsection{Development of the field}
+\label{sec:history}
+
+The modelling of order books has passed through five overlapping stages.
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \textbf{Zero-intelligence models.} Orders arrive at random, with no strategy at all, and the
+  matching rules do the rest~\citep{smith2003}. The surprise was how much this explains: on eleven
+  London stocks, a model with one free parameter accounts for 96\% of the variance of the bid--ask
+  spread~\citep{farmer2005}. Market structure, not trader intelligence, explains much of what the book
+  looks like.
+\item \textbf{Stochastic queue models.} The best queues are treated as random walks driven by order
+  arrivals, cancellations and executions, giving closed-form results for the time to the next price
+  change and the probability of its direction~\citep{cst2010,contlarrard2013}, later with rates that
+  depend on queue sizes~\citep{huang2015}.
+\item \textbf{Self-exciting point processes.} Hawkes models capture the clustering of events and the
+  fact that many events are triggered by earlier ones; estimated branching ratios (the average number of further
+  events each event triggers) on E-mini S\&P data
+  range from about $0.7$--$0.8$ to about one~\citep{bacry2015,filimonovsornette2012,hardimanbercotbouchaud2013}.
+\item \textbf{Hand-engineered signals.} Order-flow imbalance~\citep{cks2014}, queue
+  imbalance~\citep{gould2016qi} and the micro-price~\citep{stoikov2018} compress the book into a few
+  numbers with clear economic meaning.
+\item \textbf{Learned models.} From 2017, convolutional and recurrent networks~\citep{tsantekidis2017,zhang2019},
+  then attention and spatial-temporal Transformers~\citep{wallbridge2020,berti2025tlob}, then pretrained
+  message-level encoders and large generative models~\citep{linna2025lobert,m3lob}, together with
+  hybrids that put point-process structure inside networks~\citep{shi2022sdpnhp,deepqr}.
+\end{enumerate}
+Each stage added capacity. Whether each also added \emph{economic} value is the question this survey
+keeps asking.
+
+\subsection{Positioning and taxonomy}
+\label{sec:taxonomy}
+
+The literature has three historical traditions. The first is econometric and reduced-form
+modelling of prices, order flow and impact~\citep{kyle1985,glosten1985,cks2014}. The second is
+continuous-time point-process and queueing models: Hawkes processes preserve the event-driven
+structure and model excitation between event types~\citep{hawkes1971,bacry2015}, while
+queue-reactive and first-passage models describe displayed liquidity and its
+depletion~\citep{cst2010,huang2015}. The third is machine learning, from hand-engineered features
+through CNNs, recurrent networks, Transformers, state-space models and, most recently, pretrained
+message-level encoders~\citep{tsantekidis2017,zhang2019,wallbridge2020,linna2025lobert}.
+
+\paragraph{Position relative to existing surveys.} Existing surveys and books cover parts of this
+ground well (Table~\ref{tab:prior-surveys}): the LOB as a trading mechanism and its empirical
+literature~\citep{gould2013,tripathi2020}, machine-learning prediction from the
+book~\citep{zaznov2022}, generative simulation of order books~\citep{jain2024sim}, and, more recently,
+large language models and autonomous agents in financial
+trading~\citep{ding2024llmtrading,dong2025llmfinance,hua2026agentic}. Each covers some of these topics; LOB modelling, execution and queue position, market simulation and
+hardware are covered in separate works. We are not aware of a
+survey that brings these strands together around the question of how information extracted from the
+LOB survives the complete translation from statistical prediction to executable trading. That question
+is also this survey's criterion for selecting literature: a model or method is included when it bears
+on one link of the chain---representation, prediction, calibration, decision, queue position,
+execution, simulation, inference hardware and economic value.
+
+\paragraph{Generative LOB simulation versus historical replay.} The closest neighbouring review, on
+LOB simulation~\citep{jain2024sim}, classifies, by methodology, models that \emph{generate} order-book dynamics, and evaluates them by their ability
+to reproduce stylised facts and price impact. The two kinds of simulator answer different questions:
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item \emph{generative simulation} asks whether a model can produce plausible market trajectories,
+  including ones never observed, such as stress scenarios;
+\item \emph{historical replay} asks what would have happened to a particular strategy's orders against
+  one observed trajectory.
+\end{itemize}
+To decide whether an order would have executed against the historical market, the market does not
+need to be generated, only reconstructed. This survey is concerned with the second question. Generative simulation
+serves other purposes---scenarios that were never observed, markets that react, environments for learning agents---and
+is not the focus of this survey, which evaluates strategies on replay of recorded markets (Principle~1,
+Section~\ref{sec:sim-survey}). Generative models are covered in Section~\ref{sec:deep-gen} as models of the book.
+
+\paragraph{Language models.} The surveys of large language models (LLMs) in trading review systems in which the language model
+reads market information, reasons about it and produces trading decisions that are then
+backtested~\citep{ding2024llmtrading,hua2026agentic}. This survey does not review that architecture.
+
+The survey organises the literature around the translation from information to decision. Three questions recur: what representation contains the useful information;
+what model extracts it; and does the result produce incremental economic value after execution
+constraints?
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{Existing surveys, books and benchmark studies, and what this survey adds.}
+\label{tab:prior-surveys}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.26\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\toprule
+Work & Focus & Outside its scope \\
+\midrule
+\citet{gould2013} & empirical facts and models of LOBs & deep learning; execution value; queue position in practice \\
+\citet{abergel2016}, \citet{bouchaud2018} & books on empirical properties, models and simulation of order books and impact & recent deep and generative models; model-search statistics \\
+\citet{tripathi2020} & systematic review of 103 articles (1981--2018) on the LOB as a trading mechanism and its implications for market efficiency, classified by sub-area, market, method and LOB measure & deep-learning prediction (named there only as a future direction); execution value; queue position \\
+\citet{jain2024sim} & review of LOB simulation models and the stylised facts used to validate them & prediction and trading value \\
+\citet{ding2024llmtrading}, \citet{dong2025llmfinance}, \citet{hua2026agentic} & surveys of LLMs as trading and financial agents: architectures, inputs, workflows, benchmarks, backtests, deployment & LOB microstructure; execution \\
+\citet{zaznov2022} & survey of price-change prediction from the LOB & classical point-process and queue models; execution \\
+\citet{prata2024}, \citet{briola2024} & benchmark re-tests of deep models; transaction-level evaluation & classical models; queue position; search statistics \\
+This survey & information-to-decision chain: classical and deep models, queue position, simulators and deterministic replay, hardware acceleration & -- \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Contributions.} The survey offers:
+\begin{enumerate}[leftmargin=1.8em,itemsep=1pt]
+\item one account of the path from theory to production: the models of the book, the simulators in which they are
+  turned into strategies and tested, and the hardware on which tested strategies are deployed;
+\item a single chain---representation, prediction, decision, queue, execution, profit---that places
+  classical and learned models in one framework;
+\item a treatment of queue position, fill probability and adverse selection as modelling targets in
+  their own right, with the signal-value/execution-value distinction (Section~\ref{sec:tradeability-framework});
+\item an account of deep LOB models from first principles---inputs, targets, network families, training and
+  scoring---and of how label construction and data splits can raise reported
+  accuracy (Section~\ref{sec:deep});
+\item a treatment of the two ways of combining classical and learned models, meta-models and structural hybrids,
+  with published examples worked through step by step (Sections~\ref{sec:meta} and~\ref{sec:hybrid});
+\item a survey of order-book simulators compared with \kasparhft{}~\citep{kaspar_hft}, a queue-exact, deterministic replay
+  and trading system used as the evaluation instrument for execution claims, including how a model is added to it as
+  an actor (Part~III);
+\item an account of why order-book models are slow at inference and what hardware can accelerate
+  (Part~III);
+\item a reader-oriented apparatus: notation, a probability primer, plain-language explanations of every
+  equation, a glossary, and a from-scratch introduction to point processes (Section~\ref{sec:hawkes}).
+\end{enumerate}
+
+\paragraph{Reading order.} Readers new to markets should read Part~I in full and use the
+glossary. Readers interested mainly in models should read Part~II, paying particular attention to the benchmark re-tests of
+deep models in Section~\ref{sec:benchmarks-dl}.
+Practitioners concerned with execution, simulation or hardware should read Part~III. Part~IV collects the open
+problems and the conclusion. Readers new to point processes
+should start Section~\ref{sec:hawkes} at its beginning, which introduces them from scratch.
+
+\subsubsection*{Four axes for locating a piece of work}
+
+Every model or paper in this survey answers four separate questions, and we describe it by its
+answer to each. Think of the four answers as the four fields of a record; a work is a point in a
+four-dimensional space.
+
+\begin{description}[leftmargin=1.5em,style=nextline,itemsep=2pt]
+\item[Representation: the input the model sees] The input format: raw book snapshots (the table
+  of Equation~\eqref{eq:lob-state} at sampled times); event or message streams (every add, cancel and trade, in
+  order); order-flow aggregates such as OFI (Section~\ref{sec:ofi}); queue state (sizes and
+  positions in the queues); or the state of several instruments at once.
+\item[Model class: the kind of function that maps input to output] Linear and econometric models;
+  queue and first-passage models; point processes such as Hawkes; state-space models; convolutional
+  and recurrent networks; Transformers; pretrained encoders; or a hybrid of these.
+\item[Objective: the quantity the model outputs] Price direction; return; event intensity;
+  volatility; queue depletion time; fill probability; execution cost; or a simulated future.
+\item[Economic role: the decision the output is for] Aggressive trading (crossing the spread);
+  passive trading (resting orders); market making (quoting both sides); execution of a given
+  order; risk measurement; or simulation for research. A paper that evaluates statistical
+  accuracy without a trading decision has the economic role \emph{forecast only}.
+\end{description}
+
+\noindent The axes are used in three ways.
+
+\emph{First, to decide what can be compared.} Two results are comparable only if they share an
+objective and an economic role, and in addition the data fields of Section~\ref{sec:comparable}.
+Representation and model class are the things a study varies; objective and role are the things
+it must hold fixed. A Hawkes model scored on event-intensity likelihood and a Transformer scored on
+direction accuracy are not competitors.
+
+\emph{Second, to organise the paper.} Part~II moves along the model-class axis, from linear models
+to pretrained encoders, and Section~\ref{sec:events} along the representation axis. Part~III moves
+along the objective axis from direction to fill probability and adverse selection, and asks how
+simulators and hardware support the economic role of passive execution.
+
+\emph{Third, to expose a gap.} Table~\ref{tab:axes} places the main works discussed in this survey
+on the four axes. Three of the learned models in the table are `forecast only': they
+are evaluated on accuracy, and the decision their output would drive is left open. The rest of the paper is about filling that column.
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{Selected works placed on the four axes. ``Forecast only'' means the work evaluates
+statistical accuracy without a trading decision. \pov{} (Shadow Passive
+Percentage-of-Volume) is the model-free execution algorithm of Section~\ref{sec:shadow}.}
+\label{tab:axes}
+\setlength{\tabcolsep}{2pt}
+\begin{tabularx}{\linewidth}{l*{4}{>{\raggedright\arraybackslash}X}}
+\toprule
+Work & Representation & Model class & Objective & Economic role \\
+\midrule
+OFI~\citep{cks2014} & order-flow aggregate & linear & contemporaneous price change & price impact (execution) \\
+Book dynamics~\citep{cst2010} & queue state & queueing / first passage & direction; queue depletion & market making, execution \\
+Queue-reactive~\citep{huang2015} & queue state & queueing (Markov) & event intensity & simulation \\
+Hawkes models~\citep{bacry2015} & event stream & point process & event intensity & simulation, risk \\
+Queue value~\citep{moallemi2017} & queue state & queueing & value of a queue position & passive trading, market making \\
+DeepLOB~\citep{zhang2019} & raw snapshots & CNN + recurrent & direction & aggressive trading (simple trading simulation) \\
+TransLOB~\citep{wallbridge2020} & raw snapshots & Transformer & direction & forecast only \\
+Deep OFI~\citep{kolm2023} & order-flow aggregate & recurrent / feed-forward & return, several horizons & alpha (stated); scored by out-of-sample variance explained \\
+LOBERT~\citep{linna2025lobert} & event stream & pretrained encoder & direction; next message & forecast only \\
+UQ-LOB~\citep{manoharan2026uqlob} & event stream & encoder + uncertainty module & direction with confidence & forecast only (the authors note this) \\
+\pov{}~\citep{maciejewski_shadow} & event stream & none (rule) & execution cost & passive execution \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ================================================================
+\section{Survey methodology}
+\label{sec:method}
+% ================================================================
+
+A survey makes many claims, drawn from many papers that were written for different purposes. This
+section explains what the survey covers, how its sources were chosen, how strongly each kind of
+claim should be believed, and what has to be known about two studies before their numbers can be
+compared. The last part is a practical checklist for reading any paper in this field.
+
+\subsection{Scope: markets and questions covered}
+
+The survey covers limit order books in four kinds of market. They share the mechanism of
+Section~\ref{sec:intro} but differ in ways that change what a model can learn and whether a result
+carries over from one to another.
+
+\begin{table}[!htbp]
+\centering\small
+\caption{The markets covered, and how they differ in ways that matter for LOB models.}
+\label{tab:markets}
+\begin{tabularx}{\linewidth}{l*{3}{>{\raggedright\arraybackslash}X}}
+\toprule
+Market & How it trades & Typical data & What it means for models \\
+\midrule
+Futures (e.g.\ ES, NQ, ZN) & Each contract trades on one exchange, in nearly continuous sessions &
+  Exchange MBO feeds such as CME MDP~3.0 & One book holds all the liquidity, so the book a model
+  sees is the whole market. \\
+US equities & The same stock trades on many exchanges and off-exchange venues at once & Exchange
+  feeds such as ITCH, one venue at a time & One venue's book is only part of the market; flow
+  elsewhere moves prices too. \\
+Cryptocurrencies & Many independent exchanges, open 24 hours a day, every day & Public exchange
+  APIs, often snapshots plus updates & Data are easy to obtain, but fees, participants and trading
+  hours differ from traditional markets. \\
+Fixed income & Government bond futures on futures exchanges; cash bonds on electronic
+  inter-dealer platforms & Varies by venue & In the ZN examples of this survey, Treasury futures are large-tick instruments: the price rarely
+  moves by more than a tick, queues are long, and queue position matters. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Within these markets the survey includes work whose main object is one of four things:
+\emph{prediction} (forecasting prices or events), \emph{signal extraction} (building features from
+the book), \emph{execution} (deciding how to place, keep and cancel orders), or \emph{simulation}
+(reproducing the market for research). Equilibrium models, which derive prices from the optimal behaviour of
+rational traders, are deliberately left out except where they help explain an LOB model. Agent-based models, which
+simulate many rule-following traders, are covered as simulators (Section~\ref{sec:simulators}), not as models fitted
+to the data. Synthetic market data produced by
+learned generative models are discussed in Section~\ref{sec:deep-gen} as models of the book; generating
+markets serves other purposes and is not the focus of this survey, which evaluates strategies on replay of
+recorded markets (Principle~1).
+
+\subsection{Source selection}
+
+This is a \emph{structured narrative survey with tutorial exposition}, not a \emph{systematic review}. It is
+written for two audiences: students with a computer-science or electrical-engineering background and no prior
+finance, as a technical entry point, and practitioners, as a map of the research; the tutorial material
+connects literatures---financial econometrics, stochastic processes, machine learning, execution and trading
+systems---that are rarely read together. A systematic review fixes a
+search query and a list of databases in advance, screens every result against written criteria, and
+reports how many papers were kept at each step, so another team could repeat the search exactly. A
+narrative survey instead selects work that illustrates and tests an argument. That is appropriate
+here, because the aim is to organise the field around one question---what survives the translation
+from prediction to execution---rather than to count papers. It also has a known weakness: the
+selection may favour work that fits the argument. To limit that, the survey includes work that cuts
+against its own position where such work exists, for example evidence that deep models given
+suitable inputs reach state-of-the-art predictive accuracy (Section~\ref{sec:deep}).
+
+A work was included if it made at least one of the following contributions: a representation of the
+order book; a predictive model; a queue or execution model; an evaluation method; a public data set
+or benchmark; or a design for simulation or research infrastructure. Preference was given to
+peer-reviewed work and to widely cited preprints; recent preprints are included when they are the
+only source for an idea, and are identified as preprints in the bibliography. Every reference was
+checked against the publisher, the preprint server or the official documentation.
+
+\paragraph{Searches for simulators, hardware and vendors.} Part~III compares tools and products, many of which are
+described only in documentation, code or vendor material rather than in papers. These were found with targeted
+searches in October 2026: GitHub repository search and the code of each tool; arXiv, Crossref and OpenAlex for papers
+and their reference lists; the public result listings of the STAC benchmarks; and vendors' product pages, datasheets
+and help libraries. Some sources could not be read: the Deltix knowledge base and the full STAC reports require a
+login. Statements of the form ``we found no \ldots'' and ``the only one we found'' are therefore bounded
+by these searches, not claims about everything that exists.
+
+\paragraph{Claim verification.} Every number and factual statement was traced to a source that was read, and
+the kind of source is stated where it matters: a peer-reviewed paper, a preprint, an abstract only, documentation,
+source code, a vendor-reported figure, or an independently audited benchmark. The comparison tables of Part~III mark each row
+with its basis. Where only an abstract or a vendor page was available, the text says so.
+
+\paragraph{The literature in numbers.} The survey cites 441 works: 294 peer-reviewed journal articles and
+conference papers, 69 preprints, 13 books, and 65 sources of other kinds---exchange
+specifications, software documentation and repositories, vendor material and benchmark reports. The counts are taken
+from the bibliography entries.
+
+\paragraph{Disclosure.} The author of this survey designed and wrote the \kasparhft{} system described in
+Section~\ref{sec:kaspar} and the model-free benchmark of Section~\ref{sec:shadow}. Statements about \kasparhft{} come from
+its code and from the author's study~\citep{maciejewski_shadow}. The CME market-data measurement
+study~\citep{maciejewski2026packets} is also by the author. Statements about the other tools come from
+their own papers, documentation and code. The comparison tables mark \kasparhft{}'s row accordingly.
+
+\subsection{Strength of evidence for a claim}
+
+Not all statements in a survey deserve the same confidence. We distinguish four kinds, and the
+reader should ask of every claim which kind it is.
+
+\begin{description}[leftmargin=1.5em,style=nextline,itemsep=3pt]
+\item[Established result] Supported directly by a cited study, or true by mathematics.
+  \emph{Example:} a linear Hawkes process is stationary if and only if the cascade of events it
+  triggers dies out (Section~\ref{sec:hawkes}). This is a theorem; no data can overturn it.
+\item[Empirical synthesis] A conclusion drawn by comparing several studies, none of which tested it
+  directly. \emph{Example:} ``every inference time of an order-book model published in the research papers we found exceeds the minimum spacing
+  of about 7.5\,\textmu s between packets from CME's market-data publisher'' (Section~\ref{sec:hardware}). It rests on comparing measurements made in different papers under different
+  conditions, so a new measurement can overturn it.
+\item[Methodological recommendation] A proposed standard, argued for rather than proved.
+  \emph{Example:} every result should report how many model configurations were tried
+  \citep{white2000,harvey2016}. Its justification is a statistical argument, not a measurement.
+\item[Open hypothesis] Plausible, but the evidence is incomplete or conflicting. \emph{Example:}
+  adding Hawkes intensities to a large network that already sees the same events adds little value
+  (Section~\ref{sec:hybrid}). The survey argues for it; we found no study that shows it.
+\end{description}
+
+\noindent The distinction matters because LOB studies differ in assets, horizons, targets and data,
+and a result established under one set of conditions is at best a hypothesis under another.
+Table~\ref{tab:evidence} in Section~\ref{sec:conclusion} classifies the main claims of this paper
+in these terms.
+
+\subsection{Conditions for comparing two LOB studies}
+\label{sec:comparable}
+
+A study often reports a single headline number---an accuracy, an F1 score, a Sharpe
+ratio---and such numbers are often compared across papers. Such comparisons are
+meaningful only when the studies agree on the conditions that produced the numbers.
+Table~\ref{tab:comparable} lists the conditions that matter most and explains how each one can
+change the headline number on its own, with no change to the model.
+
+\begin{table}[!htbp]
+\centering\small
+\caption{Fields a study must report before its results can be compared with another's.}
+\label{tab:comparable}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.27\linewidth}>{\raggedright\arraybackslash}X}
+\toprule
+Field & Why it changes the result \\
+\midrule
+Asset, exchange, period, trading hours & Markets differ (Table~\ref{tab:markets}); the same market
+  differs between calm and volatile years and between the open, midday and the close. \\
+Tick size, typical spread, depth & A large tick makes mid changes rarer and queues longer, which
+  changes both what is predictable and what is tradeable. \\
+Message rate & A busy instrument produces many events per second; a horizon of ten events is a few
+  milliseconds in one market and minutes in another. \\
+Data level (L1, L2, L3) & Only L3 data reveal the causes of book changes and queue positions
+  (Section~\ref{sec:events}). \\
+Sampling clock & An \emph{event clock} samples after a fixed number of events, a \emph{calendar clock}
+  after a fixed number of seconds. The event clock over-represents busy periods, which behave differently. \\
+Horizon and target & Predicting the sign of the next mid change is a different problem from
+  predicting a move larger than a threshold, or a return over ten seconds
+  (Section~\ref{sec:deep}). \\
+Class balance & If most samples belong to one class, a model that always predicts that class
+  scores high accuracy while knowing nothing (Example~\ref{ex:imbalance}). \\
+Train/test protocol & A random split lets the model train on data from after its test period; a
+  chronological split does not (Section~\ref{sec:deep-real}). \\
+Costs, latency and execution model & The same forecast is profitable or unprofitable depending on
+  whether the spread, fees and delays are counted (Section~\ref{sec:tradeability}). \\
+Number of configurations tried & The best of many tries looks good by chance
+  \citep{white2000,harvey2016}. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{example}[A majority-class model on an imbalanced target]
+\label{ex:imbalance}
+A three-class target labels each sample ``up'', ``down'' or ``stationary'' according to whether
+the mid moves by more than a threshold within the horizon. Suppose that, with a short horizon on a
+large-tick future, 80\% of samples are ``stationary'', because the mid rarely moves at all. A model
+that ignores its input and always answers ``stationary'' is then 80\% accurate. A genuinely useful
+model might be 75\% accurate and still be better, because it is right on some of the up and down
+moves that are the only cases a trader cares about. Accuracy alone cannot show this; balanced
+accuracy, macro-F1 or the confusion matrix (the table of predicted against actual classes) can.
+\end{example}
+
+\begin{example}[Two ``65\% accuracy'' results]
+One study reports 65\% on FI-2010~\citep{ntakaris2018}: five Nasdaq Nordic stocks, ten trading
+days, a horizon of $10$ in the data set's own sampling units, three classes. Another reports 65\% on a cryptocurrency pair sampled
+on a one-second calendar clock with two classes. With two balanced classes, 50\% is what guessing
+achieves; with three classes, guessing achieves anywhere from 33\% to the share of the largest
+class. The two numbers sit on different scales and share almost none of the fields of
+Table~\ref{tab:comparable}. Their equality carries no comparative information.
+\end{example}
+
+\subsection{A reader's checklist}
+\label{sec:checklist}
+
+The following questions can be asked of any paper in this field, including this one. The answers
+determine how far a result can be read as evidence of trading value.
+
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \textbf{What exactly is predicted, over what horizon, on what clock?} (Section~\ref{sec:deep})
+\item \textbf{What does a trivial model score on the same data?} Always guessing the most common
+  class, or a linear model on order-flow imbalance (Section~\ref{sec:ofi}).
+\item \textbf{Was the test period strictly after the training period?} (Section~\ref{sec:deep-real})
+\item \textbf{How many models or settings were tried before this one was reported?}
+  The best of many tries looks good by chance~\citep{white2000,harvey2016}.
+\item \textbf{What decision would the prediction drive, and was that decision evaluated after
+  spread, fees and latency?} (Sections~\ref{sec:tradeability} and~\ref{sec:passive})
+\item \textbf{If the decision uses passive orders, how were fills decided?} A fill rule that ignores
+  the queue overstates results (Section~\ref{sec:replay}).
+\end{enumerate}
+

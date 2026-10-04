@@ -1,0 +1,469 @@
+% refs_sim2.bib -- additional LOB simulators / backtesters, checked 2026-10-03/04
+% Provenance per entry in the comment line above it; details in notes/claims_simulators2.md.
+%
+% REUSED existing keys (NOT repeated here):
+%   moallemi2017 (refs.bib)                 -- Moallemi and Yuan, queue position valuation
+%   arroyo2024 (bib/refs_dl.bib)            -- fill probabilities, survival analysis
+%   maglaras2022fill (bib/refs_deep2.bib)   -- deep learning fill probabilities
+%   li2024simlob (bib/refs_deep2.bib)       -- SimLOB
+%   prata2024 (refs.bib)                    -- LOBCAST benchmark
+%   hftbacktest, nautilustrader (bib/refs_sim.bib)
+%   byrd2020abides (bib/refs_dl.bib), amrouni2021abidesgym (bib/refs_sim.bib)
+% NOTE: existing key dixon2018 (bib/refs_classic.bib) is a different Dixon paper;
+%       the High Frequency execution-model paper is dixon2018exec below.
+
+% ================= Papers =================
+
+% Page itself [DOCS]
+@misc{rigtorp2013queue,
+  author       = {Rigtorp, Erik},
+  title        = {Estimating Order Queue Position},
+  year         = {2013},
+  howpublished = {\url{https://rigtorp.se/2013/06/08/estimating-order-queue-position.html}},
+  note         = {Blog post, dated 2013-06-08}
+}
+
+% arXiv API incl. journal_ref [META]
+@misc{balch2019replay,
+  author        = {Balch, Tucker Hybinette and Mahfouz, Mahmoud and Lockhart, Joshua and Hybinette, Maria and Byrd, David},
+  title         = {How to Evaluate Trading Strategies: Single Agent Market Replay or Multiple Agent Interactive Simulation?},
+  year          = {2019},
+  eprint        = {1906.12010},
+  archivePrefix = {arXiv},
+  note          = {Presented at the 2019 ICML Workshop on AI in Finance: Applications and Infrastructure for Multi-Agent Learning, Long Beach, CA}
+}
+
+% arXiv API [META]; venue omitted: arXiv comment says ICML 2019 but the paper is absent from PMLR v97
+@misc{vyetrenko2019,
+  author        = {Vyetrenko, Svitlana and Xu, Shaojie},
+  title         = {Risk-Sensitive Compact Decision Trees for Autonomous Execution in Presence of Simulated Market Response},
+  year          = {2019},
+  eprint        = {1906.02312},
+  archivePrefix = {arXiv}
+}
+
+% arXiv API [META]; no published version found in Crossref
+@misc{giegrich2024knn,
+  author        = {Giegrich, Michael and Oomen, Roel and Reisinger, Christoph},
+  title         = {Limit Order Book Simulation and Trade Evaluation with {$K$}-Nearest-Neighbor Resampling},
+  year          = {2024},
+  eprint        = {2409.06514},
+  archivePrefix = {arXiv}
+}
+
+% arXiv API comment and doi field [META]
+@inproceedings{karpe2020,
+  author        = {Karpe, Micha{\"e}l and Fang, Jin and Ma, Zhongyao and Wang, Chen},
+  title         = {Multi-Agent Reinforcement Learning in a Realistic Limit Order Book Market Simulation},
+  booktitle     = {Proceedings of the First ACM International Conference on AI in Finance (ICAIF '20)},
+  year          = {2020},
+  doi           = {10.1145/3383455.3422570},
+  eprint        = {2006.05574},
+  archivePrefix = {arXiv}
+}
+
+% Authors/title arXiv API [META]; booktitle, pages, address from IFAAMAS proceedings PDF p434 [FT]; no DOI verified
+@inproceedings{spooner2018,
+  author        = {Spooner, Thomas and Fearnley, John and Savani, Rahul and Koukorinis, Andreas},
+  title         = {Market Making via Reinforcement Learning},
+  booktitle     = {Proceedings of the 17th International Conference on Autonomous Agents and MultiAgent Systems (AAMAS 2018)},
+  address       = {Stockholm, Sweden},
+  pages         = {434--442},
+  year          = {2018},
+  publisher     = {IFAAMAS},
+  eprint        = {1804.04216},
+  archivePrefix = {arXiv}
+}
+
+% All fields from IFAAMAS PDF p1892 [FT] (3 pages)
+@inproceedings{kumar2020drl,
+  author    = {Kumar, Pankaj},
+  title     = {Deep Reinforcement Learning for Market Making},
+  booktitle = {Proceedings of the 19th International Conference on Autonomous Agents and Multiagent Systems (AAMAS 2020)},
+  address   = {Auckland, New Zealand},
+  pages     = {1892--1894},
+  year      = {2020},
+  publisher = {IFAAMAS},
+  note      = {Extended abstract}
+}
+
+% arXiv API [META]
+@misc{kumar2021hawkes,
+  author        = {Kumar, Pankaj},
+  title         = {Deep {H}awkes Process for High-Frequency Market Making},
+  year          = {2021},
+  eprint        = {2109.15110},
+  archivePrefix = {arXiv}
+}
+
+% Crossref record title/pages; ACM resource link (Crossref container-title is wrong); only abstract read
+@inproceedings{kumar2023marl,
+  author    = {Kumar, Pankaj},
+  title     = {Multi-Agent Deep Reinforcement Learning for High-Frequency Multi-Market Making},
+  booktitle = {Proceedings of the 22nd International Conference on Autonomous Agents and Multiagent Systems (AAMAS 2023)},
+  pages     = {2409--2411},
+  year      = {2023},
+  url       = {https://dl.acm.org/doi/10.5555/3545946.3598950},
+  note      = {Extended abstract}
+}
+
+% arXiv API [META]
+@misc{sadighian2019,
+  author        = {Sadighian, Jonathan},
+  title         = {Deep Reinforcement Learning in Cryptocurrency Market Making},
+  year          = {2019},
+  eprint        = {1911.08647},
+  archivePrefix = {arXiv}
+}
+
+% Crossref [META]
+@inproceedings{guo2023mm,
+  author    = {Guo, Hong and Lin, Jianwu and Huang, Fanlin},
+  title     = {Market Making with Deep Reinforcement Learning from Limit Order Books},
+  booktitle = {2023 International Joint Conference on Neural Networks (IJCNN)},
+  pages     = {1--8},
+  year      = {2023},
+  doi       = {10.1109/IJCNN54540.2023.10191123}
+}
+
+% Crossref [META]; only abstract read (closed access)
+@inproceedings{zhao2021ber,
+  author    = {Zhao, Muchen and Linetsky, Vadim},
+  title     = {High Frequency Automated Market Making Algorithms with Adverse Selection Risk Control via Reinforcement Learning},
+  booktitle = {Proceedings of the Second ACM International Conference on AI in Finance (ICAIF '21)},
+  pages     = {1--9},
+  year      = {2021},
+  doi       = {10.1145/3490354.3494398}
+}
+
+% arXiv journal_ref and DOI [META]
+@article{gasperov2022,
+  author  = {Ga{\v{s}}perov, Bruno and Kostanj{\v{c}}ar, Zvonko},
+  title   = {Deep Reinforcement Learning for Market Making Under a {H}awkes Process-Based Limit Order Book Model},
+  journal = {IEEE Control Systems Letters},
+  volume  = {6},
+  pages   = {2485--2490},
+  year    = {2022},
+  doi     = {10.1109/LCSYS.2022.3166446}
+}
+
+% Crossref [META]
+@article{hambly2023,
+  author  = {Hambly, Ben and Xu, Renyuan and Yang, Huining},
+  title   = {Recent Advances in Reinforcement Learning in Finance},
+  journal = {Mathematical Finance},
+  volume  = {33},
+  number  = {3},
+  pages   = {437--503},
+  year    = {2023},
+  doi     = {10.1111/mafi.12382}
+}
+
+% Crossref [META]
+@article{dixon2018exec,
+  author  = {Dixon, Matthew},
+  title   = {A High-Frequency Trade Execution Model for Supervised Learning},
+  journal = {High Frequency},
+  volume  = {1},
+  number  = {1},
+  pages   = {32--52},
+  year    = {2018},
+  doi     = {10.1002/hf2.10016}
+}
+
+% arXiv API [META]
+@misc{lokin2024fill,
+  author        = {Lokin, Felix and Yu, Fenghui},
+  title         = {Fill Probabilities in a Limit Order Book with State-Dependent Stochastic Order Flows},
+  year          = {2024},
+  eprint        = {2403.02572},
+  archivePrefix = {arXiv}
+}
+
+% arXiv API [META]
+@misc{albers2025dilemma,
+  author        = {Albers, Jakob and Cucuringu, Mihai and Howison, Sam and Shestopaloff, Alexander Y.},
+  title         = {The Market Maker's Dilemma: Navigating the Fill Probability vs. Post-Fill Returns Trade-Off},
+  year          = {2025},
+  eprint        = {2502.18625},
+  archivePrefix = {arXiv}
+}
+
+% Crossref [META]
+@article{moallemi2013latency,
+  author  = {Moallemi, Ciamac C. and Sa{\u{g}}lam, Mehmet},
+  title   = {{OR} Forum---The Cost of Latency in High-Frequency Trading},
+  journal = {Operations Research},
+  volume  = {61},
+  number  = {5},
+  pages   = {1070--1086},
+  year    = {2013},
+  doi     = {10.1287/opre.2013.1165}
+}
+
+% Crossref [META]
+@article{cartea2021shadow,
+  author  = {Cartea, {\'A}lvaro and S{\'a}nchez-Betancourt, Leandro},
+  title   = {The Shadow Price of Latency: Improving Intraday Fill Ratios in Foreign Exchange Markets},
+  journal = {SIAM Journal on Financial Mathematics},
+  volume  = {12},
+  number  = {1},
+  pages   = {254--294},
+  year    = {2021},
+  doi     = {10.1137/19M1258888}
+}
+
+% Crossref [META]; no pages/article number in the Crossref record
+@article{cartea2021latliq,
+  author  = {Cartea, {\'A}lvaro and Jaimungal, Sebastian and S{\'a}nchez-Betancourt, Leandro},
+  title   = {Latency and Liquidity Risk},
+  journal = {International Journal of Theoretical and Applied Finance},
+  volume  = {24},
+  number  = {06n07},
+  year    = {2021},
+  doi     = {10.1142/S0219024921500357}
+}
+
+% Crossref [META] (issue 2023, online 2022-12-01)
+@article{cartea2023delay,
+  author  = {Cartea, {\'A}lvaro and S{\'a}nchez-Betancourt, Leandro},
+  title   = {Optimal Execution with Stochastic Delay},
+  journal = {Finance and Stochastics},
+  volume  = {27},
+  number  = {1},
+  pages   = {1--47},
+  year    = {2023},
+  doi     = {10.1007/s00780-022-00491-w}
+}
+
+% arXiv 2211.03107 [META]; venue as stated in osB check (NeurIPS 2022 Datasets and Benchmarks)
+@inproceedings{liu2022finrlmeta,
+  author        = {Liu, Xiao-Yang and Xia, Ziyi and Rui, Jingyang and Gao, Jiechao and Yang, Hongyang and Zhu, Ming and Wang, Christina Dan and Wang, Zhaoran and Guo, Jian},
+  title         = {{FinRL-Meta}: Market Environments and Benchmarks for Data-Driven Financial Reinforcement Learning},
+  booktitle     = {Advances in Neural Information Processing Systems 35 (NeurIPS 2022), Datasets and Benchmarks Track},
+  year          = {2022},
+  eprint        = {2211.03107},
+  archivePrefix = {arXiv}
+}
+
+% arXiv API [META]; author list truncated to the first five returned -- check before use
+@misc{yang2026finrlx,
+  author        = {Yang, Hongyang and Zhang, Boyu and She, Yang and Liao, Xinyu and Zhang, Xiaoli and others},
+  title         = {{FinRL-X}: An {AI}-Native Modular Infrastructure for Quantitative Trading},
+  year          = {2026},
+  eprint        = {2603.21330},
+  archivePrefix = {arXiv}
+}
+
+% ================= Open-source software =================
+% Year = year of last push seen; license from repo LICENSE / gh api.
+
+@misc{lean,
+  author       = {{QuantConnect}},
+  title        = {{LEAN} Algorithmic Trading Engine},
+  year         = {2026},
+  howpublished = {\url{https://github.com/QuantConnect/Lean}},
+  note         = {C\#/Python, Apache-2.0. Accessed 2026-10-03}
+}
+
+@misc{barter,
+  author       = {{Barter contributors}},
+  title        = {Barter: Rust Framework for Live-Trading, Paper-Trading and Back-Testing Systems},
+  year         = {2026},
+  howpublished = {\url{https://github.com/barter-rs/barter-rs}},
+  note         = {Rust, MIT. Accessed 2026-10-03}
+}
+
+@misc{hummingbot,
+  author       = {{Hummingbot Foundation}},
+  title        = {Hummingbot},
+  year         = {2026},
+  howpublished = {\url{https://github.com/hummingbot/hummingbot}},
+  note         = {Python/Cython, Apache-2.0. Accessed 2026-10-03}
+}
+
+@misc{jesse,
+  author       = {{Jesse.Trade}},
+  title        = {Jesse: Algorithmic Trading Framework},
+  year         = {2026},
+  howpublished = {\url{https://github.com/jesse-ai/jesse}},
+  note         = {Python, MIT. Accessed 2026-10-03}
+}
+
+@misc{tardismachine,
+  author       = {{Tardis.dev}},
+  title        = {tardis-machine: Historical Market Data Replay Server},
+  year         = {2026},
+  howpublished = {\url{https://github.com/tardis-dev/tardis-machine}},
+  note         = {TypeScript, MPL-2.0. Accessed 2026-10-03}
+}
+
+@misc{cryptofeed,
+  author       = {Moscon, Bryant},
+  title        = {Cryptofeed: Cryptocurrency Exchange Feed Handler},
+  year         = {2026},
+  howpublished = {\url{https://github.com/bmoscon/cryptofeed}},
+  note         = {Python, AGPL-3.0. Accessed 2026-10-03}
+}
+
+% Author full name not verified (GitHub handle kpetridis24)
+@misc{lobsim,
+  author       = {{kpetridis24}},
+  title        = {lobsim: {L3} Limit Order Book Replay and Paper Execution Simulator},
+  year         = {2026},
+  howpublished = {\url{https://github.com/kpetridis24/lobsim}},
+  note         = {C++20/Python, Apache-2.0. Accessed 2026-10-03}
+}
+
+% Author full name not verified (GitHub handle chasemetoyer)
+@misc{chasemetoyer_bte,
+  author       = {{chasemetoyer}},
+  title        = {Backtesting-Engine: {L3} Order Book Replay and Backtesting},
+  year         = {2026},
+  howpublished = {\url{https://github.com/chasemetoyer/Backtesting-Engine}},
+  note         = {Rust/Python, MIT. Accessed 2026-10-03}
+}
+
+% Author names not verified (GitHub handle koteyevlev)
+@misc{koteyevlev_mm,
+  author       = {{koteyevlev}},
+  title        = {{MarketMakingMLAlgo: Market Making Backtest on a Full Order Log}},
+  year         = {2021},
+  howpublished = {\url{https://github.com/koteyevlev/MarketMakingMLAlgo}},
+  note         = {Python, MIT. Accessed 2026-10-03}
+}
+
+@misc{evgerher_hft,
+  author       = {{evgerher}},
+  title        = {HFT-Backtesting},
+  year         = {2020},
+  howpublished = {\url{https://github.com/evgerher/hft-backtesting}},
+  note         = {Python, Apache-2.0. Accessed 2026-10-03}
+}
+
+% Author full name not verified (GitHub handle joaquinbejar)
+@misc{orderbookrs,
+  author       = {{joaquinbejar}},
+  title        = {OrderBook-rs: Limit Order Book and Matching Engine in Rust},
+  year         = {2026},
+  howpublished = {\url{https://github.com/joaquinbejar/OrderBook-rs}},
+  note         = {Rust, MIT. Accessed 2026-10-03}
+}
+
+@misc{pylob,
+  author       = {Booth, Ash},
+  title        = {{PyLOB}: A Limit Order Book for Simulation Research},
+  year         = {2026},
+  howpublished = {\url{https://github.com/DrAshBooth/PyLOB}},
+  note         = {Python, MIT. Accessed 2026-10-03}
+}
+
+@misc{simpleorderbook,
+  author       = {{jeog}},
+  title        = {SimpleOrderbook},
+  year         = {2021},
+  howpublished = {\url{https://github.com/jeog/SimpleOrderbook}},
+  note         = {C++/Python, GPL-3.0. Accessed 2026-10-03}
+}
+
+@misc{tribeca,
+  author       = {Grosner, Michael},
+  title        = {tribeca: A High Frequency, Market Making Cryptocurrency Trading Platform},
+  year         = {2018},
+  howpublished = {\url{https://github.com/michaelgrosner/tribeca}},
+  note         = {TypeScript, ISC. Accessed 2026-10-03}
+}
+
+@misc{rl_markets,
+  author       = {Spooner, Thomas},
+  title        = {rl\_markets: Market Making via Reinforcement Learning (source code)},
+  year         = {2019},
+  howpublished = {\url{https://github.com/tspooner/rl_markets}},
+  note         = {C++, BSD-3-Clause; commit 2de4cbb, 2019-11-04}
+}
+
+@misc{cryptorl,
+  author       = {Sadighian, Jonathan},
+  title        = {crypto-rl: Deep Reinforcement Learning Toolkit for Cryptocurrencies},
+  year         = {2021},
+  howpublished = {\url{https://github.com/sadighian/crypto-rl}},
+  note         = {Python; commit 078081e, 2021-11-30}
+}
+
+@misc{tradinggym,
+  author       = {{Yvictor}},
+  title        = {TradingGym},
+  year         = {2023},
+  howpublished = {\url{https://github.com/Yvictor/TradingGym}},
+  note         = {Python, MIT; commit 08bb534, 2023-08-12}
+}
+
+@misc{gymanytrading,
+  author       = {Haghpanah, Mohammad Amin},
+  title        = {gym-anytrading},
+  year         = {2023},
+  howpublished = {\url{https://github.com/AminHP/gym-anytrading}},
+  note         = {Python, MIT; commit 1498ea7, 2023-08-27}
+}
+
+% ================= Commercial documentation =================
+
+@misc{tt_backtesting,
+  author       = {{Trading Technologies International, Inc.}},
+  title        = {{TT Backtesting}: Introduction; How {TT} Backtesting Works; {TT} Backtesting Considerations},
+  howpublished = {\url{https://library.tradingtechnologies.com/tt-backtesting/tt-backtesting-overview/how-tt-backtesting-works/}},
+  note         = {Accessed 2026-10-03}
+}
+
+@misc{tt_piq,
+  author       = {{Trading Technologies International, Inc.}},
+  title        = {Position in Queue ({PIQ}) Overview},
+  howpublished = {\url{https://library.tradingtechnologies.com/trade/viewing-market-data/position-in-queue-piq/position-in-queue-piq/}},
+  note         = {Accessed 2026-10-03},
+  year         = {n.d.}
+}
+
+@misc{deltix_quantoffice,
+  author       = {{EPAM Systems (Deltix)}},
+  title        = {{QuantOffice}: A Professional Platform for Systematic Trading},
+  howpublished = {\url{https://www.deltixlab.com/quantoffice}},
+  note         = {Vendor page. Accessed 2026-10-03}
+}
+
+@misc{rcmx_strategy_studio,
+  author       = {{RCM-X}},
+  title        = {Strategy Studio},
+  howpublished = {\url{https://web.archive.org/web/20210125144519/https://rcm-x.com/strategy-studio/}},
+  note         = {Archived vendor page (2021-01-25). Accessed 2026-10-03}
+}
+
+@misc{ninjatrader_playback,
+  author       = {{NinjaTrader, LLC}},
+  title        = {{NinjaTrader 8} Help Guide: Playback Connection; Simulator},
+  howpublished = {\url{https://ninjatrader.com/support/helpGuides/nt8/playback.htm}},
+  note         = {Accessed 2026-10-03},
+  year         = {n.d.}
+}
+
+@misc{bookmap_kb,
+  author       = {{Bookmap Ltd.}},
+  title        = {Bookmap Knowledge Base: Orders Management (Order Queue Approximation); Simulator Rules},
+  howpublished = {\url{https://bookmap.com/knowledgebase/docs/KB-Trading-Orders-Management}},
+  note         = {Accessed 2026-10-03}
+}
+
+@misc{sierrachart_tradesim,
+  author       = {{Sierra Chart}},
+  title        = {Trade Simulation; Replay Chart},
+  howpublished = {\url{https://www.sierrachart.com/index.php?page=doc/TradeSimulation.html}},
+  note         = {Accessed 2026-10-03},
+  year         = {n.d.}
+}
+
+@misc{databento_queue,
+  author       = {{Databento}},
+  title        = {Getting Queue Position from {L2} and Order Book Data},
+  year         = {2025},
+  howpublished = {\url{https://databento.com/blog/getting-queue-position-from-l2-and-order-book-data}},
+  note         = {Blog post, 2025-02-26. Accessed 2026-10-03}
+}

@@ -1,0 +1,110 @@
+% refs_sim.bib -- LOB simulators / backtesters, verified 2026-10-03
+% Bibliographic fields verified against Crossref metadata and arXiv API / PDFs
+% (see notes/claims_simulators.md for per-field provenance).
+%
+% REUSED existing keys (NOT repeated here):
+%   byrd2020abides (bib/refs_dl.bib)   -- ABIDES, SIGSIM-PADS 2020
+%   frey2023 (refs.bib)                -- JAX-LOB, ICAIF 2023 (duplicate entry jaxlob2023 in bib/refs_eval.bib)
+%   li2025mars (bib/refs_tok.bib)      -- MarS, ICLR 2025
+%   berti2025trades (bib/refs_dl.bib)  -- TRADES / DeepMarket, ECAI 2025
+%   huang2015 (refs.bib)               -- queue-reactive model, JASA 2015
+%   deepqr (bib/refs_dl.bib)           -- Bodor and Carlier, MDQR, arXiv 2501.08822
+%   jain2024sim (bib/refs_classic.bib) -- LOB simulations review, arXiv 2402.17359
+%   gould2013 (refs.bib)               -- Limit order books, Quant. Finance 2013
+%   lobbench2025 (refs.bib)            -- LOB-Bench, ICML 2025
+%   lobster (refs.bib)                 -- LOBSTER
+%   coletta2021, coletta2022 (bib/refs_dl.bib) -- ABIDES world-agent papers
+
+% ---------------- Agent-based ----------------
+
+% Crossref-verified: authors, title, booktitle, pages, publisher, year, DOI. arXiv id from arXiv API.
+% NOTE: the arXiv PDF prints a placeholder DOI 10.1145/1122445.1122456 -- do not use it.
+@inproceedings{amrouni2021abidesgym,
+  author    = {Amrouni, Selim and Moulin, Aymeric and Vann, Jared and Vyetrenko, Svitlana and Balch, Tucker and Veloso, Manuela},
+  title     = {{ABIDES-Gym}: Gym Environments for Multi-Agent Discrete Event Simulation and Application to Financial Markets},
+  booktitle = {Proceedings of the Second ACM International Conference on AI in Finance (ICAIF '21)},
+  pages     = {1--9},
+  publisher = {ACM},
+  address   = {New York, NY, USA},
+  year      = {2021},
+  doi       = {10.1145/3490354.3494433},
+  eprint        = {2110.14771},
+  archivePrefix = {arXiv}
+}
+
+% Crossref-verified: authors, title, booktitle (MABS XXII), series, pages, publisher, year, DOI.
+% LNCS volume number and editors UNVERIFIED, omitted. arXiv v1 had a different title.
+@inproceedings{belcak2022maxe,
+  author    = {Belcak, Peter and Calliess, Jan-Peter and Zohren, Stefan},
+  title     = {Fast Agent-Based Simulation Framework with Applications to Reinforcement Learning and the Study of Trading Latency Effects},
+  booktitle = {Multi-Agent-Based Simulation XXII},
+  series    = {Lecture Notes in Computer Science},
+  pages     = {42--56},
+  publisher = {Springer},
+  address   = {Cham},
+  year      = {2022},
+  doi       = {10.1007/978-3-030-94548-0_4},
+  eprint        = {2008.07871},
+  archivePrefix = {arXiv}
+}
+
+% Crossref-verified: authors, title, booktitle, pages, year, DOI. Full text not read (ACM 403).
+@inproceedings{mascioli2024pymarketsim,
+  author    = {Mascioli, Chris and Gu, Anri and Wang, Yongzhao and Chakraborty, Mithun and Wellman, Michael},
+  title     = {A Financial Market Simulation Environment for Trading Agents Using Deep Reinforcement Learning},
+  booktitle = {Proceedings of the 5th ACM International Conference on AI in Finance (ICAIF '24)},
+  pages     = {117--125},
+  publisher = {ACM},
+  year      = {2024},
+  doi       = {10.1145/3677052.3698639}
+}
+
+% ---------------- Model-based ----------------
+
+% Crossref-verified: authors, title, booktitle, pages, year, DOI. arXiv v1 title differs
+% ("Model-based gym environments for limit order book trading").
+@inproceedings{jerome2023mbtgym,
+  author    = {Jerome, Joseph and S{\'a}nchez-Betancourt, Leandro and Savani, Rahul and Herdegen, Martin},
+  title     = {Mbt-gym: Reinforcement Learning for Model-Based Limit Order Book Trading},
+  booktitle = {Proceedings of the 4th ACM International Conference on AI in Finance (ICAIF '23)},
+  pages     = {619--627},
+  publisher = {ACM},
+  year      = {2023},
+  doi       = {10.1145/3604237.3626873},
+  eprint        = {2209.07823},
+  archivePrefix = {arXiv}
+}
+
+% ---------------- Replay backtesters (software) ----------------
+
+% Software citation. No CITATION.cff, DOI or paper in the repo; author real name not stated in repo files.
+@misc{hftbacktest,
+  author       = {{nkaz001}},
+  title        = {{HftBacktest}: High-Frequency Trading and Market-Making Backtesting and Trading Bot},
+  year         = {2022},
+  howpublished = {\url{https://github.com/nkaz001/hftbacktest}},
+  note         = {MIT License. Accessed 2026-10-03 (commit 5f3ec40)}
+}
+
+% Software citation. No CITATION.cff, DOI or paper in the repo.
+@misc{nautilustrader,
+  author       = {{Nautech Systems}},
+  title        = {{NautilusTrader}},
+  year         = {2018},
+  howpublished = {\url{https://github.com/nautechsystems/nautilus_trader}},
+  note         = {LGPL-3.0. Documentation at \url{https://nautilustrader.io/docs/}. Accessed 2026-10-03 (develop, v2.0.0rc6)}
+}
+
+% ---------------- Surveys ----------------
+
+% Crossref-verified: authors, title, journal, volume, number, pages, year, DOI. Full text not read.
+@article{axtell2025abm,
+  author  = {Axtell, Robert L. and Farmer, J. Doyne},
+  title   = {Agent-Based Modeling in Economics and Finance: Past, Present, and Future},
+  journal = {Journal of Economic Literature},
+  volume  = {63},
+  number  = {1},
+  pages   = {197--287},
+  year    = {2025},
+  doi     = {10.1257/jel.20221319}
+}

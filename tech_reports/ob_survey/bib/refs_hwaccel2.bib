@@ -1,0 +1,1069 @@
+% refs_hwaccel2.bib -- hardware acceleration, second pass (2026-10-04).
+% Notes and evidence classification: notes/claims_hwaccel2.md.
+% Reused existing keys (not duplicated here): leber2011, lockwood2012, hong2026lobin, tran2019tabl,
+% denholm2014arb, exegy_stac2024, exegy_enyx, lighttrader, khoda2023rnn, zhang2019, popov2026ssm.
+% Entries whose content was NOT read (metadata only) are marked UNVERIFIED below.
+
+
+% ---------------- Commercial FPGA / NIC / L1 switch vendors, STAC-T0/T1/N1 audits, trading ASIC evidence ----------------
+
+@misc{stac_xlx200514,
+  author = {{STAC}},
+  title = {{STAC Report: New LDA/Xilinx solution under STAC-T0 (tick-to-trade network I/O) (SUT ID XLX200514)}},
+  year = {2020},
+  howpublished = {STAC news post, audited STAC-T0},
+  url = {https://docs.stacresearch.com/news/XLX200514},
+  note = {Posted May 25, 2020. Accessed 2026-10-04}
+}
+
+@misc{stac_exa181106,
+  author = {{STAC}},
+  title = {{STAC Reports: Exablaze under STAC-T0 (tick-to-trade network I/O) and STAC-TS.PSE (SUT ID EXA181106)}},
+  year = {2019},
+  howpublished = {STAC news post (Internet Archive copy), audited STAC-T0},
+  url = {https://web.archive.org/web/20191021141855/https://stacresearch.com/news/2019/10/08/EXA181106},
+  note = {Posted October 7, 2019. Accessed 2026-10-04}
+}
+
+@misc{stac_sfc170831,
+  author = {{STAC}},
+  title = {STAC Report: STAC-T0 on Solarflare-enabled FPGA solution (SUT ID SFC170831)},
+  year = {2017},
+  howpublished = {STAC news post (Internet Archive copy), audited STAC-T0},
+  url = {https://web.archive.org/web/20190923063238/https://stacresearch.com/news/2017/10/13/SFC170831},
+  note = {Posted October 12, 2017. Accessed 2026-10-04}
+}
+
+@misc{stac_n1_20260201,
+  author = {{STAC}},
+  title = {STAC-N1 Benchmark Results on Intel Xeon Gold 6558Q and AMD Solarflare X4542-PLUS NICs in a Jabil J322-S Server (SUT ID N1-20260201)},
+  year = {2026},
+  howpublished = {STAC audited STAC-N1 summary page},
+  url = {https://docs.stacresearch.com/N1-20260801},
+  note = {Posted September 26, 2026. Accessed 2026-10-04}
+}
+
+@misc{stac_lms240510,
+  author = {{STAC}},
+  title = {STAC Report: LMS UberNIC CXL with 10GbE and 25GbE under STAC-N1 (SUT IDs LMS240510a, LMS240510b)},
+  year = {2024},
+  howpublished = {STAC news post, audited STAC-N1},
+  url = {https://docs.stacresearch.com/news/LMS240510a},
+  note = {Posted June 25, 2024. Accessed 2026-10-04}
+}
+
+@misc{stac_amd230414,
+  author = {{STAC}},
+  title = {STAC Report: STAC-N1 with AMD EPYC (Genoa) in HPE server (SUT ID AMD230414)},
+  year = {2023},
+  howpublished = {STAC news post, audited STAC-N1},
+  url = {https://docs.stacresearch.com/news/AMD230414},
+  note = {Posted May 1, 2023. Accessed 2026-10-04}
+}
+
+@misc{stac_amd231005,
+  author = {{STAC}},
+  title = {STAC Report: STAC-N1 with AMD Ryzen in Supermicro server (SUT ID AMD231005)},
+  year = {2023},
+  howpublished = {STAC news post, audited STAC-N1},
+  url = {https://docs.stacresearch.com/news/AMD231005},
+  note = {Posted October 23, 2023. Accessed 2026-10-04}
+}
+
+@misc{stac_amd240924,
+  author = {{STAC}},
+  title = {STAC Report: STAC-N1 with Red Hat CoreOS and OpenShift on AMD EPYC in a HPE server (SUT ID AMD240924)},
+  year = {2024},
+  howpublished = {STAC news post, audited STAC-N1},
+  url = {https://docs.stacresearch.com/news/AMD240924},
+  note = {Posted October 15, 2024. Accessed 2026-10-04}
+}
+
+@misc{stac_mmk150531,
+  author = {{STAC}},
+  title = {Metamako's MetaApp32 under STAC-N1},
+  year = {2015},
+  howpublished = {STAC news post (Internet Archive copy), audited STAC-N1},
+  url = {https://web.archive.org/web/20150907231450/https://stacresearch.com/news/2015/07/27/metamakos-metaapp32-under-stac-n1},
+  note = {Posted July 26, 2015. Accessed 2026-10-04}
+}
+
+@misc{stac_adhc240918,
+  author = {{STAC}},
+  title = {{STAC Report: STAC-T1 with ADHOC Teknoloji HFFT-02A (Versal Premium) Based Ultra Low Latency HFT Solution (SUT ID ADHC240918)}},
+  year = {2024},
+  howpublished = {STAC news post, audited STAC-T1},
+  url = {https://docs.stacresearch.com/news/ADHC240918},
+  note = {Posted October 16, 2024. Accessed 2026-10-04}
+}
+
+@misc{stac_exg191010,
+  author = {{STAC}},
+  title = {{STAC Report: CME tick-to-trade with Exegy Xero FPGA card (SUT ID EXG191010)}},
+  year = {2019},
+  howpublished = {STAC news post, audited STAC-T1},
+  url = {https://docs.stacresearch.com/news/EXG191010},
+  note = {Posted October 15, 2019. Accessed 2026-10-04}
+}
+
+@misc{arista_7130,
+  author = {{Arista Networks}},
+  title = {Arista 7130 Series},
+  year = {2026},
+  howpublished = {Product web page},
+  url = {https://www.arista.com/en/products/7130-series},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{arista_7130connects,
+  author = {{Arista Networks}},
+  title = {Arista 7130S Connect Series Data Sheet},
+  year = {2024},
+  howpublished = {Datasheet 04-0041-05},
+  url = {https://www.arista.com/assets/data/pdf/Datasheets/7130-Connect-S-Series-Datasheet.pdf},
+  note = {Dated November 22, 2024. Accessed 2026-10-04}
+}
+
+@misc{arista_7135lb,
+  author = {{Arista Networks}},
+  title = {Arista 7135LB Data Sheet},
+  year = {2025},
+  howpublished = {Datasheet 04-0051-04},
+  url = {https://www.arista.com/assets/data/pdf/Datasheets/7135LB-Datasheet.pdf},
+  note = {Dated January 20, 2025. Accessed 2026-10-04}
+}
+
+@misc{arista_metamux,
+  author = {{Arista Networks}},
+  title = {MetaMux Product Brief},
+  year = {2019},
+  howpublished = {Product brief},
+  url = {https://www.arista.com/assets/data/pdf/ProductBrief-MetaMux.pdf},
+  note = {Copyright 2019. Accessed 2026-10-04}
+}
+
+@misc{arista_multiaccess,
+  author = {{Arista Networks}},
+  title = {MultiAccess Product Brief},
+  year = {2020},
+  howpublished = {Product brief},
+  url = {https://www.arista.com/assets/data/pdf/ProductBrief-MultiAccess.pdf},
+  note = {Dated 09/20. Accessed 2026-10-04}
+}
+
+@misc{arista_metawatch,
+  author = {{Arista Networks}},
+  title = {MetaWatch Product Brief},
+  year = {2020},
+  howpublished = {Product brief},
+  url = {https://www.arista.com/assets/data/pdf/ProductBrief-MetaWatch.pdf},
+  note = {Dated 12/20. Accessed 2026-10-04}
+}
+
+@misc{cisco_smartnic,
+  author = {{Cisco Systems}},
+  title = {Cisco Nexus SmartNIC},
+  year = {2026},
+  howpublished = {Product web page},
+  url = {https://www.cisco.com/c/en/us/products/interfaces-modules/nexus-smartnic/index.html},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{cisco_k35s,
+  author = {{Cisco Systems}},
+  title = {Cisco Nexus K35-S FPGA SmartNIC Data Sheet},
+  year = {2021},
+  howpublished = {Datasheet},
+  url = {https://www.cisco.com/c/en/us/products/collateral/interfaces-modules/nexus-smartnic/datasheet-c78-743825.html},
+  note = {Updated July 9, 2021. Accessed 2026-10-04}
+}
+
+@misc{cisco_k3ps,
+  author = {{Cisco Systems}},
+  title = {Cisco Nexus K3P-S FPGA SmartNIC Data Sheet},
+  year = {2021},
+  howpublished = {Datasheet},
+  url = {https://www.cisco.com/c/en/us/products/collateral/interfaces-modules/nexus-smartnic/datasheet-c78-743827.html},
+  note = {Dated December 16, 2021. Accessed 2026-10-04}
+}
+
+@misc{cisco_v5p,
+  author = {{Cisco Systems}},
+  title = {Cisco Nexus V5P FPGA Application SmartNIC Data Sheet},
+  year = {2021},
+  howpublished = {Datasheet},
+  url = {https://www.cisco.com/c/en/us/products/collateral/interfaces-modules/nexus-smartnic/datasheet-c78-743829.html},
+  note = {Dated November 3, 2021. Accessed 2026-10-04}
+}
+
+@misc{cisco_v9p,
+  author = {{Cisco Systems}},
+  title = {Cisco Nexus V9P and V9P-3 FPGA Application SmartNIC Data Sheet},
+  year = {2021},
+  howpublished = {Datasheet},
+  url = {https://www.cisco.com/c/en/us/products/collateral/interfaces-modules/nexus-smartnic/datasheet-c78-743830.html},
+  note = {Dated December 17, 2021. Accessed 2026-10-04}
+}
+
+@misc{cisco_n3550f,
+  author = {{Cisco Systems}},
+  title = {Cisco Nexus 3550-F Programmable Layer 2 Application Platform Data Sheet},
+  year = {2021},
+  howpublished = {Datasheet},
+  url = {https://www.cisco.com/c/en/us/products/collateral/switches/nexus-3550-series/nexus-3550-f-program-app-platform-ds.html},
+  note = {Dated December 17, 2021. Accessed 2026-10-04}
+}
+
+@misc{cisco_n3550h,
+  author = {{Cisco Systems}},
+  title = {Cisco Nexus 3550-H High-density Layer 1 Switch Data Sheet},
+  year = {2021},
+  howpublished = {Datasheet},
+  url = {https://www.cisco.com/c/en/us/products/collateral/switches/nexus-3550-series/datasheet-c78-743831.html},
+  note = {Updated July 9, 2021. Accessed 2026-10-04}
+}
+
+@misc{cisco_n3550t,
+  author = {{Cisco Systems}},
+  title = {Cisco Nexus 3550-T Programmable Network Platform Data Sheet},
+  year = {2021},
+  howpublished = {Datasheet},
+  url = {https://www.cisco.com/c/en/us/products/collateral/switches/nexus-3550-series/datasheet-c78-744762.html},
+  note = {Dated December 17, 2021. Accessed 2026-10-04}
+}
+
+@misc{amd_solarflarex4,
+  author = {{AMD}},
+  title = {AMD Solarflare X4 Ethernet Adapters},
+  year = {2025},
+  howpublished = {Product web page (footnote 9xx5-251, AMD internal testing as of 9/15/2025)},
+  url = {https://www.amd.com/en/products/ethernet-adapters/solarflare-x4.html},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{amd_x4brief,
+  author = {{AMD}},
+  title = {AMD Solarflare X-Series Low Latency Ethernet Adapters Product Brief},
+  year = {2025},
+  howpublished = {Product brief},
+  url = {https://www.amd.com/content/dam/amd/en/documents/products/ethernet-adapters/x4-series-product-brief.pdf},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{amd_alveox3,
+  author = {{AMD}},
+  title = {AMD Alveo X3 Series Product Brief},
+  year = {2024},
+  howpublished = {Product brief},
+  url = {https://www.amd.com/content/dam/amd/en/documents/products/accelerators/alveo/x3/2656036-alveo-x3-product-brief.pdf},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{exegy_nxfeed,
+  author = {{Exegy}},
+  title = {nxFeed},
+  year = {2026},
+  howpublished = {Product web page},
+  url = {https://www.exegy.com/products/nxfeed/},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{exegy_nxaccess,
+  author = {{Exegy}},
+  title = {nxAccess},
+  year = {2026},
+  howpublished = {Product web page},
+  url = {https://www.exegy.com/products/nxaccess/},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{exegy_nxframework,
+  author = {{Exegy}},
+  title = {nxFramework},
+  year = {2026},
+  howpublished = {Product web page},
+  url = {https://www.exegy.com/products/nxframework/},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{exegy_novasparks,
+  author = {{Exegy}},
+  title = {Exegy Acquires NovaSparks Inc., Extending Its Leadership in Ultra-Low Latency Financial Market Data},
+  year = {2026},
+  howpublished = {Press release},
+  url = {https://www.exegy.com/exegy-acquires-novasparks/},
+  note = {Dated January 14, 2026. Accessed 2026-10-04}
+}
+
+@misc{novasparks_speed,
+  author = {{NovaSparks}},
+  title = {Speed and Capacity},
+  year = {2025},
+  howpublished = {Archived product web page (Internet Archive snapshot 2025-01-10)},
+  url = {https://web.archive.org/web/20250110054829/https://novasparks.com/speed_and_scale/},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{lda_lightspeed,
+  author = {{LDA Technologies}},
+  title = {LightSpeed V2 TCP Offload Engine},
+  year = {2026},
+  howpublished = {Product web page},
+  url = {https://www.ldatech.com/ip-cores/light-speed-tcp},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{lda_macpcs,
+  author = {{LDA Technologies}},
+  title = {Ultra-low latency MAC/PCS},
+  year = {2026},
+  howpublished = {Product web page},
+  url = {https://www.ldatech.com/ip-cores/mac-pcs},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{lda_neomux,
+  author = {{LDA Technologies}},
+  title = {NeoMUX Ultimate 10G},
+  year = {2026},
+  howpublished = {Product web page},
+  url = {https://www.ldatech.com/products/neomuxultimate10g},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{lda_lynx,
+  author = {{LDA Technologies}},
+  title = {Lynx FPGA board},
+  year = {2026},
+  howpublished = {Product web page},
+  url = {https://www.ldatech.com/products/lynx},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{altera_an849,
+  author = {{Intel}},
+  title = {AN 849: Ultra Low Latency Ethernet 10G Reference Design for Stratix 10 Devices},
+  year = {2018},
+  howpublished = {Application note, version 2018.06.12 (Quartus Prime 18.0)},
+  url = {https://docs.altera.com/r/docs/683671/current},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{lms_ubernic,
+  author = {{Liquid-Markets-Solutions}},
+  title = {UberNIC},
+  year = {2026},
+  howpublished = {Company web page},
+  url = {https://www.liquid-markets.com/},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{achronix_compute,
+  author = {{Achronix Semiconductor}},
+  title = {Compute Acceleration},
+  year = {2026},
+  howpublished = {Application web page},
+  url = {https://www.achronix.com/application/compute-acceleration},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{fixnetix_ixecute,
+  author = {{Fixnetix}},
+  title = {Fixnetix Responds to Canadian Regulations with FPGA iX-eCute},
+  year = {2013},
+  howpublished = {Press release (Internet Archive copy)},
+  url = {https://web.archive.org/web/20140216145950/http://www.fixnetix.com/news/fixnetix-responds-to-canadian-regulations-with-fpga-ix-ecute/},
+  note = {Dated 19 June 2013. Accessed 2026-10-04}
+}
+
+@misc{janestreet_asic,
+  author = {{Jane Street}},
+  title = {ASIC Engineer (job posting)},
+  year = {2026},
+  howpublished = {Job advertisement},
+  url = {https://www.janestreet.com/join-jane-street/apply/8213653002?gh_jid=8213653002},
+  note = {Updated 2026-09-28. Accessed 2026-10-04}
+}
+
+@misc{jump_asic,
+  author = {{Jump Trading}},
+  title = {Campus ASIC Engineer (Intern) (job posting)},
+  year = {2026},
+  howpublished = {Job advertisement},
+  url = {https://www.jumptrading.com/hr/job?gh_jid=7974837},
+  note = {Updated 2026-08-18. Accessed 2026-10-04}
+}
+
+
+% ---------------- Peer-reviewed FPGA papers: feed decode, book building, trading systems, FPGA LOB inference, surveys ----------------
+
+@inproceedings{dvorak2014book,
+  author    = {Dvorak, Milan and Korenek, Jan},
+  title     = {Low Latency Book Handling in {FPGA} for High Frequency Trading},
+  booktitle = {17th International Symposium on Design and Diagnostics of Electronic Circuits and Systems (DDECS)},
+  pages     = {175--178},
+  year      = {2014},
+  publisher = {IEEE},
+  doi       = {10.1109/DDECS.2014.6868785}
+}
+
+
+@inproceedings{liu2024book,
+  author    = {Liu, Yao and Chen, Shiyang and Ma, Long and Yang, Guolong and Wan, Kun},
+  title     = {Real-Time Order Book Building and Snapshot Generating for High Frequency Trading on {FPGA}},
+  booktitle = {2024 IEEE 35th International Conference on Application-specific Systems, Architectures and Processors (ASAP)},
+  pages     = {71--76},
+  year      = {2024},
+  publisher = {IEEE},
+  doi       = {10.1109/ASAP61560.2024.00025}
+}
+
+
+@inproceedings{mohamedasanbasiri2021order,
+  author    = {Mohamed Asan Basiri, M.},
+  title     = {Hardware based Order Book Design in High Frequency Algo Trading},
+  booktitle = {2021 IEEE International Symposium on Smart Electronic Systems (iSES)},
+  pages     = {285--288},
+  year      = {2021},
+  publisher = {IEEE},
+  doi       = {10.1109/iSES52644.2021.00073}
+}
+
+
+@inproceedings{kao2022trading,
+  author    = {Kao, Yi-Chieh and Chen, Hung-An and Ma, Hsi-Pin},
+  title     = {An {FPGA}-Based High-Frequency Trading System for 10 Gigabit Ethernet with a Latency of 433 ns},
+  booktitle = {2022 International Symposium on VLSI Design, Automation and Test (VLSI-DAT)},
+  pages     = {1--4},
+  year      = {2022},
+  publisher = {IEEE},
+  doi       = {10.1109/VLSI-DAT54769.2022.9768065}
+}
+
+
+@inproceedings{boutros2017build,
+  author    = {Boutros, Andrew and Grady, Brett and Abbas, Mustafa and Chow, Paul},
+  title     = {Build Fast, Trade Fast: {FPGA}-Based High-Frequency Trading Using High-Level Synthesis},
+  booktitle = {2017 International Conference on ReConFigurable Computing and FPGAs (ReConFig)},
+  pages     = {1--6},
+  year      = {2017},
+  publisher = {IEEE},
+  doi       = {10.1109/RECONFIG.2017.8279781}
+}
+
+
+@inproceedings{wray2010exploring,
+  author    = {Wray, Stephen and Luk, Wayne and Pietzuch, Peter},
+  title     = {Exploring Algorithmic Trading in Reconfigurable Hardware},
+  booktitle = {21st IEEE International Conference on Application-specific Systems, Architectures and Processors (ASAP)},
+  pages     = {325--328},
+  year      = {2010},
+  publisher = {IEEE},
+  doi       = {10.1109/ASAP.2010.5540966}
+}
+
+
+@inproceedings{gupta2024fpga,
+  author    = {Gupta, Deep and Purohit, Aarush and Naresh, R.},
+  title     = {{FPGA} for High-Frequency Trading: Reducing Latency in Financial Systems},
+  booktitle = {2024 3rd International Conference on Automation, Computing and Renewable Systems (ICACRS)},
+  pages     = {19--25},
+  year      = {2024},
+  publisher = {IEEE},
+  doi       = {10.1109/ICACRS62842.2024.10841781}
+}
+
+
+@inproceedings{morris2009fpga,
+  author    = {Morris, Gareth W. and Thomas, David B. and Luk, Wayne},
+  title     = {{FPGA} Accelerated Low-Latency Market Data Feed Processing},
+  booktitle = {2009 17th IEEE Symposium on High Performance Interconnects (HOTI)},
+  pages     = {83--89},
+  year      = {2009},
+  publisher = {IEEE},
+  doi       = {10.1109/HOTI.2009.17}
+}
+
+
+@inproceedings{tang2016scalable,
+  author    = {Tang, Qiu and Su, Majing and Jiang, Lei and Yang, Jiajia and Bai, Xu},
+  title     = {A Scalable Architecture for Low-Latency Market-Data Processing on {FPGA}},
+  booktitle = {2016 IEEE Symposium on Computers and Communication (ISCC)},
+  pages     = {597--603},
+  year      = {2016},
+  publisher = {IEEE},
+  doi       = {10.1109/ISCC.2016.7543802}
+}
+
+
+@inproceedings{litz2011dsl,
+  author    = {Litz, Heiner and Leber, Christian and Geib, Benjamin},
+  title     = {{DSL} Programmable Engine for High Frequency Trading Acceleration},
+  booktitle = {Proceedings of the Fourth Workshop on High Performance Computational Finance (WHPCF)},
+  pages     = {31--38},
+  year      = {2011},
+  publisher = {ACM},
+  doi       = {10.1145/2088256.2088268}
+}
+
+
+@article{dou2019accelerator,
+  author  = {Dou, Yuhao and Zhou, Yisu and Xin, Bo},
+  title   = {An Accelerator for Decoding Market Data Based on {FPGA}},
+  journal = {Journal of Circuits, Systems and Computers},
+  volume  = {28},
+  number  = {3},
+  pages   = {1950050},
+  year    = {2019},
+  doi     = {10.1142/S0218126619500506}
+}
+
+
+@article{denholm2015network,
+  author  = {Denholm, Stewart and Inoue, Hiroaki and Takenaka, Takashi and Becker, Tobias and Luk, Wayne},
+  title   = {Network-Level {FPGA} Acceleration of Low Latency Market Data Feed Arbitration},
+  journal = {IEICE Transactions on Information and Systems},
+  volume  = {E98-D},
+  number  = {2},
+  pages   = {288--297},
+  year    = {2015},
+  doi     = {10.1587/transinf.2014RCP0011}
+}
+
+
+@misc{zhang2025speculative,
+  author       = {Zhang, Ruixuan},
+  title        = {Speculative, Macro-Driven {FPGA} Architecture for Ultra-Low-Latency {ITCH} Parsing in High-Frequency Trading Systems},
+  howpublished = {TechRxiv preprint},
+  year         = {2025},
+  doi          = {10.36227/techrxiv.174803766.68744651/v1}
+}
+
+
+@article{sadoghi2010efficient,
+  author  = {Sadoghi, Mohammad and Labrecque, Martin and Singh, Harsh and Shum, Warren and Jacobsen, Hans-Arno},
+  title   = {Efficient Event Processing through Reconfigurable Hardware for Algorithmic Trading},
+  journal = {Proceedings of the VLDB Endowment},
+  volume  = {3},
+  number  = {1--2},
+  pages   = {1525--1528},
+  year    = {2010},
+  doi     = {10.14778/1920841.1921029}
+}
+
+
+@article{liu2026microsecond,
+  author  = {Liu, Siyuan},
+  title   = {Microsecond-Latency, Fully On-Chip Limit Order Book Prediction on an Edge {FPGA}: A Lightweight {INT8} {1D-CNN} Hardware--Software Co-Design},
+  journal = {IEEE Access},
+  volume  = {14},
+  pages   = {141192--141215},
+  year    = {2026},
+  doi     = {10.1109/ACCESS.2026.3732942}
+}
+
+
+@article{loveless2013online,
+  author  = {Loveless, Jacob and Stoikov, Sasha and Waeber, Rolf},
+  title   = {Online Algorithms in High-Frequency Trading},
+  journal = {Communications of the ACM},
+  volume  = {56},
+  number  = {10},
+  pages   = {50--56},
+  year    = {2013},
+  doi     = {10.1145/2507771.2507780}
+}
+
+
+% UNVERIFIED content: metadata only, not read.
+@inproceedings{pottathuparambil2011low,
+  author    = {Pottathuparambil, Robin and Coyne, Jack and Allred, Jeffrey and Lynch, William and Natoli, Vincent},
+  title     = {Low-Latency {FPGA} Based Financial Data Feed Handler},
+  booktitle = {2011 IEEE 19th Annual International Symposium on Field-Programmable Custom Computing Machines (FCCM)},
+  pages     = {93--96},
+  year      = {2011},
+  publisher = {IEEE},
+  doi       = {10.1109/FCCM.2011.50}
+}
+
+
+% UNVERIFIED content: metadata only, not read.
+@inproceedings{zhou2015fpga,
+  author    = {Zhou, Liyuan and Jiang, Jiang and Liao, Ruochen and Yang, Tianyi and Wang, Chang},
+  title     = {{FPGA} Based Low-Latency Market Data Feed Handler},
+  booktitle = {Computer Engineering and Technology},
+  series    = {Communications in Computer and Information Science},
+  pages     = {69--77},
+  year      = {2015},
+  publisher = {Springer},
+  doi       = {10.1007/978-3-662-45815-0_7}
+}
+
+
+% UNVERIFIED content: metadata only, not read.
+@inproceedings{denholm2013application,
+  author    = {Denholm, Stewart and Inoue, Hiroaki and Takenaka, Takashi and Luk, Wayne},
+  title     = {Application-Specific Customisation of Market Data Feed Arbitration},
+  booktitle = {2013 International Conference on Field-Programmable Technology (FPT)},
+  pages     = {322--325},
+  year      = {2013},
+  publisher = {IEEE},
+  doi       = {10.1109/FPT.2013.6718377}
+}
+
+
+% UNVERIFIED content: metadata only, not read.
+@inproceedings{li2014fast,
+  author    = {Li, Han and Fu, Yuzhuo and Liu, Ting and Wang, Jiafang},
+  title     = {{FAST} Protocol Decoding in Parallel with {FPGA} Hardware},
+  booktitle = {2014 IEEE 17th International Conference on Computational Science and Engineering (CSE)},
+  pages     = {1669--1673},
+  year      = {2014},
+  publisher = {IEEE},
+  doi       = {10.1109/CSE.2014.307}
+}
+
+
+% UNVERIFIED content: metadata only, not read.
+@article{pasetto2011ultra,
+  author  = {Pasetto, Davide and Lynch, Karol and Tucker, Robert and Maguire, Brendan and Petrini, Fabrizio and Franke, Hubertus},
+  title   = {Ultra Low Latency Market Data Feed on {IBM PowerEN}},
+  journal = {Computer Science - Research and Development},
+  volume  = {26},
+  pages   = {307--315},
+  year    = {2011},
+  doi     = {10.1007/s00450-011-0166-0}
+}
+
+
+% UNVERIFIED content: metadata only, not read.
+@inproceedings{sadoghi2011towards,
+  author    = {Sadoghi, Mohammad and Singh, Harsh and Jacobsen, Hans-Arno},
+  title     = {Towards Highly Parallel Event Processing through Reconfigurable Hardware},
+  booktitle = {Proceedings of the Seventh International Workshop on Data Management on New Hardware (DaMoN)},
+  pages     = {27--32},
+  year      = {2011},
+  publisher = {ACM},
+  doi       = {10.1145/1995441.1995445}
+}
+
+
+% UNVERIFIED content: metadata only, not read.
+@book{deschryver2015fpga,
+  editor    = {De Schryver, Christian},
+  title     = {{FPGA} Based Accelerators for Financial Applications},
+  publisher = {Springer International Publishing},
+  year      = {2015},
+  doi       = {10.1007/978-3-319-15407-7}
+}
+
+
+% ---------------- In-network computing (P4/Tofino), SmartNICs, latency-budget measurement ----------------
+
+@inproceedings{jepsen2018packet,
+  author    = {Jepsen, Theo and Moshref, Masoud and Carzaniga, Antonio and Foster, Nate and Soul{\'e}, Robert},
+  title     = {Packet Subscriptions for Programmable {ASICs}},
+  booktitle = {Proceedings of the 17th ACM Workshop on Hot Topics in Networks (HotNets)},
+  pages     = {176--183},
+  year      = {2018},
+  publisher = {ACM},
+  doi       = {10.1145/3286062.3286092}
+}
+
+
+@inproceedings{jepsen2020forwarding,
+  author    = {Jepsen, Theo and Fattaholmanan, Ali and Moshref, Masoud and Foster, Nate and Carzaniga, Antonio and Soul{\'e}, Robert},
+  title     = {Forwarding and Routing with Packet Subscriptions},
+  booktitle = {Proceedings of the 16th International Conference on emerging Networking EXperiments and Technologies (CoNEXT)},
+  pages     = {282--294},
+  year      = {2020},
+  publisher = {ACM},
+  doi       = {10.1145/3386367.3431315}
+}
+
+
+@article{jepsen2022forwarding,
+  author  = {Jepsen, Theo and Fattaholmanan, Ali and Moshref, Masoud and Foster, Nate and Carzaniga, Antonio and Soul{\'e}, Robert},
+  title   = {Forwarding and Routing With Packet Subscriptions},
+  journal = {IEEE/ACM Transactions on Networking},
+  volume  = {30},
+  number  = {6},
+  pages   = {2464--2479},
+  year    = {2022},
+  doi     = {10.1109/TNET.2022.3172066}
+}
+
+
+@inproceedings{jepsen2019fast,
+  author    = {Jepsen, Theo and Alvarez, Daniel and Foster, Nate and Kim, Changhoon and Lee, Jeongkeun and Moshref, Masoud and Soul{\'e}, Robert},
+  title     = {Fast String Searching on {PISA}},
+  booktitle = {Proceedings of the 2019 ACM Symposium on SDN Research (SOSR)},
+  pages     = {21--28},
+  year      = {2019},
+  publisher = {ACM},
+  doi       = {10.1145/3314148.3314356}
+}
+
+
+@article{zheng2024planter,
+  author  = {Zheng, Changgang and Zang, Mingyuan and Hong, Xinpeng and Perreault, Liam and Bensoussane, Riyad and Vargaftik, Shay and Ben-Itzhak, Yaniv and Zilberman, Noa},
+  title   = {Planter: Rapid Prototyping of In-Network Machine Learning Inference},
+  journal = {ACM SIGCOMM Computer Communication Review},
+  volume  = {54},
+  number  = {1},
+  pages   = {2--21},
+  year    = {2024},
+  doi     = {10.1145/3687230.3687232}
+}
+
+
+@misc{zheng2022automating,
+  author        = {Zheng, Changgang and Zang, Mingyuan and Hong, Xinpeng and Bensoussane, Riyad and Vargaftik, Shay and Ben-Itzhak, Yaniv and Zilberman, Noa},
+  title         = {Automating In-Network Machine Learning},
+  year          = {2022},
+  eprint        = {2205.08824},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.NI},
+  note          = {Version 1, May 2022}
+}
+
+@inproceedings{xiong2019switches,
+  author    = {Xiong, Zhaoqi and Zilberman, Noa},
+  title     = {Do Switches Dream of Machine Learning? Toward In-Network Classification},
+  booktitle = {Proceedings of the 18th ACM Workshop on Hot Topics in Networks (HotNets)},
+  pages     = {25--33},
+  year      = {2019},
+  publisher = {ACM},
+  doi       = {10.1145/3365609.3365864}
+}
+
+@article{zheng2024iisy,
+  author  = {Zheng, Changgang and Xiong, Zhaoqi and Bui, Thanh T. and Kaupmees, Siim and Bensoussane, Riyad and Bernabeu, Antoine and Vargaftik, Shay and Ben-Itzhak, Yaniv and Zilberman, Noa},
+  title   = {{IIsy}: Hybrid In-Network Classification Using Programmable Switches},
+  journal = {IEEE/ACM Transactions on Networking},
+  volume  = {32},
+  number  = {3},
+  pages   = {2555--2570},
+  year    = {2024},
+  doi     = {10.1109/TNET.2024.3364757}
+}
+
+
+@inproceedings{zilberman2017where,
+  author    = {Zilberman, Noa and Grosvenor, Matthew and Popescu, Diana Andreea and Manihatty-Bojan, Neelakandan and Antichi, Gianni and W{\'o}jcik, Marcin and Moore, Andrew W.},
+  title     = {Where Has My Time Gone?},
+  booktitle = {Passive and Active Measurement (PAM 2017)},
+  series    = {Lecture Notes in Computer Science},
+  pages     = {201--214},
+  year      = {2017},
+  publisher = {Springer},
+  doi       = {10.1007/978-3-319-54328-4_15}
+}
+
+
+@misc{amd2026x3522,
+  author       = {{AMD}},
+  title        = {Alveo {X3522} Data Sheet ({DS1002}), Installation Guide ({UG1522}) and {X3522PV} User Guide ({UG1607})},
+  year         = {2026},
+  howpublished = {\url{https://docs.amd.com/r/en-US/ds1002-x3522}},
+  note         = {Accessed 2026-10-04}
+}
+
+@misc{nvidia2021smartnic,
+  author       = {{NVIDIA}},
+  title        = {What Is a {SmartNIC}?},
+  year         = {2021},
+  howpublished = {\url{https://blogs.nvidia.com/blog/what-is-a-smartnic/}},
+  note         = {Blog post, 2021-10-29. Accessed 2026-10-04}
+}
+
+@misc{nvidia2026stacml,
+  author       = {Markovskiy, Nikolay and Marciniszyn Mehringer, Martin},
+  title        = {Achieving Single-Digit Microsecond Latency Inference for Capital Markets},
+  year         = {2026},
+  howpublished = {\url{https://developer.nvidia.com/blog/achieving-single-digit-microsecond-latency-inference-for-capital-markets/}},
+  note         = {NVIDIA Technical Blog, 2026-04-02. Accessed 2026-10-04}
+}
+
+
+
+% ---------------- STAC-ML Markets (Inference), VOLLO, STAC-A2, GPU networking, TensorRT ----------------
+
+@misc{stac_ml_wg,
+  author = {{STAC}},
+  title = {{STAC-ML} Working Group},
+  year = {2026},
+  howpublished = {\url{https://docs.stacresearch.com/ml}},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{stac_ml_limits2025,
+  author = {Stuart Buckland and {STAC}},
+  title = {Testing the Limits of Machine Learning Inference in Finance},
+  year = {2025},
+  howpublished = {\url{https://stacresearch.com/news/testing-the-limits-of-machine-learning-inference-in-finance/}},
+  note = {Published 2025-10-28. Accessed 2026-10-04}
+}
+
+@misc{stac_ml_nvda2023,
+  author = {{STAC}},
+  title = {{STAC} Reports: {STAC-ML} on an {NVIDIA} {A100} in a {Supermicro} server ({SUT} {ID} {NVDA221118})},
+  year = {2023},
+  howpublished = {\url{https://stacresearch.com/news/nvda221118/}},
+  note = {Accessed 2026-10-04}
+}
+
+@misc{stac_ml_mrtl2022,
+  author = {{STAC}},
+  title = {{STAC} Report: {STAC-ML} on {Myrtle.ai} {VOLLO} ({SUT} {ID} {MRTL221125})},
+  year = {2022},
+  howpublished = {\url{https://stacresearch.com/news/mrtl221125/}},
+  note = {Audited, Sumaco suite. Accessed 2026-10-04}
+}
+
+@misc{stac_ml_mrtl2023,
+  author = {{STAC}},
+  title = {{STAC} Report: {STAC-ML} {Tacana} Suite on {Myrtle.ai} {VOLLO} ({SUT} {ID} {MRTL230426})},
+  year = {2023},
+  howpublished = {\url{https://stacresearch.com/news/mrtl230426/}},
+  note = {Audited, Tacana suite. Accessed 2026-10-04}
+}
+
+@misc{stac_ml_smc2025,
+  author = {{STAC}},
+  title = {{STAC-ML} Markets (Inference) on a {Supermicro} {ARS-111GL-NHR} with {NVIDIA} {GH200} {Grace} {Hopper} Superchip ({SUT} {ID} {SMC250910})},
+  year = {2025},
+  howpublished = {\url{https://docs.stacresearch.com/SMC250910}},
+  note = {Audited. Accessed 2026-10-04}
+}
+
+@misc{stac_ml_mrtl2026,
+  author = {{STAC}},
+  title = {{STAC-ML} Pack for {myrtle.ai} {VOLLO} (Rev C) with {Silicom} {Artena} ({AMD} {VP1802} {FPGA}) on {Supermicro} {AS-2015CS-TNR} ({SUT} {ID} {MRTL260323})},
+  year = {2026},
+  howpublished = {\url{https://docs.stacresearch.com/MRTL260323}},
+  note = {Audited, Tacana suite. Accessed 2026-10-04}
+}
+
+@misc{stac_ml_groq2022,
+  author = {{STAC}},
+  title = {{STAC-ML} Markets (Inference) on {GroqNode} with 8x {GroqCard} Accelerators ({SUT} {ID} {GROQ221014})},
+  year = {2022},
+  howpublished = {\url{https://stacresearch.com/news/groq221014/}},
+  note = {Audited, Sumaco suite. Accessed 2026-10-04}
+}
+
+@misc{stac_ml_xlra2026,
+  author = {{STAC}},
+  title = {{STAC-ML} Pack for {Xelera} {Silva} with {AMD} {Alveo} {V80} on an {HPE} {ProLiant} {DL385} {Gen10} Plus v2 server ({SUT} {ID} {XLRA260312})},
+  year = {2026},
+  howpublished = {\url{https://docs.stacresearch.com/XLRA260312}},
+  note = {Audited, GBT (El Popo) suite. Accessed 2026-10-04}
+}
+
+@misc{nvidia_gtc_dc2025_stac,
+  author = {{NVIDIA}},
+  title = {{STAC}-ing Wins: {NVIDIA} {GH200} Superchip Sets Records on Financial Services Industry Benchmarks},
+  year = {2025},
+  howpublished = {\url{https://blogs.nvidia.com/blog/nvidia-gtc-washington-dc-2025-news/}},
+  note = {Vendor blog, section dated 2025-10-28. Accessed 2026-10-04}
+}
+
+@misc{myrtle_vollo_sdk,
+  author = {{Myrtle.ai}},
+  title = {{Vollo} {SDK} User Guide (Benchmarks: {LSTM}, {MLP}, {IO} Round Trip; System Requirements)},
+  year = {2026},
+  howpublished = {\url{https://vollo.myrtle.ai/latest/benchmark-lstm.html}},
+  note = {Vendor documentation, release 29.0.0. Accessed 2026-10-04}
+}
+
+@misc{stac_a2_nvda2023,
+  author = {{STAC}},
+  title = {{STAC} Report: {Dell} with {NVIDIA} {H100} {SXM5} {GPUs} under {STAC-A2} ({SUT} {ID} {NVDA231030})},
+  year = {2023},
+  howpublished = {\url{https://stacresearch.com/news/nvda231030/}},
+  note = {Audited. Accessed 2026-10-04}
+}
+
+@misc{stac_a2_nvda2023b,
+  author = {{STAC}},
+  title = {{STAC} Report: {STAC-A2} on {NVIDIA} {H100} 80GiB in {HPE} {ProLiant} {XL675d} {Gen10} Plus ({SUT} {ID} {NVDA230721})},
+  year = {2023},
+  howpublished = {\url{https://stacresearch.com/news/nvda230721/}},
+  note = {Audited. Accessed 2026-10-04}
+}
+
+@misc{nvidia_gpudirect_rdma_doc,
+  author = {{NVIDIA}},
+  title = {Developing a Linux Kernel Module using {GPUDirect} {RDMA}},
+  year = {2026},
+  howpublished = {\url{https://docs.nvidia.com/cuda/gpudirect-rdma/index.html}},
+  note = {Official documentation v13.4. Accessed 2026-10-04}
+}
+
+@misc{nvidia_doca_gpunetio_doc,
+  author = {{NVIDIA}},
+  title = {{DOCA} {GPUNetIO}},
+  year = {2026},
+  howpublished = {\url{https://networking-docs.nvidia.com/doca/sdk/doca-gpunetio}},
+  note = {Official documentation v3.5.0. Accessed 2026-10-04}
+}
+
+@misc{agostini2022gpunetio,
+  author = {Elena Agostini},
+  title = {Inline {GPU} Packet Processing with {NVIDIA} {DOCA} {GPUNetIO}},
+  year = {2022},
+  howpublished = {\url{https://developer.nvidia.com/blog/inline-gpu-packet-processing-with-nvidia-doca-gpunetio/}},
+  note = {NVIDIA Technical Blog, 2022-12-14. Accessed 2026-10-04}
+}
+
+@misc{markthub2022ibgda,
+  author = {Pak Markthub and Jim Dinan and Sreeram Potluri and Seth Howell},
+  title = {Improving Network Performance of {HPC} Systems Using {NVIDIA} {Magnum} {IO} {NVSHMEM} and {GPUDirect} Async},
+  year = {2022},
+  howpublished = {\url{https://developer.nvidia.com/blog/improving-network-performance-of-hpc-systems-using-nvidia-magnum-io-nvshmem-and-gpudirect-async/}},
+  note = {NVIDIA Technical Blog, 2022-11-22. Accessed 2026-10-04}
+}
+
+@misc{nvidia_rivermax,
+  author = {{NVIDIA}},
+  title = {{NVIDIA} {Rivermax}},
+  year = {2026},
+  howpublished = {\url{https://developer.nvidia.com/networking/rivermax}},
+  note = {Vendor product page. Accessed 2026-10-04}
+}
+
+@misc{nvidia_tensorrt_optimization,
+  author = {{NVIDIA}},
+  title = {Optimizing {TensorRT} Performance},
+  year = {2026},
+  howpublished = {\url{https://docs.nvidia.com/deeplearning/tensorrt/latest/performance/optimization.html}},
+  note = {TensorRT 11.3.0 documentation, last updated 2026-09-08. Accessed 2026-10-04}
+}
+
+@misc{nvidia_tensorrt_benchmarking,
+  author = {{NVIDIA}},
+  title = {Benchmarking {TensorRT} Performance},
+  year = {2026},
+  howpublished = {\url{https://docs.nvidia.com/deeplearning/tensorrt/latest/performance/benchmarking.html}},
+  note = {TensorRT 11.3.0 documentation, last updated 2026-09-08. Accessed 2026-10-04}
+}
+
+
+% ---------------- AI accelerators, CPU batch-1 runtimes, software order-book data structures ----------------
+
+@inproceedings{jouppi2017datacenter,
+  author    = {Jouppi, Norman P. and Young, Cliff and Patil, Nishant and Patterson, David and others},
+  title     = {In-Datacenter Performance Analysis of a Tensor Processing Unit},
+  booktitle = {Proceedings of the 44th Annual International Symposium on Computer Architecture (ISCA)},
+  pages     = {1--12},
+  year      = {2017},
+  doi       = {10.1145/3079856.3080246}
+}
+
+@inproceedings{abts2020think,
+  author    = {Abts, Dennis and Ross, Jonathan and Sparling, Jonathan and Wong-VanHaren, Mark and Baker, Max and Hawkins, Tom and Bell, Andrew and Thompson, John and others},
+  title     = {Think Fast: A Tensor Streaming Processor ({TSP}) for Accelerating Deep Learning Workloads},
+  booktitle = {2020 ACM/IEEE 47th Annual International Symposium on Computer Architecture (ISCA)},
+  pages     = {145--158},
+  year      = {2020},
+  doi       = {10.1109/ISCA45697.2020.00023}
+}
+
+@inproceedings{abts2022software,
+  author    = {Abts, Dennis and Kimmell, Garrin and Ling, Andrew and Kim, John and Boyd, Matt and Bitar, Andrew and Parmar, Sahil and Ahmed, Ibrahim and others},
+  title     = {A Software-Defined Tensor Streaming Multiprocessor for Large-Scale Machine Learning},
+  booktitle = {Proceedings of the 49th Annual International Symposium on Computer Architecture (ISCA)},
+  pages     = {567--580},
+  year      = {2022},
+  doi       = {10.1145/3470496.3527405}
+}
+
+@inproceedings{ahmed2022answer,
+  author    = {Ahmed, Ibrahim and Parmar, Sahil and Boyd, Matthew and Beidler, Michael and Kang, Kris and Liu, Bill and Roach, Kyle and Kim, John and Abts, Dennis},
+  title     = {Answer Fast: Accelerating {BERT} on the Tensor Streaming Processor},
+  booktitle = {2022 IEEE 33rd International Conference on Application-specific Systems, Architectures and Processors (ASAP)},
+  pages     = {80--87},
+  year      = {2022},
+  doi       = {10.1109/ASAP54787.2022.00022}
+}
+
+
+@misc{golden2026xpuathalon,
+  author        = {Golden, Alicia and Wu, Carole-Jean and Wei, Gu-Yeon and Brooks, David},
+  title         = {The {xPU}-athalon: Quantifying the Competition of {AI} Acceleration},
+  year          = {2026},
+  eprint        = {2604.10852},
+  archivePrefix = {arXiv},
+  note          = {Accepted to ISPASS 2026}
+}
+
+@misc{aws_inferentia2,
+  author       = {{Amazon Web Services}},
+  title        = {{AWS Neuron} Inf2 Inference Performance (latency\_data\_encoder.csv)},
+  howpublished = {\url{https://github.com/aws-neuron/aws-neuron-sdk/tree/master/about-neuron/benchmarks/inf2}},
+  note         = {Neuron 2.26.0; accessed 2026-10-04}
+}
+
+@misc{intel_openvino,
+  author       = {{Intel Corporation}},
+  title        = {{OpenVINO} Performance Benchmarks (release 2026.3)},
+  howpublished = {\url{https://docs.openvino.ai/2025/about-openvino/performance-benchmarks.html}},
+  note         = {Data read from openvinotoolkit/openvino repository, docs/sphinx\_setup/\_static/benchmarks\_files/data/graph-data-ov.json; accessed 2026-10-04}
+}
+
+@misc{intel_amx,
+  author       = {{Intel Corporation}},
+  title        = {Accelerate {PyTorch} Training and Inference using {Intel} {AMX}},
+  howpublished = {\url{https://www.intel.com/content/www/us/en/developer/articles/technical/accelerate-pytorch-training-inference-on-amx.html}},
+  note         = {accessed 2026-10-04}
+}
+
+@misc{microsoft_onnxruntime,
+  author       = {Ning, Emma and Yan, Nathan and Zhu, Jeffrey and Li, Jason},
+  title        = {Microsoft open sources breakthrough optimizations for transformer inference on {GPU} and {CPU}},
+  howpublished = {\url{https://opensource.microsoft.com/blog/2020/01/21/microsoft-onnx-open-source-optimizations-transformer-inference-gpu-cpu/}},
+  year         = {2020},
+  note         = {Microsoft Open Source Blog; accessed 2026-10-04}
+}
+
+@misc{mlcommons_inferencerules,
+  author       = {{MLCommons}},
+  title        = {{MLPerf} Inference Rules},
+  howpublished = {\url{https://github.com/mlcommons/inference_policies/blob/master/inference_rules.adoc}},
+  note         = {accessed 2026-10-04}
+}
+
+@misc{gross2024nanoseconds,
+  author       = {Gross, David},
+  title        = {When Nanoseconds Matter: Ultrafast Trading Systems in {C++}},
+  howpublished = {CppCon 2024, \url{https://github.com/CppCon/CppCon2024/blob/main/Presentations/When_Nanoseconds_Matter.pdf}},
+  year         = {2024},
+  note         = {Practitioner talk (Optiver); slides accessed 2026-10-04}
+}
+
+
+@misc{cook2017microsecond,
+  author       = {Cook, Carl},
+  title        = {When a Microsecond Is an Eternity: High Performance Trading Systems in {C++}},
+  howpublished = {CppCon 2017, \url{https://github.com/CppCon/CppCon2017/tree/master/Presentations/When\%20a\%20Microsecond\%20Is\%20an\%20Eternity}},
+  year         = {2017},
+  note         = {Practitioner talk (Optiver); slides accessed 2026-10-04}
+}
+
+@article{jericevich2022cointossx,
+  author  = {Jericevich, Ivan and Sing, Dharmesh and Gebbie, Tim},
+  title   = {{CoinTossX}: An open-source low-latency high-throughput matching engine},
+  journal = {SoftwareX},
+  volume  = {19},
+  pages   = {101136},
+  year    = {2022},
+  doi     = {10.1016/j.softx.2022.101136}
+}
+
+@misc{liquibook,
+  author       = {{Liquibook project}},
+  title        = {Liquibook: Open source order matching engine},
+  howpublished = {\url{https://github.com/enewhuis/liquibook}},
+  note         = {README, Performance section; accessed 2026-10-04}
+}

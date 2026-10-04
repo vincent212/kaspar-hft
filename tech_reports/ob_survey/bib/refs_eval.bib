@@ -1,0 +1,409 @@
+% refs_eval.bib -- verified references for evaluation/learning theory,
+% manipulation/hidden liquidity, and hardware sections.
+% Fields only included where confirmed (Crossref, publisher, or official page).
+% Verified 2026-10-02. See notes/claims_eval.md.
+
+% ---------------------------------------------------------------
+% Learning theory / model selection
+% ---------------------------------------------------------------
+
+@book{vapnik1998,
+  author    = {Vapnik, Vladimir N.},
+  title     = {Statistical Learning Theory},
+  publisher = {Wiley},
+  series    = {Adaptive and Learning Systems for Signal Processing, Communications, and Control},
+  year      = {1998},
+  isbn      = {978-0-471-03003-4}
+}
+
+@article{bartlett2002,
+  author  = {Bartlett, Peter L. and Mendelson, Shahar},
+  title   = {Rademacher and {G}aussian Complexities: Risk Bounds and Structural Results},
+  journal = {Journal of Machine Learning Research},
+  year    = {2002},
+  volume  = {3},
+  pages   = {463--482},
+  url     = {https://jmlr.org/papers/volume3/bartlett02a/bartlett02a.pdf}
+}
+
+@article{akaike1974,
+  author  = {Akaike, Hirotugu},
+  title   = {A New Look at the Statistical Model Identification},
+  journal = {IEEE Transactions on Automatic Control},
+  year    = {1974},
+  volume  = {19},
+  number  = {6},
+  pages   = {716--723},
+  doi     = {10.1109/TAC.1974.1100705}
+}
+
+@article{schwarz1978,
+  author  = {Schwarz, Gideon},
+  title   = {Estimating the Dimension of a Model},
+  journal = {The Annals of Statistics},
+  year    = {1978},
+  volume  = {6},
+  number  = {2},
+  pages   = {461--464},
+  doi     = {10.1214/aos/1176344136}
+}
+
+@article{tibshirani1996,
+  author  = {Tibshirani, Robert},
+  title   = {Regression Shrinkage and Selection via the Lasso},
+  journal = {Journal of the Royal Statistical Society: Series B (Methodological)},
+  year    = {1996},
+  volume  = {58},
+  number  = {1},
+  pages   = {267--288},
+  doi     = {10.1111/j.2517-6161.1996.tb02080.x}
+}
+
+@article{hansen2011mcs,
+  author  = {Hansen, Peter R. and Lunde, Asger and Nason, James M.},
+  title   = {The Model Confidence Set},
+  journal = {Econometrica},
+  year    = {2011},
+  volume  = {79},
+  number  = {2},
+  pages   = {453--497},
+  doi     = {10.3982/ECTA5771}
+}
+
+@article{bailey2014pseudo,
+  author  = {Bailey, David H. and Borwein, Jonathan M. and L{\'o}pez de Prado, Marcos and Zhu, Qiji Jim},
+  title   = {Pseudo-Mathematics and Financial Charlatanism: The Effects of Backtest Overfitting on Out-of-Sample Performance},
+  journal = {Notices of the American Mathematical Society},
+  year    = {2014},
+  volume  = {61},
+  number  = {5},
+  pages   = {458--471},
+  doi     = {10.1090/noti1105}
+}
+
+@article{belkin2019,
+  author  = {Belkin, Mikhail and Hsu, Daniel and Ma, Siyuan and Mandal, Soumik},
+  title   = {Reconciling Modern Machine-Learning Practice and the Classical Bias--Variance Trade-off},
+  journal = {Proceedings of the National Academy of Sciences},
+  year    = {2019},
+  volume  = {116},
+  number  = {32},
+  pages   = {15849--15854},
+  doi     = {10.1073/pnas.1903070116}
+}
+
+@inproceedings{zhang2017rethinking,
+  author    = {Zhang, Chiyuan and Bengio, Samy and Hardt, Moritz and Recht, Benjamin and Vinyals, Oriol},
+  title     = {Understanding Deep Learning Requires Rethinking Generalization},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2017},
+  eprint    = {1611.03530},
+  archivePrefix = {arXiv},
+  url       = {https://openreview.net/forum?id=Sy8gdB9xx}
+}
+
+% ---------------------------------------------------------------
+% Manipulation / hidden liquidity
+% ---------------------------------------------------------------
+
+@article{cartea2020spoof,
+  author  = {Cartea, {\'A}lvaro and Jaimungal, Sebastian and Wang, Yixuan},
+  title   = {Spoofing and Price Manipulation in Order-Driven Markets},
+  journal = {Applied Mathematical Finance},
+  year    = {2020},
+  volume  = {27},
+  number  = {1--2},
+  pages   = {67--98},
+  doi     = {10.1080/1350486X.2020.1726783}
+}
+
+@article{lee2013spoof,
+  author  = {Lee, Eun Jung and Eom, Kyong Shik and Park, Kyung Suh},
+  title   = {Microstructure-Based Manipulation: Strategic Behavior and Performance of Spoofing Traders},
+  journal = {Journal of Financial Markets},
+  year    = {2013},
+  volume  = {16},
+  number  = {2},
+  pages   = {227--252},
+  doi     = {10.1016/j.finmar.2012.05.004}
+}
+
+@article{egginton2016,
+  author  = {Egginton, Jared F. and Van Ness, Bonnie F. and Van Ness, Robert A.},
+  title   = {Quote Stuffing},
+  journal = {Financial Management},
+  year    = {2016},
+  volume  = {45},
+  number  = {3},
+  pages   = {583--608},
+  doi     = {10.1111/fima.12126}
+}
+
+@article{frey2017iceberg,
+  author  = {Frey, Stefan and Sand{\aa}s, Patrik},
+  title   = {The Impact of Iceberg Orders in Limit Order Books},
+  journal = {Quarterly Journal of Finance},
+  year    = {2017},
+  volume  = {7},
+  number  = {3},
+  pages   = {1750007},
+  doi     = {10.1142/S2010139217500070}
+}
+
+@article{christensen2013,
+  author  = {Christensen, Hugh L. and Woodmansey, Robert},
+  title   = {Prediction of Hidden Liquidity in the Limit Order Book of {GLOBEX} Futures},
+  journal = {The Journal of Trading},
+  year    = {2013},
+  volume  = {8},
+  number  = {3},
+  pages   = {68--95},
+  doi     = {10.3905/jot.2013.8.3.068}
+}
+
+@misc{cftc2020jpm,
+  author       = {{Commodity Futures Trading Commission}},
+  title        = {{CFTC} Orders {JPMorgan} to Pay Record \$920 Million for Spoofing and Manipulation},
+  howpublished = {CFTC Press Release No. 8260-20},
+  year         = {2020},
+  month        = sep,
+  day          = {29},
+  url          = {https://www.cftc.gov/PressRoom/PressReleases/8260-20}
+}
+
+@misc{cftc2015sarao,
+  author       = {{Commodity Futures Trading Commission}},
+  title        = {{CFTC} Charges {U.K.} Resident {Navinder Singh Sarao} and His Company {Nav Sarao Futures Limited PLC} with Price Manipulation and Spoofing},
+  howpublished = {CFTC Press Release No. 7156-15},
+  year         = {2015},
+  month        = apr,
+  day          = {21},
+  url          = {https://www.cftc.gov/PressRoom/PressReleases/7156-15}
+}
+
+@misc{doj2016sarao,
+  author       = {{U.S. Department of Justice}},
+  title        = {Futures Trader Pleads Guilty to Illegally Manipulating the Futures Market in Connection With 2010 ``Flash Crash''},
+  howpublished = {Office of Public Affairs press release},
+  year         = {2016},
+  url          = {https://www.justice.gov/archives/opa/pr/futures-trader-pleads-guilty-illegally-manipulating-futures-market-connection-2010-flash}
+}
+
+% ---------------------------------------------------------------
+% HFT economics
+% ---------------------------------------------------------------
+
+@article{baron2019,
+  author  = {Baron, Matthew and Brogaard, Jonathan and Hagstr{\"o}mer, Bj{\"o}rn and Kirilenko, Andrei},
+  title   = {Risk and Return in High-Frequency Trading},
+  journal = {Journal of Financial and Quantitative Analysis},
+  year    = {2019},
+  volume  = {54},
+  number  = {3},
+  pages   = {993--1024},
+  doi     = {10.1017/S0022109018001096}
+}
+
+@article{menkveld2013,
+  author  = {Menkveld, Albert J.},
+  title   = {High Frequency Trading and the New Market Makers},
+  journal = {Journal of Financial Markets},
+  year    = {2013},
+  volume  = {16},
+  number  = {4},
+  pages   = {712--740},
+  doi     = {10.1016/j.finmar.2013.06.006}
+}
+
+% ---------------------------------------------------------------
+% Hardware / systems
+% ---------------------------------------------------------------
+
+@misc{amd_ul3524,
+  author       = {{AMD}},
+  title        = {{AMD} {Alveo} {UL3524} Accelerator Card: {FPGA} Accelerator for Ultra-Low Latency Trading (Product Brief)},
+  year         = {2023},
+  howpublished = {Product brief},
+  url          = {https://www.xilinx.com/content/dam/xilinx/publications/product-briefs/2233051_Product_Brief_UL3524_Alveo_Accelerator_Card.pdf},
+  note         = {Launched 2023-09-27}
+}
+
+@misc{amd_ul3422,
+  author       = {{AMD}},
+  title        = {{AMD} {Alveo} {UL3422} Accelerator Card (Product Brief)},
+  year         = {2024},
+  howpublished = {Product brief},
+  url          = {https://www.amd.com/content/dam/amd/en/documents/products/accelerators/alveo/ul3422/alveo-ul3422-product-brief.pdf},
+  note         = {Launch press release 2024-10-14}
+}
+
+@misc{algologic,
+  author       = {{Algo-Logic Systems} and {AMD}},
+  title        = {{AMD} {Alveo} {U50} with {HLS}: {FPGA} Accelerated {CME} Tick-to-Trade (Solution Brief)},
+  howpublished = {Solution brief},
+  url          = {https://www.amd.com/content/dam/amd/en/documents/products/accelerators/alveo/u50/algo-logic-t2t-product-brief.pdf},
+  year         = {n.d.}
+}
+
+@misc{exegy_enyx,
+  author       = {{Exegy}},
+  title        = {Exegy Acquires {Enyx}, Expands Global {FPGA} Leadership},
+  year         = {2022},
+  month        = may,
+  day          = {10},
+  howpublished = {Press release},
+  url          = {https://www.exegy.com/exegy-acquires-enyx/}
+}
+
+@misc{magmio,
+  author       = {{Magmio}},
+  title        = {Magmio: {FPGA} System for Ultra-Low Latency Trading},
+  howpublished = {Vendor website},
+  url          = {https://www.magmio.com/product},
+  note         = {Accessed 2026-10-02},
+  year         = {n.d.}
+}
+
+@misc{xelera_silva,
+  author       = {{Xelera Technologies}},
+  title        = {Xelera {Silva}: Low-Latency Inference for Gradient-Boosted Trees and Neural Networks},
+  howpublished = {Product page},
+  url          = {https://www.xelera.io/products/silva},
+  note         = {Accessed 2026-10-02},
+  year         = {n.d.}
+}
+
+@misc{napatech,
+  author       = {{Napatech}},
+  title        = {Napatech Turbocharges {Xelera} Software to Deliver Ultra-Low Latency {AI} Inference for Financial Trading},
+  year         = {2025},
+  month        = may,
+  day          = {12},
+  howpublished = {Press release},
+  url          = {https://www.napatech.com/media/press-releases/napatech-turbocharges-xelera-software-to-deliver-ultra-low-latency-ai-inference-for-financial-trading/}
+}
+
+@inproceedings{lighttrader,
+  author    = {Yoo, Sungyeob and Kim, Hyunsung and Kim, Jinseok and Park, Sunghyun and Kim, Joo-Young and Oh, Jinwook},
+  title     = {{LightTrader}: A Standalone High-Frequency Trading System with Deep Learning Inference Accelerators and Proactive Scheduler},
+  booktitle = {2023 IEEE International Symposium on High-Performance Computer Architecture (HPCA)},
+  year      = {2023},
+  pages     = {1017--1030},
+  doi       = {10.1109/HPCA56546.2023.10070930}
+}
+
+@inproceedings{famous,
+  author    = {Kabir, Ehsan and Kabir, Md. Arafat and Downey, Austin R. J. and Bakos, Jason D. and Andrews, David and Huang, Miaoqing},
+  title     = {{FAMOUS}: Flexible Accelerator for the Attention Mechanism of Transformer on {UltraScale+} {FPGAs}},
+  booktitle = {2024 International Conference on Field Programmable Technology (ICFPT)},
+  year      = {2024},
+  pages     = {1--2},
+  doi       = {10.1109/ICFPT64416.2024.11113430},
+  eprint    = {2409.14023},
+  archivePrefix = {arXiv}
+}
+
+@misc{eliteformer,
+  author        = {Agostinelli, Victor and Bohm Agostini, Nicolas and Tumeo, Antonino},
+  title         = {{ELiTeFormer}: An Efficient Transformer for {FPGAs}},
+  year          = {2026},
+  eprint        = {2607.03652},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2607.03652}
+}
+
+@misc{openonload,
+  author       = {{Solarflare Communications} and {Arista Networks}},
+  title        = {10{Gb} {Ethernet}: The Foundation for Low-Latency, Real-Time Financial Services Applications and Other, Latency-Sensitive Applications},
+  howpublished = {Solution brief (Solarflare/Arista joint paper)},
+  url          = {https://www.arista.com/assets/data/pdf/JointPapers/Arista_Solarflare_Low_Latency_10GbE.pdf},
+  year         = {n.d.}
+}
+
+@misc{vma,
+  author       = {{Mellanox Technologies}},
+  title        = {Accelerating Electronic Trading (Solution Brief)},
+  year         = {2017},
+  howpublished = {Solution brief},
+  url          = {https://network.nvidia.com/pdf/applications/SB_HighFreq_Trading.pdf}
+}
+
+@misc{fiberlatency,
+  author       = {{ITU-T}},
+  title        = {Recommendation {G.114}: One-Way Transmission Time},
+  year         = {2003},
+  month        = may,
+  howpublished = {International Telecommunication Union},
+  url          = {https://www.itu.int/rec/T-REC-G.114-200305-I}
+}
+
+@misc{corning_smf28,
+  author       = {{Corning}},
+  title        = {Corning {SMF-28} {Ultra} Optical Fiber Product Information ({PI1424})},
+  year         = {2013},
+  howpublished = {Product information sheet},
+  url          = {https://www.thelightconnection.com/pdf/CorningUltra.pdf}
+}
+
+@misc{nvidia_numba2025,
+  author       = {Bennett, Mark J.},
+  title        = {{GPU}-Accelerate Algorithmic Trading Simulations by over 100x with {Numba}},
+  year         = {2025},
+  month        = mar,
+  day          = {4},
+  howpublished = {NVIDIA Technical Blog},
+  url          = {https://developer.nvidia.com/blog/gpu-accelerate-algorithmic-trading-simulations-by-over-100x-with-numba/}
+}
+
+
+% ---------------------------------------------------------------
+% AI / abduction
+% ---------------------------------------------------------------
+
+@misc{zahavy2026,
+  author       = {Zahavy, Tom},
+  title        = {{LLMs} Can't Jump},
+  year         = {2026},
+  howpublished = {Position paper (preprint), Google DeepMind},
+  url          = {https://www.tomzahavy.com/files/llms-cant-jump.pdf}
+}
+
+@misc{mayeski2026agent,
+  author       = {Mayeski, Vincent},
+  title        = {Using {AI} in Trading Strategy Development: the {AI} Quant Agent},
+  year         = {2026},
+  month        = sep,
+  day          = {13},
+  howpublished = {Substack},
+  url          = {https://vincentmayeski.substack.com/p/using-ai-in-trading-strategy-development}
+}
+
+@misc{mayeski2026abduction,
+  author       = {Mayeski, Vincent},
+  title        = {Search Versus Abduction: Why {LLMs} Cannot Invent New Alpha},
+  year         = {2026},
+  month        = sep,
+  day          = {17},
+  howpublished = {Substack},
+  url          = {https://vincentmayeski.substack.com/p/search-versus-abduction-why-llms}
+}
+
+@article{chow1970,
+  author  = {Chow, C. K.},
+  title   = {On Optimum Recognition Error and Reject Tradeoff},
+  journal = {IEEE Transactions on Information Theory},
+  year    = {1970},
+  volume  = {16},
+  number  = {1},
+  pages   = {41--46},
+  doi     = {10.1109/TIT.1970.1054406}
+}
+
+@article{elyaniv2010,
+  author  = {El-Yaniv, Ran and Wiener, Yair},
+  title   = {On the Foundations of Noise-free Selective Classification},
+  journal = {Journal of Machine Learning Research},
+  year    = {2010},
+  volume  = {11},
+  pages   = {1605--1641}
+}

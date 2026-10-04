@@ -1,0 +1,3341 @@
+\begin{thebibliography}{441}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Abadi et~al.(2016)Abadi, Barham, Chen, Chen, Davis, Dean, Devin,
+  Ghemawat, Irving, Isard, Kudlur, Levenberg, Monga, Moore, Murray, Steiner,
+  Tucker, Vasudevan, Warden, Wicke, Yu, and Zheng]{abadi2016tensorflow}
+Mart{\'i}n Abadi, Paul Barham, Jianmin Chen, Zhifeng Chen, Andy Davis, Jeffrey
+  Dean, Matthieu Devin, Sanjay Ghemawat, Geoffrey Irving, Michael Isard,
+  Manjunath Kudlur, Josh Levenberg, Rajat Monga, Sherry Moore, Derek~G. Murray,
+  Benoit Steiner, Paul Tucker, Vijay Vasudevan, Pete Warden, Martin Wicke, Yuan
+  Yu, and Xiaoqiang Zheng.
+\newblock {TensorFlow}: A system for large-scale machine learning.
+\newblock In \emph{12th USENIX Symposium on Operating Systems Design and
+  Implementation (OSDI 16)}, pages 265--283, Savannah, GA, 2016. USENIX
+  Association.
+\newblock ISBN 978-1-931971-33-1.
+\newblock URL
+  \url{https://www.usenix.org/conference/osdi16/technical-sessions/presentation/abadi}.
+
+\bibitem[Abate and Whitt(1999)]{abatewhitt1999}
+Joseph Abate and Ward Whitt.
+\newblock Computing {L}aplace transforms for numerical inversion via continued
+  fractions.
+\newblock \emph{INFORMS Journal on Computing}, 11\penalty0 (4):\penalty0
+  394--405, 1999.
+\newblock \doi{10.1287/ijoc.11.4.394}.
+
+\bibitem[Abergel et~al.(2016)Abergel, Anane, Chakraborti, Jedidi, and
+  Muni~Toke]{abergel2016}
+Fr{\'e}d{\'e}ric Abergel, Marouane Anane, Anirban Chakraborti, Aymen Jedidi,
+  and Ioane Muni~Toke.
+\newblock \emph{Limit Order Books}.
+\newblock Physics of Society: Econophysics and Sociophysics. Cambridge
+  University Press, 2016.
+\newblock ISBN 9781107163980.
+\newblock \doi{10.1017/CBO9781316683040}.
+
+\bibitem[Abi~Jaber and El~Euch(2019)]{abijaber2019multifactor}
+Eduardo Abi~Jaber and Omar El~Euch.
+\newblock Multifactor approximation of rough volatility models.
+\newblock \emph{SIAM Journal on Financial Mathematics}, 10\penalty0
+  (2):\penalty0 309--349, 2019.
+\newblock \doi{10.1137/18M1170236}.
+
+\bibitem[Achab et~al.(2018)Achab, Bacry, Ga{\"i}ffas, Mastromatteo, and
+  Muzy]{achab2018cumulants}
+Massil Achab, Emmanuel Bacry, St{\'e}phane Ga{\"i}ffas, Iacopo Mastromatteo,
+  and Jean-Fran{\c{c}}ois Muzy.
+\newblock Uncovering causality from multivariate {H}awkes integrated cumulants.
+\newblock \emph{Journal of Machine Learning Research}, 18\penalty0
+  (192):\penalty0 1--28, 2018.
+\newblock URL \url{http://jmlr.org/papers/v18/17-284.html}.
+
+\bibitem[Agostinelli et~al.(2026)Agostinelli, Bohm~Agostini, and
+  Tumeo]{eliteformer}
+Victor Agostinelli, Nicolas Bohm~Agostini, and Antonino Tumeo.
+\newblock {ELiTeFormer}: An efficient transformer for {FPGAs}, 2026.
+\newblock URL \url{https://arxiv.org/abs/2607.03652}.
+
+\bibitem[A{\"i}t-Sahalia et~al.(2026)A{\"i}t-Sahalia, Fan, Xue, and
+  Zhu]{aitsahalia2026}
+Yacine A{\"i}t-Sahalia, Jianqing Fan, Lirong Xue, and Xiaonan Zhu.
+\newblock How and when are high-frequency stock returns predictable?
+\newblock \emph{Management Science}, 72\penalty0 (9):\penalty0 7792--7815,
+  2026.
+\newblock \doi{10.1287/mnsc.2022.02435}.
+\newblock Earlier version: NBER Working Paper 30366 (2022), doi:10.3386/w30366.
+
+\bibitem[Albers et~al.(2025)Albers, Cucuringu, Howison, and
+  Shestopaloff]{albers2025dilemma}
+Jakob Albers, Mihai Cucuringu, Sam Howison, and Alexander~Y. Shestopaloff.
+\newblock The market maker's dilemma: Navigating the fill probability vs.
+  post-fill returns trade-off, 2025.
+
+\bibitem[Alfonsi and Blanc(2016)]{alfonsiblanc2016}
+Aur{\'e}lien Alfonsi and Pierre Blanc.
+\newblock Dynamic optimal execution in a mixed-market-impact {H}awkes price
+  model.
+\newblock \emph{Finance and Stochastics}, 20\penalty0 (1):\penalty0 183--218,
+  2016.
+\newblock \doi{10.1007/s00780-015-0282-y}.
+\newblock Published online 6 Nov 2015.
+
+\bibitem[{Algo-Logic Systems} and {AMD}(n.d.)]{algologic}
+{Algo-Logic Systems} and {AMD}.
+\newblock {AMD} {Alveo} {U50} with {HLS}: {FPGA} accelerated {CME}
+  tick-to-trade (solution brief).
+\newblock Solution brief, n.d.
+\newblock URL
+  \url{https://www.amd.com/content/dam/amd/en/documents/products/accelerators/alveo/u50/algo-logic-t2t-product-brief.pdf}.
+
+\bibitem[Almgren and Chriss(2001)]{almgren2001}
+Robert Almgren and Neil Chriss.
+\newblock Optimal execution of portfolio transactions.
+\newblock \emph{The Journal of Risk}, 3\penalty0 (2):\penalty0 5--39, 2001.
+\newblock \doi{10.21314/JOR.2001.041}.
+
+\bibitem[{AMD}(2023)]{amd_ul3524}
+{AMD}.
+\newblock {AMD} {Alveo} {UL3524} accelerator card: {FPGA} accelerator for
+  ultra-low latency trading (product brief).
+\newblock Product brief, 2023.
+\newblock URL
+  \url{https://www.xilinx.com/content/dam/xilinx/publications/product-briefs/2233051_Product_Brief_UL3524_Alveo_Accelerator_Card.pdf}.
+\newblock Launched 2023-09-27.
+
+\bibitem[{AMD}(2024)]{amd_ul3422}
+{AMD}.
+\newblock {AMD} {Alveo} {UL3422} accelerator card (product brief).
+\newblock Product brief, 2024.
+\newblock URL
+  \url{https://www.amd.com/content/dam/amd/en/documents/products/accelerators/alveo/ul3422/alveo-ul3422-product-brief.pdf}.
+\newblock Launch press release 2024-10-14.
+
+\bibitem[Amrouni et~al.(2021)Amrouni, Moulin, Vann, Vyetrenko, Balch, and
+  Veloso]{amrouni2021abidesgym}
+Selim Amrouni, Aymeric Moulin, Jared Vann, Svitlana Vyetrenko, Tucker Balch,
+  and Manuela Veloso.
+\newblock {ABIDES-Gym}: Gym environments for multi-agent discrete event
+  simulation and application to financial markets.
+\newblock In \emph{Proceedings of the Second ACM International Conference on AI
+  in Finance (ICAIF '21)}, pages 1--9, New York, NY, USA, 2021. ACM.
+\newblock \doi{10.1145/3490354.3494433}.
+
+\bibitem[Ansari et~al.(2024)Ansari, Stella, Turkmen, Zhang, Mercado, Shen,
+  Shchur, Rangapuram, Pineda~Arango, Kapoor, Zschiegner, Maddix, Wang, Mahoney,
+  Torkkola, Wilson, Bohlke-Schneider, and Wang]{chronos2024}
+Abdul~Fatir Ansari, Lorenzo Stella, Caner Turkmen, Xiyuan Zhang, Pedro Mercado,
+  Huibin Shen, Oleksandr Shchur, Syama~Sundar Rangapuram, Sebastian
+  Pineda~Arango, Shubham Kapoor, Jasper Zschiegner, Danielle~C. Maddix, Hao
+  Wang, Michael~W. Mahoney, Kari Torkkola, Andrew~Gordon Wilson, Michael
+  Bohlke-Schneider, and Yuyang Wang.
+\newblock Chronos: Learning the language of time series.
+\newblock \emph{Transactions on Machine Learning Research}, 2024.
+\newblock URL \url{https://openreview.net/forum?id=gerNCVqqtR}.
+
+\bibitem[Antulov-Fantulin et~al.(2021)Antulov-Fantulin, Guo, and
+  Lillo]{antulov2021tme}
+Nino Antulov-Fantulin, Tian Guo, and Fabrizio Lillo.
+\newblock Temporal mixture ensemble models for probabilistic forecasting of
+  intraday cryptocurrency volume.
+\newblock \emph{Decisions in Economics and Finance}, 44\penalty0 (2):\penalty0
+  905--940, 2021.
+\newblock \doi{10.1007/s10203-021-00344-9}.
+
+\bibitem[Arroyo et~al.(2024)Arroyo, Cartea, Moreno-Pino, and
+  Zohren]{arroyo2024}
+{\'A}lvaro Arroyo, {\'A}lvaro Cartea, Fernando Moreno-Pino, and Stefan Zohren.
+\newblock Deep attentive survival analysis in limit order books: Estimating
+  fill probabilities with convolutional-transformers.
+\newblock \emph{Quantitative Finance}, 24\penalty0 (1):\penalty0 35--57, 2024.
+\newblock \doi{10.1080/14697688.2023.2286351}.
+
+\bibitem[{ATAS}(n.d.)]{atas_replay}
+{ATAS}.
+\newblock Replay trading simulator in {ATAS}.
+\newblock
+  \url{https://help.atas.net/en/support/solutions/articles/72000662219-replay-trading-simulator-in-atas},
+  n.d.
+\newblock ATAS help center. Accessed 2026-10-04.
+
+\bibitem[Avellaneda and Stoikov(2008)]{avellaneda2008}
+Marco Avellaneda and Sasha Stoikov.
+\newblock High-frequency trading in a limit order book.
+\newblock \emph{Quantitative Finance}, 8\penalty0 (3):\penalty0 217--224, 2008.
+\newblock \doi{10.1080/14697680701381228}.
+
+\bibitem[Bacry and Muzy(2014)]{bacry2014}
+Emmanuel Bacry and Jean-Fran{\c{c}}ois Muzy.
+\newblock Hawkes model for price and trades high-frequency dynamics.
+\newblock \emph{Quantitative Finance}, 14\penalty0 (7):\penalty0 1147--1166,
+  2014.
+\newblock \doi{10.1080/14697688.2014.897000}.
+
+\bibitem[Bacry and Muzy(2016)]{bacrymuzy2016wh}
+Emmanuel Bacry and Jean-Fran{\c{c}}ois Muzy.
+\newblock First- and second-order statistics characterization of {H}awkes
+  processes and non-parametric estimation.
+\newblock \emph{IEEE Transactions on Information Theory}, 62\penalty0
+  (4):\penalty0 2184--2202, 2016.
+\newblock \doi{10.1109/TIT.2016.2533397}.
+
+\bibitem[Bacry et~al.(2013)Bacry, Delattre, Hoffmann, and Muzy]{bacry2013}
+Emmanuel Bacry, Sylvain Delattre, Marc Hoffmann, and Jean-Fran{\c{c}}ois Muzy.
+\newblock Modelling microstructure noise with mutually exciting point
+  processes.
+\newblock \emph{Quantitative Finance}, 13\penalty0 (1):\penalty0 65--77, 2013.
+\newblock \doi{10.1080/14697688.2011.647054}.
+
+\bibitem[Bacry et~al.(2015{\natexlab{a}})Bacry, Iuga, Lasnier, and
+  Lehalle]{bacry2015impact}
+Emmanuel Bacry, Adrian Iuga, Matthieu Lasnier, and Charles-Albert Lehalle.
+\newblock Market impacts and the life cycle of investors orders.
+\newblock \emph{Market Microstructure and Liquidity}, 1\penalty0 (2):\penalty0
+  1550009, 2015{\natexlab{a}}.
+\newblock \doi{10.1142/S2382626615500094}.
+
+\bibitem[Bacry et~al.(2015{\natexlab{b}})Bacry, Mastromatteo, and
+  Muzy]{bacry2015}
+Emmanuel Bacry, Iacopo Mastromatteo, and Jean-Fran{\c{c}}ois Muzy.
+\newblock Hawkes processes in finance.
+\newblock \emph{Market Microstructure and Liquidity}, 1\penalty0 (1):\penalty0
+  1550005, 2015{\natexlab{b}}.
+\newblock \doi{10.1142/S2382626615500057}.
+
+\bibitem[Bacry et~al.(2016)Bacry, Jaisson, and Muzy]{bacry2016}
+Emmanuel Bacry, Thibault Jaisson, and Jean-Fran{\c{c}}ois Muzy.
+\newblock Estimation of slowly decreasing {H}awkes kernels: Application to
+  high-frequency order book dynamics.
+\newblock \emph{Quantitative Finance}, 16\penalty0 (8):\penalty0 1179--1201,
+  2016.
+\newblock \doi{10.1080/14697688.2015.1123287}.
+
+\bibitem[Bacry et~al.(2018)Bacry, Bompaire, Deegan, Ga{\"i}ffas, and
+  Poulsen]{bacry2018tick}
+Emmanuel Bacry, Martin Bompaire, Philip Deegan, St{\'e}phane Ga{\"i}ffas, and
+  S{\o}ren~V. Poulsen.
+\newblock tick: a {P}ython library for statistical learning, with an emphasis
+  on {H}awkes processes and time-dependent models.
+\newblock \emph{Journal of Machine Learning Research}, 18\penalty0
+  (214):\penalty0 1--5, 2018.
+\newblock URL \url{http://jmlr.org/papers/v18/17-381.html}.
+
+\bibitem[Bailey et~al.(2017)Bailey, Borwein, L{\'o}pez~de Prado, and
+  Zhu]{bailey2014pbo}
+David~H. Bailey, Jonathan~M. Borwein, Marcos L{\'o}pez~de Prado, and Qiji~Jim
+  Zhu.
+\newblock The probability of backtest overfitting.
+\newblock \emph{The Journal of Computational Finance}, 20\penalty0
+  (4):\penalty0 39--69, 2017.
+\newblock \doi{10.21314/JCF.2016.322}.
+
+\bibitem[Bandealinaeini et~al.(2025)Bandealinaeini, Sharifkhani, and
+  Salavati]{ofmatnet}
+Hamidreza Bandealinaeini, Mohammad Sharifkhani, and Erfan Salavati.
+\newblock Attention-based multi-asset order flow networks for enhanced
+  mid-price prediction.
+\newblock In \emph{Proceedings of the 6th ACM International Conference on AI in
+  Finance (ICAIF '25)}, pages 525--533, 2025.
+\newblock \doi{10.1145/3768292.3770430}.
+
+\bibitem[Barbosa De~Oliveira(2026)]{barbosa2026lobrep}
+Alisson~Franclin Barbosa De~Oliveira.
+\newblock Limit order book representation for predictive modeling: A critical
+  survey of depth, time, and empirical evidence.
+\newblock SSRN Working Paper, 2026.
+
+\bibitem[Barnwal et~al.(2019)Barnwal, Bharti, Ali, and Singh]{barnwal2019stack}
+Avinash Barnwal, Hari~Pad Bharti, Aasim Ali, and Vishal Singh.
+\newblock Stacking with neural network for cryptocurrency investment, 2019.
+\newblock arXiv preprint.
+
+\bibitem[Baron et~al.(2019)Baron, Brogaard, Hagstr{\"o}mer, and
+  Kirilenko]{baron2019}
+Matthew Baron, Jonathan Brogaard, Bj{\"o}rn Hagstr{\"o}mer, and Andrei
+  Kirilenko.
+\newblock Risk and return in high-frequency trading.
+\newblock \emph{Journal of Financial and Quantitative Analysis}, 54\penalty0
+  (3):\penalty0 993--1024, 2019.
+\newblock \doi{10.1017/S0022109018001096}.
+
+\bibitem[{Barter contributors}(2026)]{barter}
+{Barter contributors}.
+\newblock Barter: Rust framework for live-trading, paper-trading and
+  back-testing systems.
+\newblock \url{https://github.com/barter-rs/barter-rs}, 2026.
+\newblock Rust, MIT. Accessed 2026-10-03.
+
+\bibitem[Bates and Granger(1969)]{bates1969}
+J.~M. Bates and C.~W.~J. Granger.
+\newblock The combination of forecasts.
+\newblock \emph{Operational Research Quarterly}, 20\penalty0 (4):\penalty0
+  451--468, 1969.
+\newblock \doi{10.2307/3008764}.
+\newblock Also registered as doi:10.1057/jors.1969.103.
+
+\bibitem[Belcak et~al.(2022)Belcak, Calliess, and Zohren]{belcak2022maxe}
+Peter Belcak, Jan-Peter Calliess, and Stefan Zohren.
+\newblock Fast agent-based simulation framework with applications to
+  reinforcement learning and the study of trading latency effects.
+\newblock In \emph{Multi-Agent-Based Simulation XXII}, Lecture Notes in
+  Computer Science, pages 42--56, Cham, 2022. Springer.
+\newblock \doi{10.1007/978-3-030-94548-0_4}.
+
+\bibitem[Ben~Bouall{\`e}gue et~al.(2024)Ben~Bouall{\`e}gue, Weyn, Clare,
+  Dramsch, Dueben, and Chantry]{benbouallegue2024poet}
+Zied Ben~Bouall{\`e}gue, Jonathan~A. Weyn, Mariana C.~A. Clare, Jesper Dramsch,
+  Peter Dueben, and Matthew Chantry.
+\newblock Improving medium-range ensemble weather forecasts with hierarchical
+  ensemble transformers.
+\newblock \emph{Artificial Intelligence for the Earth Systems}, 3\penalty0 (1),
+  2024.
+\newblock \doi{10.1175/AIES-D-23-0027.1}.
+
+\bibitem[Benjamini and Hochberg(1995)]{benjamini1995}
+Yoav Benjamini and Yosef Hochberg.
+\newblock Controlling the false discovery rate: A practical and powerful
+  approach to multiple testing.
+\newblock \emph{Journal of the Royal Statistical Society: Series B
+  (Methodological)}, 57\penalty0 (1):\penalty0 289--300, 1995.
+\newblock \doi{10.1111/j.2517-6161.1995.tb02031.x}.
+
+\bibitem[Bennett(2025)]{nvidia_numba2025}
+Mark~J. Bennett.
+\newblock {GPU}-accelerate algorithmic trading simulations by over 100x with
+  {Numba}.
+\newblock NVIDIA Technical Blog, March 2025.
+\newblock URL
+  \url{https://developer.nvidia.com/blog/gpu-accelerate-algorithmic-trading-simulations-by-over-100x-with-numba/}.
+
+\bibitem[Bergmeir and Ben{\'i}tez(2012)]{bergmeir2012}
+Christoph Bergmeir and Jos{\'e}~M. Ben{\'i}tez.
+\newblock On the use of cross-validation for time series predictor evaluation.
+\newblock \emph{Information Sciences}, 191:\penalty0 192--213, 2012.
+\newblock \doi{10.1016/j.ins.2011.12.028}.
+
+\bibitem[Berti and Kasneci(2025)]{berti2025tlob}
+Leonardo Berti and Gjergji Kasneci.
+\newblock {TLOB}: A novel transformer model with dual attention for price trend
+  prediction with limit order book data, 2025.
+
+\bibitem[Berti et~al.(2025)Berti, Prenkaj, and Velardi]{berti2025trades}
+Leonardo Berti, Bardh Prenkaj, and Paola Velardi.
+\newblock {TRADES}: Generating realistic market simulations with diffusion
+  models.
+\newblock In \emph{ECAI 2025}, Frontiers in Artificial Intelligence and
+  Applications, pages 3703--3710, 2025.
+\newblock \doi{10.3233/FAIA251249}.
+
+\bibitem[Bieganowski and {\'S}lepaczuk(2026)]{bieganowski2026}
+Bartosz Bieganowski and Robert {\'S}lepaczuk.
+\newblock Explainable patterns in cryptocurrency microstructure, 2026.
+
+\bibitem[Bileki et~al.(2022)Bileki, Barboza, Silva, and Bonato]{bileki2022}
+Guilherme~A. Bileki, Fl{\'a}vio Barboza, Luiz Henrique~C. Silva, and Vanderlei
+  Bonato.
+\newblock Order book mid-price movement inference by {CatBoost} classifier from
+  convolutional feature maps.
+\newblock \emph{Applied Soft Computing}, 116:\penalty0 108274, 2022.
+\newblock \doi{10.1016/j.asoc.2021.108274}.
+
+\bibitem[Bilokon and Qiu(2023)]{bilokon2023transformers}
+Paul Bilokon and Yitao Qiu.
+\newblock Transformers versus {LSTMs} for electronic trading, 2023.
+\newblock Preprint.
+
+\bibitem[Blanc et~al.(2017)Blanc, Donier, and Bouchaud]{blanc2017qhawkes}
+Pierre Blanc, Jonathan Donier, and Jean-Philippe Bouchaud.
+\newblock Quadratic {H}awkes processes for financial prices.
+\newblock \emph{Quantitative Finance}, 17\penalty0 (2):\penalty0 171--188,
+  2017.
+\newblock \doi{10.1080/14697688.2016.1193215}.
+
+\bibitem[{BMLL Technologies}(n.d.{\natexlab{a}})]{bmll_datalab}
+{BMLL Technologies}.
+\newblock Bmll data lab.
+\newblock Product page, n.d.{\natexlab{a}}.
+\newblock URL \url{https://www.bmlltech.com/products/bmll-data-lab}.
+\newblock Company website. Accessed 2026-10-04.
+
+\bibitem[{BMLL Technologies}(n.d.{\natexlab{b}})]{bmll_home}
+{BMLL Technologies}.
+\newblock {BMLL: Harmonised Historical Level 3, 2 and 1 Order Book Data and
+  Analytics}.
+\newblock Company website, n.d.{\natexlab{b}}.
+\newblock URL \url{https://www.bmlltech.com/}.
+\newblock Company website. Accessed 2026-10-04.
+
+\bibitem[Bochud and Challet(2007)]{bochud2007}
+Thierry Bochud and Damien Challet.
+\newblock Optimal approximations of power laws with exponentials: Application
+  to volatility models with long memory.
+\newblock \emph{Quantitative Finance}, 7\penalty0 (6):\penalty0 585--589, 2007.
+\newblock \doi{10.1080/14697680701278291}.
+
+\bibitem[Bodor and Carlier(2025)]{deepqr}
+Hamza Bodor and Laurent Carlier.
+\newblock Deep learning meets queue-reactive: A framework for realistic limit
+  order book simulation, 2025.
+
+\bibitem[{Bookmap Ltd.}(n.d.)]{bookmap_replay}
+{Bookmap Ltd.}
+\newblock Bookmap knowledge base: Select run mode; export and import bookmap
+  files; {API} general info.
+\newblock
+  \url{https://bookmap.com/knowledgebase/docs/KB-GettingStarted-SelectRunMode},
+  n.d.
+\newblock Accessed 2026-10-04.
+
+\bibitem[Bouchaud et~al.(2002)Bouchaud, M{\'e}zard, and Potters]{bouchaud2002}
+Jean-Philippe Bouchaud, Marc M{\'e}zard, and Marc Potters.
+\newblock Statistical properties of stock order books: Empirical results and
+  models.
+\newblock \emph{Quantitative Finance}, 2\penalty0 (4):\penalty0 251--256, 2002.
+\newblock \doi{10.1088/1469-7688/2/4/301}.
+
+\bibitem[Bouchaud et~al.(2004)Bouchaud, Gefen, Potters, and
+  Wyart]{bouchaud2004}
+Jean-Philippe Bouchaud, Yuval Gefen, Marc Potters, and Matthieu Wyart.
+\newblock Fluctuations and response in financial markets: The subtle nature of
+  `random' price changes.
+\newblock \emph{Quantitative Finance}, 4\penalty0 (2):\penalty0 176--190, 2004.
+\newblock \doi{10.1080/14697680400000022}.
+
+\bibitem[Bouchaud et~al.(2009)Bouchaud, Farmer, and Lillo]{bouchaud2009}
+Jean-Philippe Bouchaud, J.~Doyne Farmer, and Fabrizio Lillo.
+\newblock How markets slowly digest changes in supply and demand.
+\newblock In \emph{Handbook of Financial Markets: Dynamics and Evolution},
+  pages 57--160. Elsevier, 2009.
+\newblock ISBN 9780123742582.
+\newblock \doi{10.1016/B978-012374258-2.50006-3}.
+
+\bibitem[Bouchaud et~al.(2018)Bouchaud, Bonart, Donier, and
+  Gould]{bouchaud2018}
+Jean-Philippe Bouchaud, Julius Bonart, Jonathan Donier, and Martin Gould.
+\newblock \emph{Trades, Quotes and Prices: Financial Markets Under the
+  Microscope}.
+\newblock Cambridge University Press, 2018.
+\newblock \doi{10.1017/9781316659335}.
+
+\bibitem[Bourgin et~al.(2021)Bourgin, Bica, and van~der
+  Schaar]{bourgin2021maes}
+Victor~D. Bourgin, Ioana Bica, and Mihaela van~der Schaar.
+\newblock Model-attentive ensemble learning for sequence modeling.
+\newblock arXiv preprint 2102.11500, 2021.
+
+\bibitem[Boutros et~al.(2017)Boutros, Grady, Abbas, and Chow]{boutros2017build}
+Andrew Boutros, Brett Grady, Mustafa Abbas, and Paul Chow.
+\newblock Build fast, trade fast: {FPGA}-based high-frequency trading using
+  high-level synthesis.
+\newblock In \emph{2017 International Conference on ReConFigurable Computing
+  and FPGAs (ReConFig)}, pages 1--6. IEEE, 2017.
+\newblock \doi{10.1109/RECONFIG.2017.8279781}.
+
+\bibitem[Bradbury et~al.(2018)Bradbury, Frostig, Hawkins, Johnson, Katariya,
+  Leary, Maclaurin, Necula, Paszke, Vander{P}las, Wanderman-{M}ilne, and
+  Zhang]{bradbury2018jax}
+James Bradbury, Roy Frostig, Peter Hawkins, Matthew~James Johnson, Yash
+  Katariya, Chris Leary, Dougal Maclaurin, George Necula, Adam Paszke, Jake
+  Vander{P}las, Skye Wanderman-{M}ilne, and Qiao Zhang.
+\newblock {JAX}: composable transformations of {P}ython+{N}um{P}y programs.
+\newblock \url{http://github.com/jax-ml/jax}, 2018.
+\newblock Version 0.3.13.
+
+\bibitem[Brandt and Kavajecz(2004)]{brandt2004}
+Michael~W. Brandt and Kenneth~A. Kavajecz.
+\newblock Price discovery in the {U.S.} treasury market: The impact of
+  orderflow and liquidity on the yield curve.
+\newblock \emph{The Journal of Finance}, 59\penalty0 (6):\penalty0 2623--2654,
+  2004.
+\newblock \doi{10.1111/j.1540-6261.2004.00711.x}.
+
+\bibitem[Breiman(1996)]{breiman1996stack}
+Leo Breiman.
+\newblock Stacked regressions.
+\newblock \emph{Machine Learning}, 24\penalty0 (1):\penalty0 49--64, 1996.
+\newblock \doi{10.1007/BF00117832}.
+
+\bibitem[Br{\'e}maud and Massouli{\'e}(1996)]{bremaud1996}
+Pierre Br{\'e}maud and Laurent Massouli{\'e}.
+\newblock Stability of nonlinear {H}awkes processes.
+\newblock \emph{The Annals of Probability}, 24\penalty0 (3):\penalty0
+  1563--1588, 1996.
+\newblock \doi{10.1214/aop/1065725193}.
+
+\bibitem[Brier(1950)]{brier1950}
+Glenn~W. Brier.
+\newblock Verification of forecasts expressed in terms of probability.
+\newblock \emph{Monthly Weather Review}, 78\penalty0 (1):\penalty0 1--3, 1950.
+\newblock \doi{10.1175/1520-0493(1950)078<0001:VOFEIT>2.0.CO;2}.
+
+\bibitem[Briola et~al.(2020)Briola, Turiel, and Aste]{briola2020}
+Antonio Briola, Jeremy Turiel, and Tomaso Aste.
+\newblock Deep learning modeling of the limit order book: A comparative
+  perspective, 2020.
+
+\bibitem[Briola et~al.(2025{\natexlab{a}})Briola, Bartolucci, and
+  Aste]{briola2024}
+Antonio Briola, Silvia Bartolucci, and Tomaso Aste.
+\newblock Deep limit order book forecasting: A microstructural guide.
+\newblock \emph{Quantitative Finance}, 25\penalty0 (7):\penalty0 1101--1131,
+  2025{\natexlab{a}}.
+\newblock \doi{10.1080/14697688.2025.2522911}.
+
+\bibitem[Briola et~al.(2025{\natexlab{b}})Briola, Bartolucci, and
+  Aste]{briola2025hlob}
+Antonio Briola, Silvia Bartolucci, and Tomaso Aste.
+\newblock {HLOB}--information persistence and structure in limit order books.
+\newblock \emph{Expert Systems with Applications}, 266:\penalty0 126078,
+  2025{\natexlab{b}}.
+\newblock \doi{10.1016/j.eswa.2024.126078}.
+
+\bibitem[Brown et~al.(2002)Brown, Barbieri, Ventura, Kass, and
+  Frank]{brown2002}
+Emery~N. Brown, Riccardo Barbieri, Val{\'e}rie Ventura, Robert~E. Kass, and
+  Loren~M. Frank.
+\newblock The time-rescaling theorem and its application to neural spike train
+  data analysis.
+\newblock \emph{Neural Computation}, 14\penalty0 (2):\penalty0 325--346, 2002.
+\newblock \doi{10.1162/08997660252741149}.
+
+\bibitem[Brunnermeier and Pedersen(2005)]{brunnermeier2005}
+Markus~K. Brunnermeier and Lasse~Heje Pedersen.
+\newblock Predatory trading.
+\newblock \emph{The Journal of Finance}, 60\penalty0 (4):\penalty0 1825--1863,
+  2005.
+\newblock \doi{10.1111/j.1540-6261.2005.00781.x}.
+
+\bibitem[Buckland and {STAC}(2025)]{stac_ml_limits2025}
+Stuart Buckland and {STAC}.
+\newblock Testing the limits of machine learning inference in finance.
+\newblock
+  \url{https://stacresearch.com/news/testing-the-limits-of-machine-learning-inference-in-finance/},
+  2025.
+\newblock Published 2025-10-28. Accessed 2026-10-04.
+
+\bibitem[Budish et~al.(2015)Budish, Cramton, and Shim]{budish2015}
+Eric Budish, Peter Cramton, and John Shim.
+\newblock The high-frequency trading arms race: Frequent batch auctions as a
+  market design response.
+\newblock \emph{The Quarterly Journal of Economics}, 130\penalty0 (4):\penalty0
+  1547--1621, 2015.
+\newblock \doi{10.1093/qje/qjv027}.
+
+\bibitem[Bui(2025)]{bui2025haelt}
+Thanh~Dan Bui.
+\newblock {HAELT}: A hybrid attentive ensemble learning transformer framework
+  for high-frequency stock price forecasting.
+\newblock arXiv preprint 2506.13981, 2025.
+
+\bibitem[Burman et~al.(1994)Burman, Chow, and Nolan]{burman1994}
+Prabir Burman, Edmond Chow, and Deborah Nolan.
+\newblock A cross-validatory method for dependent data.
+\newblock \emph{Biometrika}, 81\penalty0 (2):\penalty0 351--358, 1994.
+\newblock \doi{10.1093/biomet/81.2.351}.
+
+\bibitem[Byrd and Balch(n.d.)]{abides_repo}
+David Byrd and Tucker Balch.
+\newblock {ABIDES}: Agent-based interactive discrete event simulation.
+\newblock \url{https://github.com/abides-sim/abides}, n.d.
+\newblock Software repository, BSD-3-Clause; files config/parallel.py,
+  scripts/parallel.sh, scripts/marketreplay.sh. Commit c4bf157, 2020-11-19.
+  Accessed 2026-10-04.
+
+\bibitem[Byrd et~al.(2020)Byrd, Hybinette, and Balch]{byrd2020abides}
+David Byrd, Maria Hybinette, and Tucker~Hybinette Balch.
+\newblock {ABIDES}: Towards high-fidelity multi-agent market simulation.
+\newblock In \emph{Proceedings of the 2020 ACM SIGSIM Conference on Principles
+  of Advanced Discrete Simulation (SIGSIM-PADS '20)}, pages 11--22, 2020.
+\newblock \doi{10.1145/3384441.3395986}.
+
+\bibitem[Cao et~al.(2009)Cao, Hansch, and Wang]{cao2009}
+Charles Cao, Oliver Hansch, and Xiaoxin Wang.
+\newblock The information content of an open limit-order book.
+\newblock \emph{Journal of Futures Markets}, 29\penalty0 (1):\penalty0 16--41,
+  2009.
+\newblock \doi{10.1002/fut.20334}.
+
+\bibitem[Cartea et~al.(2014)Cartea, Jaimungal, and Ricci]{cartea2014buylow}
+{\'A}lvaro Cartea, Sebastian Jaimungal, and Jason Ricci.
+\newblock Buy low, sell high: A high frequency trading perspective.
+\newblock \emph{SIAM Journal on Financial Mathematics}, 5\penalty0
+  (1):\penalty0 415--444, 2014.
+\newblock \doi{10.1137/130911196}.
+
+\bibitem[Cartea et~al.(2015)Cartea, Jaimungal, and Penalva]{cartea2015}
+{\'A}lvaro Cartea, Sebastian Jaimungal, and Jos{\'e} Penalva.
+\newblock \emph{Algorithmic and High-Frequency Trading}.
+\newblock Cambridge University Press, 2015.
+\newblock ISBN 978-1-107-09114-6.
+
+\bibitem[Cartea et~al.(2020)Cartea, Jaimungal, and Wang]{cartea2020spoof}
+{\'A}lvaro Cartea, Sebastian Jaimungal, and Yixuan Wang.
+\newblock Spoofing and price manipulation in order-driven markets.
+\newblock \emph{Applied Mathematical Finance}, 27\penalty0 (1--2):\penalty0
+  67--98, 2020.
+\newblock \doi{10.1080/1350486X.2020.1726783}.
+
+\bibitem[Cerqueira et~al.(2020)Cerqueira, Torgo, and
+  Mozeti{\v{c}}]{cerqueira2020}
+Vitor Cerqueira, Luis Torgo, and Igor Mozeti{\v{c}}.
+\newblock Evaluating time series forecasting models: An empirical study on
+  performance estimation methods.
+\newblock \emph{Machine Learning}, 109\penalty0 (11):\penalty0 1997--2028,
+  2020.
+\newblock \doi{10.1007/s10994-020-05910-7}.
+
+\bibitem[Cesa-Bianchi and Lugosi(2006)]{cesabianchi2006}
+Nicol{\`o} Cesa-Bianchi and G{\'a}bor Lugosi.
+\newblock \emph{Prediction, Learning, and Games}.
+\newblock Cambridge University Press, Cambridge, 2006.
+\newblock \doi{10.1017/CBO9780511546921}.
+
+\bibitem[Cestari et~al.(2025)Cestari, Barchi, Busetto, Marazzina, and
+  Formentin]{cestari2025hawkes}
+Raffaele~G. Cestari, Filippo Barchi, Riccardo Busetto, Daniele Marazzina, and
+  Simone Formentin.
+\newblock Univariate {Hawkes}-based cryptocurrency forecasting via limit order
+  book data.
+\newblock In \emph{2025 European Control Conference (ECC)}, pages 1943--1948,
+  2025.
+\newblock \doi{10.23919/ECC65951.2025.11187051}.
+
+\bibitem[{chasemetoyer}(2026)]{chasemetoyer_bte}
+{chasemetoyer}.
+\newblock Backtesting-engine: {L3} order book replay and backtesting.
+\newblock \url{https://github.com/chasemetoyer/Backtesting-Engine}, 2026.
+\newblock Rust/Python, MIT. Accessed 2026-10-03.
+
+\bibitem[Chen and Hall(2013)]{chenhall2013seppvb}
+Feng Chen and Peter Hall.
+\newblock Inference for a nonstationary self-exciting point process with an
+  application in ultra-high frequency financial data modeling.
+\newblock \emph{Journal of Applied Probability}, 50\penalty0 (4):\penalty0
+  1006--1024, 2013.
+\newblock \doi{10.1239/jap/1389370096}.
+
+\bibitem[Chen et~al.(2024)Chen, Li, Li, Sun, Meng, and Su]{chen2024attnensload}
+Hao Chen, Nanyan Li, Mingyong Li, Zhigang Sun, Fanlin Meng, and Jinya Su.
+\newblock Ensemble learning with additive attention mechanism for short-term
+  load forecasting.
+\newblock In \emph{Proceedings of the 43rd Chinese Control Conference (CCC)},
+  pages 7113--7118. IEEE, 2024.
+\newblock \doi{10.23919/CCC63176.2024.10661985}.
+
+\bibitem[Chen et~al.(2025)Chen, He, Ye, Jiang, Zhang, Chen, and
+  Gao]{chen2025e3former}
+Jiadong Chen, Xiao He, Hengyu Ye, Fuxin Jiang, Tieying Zhang, Jianjun Chen, and
+  Xiaofeng Gao.
+\newblock Online ensemble transformer for accurate cloud workload forecasting
+  in predictive auto-scaling.
+\newblock arXiv preprint 2508.12773, 2025.
+
+\bibitem[Chen and Glasserman(2026)]{llmlob2026}
+Junxiao Chen and Paul Glasserman.
+\newblock Do {LLMs} understand limit order book dynamics?, 2026.
+
+\bibitem[Chen et~al.(2026)Chen, Zhang, Li, Lo, Yuan, Yu, Ren, and
+  Liu]{chen2026strata}
+Mingju Chen, Enze Zhang, Annan Li, Yui Lo, Xiaomin Yuan, Kaiming Yu, Jinhui
+  Ren, and Yuanhang Liu.
+\newblock A compact selective state-space model for cross-sectional stock
+  return ranking from raw intraday bars, 2026.
+
+\bibitem[Chen and Robert(2022)]{chen2022gtnvf}
+Qinkai Chen and Christian-Yann Robert.
+\newblock Multivariate realized volatility forecasting with graph neural
+  network.
+\newblock In \emph{Proceedings of the Third ACM International Conference on AI
+  in Finance (ICAIF '22)}, pages 156--164. ACM, 2022.
+\newblock \doi{10.1145/3533271.3561663}.
+
+\bibitem[Chevalier et~al.(2023)Chevalier, Hafsi, and
+  Ly~Vath]{chevalier2023disorder}
+Etienne Chevalier, Yadh Hafsi, and Vathana Ly~Vath.
+\newblock Uncovering market disorder and liquidity trends detection, 2023.
+
+\bibitem[Chollet et~al.(2015)]{chollet2015keras}
+Fran\c{c}ois Chollet et~al.
+\newblock Keras.
+\newblock \url{https://keras.io}, 2015.
+
+\bibitem[Chow(1970)]{chow1970}
+C.~K. Chow.
+\newblock On optimum recognition error and reject tradeoff.
+\newblock \emph{IEEE Transactions on Information Theory}, 16\penalty0
+  (1):\penalty0 41--46, 1970.
+\newblock \doi{10.1109/TIT.1970.1054406}.
+
+\bibitem[Christensen and Woodmansey(2013)]{christensen2013}
+Hugh~L. Christensen and Robert Woodmansey.
+\newblock Prediction of hidden liquidity in the limit order book of {GLOBEX}
+  futures.
+\newblock \emph{The Journal of Trading}, 8\penalty0 (3):\penalty0 68--95, 2013.
+\newblock \doi{10.3905/jot.2013.8.3.068}.
+
+\bibitem[Chung et~al.(2024)Chung, Lee, and Kim]{chung2024nmhp}
+Guhyuk Chung, Yongjae Lee, and Woo~Chang Kim.
+\newblock Neural marked {H}awkes process for limit order book modeling.
+\newblock In \emph{Advances in Knowledge Discovery and Data Mining (PAKDD
+  2024)}, Lecture Notes in Computer Science, pages 197--209. Springer, 2024.
+\newblock \doi{10.1007/978-981-97-2259-4_15}.
+
+\bibitem[Claeskens et~al.(2016)Claeskens, Magnus, Vasnev, and
+  Wang]{claeskens2016}
+Gerda Claeskens, Jan~R. Magnus, Andrey~L. Vasnev, and Wendun Wang.
+\newblock The forecast combination puzzle: A simple theoretical explanation.
+\newblock \emph{International Journal of Forecasting}, 32\penalty0
+  (3):\penalty0 754--762, 2016.
+\newblock \doi{10.1016/j.ijforecast.2015.12.005}.
+
+\bibitem[Clinet and Potiron(2018)]{clinetpotiron2018}
+Simon Clinet and Yoann Potiron.
+\newblock Statistical inference for the doubly stochastic self-exciting
+  process.
+\newblock \emph{Bernoulli}, 24\penalty0 (4B), 2018.
+\newblock \doi{10.3150/17-BEJ966}.
+
+\bibitem[{CME Group}(n.d.{\natexlab{a}})]{cme_ilink3}
+{CME Group}.
+\newblock {iLink} binary order entry.
+\newblock CME Group Client Systems Wiki, n.d.{\natexlab{a}}.
+\newblock URL
+  \url{https://cmegroupclientsite.atlassian.net/wiki/display/EPICSANDBOX/iLink+Binary+Order+Entry}.
+
+\bibitem[{CME Group}(n.d.{\natexlab{b}})]{cme_matching}
+{CME Group}.
+\newblock {CME Globex} matching algorithm steps and supported matching
+  algorithms.
+\newblock CME Group Client Systems Wiki, n.d.{\natexlab{b}}.
+\newblock URL
+  \url{https://cmegroupclientsite.atlassian.net/wiki/spaces/EPICSANDBOX/pages/457218521}.
+
+\bibitem[{CME Group}(n.d.{\natexlab{c}})]{cme_mdp3}
+{CME Group}.
+\newblock {CME MDP 3.0} market data.
+\newblock CME Group Client Systems Wiki, n.d.{\natexlab{c}}.
+\newblock URL
+  \url{https://cmegroupclientsite.atlassian.net/wiki/spaces/EPICSANDBOX/pages/457219613/CME+MDP+3.0+Market+Data}.
+
+\bibitem[Coletta et~al.(2021)Coletta, Prata, Conti, Mercanti, Bartolini,
+  Moulin, Vyetrenko, and Balch]{coletta2021}
+Andrea Coletta, Matteo Prata, Michele Conti, Emanuele Mercanti, Novella
+  Bartolini, Aymeric Moulin, Svitlana Vyetrenko, and Tucker Balch.
+\newblock Towards realistic market simulations: A generative adversarial
+  networks approach.
+\newblock In \emph{Proceedings of the Second ACM International Conference on AI
+  in Finance (ICAIF '21)}, pages 1--9, 2021.
+\newblock \doi{10.1145/3490354.3494411}.
+
+\bibitem[Coletta et~al.(2022)Coletta, Moulin, Vyetrenko, and
+  Balch]{coletta2022}
+Andrea Coletta, Aymeric Moulin, Svitlana Vyetrenko, and Tucker Balch.
+\newblock Learning to simulate realistic limit order book markets from data as
+  a world agent.
+\newblock In \emph{Proceedings of the Third ACM International Conference on AI
+  in Finance (ICAIF '22)}, pages 428--436, 2022.
+\newblock \doi{10.1145/3533271.3561753}.
+
+\bibitem[Coletta et~al.(2023)Coletta, Jerome, Savani, and
+  Vyetrenko]{coletta2023cgan}
+Andrea Coletta, Joseph Jerome, Rahul Savani, and Svitlana Vyetrenko.
+\newblock Conditional generators for limit order book environments:
+  Explainability, challenges, and robustness.
+\newblock In \emph{Proceedings of the 4th ACM International Conference on AI in
+  Finance (ICAIF '23)}, pages 27--35, 2023.
+\newblock \doi{10.1145/3604237.3626854}.
+
+\bibitem[{Commodity Futures Trading Commission}(2013)]{cftc2013spoofing}
+{Commodity Futures Trading Commission}.
+\newblock Antidisruptive practices authority.
+\newblock \emph{Federal Register}, 78\penalty0 (102):\penalty0 31890--31897,
+  May 2013.
+\newblock URL
+  \url{https://www.federalregister.gov/documents/2013/05/28/2013-12365/antidisruptive-practices-authority}.
+\newblock Interpretive guidance and policy statement; 78 FR 31890 (FR Doc.
+  2013-12365).
+
+\bibitem[{Commodity Futures Trading Commission}(2015)]{cftc2015sarao}
+{Commodity Futures Trading Commission}.
+\newblock {CFTC} charges {U.K.} resident {Navinder Singh Sarao} and his company
+  {Nav Sarao Futures Limited PLC} with price manipulation and spoofing.
+\newblock CFTC Press Release No. 7156-15, April 2015.
+\newblock URL \url{https://www.cftc.gov/PressRoom/PressReleases/7156-15}.
+
+\bibitem[Cont and de~Larrard(2012)]{contlarrard2012}
+Rama Cont and Adrien de~Larrard.
+\newblock Order book dynamics in liquid markets: Limit theorems and diffusion
+  approximations, 2012.
+
+\bibitem[Cont and de~Larrard(2013)]{contlarrard2013}
+Rama Cont and Adrien de~Larrard.
+\newblock Price dynamics in a {M}arkovian limit order market.
+\newblock \emph{SIAM Journal on Financial Mathematics}, 4\penalty0
+  (1):\penalty0 1--25, 2013.
+\newblock \doi{10.1137/110856605}.
+
+\bibitem[Cont et~al.(2010)Cont, Stoikov, and Talreja]{cst2010}
+Rama Cont, Sasha Stoikov, and Rishi Talreja.
+\newblock A stochastic model for order book dynamics.
+\newblock \emph{Operations Research}, 58\penalty0 (3):\penalty0 549--563, 2010.
+\newblock \doi{10.1287/opre.1090.0780}.
+
+\bibitem[Cont et~al.(2014)Cont, Kukanov, and Stoikov]{cks2014}
+Rama Cont, Arseniy Kukanov, and Sasha Stoikov.
+\newblock The price impact of order book events.
+\newblock \emph{Journal of Financial Econometrics}, 12\penalty0 (1):\penalty0
+  47--88, 2014.
+\newblock \doi{10.1093/jjfinec/nbt003}.
+
+\bibitem[Cont et~al.(2023)Cont, Cucuringu, and Zhang]{contcucuringu2023}
+Rama Cont, Mihai Cucuringu, and Chao Zhang.
+\newblock Cross-impact of order flow imbalance in equity markets.
+\newblock \emph{Quantitative Finance}, 23\penalty0 (10):\penalty0 1373--1393,
+  2023.
+\newblock \doi{10.1080/14697688.2023.2236159}.
+
+\bibitem[{Corning}(2013)]{corning_smf28}
+{Corning}.
+\newblock Corning {SMF-28} {Ultra} optical fiber product information
+  ({PI1424}).
+\newblock Product information sheet, 2013.
+\newblock URL \url{https://www.thelightconnection.com/pdf/CorningUltra.pdf}.
+
+\bibitem[Cox(1972)]{cox1972}
+David~R. Cox.
+\newblock Regression models and life-tables.
+\newblock \emph{Journal of the Royal Statistical Society: Series B
+  (Methodological)}, 34\penalty0 (2):\penalty0 187--202, 1972.
+\newblock \doi{10.1111/j.2517-6161.1972.tb00899.x}.
+
+\bibitem[{d-Matrix}(2026)]{dmatrix2026production}
+{d-Matrix}.
+\newblock {d-Matrix Corsair AI Inference Platform Enters Full Production to
+  Meet Customer Demand}.
+\newblock Press release, 2026.
+\newblock URL
+  \url{https://www.d-matrix.ai/announcements/d-matrix-corsair-ai-inference-platform-enters-full-production-to-meet-customer-demand/}.
+\newblock Published 2026-06-09. Accessed 2026-10-04.
+
+\bibitem[Da~Fonseca and Zaatour(2014)]{dafonseca2014}
+Jos{\'e} Da~Fonseca and Riadh Zaatour.
+\newblock {H}awkes process: Fast calibration, application to trade clustering,
+  and diffusive limit.
+\newblock \emph{Journal of Futures Markets}, 34\penalty0 (6):\penalty0
+  548--579, 2014.
+\newblock \doi{10.1002/fut.21644}.
+
+\bibitem[Da~Fonseca and Zaatour(2017)]{dafonseca2017}
+Jos{\'e} Da~Fonseca and Riadh Zaatour.
+\newblock Correlation and lead--lag relationships in a {Hawkes} microstructure
+  model.
+\newblock \emph{Journal of Futures Markets}, 37\penalty0 (3):\penalty0
+  260--285, 2017.
+\newblock \doi{10.1002/fut.21800}.
+
+\bibitem[Daley and Vere-Jones(2003)]{daley2003}
+D.~J. Daley and D.~Vere-Jones.
+\newblock \emph{An Introduction to the Theory of Point Processes, Volume {I}:
+  Elementary Theory and Methods}.
+\newblock Probability and Its Applications. Springer, New York, 2nd edition,
+  2003.
+\newblock ISBN 0387955410.
+\newblock \doi{10.1007/b97277}.
+
+\bibitem[Dao and Gu(2024)]{dao2024ssd}
+Tri Dao and Albert Gu.
+\newblock Transformers are {SSM}s: Generalized models and efficient algorithms
+  through structured state space duality.
+\newblock In \emph{Proceedings of the 41st International Conference on Machine
+  Learning}, volume 235 of \emph{Proceedings of Machine Learning Research},
+  pages 10041--10071. PMLR, 2024.
+
+\bibitem[Dao et~al.(2022)Dao, Fu, Ermon, Rudra, and
+  R{\'e}]{dao2022flashattention}
+Tri Dao, Daniel~Y. Fu, Stefano Ermon, Atri Rudra, and Christopher R{\'e}.
+\newblock {FlashAttention}: Fast and memory-efficient exact attention with
+  {IO}-awareness.
+\newblock In \emph{Advances in Neural Information Processing Systems 35
+  (NeurIPS 2022)}, pages 16344--16359, 2022.
+
+\bibitem[Das et~al.(2024)Das, Kong, Sen, and Zhou]{timesfm2024}
+Abhimanyu Das, Weihao Kong, Rajat Sen, and Yichen Zhou.
+\newblock A decoder-only foundation model for time-series forecasting.
+\newblock In \emph{Proceedings of the 41st International Conference on Machine
+  Learning}, volume 235 of \emph{Proceedings of Machine Learning Research},
+  pages 10148--10167. PMLR, 2024.
+
+\bibitem[{Databento}(2025)]{databento_queue}
+{Databento}.
+\newblock Getting queue position from {L2} and order book data.
+\newblock
+  \url{https://databento.com/blog/getting-queue-position-from-l2-and-order-book-data},
+  2025.
+\newblock Blog post, 2025-02-26. Accessed 2026-10-03.
+
+\bibitem[Debie et~al.(2023)Debie, Gardebroek, Hageboeck, van Leeuwen, Moneta,
+  Naumann, Pennings, Trujillo-Barrera, and Verhulst]{debie2023}
+Philippe Debie, Cornelis Gardebroek, Stephan Hageboeck, Paul van Leeuwen,
+  Lorenzo Moneta, Axel Naumann, Joost M.~E. Pennings, Andres~A.
+  Trujillo-Barrera, and Marjolein~E. Verhulst.
+\newblock Unravelling the {JPMorgan} spoofing case using particle physics
+  visualization methods.
+\newblock \emph{European Financial Management}, 29\penalty0 (1):\penalty0
+  288--326, 2023.
+\newblock \doi{10.1111/eufm.12353}.
+
+\bibitem[{Deltix}(n.d.{\natexlab{a}})]{deltix_exsim}
+{Deltix}.
+\newblock Exchange simulator.
+\newblock
+  \url{https://web.archive.org/web/20240208125153/https://www.deltixlab.com/products/exchange-simulator/},
+  n.d.{\natexlab{a}}.
+\newblock Archived vendor page (2024-02-08). Accessed 2026-10-04.
+
+\bibitem[{Deltix}(n.d.{\natexlab{b}})]{deltix_qo_sheet}
+{Deltix}.
+\newblock {QuantOffice} product data sheet.
+\newblock
+  \url{http://www.deltixlab.com/wp-content/uploads/2015/08/QuantOfficeProductSheet.pdf},
+  n.d.{\natexlab{b}}.
+\newblock Accessed 2026-10-04.
+
+\bibitem[Deschatre and Gruet(2022)]{deschatre2022electricity}
+Thomas Deschatre and Pierre Gruet.
+\newblock Electricity intraday price modelling with marked {H}awkes processes.
+\newblock \emph{Applied Mathematical Finance}, 29\penalty0 (4):\penalty0
+  227--260, 2022.
+\newblock \doi{10.1080/1350486X.2023.2180399}.
+
+\bibitem[Deschatre et~al.(2025)Deschatre, Gruet, and
+  Lotz]{deschatre2025nonlocal}
+Thomas Deschatre, Pierre Gruet, and Antoine Lotz.
+\newblock A non-local estimator for locally stationary {H}awkes processes,
+  2025.
+
+\bibitem[Devlin et~al.(2019)Devlin, Chang, Lee, and Toutanova]{devlin2019}
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova.
+\newblock {BERT}: Pre-training of deep bidirectional transformers for language
+  understanding.
+\newblock In \emph{Proceedings of the 2019 Conference of the North American
+  Chapter of the Association for Computational Linguistics: Human Language
+  Technologies, Volume 1 (Long and Short Papers)}, pages 4171--4186.
+  Association for Computational Linguistics, 2019.
+\newblock \doi{10.18653/v1/N19-1423}.
+
+\bibitem[Ding et~al.(2024)Ding, Li, Wang, Chen, Guo, and
+  Zhang]{ding2024llmtrading}
+Han Ding, Yinheng Li, Junhao Wang, Hang Chen, Doudou Guo, and Yunbai Zhang.
+\newblock Large language model agent in financial trading: A survey, 2024.
+\newblock International Conference on Computers in Management and Business
+  2026.
+
+\bibitem[Dixon(2018{\natexlab{a}})]{dixon2018}
+Matthew Dixon.
+\newblock Sequence classification of the limit order book using recurrent
+  neural networks.
+\newblock \emph{Journal of Computational Science}, 24:\penalty0 277--286,
+  2018{\natexlab{a}}.
+\newblock \doi{10.1016/j.jocs.2017.08.018}.
+
+\bibitem[Dixon(2018{\natexlab{b}})]{dixon2018exec}
+Matthew Dixon.
+\newblock A high-frequency trade execution model for supervised learning.
+\newblock \emph{High Frequency}, 1\penalty0 (1):\penalty0 32--52,
+  2018{\natexlab{b}}.
+\newblock \doi{10.1002/hf2.10016}.
+
+\bibitem[Dobrev and Schaumburg(2017)]{dobrev2017}
+Dobrislav Dobrev and Ernst Schaumburg.
+\newblock High-frequency cross-market trading: Model free measurement and
+  applications.
+\newblock Working paper (version of october 15, 2017), Federal Reserve Board of
+  Governors, 2017.
+\newblock URL
+  \url{https://www.aeaweb.org/conference/2018/preliminary/paper/QdkHkBSZ}.
+
+\bibitem[Donaldson and Kamstra(1996)]{donaldson1996annc}
+R.~Glen Donaldson and Mark Kamstra.
+\newblock Forecast combining with neural networks.
+\newblock \emph{Journal of Forecasting}, 15\penalty0 (1):\penalty0 49--61,
+  1996.
+\newblock \doi{10.1002/(SICI)1099-131X(199601)15:1<49::AID-FOR604>3.0.CO;2-2}.
+
+\bibitem[Dong et~al.(2025)Dong, Wu, Zhang, Dai, Zhang, Ye, Chen, and
+  Cheng]{dong2025llmfinance}
+Yifei Dong, Fengyi Wu, Kunlin Zhang, Yilong Dai, Sanjian Zhang, Wanghao Ye,
+  Sihan Chen, and Zhi-Qi Cheng.
+\newblock Large language model agents in finance: A survey bridging research,
+  practice, and real-world deployment.
+\newblock In \emph{Findings of the Association for Computational Linguistics:
+  EMNLP 2025}, pages 17889--17907. Association for Computational Linguistics,
+  2025.
+\newblock \doi{10.18653/v1/2025.findings-emnlp.972}.
+
+\bibitem[{DPDK Project}(n.d.)]{dpdk}
+{DPDK Project}.
+\newblock {DPDK}: Data plane development kit.
+\newblock Project website and documentation, n.d.
+\newblock URL \url{https://www.dpdk.org/}.
+\newblock Documentation: \url{https://doc.dpdk.org/guides/}.
+
+\bibitem[Du et~al.(2016)Du, Dai, Trivedi, Upadhyay, Gomez-Rodriguez, and
+  Song]{du2016rmtpp}
+Nan Du, Hanjun Dai, Rakshit Trivedi, Utkarsh Upadhyay, Manuel Gomez-Rodriguez,
+  and Le~Song.
+\newblock Recurrent marked temporal point processes: Embedding event history to
+  vector.
+\newblock In \emph{Proceedings of the 22nd ACM SIGKDD International Conference
+  on Knowledge Discovery and Data Mining}, pages 1555--1564, 2016.
+\newblock \doi{10.1145/2939672.2939875}.
+
+\bibitem[Duarte et~al.(2018)Duarte, Han, Harris, Jindariani, Kreinar, Kreis,
+  Ngadiuba, Pierini, Rivera, Tran, and Wu]{hls4ml}
+J.~Duarte, S.~Han, P.~Harris, S.~Jindariani, E.~Kreinar, B.~Kreis, J.~Ngadiuba,
+  M.~Pierini, R.~Rivera, N.~Tran, and Z.~Wu.
+\newblock Fast inference of deep neural networks in {FPGAs} for particle
+  physics.
+\newblock \emph{Journal of Instrumentation}, 13\penalty0 (07):\penalty0 P07027,
+  2018.
+\newblock \doi{10.1088/1748-0221/13/07/P07027}.
+
+\bibitem[Dvorak and Korenek(2014)]{dvorak2014book}
+Milan Dvorak and Jan Korenek.
+\newblock Low latency book handling in {FPGA} for high frequency trading.
+\newblock In \emph{17th International Symposium on Design and Diagnostics of
+  Electronic Circuits and Systems (DDECS)}, pages 175--178. IEEE, 2014.
+\newblock \doi{10.1109/DDECS.2014.6868785}.
+
+\bibitem[Easley et~al.(2021)Easley, L{\'o}pez~de Prado, O'Hara, and
+  Zhang]{easley2021}
+David Easley, Marcos L{\'o}pez~de Prado, Maureen O'Hara, and Zhibai Zhang.
+\newblock Microstructure in the machine age.
+\newblock \emph{The Review of Financial Studies}, 34\penalty0 (7):\penalty0
+  3316--3363, 2021.
+\newblock \doi{10.1093/rfs/hhaa078}.
+
+\bibitem[Edward~Manoharan et~al.(2026)Edward~Manoharan, Linna, Baltakys, Dong,
+  and Kanniainen]{manoharan2026uqlob}
+Derrick~Gilchrist Edward~Manoharan, Eljas Linna, Kestutis Baltakys, Hao Dong,
+  and Juho Kanniainen.
+\newblock {UQ-LOB}: Uncertainty-aware limit order book mid-price forecasting,
+  2026.
+
+\bibitem[Efron and Tibshirani(1993)]{efron1993}
+Bradley Efron and Robert~J. Tibshirani.
+\newblock \emph{An Introduction to the Bootstrap}, volume~57 of
+  \emph{Monographs on Statistics and Applied Probability}.
+\newblock Chapman \& Hall, New York, 1993.
+\newblock ISBN 0412042312.
+\newblock \doi{10.1007/978-1-4899-4541-9}.
+
+\bibitem[Egginton et~al.(2016)Egginton, Van~Ness, and Van~Ness]{egginton2016}
+Jared~F. Egginton, Bonnie~F. Van~Ness, and Robert~A. Van~Ness.
+\newblock Quote stuffing.
+\newblock \emph{Financial Management}, 45\penalty0 (3):\penalty0 583--608,
+  2016.
+\newblock \doi{10.1111/fima.12126}.
+
+\bibitem[Eisler et~al.(2012)Eisler, Bouchaud, and Kockelkoren]{eisler2012}
+Zolt{\'a}n Eisler, Jean-Philippe Bouchaud, and Julien Kockelkoren.
+\newblock The price impact of order book events: Market orders, limit orders
+  and cancellations.
+\newblock \emph{Quantitative Finance}, 12\penalty0 (9):\penalty0 1395--1419,
+  2012.
+\newblock \doi{10.1080/14697688.2010.528444}.
+
+\bibitem[El~Euch et~al.(2018)El~Euch, Fukasawa, and
+  Rosenbaum]{eleuch2018leverage}
+Omar El~Euch, Masaaki Fukasawa, and Mathieu Rosenbaum.
+\newblock The microstructural foundations of leverage effect and rough
+  volatility.
+\newblock \emph{Finance and Stochastics}, 22\penalty0 (2):\penalty0 241--280,
+  2018.
+\newblock \doi{10.1007/s00780-018-0360-z}.
+
+\bibitem[El~Euch et~al.(2019)El~Euch, Gatheral, and
+  Rosenbaum]{eleuch2019roughening}
+Omar El~Euch, Jim Gatheral, and Mathieu Rosenbaum.
+\newblock Roughening {H}eston.
+\newblock \emph{Risk}, pages 84--89, May 2019.
+\newblock Online at risk.net 15 Apr 2019; SSRN 3116887.
+
+\bibitem[El-Yaniv and Wiener(2010)]{elyaniv2010}
+Ran El-Yaniv and Yair Wiener.
+\newblock On the foundations of noise-free selective classification.
+\newblock \emph{Journal of Machine Learning Research}, 11:\penalty0 1605--1641,
+  2010.
+
+\bibitem[Elliott and Timmermann(2005)]{elliott2005}
+Graham Elliott and Allan Timmermann.
+\newblock Optimal forecast combination under regime switching.
+\newblock \emph{International Economic Review}, 46\penalty0 (4):\penalty0
+  1081--1102, 2005.
+\newblock \doi{10.1111/j.1468-2354.2005.00361.x}.
+
+\bibitem[{evgerher}(2020)]{evgerher_hft}
+{evgerher}.
+\newblock Hft-backtesting.
+\newblock \url{https://github.com/evgerher/hft-backtesting}, 2020.
+\newblock Python, Apache-2.0. Accessed 2026-10-03.
+
+\bibitem[{Exegy}(2022)]{exegy_enyx}
+{Exegy}.
+\newblock Exegy acquires {Enyx}, expands global {FPGA} leadership.
+\newblock Press release, May 2022.
+\newblock URL \url{https://www.exegy.com/exegy-acquires-enyx/}.
+
+\bibitem[Fabre and Challet(2025)]{fabre2025spoof}
+Timoth{\'e}e Fabre and Damien Challet.
+\newblock Learning the spoofability of limit order books with interpretable
+  probabilistic neural networks, 2025.
+
+\bibitem[Fabre and Muni~Toke(2025)]{fabre2025neuralhawkes}
+Timoth{\'e}e Fabre and Ioane Muni~Toke.
+\newblock Neural {H}awkes: Non-parametric estimation in high dimension and
+  causality analysis in cryptocurrency markets.
+\newblock \emph{Quantitative Finance}, 25\penalty0 (5):\penalty0 671--698,
+  2025.
+\newblock \doi{10.1080/14697688.2025.2477673}.
+
+\bibitem[Fabre and Muni~Toke(2026)]{fabremunitoke2026mmhp}
+Timoth{\'e}e Fabre and Ioane Muni~Toke.
+\newblock High-frequency market manipulation detection with a
+  {M}arkov-modulated {H}awkes process.
+\newblock \emph{The European Journal of Finance}, 32\penalty0 (3):\penalty0
+  309--341, 2026.
+\newblock \doi{10.1080/1351847X.2026.2624485}.
+\newblock arXiv:2502.04027.
+
+\bibitem[Fabre and Ragel(2023)]{fabre2023interpretable}
+Timoth{\'e}e Fabre and Vincent Ragel.
+\newblock Interpretable {ML} for high-frequency execution, 2023.
+\newblock Preprint, v2 27 Sep 2024.
+
+\bibitem[Farmer et~al.(2005)Farmer, Patelli, and Zovko]{farmer2005}
+J.~Doyne Farmer, Paolo Patelli, and Ilija~I. Zovko.
+\newblock The predictive power of zero intelligence in financial markets.
+\newblock \emph{Proceedings of the National Academy of Sciences}, 102\penalty0
+  (6):\penalty0 2254--2259, 2005.
+\newblock \doi{10.1073/pnas.0409157102}.
+
+\bibitem[Fauth and Tudor(2012)]{fauthtudor2012}
+Alexis Fauth and Ciprian~A. Tudor.
+\newblock Modeling first line of an order book with multivariate marked point
+  processes, 2012.
+\newblock arXiv preprint (v1, 17 Nov 2012).
+
+\bibitem[Fawcett(2006)]{fawcett2006}
+Tom Fawcett.
+\newblock An introduction to {ROC} analysis.
+\newblock \emph{Pattern Recognition Letters}, 27\penalty0 (8):\penalty0
+  861--874, 2006.
+\newblock \doi{10.1016/j.patrec.2005.10.010}.
+
+\bibitem[Felici and Sudoso(2026)]{felici2026mtl}
+Giovanni Felici and Antonio~M. Sudoso.
+\newblock Optimizing accuracy and diversity: a multi-task approach to forecast
+  combinations.
+\newblock \emph{Annals of Operations Research}, 362\penalty0 (1--3):\penalty0
+  493--520, 2026.
+\newblock \doi{10.1007/s10479-026-07291-x}.
+\newblock arXiv:2310.20545.
+
+\bibitem[Filimonov and Sornette(2012)]{filimonovsornette2012}
+Vladimir Filimonov and Didier Sornette.
+\newblock Quantifying reflexivity in financial markets: Toward a prediction of
+  flash crashes.
+\newblock \emph{Physical Review E}, 85:\penalty0 056108, 2012.
+
+\bibitem[Filimonov and Sornette(2015)]{filimonovsornette2015}
+Vladimir Filimonov and Didier Sornette.
+\newblock Apparent criticality and calibration issues in the {Hawkes}
+  self-excited point process model: Application to high-frequency financial
+  data.
+\newblock \emph{Quantitative Finance}, 15\penalty0 (8):\penalty0 1293--1314,
+  2015.
+
+\bibitem[Finn(2021)]{finn2021saet}
+Tobias~Sebastian Finn.
+\newblock Self-attentive ensemble transformer: Representing ensemble
+  interactions in neural networks for earth system models.
+\newblock arXiv preprint 2106.13924; ICML 2021 workshop ``Tackling Climate
+  Change with Machine Learning'', 2021.
+
+\bibitem[Fleming et~al.(2018)Fleming, Mizrach, and
+  Nguyen]{fleming2018brokertec}
+Michael~J. Fleming, Bruce Mizrach, and Giang Nguyen.
+\newblock The microstructure of a {U.S.} {T}reasury {ECN}: The {BrokerTec}
+  platform.
+\newblock \emph{Journal of Financial Markets}, 40:\penalty0 2--22, 2018.
+\newblock \doi{10.1016/j.finmar.2017.05.004}.
+
+\bibitem[Freund and Schapire(1997)]{freund1997}
+Yoav Freund and Robert~E. Schapire.
+\newblock A decision-theoretic generalization of on-line learning and an
+  application to boosting.
+\newblock \emph{Journal of Computer and System Sciences}, 55\penalty0
+  (1):\penalty0 119--139, 1997.
+\newblock \doi{10.1006/jcss.1997.1504}.
+
+\bibitem[Frey et~al.(2023)Frey, Li, Nagy, Sapora, Lu, Zohren, Foerster, and
+  Calinescu]{frey2023}
+Sascha~Yves Frey, Kang Li, Peer Nagy, Silvia Sapora, Christopher Lu, Stefan
+  Zohren, Jakob Foerster, and Anisoara Calinescu.
+\newblock {JAX-LOB}: A {GPU}-accelerated limit order book simulator to unlock
+  large scale reinforcement learning for trading.
+\newblock In \emph{Proceedings of the 4th ACM International Conference on AI in
+  Finance (ICAIF '23)}, pages 583--591, 2023.
+\newblock \doi{10.1145/3604237.3626880}.
+
+\bibitem[Frey and Sand{\aa}s(2017)]{frey2017iceberg}
+Stefan Frey and Patrik Sand{\aa}s.
+\newblock The impact of iceberg orders in limit order books.
+\newblock \emph{Quarterly Journal of Finance}, 7\penalty0 (3):\penalty0
+  1750007, 2017.
+\newblock \doi{10.1142/S2010139217500070}.
+
+\bibitem[Ganesh et~al.(2019)Ganesh, Vadori, Xu, Zheng, Reddy, and
+  Veloso]{ganesh2019dealer}
+Sumitra Ganesh, Nelson Vadori, Mengda Xu, Hua Zheng, Prashant Reddy, and
+  Manuela Veloso.
+\newblock Reinforcement learning for market making in a multi-agent dealer
+  market, 2019.
+
+\bibitem[Gao et~al.(2024)Gao, Dai, and Hu]{gao2024mhp}
+Anningzhe Gao, Shan Dai, and Yan Hu.
+\newblock {M}amba {H}awkes process, 2024.
+
+\bibitem[Garrison et~al.(2019)Garrison, Jain, and Paddrik]{garrison2019}
+Robert Garrison, Pankaj Jain, and Mark Paddrik.
+\newblock Cross-asset market order flow, liquidity, and price discovery.
+\newblock OFR Working Paper 19-04, Office of Financial Research, 2019.
+\newblock URL
+  \url{https://www.financialresearch.gov/working-papers/files/OFRwp-19_04_cross-asset-market-order-flow-liquidity-and-price-discovery.pdf}.
+
+\bibitem[Ga{\v{s}}perov et~al.(2021)Ga{\v{s}}perov, Begu{\v{s}}i{\'c},
+  Posedel~{\v{S}}imovi{\'c}, and Kostanj{\v{c}}ar]{gasperov2021survey}
+Bruno Ga{\v{s}}perov, Stjepan Begu{\v{s}}i{\'c}, Petra
+  Posedel~{\v{S}}imovi{\'c}, and Zvonko Kostanj{\v{c}}ar.
+\newblock Reinforcement learning approaches to optimal market making.
+\newblock \emph{Mathematics}, 9\penalty0 (21):\penalty0 2689, 2021.
+\newblock \doi{10.3390/math9212689}.
+
+\bibitem[Gatheral et~al.(2018)Gatheral, Jaisson, and
+  Rosenbaum]{gatheral2018rough}
+Jim Gatheral, Thibault Jaisson, and Mathieu Rosenbaum.
+\newblock Volatility is rough.
+\newblock \emph{Quantitative Finance}, 18\penalty0 (6):\penalty0 933--949,
+  2018.
+\newblock \doi{10.1080/14697688.2017.1393551}.
+
+\bibitem[Geifman and El-Yaniv(2017)]{geifman2017}
+Yonatan Geifman and Ran El-Yaniv.
+\newblock Selective classification for deep neural networks.
+\newblock In \emph{Advances in Neural Information Processing Systems},
+  volume~30, 2017.
+\newblock URL
+  \url{https://proceedings.neurips.cc/paper_files/paper/2017/hash/4a8423d5e91fda00bb7e46540e2b0cf1-Abstract.html}.
+
+\bibitem[Geweke and Amisano(2011)]{geweke2011}
+John Geweke and Gianni Amisano.
+\newblock Optimal prediction pools.
+\newblock \emph{Journal of Econometrics}, 164\penalty0 (1):\penalty0 130--141,
+  2011.
+\newblock \doi{10.1016/j.jeconom.2011.02.017}.
+
+\bibitem[Gholami et~al.(2022)Gholami, Kim, Dong, Yao, Mahoney, and
+  Keutzer]{gholami2022quant}
+Amir Gholami, Sehoon Kim, Zhen Dong, Zhewei Yao, Michael~W. Mahoney, and Kurt
+  Keutzer.
+\newblock A survey of quantization methods for efficient neural network
+  inference.
+\newblock In \emph{Low-Power Computer Vision}, pages 291--326. Chapman and
+  Hall/CRC, 2022.
+\newblock \doi{10.1201/9781003162810-13}.
+
+\bibitem[Glosten and Milgrom(1985)]{glosten1985}
+Lawrence~R. Glosten and Paul~R. Milgrom.
+\newblock Bid, ask and transaction prices in a specialist market with
+  heterogeneously informed traders.
+\newblock \emph{Journal of Financial Economics}, 14\penalty0 (1):\penalty0
+  71--100, 1985.
+\newblock \doi{10.1016/0304-405X(85)90044-3}.
+
+\bibitem[Gneiting and Raftery(2007)]{gneiting2007}
+Tilmann Gneiting and Adrian~E. Raftery.
+\newblock Strictly proper scoring rules, prediction, and estimation.
+\newblock \emph{Journal of the American Statistical Association}, 102\penalty0
+  (477):\penalty0 359--378, 2007.
+\newblock \doi{10.1198/016214506000001437}.
+
+\bibitem[Gneiting and Ranjan(2013)]{gneiting2013combining}
+Tilmann Gneiting and Roopesh Ranjan.
+\newblock Combining predictive distributions.
+\newblock \emph{Electronic Journal of Statistics}, 7:\penalty0 1747--1782,
+  2013.
+\newblock \doi{10.1214/13-EJS823}.
+
+\bibitem[Goodfellow et~al.(2016)Goodfellow, Bengio, and
+  Courville]{goodfellow2016}
+Ian Goodfellow, Yoshua Bengio, and Aaron Courville.
+\newblock \emph{Deep Learning}.
+\newblock Adaptive Computation and Machine Learning. MIT Press, 2016.
+\newblock ISBN 9780262035613.
+
+\bibitem[Gould and Bonart(2016)]{gould2016qi}
+Martin~D. Gould and Julius Bonart.
+\newblock Queue imbalance as a one-tick-ahead price predictor in a limit order
+  book.
+\newblock \emph{Market Microstructure and Liquidity}, 2\penalty0 (2):\penalty0
+  1650006, 2016.
+\newblock \doi{10.1142/S2382626616500064}.
+
+\bibitem[Gould et~al.(2013)Gould, Porter, Williams, McDonald, Fenn, and
+  Howison]{gould2013}
+Martin~D. Gould, Mason~A. Porter, Stacy Williams, Mark McDonald, Daniel~J.
+  Fenn, and Sam~D. Howison.
+\newblock Limit order books.
+\newblock \emph{Quantitative Finance}, 13\penalty0 (11):\penalty0 1709--1742,
+  2013.
+\newblock \doi{10.1080/14697688.2013.803148}.
+
+\bibitem[Granger and Ramanathan(1984)]{granger1984}
+Clive W.~J. Granger and Ramu Ramanathan.
+\newblock Improved methods of combining forecasts.
+\newblock \emph{Journal of Forecasting}, 3\penalty0 (2):\penalty0 197--204,
+  1984.
+\newblock \doi{10.1002/for.3980030207}.
+
+\bibitem[Gray(2019)]{nvidia_cudagraphs_blog}
+Alan Gray.
+\newblock Getting started with {CUDA} graphs.
+\newblock NVIDIA Technical Blog, September 2019.
+\newblock URL \url{https://developer.nvidia.com/blog/cuda-graphs/}.
+
+\bibitem[Grosner(2018)]{tribeca}
+Michael Grosner.
+\newblock tribeca: A high frequency, market making cryptocurrency trading
+  platform.
+\newblock \url{https://github.com/michaelgrosner/tribeca}, 2018.
+\newblock TypeScript, ISC. Accessed 2026-10-03.
+
+\bibitem[Gruver et~al.(2023)Gruver, Finzi, Qiu, and Wilson]{gruver2023llmtime}
+Nate Gruver, Marc Finzi, Shikai Qiu, and Andrew~Gordon Wilson.
+\newblock Large language models are zero-shot time series forecasters.
+\newblock In \emph{Advances in Neural Information Processing Systems 36
+  (NeurIPS 2023)}, pages 19622--19635, 2023.
+\newblock \doi{10.52202/075280-0861}.
+
+\bibitem[Gu and Dao(2024)]{gu2024mamba}
+Albert Gu and Tri Dao.
+\newblock Mamba: Linear-time sequence modeling with selective state spaces.
+\newblock In \emph{Conference on Language Modeling (COLM)}, 2024.
+
+\bibitem[Gu et~al.(2022)Gu, Goel, and R{\'e}]{gu2022s4}
+Albert Gu, Karan Goel, and Christopher R{\'e}.
+\newblock Efficiently modeling long sequences with structured state spaces.
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2022.
+
+\bibitem[Guo et~al.(2017)Guo, Pleiss, Sun, and Weinberger]{guo2017}
+Chuan Guo, Geoff Pleiss, Yu~Sun, and Kilian~Q. Weinberger.
+\newblock On calibration of modern neural networks.
+\newblock In \emph{International Conference on Machine Learning (ICML)},
+  volume~70 of \emph{Proceedings of Machine Learning Research}, pages
+  1321--1330. PMLR, 2017.
+\newblock URL \url{https://proceedings.mlr.press/v70/guo17a.html}.
+
+\bibitem[Guo et~al.(2018)Guo, Bifet, and Antulov-Fantulin]{guo2018btcvol}
+Tian Guo, Albert Bifet, and Nino Antulov-Fantulin.
+\newblock Bitcoin volatility forecasting with a glimpse into buy and sell
+  orders.
+\newblock In \emph{2018 IEEE International Conference on Data Mining (ICDM)},
+  pages 989--994, 2018.
+\newblock \doi{10.1109/ICDM.2018.00123}.
+
+\bibitem[Gyotoku et~al.(2025)Gyotoku, Muni~Toke, and
+  Yoshida]{gyotoku2025deeppp}
+Yoshihiro Gyotoku, Ioane Muni~Toke, and Nakahiro Yoshida.
+\newblock Deep learning of point processes for modeling high-frequency data,
+  2025.
+
+\bibitem[Hainaut(2016)]{hainaut2016bivariate}
+Donatien Hainaut.
+\newblock A bivariate {H}awkes process for interest rate modeling.
+\newblock \emph{Economic Modelling}, 57:\penalty0 180--196, 2016.
+\newblock \doi{10.1016/j.econmod.2016.04.016}.
+
+\bibitem[Han et~al.(2017)Han, Kang, Mao, Hu, Li, Li, Xie, Luo, Yao, Wang, Yang,
+  and Dally]{han2017ese}
+Song Han, Junlong Kang, Huizi Mao, Yiming Hu, Xin Li, Yubin Li, Dongliang Xie,
+  Hong Luo, Song Yao, Yu~Wang, Huazhong Yang, and William~J. Dally.
+\newblock {ESE}: Efficient speech recognition engine with sparse {LSTM} on
+  {FPGA}.
+\newblock In \emph{Proceedings of the 2017 ACM/SIGDA International Symposium on
+  Field-Programmable Gate Arrays (FPGA '17)}, pages 75--84. ACM, 2017.
+\newblock \doi{10.1145/3020078.3021745}.
+
+\bibitem[Hansen et~al.(2011)Hansen, Lunde, and Nason]{hansen2011mcs}
+Peter~R. Hansen, Asger Lunde, and James~M. Nason.
+\newblock The model confidence set.
+\newblock \emph{Econometrica}, 79\penalty0 (2):\penalty0 453--497, 2011.
+\newblock \doi{10.3982/ECTA5771}.
+
+\bibitem[Hardiman and Bouchaud(2014)]{hardiman2014branching}
+Stephen~J. Hardiman and Jean-Philippe Bouchaud.
+\newblock Branching-ratio approximation for the self-exciting {H}awkes process.
+\newblock \emph{Physical Review E}, 90\penalty0 (6):\penalty0 062807, 2014.
+\newblock \doi{10.1103/PhysRevE.90.062807}.
+
+\bibitem[Hardiman et~al.(2013)Hardiman, Bercot, and
+  Bouchaud]{hardimanbercotbouchaud2013}
+Stephen~J. Hardiman, Nicolas Bercot, and Jean-Philippe Bouchaud.
+\newblock Critical reflexivity in financial markets: A {Hawkes} process
+  analysis, 2013.
+
+\bibitem[Harrald and Kamstra(1997)]{harrald1997}
+Paul~G. Harrald and Mark Kamstra.
+\newblock Evolving artificial neural networks to combine financial forecasts.
+\newblock \emph{IEEE Transactions on Evolutionary Computation}, 1\penalty0
+  (1):\penalty0 40--52, 1997.
+\newblock \doi{10.1109/4235.585891}.
+
+\bibitem[Harris(2002)]{harris2003}
+Larry Harris.
+\newblock \emph{Trading and Exchanges: Market Microstructure for
+  Practitioners}.
+\newblock Oxford University Press, New York, 2002.
+\newblock ISBN 9780195144703.
+\newblock \doi{10.1093/oso/9780195144703.001.0001}.
+
+\bibitem[Harvey et~al.(2016)Harvey, Liu, and Zhu]{harvey2016}
+Campbell~R. Harvey, Yan Liu, and Heqing Zhu.
+\newblock \ldots{} and the cross-section of expected returns.
+\newblock \emph{The Review of Financial Studies}, 29\penalty0 (1):\penalty0
+  5--68, 2016.
+\newblock \doi{10.1093/rfs/hhv059}.
+
+\bibitem[Hasbrouck(2003)]{hasbrouck2003}
+Joel Hasbrouck.
+\newblock Intraday price formation in {U.S.} equity index markets.
+\newblock \emph{The Journal of Finance}, 58\penalty0 (6):\penalty0 2375--2400,
+  2003.
+\newblock \doi{10.1046/j.1540-6261.2003.00609.x}.
+
+\bibitem[Hasbrouck(2007)]{hasbrouck2007}
+Joel Hasbrouck.
+\newblock \emph{Empirical Market Microstructure: The Institutions, Economics,
+  and Econometrics of Securities Trading}.
+\newblock Oxford University Press, New York, 2007.
+\newblock ISBN 9780195301649.
+\newblock \doi{10.1093/oso/9780195301649.001.0001}.
+
+\bibitem[Hasbrouck and Saar(2013)]{hasbrouck2013}
+Joel Hasbrouck and Gideon Saar.
+\newblock Low-latency trading.
+\newblock \emph{Journal of Financial Markets}, 16\penalty0 (4):\penalty0
+  646--679, 2013.
+\newblock \doi{10.1016/j.finmar.2013.05.003}.
+
+\bibitem[Hastie et~al.(2009)Hastie, Tibshirani, and Friedman]{hastie2009}
+Trevor Hastie, Robert Tibshirani, and Jerome Friedman.
+\newblock \emph{The Elements of Statistical Learning: Data Mining, Inference,
+  and Prediction}.
+\newblock Springer Series in Statistics. Springer, New York, 2nd edition, 2009.
+\newblock ISBN 9780387848570.
+\newblock \doi{10.1007/978-0-387-84858-7}.
+
+\bibitem[Hawkes(1971)]{hawkes1971}
+Alan~G. Hawkes.
+\newblock Spectra of some self-exciting and mutually exciting point processes.
+\newblock \emph{Biometrika}, 58\penalty0 (1):\penalty0 83--90, 1971.
+\newblock \doi{10.1093/biomet/58.1.83}.
+
+\bibitem[Hawkes and Oakes(1974)]{hawkesoakes1974}
+Alan~G. Hawkes and David Oakes.
+\newblock A cluster process representation of a self-exciting process.
+\newblock \emph{Journal of Applied Probability}, 11\penalty0 (3):\penalty0
+  493--503, 1974.
+
+\bibitem[Hedges(2026)]{hedges2026frontier}
+C.~Evans Hedges.
+\newblock The inference-compute frontier and a latency-efficient architecture
+  for limit order book prediction, 2026.
+\newblock Preprint.
+
+\bibitem[Hendricks and Wilcox(2014)]{hendricks2014}
+Dieter Hendricks and Diane Wilcox.
+\newblock A reinforcement learning extension to the {A}lmgren-{C}hriss
+  framework for optimal trade execution.
+\newblock In \emph{2014 IEEE Conference on Computational Intelligence for
+  Financial Engineering \& Economics (CIFEr)}, pages 457--464, 2014.
+\newblock \doi{10.1109/CIFEr.2014.6924109}.
+
+\bibitem[Hewitt et~al.(1973)Hewitt, Bishop, and Steiger]{hewitt1973}
+Carl Hewitt, Peter Bishop, and Richard Steiger.
+\newblock A universal modular {ACTOR} formalism for artificial intelligence.
+\newblock In \emph{Proceedings of the International Joint Conference on
+  Artificial Intelligence (IJCAI)}, pages 235--245, 1973.
+\newblock URL \url{https://www.ijcai.org/Proceedings/73/Papers/027B.pdf}.
+
+\bibitem[Hochreiter and Schmidhuber(1997)]{hochreiter1997}
+Sepp Hochreiter and J{\"u}rgen Schmidhuber.
+\newblock Long short-term memory.
+\newblock \emph{Neural Computation}, 9\penalty0 (8):\penalty0 1735--1780, 1997.
+\newblock \doi{10.1162/neco.1997.9.8.1735}.
+
+\bibitem[Hoffmann et~al.(2013)Hoffmann, Rosenbaum, and
+  Yoshida]{hoffmann2013leadlag}
+Marc Hoffmann, Mathieu Rosenbaum, and Nakahiro Yoshida.
+\newblock Estimation of the lead-lag parameter from non-synchronous data.
+\newblock \emph{Bernoulli}, 19\penalty0 (2):\penalty0 426--461, 2013.
+\newblock \doi{10.3150/11-BEJ407}.
+
+\bibitem[Hua et~al.(2026)Hua, Yang, Hao, Zhang, Cao, Qi, Li, and
+  Guo]{hua2026agentic}
+Fengrui Hua, Hengyi Yang, Xinlei Hao, Haohan Zhang, Bokai Cao, Yiyan Qi, Jia
+  Li, and Jian Guo.
+\newblock Agentic quantitative trading: A survey of workflows, systems, and
+  evaluation, 2026.
+
+\bibitem[Huang and Polak(2011)]{lobster}
+Ruihong Huang and Tomas Polak.
+\newblock {LOBSTER}: Limit order book reconstruction system.
+\newblock SSRN working paper, 2011.
+
+\bibitem[Huang et~al.(2015)Huang, Lehalle, and Rosenbaum]{huang2015}
+Weibing Huang, Charles-Albert Lehalle, and Mathieu Rosenbaum.
+\newblock Simulating and analyzing order book data: The queue-reactive model.
+\newblock \emph{Journal of the American Statistical Association}, 110\penalty0
+  (509):\penalty0 107--122, 2015.
+\newblock \doi{10.1080/01621459.2014.982278}.
+
+\bibitem[Hull(2022)]{hull}
+John~C. Hull.
+\newblock \emph{Options, Futures, and Other Derivatives}.
+\newblock Pearson, 11th edition, 2022.
+\newblock ISBN 9780136939917.
+
+\bibitem[{Hummingbot Foundation}(2026)]{hummingbot}
+{Hummingbot Foundation}.
+\newblock Hummingbot.
+\newblock \url{https://github.com/hummingbot/hummingbot}, 2026.
+\newblock Python/Cython, Apache-2.0. Accessed 2026-10-03.
+
+\bibitem[Huth and Abergel(2014)]{huth2014}
+Nicolas Huth and Fr{\'e}d{\'e}ric Abergel.
+\newblock High frequency lead/lag relationships -- empirical facts.
+\newblock \emph{Journal of Empirical Finance}, 26:\penalty0 41--58, 2014.
+\newblock \doi{10.1016/j.jempfin.2014.01.003}.
+
+\bibitem[Hwang et~al.(2025)Hwang, Lee, Kim, Lee, and Kim]{hwang2025shockbiased}
+Sukmin Hwang, Sungho Lee, Chanyeong Kim, Yongjae Lee, and Woo~Chang Kim.
+\newblock Shock-biased attention: Enhancing transformer {H}awkes processes with
+  amplitude-driven temporal kernels.
+\newblock In \emph{Proceedings of the 6th ACM International Conference on AI in
+  Finance (ICAIF '25)}, pages 915--923. ACM, 2025.
+\newblock \doi{10.1145/3768292.3770431}.
+
+\bibitem[{ITU-T}(2003)]{fiberlatency}
+{ITU-T}.
+\newblock Recommendation {G.114}: One-way transmission time.
+\newblock International Telecommunication Union, May 2003.
+\newblock URL \url{https://www.itu.int/rec/T-REC-G.114-200305-I}.
+
+\bibitem[Jacob et~al.(2018)Jacob, Kligys, Chen, Zhu, Tang, Howard, Adam, and
+  Kalenichenko]{jacob2018}
+Benoit Jacob, Skirmantas Kligys, Bo~Chen, Menglong Zhu, Matthew Tang, Andrew
+  Howard, Hartwig Adam, and Dmitry Kalenichenko.
+\newblock Quantization and training of neural networks for efficient
+  integer-arithmetic-only inference.
+\newblock In \emph{2018 IEEE/CVF Conference on Computer Vision and Pattern
+  Recognition (CVPR)}, pages 2704--2713. IEEE, 2018.
+\newblock \doi{10.1109/CVPR.2018.00286}.
+
+\bibitem[Jacobs et~al.(1991)Jacobs, Jordan, Nowlan, and Hinton]{jacobs1991}
+Robert~A. Jacobs, Michael~I. Jordan, Steven~J. Nowlan, and Geoffrey~E. Hinton.
+\newblock Adaptive mixtures of local experts.
+\newblock \emph{Neural Computation}, 3\penalty0 (1):\penalty0 79--87, 1991.
+\newblock \doi{10.1162/neco.1991.3.1.79}.
+
+\bibitem[Jain et~al.(2024{\natexlab{a}})Jain, Firoozye, Kochems, and
+  Treleaven]{jain2024chp}
+Konark Jain, Nick Firoozye, Jonathan Kochems, and Philip Treleaven.
+\newblock Limit order book dynamics and order size modelling using compound
+  {H}awkes process.
+\newblock \emph{Finance Research Letters}, 69:\penalty0 106157,
+  2024{\natexlab{a}}.
+\newblock \doi{10.1016/j.frl.2024.106157}.
+
+\bibitem[Jain et~al.(2024{\natexlab{b}})Jain, Firoozye, Kochems, and
+  Treleaven]{jain2024sim}
+Konark Jain, Nick Firoozye, Jonathan Kochems, and Philip Treleaven.
+\newblock Limit order book simulations: A review, 2024{\natexlab{b}}.
+
+\bibitem[Jaisson and Rosenbaum(2015)]{jaisson2015}
+Thibault Jaisson and Mathieu Rosenbaum.
+\newblock Limit theorems for nearly unstable {H}awkes processes.
+\newblock \emph{The Annals of Applied Probability}, 25\penalty0 (2), 2015.
+\newblock \doi{10.1214/14-AAP1005}.
+
+\bibitem[Jaisson and Rosenbaum(2016)]{jaisson2016}
+Thibault Jaisson and Mathieu Rosenbaum.
+\newblock Rough fractional diffusions as scaling limits of nearly unstable
+  heavy tailed {H}awkes processes.
+\newblock \emph{The Annals of Applied Probability}, 26\penalty0 (5), 2016.
+\newblock \doi{10.1214/15-AAP1164}.
+
+\bibitem[Jepsen et~al.(2018)Jepsen, Moshref, Carzaniga, Foster, and
+  Soul{\'e}]{jepsen2018packet}
+Theo Jepsen, Masoud Moshref, Antonio Carzaniga, Nate Foster, and Robert
+  Soul{\'e}.
+\newblock Packet subscriptions for programmable {ASICs}.
+\newblock In \emph{Proceedings of the 17th ACM Workshop on Hot Topics in
+  Networks (HotNets)}, pages 176--183. ACM, 2018.
+\newblock \doi{10.1145/3286062.3286092}.
+
+\bibitem[Jepsen et~al.(2020)Jepsen, Fattaholmanan, Moshref, Foster, Carzaniga,
+  and Soul{\'e}]{jepsen2020forwarding}
+Theo Jepsen, Ali Fattaholmanan, Masoud Moshref, Nate Foster, Antonio Carzaniga,
+  and Robert Soul{\'e}.
+\newblock Forwarding and routing with packet subscriptions.
+\newblock In \emph{Proceedings of the 16th International Conference on emerging
+  Networking EXperiments and Technologies (CoNEXT)}, pages 282--294. ACM, 2020.
+\newblock \doi{10.1145/3386367.3431315}.
+
+\bibitem[Jerome et~al.(2023)Jerome, S{\'a}nchez-Betancourt, Savani, and
+  Herdegen]{jerome2023mbtgym}
+Joseph Jerome, Leandro S{\'a}nchez-Betancourt, Rahul Savani, and Martin
+  Herdegen.
+\newblock Mbt-gym: Reinforcement learning for model-based limit order book
+  trading.
+\newblock In \emph{Proceedings of the 4th ACM International Conference on AI in
+  Finance (ICAIF '23)}, pages 619--627. ACM, 2023.
+\newblock \doi{10.1145/3604237.3626873}.
+
+\bibitem[{Jesse.Trade}(2026)]{jesse}
+{Jesse.Trade}.
+\newblock Jesse: Algorithmic trading framework.
+\newblock \url{https://github.com/jesse-ai/jesse}, 2026.
+\newblock Python, MIT. Accessed 2026-10-03.
+
+\bibitem[Jordan and Jacobs(1994)]{jordan1994hme}
+Michael~I. Jordan and Robert~A. Jacobs.
+\newblock Hierarchical mixtures of experts and the {EM} algorithm.
+\newblock \emph{Neural Computation}, 6\penalty0 (2):\penalty0 181--214, 1994.
+\newblock \doi{10.1162/neco.1994.6.2.181}.
+
+\bibitem[Joseph and Jain(2024)]{josephjain2024marked}
+Sobin Joseph and Shashi Jain.
+\newblock Non-parametric estimation of multi-dimensional marked {H}awkes
+  processes, 2024.
+
+\bibitem[Joseph et~al.(2022)Joseph, Kashyap, and Jain]{joseph2022snh}
+Sobin Joseph, Lekhapriya~Dheeraj Kashyap, and Shashi Jain.
+\newblock Shallow neural {H}awkes: Non-parametric kernel estimation for
+  {H}awkes processes.
+\newblock \emph{Journal of Computational Science}, 63:\penalty0 101754, 2022.
+\newblock \doi{10.1016/j.jocs.2022.101754}.
+
+\bibitem[Jung and Lee(2025)]{arxiv240902277}
+Jiwon Jung and Kiseop Lee.
+\newblock Attention-based reading, highlighting, and forecasting of the limit
+  order book.
+\newblock \emph{Quantitative Finance}, 25\penalty0 (7):\penalty0 1015--1027,
+  2025.
+\newblock \doi{10.1080/14697688.2025.2522914}.
+
+\bibitem[Jusselin(2021)]{jusselin2021mm}
+Paul Jusselin.
+\newblock Optimal market making with persistent order flow.
+\newblock \emph{SIAM Journal on Financial Mathematics}, 12\penalty0
+  (3):\penalty0 1150--1200, 2021.
+\newblock \doi{10.1137/20M1376054}.
+
+\bibitem[Kabir et~al.(2024)Kabir, Kabir, Downey, Bakos, Andrews, and
+  Huang]{famous}
+Ehsan Kabir, Md.~Arafat Kabir, Austin R.~J. Downey, Jason~D. Bakos, David
+  Andrews, and Miaoqing Huang.
+\newblock {FAMOUS}: Flexible accelerator for the attention mechanism of
+  transformer on {UltraScale+} {FPGAs}.
+\newblock In \emph{2024 International Conference on Field Programmable
+  Technology (ICFPT)}, pages 1--2, 2024.
+\newblock \doi{10.1109/ICFPT64416.2024.11113430}.
+
+\bibitem[Kalman(1960)]{kalman1960}
+R.~E. Kalman.
+\newblock A new approach to linear filtering and prediction problems.
+\newblock \emph{Journal of Basic Engineering}, 82\penalty0 (1):\penalty0
+  35--45, 1960.
+\newblock \doi{10.1115/1.3662552}.
+
+\bibitem[Karpe et~al.(2020)Karpe, Fang, Ma, and Wang]{karpe2020}
+Micha{\"e}l Karpe, Jin Fang, Zhongyao Ma, and Chen Wang.
+\newblock Multi-agent reinforcement learning in a realistic limit order book
+  market simulation.
+\newblock In \emph{Proceedings of the First ACM International Conference on AI
+  in Finance (ICAIF '20)}, 2020.
+\newblock \doi{10.1145/3383455.3422570}.
+
+\bibitem[Kawawa-Beaudan et~al.(2026)Kawawa-Beaudan, Sood, Papasotiriou,
+  Borrajo, and Veloso]{tradefm2026}
+Maxime Kawawa-Beaudan, Srijan Sood, Kassiani Papasotiriou, Daniel Borrajo, and
+  Manuela Veloso.
+\newblock {TradeFM}: A generative foundation model for trade-flow and market
+  microstructure, 2026.
+
+\bibitem[Kercheval and Zhang(2015)]{kercheval2015}
+Alec~N. Kercheval and Yuan Zhang.
+\newblock Modelling high-frequency limit order book dynamics with support
+  vector machines.
+\newblock \emph{Quantitative Finance}, 15\penalty0 (8):\penalty0 1315--1329,
+  2015.
+\newblock \doi{10.1080/14697688.2015.1032546}.
+
+\bibitem[Khoda et~al.(2023)Khoda, Rankin, Teixeira~de Lima, Harris, Hauck, Hsu,
+  Kagan, Loncar, Paikara, Rao, Summers, Vernieri, and Wang]{khoda2023rnn}
+Elham~E. Khoda, Dylan Rankin, Rafael Teixeira~de Lima, Philip Harris, Scott
+  Hauck, Shih-Chieh Hsu, Michael Kagan, Vladimir Loncar, Chaitanya Paikara,
+  Richa Rao, Sioni Summers, Caterina Vernieri, and Aaron Wang.
+\newblock Ultra-low latency recurrent neural network inference on {FPGAs} for
+  physics applications with hls4ml.
+\newblock \emph{Machine Learning: Science and Technology}, 4\penalty0
+  (2):\penalty0 025004, 2023.
+\newblock \doi{10.1088/2632-2153/acc0d7}.
+
+\bibitem[Kim et~al.(2019)Kim, Mnih, Schwarz, Garnelo, Eslami, Rosenbaum,
+  Vinyals, and Teh]{kim2019anp}
+Hyunjik Kim, Andriy Mnih, Jonathan Schwarz, Marta Garnelo, Ali Eslami, Dan
+  Rosenbaum, Oriol Vinyals, and Yee~Whye Teh.
+\newblock Attentive neural processes.
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2019.
+\newblock URL \url{https://openreview.net/forum?id=SkE6PjC9KX}.
+
+\bibitem[Kim et~al.(2023)Kim, Hooper, Wattanawong, Kang, Yan, Genc, Dinh,
+  Huang, Keutzer, Mahoney, Shao, and Gholami]{kim2023fullstack}
+Sehoon Kim, Coleman Hooper, Thanakul Wattanawong, Minwoo Kang, Ruohan Yan,
+  Hasan Genc, Grace Dinh, Qijing Huang, Kurt Keutzer, Michael~W. Mahoney,
+  Yakun~Sophia Shao, and Amir Gholami.
+\newblock Full stack optimization of transformer inference: a survey, 2023.
+
+\bibitem[Kisiel and Gorse(2022)]{kisiel2022axial}
+Damian Kisiel and Denise Gorse.
+\newblock {Axial-LOB}: High-frequency trading with axial attention.
+\newblock In \emph{2022 IEEE Symposium Series on Computational Intelligence
+  (SSCI)}, pages 1327--1333, 2022.
+\newblock \doi{10.1109/SSCI51031.2022.10022284}.
+
+\bibitem[Kolm and Westray(2025)]{kolm_westray}
+Petter~N. Kolm and Nicholas Westray.
+\newblock Deep learning alpha signals from limit order books: Practical
+  insights and lessons learned.
+\newblock Risk.net, Cutting Edge, August 2025.
+\newblock URL
+  \url{https://www.risk.net/cutting-edge/7961982/deep-learning-alpha-signals-from-limit-order-books-practical-insights-and-lessons-learned}.
+
+\bibitem[Kolm et~al.(2023)Kolm, Turiel, and Westray]{kolm2023}
+Petter~N. Kolm, Jeremy Turiel, and Nicholas Westray.
+\newblock Deep order flow imbalance: Extracting alpha at multiple horizons from
+  the limit order book.
+\newblock \emph{Mathematical Finance}, 33\penalty0 (4):\penalty0 1044--1081,
+  2023.
+\newblock \doi{10.1111/mafi.12413}.
+
+\bibitem[Koop and Korobilis(2012)]{koop2012dma}
+Gary Koop and Dimitris Korobilis.
+\newblock Forecasting inflation using dynamic model averaging.
+\newblock \emph{International Economic Review}, 53\penalty0 (3):\penalty0
+  867--886, 2012.
+\newblock \doi{10.1111/j.1468-2354.2012.00704.x}.
+
+\bibitem[{koteyevlev}(2021)]{koteyevlev_mm}
+{koteyevlev}.
+\newblock {MarketMakingMLAlgo: Market Making Backtest on a Full Order Log}.
+\newblock \url{https://github.com/koteyevlev/MarketMakingMLAlgo}, 2021.
+\newblock Python, MIT. Accessed 2026-10-03.
+
+\bibitem[{kpetridis24}(2026)]{lobsim}
+{kpetridis24}.
+\newblock lobsim: {L3} limit order book replay and paper execution simulator.
+\newblock \url{https://github.com/kpetridis24/lobsim}, 2026.
+\newblock C++20/Python, Apache-2.0. Accessed 2026-10-03.
+
+\bibitem[Krapivensky(2025)]{krapivensky2025glass}
+Viktor Krapivensky.
+\newblock glass: ordered set data structure for client-side order books, 2025.
+
+\bibitem[Kuon and Rose(2007)]{kuon2007}
+Ian Kuon and Jonathan Rose.
+\newblock Measuring the gap between {FPGAs} and {ASICs}.
+\newblock \emph{IEEE Transactions on Computer-Aided Design of Integrated
+  Circuits and Systems}, 26\penalty0 (2):\penalty0 203--215, 2007.
+\newblock \doi{10.1109/TCAD.2006.884574}.
+
+\bibitem[Kyle(1985)]{kyle1985}
+Albert~S. Kyle.
+\newblock Continuous auctions and insider trading.
+\newblock \emph{Econometrica}, 53\penalty0 (6):\penalty0 1315, 1985.
+\newblock \doi{10.2307/1913210}.
+
+\bibitem[Lalor and Swishchuk(2025)]{lalor2025nhp}
+Luca Lalor and Anatoliy Swishchuk.
+\newblock Event-based limit order book simulation under a neural {H}awkes
+  process: Application in market-making.
+\newblock \emph{Applied Mathematical Finance}, 32\penalty0 (2):\penalty0
+  128--155, 2025.
+\newblock \doi{10.1080/1350486X.2025.2548448}.
+
+\bibitem[Large(2007)]{large2007}
+Jeremy Large.
+\newblock Measuring the resiliency of an electronic limit order book.
+\newblock \emph{Journal of Financial Markets}, 10\penalty0 (1):\penalty0 1--25,
+  2007.
+\newblock \doi{10.1016/j.finmar.2006.09.001}.
+
+\bibitem[Laughlin et~al.(2014)Laughlin, Aguirre, and Grundfest]{laughlin2014}
+Gregory Laughlin, Anthony Aguirre, and Joseph Grundfest.
+\newblock Information transmission between financial markets in {Chicago} and
+  {New York}.
+\newblock \emph{Financial Review}, 49\penalty0 (2):\penalty0 283--312, 2014.
+\newblock \doi{10.1111/fire.12036}.
+
+\bibitem[Leber et~al.(2011)Leber, Geib, and Litz]{leber2011}
+Christian Leber, Benjamin Geib, and Heiner Litz.
+\newblock High frequency trading acceleration using {FPGAs}.
+\newblock In \emph{2011 21st International Conference on Field Programmable
+  Logic and Applications (FPL)}, pages 317--322, 2011.
+\newblock \doi{10.1109/FPL.2011.64}.
+
+\bibitem[LeCun et~al.(2015)LeCun, Bengio, and Hinton]{lecun2015}
+Yann LeCun, Yoshua Bengio, and Geoffrey Hinton.
+\newblock Deep learning.
+\newblock \emph{Nature}, 521\penalty0 (7553):\penalty0 436--444, 2015.
+\newblock \doi{10.1038/nature14539}.
+
+\bibitem[Lee et~al.(2013)Lee, Eom, and Park]{lee2013spoof}
+Eun~Jung Lee, Kyong~Shik Eom, and Kyung~Suh Park.
+\newblock Microstructure-based manipulation: Strategic behavior and performance
+  of spoofing traders.
+\newblock \emph{Journal of Financial Markets}, 16\penalty0 (2):\penalty0
+  227--252, 2013.
+\newblock \doi{10.1016/j.finmar.2012.05.004}.
+
+\bibitem[Lee(2023)]{lee2023rnnhawkes}
+Kyungsub Lee.
+\newblock Recurrent neural network based parameter estimation of {H}awkes model
+  on high-frequency financial data.
+\newblock \emph{Finance Research Letters}, 55:\penalty0 103922, 2023.
+\newblock \doi{10.1016/j.frl.2023.103922}.
+
+\bibitem[Lee(2026)]{lee2024predictability}
+Kyungsub Lee.
+\newblock Price predictability in limit order book with deep learning model.
+\newblock \emph{Applied Economics Letters}, 33\penalty0 (8):\penalty0
+  1105--1111, 2026.
+\newblock \doi{10.1080/13504851.2024.2409330}.
+\newblock Published online 2024.
+
+\bibitem[Lee and Seo(2017)]{leeseo2017marked}
+Kyungsub Lee and Byoung~Ki Seo.
+\newblock Marked {H}awkes process modeling of price dynamics and volatility
+  estimation.
+\newblock \emph{Journal of Empirical Finance}, 40:\penalty0 174--200, 2017.
+\newblock \doi{10.1016/j.jempfin.2016.08.004}.
+
+\bibitem[Lewis and Mohler(2011)]{lewis2011em}
+Erik Lewis and George Mohler.
+\newblock A nonparametric {EM} algorithm for multiscale {H}awkes processes.
+\newblock Preprint, dated May 9, 2011, 2011.
+\newblock URL \url{http://paleo.sscnet.ucla.edu/Lewis-Molher-EM_Preprint.pdf}.
+
+\bibitem[Li et~al.(2025)Li, Liu, Liu, Fang, Wang, Xu, and Bian]{li2025mars}
+Junjie Li, Yang Liu, Weiqing Liu, Shikai Fang, Lewen Wang, Chang Xu, and Jiang
+  Bian.
+\newblock {MarS}: A financial market simulation engine powered by generative
+  foundation model.
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2025.
+
+\bibitem[Li and Chen(2025)]{li2025bytegen}
+Yang Li and Zhi Chen.
+\newblock {ByteGen}: A tokenizer-free generative model for orderbook events in
+  byte space, 2025.
+
+\bibitem[Li et~al.(2026)Li, Wu, Zhong, Liu, and Yang]{li2024simlob}
+Yuanzhe Li, Yue Wu, Muyao Zhong, Shengcai Liu, and Peng Yang.
+\newblock {SimLOB}: Learning representations of limited order book for
+  financial market simulation.
+\newblock \emph{IEEE Transactions on Artificial Intelligence}, 7\penalty0
+  (6):\penalty0 3429--3444, 2026.
+\newblock \doi{10.1109/TAI.2025.3640135}.
+
+\bibitem[Lillo and Farmer(2004)]{lillo2004}
+Fabrizio Lillo and J.~Doyne Farmer.
+\newblock The long memory of the efficient market.
+\newblock \emph{Studies in Nonlinear Dynamics \& Econometrics}, 8\penalty0 (3),
+  2004.
+\newblock \doi{10.2202/1558-3708.1226}.
+
+\bibitem[Lillo et~al.(2005)Lillo, Mike, and Farmer]{lillo2005}
+Fabrizio Lillo, Szabolcs Mike, and J.~Doyne Farmer.
+\newblock Theory for long memory in supply and demand.
+\newblock \emph{Physical Review E}, 71\penalty0 (6):\penalty0 066122, 2005.
+\newblock \doi{10.1103/PhysRevE.71.066122}.
+
+\bibitem[Lin et~al.(2003)Lin, Keogh, Lonardi, and Chiu]{lin2003sax}
+Jessica Lin, Eamonn Keogh, Stefano Lonardi, and Bill Chiu.
+\newblock A symbolic representation of time series, with implications for
+  streaming algorithms.
+\newblock In \emph{Proceedings of the 8th ACM SIGMOD Workshop on Research
+  Issues in Data Mining and Knowledge Discovery (DMKD '03)}, pages 2--11, 2003.
+\newblock \doi{10.1145/882082.882086}.
+
+\bibitem[Lin et~al.(2007)Lin, Keogh, Wei, and Lonardi]{lin2007sax}
+Jessica Lin, Eamonn Keogh, Li~Wei, and Stefano Lonardi.
+\newblock Experiencing {SAX}: A novel symbolic representation of time series.
+\newblock \emph{Data Mining and Knowledge Discovery}, 15\penalty0 (2):\penalty0
+  107--144, 2007.
+\newblock \doi{10.1007/s10618-007-0064-z}.
+
+\bibitem[Linna et~al.(2025)Linna, Baltakys, Iosifidis, and
+  Kanniainen]{linna2025lobert}
+Eljas Linna, Kestutis Baltakys, Alexandros Iosifidis, and Juho Kanniainen.
+\newblock {LOBERT}: Generative {AI} foundation model for limit order book
+  messages, 2025.
+
+\bibitem[Linna et~al.(2026)Linna, Baltakys, Manoharan, Iosifidis, and
+  Kanniainen]{linna2026impact}
+Eljas Linna, Kestutis Baltakys, Derrick Manoharan, Alexandros Iosifidis, and
+  Juho Kanniainen.
+\newblock Repurposing deep limit order book forecasting for
+  scenario-conditioned market impact modeling, 2026.
+\newblock Preprint.
+
+\bibitem[Littlestone and Warmuth(1994)]{littlestone1994}
+Nick Littlestone and Manfred~K. Warmuth.
+\newblock The weighted majority algorithm.
+\newblock \emph{Information and Computation}, 108\penalty0 (2):\penalty0
+  212--261, 1994.
+\newblock \doi{10.1006/inco.1994.1009}.
+
+\bibitem[Liu(2026)]{liu2026microsecond}
+Siyuan Liu.
+\newblock Microsecond-latency, fully on-chip limit order book prediction on an
+  edge {FPGA}: A lightweight {INT8} {1D-CNN} hardware--software co-design.
+\newblock \emph{IEEE Access}, 14:\penalty0 141192--141215, 2026.
+\newblock \doi{10.1109/ACCESS.2026.3732942}.
+
+\bibitem[Liu et~al.(2024)Liu, Chen, Ma, Yang, and Wan]{liu2024book}
+Yao Liu, Shiyang Chen, Long Ma, Guolong Yang, and Kun Wan.
+\newblock Real-time order book building and snapshot generating for high
+  frequency trading on {FPGA}.
+\newblock In \emph{2024 IEEE 35th International Conference on
+  Application-specific Systems, Architectures and Processors (ASAP)}, pages
+  71--76. IEEE, 2024.
+\newblock \doi{10.1109/ASAP61560.2024.00025}.
+
+\bibitem[Lockwood et~al.(2012)Lockwood, Gupte, Mehta, Blott, English, and
+  Vissers]{lockwood2012}
+John~W. Lockwood, Adwait Gupte, Nishit Mehta, Michaela Blott, Tom English, and
+  Kees Vissers.
+\newblock A low-latency library in {FPGA} hardware for high-frequency trading
+  ({HFT}).
+\newblock In \emph{2012 IEEE 20th Annual Symposium on High-Performance
+  Interconnects (HOTI)}, pages 9--16, 2012.
+\newblock \doi{10.1109/HOTI.2012.15}.
+
+\bibitem[L{\'o}pez~de Prado(2018)]{lopezdeprado2018}
+Marcos L{\'o}pez~de Prado.
+\newblock \emph{Advances in Financial Machine Learning}.
+\newblock Wiley, 2018.
+\newblock ISBN 978-1-119-48208-6.
+
+\bibitem[Lu and Abergel(2018)]{lu2018}
+Xiaofei Lu and Fr{\'e}d{\'e}ric Abergel.
+\newblock High-dimensional {H}awkes processes for limit order books: Modelling,
+  empirical analysis and numerical calibration.
+\newblock \emph{Quantitative Finance}, 18\penalty0 (2):\penalty0 249--264,
+  2018.
+\newblock \doi{10.1080/14697688.2017.1403142}.
+
+\bibitem[Lucchese et~al.(2024)Lucchese, Pakkanen, and Veraart]{lucchese2024}
+Lorenzo Lucchese, Mikko~S. Pakkanen, and Almut E.~D. Veraart.
+\newblock The short-term predictability of returns in order book markets: A
+  deep learning perspective.
+\newblock \emph{International Journal of Forecasting}, 40\penalty0
+  (4):\penalty0 1587--1621, 2024.
+\newblock \doi{10.1016/j.ijforecast.2024.02.001}.
+
+\bibitem[Ma and Fildes(2021)]{mafildes2021}
+Shaohui Ma and Robert Fildes.
+\newblock Retail sales forecasting with meta-learning.
+\newblock \emph{European Journal of Operational Research}, 288\penalty0
+  (1):\penalty0 111--128, 2021.
+\newblock \doi{10.1016/j.ejor.2020.05.038}.
+
+\bibitem[Maciejewski(2026{\natexlab{a}})]{kaspar_hft}
+Vincent Maciejewski.
+\newblock kaspar-hft: an open-source low-latency trading system and order-book
+  simulator.
+\newblock \url{https://github.com/vincent212/kaspar-hft}, 2026{\natexlab{a}}.
+
+\bibitem[Maciejewski(2026{\natexlab{b}})]{maciejewski2026packets}
+Vincent Maciejewski.
+\newblock Packets, transactions and queues: Design principles for {HFT} systems
+  from a measurement study of {CME} market data, 2026{\natexlab{b}}.
+
+\bibitem[Maciejewski(2026{\natexlab{c}})]{maciejewski_actor}
+Vincent Maciejewski.
+\newblock Adapting the actor model of concurrency for high-frequency trading:
+  Synchronous message delivery (fast\_send) and a tick-to-book latency study,
+  2026{\natexlab{c}}.
+
+\bibitem[Maciejewski(2026{\natexlab{d}})]{maciejewski_shadow}
+Vincent Maciejewski.
+\newblock Model-free passive execution via order-level shadowing,
+  2026{\natexlab{d}}.
+
+\bibitem[Maglaras et~al.(2022)Maglaras, Moallemi, and Wang]{maglaras2022fill}
+Costis Maglaras, Ciamac~C. Moallemi, and Muye Wang.
+\newblock A deep learning approach to estimating fill probabilities in a limit
+  order book.
+\newblock \emph{Quantitative Finance}, 22\penalty0 (11):\penalty0 1989--2003,
+  2022.
+\newblock \doi{10.1080/14697688.2022.2124189}.
+
+\bibitem[{Magmio}(n.d.)]{magmio}
+{Magmio}.
+\newblock Magmio: {FPGA} system for ultra-low latency trading.
+\newblock Vendor website, n.d.
+\newblock URL \url{https://www.magmio.com/product}.
+\newblock Accessed 2026-10-02.
+
+\bibitem[Magris et~al.(2023)Magris, Shabani, and Iosifidis]{magris2023bbnn}
+Martin Magris, Mostafa Shabani, and Alexandros Iosifidis.
+\newblock {B}ayesian bilinear neural network for predicting the mid-price
+  dynamics in limit-order book markets.
+\newblock \emph{Journal of Forecasting}, 42\penalty0 (6):\penalty0 1407--1428,
+  2023.
+\newblock \doi{10.1002/for.2955}.
+
+\bibitem[M{\"a}kinen et~al.(2019)M{\"a}kinen, Kanniainen, Gabbouj, and
+  Iosifidis]{makinen2019jump}
+Ymir M{\"a}kinen, Juho Kanniainen, Moncef Gabbouj, and Alexandros Iosifidis.
+\newblock Forecasting jump arrivals in stock prices: New attention-based
+  network architecture using limit order book data.
+\newblock \emph{Quantitative Finance}, 19\penalty0 (12):\penalty0 2033--2050,
+  2019.
+\newblock \doi{10.1080/14697688.2019.1634277}.
+
+\bibitem[Mascioli et~al.(2024)Mascioli, Gu, Wang, Chakraborty, and
+  Wellman]{mascioli2024pymarketsim}
+Chris Mascioli, Anri Gu, Yongzhao Wang, Mithun Chakraborty, and Michael
+  Wellman.
+\newblock A financial market simulation environment for trading agents using
+  deep reinforcement learning.
+\newblock In \emph{Proceedings of the 5th ACM International Conference on AI in
+  Finance (ICAIF '24)}, pages 117--125. ACM, 2024.
+\newblock \doi{10.1145/3677052.3698639}.
+
+\bibitem[Mei and Eisner(2017)]{mei2017}
+Hongyuan Mei and Jason Eisner.
+\newblock The neural {H}awkes process: A neurally self-modulating multivariate
+  point process.
+\newblock In \emph{Advances in Neural Information Processing Systems 30 (NIPS
+  2017)}, pages 6754--6764, 2017.
+
+\bibitem[{Mellanox Technologies}(2017)]{vma}
+{Mellanox Technologies}.
+\newblock Accelerating electronic trading (solution brief).
+\newblock Solution brief, 2017.
+\newblock URL
+  \url{https://network.nvidia.com/pdf/applications/SB_HighFreq_Trading.pdf}.
+
+\bibitem[Menkveld(2013)]{menkveld2013}
+Albert~J. Menkveld.
+\newblock High frequency trading and the new market makers.
+\newblock \emph{Journal of Financial Markets}, 16\penalty0 (4):\penalty0
+  712--740, 2013.
+\newblock \doi{10.1016/j.finmar.2013.06.006}.
+
+\bibitem[Moallemi and Yuan(2017)]{moallemi2017}
+Ciamac~C. Moallemi and Kai Yuan.
+\newblock A model for queue position valuation in a limit order book.
+\newblock Working paper, Columbia Business School (initial version December
+  2016, revised June 2017), 2017.
+\newblock URL \url{https://moallemi.com/ciamac/papers/queue-value-2016.pdf}.
+
+\bibitem[Montero-Manso et~al.(2020)Montero-Manso, Athanasopoulos, Hyndman, and
+  Talagala]{montero2020fforma}
+Pablo Montero-Manso, George Athanasopoulos, Rob~J. Hyndman, and Thiyanga~S.
+  Talagala.
+\newblock {FFORMA}: Feature-based forecast model averaging.
+\newblock \emph{International Journal of Forecasting}, 36\penalty0
+  (1):\penalty0 86--92, 2020.
+\newblock \doi{10.1016/j.ijforecast.2019.02.011}.
+
+\bibitem[Morariu-Patrichi and Pakkanen(2022)]{morariupatrichi2022}
+Maxime Morariu-Patrichi and Mikko~S. Pakkanen.
+\newblock State-dependent {H}awkes processes and their application to limit
+  order book modelling.
+\newblock \emph{Quantitative Finance}, 22\penalty0 (3):\penalty0 563--583,
+  2022.
+\newblock \doi{10.1080/14697688.2021.1983199}.
+
+\bibitem[Moro et~al.(2009)Moro, Vicente, Moyano, Gerig, Farmer, Vaglica, Lillo,
+  and Mantegna]{moro2009}
+Esteban Moro, Javier Vicente, Luis~G. Moyano, Austin Gerig, J.~Doyne Farmer,
+  Gabriella Vaglica, Fabrizio Lillo, and Rosario~N. Mantegna.
+\newblock Market impact and trading profile of hidden orders in stock markets.
+\newblock \emph{Physical Review E}, 80\penalty0 (6):\penalty0 066102, 2009.
+\newblock \doi{10.1103/PhysRevE.80.066102}.
+
+\bibitem[Morris et~al.(2009)Morris, Thomas, and Luk]{morris2009fpga}
+Gareth~W. Morris, David~B. Thomas, and Wayne Luk.
+\newblock {FPGA} accelerated low-latency market data feed processing.
+\newblock In \emph{2009 17th IEEE Symposium on High Performance Interconnects
+  (HOTI)}, pages 83--89. IEEE, 2009.
+\newblock \doi{10.1109/HOTI.2009.17}.
+
+\bibitem[Mucciante and Sancetta(2024)]{mucciante2024}
+Luca Mucciante and Alessio Sancetta.
+\newblock Estimation of an order book dependent {H}awkes process for large
+  datasets.
+\newblock \emph{Journal of Financial Econometrics}, 22\penalty0 (4):\penalty0
+  1098--1129, 2024.
+\newblock \doi{10.1093/jjfinec/nbad021}.
+\newblock Published online 11 Aug 2023.
+
+\bibitem[{MultiCharts, LLC}(n.d.)]{multicharts_sim}
+{MultiCharts, LLC}.
+\newblock How to use simulated trading; data playback.
+\newblock
+  \url{https://www.multicharts.com/trading-software/index.php?title=How_to_Use_Simulated_Trading},
+  n.d.
+\newblock MultiCharts wiki. Accessed 2026-10-04.
+
+\bibitem[Muni~Toke(2011)]{munitoke2011}
+Ioane Muni~Toke.
+\newblock ``{M}arket making'' in an order book model and its impact on the
+  spread.
+\newblock In \emph{Econophysics of Order-driven Markets}, New Economic Windows,
+  pages 49--64. Springer, Milano, 2011.
+\newblock \doi{10.1007/978-88-470-1766-5_4}.
+\newblock arXiv title: ``Market making'' behaviour in an order book model and
+  its impact on the bid-ask spread.
+
+\bibitem[Muni~Toke and Pomponio(2012)]{munitokepomponio2012}
+Ioane Muni~Toke and Fabrizio Pomponio.
+\newblock Modelling trades-through in a limit order book using {H}awkes
+  processes.
+\newblock \emph{Economics: The Open-Access, Open-Assessment E-Journal},
+  6\penalty0 (2012-22), 2012.
+\newblock \doi{10.5018/economics-ejournal.ja.2012-22}.
+
+\bibitem[Muni~Toke and Yoshida(2020)]{munitoke2020ratio}
+Ioane Muni~Toke and Nakahiro Yoshida.
+\newblock Analyzing order flows in limit order books with ratios of {Cox}-type
+  intensities.
+\newblock \emph{Quantitative Finance}, 20\penalty0 (1):\penalty0 81--98, 2020.
+\newblock \doi{10.1080/14697688.2019.1637927}.
+
+\bibitem[Nagy et~al.(2023)Nagy, Frey, Sapora, Li, Calinescu, Zohren, and
+  Foerster]{nagy2023}
+Peer Nagy, Sascha Frey, Silvia Sapora, Kang Li, Anisoara Calinescu, Stefan
+  Zohren, and Jakob Foerster.
+\newblock Generative {AI} for end-to-end limit order book modelling: A
+  token-level autoregressive generative model of message flow using a deep
+  state space network.
+\newblock In \emph{Proceedings of the 4th ACM International Conference on AI in
+  Finance (ICAIF '23)}, pages 91--99, 2023.
+\newblock \doi{10.1145/3604237.3626898}.
+
+\bibitem[Nagy et~al.(2025)Nagy, Frey, Li, Sarkar, Vyetrenko, Zohren, Calinescu,
+  and Foerster]{lobbench2025}
+Peer Nagy, Sascha Frey, Kang Li, Bidipta Sarkar, Svitlana Vyetrenko, Stefan
+  Zohren, Ani Calinescu, and Jakob Foerster.
+\newblock {LOB-Bench}: Benchmarking generative {AI} for finance -- an
+  application to limit order book data.
+\newblock In \emph{Proceedings of the 42nd International Conference on Machine
+  Learning}, volume 267 of \emph{Proceedings of Machine Learning Research},
+  pages 45437--45460, 2025.
+
+\bibitem[{Napatech}(2025)]{napatech}
+{Napatech}.
+\newblock Napatech turbocharges {Xelera} software to deliver ultra-low latency
+  {AI} inference for financial trading.
+\newblock Press release, May 2025.
+\newblock URL
+  \url{https://www.napatech.com/media/press-releases/napatech-turbocharges-xelera-software-to-deliver-ultra-low-latency-ai-inference-for-financial-trading/}.
+
+\bibitem[{Nasdaq}(2015)]{itch50}
+{Nasdaq}.
+\newblock Nasdaq {TotalView-ITCH} 5.0 interface specification, 2015.
+\newblock URL
+  \url{https://www.nasdaqtrader.com/content/technicalsupport/specifications/dataproducts/NQTVITCHSpecification_5.0.pdf}.
+\newblock Version 5.0, 03/06/2015.
+
+\bibitem[{Nautech Systems}(2018)]{nautilustrader}
+{Nautech Systems}.
+\newblock {NautilusTrader}.
+\newblock \url{https://github.com/nautechsystems/nautilus_trader}, 2018.
+\newblock LGPL-3.0. Documentation at \url{https://nautilustrader.io/docs/}.
+  Accessed 2026-10-03 (develop, v2.0.0rc6).
+
+\bibitem[Neugebauer et~al.(2018)Neugebauer, Antichi, Zazo, Audzevich,
+  L{\'o}pez-Buedo, and Moore]{neugebauer2018pcie}
+Rolf Neugebauer, Gianni Antichi, Jos{\'e}~Fernando Zazo, Yury Audzevich, Sergio
+  L{\'o}pez-Buedo, and Andrew~W. Moore.
+\newblock Understanding {PCIe} performance for end host networking.
+\newblock In \emph{Proceedings of the 2018 Conference of the ACM Special
+  Interest Group on Data Communication (SIGCOMM '18)}, pages 327--341. ACM,
+  2018.
+\newblock \doi{10.1145/3230543.3230560}.
+
+\bibitem[Nevmyvaka et~al.(2006)Nevmyvaka, Feng, and Kearns]{nevmyvaka2006}
+Yuriy Nevmyvaka, Yi~Feng, and Michael Kearns.
+\newblock Reinforcement learning for optimized trade execution.
+\newblock In \emph{Proceedings of the 23rd International Conference on Machine
+  Learning (ICML '06)}, pages 673--680, 2006.
+\newblock \doi{10.1145/1143844.1143929}.
+
+\bibitem[Niculescu-Mizil and Caruana(2005)]{niculescu2005}
+Alexandru Niculescu-Mizil and Rich Caruana.
+\newblock Predicting good probabilities with supervised learning.
+\newblock In \emph{Proceedings of the 22nd International Conference on Machine
+  Learning (ICML '05)}, pages 625--632, 2005.
+\newblock \doi{10.1145/1102351.1102430}.
+
+\bibitem[Ning et~al.(2021)Ning, Lin, and Jaimungal]{ning2021ddqn}
+Brian Ning, Franco Ho~Ting Lin, and Sebastian Jaimungal.
+\newblock Double deep q-learning for optimal execution.
+\newblock \emph{Applied Mathematical Finance}, 28\penalty0 (4):\penalty0
+  361--380, 2021.
+\newblock \doi{10.1080/1350486X.2022.2077783}.
+
+\bibitem[{NinjaTrader, LLC}(n.d.)]{ninjatrader_playback}
+{NinjaTrader, LLC}.
+\newblock {NinjaTrader 8} help guide: Playback connection; simulator.
+\newblock \url{https://ninjatrader.com/support/helpGuides/nt8/playback.htm},
+  n.d.
+\newblock Accessed 2026-10-03.
+
+\bibitem[{nkaz001}(2022)]{hftbacktest}
+{nkaz001}.
+\newblock {HftBacktest}: High-frequency trading and market-making backtesting
+  and trading bot.
+\newblock \url{https://github.com/nkaz001/hftbacktest}, 2022.
+\newblock MIT License. Accessed 2026-10-03 (commit 5f3ec40).
+
+\bibitem[Nousi et~al.(2019)Nousi, Tsantekidis, Passalis, Ntakaris, Kanniainen,
+  Tefas, Gabbouj, and Iosifidis]{nousi2019}
+Paraskevi Nousi, Avraam Tsantekidis, Nikolaos Passalis, Adamantios Ntakaris,
+  Juho Kanniainen, Anastasios Tefas, Moncef Gabbouj, and Alexandros Iosifidis.
+\newblock Machine learning for forecasting mid-price movements using limit
+  order book data.
+\newblock \emph{IEEE Access}, 7:\penalty0 64722--64736, 2019.
+\newblock \doi{10.1109/ACCESS.2019.2916793}.
+
+\bibitem[Ntakaris et~al.(2018)Ntakaris, Magris, Kanniainen, Gabbouj, and
+  Iosifidis]{ntakaris2018}
+Adamantios Ntakaris, Martin Magris, Juho Kanniainen, Moncef Gabbouj, and
+  Alexandros Iosifidis.
+\newblock Benchmark dataset for mid-price forecasting of limit order book data
+  with machine learning methods.
+\newblock \emph{Journal of Forecasting}, 37\penalty0 (8):\penalty0 852--866,
+  2018.
+\newblock \doi{10.1002/for.2543}.
+
+\bibitem[Ntakaris et~al.(2019)Ntakaris, Mirone, Kanniainen, Gabbouj, and
+  Iosifidis]{ntakaris2019access}
+Adamantios Ntakaris, Giorgio Mirone, Juho Kanniainen, Moncef Gabbouj, and
+  Alexandros Iosifidis.
+\newblock Feature engineering for mid-price prediction with deep learning.
+\newblock \emph{IEEE Access}, 7:\penalty0 82390--82412, 2019.
+\newblock \doi{10.1109/ACCESS.2019.2924353}.
+
+\bibitem[Ntakaris et~al.(2020)Ntakaris, Kanniainen, Gabbouj, and
+  Iosifidis]{ntakaris2020plos}
+Adamantios Ntakaris, Juho Kanniainen, Moncef Gabbouj, and Alexandros Iosifidis.
+\newblock Mid-price prediction based on machine learning methods with technical
+  and quantitative indicators.
+\newblock \emph{PLOS ONE}, 15\penalty0 (6):\penalty0 e0234107, 2020.
+\newblock \doi{10.1371/journal.pone.0234107}.
+
+\bibitem[{NVIDIA}(2024{\natexlab{a}})]{nvidia_cuda_bpg}
+{NVIDIA}.
+\newblock \emph{{CUDA} {C++} Best Practices Guide, Release 12.4}.
+\newblock NVIDIA Corporation, 2024{\natexlab{a}}.
+\newblock URL
+  \url{https://docs.nvidia.com/cuda/archive/12.4.0/cuda-c-best-practices-guide/index.html}.
+
+\bibitem[{NVIDIA}(2024{\natexlab{b}})]{nvidia_cuda_guide}
+{NVIDIA}.
+\newblock \emph{{CUDA} {C++} Programming Guide, Release 12.4, Section 3.2.8.7
+  ({CUDA} Graphs)}.
+\newblock NVIDIA Corporation, 2024{\natexlab{b}}.
+\newblock URL
+  \url{https://docs.nvidia.com/cuda/archive/12.4.0/cuda-c-programming-guide/index.html}.
+
+\bibitem[Ogata(1981)]{ogata1981}
+Yosihiko Ogata.
+\newblock On {L}ewis' simulation method for point processes.
+\newblock \emph{IEEE Transactions on Information Theory}, 27\penalty0
+  (1):\penalty0 23--31, 1981.
+\newblock \doi{10.1109/TIT.1981.1056305}.
+
+\bibitem[Ogata(1988)]{ogata1988}
+Yosihiko Ogata.
+\newblock Statistical models for earthquake occurrences and residual analysis
+  for point processes.
+\newblock \emph{Journal of the American Statistical Association}, 83\penalty0
+  (401):\penalty0 9--27, 1988.
+\newblock \doi{10.1080/01621459.1988.10478560}.
+
+\bibitem[O'Hara(1995)]{ohara1995}
+Maureen O'Hara.
+\newblock \emph{Market Microstructure Theory}.
+\newblock Blackwell Publishers, Cambridge, MA, 1995.
+\newblock ISBN 9781557864437.
+
+\bibitem[Omi et~al.(2017)Omi, Hirata, and Aihara]{omi2017tdb}
+Takahiro Omi, Yoshito Hirata, and Kazuyuki Aihara.
+\newblock {H}awkes process model with a time-dependent background rate and its
+  application to high-frequency financial data.
+\newblock \emph{Physical Review E}, 96\penalty0 (1):\penalty0 012303, 2017.
+\newblock \doi{10.1103/PhysRevE.96.012303}.
+
+\bibitem[Omi et~al.(2019)Omi, Ueda, and Aihara]{omi2019}
+Takahiro Omi, Naonori Ueda, and Kazuyuki Aihara.
+\newblock Fully neural network based model for general temporal point
+  processes.
+\newblock In \emph{Advances in Neural Information Processing Systems 32}, 2019.
+
+\bibitem[Ozaki(1979)]{ozaki1979}
+T.~Ozaki.
+\newblock Maximum likelihood estimation of {Hawkes'} self-exciting point
+  processes.
+\newblock \emph{Annals of the Institute of Statistical Mathematics},
+  31\penalty0 (1):\penalty0 145--155, 1979.
+
+\bibitem[Palguna and Pollak(2016)]{palguna2016}
+Deepan Palguna and Ilya Pollak.
+\newblock Mid-price prediction in a limit order book.
+\newblock \emph{IEEE Journal of Selected Topics in Signal Processing},
+  10\penalty0 (6):\penalty0 1083--1092, 2016.
+\newblock \doi{10.1109/JSTSP.2016.2593060}.
+
+\bibitem[Passalis et~al.(2020{\natexlab{a}})Passalis, Tefas, Kanniainen,
+  Gabbouj, and Iosifidis]{passalis2020dain}
+Nikolaos Passalis, Anastasios Tefas, Juho Kanniainen, Moncef Gabbouj, and
+  Alexandros Iosifidis.
+\newblock Deep adaptive input normalization for time series forecasting.
+\newblock \emph{IEEE Transactions on Neural Networks and Learning Systems},
+  31\penalty0 (9):\penalty0 3760--3765, 2020{\natexlab{a}}.
+\newblock \doi{10.1109/TNNLS.2019.2944933}.
+
+\bibitem[Passalis et~al.(2020{\natexlab{b}})Passalis, Tefas, Kanniainen,
+  Gabbouj, and Iosifidis]{passalis2020tlonbof}
+Nikolaos Passalis, Anastasios Tefas, Juho Kanniainen, Moncef Gabbouj, and
+  Alexandros Iosifidis.
+\newblock Temporal logistic neural bag-of-features for financial time series
+  forecasting leveraging limit order book data.
+\newblock \emph{Pattern Recognition Letters}, 136:\penalty0 183--189,
+  2020{\natexlab{b}}.
+\newblock \doi{10.1016/j.patrec.2020.06.006}.
+
+\bibitem[Paszke et~al.(2019)Paszke, Gross, Massa, Lerer, Bradbury, Chanan,
+  Killeen, Lin, Gimelshein, Antiga, Desmaison, K{\"o}pf, Yang, DeVito, Raison,
+  Tejani, Chilamkurthy, Steiner, Fang, Bai, and Chintala]{paszke2019pytorch}
+Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory
+  Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, Alban
+  Desmaison, Andreas K{\"o}pf, Edward Yang, Zachary DeVito, Martin Raison,
+  Alykhan Tejani, Sasank Chilamkurthy, Benoit Steiner, Lu~Fang, Junjie Bai, and
+  Soumith Chintala.
+\newblock {PyTorch}: An imperative style, high-performance deep learning
+  library.
+\newblock In H.~Wallach, H.~Larochelle, A.~Beygelzimer, F.~d'Alch{\'e} Buc,
+  E.~Fox, and R.~Garnett, editors, \emph{Advances in Neural Information
+  Processing Systems}, volume~32. Curran Associates, Inc., 2019.
+\newblock URL
+  \url{https://proceedings.neurips.cc/paper_files/paper/2019/file/bdbca288fee7f92f2bfa9f7012727740-Paper.pdf}.
+
+\bibitem[Patel and Wikner(2023)]{patel2023attnpool}
+Dhruvit Patel and Alexander Wikner.
+\newblock Attention-based ensemble pooling for time series forecasting.
+\newblock arXiv preprint 2310.16231, 2023.
+
+\bibitem[Pedregosa et~al.(2011)Pedregosa, Varoquaux, Gramfort, Michel, Thirion,
+  Grisel, Blondel, Prettenhofer, Weiss, Dubourg, Vanderplas, Passos,
+  Cournapeau, Brucher, Perrot, and Duchesnay]{pedregosa2011sklearn}
+Fabian Pedregosa, Ga{\"e}l Varoquaux, Alexandre Gramfort, Vincent Michel,
+  Bertrand Thirion, Olivier Grisel, Mathieu Blondel, Peter Prettenhofer, Ron
+  Weiss, Vincent Dubourg, Jake Vanderplas, Alexandre Passos, David Cournapeau,
+  Matthieu Brucher, Matthieu Perrot, and {\'E}douard Duchesnay.
+\newblock Scikit-learn: Machine learning in {P}ython.
+\newblock \emph{Journal of Machine Learning Research}, 12\penalty0
+  (85):\penalty0 2825--2830, 2011.
+\newblock URL \url{http://jmlr.org/papers/v12/pedregosa11a.html}.
+
+\bibitem[Platt(2000)]{platt1999}
+John~C. Platt.
+\newblock Probabilities for {SV} machines.
+\newblock In Alexander~J. Smola, Peter~L. Bartlett, Bernhard Sch{\"o}lkopf, and
+  Dale Schuurmans, editors, \emph{Advances in Large Margin Classifiers}, pages
+  61--74. MIT Press, Cambridge, MA, 2000.
+\newblock \doi{10.7551/mitpress/1113.003.0008}.
+\newblock Preprint (1999): ``Probabilistic Outputs for Support Vector Machines
+  and Comparisons to Regularized Likelihood Methods''.
+
+\bibitem[Pope et~al.(2023)Pope, Douglas, Chowdhery, Devlin, Bradbury, Heek,
+  Xiao, Agrawal, and Dean]{pope2023scaling}
+Reiner Pope, Sholto Douglas, Aakanksha Chowdhery, Jacob Devlin, James Bradbury,
+  Jonathan Heek, Kefan Xiao, Shivani Agrawal, and Jeff Dean.
+\newblock Efficiently scaling transformer inference.
+\newblock In \emph{Proceedings of Machine Learning and Systems 5 (MLSys 2023)},
+  pages 606--624, 2023.
+
+\bibitem[Popov and Huber(2026)]{popov2026ssm}
+Andrei Popov and Martina Huber.
+\newblock Scaling temporal feature extraction for high-frequency crypto trading
+  via hardware-aware state space design.
+\newblock \emph{Computer Science Bulletin}, 9\penalty0 (1):\penalty0 177--187,
+  2026.
+\newblock \doi{10.71465/csb211}.
+
+\bibitem[{Positron AI}(n.d.)]{positron_atlas}
+{Positron AI}.
+\newblock Atlas: Transformer inference server.
+\newblock Product page, n.d.
+\newblock URL \url{https://www.positron.ai/atlas}.
+\newblock Accessed 2026-10-04.
+
+\bibitem[Prata et~al.(2024)Prata, Masi, Berti, Arrigoni, Coletta, Cannistraci,
+  Vyetrenko, Velardi, and Bartolini]{prata2024}
+Matteo Prata, Giuseppe Masi, Leonardo Berti, Viviana Arrigoni, Andrea Coletta,
+  Irene Cannistraci, Svitlana Vyetrenko, Paola Velardi, and Novella Bartolini.
+\newblock {LOB}-based deep learning models for stock price trend prediction: A
+  benchmark study.
+\newblock \emph{Artificial Intelligence Review}, 57\penalty0 (5), 2024.
+\newblock \doi{10.1007/s10462-024-10715-4}.
+
+\bibitem[{QuantConnect}(2026)]{lean}
+{QuantConnect}.
+\newblock {LEAN} algorithmic trading engine.
+\newblock \url{https://github.com/QuantConnect/Lean}, 2026.
+\newblock C\#/Python, Apache-2.0. Accessed 2026-10-03.
+
+\bibitem[Racine(2000)]{racine2000}
+Jeff Racine.
+\newblock Consistent cross-validatory model-selection for dependent data:
+  hv-block cross-validation.
+\newblock \emph{Journal of Econometrics}, 99\penalty0 (1):\penalty0 39--61,
+  2000.
+\newblock \doi{10.1016/S0304-4076(00)00030-0}.
+
+\bibitem[Raffaelli et~al.(2026)Raffaelli, Cestari, Marazzina, and
+  Formentin]{raffaelli2026mhp}
+Davide Raffaelli, Raffaele~Giuseppe Cestari, Daniele Marazzina, and Simone
+  Formentin.
+\newblock Forecasting {Bitcoin} price movements using multivariate {Hawkes}
+  processes and limit order book data.
+\newblock \emph{Decisions in Economics and Finance}, 2026.
+\newblock \doi{10.1007/s10203-026-00570-z}.
+\newblock Online 17 April 2026.
+
+\bibitem[Raftery et~al.(2010)Raftery, K{\'a}rn{\'y}, and
+  Ettler]{raftery2010dma}
+Adrian~E. Raftery, Miroslav K{\'a}rn{\'y}, and Pavel Ettler.
+\newblock Online prediction under model uncertainty via dynamic model
+  averaging: Application to a cold rolling mill.
+\newblock \emph{Technometrics}, 52\penalty0 (1):\penalty0 52--66, 2010.
+\newblock \doi{10.1198/TECH.2009.08104}.
+
+\bibitem[Rahimikia and Poon(2020)]{rahimikia2020ml}
+Eghbal Rahimikia and Ser-Huang Poon.
+\newblock Machine learning for realised volatility forecasting.
+\newblock SSRN Working Paper 3707796, 2020.
+
+\bibitem[Rahimikia and Poon(2026)]{rahimikia2026altdata}
+Eghbal Rahimikia and Ser-Huang Poon.
+\newblock Alternative data for realised volatility forecasting: Limit order
+  book and news stories.
+\newblock \emph{International Journal of Finance \& Economics}, 2026.
+\newblock \doi{10.1002/ijfe.70239}.
+\newblock Online 8 June 2026.
+
+\bibitem[Rahimikia et~al.(2025)Rahimikia, Ni, and Wang]{rahimikia2025tsfm}
+Eghbal Rahimikia, Hao Ni, and Weiguan Wang.
+\newblock Re(visiting) time series foundation models in finance, 2025.
+
+\bibitem[Rambaldi et~al.(2015)Rambaldi, Pennesi, and Lillo]{rambaldi2015news}
+Marcello Rambaldi, Paris Pennesi, and Fabrizio Lillo.
+\newblock Modeling foreign exchange market activity around macroeconomic news:
+  {H}awkes-process approach.
+\newblock \emph{Physical Review E}, 91\penalty0 (1):\penalty0 012819, 2015.
+\newblock \doi{10.1103/PhysRevE.91.012819}.
+
+\bibitem[Rambaldi et~al.(2017)Rambaldi, Bacry, and Lillo]{rambaldi2017marked}
+Marcello Rambaldi, Emmanuel Bacry, and Fabrizio Lillo.
+\newblock The role of volume in order book dynamics: A multivariate {H}awkes
+  process analysis.
+\newblock \emph{Quantitative Finance}, 17\penalty0 (7):\penalty0 999--1020,
+  2017.
+\newblock \doi{10.1080/14697688.2016.1260759}.
+
+\bibitem[Rambaldi et~al.(2018)Rambaldi, Filimonov, and
+  Lillo]{rambaldi2018bursts}
+Marcello Rambaldi, Vladimir Filimonov, and Fabrizio Lillo.
+\newblock Detection of intensity bursts using {H}awkes processes: An
+  application to high-frequency financial data.
+\newblock \emph{Physical Review E}, 97\penalty0 (3):\penalty0 032318, 2018.
+\newblock \doi{10.1103/PhysRevE.97.032318}.
+
+\bibitem[Ramos-P{\'e}rez et~al.(2019)Ramos-P{\'e}rez, Alonso-Gonz{\'a}lez, and
+  N{\'u}{\~n}ez-Vel{\'a}zquez]{ramosperez2019}
+Eduardo Ramos-P{\'e}rez, Pablo~J. Alonso-Gonz{\'a}lez, and Jos{\'e}~Javier
+  N{\'u}{\~n}ez-Vel{\'a}zquez.
+\newblock Forecasting volatility with a stacked model based on a hybridized
+  artificial neural network.
+\newblock \emph{Expert Systems with Applications}, 129:\penalty0 1--9, 2019.
+\newblock \doi{10.1016/j.eswa.2019.03.046}.
+\newblock arXiv:2006.16383.
+
+\bibitem[Ranjan and Gneiting(2010)]{ranjan2010}
+Roopesh Ranjan and Tilmann Gneiting.
+\newblock Combining probability forecasts.
+\newblock \emph{Journal of the Royal Statistical Society: Series B (Statistical
+  Methodology)}, 72\penalty0 (1):\penalty0 71--91, 2010.
+\newblock \doi{10.1111/j.1467-9868.2009.00726.x}.
+
+\bibitem[Rasmussen(2018)]{rasmussen2018notes}
+Jakob~Gulddahl Rasmussen.
+\newblock Lecture notes: Temporal point processes and the conditional intensity
+  function, 2018.
+
+\bibitem[Rasul et~al.(2023)Rasul, Ashok, Williams, Ghonia, Bhagwatkar,
+  Khorasani, Darvishi~Bayazi, Adamopoulos, Riachi, Hassen, Bilo{\v{s}}, Garg,
+  Schneider, Chapados, Drouin, Zantedeschi, Nevmyvaka, and Rish]{lagllama2023}
+Kashif Rasul, Arjun Ashok, Andrew~Robert Williams, Hena Ghonia, Rishika
+  Bhagwatkar, Arian Khorasani, Mohammad~Javad Darvishi~Bayazi, George
+  Adamopoulos, Roland Riachi, Nadhir Hassen, Marin Bilo{\v{s}}, Sahil Garg,
+  Anderson Schneider, Nicolas Chapados, Alexandre Drouin, Valentina
+  Zantedeschi, Yuriy Nevmyvaka, and Irina Rish.
+\newblock {Lag-Llama}: Towards foundation models for probabilistic time series
+  forecasting, 2023.
+
+\bibitem[Remlinger et~al.(2023)Remlinger, Alasseur, Bri{\`e}re, and
+  Mikael]{remlinger2023}
+Carl Remlinger, Cl{\'e}mence Alasseur, Marie Bri{\`e}re, and Joseph Mikael.
+\newblock Expert aggregation for financial forecasting.
+\newblock \emph{The Journal of Finance and Data Science}, 9:\penalty0 100108,
+  2023.
+\newblock \doi{10.1016/j.jfds.2023.100108}.
+
+\bibitem[Richards et~al.(2025)Richards, Dunsmuir, and
+  Peters]{richards2025scoretest}
+Kylie-Anne Richards, William T.~M. Dunsmuir, and Gareth~W. Peters.
+\newblock Score test for marks in {H}awkes processes.
+\newblock \emph{International Journal of Data Science and Analytics},
+  20\penalty0 (3):\penalty0 3037--3052, 2025.
+\newblock \doi{10.1007/s41060-024-00644-4}.
+\newblock Published online 10 October 2024.
+
+\bibitem[Rigtorp(2013)]{rigtorp2013queue}
+Erik Rigtorp.
+\newblock Estimating order queue position.
+\newblock
+  \url{https://rigtorp.se/2013/06/08/estimating-order-queue-position.html},
+  2013.
+\newblock Blog post, dated 2013-06-08.
+
+\bibitem[Roueff and von Sachs(2019)]{roueffvonsachs2019}
+Fran{\c{c}}ois Roueff and Rainer von Sachs.
+\newblock Time-frequency analysis of locally stationary {H}awkes processes.
+\newblock \emph{Bernoulli}, 25\penalty0 (2), 2019.
+\newblock \doi{10.3150/18-BEJ1023}.
+
+\bibitem[Sadighian(2019)]{sadighian2019}
+Jonathan Sadighian.
+\newblock Deep reinforcement learning in cryptocurrency market making, 2019.
+
+\bibitem[Sennrich et~al.(2016)Sennrich, Haddow, and Birch]{sennrich2016bpe}
+Rico Sennrich, Barry Haddow, and Alexandra Birch.
+\newblock Neural machine translation of rare words with subword units.
+\newblock In \emph{Proceedings of the 54th Annual Meeting of the Association
+  for Computational Linguistics (Volume 1: Long Papers)}, pages 1715--1725,
+  2016.
+\newblock \doi{10.18653/v1/P16-1162}.
+
+\bibitem[September et~al.(2024)September, Sanna~Passino, Goldmann, and
+  Hinel]{september2024edain}
+Marcus A.~K. September, Francesco Sanna~Passino, Leonie Goldmann, and Anton
+  Hinel.
+\newblock Extended deep adaptive input normalization for preprocessing time
+  series data for neural networks.
+\newblock In \emph{Proceedings of the 27th International Conference on
+  Artificial Intelligence and Statistics (AISTATS)}, volume 238 of
+  \emph{Proceedings of Machine Learning Research}, pages 1891--1899, 2024.
+
+\bibitem[Sfendourakis and Muni~Toke(2020)]{sfendourakis2020}
+Emmanouil Sfendourakis and Ioane Muni~Toke.
+\newblock {LOB} modeling using {H}awkes processes with a state-dependent
+  factor.
+\newblock \emph{Market Microstructure and Liquidity}, 6\penalty0
+  (01n04):\penalty0 2050014, 2020.
+\newblock \doi{10.1142/S2382626620500148}.
+
+\bibitem[Shabani et~al.(2022)Shabani, Tran, Magris, Kanniainen, and
+  Iosifidis]{shabani2022mtabl}
+Mostafa Shabani, Dat~Thanh Tran, Martin Magris, Juho Kanniainen, and Alexandros
+  Iosifidis.
+\newblock Multi-head temporal attention-augmented bilinear network for
+  financial time series prediction.
+\newblock In \emph{2022 30th European Signal Processing Conference (EUSIPCO)},
+  pages 1487--1491. IEEE, 2022.
+\newblock \doi{10.23919/EUSIPCO55093.2022.9909957}.
+
+\bibitem[Shabani et~al.(2023)Shabani, Tran, Kanniainen, and
+  Iosifidis]{shabani2023abn}
+Mostafa Shabani, Dat~Thanh Tran, Juho Kanniainen, and Alexandros Iosifidis.
+\newblock Augmented bilinear network for incremental multi-stock time-series
+  classification.
+\newblock \emph{Pattern Recognition}, 141:\penalty0 109604, 2023.
+\newblock \doi{10.1016/j.patcog.2023.109604}.
+
+\bibitem[Sharpe(1966)]{sharpe1966}
+William~F. Sharpe.
+\newblock Mutual fund performance.
+\newblock \emph{The Journal of Business}, 39\penalty0 (1, Part 2):\penalty0
+  119--138, 1966.
+\newblock \doi{10.1086/294846}.
+
+\bibitem[Sharpe(1994)]{sharpe1994}
+William~F. Sharpe.
+\newblock The {Sharpe} ratio.
+\newblock \emph{The Journal of Portfolio Management}, 21\penalty0 (1):\penalty0
+  49--58, 1994.
+\newblock \doi{10.3905/jpm.1994.409501}.
+
+\bibitem[Shchur et~al.(2020)Shchur, Bilo{\v{s}}, and
+  G{\"u}nnemann]{shchur2020ifl}
+Oleksandr Shchur, Marin Bilo{\v{s}}, and Stephan G{\"u}nnemann.
+\newblock Intensity-free learning of temporal point processes.
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2020.
+
+\bibitem[Shchur et~al.(2021)Shchur, T{\"u}rkmen, Januschowski, and
+  G{\"u}nnemann]{shchur2021}
+Oleksandr Shchur, Ali~Caner T{\"u}rkmen, Tim Januschowski, and Stephan
+  G{\"u}nnemann.
+\newblock Neural temporal point processes: A review.
+\newblock In \emph{Proceedings of the Thirtieth International Joint Conference
+  on Artificial Intelligence (IJCAI-21)}, pages 4585--4593, 2021.
+\newblock \doi{10.24963/ijcai.2021/623}.
+
+\bibitem[Shi et~al.(2025)Shi, Wang, Nie, Li, Ye, Wen, and Jin]{shi2025timemoe}
+Xiaoming Shi, Shiyu Wang, Yuqi Nie, Dianqi Li, Zhou Ye, Qingsong Wen, and Ming
+  Jin.
+\newblock {Time-MoE}: Billion-scale time series foundation models with mixture
+  of experts.
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2025.
+
+\bibitem[Shi et~al.(2026)Shi, Fu, Chen, Zhao, Xu, Zhang, and Li]{kronos2025}
+Yu~Shi, Zongliang Fu, Shuo Chen, Bohan Zhao, Wei Xu, Changshui Zhang, and Jian
+  Li.
+\newblock Kronos: A foundation model for the language of financial markets.
+\newblock In \emph{Proceedings of the AAAI Conference on Artificial
+  Intelligence}, pages 25366--25373, 2026.
+\newblock \doi{10.1609/aaai.v40i30.39730}.
+\newblock Vol.~40, no.~30.
+
+\bibitem[Shi and Cartlidge(2022)]{shi2022sdpnhp}
+Zijian Shi and John Cartlidge.
+\newblock State dependent parallel neural {H}awkes process for limit order book
+  event stream prediction and simulation.
+\newblock In \emph{Proceedings of the 28th ACM SIGKDD Conference on Knowledge
+  Discovery and Data Mining (KDD '22)}, pages 1607--1615, 2022.
+\newblock \doi{10.1145/3534678.3539462}.
+
+\bibitem[Shi et~al.(2021)Shi, Chen, and Cartlidge]{shi2021lobrm}
+Zijian Shi, Yu~Chen, and John Cartlidge.
+\newblock The {LOB} recreation model: Predicting the limit order book from
+  {TAQ} history using an ordinary differential equation recurrent neural
+  network.
+\newblock In \emph{Proceedings of the AAAI Conference on Artificial
+  Intelligence}, volume~35, pages 548--556, 2021.
+\newblock \doi{10.1609/aaai.v35i1.16133}.
+
+\bibitem[{Sierra Chart}(n.d.)]{sierrachart_replay}
+{Sierra Chart}.
+\newblock Replaying charts.
+\newblock
+  \url{https://www.sierrachart.com/index.php?page=doc/ReplayChart.html}, n.d.
+\newblock Accessed 2026-10-04.
+
+\bibitem[Sirignano and Cont(2019)]{sirignano2019}
+Justin Sirignano and Rama Cont.
+\newblock Universal features of price formation in financial markets:
+  Perspectives from deep learning.
+\newblock \emph{Quantitative Finance}, 19\penalty0 (9):\penalty0 1449--1459,
+  2019.
+\newblock \doi{10.1080/14697688.2019.1622295}.
+
+\bibitem[Sirignano(2019)]{sirignano2019dl}
+Justin~A. Sirignano.
+\newblock Deep learning for limit order books.
+\newblock \emph{Quantitative Finance}, 19\penalty0 (4):\penalty0 549--570,
+  2019.
+\newblock \doi{10.1080/14697688.2018.1546053}.
+
+\bibitem[Smith et~al.(2003)Smith, Farmer, Gillemot, and
+  Krishnamurthy]{smith2003}
+Eric Smith, J.~Doyne Farmer, L{\'a}szl{\'o} Gillemot, and Supriya
+  Krishnamurthy.
+\newblock Statistical theory of the continuous double auction.
+\newblock \emph{Quantitative Finance}, 3\penalty0 (6):\penalty0 481--514, 2003.
+\newblock \doi{10.1088/1469-7688/3/6/307}.
+
+\bibitem[{Solarflare Communications} and {Arista Networks}(n.d.)]{openonload}
+{Solarflare Communications} and {Arista Networks}.
+\newblock 10{Gb} {Ethernet}: The foundation for low-latency, real-time
+  financial services applications and other, latency-sensitive applications.
+\newblock Solution brief (Solarflare/Arista joint paper), n.d.
+\newblock URL
+  \url{https://www.arista.com/assets/data/pdf/JointPapers/Arista_Solarflare_Low_Latency_10GbE.pdf}.
+
+\bibitem[Spears et~al.(2021)Spears, Zohren, and Roberts]{spears2021eurodollar}
+Trent Spears, Stefan Zohren, and Stephen Roberts.
+\newblock Investment sizing with deep learning prediction uncertainties for
+  high-frequency {E}urodollar futures trading.
+\newblock \emph{The Journal of Financial Data Science}, 3\penalty0
+  (1):\penalty0 57--73, 2021.
+\newblock \doi{10.3905/jfds.2020.1.049}.
+
+\bibitem[Spooner et~al.(2018)Spooner, Fearnley, Savani, and
+  Koukorinis]{spooner2018}
+Thomas Spooner, John Fearnley, Rahul Savani, and Andreas Koukorinis.
+\newblock Market making via reinforcement learning.
+\newblock In \emph{Proceedings of the 17th International Conference on
+  Autonomous Agents and MultiAgent Systems (AAMAS 2018)}, pages 434--442,
+  Stockholm, Sweden, 2018. IFAAMAS.
+
+\bibitem[Srivastava et~al.(2025)Srivastava, Arunkumar, Kurella, Panda, Jain,
+  Kamath, Wutzke, Tiruvur, Gupta, Soloveychik, Darsi, Dalal, Patankar, Dudyala,
+  Duraisamy, Ramchandran, Venkatasubramanian, Qin, Wang, Balachandran, Gok,
+  Wojciechowski, Ekanayake, Ng, Sarma, Rathore, Trouwen, Zhuang, Nicol, and
+  Bhoja]{corsair2025}
+Satyam Srivastava, Akhil Arunkumar, Nithesh Kurella, Amrit Panda, Gaurav Jain,
+  Purushotham Kamath, Mark Wutzke, Arun Tiruvur, Mayank~Mike Gupta, Ilya
+  Soloveychik, Vamsi Darsi, Malav Dalal, Vinayak Patankar, Sasidhar Dudyala,
+  Senthil Duraisamy, Santhosh Ramchandran, Raghav Venkatasubramanian, Yuwei
+  Qin, Xin Wang, Jayaprakash Balachandran, Ali~Murat Gok, Piotr Wojciechowski,
+  Saliya Ekanayake, Chris Ng, Ranju Sarma, Shubhankit Rathore, Tristan Trouwen,
+  Siwei Zhuang, Chris Nicol, and Sudeep Bhoja.
+\newblock Corsair: An in-memory computing chiplet architecture for
+  inference-time compute acceleration.
+\newblock \emph{IEEE Micro}, 45\penalty0 (5):\penalty0 30--42, 2025.
+\newblock \doi{10.1109/MM.2025.3593444}.
+
+\bibitem[{STAC}(2019{\natexlab{a}})]{stac_exa181106}
+{STAC}.
+\newblock {STAC Reports: Exablaze under STAC-T0 (tick-to-trade network I/O) and
+  STAC-TS.PSE (SUT ID EXA181106)}.
+\newblock STAC news post (Internet Archive copy), audited STAC-T0,
+  2019{\natexlab{a}}.
+\newblock URL
+  \url{https://web.archive.org/web/20191021141855/https://stacresearch.com/news/2019/10/08/EXA181106}.
+\newblock Posted October 7, 2019. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2019{\natexlab{b}})]{stac_exg191010}
+{STAC}.
+\newblock {STAC Report: CME tick-to-trade with Exegy Xero FPGA card (SUT ID
+  EXG191010)}.
+\newblock STAC news post, audited STAC-T1, 2019{\natexlab{b}}.
+\newblock URL \url{https://docs.stacresearch.com/news/EXG191010}.
+\newblock Posted October 15, 2019. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2020)]{stac_xlx200514}
+{STAC}.
+\newblock {STAC Report: New LDA/Xilinx solution under STAC-T0 (tick-to-trade
+  network I/O) (SUT ID XLX200514)}.
+\newblock STAC news post, audited STAC-T0, 2020.
+\newblock URL \url{https://docs.stacresearch.com/news/XLX200514}.
+\newblock Posted May 25, 2020. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2023{\natexlab{a}})]{stac_ml_mrtl2023}
+{STAC}.
+\newblock {STAC} report: {STAC-ML} {Tacana} suite on {Myrtle.ai} {VOLLO} ({SUT}
+  {ID} {MRTL230426}).
+\newblock \url{https://stacresearch.com/news/mrtl230426/}, 2023{\natexlab{a}}.
+\newblock Audited, Tacana suite. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2023{\natexlab{b}})]{stac_ml_nvda2023}
+{STAC}.
+\newblock {STAC} reports: {STAC-ML} on an {NVIDIA} {A100} in a {Supermicro}
+  server ({SUT} {ID} {NVDA221118}).
+\newblock \url{https://stacresearch.com/news/nvda221118/}, 2023{\natexlab{b}}.
+\newblock Accessed 2026-10-04.
+
+\bibitem[{STAC}(2024{\natexlab{a}})]{exegy_stac2024}
+{STAC}.
+\newblock {STAC} report: New {STAC-T0} results with an {Exegy}/{AMD} {FPGA}
+  solution.
+\newblock STAC Research news, 2024{\natexlab{a}}.
+\newblock URL \url{https://docs.stacresearch.com/news/AMD240422}.
+
+\bibitem[{STAC}(2024{\natexlab{b}})]{stac_adhc240918}
+{STAC}.
+\newblock {STAC Report: STAC-T1 with ADHOC Teknoloji HFFT-02A (Versal Premium)
+  Based Ultra Low Latency HFT Solution (SUT ID ADHC240918)}.
+\newblock STAC news post, audited STAC-T1, 2024{\natexlab{b}}.
+\newblock URL \url{https://docs.stacresearch.com/news/ADHC240918}.
+\newblock Posted October 16, 2024. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2025)]{stac_ml_smc2025}
+{STAC}.
+\newblock {STAC-ML} markets (inference) on a {Supermicro} {ARS-111GL-NHR} with
+  {NVIDIA} {GH200} {Grace} {Hopper} superchip ({SUT} {ID} {SMC250910}).
+\newblock \url{https://docs.stacresearch.com/SMC250910}, 2025.
+\newblock Audited. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2026{\natexlab{a}})]{stac_ml_mrtl2026}
+{STAC}.
+\newblock {STAC-ML} pack for {myrtle.ai} {VOLLO} (rev c) with {Silicom}
+  {Artena} ({AMD} {VP1802} {FPGA}) on {Supermicro} {AS-2015CS-TNR} ({SUT} {ID}
+  {MRTL260323}).
+\newblock \url{https://docs.stacresearch.com/MRTL260323}, 2026{\natexlab{a}}.
+\newblock Audited, Tacana suite. Accessed 2026-10-04.
+
+\bibitem[{STAC}(2026{\natexlab{b}})]{stac_ml_wg}
+{STAC}.
+\newblock {STAC-ML} working group.
+\newblock \url{https://docs.stacresearch.com/ml}, 2026{\natexlab{b}}.
+\newblock Accessed 2026-10-04.
+
+\bibitem[{STAC}(2026{\natexlab{c}})]{stac_ml_xlra2026}
+{STAC}.
+\newblock {STAC-ML} pack for {Xelera} {Silva} with {AMD} {Alveo} {V80} on an
+  {HPE} {ProLiant} {DL385} {Gen10} plus v2 server ({SUT} {ID} {XLRA260312}).
+\newblock \url{https://docs.stacresearch.com/XLRA260312}, 2026{\natexlab{c}}.
+\newblock Audited, GBT (El Popo) suite. Accessed 2026-10-04.
+
+\bibitem[Stock and Watson(2004)]{stockwatson2004}
+James~H. Stock and Mark~W. Watson.
+\newblock Combination forecasts of output growth in a seven-country data set.
+\newblock \emph{Journal of Forecasting}, 23\penalty0 (6):\penalty0 405--430,
+  2004.
+\newblock \doi{10.1002/for.928}.
+
+\bibitem[Stoikov(2018)]{stoikov2018}
+Sasha Stoikov.
+\newblock The micro-price: A high-frequency estimator of future prices.
+\newblock \emph{Quantitative Finance}, 18\penalty0 (12):\penalty0 1959--1966,
+  2018.
+\newblock \doi{10.1080/14697688.2018.1489139}.
+
+\bibitem[Swishchuk and Huffman(2020)]{swishchuk2020gchp}
+Anatoliy Swishchuk and Aiden Huffman.
+\newblock General compound {H}awkes processes in limit order books.
+\newblock \emph{Risks}, 8\penalty0 (1):\penalty0 28, 2020.
+\newblock \doi{10.3390/risks8010028}.
+
+\bibitem[Swishchuk et~al.(2019)Swishchuk, Remillard, Elliott, and
+  Chavez-Casillas]{swishchuk2019chp}
+Anatoliy Swishchuk, Bruno Remillard, Robert Elliott, and Jonathan
+  Chavez-Casillas.
+\newblock Compound {H}awkes processes in limit order books.
+\newblock In \emph{Financial Mathematics, Volatility and Covariance Modelling},
+  pages 191--214. Routledge, 2019.
+\newblock \doi{10.4324/9781315162737-9}.
+
+\bibitem[Talukder et~al.(2024)Talukder, Yue, and Gkioxari]{talukder2024totem}
+Sabera Talukder, Yisong Yue, and Georgia Gkioxari.
+\newblock {TOTEM}: {TOkenized} time series {EMbeddings} for general time series
+  analysis.
+\newblock \emph{Transactions on Machine Learning Research}, 2024.
+\newblock URL \url{https://openreview.net/forum?id=QlTLkH6xRC}.
+
+\bibitem[Tashiro et~al.(2019)Tashiro, Matsushima, Izumi, and
+  Sakaji]{tashiro2019}
+Daigo Tashiro, Hiroyasu Matsushima, Kiyoshi Izumi, and Hiroki Sakaji.
+\newblock Encoding of high-frequency order information and prediction of
+  short-term stock price by deep learning.
+\newblock \emph{Quantitative Finance}, 19\penalty0 (9):\penalty0 1499--1506,
+  2019.
+\newblock \doi{10.1080/14697688.2019.1622314}.
+
+\bibitem[Tibshirani(1996)]{tibshirani1996}
+Robert Tibshirani.
+\newblock Regression shrinkage and selection via the lasso.
+\newblock \emph{Journal of the Royal Statistical Society: Series B
+  (Methodological)}, 58\penalty0 (1):\penalty0 267--288, 1996.
+\newblock \doi{10.1111/j.2517-6161.1996.tb02080.x}.
+
+\bibitem[Tibshirani and Efron(2002)]{tibshirani2002preval}
+Robert~J. Tibshirani and Bradley Efron.
+\newblock Pre-validation and inference in microarrays.
+\newblock \emph{Statistical Applications in Genetics and Molecular Biology},
+  1\penalty0 (1):\penalty0 Article 1, 2002.
+\newblock \doi{10.2202/1544-6115.1000}.
+
+\bibitem[Ting and Witten(1999)]{ting1999}
+Kai~Ming Ting and Ian~H. Witten.
+\newblock Issues in stacked generalization.
+\newblock \emph{Journal of Artificial Intelligence Research}, 10:\penalty0
+  271--289, 1999.
+\newblock \doi{10.1613/jair.594}.
+
+\bibitem[Tomas et~al.(2022)Tomas, Mastromatteo, and Benzaquen]{tomas2022}
+Mehdi Tomas, Iacopo Mastromatteo, and Michael Benzaquen.
+\newblock How to build a cross-impact model from first principles: Theoretical
+  requirements and empirical results.
+\newblock \emph{Quantitative Finance}, 22\penalty0 (6):\penalty0 1017--1036,
+  2022.
+\newblock \doi{10.1080/14697688.2021.2020328}.
+
+\bibitem[T{\'o}th et~al.(2011)T{\'o}th, Lemp{\'e}ri{\`e}re, Deremble,
+  de~Lataillade, Kockelkoren, and Bouchaud]{toth2011}
+Bence T{\'o}th, Yves Lemp{\'e}ri{\`e}re, Cyril Deremble, Joachim de~Lataillade,
+  Julien Kockelkoren, and Jean-Philippe Bouchaud.
+\newblock Anomalous price impact and the critical nature of liquidity in
+  financial markets.
+\newblock \emph{Physical Review X}, 1\penalty0 (2):\penalty0 021006, 2011.
+\newblock \doi{10.1103/PhysRevX.1.021006}.
+
+\bibitem[{Trading Technologies International,
+  Inc.}(n.d.{\natexlab{a}})]{tt_backtest_getstarted}
+{Trading Technologies International, Inc.}
+\newblock {TT Backtesting}: Getting started.
+\newblock
+  \url{https://library.tradingtechnologies.com/tt-backtesting/backtesting-algos/getting-started-3/},
+  n.d.{\natexlab{a}}.
+\newblock TT Help Library. Accessed 2026-10-04.
+
+\bibitem[{Trading Technologies International,
+  Inc.}(n.d.{\natexlab{b}})]{tt_backtest_run}
+{Trading Technologies International, Inc.}
+\newblock {TT Backtesting}: Running a backtest.
+\newblock
+  \url{https://library.tradingtechnologies.com/tt-backtesting/backtesting-algos/running-a-backtest/},
+  n.d.{\natexlab{b}}.
+\newblock TT Help Library. Accessed 2026-10-04.
+
+\bibitem[{Trading Technologies International,
+  Inc.}(n.d.{\natexlab{c}})]{tt_piq}
+{Trading Technologies International, Inc.}
+\newblock Position in queue ({PIQ}) overview.
+\newblock
+  \url{https://library.tradingtechnologies.com/trade/viewing-market-data/position-in-queue-piq/position-in-queue-piq/},
+  n.d.{\natexlab{c}}.
+\newblock Accessed 2026-10-03.
+
+\bibitem[{Trading Technologies International,
+  Inc.}(n.d.{\natexlab{d}})]{tt_sim_env}
+{Trading Technologies International, Inc.}
+\newblock Changing trading environments.
+\newblock
+  \url{https://library.tradingtechnologies.com/trade/overview/workspace-windows/task-workspace-windows/changing-trading-environments/},
+  n.d.{\natexlab{d}}.
+\newblock TT Help Library. Accessed 2026-10-04.
+
+\bibitem[Tran et~al.(2019)Tran, Iosifidis, Kanniainen, and
+  Gabbouj]{tran2019tabl}
+Dat~Thanh Tran, Alexandros Iosifidis, Juho Kanniainen, and Moncef Gabbouj.
+\newblock Temporal attention-augmented bilinear network for financial
+  time-series data analysis.
+\newblock \emph{IEEE Transactions on Neural Networks and Learning Systems},
+  30\penalty0 (5):\penalty0 1407--1418, 2019.
+\newblock \doi{10.1109/TNNLS.2018.2869225}.
+
+\bibitem[Tran et~al.(2021)Tran, Kanniainen, Gabbouj, and
+  Iosifidis]{tran2021bin}
+Dat~Thanh Tran, Juho Kanniainen, Moncef Gabbouj, and Alexandros Iosifidis.
+\newblock Data normalization for bilinear structures in high-frequency
+  financial time-series.
+\newblock In \emph{2020 25th International Conference on Pattern Recognition
+  (ICPR)}, pages 7287--7292. IEEE, 2021.
+\newblock \doi{10.1109/ICPR48806.2021.9412547}.
+
+\bibitem[Tripathi et~al.(2020)Tripathi, Vipul, and Dixit]{tripathi2020}
+Abhinava Tripathi, Vipul, and Alok Dixit.
+\newblock Limit order books: A systematic review of literature.
+\newblock \emph{Qualitative Research in Financial Markets}, 12\penalty0
+  (4):\penalty0 505--541, 2020.
+\newblock \doi{10.1108/QRFM-07-2019-0080}.
+
+\bibitem[Tsantekidis et~al.(2017{\natexlab{a}})Tsantekidis, Passalis, Tefas,
+  Kanniainen, Gabbouj, and Iosifidis]{tsantekidis2017}
+Avraam Tsantekidis, Nikolaos Passalis, Anastasios Tefas, Juho Kanniainen,
+  Moncef Gabbouj, and Alexandros Iosifidis.
+\newblock Forecasting stock prices from the limit order book using
+  convolutional neural networks.
+\newblock In \emph{2017 IEEE 19th Conference on Business Informatics (CBI)},
+  pages 7--12, 2017{\natexlab{a}}.
+\newblock \doi{10.1109/CBI.2017.23}.
+
+\bibitem[Tsantekidis et~al.(2017{\natexlab{b}})Tsantekidis, Passalis, Tefas,
+  Kanniainen, Gabbouj, and Iosifidis]{tsantekidis2017lstm}
+Avraam Tsantekidis, Nikolaos Passalis, Anastasios Tefas, Juho Kanniainen,
+  Moncef Gabbouj, and Alexandros Iosifidis.
+\newblock Using deep learning to detect price change indications in financial
+  markets.
+\newblock In \emph{2017 25th European Signal Processing Conference (EUSIPCO)},
+  pages 2511--2515, 2017{\natexlab{b}}.
+\newblock \doi{10.23919/EUSIPCO.2017.8081663}.
+
+\bibitem[Tsantekidis et~al.(2020)Tsantekidis, Passalis, Tefas, Kanniainen,
+  Gabbouj, and Iosifidis]{tsantekidis2020stationary}
+Avraam Tsantekidis, Nikolaos Passalis, Anastasios Tefas, Juho Kanniainen,
+  Moncef Gabbouj, and Alexandros Iosifidis.
+\newblock Using deep learning for price prediction by exploiting stationary
+  limit order book features.
+\newblock \emph{Applied Soft Computing}, 93:\penalty0 106401, 2020.
+\newblock \doi{10.1016/j.asoc.2020.106401}.
+
+\bibitem[van~den Oord et~al.(2017)van~den Oord, Vinyals, and
+  Kavukcuoglu]{vandenoord2017vqvae}
+Aaron van~den Oord, Oriol Vinyals, and Koray Kavukcuoglu.
+\newblock Neural discrete representation learning.
+\newblock In \emph{Advances in Neural Information Processing Systems 30 (NIPS
+  2017)}, 2017.
+
+\bibitem[Vaswani et~al.(2017)Vaswani, Shazeer, Parmar, Uszkoreit, Jones, Gomez,
+  Kaiser, and Polosukhin]{vaswani2017}
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones,
+  Aidan~N. Gomez, {\L}ukasz Kaiser, and Illia Polosukhin.
+\newblock Attention is all you need.
+\newblock In \emph{Advances in Neural Information Processing Systems 30 (NIPS
+  2017)}, pages 5998--6008, 2017.
+
+\bibitem[Veen and Schoenberg(2008)]{veen2008em}
+Alejandro Veen and Frederic~P. Schoenberg.
+\newblock Estimation of space--time branching process models in seismology
+  using an {EM}-type algorithm.
+\newblock \emph{Journal of the American Statistical Association}, 103\penalty0
+  (482):\penalty0 614--624, 2008.
+\newblock \doi{10.1198/016214508000000148}.
+
+\bibitem[Vyetrenko and Xu(2019)]{vyetrenko2019}
+Svitlana Vyetrenko and Shaojie Xu.
+\newblock Risk-sensitive compact decision trees for autonomous execution in
+  presence of simulated market response, 2019.
+
+\bibitem[Vyetrenko et~al.(2020)Vyetrenko, Byrd, Petosa, Mahfouz, Dervovic,
+  Veloso, and Balch]{vyetrenko2020getreal}
+Svitlana Vyetrenko, David Byrd, Nick Petosa, Mahmoud Mahfouz, Danial Dervovic,
+  Manuela Veloso, and Tucker Balch.
+\newblock Get real: Realism metrics for robust limit order book market
+  simulations.
+\newblock In \emph{Proceedings of the First ACM International Conference on AI
+  in Finance (ICAIF '20)}, pages 1--8, 2020.
+\newblock \doi{10.1145/3383455.3422561}.
+
+\bibitem[Wallbridge(2020)]{wallbridge2020}
+James Wallbridge.
+\newblock Transformers for limit order books, 2020.
+
+\bibitem[Wang et~al.(2012)Wang, Bebbington, and Harte]{wang2012mmhp}
+Ting Wang, Mark Bebbington, and David Harte.
+\newblock {M}arkov-modulated {H}awkes process with stepwise decay.
+\newblock \emph{Annals of the Institute of Statistical Mathematics},
+  64\penalty0 (3):\penalty0 521--544, 2012.
+\newblock \doi{10.1007/s10463-010-0320-7}.
+
+\bibitem[Wang and Ventre(2025)]{diffvolume}
+Zhuohan Wang and Carmine Ventre.
+\newblock {DiffVolume}: Diffusion models for volume generation in limit order
+  books.
+\newblock In \emph{Proceedings of the 6th ACM International Conference on AI in
+  Finance (ICAIF '25)}, pages 587--595, 2025.
+\newblock \doi{10.1145/3768292.3770413}.
+
+\bibitem[Wang and Ventre(2026)]{wang2026difflob}
+Zhuohan Wang and Carmine Ventre.
+\newblock {DiffLOB}: Diffusion models for counterfactual generation in limit
+  order books.
+\newblock In \emph{Proceedings of the Thirty-Fifth International Joint
+  Conference on Artificial Intelligence (IJCAI-26)}, pages 6564--6572, 2026.
+\newblock \doi{10.24963/ijcai.2026/730}.
+
+\bibitem[Ward-Foxton(2026)]{eetimes2026positron}
+Sally Ward-Foxton.
+\newblock {Positron's \$230M Funding Led By Financial Trading Firms}.
+\newblock EE Times, 2026.
+\newblock URL
+  \url{https://www.eetimes.com/positron-230-million-funding-led-by-financial-trading-firms/}.
+\newblock Published 2026-02-04. Accessed 2026-10-04.
+
+\bibitem[Wheeler and Varner(2024)]{wheeler2024marketgpt}
+Aaron Wheeler and Jeffrey~D. Varner.
+\newblock {MarketGPT}: Developing a pre-trained transformer ({GPT}) for
+  modeling financial time series, 2024.
+
+\bibitem[White(2000)]{white2000}
+Halbert White.
+\newblock A reality check for data snooping.
+\newblock \emph{Econometrica}, 68\penalty0 (5):\penalty0 1097--1126, 2000.
+\newblock \doi{10.1111/1468-0262.00152}.
+
+\bibitem[Williams et~al.(2009)Williams, Waterman, and
+  Patterson]{williams2009roofline}
+Samuel Williams, Andrew Waterman, and David Patterson.
+\newblock Roofline: An insightful visual performance model for multicore
+  architectures.
+\newblock \emph{Communications of the ACM}, 52\penalty0 (4):\penalty0 65--76,
+  2009.
+\newblock \doi{10.1145/1498765.1498785}.
+
+\bibitem[Wolpert(1992)]{wolpert1992}
+David~H. Wolpert.
+\newblock Stacked generalization.
+\newblock \emph{Neural Networks}, 5\penalty0 (2):\penalty0 241--259, 1992.
+\newblock \doi{10.1016/S0893-6080(05)80023-1}.
+
+\bibitem[Woo et~al.(2024)Woo, Liu, Kumar, Xiong, Savarese, and
+  Sahoo]{moirai2024}
+Gerald Woo, Chenghao Liu, Akshat Kumar, Caiming Xiong, Silvio Savarese, and
+  Doyen Sahoo.
+\newblock Unified training of universal time series forecasting transformers.
+\newblock In \emph{Proceedings of the 41st International Conference on Machine
+  Learning}, volume 235 of \emph{Proceedings of Machine Learning Research},
+  pages 53140--53164. PMLR, 2024.
+
+\bibitem[Wu et~al.(2019)Wu, Rambaldi, Muzy, and Bacry]{wu2019qrhawkes}
+Peng Wu, Marcello Rambaldi, Jean-Fran{\c{c}}ois Muzy, and Emmanuel Bacry.
+\newblock Queue-reactive {H}awkes models for the order flow, 2019.
+
+\bibitem[Wu et~al.(2021)Wu, Mahfouz, Magazzeni, and Veloso]{wu2021robust}
+Yufei Wu, Mahmoud Mahfouz, Daniele Magazzeni, and Manuela Veloso.
+\newblock Towards robust representation of limit orders books for deep learning
+  models, 2021.
+
+\bibitem[{Xelera Technologies}(n.d.)]{xelera_silva}
+{Xelera Technologies}.
+\newblock Xelera {Silva}: Low-latency inference for gradient-boosted trees and
+  neural networks.
+\newblock Product page, n.d.
+\newblock URL \url{https://www.xelera.io/products/silva}.
+\newblock Accessed 2026-10-02.
+
+\bibitem[Xiao et~al.(2025)Xiao, Ventre, Wang, Li, Huan, and Liu]{lit2025}
+Yue Xiao, Carmine Ventre, Yuhan Wang, Haochen Li, Yuxi Huan, and Buhong Liu.
+\newblock {LiT}: Limit order book transformer.
+\newblock \emph{Frontiers in Artificial Intelligence}, 8:\penalty0 1616485,
+  2025.
+\newblock \doi{10.3389/frai.2025.1616485}.
+
+\bibitem[Xu et~al.(2018)Xu, Gould, and Howison]{xu2019mlofi}
+Ke~Xu, Martin~D. Gould, and Sam~D. Howison.
+\newblock Multi-level order-flow imbalance in a limit order book.
+\newblock \emph{Market Microstructure and Liquidity}, 4\penalty0
+  (3--4):\penalty0 1950011, 2018.
+\newblock \doi{10.1142/S2382626619500114}.
+\newblock Issue cover-dated 2018; published online 8 January 2020; arXiv July
+  2019.
+
+\bibitem[Yadav et~al.(2026)Yadav, Nagarjuna, and Lal]{yadav2026hawkes}
+Vaddarapu~Karthik Yadav, Vallabhaneni Nagarjuna, and Anisha~M. Lal.
+\newblock When not to trade: {Hawkes} intensity burst detection for
+  regime-aware limit order book prediction.
+\newblock In \emph{Artificial Intelligence Applications and Innovations (AIAI
+  2026)}, IFIP Advances in Information and Communication Technology, pages
+  223--236. Springer, 2026.
+\newblock \doi{10.1007/978-3-032-30809-2_16}.
+
+\bibitem[Yang et~al.(2025{\natexlab{a}})Yang, Fang, Zhang, and
+  Zhou]{yang2025siamese}
+Jiahao Yang, Ran Fang, Ming Zhang, and Jun Zhou.
+\newblock An efficient deep learning model to predict stock price movement
+  based on limit order book, 2025{\natexlab{a}}.
+\newblock Preprint.
+
+\bibitem[Yang et~al.(2025{\natexlab{b}})Yang, Kim, Chung, and
+  Kim]{yang2025type}
+Mingyu Yang, Woo~Chang Kim, Gukyuk Chung, and Chanyeong Kim.
+\newblock Type-based representation of limit order book events for predicting
+  mid-price change.
+\newblock SSRN working paper 5269651, 2025{\natexlab{b}}.
+\newblock \url{https://ssrn.com/abstract=5269651}.
+
+\bibitem[Yang et~al.(2017)Yang, Etesami, He, and Kiyavash]{yang2017online}
+Yingxiang Yang, Jalal Etesami, Niao He, and Negar Kiyavash.
+\newblock Online learning for multivariate {H}awkes processes.
+\newblock In \emph{Advances in Neural Information Processing Systems 30 (NIPS
+  2017)}. Curran Associates, Inc., 2017.
+\newblock URL
+  \url{https://papers.nips.cc/paper/2017/hash/92a0e7a415d64ebafcb16a8ca817cde4-Abstract.html}.
+
+\bibitem[Yao and Koprinska(2027)]{yao2026asde}
+Hanxue Yao and Irena Koprinska.
+\newblock Attention score-based dynamic ensemble for time series forecasting
+  with an importance greedy diversity model selection.
+\newblock \emph{Information Fusion}, 137:\penalty0 104656, 2027.
+\newblock \doi{10.1016/j.inffus.2026.104656}.
+\newblock January 2027.
+
+\bibitem[Yoo et~al.(2023)Yoo, Kim, Kim, Park, Kim, and Oh]{lighttrader}
+Sungyeob Yoo, Hyunsung Kim, Jinseok Kim, Sunghyun Park, Joo-Young Kim, and
+  Jinwook Oh.
+\newblock {LightTrader}: A standalone high-frequency trading system with deep
+  learning inference accelerators and proactive scheduler.
+\newblock In \emph{2023 IEEE International Symposium on High-Performance
+  Computer Architecture (HPCA)}, pages 1017--1030, 2023.
+\newblock \doi{10.1109/HPCA56546.2023.10070930}.
+
+\bibitem[Yu et~al.(2025)Yu, Wu, Han, and Cremer]{yu2025asymgen}
+Runyao Yu, Ruochen Wu, Yongsheng Han, and Jochen~L. Cremer.
+\newblock Orderbook feature learning and asymmetric generalization in intraday
+  electricity markets, 2025.
+\newblock Accepted to PSCC 2026.
+
+\bibitem[Zadrozny and Elkan(2002)]{zadrozny2002}
+Bianca Zadrozny and Charles Elkan.
+\newblock Transforming classifier scores into accurate multiclass probability
+  estimates.
+\newblock In \emph{Proceedings of the Eighth ACM SIGKDD International
+  Conference on Knowledge Discovery and Data Mining}, pages 694--699, 2002.
+\newblock \doi{10.1145/775047.775151}.
+
+\bibitem[Zaznov et~al.(2022)Zaznov, Kunkel, Dufour, and Badii]{zaznov2022}
+Ilia Zaznov, Julian Kunkel, Alfonso Dufour, and Atta Badii.
+\newblock Predicting stock price changes based on the limit order book: A
+  survey.
+\newblock \emph{Mathematics}, 10\penalty0 (8):\penalty0 1234, 2022.
+\newblock \doi{10.3390/math10081234}.
+
+\bibitem[Zhang et~al.(2023)Zhang, Duan, Chen, Chen, Li, and
+  Zhao]{zhang2023generalizable}
+Chuheng Zhang, Yitong Duan, Xiaoyu Chen, Jianyu Chen, Jian Li, and Li~Zhao.
+\newblock Towards generalizable reinforcement learning for trade execution.
+\newblock In \emph{Proceedings of the Thirty-Second International Joint
+  Conference on Artificial Intelligence (IJCAI-23)}, pages 4975--4983, 2023.
+\newblock \doi{10.24963/ijcai.2023/553}.
+
+\bibitem[Zhang et~al.(2020)Zhang, Lipani, Kirnap, and Yilmaz]{zhang2020sahp}
+Qiang Zhang, Aldo Lipani, Omer Kirnap, and Emine Yilmaz.
+\newblock Self-attentive {H}awkes process.
+\newblock In \emph{Proceedings of the 37th International Conference on Machine
+  Learning}, volume 119 of \emph{Proceedings of Machine Learning Research},
+  pages 11183--11193, 2020.
+
+\bibitem[Zhang et~al.(2025)Zhang, Xie, and Wang]{zhang2025oi}
+Ting Zhang, Chi Xie, and Gang-Jin Wang.
+\newblock Do order imbalances predict intraday returns? new evidence from the
+  {C}hinese stock market.
+\newblock \emph{Asia-Pacific Journal of Accounting \& Economics}, pages 1--15,
+  2025.
+\newblock \doi{10.1080/16081625.2025.2604824}.
+\newblock Published online 19 December 2025.
+
+\bibitem[Zhang et~al.(2026)Zhang, Ma, Cheng, Li, and Duan]{m3lob}
+Yanzhi Zhang, Yu~Ma, Yilin Cheng, Jian Li, and Yitong Duan.
+\newblock {M3}: A state-event generative foundation model for market
+  microstructure dynamics, 2026.
+
+\bibitem[Zhang and Zohren(2021)]{zhangzohren2021}
+Zihao Zhang and Stefan Zohren.
+\newblock Multi-horizon forecasting for limit order books: Novel deep learning
+  approaches and hardware acceleration using intelligent processing units,
+  2021.
+
+\bibitem[Zhang et~al.(2018)Zhang, Zohren, and Roberts]{zhang2018bdlob}
+Zihao Zhang, Stefan Zohren, and Stephen Roberts.
+\newblock {BDLOB}: {B}ayesian deep convolutional neural networks for limit
+  order books, 2018.
+\newblock Third Workshop on Bayesian Deep Learning, NeurIPS 2018.
+
+\bibitem[Zhang et~al.(2019{\natexlab{a}})Zhang, Zohren, and Roberts]{zhang2019}
+Zihao Zhang, Stefan Zohren, and Stephen Roberts.
+\newblock {DeepLOB}: Deep convolutional neural networks for limit order books.
+\newblock \emph{IEEE Transactions on Signal Processing}, 67\penalty0
+  (11):\penalty0 3001--3012, 2019{\natexlab{a}}.
+\newblock \doi{10.1109/TSP.2019.2907260}.
+
+\bibitem[Zhang et~al.(2019{\natexlab{b}})Zhang, Zohren, and
+  Roberts]{zhang2019qr}
+Zihao Zhang, Stefan Zohren, and Stephen Roberts.
+\newblock Extending deep learning models for limit order books to quantile
+  regression, 2019{\natexlab{b}}.
+\newblock Time Series Workshop, ICML 2019.
+
+\bibitem[Zhang et~al.(2021)Zhang, Lim, and Zohren]{zhanglimzohren2021mbo}
+Zihao Zhang, Bryan Lim, and Stefan Zohren.
+\newblock Deep learning for market by order data.
+\newblock \emph{Applied Mathematical Finance}, 28\penalty0 (1):\penalty0
+  79--95, 2021.
+\newblock \doi{10.1080/1350486X.2021.1967767}.
+
+\bibitem[Zhao and Feng(2020)]{zhao2020for2for}
+Shi Zhao and Ying Feng.
+\newblock {For2For}: Learning to forecast from forecasts, 2020.
+\newblock arXiv preprint.
+
+\bibitem[Zheng et~al.(2013)Zheng, Moulines, and Abergel]{zheng2013jump}
+Ban Zheng, Eric Moulines, and Fr{\'e}d{\'e}ric Abergel.
+\newblock Price jump prediction in a limit order book.
+\newblock \emph{Journal of Mathematical Finance}, 3\penalty0 (2):\penalty0
+  242--255, 2013.
+\newblock \doi{10.4236/jmf.2013.32024}.
+
+\bibitem[Zheng et~al.(2024{\natexlab{a}})Zheng, Zang, Hong, Perreault,
+  Bensoussane, Vargaftik, Ben-Itzhak, and Zilberman]{zheng2024planter}
+Changgang Zheng, Mingyuan Zang, Xinpeng Hong, Liam Perreault, Riyad
+  Bensoussane, Shay Vargaftik, Yaniv Ben-Itzhak, and Noa Zilberman.
+\newblock Planter: Rapid prototyping of in-network machine learning inference.
+\newblock \emph{ACM SIGCOMM Computer Communication Review}, 54\penalty0
+  (1):\penalty0 2--21, 2024{\natexlab{a}}.
+\newblock \doi{10.1145/3687230.3687232}.
+
+\bibitem[Zheng et~al.(2024{\natexlab{b}})Zheng, Li, Ouyang, Liang, and
+  Shao]{zheng2024lobdif}
+Zetao Zheng, Guoan Li, Deqiang Ouyang, Decui Liang, and Jie Shao.
+\newblock Limit order book event stream prediction with diffusion model,
+  2024{\natexlab{b}}.
+\newblock Journal version: Zheng, Li, Liang and Shao, Data Science and
+  Engineering 11(3):706--723, 2026, doi:10.1007/s41019-025-00328-4.
+
+\bibitem[Zhong et~al.(2025{\natexlab{a}})Zhong, Bacry, Guilloux, and
+  Muzy]{kanformer}
+Jinfeng Zhong, Emmanuel Bacry, Agathe Guilloux, and Jean-Fran{\c{c}}ois Muzy.
+\newblock {KANFormer} for predicting fill probabilities via survival analysis
+  in limit order books, 2025{\natexlab{a}}.
+
+\bibitem[Zhong et~al.(2025{\natexlab{b}})Zhong, Lin, and
+  Yang]{zhong2025lobench}
+Muyao Zhong, Yushi Lin, and Peng Yang.
+\newblock Representation learning of limit order book: A comprehensive study
+  and benchmarking, 2025{\natexlab{b}}.
+\newblock Preprint.
+
+\bibitem[Zilberman et~al.(2017)Zilberman, Grosvenor, Popescu, Manihatty-Bojan,
+  Antichi, W{\'o}jcik, and Moore]{zilberman2017where}
+Noa Zilberman, Matthew Grosvenor, Diana~Andreea Popescu, Neelakandan
+  Manihatty-Bojan, Gianni Antichi, Marcin W{\'o}jcik, and Andrew~W. Moore.
+\newblock Where has my time gone?
+\newblock In \emph{Passive and Active Measurement (PAM 2017)}, Lecture Notes in
+  Computer Science, pages 201--214. Springer, 2017.
+\newblock \doi{10.1007/978-3-319-54328-4_15}.
+
+\bibitem[Zumbach(2009)]{zumbach2009}
+Gilles Zumbach.
+\newblock Time reversal invariance in finance.
+\newblock \emph{Quantitative Finance}, 9\penalty0 (5):\penalty0 505--515, 2009.
+\newblock \doi{10.1080/14697680802616712}.
+
+\bibitem[Zuo et~al.(2020)Zuo, Jiang, Li, Zhao, and Zha]{zuo2020thp}
+Simiao Zuo, Haoming Jiang, Zichong Li, Tuo Zhao, and Hongyuan Zha.
+\newblock Transformer {H}awkes process.
+\newblock In \emph{Proceedings of the 37th International Conference on Machine
+  Learning}, volume 119 of \emph{Proceedings of Machine Learning Research},
+  pages 11692--11702, 2020.
+
+\end{thebibliography}
