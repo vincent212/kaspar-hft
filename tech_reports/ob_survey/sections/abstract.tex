@@ -1,57 +1,42 @@
 \begin{abstract}
-The limit order book (LOB) is the principal observable representation of liquidity in electronic
-markets. A large literature extracts predictive information from it: order-flow imbalance, queue
-imbalance and the micro-price; stochastic queue and first-passage models; Hawkes and neural point
-processes; and convolutional, recurrent, attention-based and spatial-temporal Transformer models,
-pretrained message-level encoders, generative models and hybrids that combine statistical structure
-with learned representations. A substantial part of that literature evaluates models primarily as statistical
-forecasters, and large independent re-tests find that many published deep models lose much of their accuracy on new
-data. This
-survey asks a different question: \emph{how does information contained in the limit order book
-become an executable trading decision, and how should prediction, queue dynamics, simulation and
-execution be evaluated together?} Its thesis is that a limit-order-book model is useful not because it predicts the
-next price move but if the information it extracts survives representation, prediction, decision, queue position,
-latency and execution to positive out-of-sample economic value; the quantity that matters for trading is the expected
-profit of an action given the market state and the order's place in the queue.
+A large literature predicts short-term price moves from the limit order book (LOB): signals such as order-flow
+imbalance and the micro-price, queue and first-passage models, Hawkes and neural point processes, and deep networks
+from convolutional models to Transformers and pretrained message-level encoders. Most of it stops at the forecast.
+Models are scored on how often they guess the direction of the next move, and independent re-tests find that many
+published deep models lose much of their accuracy on new data. A trader needs to know something else: whether the
+information a model extracts survives the queue, the fill and the latency of a real order, and still makes money.
 
-The survey is three surveys in one, arranged in the order a model follows on its way to production. The first
-covers the theory of order-book models: how each is built, what its properties are and what it predicts. The second
-covers the simulators in which a model is turned into a trading strategy and tested. The third covers the hardware on
-which a tested strategy is deployed. The three are rarely treated together, but a model has to pass through all of
-them to reach production, and a practitioner or student who wants to take one there needs all three; that path is
-the reason for the survey's structure.
+This survey follows a model from theory to production. It is three surveys in one, in the order the work is done:
+order-book models---how each is built, what it predicts and which simple baselines it must beat; simulators---how a
+model becomes a trading strategy and is tested against recorded markets with its orders in the real queues; and
+hardware---how a tested strategy is deployed fast enough to run. Its thesis is that what matters for trading is the
+expected profit of an action given the market state and the order's place in the queue, not the accuracy of the
+forecast behind it.
 
-The chain LOB state $\to$ representation $\to$ prediction $\to$ decision $\to$ queue $\to$ execution $\to$ P\&L
-frames the survey: each link can destroy information or add uncertainty. We place the main works on four
-axes---representation, model class, prediction objective and economic role---and distinguish models that predict prices or
-events from models that estimate execution outcomes such as fill probability, queue depletion and adverse selection,
-which we treat as modelling targets in their own right. For the learned models we explain, from first principles, how
-they are built and trained, take apart meta-models and structural hybrids that combine them with classical models,
-and show how much reported accuracy can come from the construction of the label and the data split rather than from
-the network.
+The survey shows a practitioner how to check each step. Whether a reported accuracy is real: with the same network,
+the construction of the label alone took a re-test of DeepLOB from 65.9\% to 54.6\%, and with the network held
+fixed the choice of input decided most of the result. Whether a forecast survives execution: what a simulator must capture, which simulators
+provide it, and a model-free execution benchmark that sets the floor---on a year of E-mini S\&P~500 data, resting and
+crossing cost the same, about $0.095$ ticks per contract, and the cost rises with every millisecond of delay. Whether a
+model can be deployed: published inference times of order-book models range from 25\,\textmu s to 23\,ms, while a stage
+on the hot path of a CME feed must handle each packet in about 7.5\,\textmu s or the queue in front of it grows, the
+strategy misses signals and its orders are picked off; the survey then sets out which stages FPGAs, GPUs and other
+processors can accelerate.
 
-For simulation, we survey order-book simulators---historical replay, agent-based, model-based and generative---and
-compare them on the properties execution questions need: per-order queue position, explicit latency, determinism and
-a shared code path to live trading. \kasparhft{}\footnote{\kasparhft{} is available at \url{https://github.com/vincent212/kaspar-hft}.}, an open-source trading system and simulator, serves as the worked
-example of a deterministic, queue-exact replay in which simulated orders enter the reconstructed historical
-first-in-first-out queue and are filled only by recorded executions that reach an order behind them; we show how an
-order-book model is added to it as an actor that publishes its predictions to a strategy. A strategy tested in its
-simulator can be deployed as it is: as far as the code is concerned there is no difference between the simulated and
-the deployed environment, and moving from one to the other is a configuration setting.
-For deployment, we explain why order-book models are slow at inference---book building, sequential recurrence,
-attention whose cost grows with the square of the sequence length, and memory-bound evaluation at batch
-size one---why a model too slow for the hot path chokes the system, and which stages can be accelerated on FPGAs,
-GPUs and other processors.
+The worked example throughout is \kasparhft{}\footnote{\kasparhft{} is available at
+\url{https://github.com/vincent212/kaspar-hft}.}, an open-source, venue-independent trading system and
+deterministic, queue-exact simulator, with handlers implemented for CME. Simulated orders enter the reconstructed first-in-first-out queues and are filled only by
+recorded executions that reach them; a model is added as one more actor that sends its predictions to a strategy; and
+the strategy tested in the simulator is the strategy deployed, with no change of code---moving from replay to paper and
+live trading is a configuration setting.
 
-Two criteria run through the survey: \emph{tradeability}, under which predictive performance is
-judged after latency, spread, fees, queue position and adverse selection; and \emph{Occam's
-razor}, under which each additional layer of complexity---model capacity and hardware---must earn
-incremental out-of-sample economic value. This is a survey and a methodological paper. Its numerical examples are
-stylised, and its only computations are illustrations on synthetic data; it reports no new results on market data.
+Three positions run through the survey: the market is observed, not generated; complexity, in the model or in the
+hardware, must earn its place by out-of-sample economic value; and representations are compared before
+architectures.
 
 \medskip
 \noindent\textbf{Keywords:} limit order book, market microstructure, order-flow imbalance, micro-price,
 Hawkes process, queue position, first-passage time, adverse selection, deterministic simulation, deep
 learning, spatial-temporal Transformer, foundation models, uncertainty quantification, multiple testing,
-Occam's razor, market simulation, hardware acceleration, FPGA.
+Occam's razor, market simulation, reinforcement learning, hardware acceleration, FPGA, Kaspar-HFT.
 \end{abstract}
