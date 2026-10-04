@@ -125,7 +125,8 @@ Seven conclusions follow from the evidence reviewed.
 \item \textbf{Execution matters.} Resting and crossing can cost the same once adverse selection is counted.
 \item \textbf{Simulation assumptions matter.} A fill rule that ignores the queue overstates results; a replay without
   market impact answers questions about small orders only.
-\item \textbf{Latency matters.} Cost rises with delay, and faster hardware helps only while the signal lasts.
+\item \textbf{Latency matters.} Cost rises with delay. A slow model on the hot path misses signals, leaves passive
+  orders to be picked off and lets message queues grow; a model's evaluation time is part of its specification.
 \item \textbf{Complexity must earn its cost.} A more complex model is justified only by incremental out-of-sample
   economic value.
 \end{enumerate}
@@ -164,9 +165,11 @@ about 25\,\textmu s to about 23\,ms, about half of them above one millisecond (T
 identifies four causes---recurrence that must run step by step, attention whose cost grows with the square of the
 window, memory traffic at a batch of one, and fixed overheads per operation---and Section~\ref{sec:hw-what} lists the
 candidate remedies: shorter or incremental windows, smaller and lower-precision models, fused kernels, and moving the
-regular stages to FPGAs. Hardware
-decides how much of a signal's value survives to the moment of execution, but it cannot rescue a signal whose life is
-shorter than the pipeline that computes it.
+regular stages to FPGAs. All of these inference times exceed the CME publisher period of about $7.5\,\mu$s, the
+time within which a stage on the hot path must handle each packet to avoid queueing~\citep{maciejewski2026packets}.
+A model too slow for the hot path does not just answer late: it misses signals, leaves passive orders to be picked
+off, and lets the message queue in front of it grow. Hardware decides how much of a signal's value survives to the
+moment of execution, but it cannot rescue a signal whose life is shorter than the pipeline that computes it.
 
 For a reader who must choose a model, the survey's guidance reduces to an order of operations.
 Decide first what the output is for---aggressive trading, passive execution, market making or

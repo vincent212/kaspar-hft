@@ -1131,15 +1131,43 @@ and jitter:
 \inwords{a bigger model takes longer to evaluate, and by the time it answers, some of what it
 predicted has already happened.}
 
-\paragraph{The question this section answers: when does faster inference produce economic value?} Faster hardware
-is worth its cost only if the time it saves would otherwise destroy value. Two quantities decide that: how fast the
-value of a signal decays, and how much latency the faster hardware removes. With a 2\,ms half-life, 97\% of a signal's
-value remains after 100\,\textmu s and 18\% after 5\,ms (Section~\ref{sec:latency}); with a 5\,ms half-life, evaluating
-it in 50\,\textmu s instead of 500\,ns changes almost nothing (Section~\ref{sec:hw-lifetime}). Measured on a year of
-E-mini data in Kaspar's replay, a passive execution method lost about 0.011 ticks per contract for each millisecond of
-added delay and an aggressive one about 0.042~\citep{maciejewski_shadow}: the price of latency depends on the
-strategy as well as the signal. Hardware therefore matters most for short-lived signals and for strategies that take
-liquidity; for slow signals, model quality decides the result.
+\paragraph{Latency decides whether a model can run at all.} In a trading system, the latency of a model is not a
+detail to be optimised after the model is chosen; it decides whether the model can be used. A model on the hot
+path---the chain every market-data message passes through---must finish before the next message needs it. A model
+that is too slow does not merely produce later answers: it holds up every message behind it and chokes the system.
+How fast a signal decays is the second constraint: with a 2\,ms half-life, 97\% of a signal's value remains after
+100\,\textmu s and 18\% after 5\,ms (Section~\ref{sec:latency}). Measured on a year of E-mini data in Kaspar's
+replay, a passive execution method lost about 0.011 ticks per contract for each millisecond of added delay and an
+aggressive one about 0.042~\citep{maciejewski_shadow}: every strategy pays for latency, and the price depends on
+the strategy as well as the signal.
+
+\paragraph{Three costs of a slow model.} A model that takes too long to evaluate costs the system in three ways:
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Missed signals.} By the time the decision is made the signal has decayed, as above; an opportunity
+  that lasts less than the evaluation time cannot be acted on at all.
+\item \textbf{Passive orders picked off.} A resting order is protected only by the system's ability to cancel or
+  reprice it when the book changes. While the model is still evaluating, the order stays at a price the market has
+  moved away from, and faster participants trade against it: it is filled exactly when the fill is unwanted. This
+  is adverse selection (Section~\ref{sec:adverse}) caused by the system's own latency, and it is why the passive
+  method above loses value with every millisecond of delay although it never crosses the spread.
+\item \textbf{Message queues that grow.} Market data does not wait for the model. If the model is on the path of
+  every message, messages that arrive while it is busy wait in the queue in front of it. On CME the market-data
+  publisher sends at most one packet per \emph{publisher period} of about $7.5\,\mu$s, and a burst of
+  matching-engine transactions reaches the receiver as a train of packets one period apart. A stage that handles
+  each packet within one period never queues on arrivals, however bursty the market. Above the period a queueing
+  tail appears: on more than a year of NQ packets, the 99th-percentile latency of a constant-service queue is about
+  twice the service time for a $16\,\mu$s task and four to five times for a $32\,\mu$s task, and more in busy
+  windows; a Poisson stream with the same number of arrivals has no tail at $16\,\mu$s, so the tail is almost
+  entirely a clustering effect~\citep{maciejewski2026packets}. A model that takes a millisecond is more than a
+  hundred times the period. Each packet of a burst adds the difference between service time and period to the
+  backlog: in an illustrative train of 100 packets into a 1\,ms model, the last packet waits
+  $99 \times (1\,\mathrm{ms} - 7.5\,\mu\mathrm{s}) \approx 98$\,ms. If the service time exceeds the average gap
+  between packets, the queue grows without bound. Every decision is then made on a book that is that many messages
+  old, which makes the first two costs worse.
+\end{enumerate}
+A model's evaluation time is therefore part of its specification, alongside its accuracy: a model on the hot path
+must be evaluated within the time between the messages it is fed, and a model that cannot meet that budget has to
+be made smaller, moved to faster hardware or taken off the hot path.
 
 This section first follows one market event through a model-driven trading system and shows where the time is
 spent; it then explains why recurrent networks and Transformers are slow at that task, collects the published and
@@ -1508,11 +1536,13 @@ simpler data flow map onto fixed-point, branch-free pipelines. Acceleration can 
 complex model's value by removing engineering latency, but it cannot extend the statistical
 lifetime of the signal.
 
-\begin{example}[Second-order latency]
+\begin{example}[Signal decay is not the only latency budget]
 A logistic score on five OFI windows and queue imbalance takes a few tens of multiply--add
-operations. If the signal's half-life is 5 ms, evaluating it in 50\,$\mu$s rather than 500\,ns
-keeps $2^{-0.01} \approx 99.3\%$ of its value rather than essentially all of it. The difference is
-second-order; the binding constraint is the quality and horizon of the signal itself.
+operations. If the signal's half-life is 5 ms, evaluating it in 50\,$\mu$s keeps $2^{-0.01} \approx 99.3\%$ of its
+value, so by signal decay alone 50\,$\mu$s looks harmless. On the hot path it is not: 50\,$\mu$s is more than six
+publisher periods of $7.5\,\mu$s, so during every burst of packets the stage falls behind and a queue builds in front
+of it (Section~\ref{sec:hardware}). The model has to meet both budgets---the lifetime of its signal and the
+spacing of the messages it is fed.
 \end{example}
 
 The design sequence that follows is: identify the horizon and value of the signal under idealised
@@ -1561,4 +1591,6 @@ causes make models slow on a single event: recurrence that runs step by step, at
 square of the window, memory traffic at a batch of one, and fixed overheads per GPU operation
 (Section~\ref{sec:hw-why}). With a sliding window that reuses earlier computation, audited inference of a small LSTM
 takes single-digit microseconds on both FPGAs and GPUs (Table~\ref{tab:stac}). No audited benchmark yet evaluates a
-learned model on a book it has built.
+learned model on a book it has built. Every published order-book model inference time is above the CME publisher period of about $7.5\,\mu$s, so
+any of these models placed on the hot path would queue during bursts; a slow model there misses signals, leaves
+passive orders to be picked off and lets the message queue grow (Section~\ref{sec:hardware}).
