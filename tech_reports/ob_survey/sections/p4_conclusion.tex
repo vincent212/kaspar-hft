@@ -43,7 +43,7 @@ Hardware or a new public benchmark & spatial-temporal models on programmable log
 
 The open problems in this group concern what the models of Part~II predict and how they are built.
 
-\paragraph{Execution-aware objectives.} Most prediction models stop at
+\paragraph{Execution-aware objectives.} Most prediction models we reviewed output
 an estimate of $\P(\Delta m_{t,H} > 0 \mid X_t)$. The more useful objective is an estimate of
 $\E[\Pi \mid X_t, Q^{\text{ahead}}_t, a_t]$, the expected profit of each available action,
 combining prediction, fill probability, queue position and adverse selection. Calibrated
@@ -55,7 +55,7 @@ Fine-tuning them for fill probability and conditional mark-outs, evaluated in qu
 is an open direction.
 
 \paragraph{State-space and long-context models for event streams.} State-space sequence models are well
-suited to long, irregular event streams, yet apart from one hardware-oriented design~\citep{popov2026ssm} we found no established LOB forecaster built on them.
+suited to long, irregular event streams (Section~\ref{sec:deep-ssm}), yet apart from one hardware-oriented design~\citep{popov2026ssm} we found no established LOB forecaster built on them.
 Testing them against simple baselines on the same inputs---not against each other---is a clear
 next step.
 
@@ -65,7 +65,7 @@ models behave on near-critical, long-memory inputs, and whether Hawkes structure
 (Section~\ref{sec:hybrid}) improves robustness, is untested.
 
 \paragraph{A parsimony audit.} For each widely cited deep LOB model, re-estimate its incremental
-economic value and deflated performance against the best low-capacity baseline on the same data and
+economic value and performance corrected for the number of configurations tried against the best low-capacity baseline on the same data and
 fill model. Such a meta-study would directly test the central claim of this survey.
 
 \subsection{Execution and simulation}
@@ -79,8 +79,8 @@ depletion time, and should measure the size of the queue-rank effect on fill pro
 conditional mark-outs across assets and regimes, rather than take a single model estimate as
 given.
 
-\paragraph{End-to-end signal and execution.} Most models output a forecast and leave execution to a
-separate rule. Models whose output is the decision itself---quote, keep, cancel, cross---and whose
+\paragraph{End-to-end signal and execution.} In the studies we reviewed, most models output a forecast
+and leave execution to a separate rule. Models whose output is the decision itself---quote, keep, cancel, cross---and whose
 training objective is execution value would close the gap that this survey describes. Reinforcement
 learning is one route, if the policy is trained and judged in queue-exact replay of recorded markets, against the
 model-free benchmarks in the same replay, as in Section~\ref{sec:worked-kaspar}.
@@ -206,8 +206,8 @@ Figure~\ref{fig:chain-findings} attaches to each link what the survey found ther
 \node[f] (f2) at (2.2,-2.85) {\textbf{The label can decide the reported accuracy.} In the re-test of \citet{lee2024predictability}, DeepLOB's accuracy on
   Apple was 65.9\% with a label that averages past prices and 54.6\% with one measured from the current price
   (Section~\ref{sec:deep-real}).};
-\node[f] (f3) at (2.2,-4.75) {\textbf{Most models stop at a forecast.} The literature works mainly at levels 2--3; the
-  decision is left to a hand-written rule, and no RL study we reviewed reports a live test (Section~\ref{sec:policy}).};
+\node[f] (f3) at (2.2,-4.75) {In the studies we reviewed, most stop at a forecast and leave the decision to a separate,
+  hand-written rule; none of the RL studies reports a live test (Section~\ref{sec:policy}).};
 \node[f] (f4) at (2.2,-6.65) {\textbf{Latency decides whether a model can run.} Published inference takes 25\,\textmu s
   to 23\,ms; a hot-path stage must handle each packet within about 7.5\,\textmu s or a queue builds in bursts. A slow
   model misses signals and leaves orders to be picked off (Section~\ref{sec:hardware}).};
@@ -215,7 +215,7 @@ Figure~\ref{fig:chain-findings} attaches to each link what the survey found ther
   overstates results; exact queue position needs order-level data and an order-level book
   (Sections~\ref{sec:replay} and~\ref{sec:kaspar-fills}).};
 \node[f] (f6) at (2.2,-10.45) {\textbf{Resting and crossing cost similar amounts.} About $+0.095$ ticks per contract on a year of
-  ES in one study; adverse selection is complete within a second, and cost rose with every step of delay from 0
+  ES in one study; adverse selection is complete within a second, and cost rose with delay from 0
   to 5\,ms (Section~\ref{sec:shadow}).};
 \foreach \i/\a/\b in {1/n1/n2,2/n2/n3,3/n3/n4,4/n4/n5,5/n5/n6,6/n6/n7}
   \draw[dashed] ($(\a)!0.5!(\b)$) -- (f\i.west);
@@ -238,7 +238,7 @@ Seven conclusions follow from the evidence reviewed.
 \item \textbf{Execution matters.} Resting and crossing can cost similar amounts once adverse selection is counted.
 \item \textbf{Simulation assumptions matter.} A fill rule that ignores the queue overstates results; a replay without
   market impact answers questions about small orders only.
-\item \textbf{Latency matters.} Cost rose with every step of delay. A slow model on the hot path misses signals,
+\item \textbf{Latency matters.} Cost rose with delay. A slow model on the hot path misses signals,
   leaves orders to be picked off, and lets message queues grow; a model's evaluation time is part of its
   specification.
 \item \textbf{Complexity must earn its cost.} A more complex model is justified only by incremental out-of-sample
@@ -264,9 +264,10 @@ instrument for it: a queue-exact replay of the exchange's own feed, deterministi
 market-data and order delays, running many days at once and the same code in replay, paper and live trading
 (Section~\ref{sec:kaspar}). On a year of E-mini data it shows the conclusions above in numbers: resting and crossing
 cost similar amounts, about $+0.095$ ticks per contract; post-fill mark-outs show adverse selection completed within a
-second; and with the same delay applied to orders, cancels and market data, from 0 to 5\,ms, cost rose with every step
-of delay for both versions, and more steeply for the aggressive one, reaching $+0.150$ (passive) and $+0.296$
-(aggressive) ticks per contract at 5\,ms~\citep{maciejewski_shadow}. This survey evaluates trading results on replay of
+second; and with the same delay applied to orders, cancels and market data, from 0 to 5\,ms, cost rose with delay
+for both versions, and more steeply for the aggressive one, reaching $+0.150$ (passive) and $+0.296$
+(aggressive) ticks per contract at 5\,ms (the latency runs use each version's own settings, so their zero-delay costs
+differ from the matched pair)~\citep{maciejewski_shadow}. This survey evaluates trading results on replay of
 the recorded market (Principle~1); generated markets---agent-based, model-based or generative---serve other purposes
 and are not its focus. A replay keeps the real market; the
 market's response to one's own orders is measured from paper and live executions (Section~\ref{sec:sim-survey}).
@@ -305,9 +306,9 @@ mechanisms described in Part~III, not a reported result.
   contract (Table~\ref{tab:shadow-results}).
   Anything the model adds is measured against both.
 \item \textbf{Build the model.} Order-flow imbalance over the last few book events at the best prices
-  (Section~\ref{sec:ofi}) is used as a gate (\pov{} places a buy behind each addition by another participant near
-  the best bid): the passive buy follows another participant's addition only when the
-  imbalance does not point to a falling price, and the sell symmetrically. The gate has two settings, the window and
+  (Section~\ref{sec:ofi}) is used as a gate. \pov{} places a buy behind each addition by another participant near
+  the best bid; with the gate, it does so only when the imbalance does not point to a falling price, and the sell
+  symmetrically. The gate has two settings, the window and
   the threshold; they are chosen on a training period, and every setting tried is counted, because the best of many
   settings looks better than it is.
 \item \textbf{Add it as an actor.} The model is one more actor (Section~\ref{sec:kaspar-actor}): it subscribes to the
@@ -401,8 +402,8 @@ A Hawkes process is stable when each event triggers on average fewer than one fu
   (Section~\ref{sec:pp-branching}) & Established result; a theorem \\
 With the network held fixed, the choice of input decided most of the result in one large
   comparison~\citep{lucchese2024} & Established result; one study (10 stocks) \\
-Fill rules that fill a passive order when the price reaches its level give more fills than queue-exact replay & Empirical synthesis;
-  argued from price--time priority \\
+Fill rules that fill a passive order when the price reaches its level give more fills than queue-exact replay & Established result;
+  follows from price--time priority \\
 Front-of-queue positions are worth more than back-of-queue positions, with adverse selection
   increasing in queue position~\citep{moallemi2017} & Established result in a model; its size across regimes is
   an open hypothesis \\
@@ -412,12 +413,13 @@ In the re-test of \citet{lee2024predictability}, DeepLOB's accuracy was 65.9\% w
 Published inference times of LOB models range from tens of microseconds to tens of milliseconds, above book-update
   times & Empirical synthesis; five studies measured under different conditions \\
 Exact own-order queue position in the recorded market requires order-level data and an order-level book &
-  Empirical synthesis; argued from price--time priority \\
+  Established result; follows from price--time priority \\
 Resting and crossing cost similar amounts for model-free execution, about $+0.095$ ticks per contract on a
   year of ES~\citep{maciejewski_shadow} & Established result; one study (one instrument, queue-exact replay, no
   impact) \\
-Execution cost rises with every step of delay from zero to 5\,ms, to $+0.150$ ticks per contract (passive) and
-  $+0.296$ (aggressive)~\citep{maciejewski_shadow} & Established result; one study \\
+Execution cost rises with delay from zero to 5\,ms, to $+0.150$ (passive) and $+0.296$ (aggressive) ticks per
+  contract; every step is outside the previous 95\% interval for the aggressive version, the first step for the
+  passive one~\citep{maciejewski_shadow} & Established result; one study \\
 A stage that handles each packet within the CME publisher period of about 7.5\,\textmu s never queues on arrivals;
   above it a queueing tail appears, caused by the clustering of arrivals~\citep{maciejewski2026packets} &
   Established result; more than a year of NQ data \\

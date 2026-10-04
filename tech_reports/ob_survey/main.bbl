@@ -1,4 +1,4 @@
-\begin{thebibliography}{442}
+\begin{thebibliography}{441}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -362,7 +362,7 @@ Pierre Blanc, Jonathan Donier, and Jean-Philippe Bouchaud.
 \newblock Bmll data lab.
 \newblock Product page, n.d.{\natexlab{a}}.
 \newblock URL \url{https://www.bmlltech.com/products/bmll-data-lab}.
-\newblock Vendor description. Accessed 2026-10-04.
+\newblock Company website. Accessed 2026-10-04.
 
 \bibitem[{BMLL Technologies}(n.d.{\natexlab{b}})]{bmll_home}
 {BMLL Technologies}.
@@ -370,7 +370,7 @@ Pierre Blanc, Jonathan Donier, and Jean-Philippe Bouchaud.
   analytics.
 \newblock Company website, n.d.{\natexlab{b}}.
 \newblock URL \url{https://www.bmlltech.com/}.
-\newblock Vendor description. Accessed 2026-10-04.
+\newblock Company website. Accessed 2026-10-04.
 
 \bibitem[Bochud and Challet(2007)]{bochud2007}
 Thierry Bochud and Damien Challet.
@@ -768,13 +768,6 @@ Andrea Coletta, Joseph Jerome, Rahul Savani, and Svitlana Vyetrenko.
   {Nav Sarao Futures Limited PLC} with price manipulation and spoofing.
 \newblock CFTC Press Release No. 7156-15, April 2015.
 \newblock URL \url{https://www.cftc.gov/PressRoom/PressReleases/7156-15}.
-
-\bibitem[{Commodity Futures Trading Commission}(2020)]{cftc2020jpm}
-{Commodity Futures Trading Commission}.
-\newblock {CFTC} orders {JPMorgan} to pay record \$920 million for spoofing and
-  manipulation.
-\newblock CFTC Press Release No. 8260-20, September 2020.
-\newblock URL \url{https://www.cftc.gov/PressRoom/PressReleases/8260-20}.
 
 \bibitem[Cont and de~Larrard(2012)]{contlarrard2012}
 Rama Cont and Adrien de~Larrard.
@@ -1634,8 +1627,7 @@ Joseph Jerome, Leandro S{\'a}nchez-Betancourt, Rahul Savani, and Martin
 {Jesse.Trade}.
 \newblock Jesse: Algorithmic trading framework.
 \newblock \url{https://github.com/jesse-ai/jesse}, 2026.
-\newblock Python, MIT; live trading via a separate licensed plugin. Accessed
-  2026-10-03.
+\newblock Python, MIT. Accessed 2026-10-03.
 
 \bibitem[Jordan and Jacobs(1994)]{jordan1994hme}
 Michael~I. Jordan and Robert~A. Jacobs.
@@ -2428,8 +2420,7 @@ Andrei Popov and Martina Huber.
 \newblock Atlas: Transformer inference server.
 \newblock Product page, n.d.
 \newblock URL \url{https://www.positron.ai/atlas}.
-\newblock Vendor claim. Llama 3.1 8B, BF16: 280 vs 182 tokens/s/user against
-  NVIDIA DGX H200. Accessed 2026-10-04.
+\newblock Figures as published by Positron AI. Accessed 2026-10-04.
 
 \bibitem[Prata et~al.(2024)Prata, Masi, Berti, Arrigoni, Coletta, Cannistraci,
   Vyetrenko, Velardi, and Bartolini]{prata2024}

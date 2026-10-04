@@ -306,7 +306,7 @@ point processes~\citep{daley2003}.
 \gl{Operator mix} The kinds of computation a model needs, such as matrix multiplication or softmax.
 \gl{PCIe} The bus that connects a processor to cards such as GPUs, FPGAs and network cards.
 \gl{Queue-exact replay} A historical replay in which the simulated order sits in the reconstructed queue of recorded
-  individual orders and is filled only when recorded executions reach it; Section~\ref{sec:replay}.
+  individual orders and is filled only when recorded executions reach an order that arrived after it; Section~\ref{sec:replay}.
 \gl{Roofline model} A model of processor speed: attainable speed is the lower of peak arithmetic rate and memory
   bandwidth times operations per byte loaded~\citep{williams2009roofline}.
 \gl{SmartNIC} A network card with programmable logic or processors that can compute on packets as they arrive.

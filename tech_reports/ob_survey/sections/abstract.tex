@@ -1,7 +1,7 @@
 \begin{abstract}
 A large literature predicts short-term price moves from the limit order book (LOB): order-flow imbalance and the
 micro-price, queue and first-passage models, Hawkes and neural point processes, and deep networks up to Transformers
-and pretrained message-level encoders. Most of it stops at the forecast, scored by directional accuracy; in an independent re-test of fifteen published deep models on later Nasdaq data, F1 scores were
+and pretrained message-level encoders. Much of it is evaluated at the forecast, by directional accuracy; in an independent re-test of fifteen published deep models on later Nasdaq data, F1 scores were
 48--61\%, below those reported on FI-2010. A trader needs to know whether a model's information survives the queue,
 the fill and the latency of a real order, and still makes money.
 
@@ -14,7 +14,7 @@ order's place in the queue, not the accuracy of the forecast behind it.
 The survey shows how to check each step. Accuracy: in a re-test of DeepLOB on a year of Apple data, the construction
 of the label alone moved accuracy from 65.9\% to 54.6\%. Execution: on a year of E-mini S\&P~500 data, a model-free
 benchmark that rests limit orders in the queue and one that crosses the spread cost similar amounts, about $0.095$
-ticks per contract, and cost rose with every step of delay. Deployment: published inference times of order-book
+ticks per contract, and cost rose with delay. Deployment: published inference times of order-book
 models range from 25\,\textmu s to 23\,ms, while a stage that every CME market-data packet passes through must handle
 each packet in about 7.5\,\textmu s; a slower stage builds a queue, misses signals and leaves orders to be filled by
 faster traders after the price has moved.

@@ -14,7 +14,7 @@ and how strongly each kind of claim should be believed.
 This section introduces the object of study and the language used to describe it. It explains how an
 electronic market matches buyers and sellers through a limit order book, what the book looks like as
 data, and how exchanges publish it; then fixes the notation and the few ideas from probability that
-the rest of the survey needs. It then explains why models, simulators and hardware are covered together, separates prediction, execution and
+the rest of the survey needs. It also explains why models, simulators and hardware are covered together, separates prediction, execution and
 simulation, and sets out the three principles and four axes used to organise the literature.
 
 \subsection{The limit order book as a dynamic market state}
@@ -36,7 +36,7 @@ with a mixture of better-informed and uninformed traders quotes a positive sprea
 with no transaction costs and no expected profit: the spread is what the market maker needs to recover,
 from the uninformed, what it loses to the informed. The idea that order flow carries information about
 value is the economic reason the book is worth modelling at all: its stream of orders, cancellations and
-trades---thousands of events a second in active markets---explains a large part of short-horizon price
+trades---a continuous stream of events in active markets---explains a large part of short-horizon price
 changes~\citep{cks2014}, and the predictive models of this survey try to extract what it says about the
 next few seconds~\citep{sirignano2019,zhang2019,lucchese2024}.
 
@@ -86,7 +86,7 @@ Figure~\ref{fig:theory-to-production} shows the process.
   \emph{Question:} is it fast enough to run?\\[3pt]
   paper trading (live data, simulated orders), then live;\\
   keep the model within the hot-path budget;\\
-  place each stage on CPU, FPGA or GPU\\[3pt]
+  place each stage on a central processor (CPU), field-programmable gate array (FPGA) or graphics processor (GPU)\\[3pt]
   \emph{Output:} a strategy in production};
 \draw[arr] (t.east) -- (s.west);
 \draw[arr] (s.east) -- (d.west);
@@ -175,7 +175,7 @@ Which waiting order trades first is decided by the venue's \emph{priority rule}.
 \emph{price--time priority}: better prices trade first, and among orders at the same price the one
 that arrived first trades first. Each price level is then exactly a FIFO queue. Some products use
 \emph{pro-rata} allocation instead, in which an incoming order is split among the waiting orders in
-proportion to their sizes; at CME, for example, most futures match first-in-first-out while SOFR
+proportion to their sizes; at CME, for example, most futures match first-in-first-out while SOFR (Secured Overnight Financing Rate)
 interest-rate futures use a pro-rata or allocation algorithm~\citep{cme_matching}. Under
 price--time priority an order's place in the queue matters, and the rules for keeping it matter
 too: on CME Globex, decreasing an order's quantity keeps its place, while increasing the quantity
@@ -283,7 +283,7 @@ Throughout, numerical examples use stylised values chosen to make the arithmetic
 not empirical estimates. The paper's own computations are illustrations on simulated data (queue models and point processes).
 Market-data figures come from cited studies, including the author's, and from measurements of \kasparhft{}.
 
-\begin{example}[Same mid, different market]
+\begin{example}[Two books with the same mid]
 Two E-mini S\&P 500 (ES) books have the same mid (5000.125) and the same one-tick spread (tick
 $=0.25$). In the first, 12 lots rest at the best ask; in the second, 900. Buying 100 lots
 aggressively costs several ticks more in the first book than in the second. Mid and spread do not
@@ -487,7 +487,7 @@ Part~III asks what survives simulation, execution and deployment. Figure~\ref{fi
   node[midway, left=6pt, align=right]{\textbf{Part II}\\what information\\the models extract};
 \draw[decorate, decoration={brace, amplitude=5pt, mirror}] (-5.0,-5.6) -- (-5.0,-9.8)
   node[midway, left=6pt, align=right]{\textbf{Part III}\\what survives\\to execution};
-\node[side, fill=blue!5] (sim) at (6.6,-7.6) {\textbf{Simulation} (Sections~\ref{sec:simulators}--\ref{sec:kaspar})\\
+\node[side, fill=blue!5] (sim) at (6.6,-7.6) {\textbf{Simulation} (Sections~\ref{sec:sim-needs}--\ref{sec:kaspar})\\
   tests decision $\to$ queue $\to$ execution $\to$ P\&L on recorded markets; \kasparhft{} replays the
   exchange's own feed with exact queue position};
 \node[side, fill=red!5] (hw) at (6.6,-5.1) {\textbf{Hardware} (Section~\ref{sec:hardware})\\
@@ -503,7 +503,7 @@ Part~II covers the upper half, Part~III the lower half, with simulation and hard
 \label{fig:survey-map}
 \end{figure}
 
-\begin{example}[Accurate but untradeable]
+\begin{example}[A 55\% classifier after the spread]
 \label{ex:untradeable}
 In ES (tick $0.25$ points, one-tick spread), a classifier is right on the sign of the next mid
 move 55\% of the time, and the typical move is half a tick ($0.125$ points). The expected move per
@@ -581,7 +581,7 @@ event by event, and evaluates the counterfactual outcome of the researcher's own
 estimate of~\eqref{eq:execution} on observed data. The \kasparhft{} system of Section~\ref{sec:kaspar} is a replay system, not a generative
 simulator; Section~\ref{sec:simulators} compares the kinds of simulator.
 They are related but not interchangeable. A Hawkes process can generate realistic clustered order
-flow without producing directional alpha. A survival model can give accurate fill probabilities
+flow without predicting price direction. A survival model can give accurate fill probabilities
 while playing no role in price prediction. A Transformer can predict short-horizon returns without
 modelling queue dynamics. Each model must be evaluated against the problem it solves.
 
@@ -660,7 +660,7 @@ Hawkes, neural point processes (\S\ref{sec:hawkes}) & event times and types & in
 Meta-models (\S\ref{sec:meta}) & classical outputs & the learner's target & 2--5 & combined signal & proper score against the equal-weight average and the best single model \\
 Deep classifiers (\S\ref{sec:deep}) & snapshots, order flow or messages & direction & 2 & signal & macro-F1 against a persistence baseline on a leak-free label, then net profit \\
 Fill-probability models (\S\ref{sec:deep-fill}) & book and queue position & time to fill & 4 & passive placement & survival likelihood; calibration \\
-Generative models (\S\ref{sec:deep-gen}) & event history & future paths & 1 & model of the book; scenarios not in the record & stylised facts; usefulness for a downstream task \\
+Generative models (\S\ref{sec:deep-gen}) & event history & future paths & 1 & model of the book; scenarios not in the record & stylised facts (statistical regularities seen across markets, Section~\ref{sec:facts}); usefulness for a downstream task \\
 Policies (\S\ref{sec:policy}) & state & action & 6 & execution; market making & economic reward in replay, against a model-free benchmark \\
 \bottomrule
 \end{tabularx}
@@ -817,10 +817,10 @@ This survey & information-to-decision chain: classical and deep models, queue po
 \item a treatment of queue position, fill probability and adverse selection as modelling targets in
   their own right, with the signal-value/execution-value distinction (Section~\ref{sec:tradeability-framework});
 \item an account of deep LOB models from first principles---inputs, targets, network families, training and
-  scoring---and of how label construction and data splits can inflate reported
+  scoring---and of how label construction and data splits can raise reported
   accuracy (Section~\ref{sec:deep});
 \item a treatment of the two ways of combining classical and learned models, meta-models and structural hybrids,
-  with published examples taken apart step by step (Sections~\ref{sec:meta} and~\ref{sec:hybrid});
+  with published examples worked through step by step (Sections~\ref{sec:meta} and~\ref{sec:hybrid});
 \item a survey of order-book simulators compared with \kasparhft{}~\citep{kaspar_hft}, a queue-exact, deterministic replay
   and trading system used as the evaluation instrument for execution claims, including how a model is added to it as
   an actor (Part~III);
@@ -865,7 +865,7 @@ four-dimensional space.
 objective and an economic role, and in addition the data fields of Section~\ref{sec:comparable}.
 Representation and model class are the things a study varies; objective and role are the things
 it must hold fixed. A Hawkes model scored on event-intensity likelihood and a Transformer scored on
-direction accuracy are not competitors, however often they appear in the same table.
+direction accuracy are not competitors.
 
 \emph{Second, to organise the paper.} Part~II moves along the model-class axis, from linear models
 to pretrained encoders, and Section~\ref{sec:events} along the representation axis. Part~III moves
@@ -895,7 +895,7 @@ Hawkes models~\citep{bacry2015} & event stream & point process & event intensity
 Queue value~\citep{moallemi2017} & queue state & queueing & value of a queue position & passive trading, market making \\
 DeepLOB~\citep{zhang2019} & raw snapshots & CNN + recurrent & direction & aggressive trading (simple trading simulation) \\
 TransLOB~\citep{wallbridge2020} & raw snapshots & Transformer & direction & not stated \\
-Deep OFI~\citep{kolm2023} & order-flow aggregate & recurrent / feed-forward & return, several horizons & not stated (scored by out-of-sample variance explained) \\
+Deep OFI~\citep{kolm2023} & order-flow aggregate & recurrent / feed-forward & return, several horizons & alpha (stated); scored by out-of-sample variance explained \\
 LOBERT~\citep{linna2025lobert} & event stream & pretrained encoder & direction; next message & not stated \\
 UQ-LOB~\citep{manoharan2026uqlob} & event stream & encoder + uncertainty module & direction with confidence & not stated (the authors note this) \\
 \pov{}~\citep{maciejewski_shadow} & event stream & none (rule) & execution cost & passive execution \\
@@ -937,7 +937,7 @@ Cryptocurrencies & Many independent exchanges, open 24 hours a day, every day & 
   APIs, often snapshots plus updates & Data are easy to obtain, but fees, participants and trading
   hours differ from traditional markets. \\
 Fixed income & Government bond futures on futures exchanges; cash bonds on electronic
-  inter-dealer platforms & Varies by venue & Treasury futures are large-tick instruments: the price rarely
+  inter-dealer platforms & Varies by venue & In the ZN examples of this survey, Treasury futures are large-tick instruments: the price rarely
   moves by more than a tick, queues are long, and queue position matters. \\
 \bottomrule
 \end{tabularx}
@@ -990,8 +990,8 @@ the kind of source is stated where it matters: a peer-reviewed paper, a preprint
 source code, a vendor-reported figure, or an independently audited benchmark. The comparison tables of Part~III mark each row
 with its basis. Where only an abstract or a vendor page was available, the text says so.
 
-\paragraph{The literature in numbers.} The survey cites 442 works: 294 peer-reviewed journal articles and
-conference papers, 69 preprints, 13 books, and 66 sources of other kinds---exchange
+\paragraph{The literature in numbers.} The survey cites 441 works: 294 peer-reviewed journal articles and
+conference papers, 69 preprints, 13 books, and 65 sources of other kinds---exchange
 specifications, software documentation and repositories, vendor material and benchmark reports. The counts are taken
 from the bibliography entries.
 
@@ -1069,7 +1069,7 @@ Number of configurations tried & The best of many tries looks good by chance
 \end{tabularx}
 \end{table}
 
-\begin{example}[Accuracy without knowledge]
+\begin{example}[A majority-class model on an imbalanced target]
 \label{ex:imbalance}
 A three-class target labels each sample ``up'', ``down'' or ``stationary'' according to whether
 the mid moves by more than a threshold within the horizon. Suppose that, with a short horizon on a
