@@ -11,8 +11,7 @@ survey, and the evidence status of its claims.
 The survey has identified places where the literature stops short of what a trader needs. They are described below
 grouped by the part of the survey they come from. Table~\ref{tab:agenda-needs} sorts the same problems by what is
 needed to test them. Most can be tested now, with recorded order-level data and a queue-exact replay such as \kasparhft{};
-the rest need a market that reacts to one's own orders, live trading, or hardware and benchmarks that do not yet
-exist.
+the rest need live trading, or hardware and benchmarks that do not yet exist.
 
 \begin{table}[!htbp]
 \centering\footnotesize
@@ -31,8 +30,8 @@ Replay only: testable now & execution-aware objectives; message-level foundation
 Replay with configured delays, then deployment & whether a strategy's properties survive a change of hardware and
   latency profile; training objectives that penalise inference latency \\
 \addlinespace
-A market that reacts, or live trading & causal questions about one's own orders; replay with a reacting market;
-  simulators compared with live fills \\
+Live trading & causal questions about one's own orders; impact measured on the real market; simulators
+  compared with live fills \\
 \addlinespace
 Hardware or a new public benchmark & spatial-temporal models on programmable logic; Hawkes intensities in hardware;
   an audited benchmark that builds the book and evaluates a learned model on it \\
@@ -83,13 +82,13 @@ given.
 \paragraph{End-to-end signal and execution.} Most models output a forecast and leave execution to a
 separate rule. Models whose output is the decision itself---quote, keep, cancel, cross---and whose
 training objective is execution value would close the gap that this survey describes. Reinforcement
-learning in LOB simulators~\citep{lalor2025nhp,frey2023} is one route, ideally validated in queue-exact replay; its results must be
-judged against model-free benchmarks in the same simulator.
+learning is one route, if the policy is trained and judged in queue-exact replay of recorded markets, against the
+model-free benchmarks in the same replay, rather than in a generated market.
 
 \paragraph{Causal rather than predictive questions.} The questions that matter for execution are
 causal: they ask what happens to the queue and the price \emph{if} an order is placed at a given price. Replay with a
 no-impact assumption answers this only for small orders. Models of the market's response to one's own
-orders, and ways to validate them without live experiments, remain open.
+orders, measured and validated on real executions, remain open.
 
 \paragraph{Generative evaluation.} Generators should be evaluated by market invariants and downstream
 utility rather than by visual or marginal similarity alone~\citep{lobbench2025}.
@@ -102,10 +101,10 @@ same orders. Running one strategy through several of them and through paper trad
 post-fill mark-outs with the live fills, would measure how much each simulator's assumptions---estimated queue
 position, simulated order flow, no market impact---cost in accuracy.
 
-\paragraph{Replay with a reacting market.} Replay cannot measure the market's response to one's own orders; a
-model-based simulator can, mechanically (Section~\ref{sec:kaspar-fills}). Combining the two---recorded flow for the
-rest of the market, a fitted model for the response to the strategy's orders---and validating the response against
-live trading is open.
+\paragraph{Impact measured on the real market.} Replay cannot measure the market's response to one's own orders, and in
+the view of this survey that response should not be taken from a generated market (Section~\ref{sec:sim-survey}). It
+has to be measured on the real market, from paper and live executions and their mark-outs. How to measure it
+precisely from few executions, and how to carry the measured response back into replay, are open.
 
 \subsection{Hardware}
 
@@ -204,8 +203,8 @@ Figure~\ref{fig:chain-findings} attaches to each link what the survey found ther
 \node[f] (f1) at (2.2,-0.95) {\textbf{The input decides most of the result.} With the network fixed, order-flow inputs were
   among the best in 89\% of cases and raw snapshots in 11\%~\citep{lucchese2024} (Section~\ref{sec:deep-io-effect}).};
 \node[f] (f2) at (2.2,-2.85) {\textbf{The label can decide the reported accuracy.} DeepLOB on Apple: 65.9\% with a label
-  that averages past prices, 54.6\% with one measured from the current price~\citep{lee2024predictability}; 57.6\% on
-  our synthetic market with nothing to predict (Section~\ref{sec:deep-train}).};
+  that averages past prices, 54.6\% with one measured from the current price~\citep{lee2024predictability}
+  (Section~\ref{sec:deep-real}).};
 \node[f] (f3) at (2.2,-4.75) {\textbf{Most models stop at a forecast.} The literature works mainly at levels 2--3; the
   decision is left to a hand-written rule, and no RL study reviewed reports a live test (Section~\ref{sec:policy}).};
 \node[f] (f4) at (2.2,-6.65) {\textbf{Latency decides whether a model can run.} Published inference takes 25\,\textmu s
@@ -214,8 +213,8 @@ Figure~\ref{fig:chain-findings} attaches to each link what the survey found ther
 \node[f] (f5) at (2.2,-8.55) {\textbf{The place in the queue decides the fill.} A fill rule that ignores the queue
   overstates results; exact queue position needs order-level data and an order-level book
   (Sections~\ref{sec:replay} and~\ref{sec:kaspar-fills}).};
-\node[f] (f6) at (2.2,-10.45) {\textbf{Resting and crossing cost the same.} About $+0.095$ ticks per contract on a year of
-  ES; adverse selection is complete within a second, and cost rises with every millisecond of delay
+\node[f] (f6) at (2.2,-10.45) {\textbf{Resting and crossing cost similar amounts.} About $+0.095$ ticks per contract on a year of
+  ES in one study; adverse selection is complete within a second, and cost rises with every millisecond of delay
   (Section~\ref{sec:shadow}).};
 \foreach \i/\a/\b in {1/n1/n2,2/n2/n3,3/n3/n4,4/n4/n5,5/n5/n6,6/n6/n7}
   \draw[dashed] ($(\a)!0.5!(\b)$) -- (f\i.west);
@@ -234,7 +233,7 @@ Seven conclusions follow from the evidence reviewed.
 \item \textbf{The prediction target matters.} How the label is built can decide the reported accuracy.
 \item \textbf{Queue position matters.} Whether a passive order fills, and how good the fill is, depends on its place
   in the queue.
-\item \textbf{Execution matters.} Resting and crossing can cost the same once adverse selection is counted.
+\item \textbf{Execution matters.} Resting and crossing can cost similar amounts once adverse selection is counted.
 \item \textbf{Simulation assumptions matter.} A fill rule that ignores the queue overstates results; a replay without
   market impact answers questions about small orders only.
 \item \textbf{Latency matters.} Cost rises with delay. A slow model on the hot path misses signals, leaves orders
@@ -250,8 +249,7 @@ the classical signal models rather than of the mechanistic ones (Section~\ref{se
 structural hybrids combine the two, either by feeding classical outputs to a learner or by building classical
 structure inside a network. Much of the accuracy reported for deep models depends on how the label and the data
 split are built: with a label that averages past prices, a re-test of DeepLOB on Apple was right 65.9\% of the time
-and 54.6\% with a label measured from the current price~\citep{lee2024predictability}, and in our synthetic example a
-network reached 57.6\% on a market with nothing to predict (Section~\ref{sec:deep-train}). The choice of input
+and 54.6\% with a label measured from the current price~\citep{lee2024predictability}. The choice of input
 matters as much: with the network fixed, order-flow inputs were among the best in 89\% of cases and raw snapshots in
 11\%~\citep{lucchese2024}. The conclusion is not that simple models are superior. It is that complexity is an
 empirical hypothesis: a more complex model is justified when it delivers incremental out-of-sample
@@ -261,7 +259,7 @@ burden of its own selection.
 Two kinds of infrastructure make that standard testable. The first is the simulator, and \kasparhft{} is the survey's
 instrument for it: a queue-exact replay of the exchange's own feed, deterministic, with separate latencies, running
 many days at once and the same code in replay, paper and live trading (Section~\ref{sec:kaspar}). On a year of
-E-mini data it shows the conclusions above in numbers: resting and crossing cost the same, about $+0.095$ ticks per
+E-mini data it shows the conclusions above in numbers: resting and crossing cost similar amounts, about $+0.095$ ticks per
 contract, post-fill mark-outs show adverse selection completed within a second, and cost rises steadily with
 latency~\citep{maciejewski_shadow}. Agent-based, model-based and
 generative simulators let the market react to the researcher's orders, but their queues are only as realistic as the
@@ -396,17 +394,17 @@ Front-of-queue positions are worth more than back-of-queue positions, with adver
 Hybrid inputs derived from the same stream add little to a sufficiently large network & open
   hypothesis \\
 Labels that average past prices inflate reported direction accuracy~\citep{lee2024predictability} & one re-test on
-  real data; reproduced on synthetic data here \\
+  real data \\
 Order-flow inputs beat raw snapshots with the network held fixed~\citep{lucchese2024} & established in one study
   (10 stocks) \\
 Published inference times of LOB models range from tens of microseconds to tens of milliseconds, above book-update times & measured in five
   studies under different conditions \\
 Exact own-order queue position in the recorded market requires order-level data and an order-level book &
   synthesis; argued from price--time priority \\
-Resting and crossing cost the same for model-free execution, about $+0.095$ ticks per contract on a year of
-  ES~\citep{maciejewski_shadow} & measured in one study (one instrument, queue-exact replay, no impact) \\
-Execution cost rises with delay: from $+0.097$ to $+0.150$ ticks per contract (passive) and from $+0.087$ to $+0.296$
-  (aggressive) between zero and 5\,ms~\citep{maciejewski_shadow} & measured in one study \\
+Resting and crossing cost similar amounts for model-free execution, about $+0.095$ ticks per contract on a
+  year of ES~\citep{maciejewski_shadow} & measured in one study (one instrument, queue-exact replay, no impact) \\
+Execution cost rises with every step of delay from zero to 5\,ms, to $+0.150$ ticks per contract (passive) and
+  $+0.296$ (aggressive)~\citep{maciejewski_shadow} & measured in one study \\
 A stage that handles each packet within the CME publisher period of about 7.5\,\textmu s never queues on arrivals;
   above it a queueing tail appears, caused by the clustering of arrivals~\citep{maciejewski2026packets} & measured on
   more than a year of NQ data \\

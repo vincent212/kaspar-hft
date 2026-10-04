@@ -6940,7 +6940,7 @@ how much of the new input to add, and how much to output. \emph{Attention} compu
 for every earlier input from how well they match, and takes the weighted average (the queries, keys and values of
 Section~\ref{sec:deep-attn}). An introduction to all three is in~\citet{goodfellow2016}.
 
-\subsection{Training a deep LOB model: a worked example}
+\subsection{Training a deep LOB model}
 \label{sec:deep-train}
 
 Training is where most of the decisions that change results are made, and where most of the problems found in
@@ -6964,10 +6964,6 @@ training needs automatically, so the modeller writes only the forward computatio
 \end{itemize}
 Framework use was checked in each project's public repository in October 2026.
 
-\paragraph{The example in this subsection.} Each step below is followed by what a small worked example on
-synthetic data does at that step. Step~6 uses the synthetic data to show what the choice of label does when there is
-nothing to predict.
-
 \begin{figure}[!htbp]
 \centering
 \begin{tikzpicture}[font=\scriptsize, node distance=3mm,
@@ -6989,19 +6985,11 @@ nothing to predict.
 08:30 to 16:00), recorded at every event: about 150,000 events per stock per day, more than 134 million samples in
 all.
 
-The example replaces this with a synthetic book. The mid-price is a random walk in event
-time: at each event it moves up one tick with probability 0.1, down one tick with probability 0.1, and otherwise
-stays. The spread is one tick, and the sizes at every level are independent random numbers. Nothing in this book
-predicts the next price move. The example uses 20 days of 3,000 events, each recorded as a row of 40 numbers in
-DeepLOB's column order.
-
 \paragraph{Step 2: normalise.} Prices and sizes are on very different scales, and their typical values drift from
 day to day, so each input is standardised---its mean subtracted, divided by its standard deviation. The statistics
 must come only from the past: DeepLOB normalises each day with the mean and standard deviation of the previous five
 days, separately for each stock. Using statistics from the whole sample would leak future information into the
-inputs. How inputs are normalised turns out to matter a great deal (Section~\ref{sec:deep-cnn}). The example does the
-same: it computes the mean and standard deviation of each of the 40 columns over the previous five days, standardises
-the current day with them, and uses the first five days only as statistics.
+inputs. How inputs are normalised turns out to matter a great deal (Section~\ref{sec:deep-cnn}).
 
 \paragraph{Step 3: windows and labels.} Each training example pairs an input window with a target. The input $X_t$ is
 the last 100 snapshots of the book, each with 40 numbers---price and size, bid and ask, at ten levels---so a $100
@@ -7023,16 +7011,10 @@ how many examples fall in each class. Both choices change the problem: averaging
 makes the label partly predictable from the past, which inflates accuracy~\citep{lee2024predictability}
 (Section~\ref{sec:deep-real}).
 
-The example builds both labels from running sums of the mid-price: the smoothed label measures the change from the
-average of the last $H$ mid-prices, the leak-free one from the current mid-price $m_t$ (the label of
-Equation~\eqref{eq:deep-label}). It uses $H = 20$, sets $\theta$ on the training days so that about a third of the
-labels are stationary, and cuts the book into overlapping windows of the last 100 snapshots, one per event.
-
 \paragraph{Step 4: split by time.} DeepLOB trains on the first six months, uses the next three to tune and to decide
 when to stop, and tests on the last three. The split must follow time: shuffling examples before splitting puts
 almost identical, overlapping windows into both training and test sets, and reports skill the model does not have.
-Several published studies made this mistake (Section~\ref{sec:deep-real}). The example trains on 9 days,
-validates on 3 and tests on the last 3, after the first 5 days are used only for the normalisation statistics.
+Several published studies made this mistake (Section~\ref{sec:deep-real}).
 
 \paragraph{Step 5: train.} The network outputs three probabilities, $\hat p_{\text{down}}$, $\hat p_{\text{stat}}$ and
 $\hat p_{\text{up}}$. Training adjusts the weights to make the probability of the observed label as high as
@@ -7052,64 +7034,12 @@ the validation months has not improved for 20 epochs (about 40 epochs in all). T
 weights and takes about a quarter of a millisecond per prediction; the paper does not state the device or the
 batch size used for that timing (Section~\ref{sec:hw-why}).
 
-The example builds DeepLOB following the description of Section~\ref{sec:deeplob}. Its parameter count is
-60,947: the same as Table~\ref{tab:deeplob-params} stage by stage, except the LSTM,
-which has two bias vectors per gate instead of one ($4 \times 64 = 256$ more). Its training loop shuffles batches within the training days only, and after each pass
-measures the loss on the validation days, keeping the weights with the lowest. It uses Adam with a learning rate of 0.0001 and batches of 128, the values in the authors'
-public TensorFlow notebook, which differ from the 0.01 and 32 stated in the paper. To keep the run short, training stops after 5
-epochs without improvement instead of 20, and after 30 epochs at most.
-
 \paragraph{Step 6: evaluate.} On the test months DeepLOB reports F1 scores of about 70\%, 63\% and 61\% for the three
 horizons, and similar numbers on five stocks it had not seen. Three further checks separate a useful model from a
 good-looking one, and the later subsections show each one failing in published work: compare with simple
 baselines on the same inputs, including a naive forecast of the label (Section~\ref{sec:deep-real}); re-test on a
 later period and on other instruments (Section~\ref{sec:benchmarks-dl}); and measure what a trader would make
 after costs, not only classification accuracy (Sections~\ref{sec:benchmarks-dl} and~\ref{sec:passive}).
-
-\paragraph{Step 6 in the example: results on a market with nothing to predict.} The example trains the network
-four times: two labels (smoothed, leak-free) times two ways of presenting prices (z-scored by day as in Step~2, or
-measured in ticks from the mid at the window's last event). Each run is scored by accuracy and macro-F1 on the 3
-test days, against three rules that use no network: the past-only rule of Section~\ref{sec:deep-real} (is the mid now above or below its average over the last 20
-events?), repeating the most recent label that is already known at $t$ (the label of $t - 20$), and always
-predicting the most common class. Table~\ref{tab:example-results} gives the results.
-
-\begin{table}[!htbp]
-\centering\footnotesize
-\caption{The example of this subsection: test-day scores on a synthetic market in which the price is a random walk,
-so that nothing can be predicted. Prices: z-scored by day, or relative to the mid at the window's last event. One
-run per configuration (seed 0); simulation, not market data.}
-\label{tab:example-results}
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{llcccc}
-\toprule
-Label & Prices & DeepLOB & Past-only & Repeat last & Most common \\
-& & & rule & label & class \\
-\midrule
-\multicolumn{6}{l}{\emph{each cell: accuracy / macro-F1}} \\
-Smoothed & z-scored & 0.389 / 0.187 & 0.560 / 0.565 & 0.406 / 0.401 & 0.389 / 0.187 \\
-Smoothed & relative & \textbf{0.576 / 0.576} & 0.560 / 0.565 & 0.406 / 0.401 & 0.389 / 0.187 \\
-Leak-free & z-scored & 0.358 / 0.176 & 0.328 / 0.326 & 0.337 / 0.335 & 0.358 / 0.176 \\
-Leak-free & relative & 0.358 / 0.176 & 0.328 / 0.326 & 0.337 / 0.335 & 0.358 / 0.176 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-What the table shows:
-\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
-\item \textbf{Leak-free label: nothing works}, as it should on a random walk. Every method is near one in three;
-  DeepLOB predicts the most common class for every example (macro-F1 0.176).
-\item \textbf{Smoothed label, relative prices: 57.6\% on an unpredictable market.} The network learns the part of
-  the label that is already known at $t$ (Equation~\eqref{eq:label-leak}) and matches the past-only rule. Every
-  point above one in three comes from the label, none from the book.
-\item \textbf{Smoothed label, z-scored prices: the network learns nothing.} Z-scored with five days of statistics, the
-  price columns mostly record where the price is relative to the previous days (average size 2.1 units on the 3 test
-  days). The movement within a window is much smaller: the median change over 20 events on those days is 0.039 units. In these runs the
-  network did not pick it up and predicted the most common class. Measuring prices from the current mid makes the
-  movement visible. The input normalisation decided whether this network could use the information at all, a
-  small instance of the finding of Section~\ref{sec:deep-cnn} that normalisation matters as much as architecture.
-\end{itemize}
-These are single runs on one synthetic data set, meant to show the steps and the label effect, not to rank
-methods.
 
 \subsection{Scoring, label construction, data splits and targets}
 \label{sec:deep-real}
@@ -7119,7 +7049,7 @@ compared. This subsection explains what such a number measures and why it can mi
 \begin{enumerate}[leftmargin=1.8em,itemsep=1pt]
 \item \textbf{What the scores are:} accuracy, precision, recall, F1 and macro-F1, and when each one misleads.
 \item \textbf{How a score can be inflated without the network learning anything:} by the way the label is built
-  (Check~1, with a simulation in which a rule that only looks at the past scores 74\% on an unpredictable market) and
+  (Check~1) and
   by the way the data are split into training and test periods (Check~2).
 \item \textbf{Why scores on different targets cannot be compared:} ``predicting the price'' can mean predicting the
   direction, the size of the move, whether it moves at all, whether an order is filled, or the profit, and a model
@@ -7160,24 +7090,10 @@ m^+_t - m^-_t \;=\; \underbrace{\big(m^+_t - m_t\big)}_{\text{the future: unknow
 already in: if the price has risen over the last twenty events, it is now above its recent average, and the
 future average will tend to be above the past average even if the price never moves again.}
 The second part is known when the prediction is made, so any model that notices the recent trend gets that part
-of the label for free. Figure~\ref{fig:label-leakage} shows how much it is worth. On a simulated market in which
-the price is a pure random walk---nothing about the future can be predicted---a rule that looks only at whether
-the price is above or below its average over the last twenty events predicts the direction of the smoothed label
-correctly 74\% of the time; the same rule predicts the direction of a label measured from the current price,
-$m^+_t - m_t$, exactly as often as a coin, 50\%.
+of the label for free.
 
-\begin{figure}[!htbp]
-\centering
-\includegraphics[width=\linewidth]{figs/label_leakage.png}
-\caption{Why a smoothed label inflates accuracy. (1) The label compares the average of the next 20 mid-prices with
-the average of the last 20; at ``now'' the price is already above its recent average, so part of the gap is
-already known. (2) On a pure random walk, where nothing can be predicted, a rule using only the past gets the
-direction of the smoothed label right 74\% of the time, and the direction of a label measured from the current
-price 50\% of the time. Stylised simulation, not data.}
-\label{fig:label-leakage}
-\end{figure}
 
-This is what \citet{lee2024predictability} found on real data. Re-running DeepLOB on a full year of Apple
+\citet{lee2024predictability} measured how much this is worth on real data. Re-running DeepLOB on a full year of Apple
 order-book data with the smoothed label, the network was right 65.9\% of the time---but a naive forecast that
 simply repeats the most recent value of the same label that could be observed was right 64.8\% of the time. With
 the label measured from the current price, DeepLOB's accuracy fell to 54.6\%, and to 53.6\% with only the best
@@ -9462,8 +9378,7 @@ Deep networks & the book carries short-horizon predictive information that netwo
   good inputs the choice of learner mattered little (Sections~\ref{sec:meta-summary} and~\ref{sec:deep-adds}).
 \item \textbf{How a model is evaluated changes the answer.} With a label that averages past prices, a re-test of
   DeepLOB on Apple was right 65.9\% of the time, and 54.6\% with a label measured from the current
-  price~\citep{lee2024predictability}; in the synthetic example of Section~\ref{sec:deep-train} a network reached
-  57.6\% on a market with nothing to predict. A Hawkes branching ratio fitted with a constant background rate can
+  price~\citep{lee2024predictability}. A Hawkes branching ratio fitted with a constant background rate can
   be 0.62 to 0.92 on data with no self-excitation at all (Section~\ref{sec:hawkes-branching-use}).
 \item \textbf{Prediction and execution are different questions.} Most models in this part predict the direction
   of the price. Whether an order would be filled, and how good the fill would be, depends on queue position and

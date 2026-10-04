@@ -250,10 +250,11 @@ and is strongly concave in size~\citep{toth2011}.
 \item \textbf{Large orders.} A metaorder moves the price by an amount that grows with its size and partly persists.
   Replay cannot measure this, because the recorded market does not respond; it needs an impact model such as those
   above, calibrated on the trader's own executions.
-\item \textbf{Mechanical impact in a reacting simulator.} A model-based simulator lets the strategy's orders consume
-  queues and the rates respond. A neural queue-reactive simulator reproduces the square-root law when metaorders are
-  injected~\citep{deepqr}; \kasparhft{}'s separation of the market-data source from the book, order manager and strategy lets such a
-  simulator replace the recorded feed without changing the rest of the system (Section~\ref{sec:kaspar-fills}).
+\item \textbf{Mechanical impact.} A strategy's orders consume queues, and the queues refill at rates that depend on
+  the state of the book. A model-based simulator produces this from its fitted rates; a neural queue-reactive simulator
+  reproduces the square-root law when metaorders are injected~\citep{deepqr}. In the author's view such results
+  describe the simulator, not the market (Section~\ref{sec:sim-survey}); for trading decisions mechanical impact is
+  measured on one's own executions.
 \item \textbf{Strategic interaction.} Other traders may detect a large trader and trade against it: when a trader
   must sell and others know it, they sell first and buy back later~\citep{brunnermeier2005}. Neither replay nor a
   simulator whose rates depend only on the book captures this; it needs agents that infer and respond.
@@ -600,8 +601,9 @@ the same: hftbacktest's examples run backtests in parallel processes~\citep{hftb
 process per backtest~\citep{nautilustrader}, and ABIDES ships a script that starts one replay process per
 date~\citep{abides_repo}; JAX-LOB instead runs up to a thousand environments in parallel on one GPU~\citep{frey2023}.
 Among the institutional commercial tools, TT's backtests run only on TT's servers, are charged by run time, and cover
-at most one trading day each~\citep{tt_backtest_run,tt_backtest_getstarted}; for Deltix and lobsim the documentation
-does not say. Retail charting platforms are left out of this comparison: they fill replayed orders without a queue or
+at most one trading day each~\citep{tt_backtest_run,tt_backtest_getstarted}; for Deltix the documentation does not
+say. For lobsim, an open-source library, the documentation does not say either, and its open licence sets no
+restriction. Retail charting platforms are left out of this comparison: they fill replayed orders without a queue or
 do not document how they fill them (Section~\ref{sec:sim-survey}), so running many copies of them does not provide
 the same kind of simulation.
 
@@ -792,31 +794,10 @@ been filled against this market?'' but not ``how would the market have moved bec
 simulated order never consumes liquidity that real traders would have reacted to. Market impact is
 therefore outside what this architecture measures, and it is not implemented.
 
-One way to add a reacting market, which we describe as possible future work rather than a feature, is a
-second market-data source: a queue-reactive simulator (Section~\ref{sec:qr}) in place of the recorded feed.
-The separation between the source of market data and the book, order manager and strategy actors means
-the rest of the pipeline would not change. The generator produces queue counts rather than individual
-orders, so its events would have to be turned into synthetic order-level messages---order identifiers and
-first-in-first-out placement---for the existing book. The researcher's orders would then change queue
-sizes, the simulator's rates would respond, and the price response to the strategy's own trading could be
-measured.
-
-What such an extension would estimate is limited, and should be stated with it.
-\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
-\item It would capture \emph{mechanical} impact: queues consumed by the strategy's orders, refilling at
-  state-dependent rates, and price moves when a queue empties. Neural extensions of the queue-reactive
-  model reproduce the square-root law of impact on Bund futures~\citep{deepqr}, so this part can be
-  realistic.
-\item It would not capture \emph{informational} impact: other participants inferring that a large buyer is
-  present and repricing. In the queue-reactive model this sits in the random resets of the book, which do
-  not respond to the strategy.
-\item Its impact would be a property of the simulator, and would need checking against impact measured on
-  real trading---post-fill mark-outs from paper or live fills, or published impact laws---before being
-  relied on.
-\end{itemize}
-The resulting division of labour would be: queue-exact replay for fill realism on the real market, without
-impact; a reactive simulator for mechanical impact and for comparing tactics in a market that responds;
-and paper and live trading as the ground truth for both.
+Consistent with Principle~1, \kasparhft{} does not replace the recorded market with a generated one to obtain
+impact. Impact is measured where it happens, on the real market: from the strategy's own paper and live fills and
+their post-fill mark-outs, and, for large orders, against published impact laws (Section~\ref{sec:impact}). For the
+small orders of the benchmark below, the recorded market is the test; for large orders, paper and live trading are.
 
 
 \subsection{Deterministic replay}
@@ -891,7 +872,7 @@ and both complete a target quantity, a percentage-of-volume (POV) mandate.
   percentage-of-volume rule taken to the grain of single trades~\citep{maciejewski_shadow}.
 \end{itemize}
 Between them the two bracket what can be achieved by following the flow alone: one rests, the other crosses. On a
-year of E-mini data they cost the same, about $+0.095$ ticks per contract, at nearly the same participation
+year of E-mini data they cost similar amounts, about $+0.095$ ticks per contract, at nearly the same participation
 (Table~\ref{tab:shadow-results}).
 
 \paragraph{Plugging in an order-book model.} Because the two versions make no forecast, a model can be added at the
@@ -920,7 +901,7 @@ result:
 with the same target quantity and the same participation, and compared with both model-free versions on the cost
 against the arrival mid-price and on post-fill mark-outs. Beating the passive version shows that the forecast is worth
 something over resting blind; beating the aggressive version shows that it is worth something over simply taking
-liquidity. Because both model-free versions cost about the same, the room a model has to improve is the adverse
+liquidity. Because both model-free versions cost similar amounts in that study, the room a model has to improve is the adverse
 selection that the passive version cannot avoid: the fills it would decline if it knew they were toxic. A model that
 beats neither has added complexity for nothing. The hierarchy is
 \begin{center}
@@ -934,15 +915,18 @@ through \kasparhft{}'s replay on every regular session of 2025 for which packet 
 E-mini S\&P~500 futures market-by-order data---as a two-sided execution that buys and sells 100 contracts in each
 10-minute window (Table~\ref{tab:shadow-results}). Three results bear on this survey.
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
-\item \textbf{Resting and crossing cost the same.} At nearly equal participation (4.46\% and 4.86\% of volume), the
+\item \textbf{Resting and crossing cost similar amounts.} At nearly equal participation (4.46\% and 4.86\% of volume), the
   passive method, which rests for 99\% of its executed quantity, and an aggressive version, which crosses for about
   half of it, cost $+0.0955$ and $+0.0952$ ticks per contract against the arrival mid-price. The half spread a resting
-  order earns is given back through adverse selection, as Section~\ref{sec:adverse} describes.
+  order earns is given back through adverse selection, as Section~\ref{sec:adverse} describes. This is one
+  instrument and one pair of configurations; whether resting and crossing cost the same in general is not known.
 \item \textbf{Adverse selection, measured.} The post-fill mark-out (Equation~\eqref{eq:markout}) is about
   0.07--0.10 ticks against the fill at 1, 5 and 30 seconds and does not revert: the move is complete within a second.
-\item \textbf{Latency costs money.} With the same delay applied to orders, cancels and market data, the passive
-  method's cost rises from $+0.097$ ticks per contract at zero delay to $+0.150$ at 5\,ms, and the aggressive
-  version's from $+0.087$ to $+0.296$; every step lies outside the previous step's 95\% interval.
+\item \textbf{Latency costs money.} With the same delay applied to orders, cancels and market data, the cost of
+  both versions rises at every step from zero to 5\,ms, reaching $+0.150$ ticks per contract for the passive method
+  and $+0.296$ for the aggressive version. For the aggressive version every step lies outside the previous step's
+  95\% interval; for the passive method only the first step, from zero to 0.5\,ms, does. The latency runs use each
+  version's own working settings, not the matched pair above, so their zero-delay costs differ from it.
 \end{itemize}
 The study's own caveats apply: the replay does not model market impact, so costs are before the market's reaction
 and participation is an upper bound; it covers one instrument, which is one tick wide for most of the session; and
