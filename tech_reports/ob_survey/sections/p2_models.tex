@@ -7546,6 +7546,79 @@ weighted average of the values---a ``soft'' look-up that mixes the best-matching
 a network the query, keys and values are all vectors computed from the events themselves by learned matrices; what
 is learned is \emph{how to ask and how to describe}, not which position matters.
 
+Figures~\ref{fig:attn-library} and~\ref{fig:attn-who} show who does what. The \emph{current} event asks the question:
+it produces the query. Every \emph{earlier} event in the window carries two things made from itself: a key, which
+describes it, and a value, which is what it hands over if chosen. The attention layer does the matching: it compares
+the query with each key, turns the match scores into weights, and returns the weighted average of the values to the
+current event, which uses it as its new description of the recent past.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize,
+  key/.style={draw, fill=blue!15, minimum width=34mm, minimum height=5mm},
+  val/.style={draw, fill=green!15, minimum width=34mm, minimum height=5mm},
+  arr/.style={-{Stealth[length=1.6mm]}, thick}]
+\node[draw, fill=orange!20, rounded corners=2pt, align=center, text width=24mm] (q) at (0,0)
+  {\textbf{query} (you)\\``sellers leaving''};
+\foreach \i/\k/\v/\w in {1/{sellers leaving}/{book A}/{0.67}, 2/{buyers arriving}/{book B}/{0.09}, 3/{both}/{book C}/{0.24}} {
+  \pgfmathsetmacro{\y}{1.6-1.6*(\i-1)}
+  \node[key] (k\i) at (4.2,\y+0.27) {key (label): \k};
+  \node[val] (v\i) at (4.2,\y-0.27) {value (contents): \v};
+  \draw[rounded corners=2pt, gray] ($(k\i.north west)+(-0.1,0.08)$) rectangle ($(v\i.south east)+(0.1,-0.08)$);
+  \draw[arr, orange!70!black] (q.east) -- ($(k\i.west)+(-0.12,0)$);
+  \node[anchor=west, font=\scriptsize\bfseries] (w\i) at (6.4,\y) {weight \w};
+}
+\node[anchor=south] at (4.2,2.15) {shelf: one drawer per item};
+\node[anchor=north, orange!70!black, align=center] at (0,-0.6) {matched against\\every label};
+\node[draw, fill=green!10, rounded corners=2pt, align=center, text width=30mm] (o) at (10.3,0)
+  {\textbf{result}\\$0.67\times$A $+\ 0.09\times$B\\$+\ 0.24\times$C};
+\foreach \i in {1,2,3} \draw[arr, green!50!black] (w\i.east) -- (o.west);
+\end{tikzpicture}
+\caption{Attention as a library search. You bring a query; every drawer on the shelf carries a key (its label) and a
+value (its contents). The query is matched against every label, the matches become weights that sum to one, and you
+get back a mix of all the contents, mostly from the drawers that matched best. Numbers from the worked example below.}
+\label{fig:attn-library}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize,
+  ev/.style={draw, rounded corners=2pt, fill=gray!10, minimum width=17mm, minimum height=8mm, align=center},
+  key/.style={draw, fill=blue!15, minimum width=13mm, minimum height=5mm},
+  val/.style={draw, fill=green!15, minimum width=13mm, minimum height=5mm},
+  arr/.style={-{Stealth[length=1.5mm]}}]
+% earlier events
+\foreach \i/\x in {1/0,2/2.3,3/4.6} {
+  \node[ev] (e\i) at (\x,0) {event \i\\$\mathbf{x}_{\i}$};
+  \node[key] (k\i) at (\x-0.5,-1.5) {key$_{\i}$};
+  \node[val] (v\i) at (\x+0.55,-1.5) {value$_{\i}$};
+  \draw[arr] (e\i) -- node[left, pos=0.4, font=\tiny]{$\mathbf{W}^{\text{key}}$} (k\i);
+  \draw[arr] (e\i) -- node[right, pos=0.4, font=\tiny]{$\mathbf{W}^{\text{val}}$} (v\i);
+}
+\node[ev, fill=red!12] (e4) at (7.6,0) {event 4\\(current)\\$\mathbf{x}_{4}$};
+\node[draw, fill=orange!20, minimum width=13mm, minimum height=5mm] (q) at (7.6,-1.5) {query$_4$};
+\draw[arr] (e4) -- node[right, font=\tiny]{$\mathbf{W}^{\text{qry}}$} (q);
+\node[anchor=east, align=right, text width=22mm] at (-1.1,-1.5) {keys and values: one pair per earlier event, made from that event};
+% attention layer
+\node[draw, very thick, rounded corners=3pt, fill=yellow!10, align=center, text width=92mm, minimum height=13mm] (att) at (3.4,-4.1)
+  {\textbf{attention layer (does the matching)}\\
+   1.\ score$_n$ = query$_4 \cdot$ key$_n$ for $n = 1,2,3$ \quad 2.\ weights = softmax(scores) \quad
+   3.\ output = $\sum_n$ weight$_n \times$ value$_n$};
+\foreach \i in {1,2,3} {\draw[arr, blue!60!black] (k\i.south) -- (k\i.south |- att.north);
+  \draw[arr, green!50!black] (v\i.south) -- (v\i.south |- att.north);}
+\draw[arr, orange!70!black, thick] (q.south) -- (q.south |- att.north);
+\node[ev, fill=red!6, align=center] (out) at (10.2,-4.1) {new vector\\for event 4};
+\draw[arr, thick] (att.east) -- (out.west);
+\node[align=left, anchor=west, text width=26mm] at (8.4,-1.5) {the current event asks the question};
+\end{tikzpicture}
+\caption{Attention on order-book events, for the newest event. Each earlier event is turned by learned matrices into a
+key (how it describes itself) and a value (what it passes on). The current event is turned into a query (what it is
+looking for). The attention layer scores the query against every key, converts the scores to weights, and sends the
+weighted average of the values back to the current event. In self-attention every event in the window takes its turn
+as the current one, each with its own query, against the keys and values of the events before it.}
+\label{fig:attn-who}
+\end{figure}
+
 \textit{A worked example.} The current event is a buy market order that empties the best ask. Before predicting
 what happens next, the model asks one question of the recent past: \emph{were sellers leaving the ask?}
 
