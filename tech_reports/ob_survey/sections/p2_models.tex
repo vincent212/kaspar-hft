@@ -3542,13 +3542,13 @@ other lacks, and join them in a \emph{state-dependent Hawkes process}.
 \paragraph{The model.} The book is summarised by a state $X(t)$ that takes one of a few values---for example
 ``spread of one tick'' and ``spread of two ticks or more''. The model has two parts. First, the intensities are
 those of a multivariate Hawkes process (Section~\ref{sec:hawkes-multi}), except that the bump left by each past
-event depends on the state of the book \emph{at the time that event happened}:
+event depends on the state of the book \emph{just after that event}---the state the event leaves behind:
 \begin{equation}
   \lambda_i(t) = \mu_i + \sum_{j=1}^{K}\;\sum_{\text{past type-}j\text{ events at } t'} \phi_{ij}\bigl(t - t',\, X(t')\bigr).
 \label{eq:sdh-intensity}
 \end{equation}
 \inwords{as before, each past event adds a decaying bump to the rate of type-$i$ events; but now the height and
-duration of the bump also depend on what the book looked like when the event occurred. A trade when the spread
+duration of the bump also depend on what the book looked like just after the event. A trade when the spread
 is wide can trigger a different reaction from a trade when it is tight.}
 Second, the state changes only at events, and how it changes depends on the type of the event:
 \begin{equation}
@@ -5671,7 +5671,7 @@ ask-heavy. The classical model is the state-dependent Hawkes process of \citet{m
 \inwords{the rate of type-$k$ events is a background rate $\mu_k$ plus a bump for each past event $h$, which
 occurred at time $t_h$. The bump starts at size $\alpha_{k,h}$ and shrinks exponentially at the decay rate
 $\beta_k$. In the state-dependent model the size $\alpha_{k,h}$ is not one fixed number: it is chosen by the type
-of event $h$, the type $k$ being excited, and the state of the book when event $h$ occurred
+of event $h$, the type $k$ being excited, and the state of the book just after event $h$
 (Section~\ref{sec:hawkes-sd}). In this simplified form the decay rate $\beta_k$ depends only on the excited type $k$.}
 After each event the state moves to a new level with probabilities that depend on the event's type.
 
