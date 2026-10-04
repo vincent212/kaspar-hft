@@ -420,10 +420,10 @@ the market---point-process, agent-based, deep-learning and stochastic-differenti
 findings that bear on this survey. Replay engines, queue position of one's own orders and latency are outside their
 scope.
 \begin{itemize}[leftmargin=1.5em,itemsep=2pt]
-\item \textbf{Simulators are validated weakly.} Most papers compare simulated and empirical distributions of
+\item \textbf{Validation methods vary.} Most papers compare simulated and empirical distributions of
   inter-arrival times, spreads and volumes by plotting them together; Q-Q plots, which test the tails, are used in
   some papers, and formal statistical tests in few. Deep-learning simulators mostly report training and validation
-  losses and price paths compared by eye. Few papers compare against simpler baselines; the authors recommend doing so
+  losses and price paths compared visually. Few papers compare against simpler baselines; the authors recommend doing so
   and checking that the fitted parameters are stable across conditions and volatility.
 \item \textbf{Poisson models reproduce the first-order facts only.} They reproduce the distributions of spread and
   volume, the average depth and the average shape of the book, but not the autocorrelation of price changes, the
@@ -445,7 +445,7 @@ scope.
 a strategy fitted to the one recorded history of an instrument will overfit it. This survey takes the opposite
 position, Principle~1, and it is the author's view: generating markets is a mistake. A strategy that makes money in a
 generated market has shown only that it can exploit the generator; it says nothing about the market that trades. The
-findings above are the reason: generators are validated mostly by eye, none reproduces most of the stylised facts,
+findings above are the reason: generators are validated mostly by visual comparison; the review found none that reproduces most of the stylised facts,
 and one agent trained in a generative simulator learned to exploit it (Section~\ref{sec:policy}). The answer to
 overfitting is not more invented data but a stricter test on real data: replay on many recorded days held out from
 development, with exact queues and latency, counting every configuration tried. Generated markets are left, in this
@@ -478,7 +478,7 @@ model and its neural extension simulate the queues at the first five levels~\cit
 citations are in the list above. Only the replay rows describe the observed market; the other rows describe a
 generated market. Queue position: \emph{exact (recorded)} means the simulated order sits in a reconstructed queue of the
 recorded individual orders; \emph{exact (simulated)} means a queue of individual orders in a simulated market;
-\emph{estimated} means a model of the volume ahead. ``--'': not provided. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor claim, \ev{A} independently audited, \ev{O} the author's own system.}
+\emph{estimated} means a model of the volume ahead. ``--'': not provided. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor-reported, \ev{A} independently audited, \ev{O} the author's own system.}
 \label{tab:simulators}
 \setlength{\tabcolsep}{2.5pt}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.13\linewidth}>{\raggedright\arraybackslash}p{0.12\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.1\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.11\linewidth}}
@@ -487,12 +487,12 @@ Simulator & Market from & Own-order queue position & Latency model & Market reac
 \midrule
 ABIDES\ev{P,C} & agents & exact (simulated) & network and processing delays & yes & same seed, same run (ties within a nanosecond in arbitrary order) & -- \\
 ABIDES-Gym\ev{P,C} & agents & exact (simulated) & pairwise delays & yes & seeded & -- \\
-MAXE\ev{P,C} & agents & exact (simulated); price--time or pro-rata & message and processing delays & yes & not seeded & -- \\
+MAXE\ev{P,C} & agents & exact (simulated); price--time or pro-rata & message and processing delays & yes & not documented & -- \\
 PyMarketSim\ev{Ab,C} & agents & price--time book; agents withdraw orders on arrival & -- & yes & partly seeded & -- \\
-JAX-LOB\ev{P,C} & replay (Nasdaq) & approximate: initial levels are one synthetic order each; agent orders re-queued each step & one observation-to-action delay (default 0) & -- & random keys; no claim & -- \\
+JAX-LOB\ev{P,C} & replay (Nasdaq) & approximate: initial levels are one synthetic order each; agent orders re-queued each step & one observation-to-action delay (default 0) & -- & JAX random keys; not documented & -- \\
 mbt\_gym\ev{P,C} & model & no book; fill probability from quote depth & -- & parametric impact & seeded & -- \\
-hftbacktest\ev{D,C} & replay (mainly crypto; CME via vendor files) & exact (recorded) with order-level data; estimated with price-level data & feed latency from data; order latency constant or from recorded live latencies & -- & no claim found & yes (two crypto venues) \\
-NautilusTrader\ev{D,C} & replay & estimated volume ahead & order-entry delays & -- & deterministic runtime claimed; seeded fill model & yes \\
+hftbacktest\ev{D,C} & replay (mainly crypto; CME via vendor files) & exact (recorded) with order-level data; estimated with price-level data & feed latency from data; order latency constant or from recorded live latencies & -- & not documented & yes (two crypto venues) \\
+NautilusTrader\ev{D,C} & replay & estimated volume ahead & order-entry delays & -- & deterministic runtime (documented); seeded fill model & yes \\
 MarS\ev{P,C} & generative model & exact (simulated) & computation and communication delays & yes & seeded sampling & -- \\
 TRADES\ev{P,C} & generative model in ABIDES & exact (simulated) & -- (as shipped) & yes & seeded & -- \\
 Queue-reactive\ev{P} & model & one tagged order, under stated assumptions & -- & yes, through queue sizes & -- & -- \\
@@ -548,9 +548,9 @@ Hummingbot~\citep{hummingbot} and Barter~\citep{barter}.
 \centering\scriptsize
 \caption{Historical-replay backtesters at order-book level, from their papers, documentation and code. ``Recorded
 market unchanged'': the simulated orders do not alter the replayed book (no market impact). ``--'': not provided;
-``not stated'': documentation silent. Commercial entries, below the line, are from vendor documentation; the Deltix
-knowledge base requires a login and was not read, and no readable documentation of a replay fill simulator was found
-for CQG. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor claim, \ev{A} independently audited, \ev{O} the author's own system.}
+``not stated'': not found in the documentation. Commercial entries, below the line, are from vendor documentation; the Deltix
+knowledge base requires a login and was not read, and we found no public documentation of a replay fill simulator
+for CQG. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor-reported, \ev{A} independently audited, \ev{O} the author's own system.}
 \label{tab:replay-tools}
 \setlength{\tabcolsep}{2.5pt}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}p{0.12\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.1\linewidth}>{\raggedright\arraybackslash}p{0.11\linewidth}>{\raggedright\arraybackslash}p{0.14\linewidth}}
@@ -577,8 +577,8 @@ Deltix QuantOffice\ev{D} & price- or order-level & not stated & configurable & n
 \end{table}
 
 Retail charting platforms (Sierra Chart, ATAS, NinjaTrader, Bookmap, MultiCharts) replay depth of book for display;
-Sierra Chart and ATAS fill replayed orders without a queue and the others do not document how they
-fill~\citep{sierrachart_replay,atas_replay,ninjatrader_playback,bookmap_replay,multicharts_sim}.
+Sierra Chart and ATAS fill replayed orders without a queue, and for the others we found no description of the
+fill rule~\citep{sierrachart_replay,atas_replay,ninjatrader_playback,bookmap_replay,multicharts_sim}.
 
 \paragraph{Position of \kasparhft{} among replay tools.} Of the replay tools found, three place the simulated order in the recorded queue
 without changing the recorded market: hftbacktest, lobsim and \kasparhft{}. Of these, lobsim has no live-trading path, and
@@ -587,7 +587,7 @@ several venues and data vendors. Both reach CME data only through a data vendor'
 multicast or packet captures), models order, cancel and feed delays separately, and runs the same code in replay,
 paper and live trading against that exchange. We found no open-source or documented commercial backtester that
 decodes MDP~3.0 itself. None of the commercial documentation we could read describes filling a simulated order by its
-exact place in a recorded order-level queue: the tools estimate the position, fill without a queue, or do not say.
+exact place in a recorded order-level queue: the tools estimate the position, fill without a queue, or the documentation we could read does not describe it.
 
 \paragraph{Running many days at once.} A \kasparhft{} replay processes one trading day per run, from one packet capture or
 one decoded file, on one thread. Days are independent, so many days can be simulated at the same time as separate
@@ -597,15 +597,13 @@ the same: hftbacktest's examples run backtests in parallel processes~\citep{hftb
 process per backtest~\citep{nautilustrader}, and ABIDES ships a script that starts one replay process per
 date~\citep{abides_repo}; JAX-LOB instead runs up to a thousand environments in parallel on one GPU~\citep{frey2023}.
 Among the institutional commercial tools, TT's backtests run only on TT's servers, are charged by run time, and cover
-at most one trading day each~\citep{tt_backtest_run,tt_backtest_getstarted}; for Deltix the documentation does not
-say. For lobsim, an open-source library, the documentation does not say either, and its open licence sets no
-restriction. Retail charting platforms are left out of this comparison: they fill replayed orders without a queue or
-do not document how they fill them (Section~\ref{sec:sim-survey}), so running many copies of them does not provide
-the same kind of simulation.
+at most one trading day each~\citep{tt_backtest_run,tt_backtest_getstarted}; for Deltix we found no description in the
+documentation. For lobsim, an open-source library, we found none either, and its open licence sets no
+restriction. Retail charting platforms are left out of this comparison (Section~\ref{sec:sim-survey}).
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{Running many replay simulations at once on one's own hardware, from documentation, licence terms and code. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor claim, \ev{A} independently audited, \ev{O} the author's own system.}
+\caption{Running many replay simulations at once on one's own hardware, from documentation, licence terms and code. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor-reported, \ev{A} independently audited, \ev{O} the author's own system.}
 \label{tab:parallel}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X}
 \toprule
@@ -1238,23 +1236,23 @@ bandwidth~\citep{nvidia_cuda_bpg}; a single small transfer over PCIe has been me
 \paragraph{Measured latencies of order-book models.} Table~\ref{tab:lob-latency} collects the published inference
 times we found. They range from about 25\,\textmu s to about 23\,ms---from about 25 to about 23,000 times the roughly
 1\,\textmu s median socket-to-book latency of Section~\ref{sec:kaspar-measurement}; about half are below one millisecond
-and half above. They are not comparable across rows: devices and software differ, and some
-sources do not state the batch size. Latency also does not follow operation counts: in one study a gradient-boosted model that the
+and half above. They are not comparable across rows: devices, software and batch sizes
+differ. Latency also does not follow operation counts: in one study a gradient-boosted model that the
 study counts as doing 23 times more work than another model ran 15 times faster than that other
 model~\citep{hedges2026frontier}.
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{Published inference times of order-book models. Each row is as reported by the source. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor claim, \ev{A} independently audited, \ev{O} the author's own system.}
+\caption{Published inference times of order-book models. Each row is as reported by the source. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor-reported, \ev{A} independently audited, \ev{O} the author's own system.}
 \label{tab:lob-latency}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.33\linewidth}}
 \toprule
 Source & Models and times & Conditions \\
 \midrule
-\citet{zhang2019}\ev{P} & DeepLOB 0.253\,ms & batch size and device for the timing not stated \\
+\citet{zhang2019}\ev{P} & DeepLOB 0.253\,ms & batch size and device for the timing not reported \\
 \citet{tran2019tabl}\ev{P} & C(TABL) 0.025, CNN 0.061, LSTM 0.229\,ms & one sample, Intel i7-4790 CPU \\
 \citet{liu2026microsecond}\ev{P,Ab} & 8-bit integer 1D-CNN on FI-2010: 57\,\textmu s & FPGA (KU040), inference core only; from the abstract \\
-\citet{berti2025tlob}\ev{Pr} & MLP 0.08, LSTM 0.21, DeepLOB 1.31, TLOB 2.24, MLPLOB 4.79\,ms & RTX 3090 GPU; batch size not stated \\
+\citet{berti2025tlob}\ev{Pr} & MLP 0.08, LSTM 0.21, DeepLOB 1.31, TLOB 2.24, MLPLOB 4.79\,ms & RTX 3090 GPU; batch size not reported \\
 \citet{hedges2026frontier}\ev{Pr} & median at batch one: MLPLOB 2.1\,ms (CPU), 2.8\,ms (GPU); TLOB 22.8\,ms (CPU), 5.1\,ms (GPU) & Apple M3 Max, PyTorch, 32-bit floating point; forward pass only, no preprocessing or transfer \\
 \bottomrule
 \end{tabularx}
@@ -1404,10 +1402,10 @@ FPGA-based system for AI inference. Corsair~\citep{corsair2025} is an in-memory-
 chiplets (small dies combined in one package); its maker, d-Matrix, announced it in full production in
 2026~\citep{dmatrix2026production}. Positron AI's Atlas is an inference server for Transformer models built on FPGAs (Altera Agilex-7M); its
 published figures are for a large language model, 280 against 182 tokens per second per user for an NVIDIA DGX H200,
-with the batch size not stated~\citep{positron_atlas,eetimes2026positron}. A trading firm, Jump Trading, co-led its
+batch size not reported~\citep{positron_atlas,eetimes2026positron}. A trading firm, Jump Trading, co-led its
 funding, and its chief technology officer reported about three times lower end-to-end latency than a comparable
-H100-based system on undisclosed workloads~\citep{eetimes2026positron}---an investor's statement, not a benchmark. No
-batch-one latency for order-book models has been published for either product. Network cards with programmable logic carry inference into the
+H100-based system~\citep{eetimes2026positron}. We found no published
+batch-one latency for order-book models for either product. Network cards with programmable logic carry inference into the
 network path itself~\citep{napatech}.
 
 \subsection{Transformers on FPGAs}
@@ -1415,7 +1413,7 @@ network path itself~\citep{napatech}.
 Mapping attention to FPGAs is an active research topic outside finance; this section summarises two designs and
 what they imply for order-book Transformers. FAMOUS~\citep{famous}
 accelerates dense multi-head attention on a data-centre FPGA, at 0.6 to 0.94\,ms per attention layer for sequences
-of 64 elements; its comparison with a V100 GPU uses a figure taken from another paper rather than measured.
+of 64 elements; its V100 GPU comparison figure is taken from another paper.
 ELiTeFormer~\citep{eliteformer} co-designs a ternary-weight Transformer with linear attention for an adaptive system-on-chip (a chip that combines processor cores with programmable logic).
 Neither is a trading system, and we found no measured FPGA implementation of an order-book Transformer. Small,
 quantised attention models are candidates for programmable logic, with quantisation as the enabling
@@ -1427,8 +1425,7 @@ Graphics processors are built for data-parallel workloads: training, large-scale
 whose memory footprint or operator mix exceeds practical FPGA budgets. JAX-LOB~\citep{frey2023}
 (Section~\ref{sec:sim-survey}) moves order-book matching onto accelerators for reinforcement-learning training. Monte Carlo simulation
 of order-book dynamics parallelises well across paths; one vendor demonstration reports speed-ups of
-14 to 114 times over a CPU~\citep{nvidia_numba2025}, though for simulated paths rather than a
-historical matching-engine backtest. Specialised processors also accelerate training: a multi-horizon
+14 to 114 times over a CPU~\citep{nvidia_numba2025}, for simulated paths. Specialised processors also accelerate training: a multi-horizon
 DeepLOB variant trained in about 15\% of the GPU time on intelligence processing
 units~\citep{zhangzohren2021}. For single-event inference, GPUs used naively are slow (Section~\ref{sec:hw-why}),
 but with vendor-optimised code and a sliding window that reuses earlier computation, a GH200 reached 4.70\,\textmu s
@@ -1528,7 +1525,7 @@ network---and in how they place the simulated order in the queue. Agent-based, m
 let the market react to the orders, but their queues are only as realistic as the simulated order flow. Among replay
 tools, three place the simulated order in the recorded queue without changing the recorded market: hftbacktest, lobsim
 and \kasparhft{}. The commercial tools whose documentation we could read estimate queue position, fill without a queue, or
-do not say how they do it (Section~\ref{sec:sim-survey}).
+do not describe the fill rule in the documentation we could read (Section~\ref{sec:sim-survey}).
 
 \paragraph{\kasparhft{}.} \kasparhft{} replays an exchange's own market-by-order feed (CME MDP~3.0 today), places simulated orders
 in the reconstructed first-in-first-out queues after separate order, cancel and feed delays, fills them only when

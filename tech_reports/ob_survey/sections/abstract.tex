@@ -2,8 +2,8 @@
 A large literature predicts short-term price moves from the limit order book (LOB): signals such as order-flow
 imbalance and the micro-price, queue and first-passage models, Hawkes and neural point processes, and deep networks
 from convolutional models to Transformers and pretrained message-level encoders. Most of it stops at the forecast.
-Models are scored on how often they guess the direction of the next move, and independent re-tests find that many
-published deep models lose much of their accuracy on new data. A trader needs to know something else: whether the
+Models are scored on how often they guess the direction of the next move, and in an independent re-test of fifteen
+published deep models on later Nasdaq data, F1 scores were between 48\% and 61\%, lower than those reported on FI-2010. A trader needs to know something else: whether the
 information a model extracts survives the queue, the fill and the latency of a real order, and still makes money.
 
 This survey follows a model from theory to production. It is three surveys in one, in the order the work is done:

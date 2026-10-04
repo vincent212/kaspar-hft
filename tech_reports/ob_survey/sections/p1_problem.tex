@@ -30,8 +30,8 @@ individual messages to aggregated price levels~\citep{gould2013,bouchaud2018}.
 
 Limit order books match buyers and sellers in more than half of the world's financial
 markets~\citep{gould2013}. In their survey, \citet{gould2013} review the empirical regularities of order
-books and the models proposed to explain them, and conclude that many of those models resemble real books
-poorly and that several well-established facts have yet to be reproduced. The economic theory of why
+books and the models proposed to explain them, and conclude that many of those models do not yet reproduce
+several features of real books, and that some well-established facts remain unexplained. The economic theory of why
 quotes are set where they are is older. In the model of \citet{glosten1985}, a market maker who trades
 with a mixture of better-informed and uninformed traders quotes a positive spread between bid and ask even
 with no transaction costs and no expected profit: the spread is what the market maker needs to recover,
@@ -799,7 +799,7 @@ constraints?
 \label{tab:prior-surveys}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.26\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
 \toprule
-Work & Focus & Not covered there \\
+Work & Focus & Outside its scope \\
 \midrule
 \citet{gould2013} & empirical facts and models of LOBs & deep learning; execution value; queue position in practice \\
 \citet{abergel2016}, \citet{bouchaud2018} & books on empirical properties, models and simulation of order books and impact & recent deep and generative models; model-search statistics \\
@@ -861,7 +861,7 @@ four-dimensional space.
 \item[Economic role: the decision the output is for] Aggressive trading (crossing the spread);
   passive trading (resting orders); market making (quoting both sides); execution of a given
   order; risk measurement; or simulation for research. A paper that evaluates only statistical
-  accuracy and names no decision has an \emph{unspecified} economic role.
+  accuracy and names no decision has an economic role that is \emph{not stated}.
 \end{description}
 
 \noindent The axes are used in three ways.
@@ -879,12 +879,12 @@ simulators and hardware support the economic role of passive execution.
 
 \emph{Third, to expose a gap.} Table~\ref{tab:axes} places the main works discussed in this survey
 on the four axes. The economic-role column is where the literature is thinnest: many of the
-learned models are evaluated on accuracy alone, and the decision their output would drive is left
-unspecified. The rest of the paper is about filling that column.
+learned models are evaluated on accuracy alone, and the decision their output would drive is
+not stated. The rest of the paper is about filling that column.
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{Selected works placed on the four axes. ``Unspecified'' means the work evaluates
+\caption{Selected works placed on the four axes. ``Not stated'' means the work evaluates
 statistical accuracy without stating or evaluating a trading decision. \pov{} (Shadow Passive
 Percentage-of-Volume) is the model-free execution algorithm of Section~\ref{sec:shadow}.}
 \label{tab:axes}
@@ -899,10 +899,10 @@ Queue-reactive~\citep{huang2015} & queue state & queueing (Markov) & event inten
 Hawkes models~\citep{bacry2015} & event stream & point process & event intensity & simulation, risk \\
 Queue value~\citep{moallemi2017} & queue state & queueing & value of a queue position & passive trading, market making \\
 DeepLOB~\citep{zhang2019} & raw snapshots & CNN + recurrent & direction & aggressive trading (simple trading simulation) \\
-TransLOB~\citep{wallbridge2020} & raw snapshots & Transformer & direction & unspecified \\
-Deep OFI~\citep{kolm2023} & order-flow aggregate & recurrent / feed-forward & return, several horizons & unspecified (scored by out-of-sample variance explained) \\
-LOBERT~\citep{linna2025lobert} & event stream & pretrained encoder & direction; next message & unspecified \\
-UQ-LOB~\citep{manoharan2026uqlob} & event stream & encoder + uncertainty module & direction with confidence & unspecified (stated by the authors) \\
+TransLOB~\citep{wallbridge2020} & raw snapshots & Transformer & direction & not stated \\
+Deep OFI~\citep{kolm2023} & order-flow aggregate & recurrent / feed-forward & return, several horizons & not stated (scored by out-of-sample variance explained) \\
+LOBERT~\citep{linna2025lobert} & event stream & pretrained encoder & direction; next message & not stated \\
+UQ-LOB~\citep{manoharan2026uqlob} & event stream & encoder + uncertainty module & direction with confidence & not stated (the authors note this) \\
 \pov{}~\citep{maciejewski_shadow} & event stream & none (rule) & execution cost & passive execution \\
 \bottomrule
 \end{tabularx}
@@ -991,11 +991,11 @@ by these searches, not claims about everything that exists.
 
 \paragraph{Claim verification.} Every number and factual statement was traced to a source that was read, and
 the kind of source is stated where it matters: a peer-reviewed paper, a preprint, an abstract only, documentation,
-source code, a vendor claim, or an independently audited benchmark. The comparison tables of Part~III mark each row
+source code, a vendor-reported figure, or an independently audited benchmark. The comparison tables of Part~III mark each row
 with its basis. Where only an abstract or a vendor page was available, the text says so.
 
-\paragraph{The literature in numbers.} The survey cites 459 works: 301 peer-reviewed journal articles and
-conference papers, 69 preprints, 14 books, 1 thesis, and 74 sources of other kinds---exchange
+\paragraph{The literature in numbers.} The survey cites 443 works: 295 peer-reviewed journal articles and
+conference papers, 69 preprints, 13 books, and 66 sources of other kinds---exchange
 specifications, software documentation and repositories, vendor material and benchmark reports. The counts are taken
 from the bibliography entries.
 

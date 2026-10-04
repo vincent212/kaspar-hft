@@ -97,7 +97,7 @@ utility rather than by visual or marginal similarity alone~\citep{lobbench2025}.
 \paragraph{Cross-asset information after costs.} An open question is when cross-asset information remains
 valuable after costs, latency, multiple testing and parameter instability.
 
-\paragraph{Simulators against live fills.} The simulators of Table~\ref{tab:simulators} have not been compared on the
+\paragraph{Simulators against live fills.} We found no comparison of the simulators of Table~\ref{tab:simulators} on the
 same orders. Running one strategy through several of them and through paper trading, and comparing fill rates and
 post-fill mark-outs with the live fills, would measure how much each simulator's assumptions---estimated queue
 position, simulated order flow, no market impact---cost in accuracy.
@@ -166,7 +166,7 @@ have few parameters, and they work at levels 4 and 5.
 The question this survey asks sits between the two: does the information a forecasting model extracts survive the
 queue, the fill and the latency of a real order? In our reading of the literature the two rarely meet. We found no
 pretrained order-book model evaluated on fills or profit (Section~\ref{sec:foundation}); none of the reinforcement-learning
-studies reviewed, which do learn to act, reports a live or paper-trading test (Section~\ref{sec:policy}); and a
+studies we reviewed, which do learn to act, reports a live or paper-trading test (Section~\ref{sec:policy}); and a
 forecast is usually turned into orders by a separate, hand-written rule. Joining the two needs a test bench in which a
 forecast changes an order, the order waits in a real queue, and the result is measured in money. That is what the
 simulators of Part~III, and \kasparhft{} in particular, provide.
@@ -204,11 +204,11 @@ Figure~\ref{fig:chain-findings} attaches to each link what the survey found ther
 \node[f] (f1) at (2.2,-0.95) {\textbf{Representation matters.} With the network held fixed, the choice of input decided
   most of the result in one large comparison: order-flow inputs were among the best in 89\% of cases and raw
   snapshots in 11\%~\citep{lucchese2024} (Section~\ref{sec:deep-io-effect}).};
-\node[f] (f2) at (2.2,-2.85) {\textbf{The label can decide the reported accuracy.} DeepLOB on Apple: 65.9\% with a label
-  that averages past prices, 54.6\% with one measured from the current price~\citep{lee2024predictability}
+\node[f] (f2) at (2.2,-2.85) {\textbf{The label can decide the reported accuracy.} In the re-test of \citet{lee2024predictability}, DeepLOB's accuracy on
+  Apple was 65.9\% with a label that averages past prices and 54.6\% with one measured from the current price
   (Section~\ref{sec:deep-real}).};
 \node[f] (f3) at (2.2,-4.75) {\textbf{Most models stop at a forecast.} The literature works mainly at levels 2--3; the
-  decision is left to a hand-written rule, and no RL study reviewed reports a live test (Section~\ref{sec:policy}).};
+  decision is left to a hand-written rule, and no RL study we reviewed reports a live test (Section~\ref{sec:policy}).};
 \node[f] (f4) at (2.2,-6.65) {\textbf{Latency decides whether a model can run.} Published inference takes 25\,\textmu s
   to 23\,ms; a hot-path stage must handle each packet within about 7.5\,\textmu s or a queue builds in bursts. A slow
   model misses signals and leaves orders to be picked off (Section~\ref{sec:hardware}).};
@@ -407,8 +407,8 @@ Front-of-queue positions are worth more than back-of-queue positions, with adver
   increasing in queue position~\citep{moallemi2017} & Established result in a model; its size across regimes is
   an open hypothesis \\
 Hybrid inputs derived from the same stream add little to a sufficiently large network & Open hypothesis \\
-Labels that average past prices inflate reported direction accuracy~\citep{lee2024predictability} & Established
-  result; one re-test on real data \\
+In the re-test of \citet{lee2024predictability}, DeepLOB's accuracy was 65.9\% with a label that averages past
+  prices and 54.6\% with one measured from the current price & Established result; one re-test on real data \\
 Published inference times of LOB models range from tens of microseconds to tens of milliseconds, above book-update
   times & Empirical synthesis; five studies measured under different conditions \\
 Exact own-order queue position in the recorded market requires order-level data and an order-level book &
@@ -421,11 +421,11 @@ Execution cost rises with every step of delay from zero to 5\,ms, to $+0.150$ ti
 A stage that handles each packet within the CME publisher period of about 7.5\,\textmu s never queues on arrivals;
   above it a queueing tail appears, caused by the clustering of arrivals~\citep{maciejewski2026packets} &
   Established result; more than a year of NQ data \\
-Every published inference time of an order-book model exceeds the CME publisher period & Empirical synthesis of
+Every published inference time of an order-book model that we found exceeds the CME publisher period & Empirical synthesis of
   the measurements above \\
-Pretrained order-book models have not been evaluated on fills or profit & Empirical synthesis; literature search,
+We found no evaluation of pretrained order-book models on fills or profit & Empirical synthesis; literature search,
   none found \\
-None of the reinforcement-learning studies reviewed reports a live or paper-trading test & Empirical synthesis;
+None of the reinforcement-learning studies we reviewed reports a live or paper-trading test & Empirical synthesis;
   eight studies (Table~\ref{tab:rl}) \\
 \bottomrule
 \end{tabularx}

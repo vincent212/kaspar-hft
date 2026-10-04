@@ -1,4 +1,4 @@
-\begin{thebibliography}{447}
+\begin{thebibliography}{443}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -1791,13 +1791,6 @@ Gary Koop and Dimitris Korobilis.
 Viktor Krapivensky.
 \newblock glass: ordered set data structure for client-side order books, 2025.
 
-\bibitem[Kumar(2024)]{kumar2024deephawkes}
-Pankaj Kumar.
-\newblock Deep {H}awkes process for high-frequency market making.
-\newblock \emph{Journal of Banking and Financial Technology}, 8\penalty0
-  (1):\penalty0 11--28, 2024.
-\newblock \doi{10.1007/s42786-024-00049-8}.
-
 \bibitem[Kuon and Rose(2007)]{kuon2007}
 Ian Kuon and Jonathan Rose.
 \newblock Measuring the gap between {FPGAs} and {ASICs}.
@@ -2270,12 +2263,6 @@ Paraskevi Nousi, Avraam Tsantekidis, Nikolaos Passalis, Adamantios Ntakaris,
   order book data.
 \newblock \emph{IEEE Access}, 7:\penalty0 64722--64736, 2019.
 \newblock \doi{10.1109/ACCESS.2019.2916793}.
-
-\bibitem[Ntakaris and Ibikunle(2024)]{ntakaris2024alpe}
-Adamantios Ntakaris and Gbenga Ibikunle.
-\newblock Minimal batch adaptive learning policy engine for real-time mid-price
-  forecasting in high-frequency trading, 2024.
-\newblock Preprint.
 
 \bibitem[Ntakaris et~al.(2018)Ntakaris, Magris, Kanniainen, Gabbouj, and
   Iosifidis]{ntakaris2018}
@@ -2992,21 +2979,14 @@ Dat~Thanh Tran, Alexandros Iosifidis, Juho Kanniainen, and Moncef Gabbouj.
   30\penalty0 (5):\penalty0 1407--1418, 2019.
 \newblock \doi{10.1109/TNNLS.2018.2869225}.
 
-\bibitem[Tran et~al.(2021{\natexlab{a}})Tran, Kanniainen, Gabbouj, and
+\bibitem[Tran et~al.(2021)Tran, Kanniainen, Gabbouj, and
   Iosifidis]{tran2021bin}
 Dat~Thanh Tran, Juho Kanniainen, Moncef Gabbouj, and Alexandros Iosifidis.
 \newblock Data normalization for bilinear structures in high-frequency
   financial time-series.
 \newblock In \emph{2020 25th International Conference on Pattern Recognition
-  (ICPR)}, pages 7287--7292. IEEE, 2021{\natexlab{a}}.
+  (ICPR)}, pages 7287--7292. IEEE, 2021.
 \newblock \doi{10.1109/ICPR48806.2021.9412547}.
-
-\bibitem[Tran et~al.(2021{\natexlab{b}})Tran, Kanniainen, Gabbouj, and
-  Iosifidis]{tran2021binext}
-Dat~Thanh Tran, Juho Kanniainen, Moncef Gabbouj, and Alexandros Iosifidis.
-\newblock Bilinear input normalization for neural networks in financial
-  forecasting, 2021{\natexlab{b}}.
-\newblock Preprint; extended version of the ICPR 2020 BiN paper.
 
 \bibitem[Tripathi et~al.(2020)Tripathi, Vipul, and Dixit]{tripathi2020}
 Abhinava Tripathi, Vipul, and Alok Dixit.
@@ -3085,11 +3065,6 @@ Svitlana Vyetrenko, David Byrd, Nick Petosa, Mahmoud Mahfouz, Danial Dervovic,
 \bibitem[Wallbridge(2020)]{wallbridge2020}
 James Wallbridge.
 \newblock Transformers for limit order books, 2020.
-
-\bibitem[Wang(2025)]{wang2025cryptolob}
-Haochuan Wang.
-\newblock Exploring microstructural dynamics in cryptocurrency limit order
-  books: Better inputs matter more than stacking another hidden layer, 2025.
 
 \bibitem[Wang et~al.(2012)Wang, Bebbington, and Harte]{wang2012mmhp}
 Ting Wang, Mark Bebbington, and David Harte.
