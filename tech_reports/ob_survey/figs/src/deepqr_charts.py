@@ -1,5 +1,5 @@
 """Values reported by Bodor & Carlier (arXiv 2501.08822), re-plotted. Not our data.
-Numbers are from the cited paper (deepqr)."""
+Numbers from arXiv 2501.08822v1 (bib key deepqr)."""
 from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
