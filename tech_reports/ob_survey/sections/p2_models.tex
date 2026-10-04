@@ -7077,8 +7077,17 @@ methods.
 \subsection{Scoring, label construction, data splits and targets}
 \label{sec:deep-real}
 
-This subsection defines the scores used in the deep LOB literature, then shows two ways in which a reported
-score can overstate what the network learned, and why two targets with similar names are not comparable.
+Papers in this literature report a number---an accuracy or an F1 score---and that number is how models are
+compared. This subsection explains what such a number measures and why it can mislead, in three steps:
+\begin{enumerate}[leftmargin=1.8em,itemsep=1pt]
+\item \textbf{What the scores are:} accuracy, precision, recall, F1 and macro-F1, and when each one misleads.
+\item \textbf{How a score can be inflated without the network learning anything:} by the way the label is built
+  (Check~1, with a simulation in which a rule that only looks at the past scores 74\% on an unpredictable market) and
+  by the way the data are split into training and test periods (Check~2).
+\item \textbf{Why scores on different targets cannot be compared:} ``predicting the price'' can mean predicting the
+  direction, the size of the move, whether it moves at all, whether an order is filled, or the profit, and a model
+  can do well on one and badly on another.
+\end{enumerate}
 
 \paragraph{Scoring metrics.} Direction classifiers are scored by comparing their predicted class with the
 true one on the test data. \emph{Accuracy} is the share of cases predicted correctly. For one class, say ``up'',
@@ -7162,8 +7171,10 @@ error---is 0.602 for the naive forecast, above ARIMA (0.364) and their model (0.
 hardest baselines to beat, so a naive forecast that loses by this much calls for checking how it was defined;
 we did not check it.
 
-\paragraph{Differences between similar-sounding targets.} Two models scored on targets that sound alike may be solving different
-problems, and a model that does well on one can do badly on another. Six targets appear in this literature:
+\paragraph{Differences between similar-sounding targets.} ``Predicting the price'' can mean several different
+things, and two papers that both say they predict the price may be answering different questions. A model that does
+well on one question can do badly on another, so their scores cannot be compared. Six targets appear in this
+literature:
 \begin{equation}
   \begin{gathered}
   \P(\Delta m_{t,H} > 0 \mid X_t),\quad \E[\Delta m_{t,H} \mid X_t],\quad
@@ -7178,25 +7189,45 @@ tick,
 \[
   T_{\text{move}} = \inf\{u > 0 : |m_{t+u} - m_t| \ge \delta\}.
 \]
-Table~\ref{tab:six-targets} spells out the question each one asks.
+\inwords{$T_{\text{move}}$ is how long we wait, from now, until the mid is one tick away from where it is now, in
+either direction.}
+Read in words, from left to right:
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \textbf{Direction:} is the mid more likely to be higher than lower after $H$? The size of the move does not
+  count: a rise of a hundredth of a tick is as ``up'' as a rise of ten ticks.
+\item \textbf{Expected change:} by how much does the mid move on average? A small chance of a large rise can
+  outweigh a large chance of a small fall, so this can point the other way from the direction.
+\item \textbf{Large move:} will the mid rise by more than $\theta$? With $\theta$ set to the cost of trading, this
+  asks whether the move is big enough to pay for itself.
+\item \textbf{Any move:} will the mid move at all within $H$? This is about timing, not direction: in a quiet book
+  the honest answer to ``up or down?'' is often ``neither''.
+\item \textbf{Fill:} will my resting order be filled? This depends on my order and its place in the queue, not
+  only on the market.
+\item \textbf{Profit:} what do I expect to earn from the order I am about to send? This combines all of the above
+  with costs, and it is the only one of the six that decides whether to trade.
+\end{enumerate}
 
-\begin{table}[!htbp]
-\centering\footnotesize
-\caption{Six targets and the questions they ask.}
-\label{tab:six-targets}
-\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.3\linewidth}}
+\paragraph{One book, six answers.} A stylised example (our numbers, chosen to keep the arithmetic simple) shows how
+far apart the answers can be. In ES the spread is one tick, 0.25 points. Suppose that, in books that look like the
+current one, the mid 50 events later is unchanged half the time, one tick higher 30\% of the time and one tick lower
+20\% of the time.
+\begin{center}\footnotesize
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.24\linewidth}>{\raggedright\arraybackslash}p{0.3\linewidth}>{\raggedright\arraybackslash}X}
 \toprule
-Target & Question & What it is useful for \\
+Target & Answer for this book & What a trader should conclude \\
 \midrule
-$\P(\Delta m_{t,H} > 0 \mid X_t)$ & will the mid be higher after $H$? & direction, regardless of size \\
-$\E[\Delta m_{t,H} \mid X_t]$ & by how much, on average? & sizing a position \\
-$\P(\Delta m_{t,H} > \theta \mid X_t)$ & will it rise by more than $\theta$? & moves large enough to pay for costs \\
-$\P(T_{\text{move}} \le H \mid X_t)$ & will it move at all within $H$? & timing; how long to wait \\
-$\P(\Fill \mid X_t)$ & will my resting order be filled? & choosing between passive and aggressive orders \\
-$\E[\Pi \mid X_t]$ & what do I expect to earn? & the decision itself \\
+Direction & up (0.30 against 0.20) & ``up'' is more likely than ``down'' \ldots \\
+Expected change & $0.30 \times 0.25 - 0.20 \times 0.25 = +0.025$ points & \ldots but only a tenth of a tick on average \\
+Large move ($\theta$ = half spread) & 0.30 & a move that pays for crossing happens less than a third of the time \\
+Any move within 50 events & 0.50 & half the time nothing happens at all \\
+Fill of a resting bid & at least 0.20 & fills come mostly in the down moves (Section~\ref{sec:adverse}) \\
+Profit of an aggressive buy & $+0.025 - 0.125 = -0.10$ points & the trade loses money \\
 \bottomrule
 \end{tabularx}
-\end{table}
+\end{center}
+A classifier that predicts ``up'' here is right more often than it is wrong about direction, and is still a
+signal to lose money if acted on by crossing the spread. A model that learns this book well may score high on
+the first target and be useless on the last.
 
 Two published results show that these really are different problems. In \citet{lee2024predictability}, splitting
 the 53.6\% accuracy of DeepLOB's level-1 variant (best prices and sizes only, label measured from the current price)
