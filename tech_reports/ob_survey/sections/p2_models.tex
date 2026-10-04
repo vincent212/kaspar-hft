@@ -8343,11 +8343,25 @@ learned function of the input, set by training like any other weight; nothing ch
 idea as the forget gate of an LSTM (Section~\ref{sec:deep-families}).
 
 \paragraph{Why they are of interest for order books.} The rule is the classical state-space model of control
-theory~\citep{kalman1960}, and it can be computed in parallel during training. It processes a sequence at a cost
+theory~\citep{kalman1960}, and it can be computed in parallel during training (explained below). It processes a sequence at a cost
 proportional to its length, where attention compares every pair of events and costs the square of the length
 (Section~\ref{sec:hw-why}). That makes it attractive for event streams, which are long and irregular;
 Section~\ref{sec:npp-mamba} describes a version in which the step size is the actual time between events, so that
 memory fades with elapsed time as in a Hawkes process. 
+
+\paragraph{Parallel in training, step by step in trading.} The update rule seems to force one event at a time: the
+state at event $n$ needs the state at event $n-1$. It does not, because the rule only multiplies and adds. The state
+can be written out directly as a weighted sum of all earlier inputs. With one number, $A = 0.9$ and $B = 0.1$,
+\[
+  s_3 = 0.9^2 \times 0.1 \times x_1 \;+\; 0.9 \times 0.1 \times x_2 \;+\; 0.1 \times x_3 ,
+\]
+\inwords{the state after three events is the three inputs added up, each with a weight that shrinks with its age.}
+During training the whole recorded sequence is known in advance, so every state can be computed at the same time on a
+GPU: in S4, whose weights are the same at every step, the weighted sum is a convolution of the inputs with one fixed
+set of weights; in Mamba, whose weights change with the input, it is computed by a \emph{parallel scan}, a standard
+method for computing running combinations in parallel~\citep{gu2024mamba}. A recurrent network such as an LSTM cannot
+do this, because its gates apply non-linear functions to the previous state. When trading, events arrive one at a
+time, and the model runs as the simple update: one cheap step per event, with no need to keep the whole window.
 
 \paragraph{Two meanings of ``state''.} The micro-price of Section~\ref{sec:microprice} also forecasts from a state,
 and both models assume that the future depends only on the current state, not on how it was reached. The states are
