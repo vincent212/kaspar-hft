@@ -63,7 +63,9 @@ arranged in that order.
   hardware fast enough for it: where the time goes, what can be accelerated, and why a model too slow for the hot path
   cannot be deployed there at all.
 \end{enumerate}
-A practitioner or student who wants to take a model from a paper to a trading server needs all three. Each part can be
+In \kasparhft{}, the system used throughout (below), the step from simulation to deployment involves no change of
+code: the strategy tested in the simulator is the strategy deployed, and only a configuration setting differs. A
+practitioner or student who wants to take a model from a paper to a trading server needs all three. Each part can be
 read on its own, but the order is the order of the work: a model is understood first, then simulated, then deployed.
 
 \paragraph{\kasparhft{}, the system used as the worked example.} Throughout the survey, questions about simulation and

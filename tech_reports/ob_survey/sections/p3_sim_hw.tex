@@ -823,7 +823,9 @@ documentation states that both the market-data handler and the order-entry sessi
 automated certification. Strategies can be written as in-process actors in C++ or, through an
 in-process foreign-function interface, in Rust.
 
-Switching between simulated and live execution is a single configuration setting of the SOM. Equivalence of code is
+Switching between simulated and live execution is a single configuration setting of the SOM. A strategy tested in
+the simulator is therefore deployed without any change of code: as far as the code is concerned, there is no
+difference between the simulated and the deployed environment. Equivalence of code is
 not equivalence of outcomes, however: replay assumes no
 market impact (Section~\ref{sec:kaspar-fills}) and models latency with configured delays, so a strategy
 that is profitable in replay can still behave differently live.

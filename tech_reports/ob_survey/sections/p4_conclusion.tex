@@ -147,8 +147,9 @@ strategy and is tested against recorded markets with queue position and latency,
 strategy runs on hardware fast enough for it. The three are surveyed together because a model has to pass through all
 of them: a model that predicts well but has not been simulated has not been shown to trade, and a strategy that works
 in simulation but is too slow for the hot path cannot be deployed. \kasparhft{} connects the last two stages: the
-same code that is replayed in simulation runs in paper and live trading, and its measured latency places it on the
-hardware ladder of Section~\ref{sec:hardware}.
+strategy code tested in its simulator is the code that is deployed. As far as the code is concerned there is no
+difference between the simulated and the deployed environment; moving from replay to paper and live trading is a
+configuration setting (Section~\ref{sec:kaspar-equivalence}).
 
 \subsection{Two literatures that are rarely read together}
 \label{sec:two-literatures}
