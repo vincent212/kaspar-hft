@@ -3,8 +3,7 @@ turn a prediction into a tested trading decision. It sets out what a simulator m
 questions---queue position, adverse selection and latency (Section~\ref{sec:sim-needs}); surveys the order-book
 simulators available (Section~\ref{sec:simulators}); presents Kaspar, the queue-exact replay and trading system used
 throughout, including how an order-book model is added to it as an actor that publishes its predictions to a strategy
-(Section~\ref{sec:kaspar}); reviews reinforcement learning, which learns the trading policy directly in a simulator
-(Section~\ref{sec:policy}); explains why order-book
+(Section~\ref{sec:kaspar}); explains why order-book
 models are slow at inference and what hardware can accelerate (Section~\ref{sec:hardware}); and ends with a summary
 of the part (Section~\ref{sec:part3-summary}). Open problems and the survey's conclusion are in Part~IV.
 
@@ -1041,95 +1040,6 @@ Three properties of the present code matter for anyone doing this.
 \end{itemize}
 
 % ================================================================
-\section{Learning execution policies with reinforcement learning}
-\label{sec:policy}
-% ================================================================
-
-The models of Part~II predict: they work at levels 2 and 3 of the hierarchy of Section~\ref{sec:three-problems}, and a
-separate, usually hand-written rule turns the prediction into orders. \emph{Reinforcement learning} (RL) goes straight
-to level 6: it learns a \emph{policy}, a rule that maps the current state to an action, by trying actions in an
-environment and adjusting the rule to increase a reward. This section describes how RL is set up on order books, what
-the published studies report, and why the environment it is trained in decides what its results mean.
-
-\paragraph{Prediction versus policy learning.} The usual pipeline is
-\[
-  \text{book} \;\to\; \text{prediction} \;\to\; \text{hand-written rule} \;\to\; \text{order},
-\]
-while RL learns
-\[
-  \text{book} \;\to\; \text{policy} \;\to\; \text{order}.
-\]
-\inwords{instead of predicting the price and then deciding by a fixed rule what to do, the agent learns what to do
-directly, judged by the profit its actions produce.}
-In execution the \emph{state} is typically the time left and the quantity left to trade, plus book features such as
-the spread and imbalance; the \emph{action} is where to place the order or how much to trade now; the \emph{reward}
-is the cash received or the cost against a benchmark price. In market making the state adds the inventory, the
-action is the pair of quotes, and the reward is the profit, usually with a penalty for holding inventory. RL needs to
-try many actions and see their consequences, so it is trained in a simulator of one of the four kinds of
-Section~\ref{sec:sim-survey}; the simulator is part of the result.
-
-\paragraph{What the studies report.} Table~\ref{tab:rl} lists representative studies. In execution, the earliest
-study on order-book data, \citet{nevmyvaka2006}, combined recorded Nasdaq order flow with the agent's orders in a
-simulator that maintained queue priorities, and reported a cost reduction of 50\% or more against submitting one
-limit order and sending the remainder at market at the deadline. Later studies compare with TWAP, VWAP or the
-Almgren--Chriss schedule~\citep{almgren2001}; in ABIDES, an execution agent converged to TWAP~\citep{karpe2020}. In
-market making, \citet{spooner2018} trained agents on recorded price-level data with an estimated queue position and
-no market impact. A survey of 22 market-making papers found that 9 trained on a single replayed historical path, 13
-used simulators of which only 4 were calibrated to data, and all 22 reported positive results; the authors note that
-the variety of data and set-ups makes the methods hard to compare, and that virtually all assume the market is
-stationary~\citep{gasperov2021survey}.
-
-\begin{table}[!htbp]
-\centering\footnotesize
-\caption{Representative reinforcement-learning studies on order books: the environment the agent was trained and
-tested in, how the agent's orders are placed in the queue, and the reported result with its baseline. None of these
-studies reports a live or paper-trading test.}
-\label{tab:rl}
-\setlength{\tabcolsep}{3pt}
-\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.16\linewidth}>{\raggedright\arraybackslash}p{0.08\linewidth}>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.17\linewidth}>{\raggedright\arraybackslash}X}
-\toprule
-Study & Task & Environment & Queue position & Result (baseline) \\
-\midrule
-\citet{nevmyvaka2006} & execution & recorded Nasdaq order flow with the agent's orders inserted & priorities maintained & cost 50\% or more lower (one limit order, rest at market) \\
-\citet{hendricks2014} & execution & recorded price-level data & market orders only & shortfall up to 10.3\% lower (Almgren--Chriss) \\
-\citet{ning2021ddqn} & execution & mid-price series & market orders at the mid & better than TWAP on 7 of 9 stocks \\
-\citet{karpe2020} & execution & ABIDES with recorded Nasdaq data & approximate & converged to TWAP \\
-\citet{zhang2023generalizable} & execution & recorded snapshots, 100 Chinese stocks & estimated & 4.9 basis points better than TWAP \\
-\citet{spooner2018} & market making & recorded price-level data, 10 equities & estimated: back of queue & better than fixed spreads on most stocks \\
-\citet{lalor2025nhp} & market making & neural Hawkes simulator & touch fills & rewards mostly negative \\
-\citet{coletta2023cgan} & market making & generative (GAN) simulator & simulated & agent exploited the simulator \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\paragraph{Problems specific to order books.} The published studies name five.
-\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
-\item \textbf{Replay cannot react.} In a historical replay the agent's orders ``cannot impact the
-  market''~\citep{spooner2018}, and recorded messages ``have no strategic behavior that may react to an RL agent's
-  actions''~\citep{frey2023}. A policy that trades often or in size is evaluated against a market that ignores it.
-\item \textbf{Simulators can be exploited.} An RL market maker trained in a generative simulator learned to exploit
-  the generator ``rather than learning a real profitable policy''~\citep{coletta2023cgan}, and simulated markets still
-  differ significantly from real ones~\citep{vyetrenko2020getreal}.
-\item \textbf{Fills are estimated.} Most environments estimate queue position or ignore it: back of the queue with
-  proportional cancellations, fills at the touch, or market orders only (Table~\ref{tab:rl}). Of the studies read for
-  this survey, only \citet{nevmyvaka2006} describe placing the agent's orders in the recorded order flow with queue
-  priority.
-\item \textbf{Rewards are fragile.} A profit reward led to unstable learning and poor out-of-sample performance until
-  it was damped~\citep{spooner2018}; a variance penalty made an agent stop trading altogether~\citep{ganesh2019dealer}.
-\item \textbf{Non-stationarity and overfitting.} Agents trained on one period overfit it: re-implemented execution
-  methods overfit their training data~\citep{zhang2023generalizable}, and single-path replay ``can easily result in
-  overfitting''~\citep{gasperov2021survey}.
-\end{itemize}
-
-\paragraph{What this means for evaluation.} A learned policy is a candidate like any other model: it has to beat the
-ladder of baselines of Section~\ref{sec:tradeability}, including a model-free benchmark, in an environment whose fill
-rule is credible. Kaspar provides both for small orders. A trained policy runs as an actor next to the order book
-(Section~\ref{sec:kaspar-actor}); it can be evaluated on recorded market-by-order data with exact queue position and
-modelled latency, against the model-free benchmark of Section~\ref{sec:shadow} in the same replay, and then run
-unchanged in paper and live trading. The limits are those of any replay: the recorded market does not react to the
-policy, so large or frequent orders need a reacting simulator as well.
-
-% ================================================================
 \section{Hardware acceleration of order-book models}
 \label{sec:hardware}
 % ================================================================
@@ -1595,12 +1505,6 @@ in the reconstructed first-in-first-out queues after separate order, cancel and 
 recorded executions reach an order behind them, and runs the same code in replay, paper and live trading. It replays
 one day per process, so many days can run at once on one machine (Table~\ref{tab:parallel}). A model of Part~II is added as one more actor that reads the book
 and sends its predictions to the strategy (Section~\ref{sec:kaspar-actor}).
-
-\paragraph{Reinforcement learning.} RL learns the trading policy directly instead of a prediction, and its results
-depend on the environment it is trained in. Of the eight studies in Table~\ref{tab:rl}, only one places the agent's
-orders in recorded order flow with queue priority; the others estimate queue position, fill at the touch or the mid,
-trade with market orders only, or train in a simulator, and in one of them the agent learned to exploit its
-generative simulator. None reports a live or paper-trading test (Section~\ref{sec:policy}).
 
 \paragraph{Hardware.} Book updates take about 1\,\textmu s at the median in Kaspar's software path and a few hundred nanoseconds or
 less on FPGAs; audited FPGA tick-to-trade paths with simple logic run in about 0.1 to 0.6\,\textmu s. Published
