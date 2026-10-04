@@ -1,6 +1,7 @@
 """Stylised two-type Hawkes simulation for the intuition subsection of Section 7. Not data.
 Types: buy market orders (B) and sell market orders (S). Exponential kernels, decay omega.
 Branching matrix Gamma[i][j] = expected type-i children of one type-j event."""
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -44,5 +45,5 @@ ax[1].set_ylabel("events per second", fontsize=8); ax[1].set_xlabel("time (s)", 
 ax[1].legend(fontsize=7, frameon=False, loc="upper right")
 for a in ax: a.spines[["top", "right"]].set_visible(False); a.tick_params(labelsize=8)
 fig.text(0.99, 0.005, "Stylised simulation; not data", ha="right", fontsize=7, style="italic")
-fig.tight_layout(); fig.savefig("figs/intuition_hawkes.png", dpi=200)
+fig.tight_layout(); fig.savefig(Path(__file__).resolve().parents[1] / "intuition_hawkes.png", dpi=200)
 print(len(ev), "events; first annotated buy at", round(tb, 2))

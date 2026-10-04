@@ -1,4 +1,5 @@
 """Illustrative intensity shapes for Section 7.17 (neural point processes). Hand-specified curves, not fitted models."""
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -40,4 +41,4 @@ for x in ax:
     x.set_xlabel("time", fontsize=8); x.set_ylabel("intensity", fontsize=8); x.set_ylim(0, 8)
     x.spines[["top", "right"]].set_visible(False); x.tick_params(labelsize=7)
 fig.text(0.99, 0.005, "Illustrative shapes, not fitted models; dashed: background rate", ha="right", fontsize=7, style="italic")
-fig.tight_layout(); fig.savefig("figs/npp_intuition.png", dpi=200)
+fig.tight_layout(); fig.savefig(Path(__file__).resolve().parents[1] / "npp_intuition.png", dpi=200)

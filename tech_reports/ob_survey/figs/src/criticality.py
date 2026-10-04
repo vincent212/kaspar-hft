@@ -2,6 +2,7 @@
 (a) Size of the family (cascade) started by one outside event. With Poisson(Gamma) children per event the total
     family size n has the Borel distribution P(n) = exp(-Gamma n) (Gamma n)^(n-1) / n!. Shown: P(size >= n).
 (b) Expected extra activity after one outside event: proportional to exp(-omega (1 - Gamma) t), omega = 1/s."""
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -31,4 +32,4 @@ ax[1].set_title("(b) The extra activity fades at rate $\\omega(1-\\Gamma)$:\nslo
 ax[1].legend(fontsize=7, frameon=False)
 for a in ax: a.spines[["top", "right"]].set_visible(False); a.tick_params(labelsize=8)
 fig.text(0.99, 0.005, "Exact formulas for Poisson numbers of children and an exponential kernel with decay rate 1/s; not data", ha="right", fontsize=7, style="italic")
-fig.tight_layout(); fig.savefig("figs/criticality.png", dpi=200)
+fig.tight_layout(); fig.savefig(Path(__file__).resolve().parents[1] / "criticality.png", dpi=200)

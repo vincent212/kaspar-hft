@@ -21,8 +21,6 @@
 \usepackage{xcolor}
 \usepackage{enumitem}
 \usepackage{microtype}
-\usepackage{cancel}
-\usepackage{listings}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc,decorations.pathreplacing}
 \usepackage[font=small,labelfont=bf,skip=4pt]{caption}
@@ -34,18 +32,12 @@
 \hypersetup{colorlinks=true, linkcolor=blue!50!black, citecolor=blue!50!black,
             urlcolor=blue!50!black}
 
-\lstset{basicstyle=\ttfamily\footnotesize, columns=fullflexible, keepspaces=true,
-        frame=single, framerule=0.3pt, xleftmargin=1em, xrightmargin=1em,
-        breaklines=false, upquote=true}
-\lstdefinestyle{pycode}{language=Python, basicstyle=\ttfamily\footnotesize, numbers=none,
-        commentstyle=\color{black!60}\itshape, keywordstyle=\bfseries}
 
 % Boxes for worked examples and intuition notes
 \newtheoremstyle{example}{6pt}{6pt}{\normalfont}{}{\bfseries}{.}{0.5em}{}
 \theoremstyle{example}
 \newtheorem{example}{Example}[section]
 \newtheorem{principle}{Principle}
-\newcommand{\illus}{\textsc{(illustrative)}}
 % Plain-language reading of an equation, for undergraduate readers
 \newcommand{\inwords}[1]{\par\smallskip\noindent\textit{In words:} #1\par\smallskip}
 

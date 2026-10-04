@@ -295,7 +295,7 @@ A replay that can answer the execution questions of this part needs:
 \item market-by-order data, so that queue position is observed rather than estimated;
 \item an order-level reconstructed book in which the simulated order occupies a place in the
   first-in-first-out queue;
-\item explicit, independent latencies for outbound orders, outbound cancels and inbound market
+\item explicit, separately configured latencies for outbound orders, outbound cancels and inbound market
   data;
 \item an explicit fill rule stated in terms of recorded events;
 \item a stated assumption about market impact.
@@ -727,8 +727,8 @@ engine,
 \end{equation}
 \inwords{the order reaches the matching engine after the feed delay and the order delay; the order delay is never
 taken below 40\,\textmu s.}
-The outbound order delay, the outbound cancel delay and the inbound feed delay are independent
-parameters. The feed delay is added because the strategy saw the market late by that amount, so a
+The outbound order delay, the outbound cancel delay and the inbound feed delay are configured
+separately; the cancel delay is at least the order delay. The feed delay is added because the strategy saw the market late by that amount, so a
 round trip is feed plus order, not order alone. When the order arrives it is appended at the tail
 of the queue at its price, behind all depth already resting there.
 
@@ -1040,7 +1040,7 @@ Three properties of the present code matter for anyone doing this.
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
 \item \textbf{Ordering and determinism.} In the replay simulator every actor runs in one group, on one thread, in
   one message order, so a replay with the model actor added is still deterministic. A prediction sent with \texttt{send} for a book update reaches the strategy after the strategy has acted
-  on that update and before the next one; the framework's synchronous \texttt{fast\_send} would deliver it first.
+  on that update and before the next one.
   In the trading binary each actor has its own thread, and the order in which the book update and the prediction
   reach the strategy is not fixed.
 \item \textbf{Which book.} \kasparhft{} has two order-book implementations. OB is the order-book actor of

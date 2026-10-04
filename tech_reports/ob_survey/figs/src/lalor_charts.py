@@ -1,4 +1,5 @@
 """Re-plot of numbers reported by Lalor & Swishchuk (arXiv 2502.17417), Tables 2 and 4. Not our data."""
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -20,4 +21,4 @@ ax[1].set_title("(b) Hurst exponent of mid log-returns\n(Table 4; below 0.5 = me
 ax[1].legend(fontsize=7, frameon=False, loc="upper left"); ax[1].set_ylim(0, 0.8)
 for a in ax:
     a.set_xticks(x, S); a.tick_params(labelsize=8); a.spines[["top", "right"]].set_visible(False)
-fig.tight_layout(); fig.savefig("figs/lalor_reported.png", dpi=200)
+fig.tight_layout(); fig.savefig(Path(__file__).resolve().parents[1] / "lalor_reported.png", dpi=200)

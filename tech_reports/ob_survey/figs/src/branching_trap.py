@@ -2,6 +2,7 @@
 and busy periods, fitted with a constant-background exponential Hawkes model. Not data."""
 import numpy as np
 from scipy.optimize import minimize
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -51,4 +52,4 @@ ax[1].set_ylim(0, 1); ax[1].set_ylabel("fitted branching ratio", fontsize=8)
 ax[1].set_title("(2) Branching ratio fitted by an exponential Hawkes model\nwith a constant background rate (true value: 0)", fontsize=9)
 for a in ax: a.spines[["top", "right"]].set_visible(False); a.tick_params(labelsize=8)
 fig.text(0.99, 0.005, "Stylised simulation; one hour of events per bar; not data", ha="right", fontsize=7, style="italic")
-fig.tight_layout(); fig.savefig("figs/branching_trap.png", dpi=200)
+fig.tight_layout(); fig.savefig(Path(__file__).resolve().parents[1] / "branching_trap.png", dpi=200)

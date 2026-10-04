@@ -1,5 +1,6 @@
 """Illustrative: expected depletion time of the best ask after a burst of buying, Poisson vs Hawkes view.
 Hand-specified numbers, not data. Queue 200 lots, average event size 5 lots."""
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -29,5 +30,5 @@ ax[1].set_xlabel("seconds after the burst", fontsize=8); ax[1].set_ylabel("expec
 ax[1].legend(fontsize=7, frameon=False, loc="center right")
 for a in ax: a.spines[["top", "right"]].set_visible(False); a.tick_params(labelsize=8)
 fig.text(0.99, 0.005, "Illustrative numbers, not data", ha="right", fontsize=7, style="italic")
-fig.tight_layout(); fig.savefig("figs/hawkes_depletion.png", dpi=200)
+fig.tight_layout(); fig.savefig(Path(__file__).resolve().parents[1] / "hawkes_depletion.png", dpi=200)
 print(round(tau_h[0], 2), round(tau_p, 2))

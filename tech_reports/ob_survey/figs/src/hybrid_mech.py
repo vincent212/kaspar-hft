@@ -1,4 +1,5 @@
 """Stylised illustrations for Section 9 mechanisms. Not data."""
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -38,7 +39,7 @@ ax[2].annotate("strong content match,\nbut long ago: weight cut", xy=(0.3, w_haw
 ax[2].set_ylim(0, max(w_hawk.max(), 0.45) * 1.1)
 fig.text(0.99, 0.005, "Stylised; not data", ha="right", fontsize=7, style="italic")
 fig.tight_layout()
-fig.savefig("figs/mech_hawkes_attn.png", dpi=200)
+fig.savefig(Path(__file__).resolve().parents[1] / "mech_hawkes_attn.png", dpi=200)
 
 # ---------- intensity-conditioned memory ----------
 rng = np.random.default_rng(3)
@@ -75,4 +76,4 @@ ax[1].legend(fontsize=6.5, frameon=False, loc="upper left")
 for a in ax: a.spines[["top", "right"]].set_visible(False); a.tick_params(labelsize=8); a.set_xlim(0, T)
 fig.text(0.99, 0.005, "Stylised; not data", ha="right", fontsize=7, style="italic")
 fig.tight_layout()
-fig.savefig("figs/mech_ssm_memory.png", dpi=200)
+fig.savefig(Path(__file__).resolve().parents[1] / "mech_ssm_memory.png", dpi=200)

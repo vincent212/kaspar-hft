@@ -1,4 +1,5 @@
 """Re-plot of Table 1 of Shi & Cartlidge (KDD 2022). Not our data. Source: notes/claims_predhybrid.md."""
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -23,4 +24,4 @@ ax[1].axhline(0, color="k", lw=0.6)
 ax[1].set_title("(b) Negative log-likelihood per event (lower is better;\nthe plain LSTM has no likelihood)", fontsize=9)
 for a in ax:
     a.set_xticks(x, S); a.tick_params(labelsize=8); a.spines[["top", "right"]].set_visible(False)
-fig.tight_layout(); fig.savefig("figs/shi_reported.png", dpi=200)
+fig.tight_layout(); fig.savefig(Path(__file__).resolve().parents[1] / "shi_reported.png", dpi=200)

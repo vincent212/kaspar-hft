@@ -2,6 +2,7 @@
 Hawkes event times (exponential kernel, mu=0.5, alpha=1, omega=2, branching ratio 0.5, long-run rate 1/s);
 three rules for turning events into mid-price moves; standard deviation of the price change over a window,
 across simulated paths, against the diffusion-limit formula sigma_J * sqrt(rate * window)."""
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -57,5 +58,5 @@ ax[1].set_title("(2) Spread of the price change across 1,500 paths:\ndots simula
 ax[1].set_xlabel("window $w$ (s)", fontsize=8); ax[1].set_ylabel("standard deviation (ticks)", fontsize=8)
 for a in ax: a.spines[["top", "right"]].set_visible(False); a.tick_params(labelsize=8)
 fig.text(0.99, 0.005, "Stylised simulation; not data", ha="right", fontsize=7, style="italic")
-fig.tight_layout(); fig.savefig("figs/compound_hawkes.png", dpi=200)
+fig.tight_layout(); fig.savefig(Path(__file__).resolve().parents[1] / "compound_hawkes.png", dpi=200)
 for k in "abc": print(k, np.round(res[k].std(axis=0) / np.sqrt(sig2[k] * rate * W), 3))

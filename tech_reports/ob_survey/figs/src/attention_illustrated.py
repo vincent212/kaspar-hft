@@ -1,6 +1,7 @@
 """Illustrations of attention. Hand-specified vectors, not a trained model.
 Each event type has a 2-number key: ask cancellation (2,0), buy trade (1,1), limit order (0,1).
 Queries: a buy sweep looks for (1,0) 'sellers leaving'; a quiet limit order looks for (0,1) 'other limit orders'."""
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -20,7 +21,7 @@ ax.set_xticks(x, ["event 1: cancel 40 at ask\nkey (2,0), value 40 lots", "event 
 ax.set_ylim(0, 2.6); ax.legend(fontsize=7, frameon=False, loc="upper right")
 ax.set_title(f"Query (1,0), \"were sellers leaving?\": output = weighted average of values = {out:.1f} lots", fontsize=10)
 ax.spines[["top", "right"]].set_visible(False)
-fig.tight_layout(); fig.savefig("figs/attention_scores.png", dpi=200)
+fig.tight_layout(); fig.savefig(Path(__file__).resolve().parents[1] / "attention_scores.png", dpi=200)
 # (b) same history, two queries
 fig, ax = plt.subplots(figsize=(8.5, 3.8))
 hist = ["limit\nbid", "cancel\nask", "limit\nask", "cancel\nask", "trade\nbuy", "limit\nbid", "cancel\nask", "limit\nbid"]
@@ -35,7 +36,7 @@ ax.set_ylabel("attention weight", fontsize=8); ax.set_ylim(0, 0.42)
 ax.legend(fontsize=7, frameon=False, loc="upper left")
 ax.set_title("The same eight earlier events, weighted differently depending on what the current event is", fontsize=10)
 ax.spines[["top", "right"]].set_visible(False)
-fig.tight_layout(); fig.savefig("figs/attention_two_queries.png", dpi=200)
+fig.tight_layout(); fig.savefig(Path(__file__).resolve().parents[1] / "attention_two_queries.png", dpi=200)
 # (c) attention matrix, causal
 fig, ax = plt.subplots(figsize=(5.8, 5.4))
 seq = ["limit bid", "cancel ask", "limit ask", "cancel ask", "trade buy", "limit bid", "cancel ask", "trade buy"]
@@ -53,5 +54,5 @@ for i in range(L):
     for j in range(i + 1):
         ax.text(j, i, f"{A[i, j]:.2f}", ha="center", va="center", fontsize=6.5)
 fig.colorbar(im, ax=ax, fraction=0.04, label="attention weight")
-fig.tight_layout(); fig.savefig("figs/attention_matrix.png", dpi=200)
+fig.tight_layout(); fig.savefig(Path(__file__).resolve().parents[1] / "attention_matrix.png", dpi=200)
 print(np.round(w, 2), round(out, 3))

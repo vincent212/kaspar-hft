@@ -1,5 +1,6 @@
 """Stylised kernel shapes for small and large trades: separable (size scales the bump) vs non-separable
 (size changes the shape). Hand-specified, not fitted."""
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -17,4 +18,4 @@ for a in ax:
     a.spines[["top", "right"]].set_visible(False); a.tick_params(labelsize=8)
 ax[0].set_ylabel("extra intensity (kernel)", fontsize=8)
 fig.text(0.99, 0.005, "Illustrative shapes, not fitted", ha="right", fontsize=7, style="italic")
-fig.tight_layout(); fig.savefig("figs/marks_kernels.png", dpi=200)
+fig.tight_layout(); fig.savefig(Path(__file__).resolve().parents[1] / "marks_kernels.png", dpi=200)

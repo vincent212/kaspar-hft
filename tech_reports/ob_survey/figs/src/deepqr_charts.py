@@ -1,5 +1,6 @@
 """Values reported by Bodor & Carlier (arXiv 2501.08822), re-plotted. Not our data.
 See notes/claims_deepqr.md for the source of every number."""
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -39,4 +40,4 @@ ax[3].set_title("(d) Next-500-event mid direction,\nbalanced accuracy (Table 6)"
 for a in ax:
     a.tick_params(labelsize=8); a.spines[["top", "right"]].set_visible(False)
 fig.tight_layout()
-fig.savefig("figs/deepqr_reported.png", dpi=200)
+fig.savefig(Path(__file__).resolve().parents[1] / "deepqr_reported.png", dpi=200)

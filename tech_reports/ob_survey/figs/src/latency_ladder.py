@@ -1,5 +1,6 @@
 """Latency ladder: published figures quoted in Part III, on one log axis.
 Every bar is a figure stated in the survey text, with its source there."""
+from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -7,7 +8,7 @@ import matplotlib.pyplot as plt
 NS, US, MS = 1e-9, 1e-6, 1e-3
 rows = [  # (label, low, high, category)
     ("STAC-T0: network in/out on FPGA (audited)",        13.9 * NS, 44 * NS, "net"),
-    ("FPGA order-book update (papers)",                   26 * NS, 280 * NS, "book"),
+    ("FPGA order-book update (papers)",                   26 * NS, 253 * NS, "book"),
     ("STAC-T1: FPGA tick-to-trade, CME (audited)",       115 * NS, 609 * NS, "path"),
     ("One small PCIe read (measured median)",            572 * NS, 572 * NS, "net"),
     ("Kaspar-HFT software socket-to-book (book medians)",    0.8 * US, 1.1 * US, "book"),
@@ -43,4 +44,4 @@ handles = [plt.Line2D([], [], color=colours[k], lw=6) for k in names]
 ax.legend(handles, names.values(), fontsize=7.5, frameon=False, loc="upper right")
 ax.set_xlabel("latency (log scale)", fontsize=8)
 fig.tight_layout()
-fig.savefig("figs/latency_ladder.png", dpi=200)
+fig.savefig(Path(__file__).resolve().parents[1] / "latency_ladder.png", dpi=200)
