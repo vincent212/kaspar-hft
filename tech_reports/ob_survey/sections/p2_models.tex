@@ -278,7 +278,7 @@ and depletion estimates.
 \citet{lee2013spoof} document traders placing large orders away from the market to create imbalance and
 withdrawing them. A trader in the E-mini S\&P~500 was charged with layering over five years, conduct the
 CFTC alleged contributed to the conditions of the May 2010 flash crash~\citep{cftc2015sarao}.
-Regulators have also brought spoofing cases in precious-metals and Treasury futures. In a spoofing episode in Ultra Treasury bond futures, \citet{debie2023} measure ask-side
+In a spoofing episode in Ultra Treasury bond futures, \citet{debie2023} measure ask-side
 liquidity costs falling from about 10.4 to about 8 basis points when the spoof order was placed and
 recovering after it was cancelled---a displayed improvement in liquidity that was not real.
 \citet{cartea2020spoof} model spoofing as an optimal-control problem in which the spoofer trades the gain
@@ -570,7 +570,6 @@ $\boldsymbol{\Delta}$ the vector of possible mid changes and
   \mathbf{B} = (I -
 \mathbf{U})^{-1}\mathbf{J}^{(2)},
 \]
-
 \[
   g^{(1)} = (I - \mathbf{U})^{-1} \mathbf{J}^{(1)} \boldsymbol{\Delta}, \qquad
   g^{(k+1)} = \mathbf{B}\, g^{(k)}.
@@ -765,7 +764,6 @@ $j$ steps without the mid moving, and the inverse
 \[
   (I - \mathbf{U})^{-1} = I + \mathbf{U} + \mathbf{U}^2 + \cdots
 \]
-
 adds every possible number of such steps at once.}
 In Example~\ref{ex:microprice-matrix}, starting from H, the mid moving at once contributes $0.0125$;
 one reshuffle first contributes 
@@ -774,7 +772,6 @@ one reshuffle first contributes
 \]
 two reshuffles
 contribute $0.002$; each further term is $0.4$ times the previous one, and the total is
-
 \[
   0.0125/(1 - 0.4) \approx 0.0208 = g^{(1)}(\text{H}).
 \]
@@ -800,8 +797,8 @@ size \emph{and} the state the book lands in, which is $\mathbf{J}^{(2)}$ split b
 methods estimate the same number. The closed form is exact for the fitted chain and costs a matrix
 inverse; the Monte Carlo estimate carries sampling noise whose standard deviation falls like
 $1/\sqrt{N_{\text{paths}}}$, so halving the error needs four times as many paths. As an example of this noise, on the stylised two-state chain of
-Example~\ref{ex:microprice-matrix}, starting from H, the closed form gives $0.0202$; one
-run of $40{,}000$ simulated paths gave $0.0231$, and one of a million paths gave $0.0198$ with a
+Example~\ref{ex:microprice-matrix}, starting from H, the closed form gives $0.0202$; in our runs, one
+of $40{,}000$ paths gave $0.0231$ and one of a million paths gave $0.0198$ with a
 standard error of $0.0003$. For the small chain of
 the micro-price---a few dozen states---the closed form is the better choice. Neither method removes
 \emph{estimation} noise: both use transition probabilities counted from finite data, and that noise
@@ -1021,7 +1018,7 @@ A message-level encoder sees the difference between a cancellation and an execut
 Example~\ref{ex:qi}; a snapshot encoder, by construction, does not.
 
 \paragraph{Plan of the following sections.} LOBERT is mentioned here because it shows, in deep learning, the
-case this section makes: the individual event carries information that a snapshot loses. The next three
+case this section makes: the individual event carries information that a snapshot loses. The next two
 sections are not about Transformers or tokens. They return to classical models that work directly with
 order-book events---orders arriving, cancelling and trading at the best queues---and describe them with
 probability: how long a queue survives before it is emptied (Section~\ref{sec:queue-models}) and how one
@@ -1656,8 +1653,8 @@ The authors are explicit about what the model leaves out. Order arrivals are ind
 streams, so there is no clustering of events and none of the long memory of order flow
 (Section~\ref{sec:facts}); orders all have the same size; rates do not change through the day or with
 market conditions; and there is no strategic behaviour. The authors also illustrate a simple trading
-rule based on the model's up-move probability, evaluated on paths simulated from the model without
-transaction costs; performance on real markets after costs is the subject of Part~III. Each limitation defines a line of
+rule based on the model's up-move probability on simulated paths; evaluation on recorded markets after
+costs is the subject of Part~III. Each limitation defines a line of
 later work:
 \begin{itemize}[leftmargin=1.5em,itemsep=2pt]
 \item \citet{contlarrard2013,contlarrard2012} reduce the book to the two best queues and obtain closed
@@ -2189,7 +2186,9 @@ and therefore how the buckets fill and drain---and that choice decides what each
   data; a realistic simulator of the book that reacts to one's own orders, with one closed-form result.
 \end{description}
 
-\paragraph{Depletion and adverse selection across the three models.}
+\paragraph{Depletion and adverse selection across the three models.} How fast a queue depletes
+depends on the rest of the market; the example below conditions the depletion rate on order-flow
+imbalance, and the paragraph after it shows why depletion is also the source of adverse selection.
 
 \begin{example}[State-dependent depletion rates]
 \label{ex:fpt}
@@ -2376,8 +2375,6 @@ so at this rate
 \[
   \P(\text{gap} > 3.3\,\mathrm{ms}) \approx 36.8\%,
 \]
-
-
 \[
   \P(\text{gap} > 6.6\,\mathrm{ms}) \approx 13.5\%
 \]
@@ -2807,15 +2804,15 @@ gaps follow long ones, so successive gaps are positively correlated. A renewal p
 independent gaps. A rate that varies slowly over the observation window also produces positive gap
 correlation, so this signature has to be checked against that alternative.
 
-\emph{(iii) Burstiness that grows with the time scale.} The Fano factor rises with the window length
-on a Hawkes process and levels off on a Poisson process or a renewal process with finite-variance gaps. Clustering is then not a feature
+\emph{(iii) Burstiness that grows with the time scale.} The Fano factor rises over the time scales on
+which events trigger one another on a Hawkes process (and keeps rising for slowly decaying kernels), stays
+flat on a Poisson process, and levels off on a renewal process with finite-variance gaps. Clustering is then not a feature
 of one time scale but looks similar over decades of window lengths. A slowly varying rate can also
 make the Fano factor rise, which is the effect \citet{filimonovsornette2015} warn about.
 
 \paragraph{The Fano factor.}
 \label{sec:pp-fano}
 For a window length $w$, cut the observation period into $\Upsilon$ consecutive windows and let
-
 \[
   N_{w,\upsilon} = N(\upsilon w) - N((\upsilon-1)w)
 \]
@@ -2899,7 +2896,7 @@ So far there has been a single stream of events. Order flow has several interact
 cancellations on each side. Let $N_i(t)$ count events of type $i \in \{1,\dots,K\}$. A linear multivariate Hawkes
 process~\citep{hawkes1971} has conditional intensity
 \begin{equation}
-  \lambda_i(t) = \mu_i + \sum_{j=1}^{K} \int_0^t \phi_{ij}(t-t')\, dN_j(t'),
+  \lambda_i(t) = \mu_i + \sum_{j=1}^{K} \int_0^{t^-} \phi_{ij}(t-t')\, dN_j(t'),
 \end{equation}
 with baseline rates $\mu_i$ and non-negative kernels $\phi_{ij}$; it is the one-type model of
 Section~\ref{sec:hawkes-one} with one intensity per event type, and when every kernel is zero it reduces to
@@ -2907,11 +2904,9 @@ independent Poisson processes with rates $\mu_i$. Here $\lambda_i(t)$ is the
 \emph{intensity}: the expected number of type-$i$ events per second at time $t$. The term
 $dN_j(t')$ is nonzero only at the instants $t'$ when a type-$j$ event occurred, so the integral is
 simply a sum over past events, and the formula can be read as
-
 \[
   \lambda_i(t) = \mu_i + \sum_j \sum_{\text{past type-}j\text{ events at } t'} \phi_{ij}(t - t').
 \]
-
 \inwords{the current rate of type-$i$ events is a constant background rate $\mu_i$ plus a ``bump''
 for every past event; each bump fades as that event recedes into the past, with a shape set by the
 kernel $\phi_{ij}$. Events make further events more likely for a while, the way an earthquake
@@ -2931,7 +2926,6 @@ intensity vector $\bar\lambda$, with one entry $\bar\lambda_i$ per event type, i
   \bar\lambda = (I - \Gamma)^{-1}\mu .
 \end{equation}
 \inwords{expand the inverse as a geometric series,
-
 \[
   (I-\Gamma)^{-1}\mu = \mu + \Gamma\mu + \Gamma^2\mu + \cdots.
 \]
@@ -2950,7 +2944,6 @@ Take buy and sell market orders with $\mu = (1, 1)$ events per second and
   \Gamma = \begin{pmatrix} 0.6 & 0.2 \\ 0.2 & 0.6 \end{pmatrix}.
 \]
 The eigenvalues are $0.8$ and $0.4$, so $\rho(\Gamma) = 0.8 < 1$. Then
-
 \[
   I - \Gamma = \begin{pmatrix} 0.4 & -0.2 \\ -0.2 & 0.4 \end{pmatrix}
 \]
@@ -3024,8 +3017,8 @@ Write $\lambda^{+}(t)$ and $\lambda^{-}(t)$ for the intensities of $N^{+}$ and $
 numbers of up and down moves per second. \citet{bacry2013} make the two counts \emph{mutually}
 exciting: an up move raises the intensity of down moves and vice versa,
 \begin{equation}
-  \lambda^{+}(t) = \mu_0 + \int_0^t \alpha\,\mathrm{e}^{-\omega (t-t')}\, dN^{-}(t'), \qquad
-  \lambda^{-}(t) = \mu_0 + \int_0^t \alpha\,\mathrm{e}^{-\omega (t-t')}\, dN^{+}(t'),
+  \lambda^{+}(t) = \mu_0 + \int_0^{t^-} \alpha\,\mathrm{e}^{-\omega (t-t')}\, dN^{-}(t'), \qquad
+  \lambda^{-}(t) = \mu_0 + \int_0^{t^-} \alpha\,\mathrm{e}^{-\omega (t-t')}\, dN^{+}(t'),
 \end{equation}
 \inwords{each down move adds a bump of height $\alpha$ to the up-move rate, and vice versa; the bump
 decays at rate $\omega$. The background rate on each side is $\mu_0$.}
@@ -3121,8 +3114,8 @@ moves per second and so \emph{raises} volatility, and the Markov chain of moves 
 according to whether directions tend to repeat or reverse.
 
 \paragraph{Fit to five Nasdaq stocks.} \citet{swishchuk2020gchp} fit the model to the level-1 book of five Nasdaq
-stocks on one day, 21 June 2012 (Table~\ref{tab:chp-fit}), and compare the standard deviation of price changes
-over windows from 10 seconds to 20 minutes with Equation~\eqref{eq:chp-vol}.
+stocks on one day, 21 June 2012 (Table~\ref{tab:chp-fit}), and compare in sample the standard deviation of price
+changes over windows from 10 seconds to 20 minutes with Equation~\eqref{eq:chp-vol}.
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
 \item \textbf{Moves of a single size work only where moves really are a single size.} With every mid move set to
   half a cent, the model tracked the data for MSFT and INTC, where every mid change was half a cent, but
@@ -3135,7 +3128,7 @@ over windows from 10 seconds to 20 minutes with Equation~\eqref{eq:chp-vol}.
   fitted directly to the data, the error was 1.4\% for AAPL, 4.6\% for GOOG, 3.4\% for INTC, 6.4\% for MSFT
   and 20.8\% for AMZN, the largest gap of the five.
 \end{itemize}
-These are in-sample results for one day. An earlier version of the model was
+An earlier version of the model was
 calibrated on one stock, CISCO, over five days of November 2014~\citep{swishchuk2019chp}.
 
 \begin{table}[!htbp]
@@ -3347,7 +3340,7 @@ kernel integrating to approximately one---a market at criticality. \citet{filimo
 argue that estimates near one are biased upward by outliers, kernel regularisation, edge effects
 and regime shifts---fitting a constant background rate to a period in which the true background
 varies; their
-re-estimation gives values that later fluctuate between about $0.8$ and $1.1$. On CME NQ market
+re-estimation gives values that fluctuate between about $0.8$ and $1.1$. On CME NQ market
 data, an exponential-kernel fit to packet arrivals gives about $0.80$ (Section~\ref{sec:pp-branching}).
 In summary, a large majority of events are endogenous; the precise
 number depends on the kernel family and on how non-stationarity is handled.
@@ -3372,17 +3365,18 @@ means (Figure~\ref{fig:criticality}).
 \item \textbf{Shocks are amplified enormously.} One outside event produces on average $1/(1-\Gamma)$ events in
   total: 10 at $\Gamma = 0.9$, 100 at $0.99$. Most activity is then reaction rather than news.
 \item \textbf{The market takes much longer to calm down.} With an exponential kernel of decay rate $\omega$, the
-  expected extra activity after a shock fades at rate $\omega(1-\Gamma)$, not $\omega$. The reason fits in two
-  lines: between events the extra intensity decays at rate $\omega$, but while it is above zero it keeps producing
-  events, each of which adds $\alpha$ back; on average these two effects combine to
+  expected extra activity after a shock fades at rate $\omega(1-\Gamma)$, not $\omega$. The reason:
+  let $x(t)$ be the expected extra intensity caused by one outside event and its descendants. Between
+  events this extra intensity decays at rate $\omega$, but while it is above zero it keeps producing events,
+  at expected rate $x(t)$, each of which adds $\alpha$ back; on average these two effects combine to
   \begin{equation}
-    \frac{d}{dt}\,\E\big[\lambda(t) - \mu\big] = -\omega\,\E\big[\lambda(t) - \mu\big] + \alpha\,\E\big[\lambda(t)\big],
+    \frac{d}{dt}\,x(t) = -\omega\,x(t) + \alpha\,x(t),
     \label{eq:crit-slow}
   \end{equation}
-  and after a single outside event the extra activity therefore decays as $e^{-(\omega - \alpha)t} =
-  e^{-\omega(1-\Gamma)t}$.
+  so $x(t) = x(0)\,e^{-(\omega - \alpha)t} = x(0)\,e^{-\omega(1-\Gamma)t}$, with $\Gamma = \alpha/\omega$.
   \inwords{the rate falls because old excitation wears off, and rises because the events it produces add new
-  excitation; the net speed of calming down is the difference, which shrinks to nothing as $\Gamma \to 1$.}
+  excitation; the net speed of calming down is the difference, $\omega - \alpha = \omega(1-\Gamma)$, which shrinks to
+  nothing as $\Gamma \to 1$.}
   With $\omega$ equal to one per second, the market calms down in about 2 seconds at $\Gamma = 0.5$, 10 seconds at
   $0.9$ and 100 seconds at $0.99$. Physicists call this \emph{critical slowing down}.
 \item \textbf{Bursts become wildly uneven.} The number of events in the family started by one outside event is
@@ -3511,22 +3505,21 @@ similar mark changes the excitation.
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{Marked Hawkes models fitted to high-frequency financial data. ``Simpler form tested'': whether the study
-checks its marked model against a simpler one.}
+\caption{Marked Hawkes models fitted to high-frequency financial data.}
 \label{tab:marks-evidence}
 \setlength{\tabcolsep}{3pt}
-\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.17\linewidth}>{\raggedright\arraybackslash}p{0.12\linewidth}>{\raggedright\arraybackslash}p{0.16\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.13\linewidth}}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.19\linewidth}>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}p{0.19\linewidth}>{\raggedright\arraybackslash}X}
 \toprule
-Study & Mark & Data & Finding & Simpler form tested \\
+Study & Mark & Data & Finding \\
 \midrule
-\citet{rambaldi2017marked} & trade volume, 6 classes & Bund and DAX futures & large trades excite more and for longer; the multiplicative form is rejected & the multiplicative form, rejected \\
-\citet{fabre2025neuralhawkes} & trade volume, non-parametric & Coinbase BTC-USD, Dec.\ 2023 & excitation rises with volume, more slowly for larger trades, and levels off above about 50{,}000 USD & no \\
-\citet{richards2025scoretest} & 21 candidate marks & silver futures, July 2015 & the best marks---all volume-based, such as order imbalance---are significant in about half of 1{,}000-event segments & no mark, by a score test \\
-\citet{leeseo2017marked} & size of the price jump & NYSE stocks, 2008--2011 & linear effect, slope about 0.2 & no \\
-\citet{deschatre2022electricity} & size of the price jump & German intraday power, 2017 & excitation linear in jump size & no \\
-\citet{josephjain2024marked} & trade volume, neural kernel & Binance BTC and ETH, one half-hour & a volume effect in two of four event streams & informally, by Q--Q plots \\
-\citet{chevalier2023disorder} & volume, power law & BNP Paribas trades-through, 2022 & average branching ratio 0.83; exponent shown as a box plot & no \\
-\citet{jain2024chp} & order size & Nasdaq & past order sizes show no clear effect on arrival rates & --- \\
+\citet{rambaldi2017marked} & trade volume, 6 classes & Bund and DAX futures & large trades excite more and for longer; multiplicative form rejected \\
+\citet{fabre2025neuralhawkes} & trade volume, non-parametric & Coinbase BTC-USD, Dec.\ 2023 & excitation rises with volume, more slowly for larger trades, and levels off above about 50{,}000 USD \\
+\citet{richards2025scoretest} & 21 candidate marks & silver futures, July 2015 & the best marks---all volume-based, such as order imbalance---are significant in about half of 1{,}000-event segments; tested against no mark by a score test \\
+\citet{leeseo2017marked} & size of the price jump & NYSE stocks, 2008--2011 & linear effect, slope about 0.2 \\
+\citet{deschatre2022electricity} & size of the price jump & German intraday power, 2017 & excitation linear in jump size \\
+\citet{josephjain2024marked} & trade volume, neural kernel & Binance BTC and ETH, one half-hour & a volume effect in two of four event streams; fit checked by Q--Q plots \\
+\citet{chevalier2023disorder} & volume, power law & BNP Paribas trades-through, 2022 & average branching ratio 0.83 \\
+\citet{jain2024chp} & order size & Nasdaq & past order sizes show no clear effect on arrival rates \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -3630,9 +3623,9 @@ Parameters & 26 & 92 \\
 \item \textbf{The state changes the excitation.} When the spread widens to two ticks or more, self-excitation
   roughly doubles in size, and cross-excitation lasts much longer. When the queue imbalance shows heavy selling
   pressure (below $-0.6$), the self-excitation of ask events rises; under mild buying pressure it nearly halves.
-\item \textbf{The state pulls back towards normal.} The spread stays where it is after 98\% of events when it is
-  one tick and after 93\% when it is wider; it is six times as likely to narrow from wide to one tick (6\%) as
-  to widen from one tick (1\%). Transitions of the queue imbalance are also more likely towards the balanced
+\item \textbf{The state pulls back towards normal.} From one tick, the spread stays one tick after about 98\% of
+  events and widens after about 1\%; from two ticks or more, it narrows after about 6\% and stays wide after
+  about 93\% (read from the paper's figure; rounded). Transitions of the queue imbalance are also more likely towards the balanced
   state than away from it, and those after bid events mirror those after ask events.
 \item \textbf{How self-exciting the market is depends on the state.} The spectral radius of the branching matrix
   (Section~\ref{sec:hawkes-multi}), computed state by state, is higher in the unbalanced states than in the
@@ -3650,8 +3643,8 @@ window (14:30 to 15:00) each day: it still fits better than an ordinary Hawkes p
 smaller, and small overall, because the two models behave alike in the common states and differ mainly in the
 rare ones---a wide spread, a strongly unbalanced queue. They also compare it with a plain Hawkes process that
 simply treats each (event, state) pair as its own event type, which ignores the rule that the next state follows
-from the current state and the event; with 210 parameters against 92 it fitted worse. The paper reports results
-for Intel only; the authors say four other stocks (AMD, MU, SNAP, TWTR) gave largely similar results.
+from the current state and the event; with 210 parameters against 92 it fitted worse. Results are shown for
+Intel; the authors report largely similar results for four other stocks (AMD, MU, SNAP, TWTR).
 
 \paragraph{Extensions.} The authors list three: power-law or sum-of-exponential kernels in place of exponential
 ones; background rates $\mu_i$ that also depend on the state, which would make both the ordinary Hawkes process
@@ -3735,8 +3728,8 @@ before delivery~\citep{deschatre2025nonlocal}. On Australian stock trades, a Haw
 rate fits better than a standard duration model and gives branching ratios from 0.10 to 0.66 across
 days~\citep{chenhall2013seppvb}.
 
-\paragraph{Hidden regimes on market data.} Hidden-regime Hawkes models are hard to estimate, and their authors note
-that they have ``received much less attention'' for that reason~\citep{fabremunitoke2026mmhp}. The only application to
+\paragraph{Hidden regimes on market data.} Hidden-regime Hawkes models are hard to estimate, and
+\citet{fabremunitoke2026mmhp} note that they have ``received much less attention'' for that reason. The only application to
 high-frequency market data that we found is theirs: trades in a cryptocurrency pair on Coinbase (SEI-USD,
 December 2023 to March 2024), with up to four hidden regimes in which both the background rate and the kernel
 switch. It beats a hidden-regime model without excitation (a Markov-modulated Poisson process) on a model-selection
@@ -3765,9 +3758,8 @@ parameters~\citep{wu2019qrhawkes}.
 
 \paragraph{Nonlinear and inhibitory kernels.} Linear Hawkes kernels can only excite. A nonlinear Hawkes
 process passes the sum through a function that keeps the intensity non-negative,
-
 \[
-  \lambda_i(t) = h\big(\mu_i + \sum_j \int \phi_{ij}(t-t')\, dN_j(t')\big),
+  \lambda_i(t) = h\big(\mu_i + \sum_j \int_0^{t^-} \phi_{ij}(t-t')\, dN_j(t')\big),
 \]
 \inwords{compute the usual Hawkes sum of background rate and bumps, which may now be negative, and pass it
 through a function $h$ that never returns a negative value, so the result is a valid intensity.}
@@ -4222,8 +4214,8 @@ Mamba + Transformer (MHP-E) & $0.966$ & 62.7 & 0.556 \\
 
 Two things stand out. First, the likelihood and the timing error improve a great deal from one family to the next,
 while type accuracy (predicting buy or sell) stays between 61.95\% and 62.7\% for all five models.
-Second, these comparisons use one stock, one day and two event types; a comparison with a classical Hawkes
-baseline on order-book data is not part of these studies.
+Second, the data set has one stock, one day and two event types; order-book comparisons with classical
+Hawkes models are in the studies below.
 
 \paragraph{Models built for the order book.} The order-book applications use richer event types and compare with a
 classical model:
@@ -4244,8 +4236,7 @@ classical model:
 
 \paragraph{Open questions for neural point processes.} We found no study that compares the three families---recurrent, attention and
 state-space---on order-book data, and none that compares any of them out of sample with a multivariate Hawkes
-model using sum-of-exponential kernels on many instruments. The order-book evidence comes from one
-recurrent design, on a handful of stocks over a few days.
+model using sum-of-exponential kernels on many instruments.
 
 \subsubsection{Benefits and costs}
 \label{sec:npp-when}
@@ -4371,9 +4362,9 @@ at the branching ratio.
 clustering of order flow very well while saying little about the sign of the next price move, because a burst of
 buying and a burst of selling are both bursts. On a standard financial data set, neural Hawkes models described
 the timing of events far better than earlier ones, while type accuracy (buy or sell) stayed between 61.95\% and
-62.7\% (Section~\ref{sec:npp-apps}). Hawkes models should therefore be judged separately on each task
-of Table~\ref{tab:three-problems}: forecasting intensities, simulating, predicting the price, and supporting
-execution.
+62.7\% (Section~\ref{sec:npp-apps}). Hawkes models should therefore be judged separately on each problem
+of Table~\ref{tab:three-problems}---simulation, price prediction and execution---and on forecasting
+intensities.
 
 \paragraph{Cases where a Poisson model is sufficient.} A Poisson model is enough when activity is steady over the horizon that
 matters, and a queue model of Section~\ref{sec:queue-models} when what matters is the current size of the queues
@@ -4953,7 +4944,7 @@ class \emph{probabilities} works better than combining predicted labels: a linea
 probabilities beat the best single model in nine of them and tied in the tenth, with significant gains
 mainly on the largest. On \emph{order-book} data (for the LOBCAST stack see Section~\ref{sec:meta-evidence}), an
 equal-weight average of three book-based models was not consistently better than DeepLOB alone, while
-adding models built on individual messages improved F1 by about half a point~\citep{zhanglimzohren2021mbo}.
+adding models built on individual messages improved F1 by about half to three quarters of a point~\citep{zhanglimzohren2021mbo}.
 
 \paragraph{The cost of fitting the combination in sample.} The one measured comparison we found of a
 second-stage model trained on in-sample versus out-of-sample first-stage predictions comes from medicine,
@@ -5133,7 +5124,7 @@ continual updating of the COVID-19 Forecast Hub models as one reason it did not 
 \paragraph{Tests of whether attention weights anticipate or follow performance.} None of the three studies
 includes a case in which recent accuracy is misleading---for example, one in which the recently best model tends
 to do worse next. That is the experiment that would separate a combiner that anticipates which model will be
-right from one that simply follows the recent winner, and it has not been done. For order-book data, where a
+right from one that simply follows the recent winner, and we found no study that runs it. For order-book data, where a
 model's accuracy in one regime may say little about the next, it is the test that matters.
 
 
@@ -5167,7 +5158,7 @@ comparison we found points the same way. Holding the network architecture fixed 
 the input, \citet{lucchese2024} find that the best order-flow variant (L2) places a stock-specific model among the
 statistically best models in 89\% of stock--horizon cases, and the simpler variant (L1) in 22\%, against 11\% for
 the raw ten-level book (model
-confidence sets at the 99\% level, ten Nasdaq stocks). \citet{tsantekidis2020stationary} replace raw prices
+confidence sets at the 99\% confidence level, ten Nasdaq stocks). \citet{tsantekidis2020stationary} replace raw prices
 by stationary features---prices relative to the mid, recent mid changes, cumulative depth---and every
 network improves: an LSTM's F1 score at a 100-event horizon rises from 0.34 to 0.44, an MLP's from 0.26 to
 0.39 (five Finnish stocks, ten days). The Tampere group's studies of hand-crafted features reach the same
@@ -5283,7 +5274,7 @@ stationary series, but that when the series is non-stationary the most accurate 
 from out-of-sample methods that keep the observations in time order. A meta-model adds one more set of choices to count: every
 combination of inputs, windows and learners tried is a trial that must be counted~\citep{white2000,harvey2016}, and
 the final choice should be assessed out of sample. The question of
-which inputs earn their place is Principle~2 applied input by input; as noted in
+which inputs earn their place is Principle~2 (Occam's razor, Section~\ref{sec:principles}) applied input by input; as noted in
 Section~\ref{sec:meta-evidence}, no study we found reports that ablation in economic terms.
 
 \subsection{Summary}
@@ -6171,8 +6162,8 @@ volatility or intensity---mixes them:
   \widehat{Y}_t = \nu_t\, \widehat{Y}^{\text{stat}}_t + (1 - \nu_t)\, \widehat{Y}^{\text{deep}}_t .
 \end{equation}
 \inwords{when the gate is near 1 the forecast falls back on the simple, well-understood model; the
-network contributes only where it has earned trust. Setting $\nu_t$ by volatility gives a natural safety
-layer: in unusual conditions, defer to the model with fewer parameters.} A related form trains the
+network contributes only where it has earned trust.} One option, our suggestion, is to set $\nu_t$ by volatility,
+so that in unusual conditions the forecast defers to the model with fewer parameters. A related form trains the
 network on the residuals of the statistical model, so that it learns only what the simple model misses.
 
 \begin{figure}[!htbp]
@@ -6221,7 +6212,7 @@ both are forecast combination (Section~\ref{sec:meta-combine}); trained together
 \label{sec:hybrid-other}
 
 Sections~\ref{sec:hybrid-dqr}--\ref{sec:hybrid-nhp} reviewed in full the three structural hybrids for order-book
-data that report results on real data against at least some baselines. This subsection
+data that are fitted to real data and reported in enough detail to take apart. This subsection
 lists the other related work our search turned up, so that a reader can follow it up.
 
 \paragraph{Other hybrids.}
@@ -6229,7 +6220,7 @@ lists the other related work our search turned up, so that a reader can follow i
 \item \citet{gyotoku2025deeppp} (preprint) take a classical model of the \emph{ratios} between
   event intensities and let deep networks compute its factors, trained by the model's own likelihood. On
   simulated data, imposing the model's multiplicative structure gives better estimates than not imposing it.
-  On real data (TotalEnergies on Euronext Paris, January 2017) the paper reports in-sample fit.
+  The paper also fits the model to real data (TotalEnergies on Euronext Paris, January 2017).
 \item \citet{chung2024nmhp} propose a neural marked Hawkes process for the
   order book.
 \item UQ-LOB~\citep{manoharan2026uqlob} is a hybrid in a different sense: it attaches a probabilistic,
@@ -6266,7 +6257,8 @@ the rest of the machine is unchanged.}
 \label{sec:deep}
 % ================================================================
 
-Deep learning entered LOB research around 2017 and now dominates the volume of published work. This
+In the literature we surveyed, deep learning appears from about 2017~\citep{tsantekidis2017} and accounts for
+much of the recent work. This
 section first explains what a deep LOB model is (Section~\ref{sec:deep-what}), what it takes in and predicts
 (Section~\ref{sec:deep-io}), the families of network used and what each assumes (Section~\ref{sec:deep-families}),
 and how a model is trained and tested, step by step (Section~\ref{sec:deep-train}). It then reviews each family in
@@ -6324,10 +6316,8 @@ decision matters.
   each level between snapshots), or the individual \emph{messages}---each new order, cancellation and trade---as a
   sequence. A second choice is the window: how many events, or how many seconds, of history. DeepLOB sees the last 100
   snapshots of ten levels, a $100 \times 40$ matrix~\citep{zhang2019}. This decision matters a great deal: holding the
-  DeepLOB network fixed and changing only the input, the best order-flow variant (L2) put the model among the
-  statistically best in 89\% of stock--horizon cases and the simpler variant (L1) in 22\%, against 11\% for the raw
-  snapshots~\citep{lucchese2024}. Section~\ref{sec:deep-io}
-  compares the three inputs and the classical models that read the same information.
+  DeepLOB network fixed and changing only the input changes how often the model is among the best from 11\% to
+  89\% (Section~\ref{sec:deep-io-effect}).
 \item \textbf{Target.} Most papers predict the \emph{direction} of the mid-price after a horizon
   of $H$ events---down, unchanged or up---which makes the task a three-class classification. Others predict a
   \emph{return} (a number rather than a class), the type and time of the \emph{next event}, the \emph{time until a
@@ -6342,8 +6332,8 @@ decision matters.
   events in order with a memory, an attention network weighs the past by its content. DeepLOB combines convolutions,
   which read the book's structure, with an LSTM, which reads the sequence. Of the four choices this is the one most
   papers vary, and it has so far mattered least: a plain multilayer perceptron matched a CNN--LSTM on the same
-  inputs~\citep{briola2020}, Transformers have not beaten the DeepLOB family in head-to-head
-  comparisons~\citep{bilokon2023transformers,zhong2025lobench}, and adding attention to the best bilinear network gained
+  inputs~\citep{briola2020}, in the independent comparisons we found~\citep{bilokon2023transformers,zhong2025lobench},
+  Transformers did not beat the DeepLOB family, and adding attention to the best bilinear network gained
   0.4 of a point~\citep{shabani2022mtabl}. Section~\ref{sec:deep-families} describes the families.
 \item \textbf{Training and testing.} This covers how the inputs are normalised, how the labels are built, how
   the data are split into training, validation and test periods, which loss is minimised, when training stops, and how
@@ -6589,7 +6579,7 @@ variant (L1) in 22\%; the raw snapshots in 11\% (Figure~\ref{fig:lucchese-inputs
 \end{scope}
 \end{tikzpicture}
 \caption{The input experiment of \citet{lucchese2024}. (a) Only the input changes; the network is fixed. ``Among
-the best'': not shown to be worse than the best model by a model confidence set test at the 1\% level. (b) Share of
+the best'': not shown to be worse than the best model by a model confidence set test at the 99\% confidence level. (b) Share of
 (stock, horizon) cases in which each input was among the best, stock-specific models (their Table~5). L1, L2, L3:
 the paper's labels for variants of each input. Several inputs can be among the best in the same case, so the shares do not sum to 100\%.}
 \label{fig:lucchese-inputs}
@@ -6913,10 +6903,9 @@ training needs automatically, so the modeller writes only the forward computatio
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
 \item \textbf{PyTorch}~\citep{paszke2019pytorch}: used by the public code of LOBCAST~\citep{prata2024},
   LOBFrame~\citep{briola2024} and TLOB~\citep{berti2025tlob}, each with PyTorch Lightning, a layer that supplies the
-  training loop. The LOBERT paper states that it is implemented in PyTorch~\citep{linna2025lobert}; we found no
-  public code.
+  training loop. The LOBERT paper states that it is implemented in PyTorch~\citep{linna2025lobert}.
 \item \textbf{TensorFlow} with its \textbf{Keras} interface~\citep{abadi2016tensorflow,chollet2015keras}: used by the
-  first public code of DeepLOB~\citep{zhang2019} (a PyTorch version was added to the same repository in 2021) and by
+  first public code of DeepLOB~\citep{zhang2019} and by
   TransLOB~\citep{wallbridge2020}.
 \item \textbf{JAX}~\citep{bradbury2018jax}: used by JAX-LOB~\citep{frey2023}, an order-book simulator that runs on GPUs.
 \item \textbf{scikit-learn}~\citep{pedregosa2011sklearn}: not a deep-learning library; used for linear and tree
@@ -6990,8 +6979,7 @@ descent; the \emph{learning rate} sets the size of each step; a \emph{batch} is 
 averaged for one step; an \emph{epoch} is one pass over all the training data. (``Weights'' and ``parameters'' are used
 interchangeably.) DeepLOB uses Adam with a learning rate of 0.01, batches of 32 examples, and stops when accuracy on
 the validation months has not improved for 20 epochs (about 40 epochs in all). The trained network has about 60,000
-weights and takes about a quarter of a millisecond per prediction; the device and batch size used for that timing are not
-reported (Section~\ref{sec:hw-why}).
+weights and takes about a quarter of a millisecond per prediction (Section~\ref{sec:hw-why}).
 
 \paragraph{Step 6: evaluate.} On the test months DeepLOB reports F1 scores of about 70\%, 63\% and 61\% for the three
 horizons, and similar numbers on five stocks it had not seen. Three further checks are standard, and the later subsections show how each check changes published results: compare with simple
@@ -7677,7 +7665,8 @@ comparison clarifies both. In a Hawkes model the weight of a past event is set b
 by its type: a fixed kernel that decays with elapsed time, the same for every event of that type. In standard
 attention the weight is set by \emph{what the event is}, through the match of its key with the current query; time
 enters only through the position or time encoding, and nothing forces old events to count less. The two can be
-combined. \emph{Hawkes-biased attention}, a design proposed in Section~\ref{sec:hybrid-patterns}, adds the logarithm of
+combined. \emph{Hawkes-biased attention}, a design close to that of \citet{hwang2025shockbiased}
+(Section~\ref{sec:hybrid-patterns}), adds the logarithm of
 a Hawkes kernel to the attention scores, so that each weight is the content match multiplied by a decay in elapsed
 time: relevant events count more, old events count less. The Transformer Hawkes process of \citet{zuo2020thp} and the self-attentive Hawkes
 process of \citet{zhang2020sahp}---developed concurrently and both presented at ICML 2020, building on the neural
@@ -7696,7 +7685,7 @@ Model & What sets the weight on a past event & What it outputs \\
 \midrule
 Hawkes kernel (\S\ref{sec:hawkes}) & elapsed time and event type, through a fixed decaying kernel & an intensity \\
 Standard attention (this subsection) & the content of the event, matched with the current query; time only through an encoding & whatever the head predicts, e.g.\ a class \\
-Hawkes-biased attention (\S\ref{sec:hybrid-patterns}) & content match multiplied by a decay in elapsed time & whatever the head predicts \\
+Hawkes-biased attention, close to \citet{hwang2025shockbiased} (\S\ref{sec:hybrid-patterns}) & content match multiplied by a decay in elapsed time & whatever the head predicts \\
 Transformer and self-attentive Hawkes processes~\citep{zuo2020thp,zhang2020sahp} (\S\ref{sec:npp-attn}) & content, with time encoded; in the self-attentive version, attention sets the initial level, the long-run level and the decay rate of each event's influence & an intensity, trained by likelihood \\
 \bottomrule
 \end{tabularx}
@@ -7845,8 +7834,7 @@ horizons. In the re-implementation of Prata et al., its F1 on FI-2010 was 59\%~\
 multiplied by a learned gate between 0 and 1---separately along the time and feature axes, keeping the parameter count below $10^4$. TLOB
 \citep{berti2025tlob} alternates temporal self-attention (across snapshots) with spatial
 self-attention (across the features of a snapshot); its companion MLPLOB replaces attention by
-multilayer perceptrons that mix along the two axes, and matches TLOB on several data sets. Three
-observations from TLOB are instructive. Performance on Nasdaq and Bitcoin data falls steeply with the
+multilayer perceptrons that mix along the two axes, and matches TLOB on several data sets. TLOB reports three further results. Performance on Nasdaq and Bitcoin data falls steeply with the
 horizon---for INTC, F1 drops from about 80\% at 10 events to about 50\% at 100---whereas on FI-2010 it
 \emph{rises} with the horizon. Predictability on the same stock
 declined between 2012 and 2015. And when the label threshold is set to the average spread, so that only moves large enough to pay for crossing
@@ -7868,8 +7856,8 @@ DeepLOB encoder to produce forecasts at several horizons at once; they also repo
 processors (Graphcore IPUs) took about 15\% of the time needed on a GPU, which matters when models are retrained
 often.
 
-\paragraph{Transformers against simpler models.} Head-to-head comparisons on the same data do not show
-Transformers winning. On twelve days of order-book data for a cryptocurrency pair (ETH--USDT), five general-purpose
+\paragraph{Transformers against simpler models.} In the independent comparisons we
+found~\citep{bilokon2023transformers,zhong2025lobench}, Transformers did not beat the DeepLOB family. On twelve days of order-book data for a cryptocurrency pair (ETH--USDT), five general-purpose
 time-series Transformers did not beat DeepLOB-family networks at classifying the next move: at a horizon of twenty events the best Transformer was right 68.89\% of the time
 against 70.29\% for DeepLOB and 73.10\% for an LSTM with a trend decomposition (one that splits the series into a
 slow trend and fluctuations), and in a simple trading
@@ -8261,8 +8249,8 @@ Mamba's scan~\citep{dao2024ssd}.
   step is one message, split into 22 tokens---type, side, price in ticks from the mid, size, time and the fields of
   any order it refers to---together with the current volumes at the first levels of the book as real numbers, over a
   context of 500 messages. It is trained to predict a hidden token of the latest message and is used to generate
-  message streams one token at a time, as a simulator of the market. In the LOBERT authors' re-implementation, exact
-  next-message accuracy was 6.1\% (LOBERT 26.4\%)~\citep{linna2025lobert}.
+  message streams one token at a time, as a simulator of the market. Section~\ref{sec:lobert} reports a comparison
+  with LOBERT.
 \item \textbf{A Hawkes process.} The Mamba Hawkes process~\citep{gao2024mhp} takes one event per step---its type and the
   time since the previous event---and outputs the intensity of each event type, from which the type and time of the next
   event follow (Section~\ref{sec:npp-mamba}). On a financial event benchmark it predicts the next event's type with
@@ -8494,7 +8482,7 @@ Threshold, model & F1 & coverage & F1 & coverage & F1 & coverage \\
 \end{tabular}
 \end{table}
 
-\paragraph{Limitations.} LOBERT is evaluated on four stocks over twenty test days of 2015, against a state-space
+\paragraph{Limitations.} LOBERT is evaluated on four stocks over ten test days of 2015, against a state-space
 model and DeepLOB; its reported throughput is about 282 predictions per second (one V100 GPU, batch size one), 47\%
 of DeepLOB's. The authors list as limitations that realistic
 long generated sequences are not established, that the model may lose track of order size and location when price
@@ -8955,8 +8943,8 @@ coefficients (the lasso and ridge regression) and ensembles of decision trees (b
 logistic regression is slightly more accurate than a random forest, another tree ensemble, on the
 same inputs~\citep{easley2021}. Holding the network fixed, the input matters more than the
 architecture~\citep{lucchese2024,kolm2023}; a plain multilayer perceptron matches a CNN--LSTM~\citep{briola2020};
-Transformers do not beat the DeepLOB family in head-to-head
-comparisons~\citep{bilokon2023transformers,zhong2025lobench}; and stacking deep models is discussed in
+in the independent comparisons we found~\citep{bilokon2023transformers,zhong2025lobench},
+Transformers did not beat the DeepLOB family; and stacking deep models is discussed in
 Section~\ref{sec:meta-evidence}. For this task, most of the predictable signal lies in quantities that the classical
 models already define, the reported differences between architectures are small, and scores are lower on new
 data~\citep{prata2024}.
@@ -8989,7 +8977,7 @@ A Hawkes kernel weights past events by how long ago they happened; a lead--lag m
 (Section~\ref{sec:cross}), weights other instruments by fixed coefficients. Attention weights each past event, price level or instrument by how its \emph{content}
 compares with the present (Section~\ref{sec:deep-attn}): it is a kernel computed from the data rather than
 fixed in advance, and nothing in the classical toolkit does this. On order-book data it has not yet shown an
-advantage: Transformers did not beat simpler networks in the head-to-head comparisons above; five of the six
+advantage: Transformers did not beat simpler networks in those independent comparisons; five of the six
 best models in the LOBCAST re-test use attention, and the best of them on new data had F1 there about 20\% below its
 FI-2010 score~\citep{prata2024}.
 
@@ -9031,7 +9019,7 @@ Section~\ref{sec:sim-survey}; the simulator is part of the result.
 \paragraph{Reported results.} Table~\ref{tab:rl} lists representative studies. In execution, the earliest
 study on order-book data, \citet{nevmyvaka2006}, combined recorded Nasdaq order flow with the agent's orders in a
 simulator that maintained queue priorities, and reported a cost reduction of 50\% or more against submitting one
-limit order and sending the remainder at market at the deadline. Later studies compare with TWAP, VWAP or the
+limit order and sending the remainder at market at the deadline. Later studies compare with the time-weighted average price (TWAP), VWAP or the
 Almgren--Chriss schedule~\citep{almgren2001}; in ABIDES, an execution agent converged to TWAP~\citep{karpe2020}. In
 market making, \citet{spooner2018} trained agents on recorded price-level data with an estimated queue position and
 no market impact. A survey of 22 market-making papers found that 9 trained on a single replayed historical path, 13
@@ -9130,7 +9118,7 @@ Hawkes processes & times and types of events & activity forecasts; simulation; m
 Meta-models & outputs of the classical models & combined, calibrated forecasts & inputs matter more than learners; simple averages of forecasts are hard to beat & \ref{sec:meta} \\
 Structural hybrids & events and book state, through classical structure & simulation; event prediction & a network inside the queue-reactive model improves its simulated markets; built-in structure is kept, fixed formulas are learned & \ref{sec:hybrid} \\
 Deep networks & snapshots, order flow or messages & direction and other targets & the input matters more than the architecture; label construction can inflate reported accuracy; most deep models are learned analogues of the signal models & \ref{sec:deep} \\
-Reinforcement learning & state built from the book, plus time and inventory & execution and market-making policies & learns execution and market-making policies directly; results depend on the environment and fill rule used for training & \ref{sec:policy} \\
+Reinforcement learning & state built from the book, plus time and inventory & execution and market-making policies & reported gains over TWAP, Almgren--Chriss or fixed-spread baselines, all in simulated or replayed environments; results depend on the environment and fill rule & \ref{sec:policy} \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -9161,6 +9149,8 @@ Structural hybrids & a network inside the queue-reactive model improves its simu
 Deep networks & the book carries short-horizon predictive information that networks fit; the input matters more than
   the architecture; label construction can inflate accuracy & that any architecture is superior on the same inputs;
   that published scores hold on new data; that pretrained encoders produce value after costs \\
+Reinforcement learning & learned policies matched or beat TWAP, Almgren--Chriss or fixed-spread baselines in
+  simulated or replayed environments & results under exact queue position against a model-free benchmark \\
 \bottomrule
 \end{tabularx}
 \end{table}

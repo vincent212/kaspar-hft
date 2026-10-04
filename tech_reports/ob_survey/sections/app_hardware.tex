@@ -7,14 +7,13 @@ This appendix supports Section~\ref{sec:hw-classes}, which compares the classes 
 quickly and are collected here rather than in the body.
 
 Most production hardware for trading is commercial. Table~\ref{tab:vendors} lists representative offerings with
-the figures their makers publish; STAC-audited results are in Section~\ref{sec:hw-audited}. The STAC-T0 result of an
-Exegy framework on an AMD card is shown here for reference~\citep{exegy_stac2024}. The figures describe different
+the figures their makers publish; STAC-audited results are in Section~\ref{sec:hw-audited}. The figures describe different
 stages (a transceiver loopback, a trigger, a book build, a model inference) and are best read each on its own terms;
 the AMD figure is a transceiver latency, as AMD specifies it.
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{Representative commercial hardware for trading. Except for the STAC result, figures are as published by
+\caption{Representative commercial hardware for trading. Except for the STAC results, figures are as published by
 the vendors. Evidence codes as in Section~\ref{sec:sim-survey}.}
 \label{tab:vendors}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
@@ -22,7 +21,7 @@ the vendors. Evidence codes as in Section~\ref{sec:sim-survey}.}
 Offering & What it is & Published figure \\
 \midrule
 AMD Alveo UL3524 / UL3422~\citep{amd_ul3524,amd_ul3422}\ev{V} & FPGA cards built for trading, 64 low-latency transceivers & under 3\,ns transceiver latency, as published by AMD \\
-Exegy (incl.\ Enyx, acquired 2022)~\citep{exegy_enyx,exegy_stac2024}\ev{V,A} & FPGA feed handling, order entry and trigger frameworks & STAC-T0 audited (Section~\ref{sec:hw-audited}) \\
+Exegy (incl.\ Enyx, acquired 2022)~\citep{exegy_enyx,exegy_stac2024}\ev{V,A} & FPGA feed handling, order entry and trigger frameworks & STAC-T0 audited on an AMD card~\citep{exegy_stac2024} \\
 Algo-Logic~\citep{algologic}\ev{V} & CME tick-to-trade system on Alveo U50, with feed handler, book and TCP order entry & under 500\,ns tick-to-trade \\
 Magmio~\citep{magmio}\ev{V} & C++ strategies compiled to FPGA by high-level synthesis & under 100\,ns for triggers; under 350\,ns with book building \\
 Xelera Silva~\citep{xelera_silva}\ev{V,A} & tree-ensemble and small-network inference on FPGA & about 250\,ns (99th percentile) for a gradient-boosted model inline on UL3524; 1.1--1.3\,\textmu s as card offload; audited STAC-ML: at most 1.95\,\textmu s for the two smaller models and 2.88\,\textmu s for the largest (Table~\ref{tab:stac}) \\

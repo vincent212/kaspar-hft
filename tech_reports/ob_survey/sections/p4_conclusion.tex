@@ -155,8 +155,7 @@ configuration setting (Section~\ref{sec:kaspar-equivalence}).
 
 The work reviewed in this survey comes from two literatures that are usually read separately. The first forecasts the
 market. It builds signals and learned models from the book and evaluates them by how often they predict the direction
-of the next price move: accuracy and the F1 score, with a large share of its deep-learning results reported on one
-public data set, FI-2010 (Section~\ref{sec:deep-io-fi2010}). In the hierarchy of Section~\ref{sec:three-problems} it works at levels 2
+of the next price move: accuracy and the F1 score, with many of its deep-learning results reported on the public FI-2010 data set (Section~\ref{sec:deep-io-fi2010}). In the hierarchy of Section~\ref{sec:three-problems} it works at levels 2
 and 3, about the market rather than about one's own order. The second models what happens to an order once it is
 sent: its place in the queue and its chance of being filled (Section~\ref{sec:queue-models}), the adverse selection of
 its fills (Section~\ref{sec:adverse}), and its impact on the price~\citep{kyle1985,almgren2001}. Its classical models
@@ -201,16 +200,18 @@ Figure~\ref{fig:chain-findings} attaches to each link what the survey found ther
 \node[c, fill=green!12] (n7) at (0,-11.4) {\textbf{P\&L}};
 \foreach \a/\b in {n1/n2,n2/n3,n3/n4,n4/n5,n5/n6,n6/n7} \draw[arr] (\a) -- (\b);
 \node[f] (f1) at (2.2,-0.95) {\textbf{Representation matters.} With the network held fixed, the choice of input decided
-  most of the result in one large comparison: order-flow inputs were among the best in 89\% of cases and raw
-  snapshots in 11\%~\citep{lucchese2024} (Section~\ref{sec:deep-io-effect}).};
+  most of the result in one large comparison: the best order-flow variant (L2) was among the best in 89\% of cases, the
+  simpler variant (L1) in 22\%, and raw snapshots in 11\%~\citep{lucchese2024} (Section~\ref{sec:deep-io-effect}).};
 \node[f] (f2) at (2.2,-2.85) {\textbf{The label can decide the reported accuracy.} In the re-test of \citet{lee2024predictability}, DeepLOB's accuracy on
   Apple was 65.9\% with a label that averages past prices and 54.6\% with one measured from the current price
   (Section~\ref{sec:deep-real}).};
-\node[f] (f3) at (2.2,-4.75) {In the studies we reviewed, most stop at a forecast and leave the decision to a separate,
-  hand-written rule; none of the RL studies reports a live test (Section~\ref{sec:policy}).};
+\node[f] (f3) at (2.2,-4.75) {\textbf{A forecast is not a decision.} In the studies we reviewed, most stop at a forecast and
+  leave the decision to a separate, hand-written rule; none of the RL studies we reviewed reports a live or
+  paper-trading test (Section~\ref{sec:policy}).};
 \node[f] (f4) at (2.2,-6.65) {\textbf{Latency decides whether a model can run.} Published inference takes 25\,\textmu s
   to 23\,ms; a hot-path stage must handle each packet within about 7.5\,\textmu s or a queue builds in bursts. A slow
-  model misses signals and leaves orders to be picked off (Section~\ref{sec:hardware}).};
+  model misses signals and leaves orders to be filled by faster traders after the price has moved
+  (Section~\ref{sec:hardware}).};
 \node[f] (f5) at (2.2,-8.55) {\textbf{The place in the queue decides the fill.} A fill rule that ignores the queue
   overstates results; exact queue position needs order-level data and an order-level book
   (Sections~\ref{sec:replay} and~\ref{sec:kaspar-fills}).};
@@ -253,8 +254,7 @@ book evolves and can be run forward with an order inserted (Section~\ref{sec:dee
 structural hybrids combine the two, either by feeding classical outputs to a learner or by building classical
 structure inside a network. The accuracy reported for deep models can depend strongly on how the label and the data
 split are built; in one re-test, the construction of the label alone moved DeepLOB's accuracy from 65.9\% to
-54.6\%~\citep{lee2024predictability}. The choice of input decided most of the result in one large comparison
-(Figure~\ref{fig:chain-findings}). The conclusion is not that simple models are superior. It is that complexity is an
+54.6\%~\citep{lee2024predictability}. The conclusion is not that simple models are superior. It is that complexity is an
 empirical hypothesis: a more complex model is justified when it delivers incremental out-of-sample
 economic value that survives realistic execution, temporal validation, and the multiple-testing
 burden of its own selection.
@@ -410,8 +410,7 @@ Front-of-queue positions are worth more than back-of-queue positions, with adver
 Hybrid inputs derived from the same stream add little to a sufficiently large network & Open hypothesis \\
 In the re-test of \citet{lee2024predictability}, DeepLOB's accuracy was 65.9\% with a label that averages past
   prices and 54.6\% with one measured from the current price & Established result; one re-test \\
-Published inference times of LOB models range from tens of microseconds to tens of milliseconds, above book-update
-  times & Empirical synthesis; five studies measured under different conditions \\
+Published inference times of LOB models range from tens of microseconds to tens of milliseconds, above the CME publisher period of about 7.5\,\textmu s & Empirical synthesis; five studies measured under different conditions \\
 Exact own-order queue position in the recorded market requires order-level data and an order-level book &
   Established result; follows from price--time priority \\
 Resting and crossing cost similar amounts for model-free execution, about $+0.095$ ticks per contract on a

@@ -92,7 +92,7 @@ signal. This is why the survey treats $\P(\Fill \mid \cdot)$ and $\E[\,\cdot \mi
 modelling targets, and why evaluation must use the conditional quantities rather than unconditional
 accuracy.
 
-Who earns the execution value in practice is documented. A large high-frequency market maker studied
+Empirical studies show who earns the execution value. A large high-frequency market maker studied
 by \citet{menkveld2013} traded passively in about four of every five trades, earning the spread while
 losing on its inventory; across high-frequency firms, differences in relative speed explain large
 differences in trading performance~\citep{baron2019}.
@@ -412,7 +412,7 @@ Figure~\ref{fig:sim-kinds} sets the four kinds side by side.
 \node[c, fill=red!8] at (0,-1.85) {no};
 \end{tikzpicture}
 \caption{The four kinds of order-book simulator. Replay keeps the real market but cannot react to the researcher's
-orders; the other three react, with queues of simulated orders. Summarised from
+orders; the other three react; agent-based and generative simulators hold the order in a simulated queue. Summarised from
 Tables~\ref{tab:simulators} and~\ref{tab:replay-tools}.}
 \label{fig:sim-kinds}
 \end{figure}
@@ -502,7 +502,7 @@ Queue-reactive\ev{P} & model & one tagged order, under stated assumptions & -- &
 the simulated orders, which replay cannot; in them the queue is exact inside a simulated market, so its fill rates
 reflect the simulated order flow rather than the recorded one. Among replay tools, exact queue position in the recorded
 market requires order-level data and an order-level book: in Table~\ref{tab:simulators}, hftbacktest with
-order-level data and \kasparhft{} provide it, JAX-LOB approximates it, and NautilusTrader estimates it. Only hftbacktest,
+order-level data and \kasparhft{} provide it, JAX-LOB initialises the book from level snapshots, and NautilusTrader estimates it. Of the tools in Table~\ref{tab:simulators}, hftbacktest,
 NautilusTrader and \kasparhft{} run the same strategy code in simulation and live trading; the venues each of them connects
 to are compared at the end of this section.
 
@@ -519,7 +519,7 @@ Table~\ref{tab:simulators}; JAX-LOB and Tribeca are described in the text. The l
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
 \item \textbf{Exact position in the recorded queue, recorded market unchanged.} Besides hftbacktest and \kasparhft{},
   \textbf{lobsim}~\citep{lobsim}, a C++20 library, replays order-level data and counts exactly how much recorded
-  quantity is ahead of each simulated order; it has optional order latency and states that it is deterministic; lobsim focuses on replay. \citet{moallemi2017} use the same rule as a method on Nasdaq ITCH data, without software: a
+  quantity is ahead of each simulated order; it supports an optional order latency and is designed to be deterministic. \citet{moallemi2017} use the same rule as a method on Nasdaq ITCH data, without software: a
   simulated order counts as filled once a later order at its price is filled.
 \item \textbf{Exact position, but the simulated orders change the recorded book.} Two open-source engines insert the
   researcher's orders into the replayed order-level book and match them there, so the orders consume liquidity that
@@ -538,7 +538,7 @@ Hummingbot~\citep{hummingbot} and Barter~\citep{barter}, are not covered in this
 
 \begin{table}[!htbp]
 \centering\scriptsize
-\caption{Historical-replay backtesters at order-book level, from their papers, documentation and code. ``Recorded
+\caption{Historical-replay backtesters and methods at order-book level, from their papers, documentation and code. ``Recorded
 market unchanged'': the simulated orders do not alter the replayed book (no market impact). Commercial entries, below the line, are from public vendor documentation; ``--'': not covered here. Evidence codes as in Section~\ref{sec:sim-survey}.}
 \label{tab:replay-tools}
 \setlength{\tabcolsep}{2.5pt}
@@ -575,7 +575,7 @@ hftbacktest trades live on two cryptocurrency exchanges. NautilusTrader, which e
 several venues and data vendors. hftbacktest and NautilusTrader work with CME data from data vendors. To our knowledge, and among the tools we found as of
 October 2026, \kasparhft{} is the only one that decodes an exchange's own market-by-order feed (CME MDP~3.0, from live
 multicast or packet captures), models order, cancel and feed delays separately, and runs the same code in replay,
-paper and live trading against that exchange; as of October 2026 we found no other open-source or documented
+paper and live trading against that exchange; we also found no other open-source or documented
 commercial backtester that decodes MDP~3.0 itself.
 
 \paragraph{Running many days at once.} A \kasparhft{} replay processes one trading day per run, from one packet capture or
@@ -585,23 +585,21 @@ the same: hftbacktest's examples run backtests in parallel processes~\citep{hftb
 process per backtest~\citep{nautilustrader}, and ABIDES ships a script that starts one replay process per
 date~\citep{abides_repo}; JAX-LOB instead runs up to a thousand environments in parallel on one GPU~\citep{frey2023}.
 Among the institutional commercial tools, TT Backtesting runs as a hosted service with one trading day per
-backtest~\citep{tt_backtest_run,tt_backtest_getstarted}. lobsim is open source. Retail trading platforms are not covered in
-this survey.
+backtest~\citep{tt_backtest_run,tt_backtest_getstarted}.
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{Running many replay simulations at once on one's own hardware, from documentation and code. Evidence codes as in Section~\ref{sec:sim-survey}.}
+\caption{Running many replay simulations at once, from documentation and code. Evidence codes as in Section~\ref{sec:sim-survey}.}
 \label{tab:parallel}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X}
 \toprule
-Tool & Parallel runs on own hardware & How parallel runs are done \\
+Tool & Parallel runs & How parallel runs are done \\
 \midrule
 \kasparhft{}\ev{O} & yes & one process per day \\
 hftbacktest\ev{C} & yes & parallel processes, as in its examples \\
 NautilusTrader\ev{D} & yes & one backtest per process \\
 ABIDES\ev{C} & yes & a shipped script starts one replay process per date \\
 JAX-LOB\ev{P} & on one GPU & up to 1,000 parallel environments, within GPU memory \\
-lobsim\ev{C} & -- & open source \\
 \midrule
 TT Backtesting\ev{D} & hosted service & hosted service; one trading day per backtest \\
 Deltix QuantOffice\ev{D} & -- & cloud product includes a parallel runner \\
@@ -947,7 +945,7 @@ Cost with a 5\,ms delay on orders, cancels and feed$^{a}$ & $+0.150 \pm 0.015$ &
 \subsection{Latency and slippage measurement}
 \label{sec:kaspar-measurement}
 
-Latency claims need their endpoints. In \kasparhft{}'s measurement of its market-data handler, the start point is a
+A latency figure needs its endpoints. In \kasparhft{}'s measurement of its market-data handler, the start point is a
 software timestamp at the socket read and the end point is the order book being published; time spent in the network
 card and socket buffer before the read is outside the measurement, which is therefore socket-to-book, not
 wire-to-book. The socket reader thread decodes each packet and updates the book itself, with no hand-off to another
@@ -1370,7 +1368,7 @@ GPU & small LSTM 4.70\,\textmu s at the 99th percentile, sliding window (audited
 FPGA & tick-to-trade 0.115--0.61\,\textmu s (audited); book update 26--253\,ns (papers); small LSTM about 2 to 5\,\textmu s (audited) & fixed, deterministic latency & limited capacity; long development \\
 FPGA network card (SmartNIC) & tree model 1.55\,\textmu s on the card (as published by the maker) & computes in the network path & model size set by on-card resources \\
 Programmable switch & ITCH filtering, all messages within 50\,\textmu s against 300\,\textmu s in software (paper) & processing inside the network & few operations per packet; no measured order book \\
-ASIC & none published for trading & speed and power & fixed design; cost of a chip \\
+ASIC (application-specific chip) & none published for trading & speed and power & fixed design; cost of a chip \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1385,9 +1383,7 @@ back-tested on CME data, it reports speed-ups of about 14 times over a GPU-based
 FPGA-based system for AI inference. Corsair~\citep{corsair2025} is an in-memory-computing design for large-language-model inference, built from
 chiplets (small dies combined in one package); its maker, d-Matrix, announced it in full production in
 2026~\citep{dmatrix2026production}. Positron AI's Atlas is an inference server for Transformer models built on FPGAs (Altera Agilex-7M); its
-published figures are for a large language model, 280 against 182 tokens per second per user for an NVIDIA DGX H200~\citep{positron_atlas,eetimes2026positron}. A trading firm, Jump Trading, co-led its
-funding, and Jump Trading's chief technology officer reported about three times lower end-to-end latency than a comparable
-H100-based system~\citep{eetimes2026positron}. Network cards with programmable logic carry inference into the
+published figures are for large-language-model inference~\citep{positron_atlas,eetimes2026positron}. Network cards with programmable logic carry inference into the
 network path itself~\citep{napatech}.
 
 \subsection{Transformers on FPGAs}

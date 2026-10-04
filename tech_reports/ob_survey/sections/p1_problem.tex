@@ -102,8 +102,7 @@ back to the first stage.}
 \label{fig:theory-to-production}
 \end{figure}
 A practitioner or student who wants to take a model from a paper to a trading server needs all three: theory,
-simulation and deployment. Each part can be
-read on its own, but the order is the order of the work: a model is understood first, then simulated, then deployed.
+simulation and deployment. Each part can be read on its own.
 
 \paragraph{\kasparhft{}, the system used as the worked example.} Throughout the survey, questions about simulation and
 execution are made concrete with \kasparhft{}~\citep{kaspar_hft}, an open-source trading system and order-book simulator
@@ -172,7 +171,7 @@ $7+2+15+5 = 29$ lots; the best ask is 5000.25 with $14$ lots; the spread is one 
 
 \paragraph{Queues and priority.}
 Which waiting order trades first is decided by the venue's \emph{priority rule}. Most venues use
-\emph{price--time priority}: better prices trade first, and among orders at the same price the one
+\emph{price--time priority}~\citep{harris2003}: better prices trade first, and among orders at the same price the one
 that arrived first trades first. Each price level is then exactly a FIFO queue. Some products use
 \emph{pro-rata} allocation instead, in which an incoming order is split among the waiting orders in
 proportion to their sizes; at CME, for example, most futures match first-in-first-out while SOFR (Secured Overnight Financing Rate)
@@ -290,7 +289,7 @@ aggressively costs several ticks more in the first book than in the second. Mid 
 distinguish them.
 \end{example}
 
-Three properties make LOB modelling unusually hard. The data are \emph{event-driven}: orders arrive,
+In our view, three properties make LOB modelling hard. The data are \emph{event-driven}: orders arrive,
 execute and cancel at irregular times. The state is \emph{high-dimensional} even when only a few
 levels are observed. And the statistical properties are \emph{non-stationary} across time of day,
 assets, volatility regimes and market-structure changes. A model that performs well for one
@@ -667,6 +666,7 @@ Policies (\S\ref{sec:policy}) & state & action & 6 & execution; market making & 
 \end{table}
 
 \subsection{Three principles}
+\label{sec:principles}
 
 Three principles recur throughout the survey.
 
@@ -692,8 +692,8 @@ should be compared first, and architectures only on the best available represent
 \end{principle}
 
 \noindent The evidence of Part~II supports this ordering. With the network held fixed, the choice of input decided
-most of the result in one large comparison~\citep{lucchese2024}: order-flow inputs were among the best in 89\% of
-cases and raw snapshots in 11\%. Summing messages into order flow loses the event types, which no later network can recover
+most of the result in one large comparison~\citep{lucchese2024}: the best order-flow variant (L2) was among the best in 89\% of
+cases, the simpler variant (L1) in 22\%, and raw snapshots in 11\%. Summing messages into order flow loses the event types, which no later network can recover
 (Section~\ref{sec:deep-io}). Comparisons of architectures---convolutional, recurrent, Transformer---are more common in the papers we reviewed
 than comparisons of representations---snapshots, order flow, queues, messages.
 
@@ -756,9 +756,8 @@ ground well (Table~\ref{tab:prior-surveys}): the LOB as a trading mechanism and 
 literature~\citep{gould2013,tripathi2020}, machine-learning prediction from the
 book~\citep{zaznov2022}, generative simulation of order books~\citep{jain2024sim}, and, more recently,
 large language models and autonomous agents in financial
-trading~\citep{ding2024llmtrading,dong2025llmfinance,hua2026agentic}. These works provide taxonomies of
-models and applications, but generally treat LOB modelling, trading prediction, execution and queue
-position, market simulation and the hardware that runs the models as separate topics. We are not aware of a
+trading~\citep{ding2024llmtrading,dong2025llmfinance,hua2026agentic}. Each covers some of these topics; LOB modelling, execution and queue position, market simulation and
+hardware are covered in separate works. We are not aware of a
 survey that brings these strands together around the question of how information extracted from the
 LOB survives the complete translation from statistical prediction to executable trading. That question
 is also this survey's criterion for selecting literature: a model or method is included when it bears
@@ -855,8 +854,8 @@ four-dimensional space.
   volatility; queue depletion time; fill probability; execution cost; or a simulated future.
 \item[Economic role: the decision the output is for] Aggressive trading (crossing the spread);
   passive trading (resting orders); market making (quoting both sides); execution of a given
-  order; risk measurement; or simulation for research. A paper that evaluates only statistical
-  accuracy and names no decision has an economic role that is \emph{not stated}.
+  order; risk measurement; or simulation for research. A paper that evaluates statistical
+  accuracy without a trading decision has the economic role \emph{forecast only}.
 \end{description}
 
 \noindent The axes are used in three ways.
@@ -873,14 +872,13 @@ along the objective axis from direction to fill probability and adverse selectio
 simulators and hardware support the economic role of passive execution.
 
 \emph{Third, to expose a gap.} Table~\ref{tab:axes} places the main works discussed in this survey
-on the four axes. The economic-role column is the one most often marked `not stated': many
-learned models are evaluated on accuracy, and the decision their output would drive is not
-specified. The rest of the paper is about filling that column.
+on the four axes. The economic-role column is most often `forecast only': many
+learned models are evaluated on accuracy, and the decision their output would drive is left open. The rest of the paper is about filling that column.
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{Selected works placed on the four axes. ``Not stated'' means the work evaluates
-statistical accuracy without stating or evaluating a trading decision. \pov{} (Shadow Passive
+\caption{Selected works placed on the four axes. ``Forecast only'' means the work evaluates
+statistical accuracy without a trading decision. \pov{} (Shadow Passive
 Percentage-of-Volume) is the model-free execution algorithm of Section~\ref{sec:shadow}.}
 \label{tab:axes}
 \setlength{\tabcolsep}{2pt}
@@ -894,10 +892,10 @@ Queue-reactive~\citep{huang2015} & queue state & queueing (Markov) & event inten
 Hawkes models~\citep{bacry2015} & event stream & point process & event intensity & simulation, risk \\
 Queue value~\citep{moallemi2017} & queue state & queueing & value of a queue position & passive trading, market making \\
 DeepLOB~\citep{zhang2019} & raw snapshots & CNN + recurrent & direction & aggressive trading (simple trading simulation) \\
-TransLOB~\citep{wallbridge2020} & raw snapshots & Transformer & direction & not stated \\
+TransLOB~\citep{wallbridge2020} & raw snapshots & Transformer & direction & forecast only \\
 Deep OFI~\citep{kolm2023} & order-flow aggregate & recurrent / feed-forward & return, several horizons & alpha (stated); scored by out-of-sample variance explained \\
-LOBERT~\citep{linna2025lobert} & event stream & pretrained encoder & direction; next message & not stated \\
-UQ-LOB~\citep{manoharan2026uqlob} & event stream & encoder + uncertainty module & direction with confidence & not stated (the authors note this) \\
+LOBERT~\citep{linna2025lobert} & event stream & pretrained encoder & direction; next message & forecast only \\
+UQ-LOB~\citep{manoharan2026uqlob} & event stream & encoder + uncertainty module & direction with confidence & forecast only (the authors note this) \\
 \pov{}~\citep{maciejewski_shadow} & event stream & none (rule) & execution cost & passive execution \\
 \bottomrule
 \end{tabularx}
