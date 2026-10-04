@@ -780,10 +780,10 @@ to reproduce stylised facts and price impact. The two kinds of simulator answer 
   one observed trajectory.
 \end{itemize}
 To decide whether an order would have executed against the historical market, the market does not
-need to be generated, only reconstructed. This survey is concerned with the second question. It is the author's view
-that generating markets to test trading strategies is a mistake: a strategy that makes money in a generated market
-has shown only that it can exploit the generator (Section~\ref{sec:sim-survey}). Generative models are covered in
-Section~\ref{sec:deep-gen} as models of the book, not as test beds for trading.
+need to be generated, only reconstructed. This survey is concerned with the second question. Generative simulation
+serves other purposes---scenarios that were never observed, markets that react, environments for learning agents---and
+is not the focus of this survey, which evaluates strategies on replay of recorded markets (Principle~1,
+Section~\ref{sec:sim-survey}). Generative models are covered in Section~\ref{sec:deep-gen} as models of the book.
 
 \paragraph{Language models.} The surveys of LLMs in trading review systems in which the language model
 reads market information, reasons about it and produces trading decisions that are then

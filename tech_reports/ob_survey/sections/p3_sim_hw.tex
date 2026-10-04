@@ -252,9 +252,8 @@ and is strongly concave in size~\citep{toth2011}.
   above, calibrated on the trader's own executions.
 \item \textbf{Mechanical impact.} A strategy's orders consume queues, and the queues refill at rates that depend on
   the state of the book. A model-based simulator produces this from its fitted rates; a neural queue-reactive simulator
-  reproduces the square-root law when metaorders are injected~\citep{deepqr}. In the author's view such results
-  describe the simulator, not the market (Section~\ref{sec:sim-survey}); for trading decisions mechanical impact is
-  measured on one's own executions.
+  reproduces the square-root law when metaorders are injected~\citep{deepqr}. This survey does not evaluate such
+  simulators (Section~\ref{sec:sim-survey}); in it, mechanical impact is measured on one's own executions.
 \item \textbf{Strategic interaction.} Other traders may detect a large trader and trade against it: when a trader
   must sell and others know it, they sell first and buy back later~\citep{brunnermeier2005}. Neither replay nor a
   simulator whose rates depend only on the book captures this; it needs agents that infer and respond.
@@ -441,20 +440,14 @@ scope.
 \item \textbf{No simulator does everything.} Their conclusion is that no simulator yet is parsimonious, explainable
   and analytically tractable while reproducing most of the stylised facts.
 \end{itemize}
-\paragraph{The author's view: the market is observed, not generated.} Their motivation for generating markets is that
-a strategy fitted to the one recorded history of an instrument will overfit it. This survey takes the opposite
-position, Principle~1, and it is the author's view: generating markets is a mistake. A strategy that makes money in a
-generated market has shown only that it can exploit the generator; it says nothing about the market that trades. The
-findings above are the reason: generators are validated mostly by visual comparison; the review found none that reproduces most of the stylised facts,
-and one agent trained in a generative simulator learned to exploit it (Section~\ref{sec:policy}). The answer to
-overfitting is not more invented data but a stricter test on real data: replay on many recorded days held out from
-development, with exact queues and latency, counting every configuration tried. Generated markets are left, in this
-survey, to the study of the models themselves (Section~\ref{sec:deep-gen}); results on them are not evidence about
-trading.
+\paragraph{Focus of this survey: the observed market.} Their motivation for generating markets is that a strategy
+fitted to the one recorded history of an instrument may overfit it, and a generated market can also produce
+scenarios and reactions to one's own orders that a replay cannot. This survey has a different focus, set by
+Principle~1: it evaluates strategies on replay of the observed market, and addresses overfitting by testing on many
+recorded days held out from development, with exact queues and latency, counting every configuration tried.
+Generating simulators are not evaluated here; they are covered as models of the book (Section~\ref{sec:deep-gen}).
 
-For execution questions the source of the market comes first: a simulator whose market is generated cannot answer
-them, because its results describe the generator, not the market. Among tools that replay the observed market, five
-properties then rank them: whether the simulated order has an exact position in a queue of individual orders; whether
+For execution questions on the observed market, five properties rank the tools that replay it: whether the simulated order has an exact position in a queue of individual orders; whether
 latency is modelled; whether the simulated order changes the market; whether a run can be repeated exactly; and
 whether the same code can trade live. Table~\ref{tab:simulators} lists simulators of all four kinds against these
 properties for reference; for the agent-based, model-based and generative ones, an entry describes the simulated
@@ -576,18 +569,19 @@ Deltix QuantOffice\ev{D} & price- or order-level & not stated & configurable & n
 \end{tabularx}
 \end{table}
 
-Retail charting platforms (Sierra Chart, ATAS, NinjaTrader, Bookmap, MultiCharts) replay depth of book for display;
-Sierra Chart and ATAS fill replayed orders without a queue, and for the others we found no description of the
-fill rule~\citep{sierrachart_replay,atas_replay,ninjatrader_playback,bookmap_replay,multicharts_sim}.
+Retail trading platforms such as Sierra Chart, ATAS, NinjaTrader, Bookmap and MultiCharts also offer market replay
+with simulated trading~\citep{sierrachart_replay,atas_replay,ninjatrader_playback,bookmap_replay,multicharts_sim}; they
+serve a different audience and were not evaluated in this survey.
 
 \paragraph{Position of \kasparhft{} among replay tools.} Of the replay tools found, three place the simulated order in the recorded queue
 without changing the recorded market: hftbacktest, lobsim and \kasparhft{}. Of these, lobsim has no live-trading path, and
 hftbacktest trades live on two cryptocurrency exchanges. NautilusTrader, which estimates queue position, connects to
-several venues and data vendors. Both reach CME data only through a data vendor's files. \kasparhft{} is the only one we found that decodes an exchange's own market-by-order feed (CME MDP~3.0, from live
+several venues and data vendors. Both reach CME data only through a data vendor's files. To our knowledge, and among the tools we found as of
+October 2026, \kasparhft{} is the only one that decodes an exchange's own market-by-order feed (CME MDP~3.0, from live
 multicast or packet captures), models order, cancel and feed delays separately, and runs the same code in replay,
-paper and live trading against that exchange. We found no open-source or documented commercial backtester that
-decodes MDP~3.0 itself. None of the commercial documentation we could read describes filling a simulated order by its
-exact place in a recorded order-level queue: the tools estimate the position, fill without a queue, or the documentation we could read does not describe it.
+paper and live trading against that exchange; we found no other open-source or documented commercial backtester that
+decodes MDP~3.0 itself. In the commercial documentation we could read, we found no description of filling a simulated
+order by its exact place in a recorded order-level queue.
 
 \paragraph{Running many days at once.} A \kasparhft{} replay processes one trading day per run, from one packet capture or
 one decoded file, on one thread. Days are independent, so many days can be simulated at the same time as separate
@@ -599,7 +593,7 @@ date~\citep{abides_repo}; JAX-LOB instead runs up to a thousand environments in 
 Among the institutional commercial tools, TT's backtests run only on TT's servers, are charged by run time, and cover
 at most one trading day each~\citep{tt_backtest_run,tt_backtest_getstarted}; for Deltix we found no description in the
 documentation. For lobsim, an open-source library, we found none either, and its open licence sets no
-restriction. Retail charting platforms are left out of this comparison (Section~\ref{sec:sim-survey}).
+restriction. Retail trading platforms were not evaluated.
 
 \begin{table}[!htbp]
 \centering\footnotesize
@@ -792,8 +786,8 @@ been filled against this market?'' but not ``how would the market have moved bec
 simulated order never consumes liquidity that real traders would have reacted to. Market impact is
 therefore outside what this architecture measures, and it is not implemented.
 
-Consistent with Principle~1, \kasparhft{} does not replace the recorded market with a generated one to obtain
-impact. Impact is measured where it happens, on the real market: from the strategy's own paper and live fills and
+Consistent with Principle~1, \kasparhft{} replays the recorded market and does not generate one. Impact is measured on
+the real market: from the strategy's own paper and live fills and
 their post-fill mark-outs, and, for large orders, against published impact laws (Section~\ref{sec:impact}). For the
 small orders of the benchmark below, the recorded market is the test; for large orders, paper and live trading are.
 
@@ -1522,10 +1516,9 @@ trader wants to trade against it. Latency eats into a signal: with a 2\,ms half-
 \paragraph{Simulators.} A backtest that fills an order when the price touches it fills orders the market would never
 have reached. Simulators differ in where the market comes from---replay, agents, a fitted model or a generative
 network---and in how they place the simulated order in the queue. Agent-based, model-based and generative simulators
-let the market react to the orders, but their queues are only as realistic as the simulated order flow. Among replay
-tools, three place the simulated order in the recorded queue without changing the recorded market: hftbacktest, lobsim
-and \kasparhft{}. The commercial tools whose documentation we could read estimate queue position, fill without a queue, or
-do not describe the fill rule in the documentation we could read (Section~\ref{sec:sim-survey}).
+let the market react to the orders, but their queues are only as realistic as the simulated order flow. Among the replay
+tools we found, three place the simulated order in the recorded queue without changing the recorded market: hftbacktest,
+lobsim and \kasparhft{} (Section~\ref{sec:sim-survey}).
 
 \paragraph{\kasparhft{}.} \kasparhft{} replays an exchange's own market-by-order feed (CME MDP~3.0 today), places simulated orders
 in the reconstructed first-in-first-out queues after separate order, cancel and feed delays, fills them only when

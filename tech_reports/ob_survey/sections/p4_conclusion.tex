@@ -83,7 +83,7 @@ given.
 separate rule. Models whose output is the decision itself---quote, keep, cancel, cross---and whose
 training objective is execution value would close the gap that this survey describes. Reinforcement
 learning is one route, if the policy is trained and judged in queue-exact replay of recorded markets, against the
-model-free benchmarks in the same replay, rather than in a generated market.
+model-free benchmarks in the same replay, as in Section~\ref{sec:worked-kaspar}.
 
 \paragraph{Causal rather than predictive questions.} The questions that matter for execution are
 causal: they ask what happens to the queue and the price \emph{if} an order is placed at a given price. Replay with a
@@ -102,9 +102,8 @@ same orders. Running one strategy through several of them and through paper trad
 post-fill mark-outs with the live fills, would measure how much each simulator's assumptions---estimated queue
 position, simulated order flow, no market impact---cost in accuracy.
 
-\paragraph{Impact measured on the real market.} Replay cannot measure the market's response to one's own orders, and in
-the view of this survey that response should not be taken from a generated market (Section~\ref{sec:sim-survey}). It
-has to be measured on the real market, from paper and live executions and their mark-outs. How to measure it
+\paragraph{Impact measured on the real market.} Replay cannot measure the market's response to one's own orders. In this
+survey's approach it is measured on the real market, from paper and live executions and their mark-outs. How to measure it
 precisely from few executions, and how to carry the measured response back into replay, are open.
 
 \subsection{Hardware}
@@ -266,8 +265,9 @@ market-data and order delays, running many days at once and the same code in rep
 cost similar amounts, about $+0.095$ ticks per contract; post-fill mark-outs show adverse selection completed within a
 second; and with the same delay applied to orders, cancels and market data, from 0 to 5\,ms, cost rose with every step
 of delay for both versions, and more steeply for the aggressive one, reaching $+0.150$ (passive) and $+0.296$
-(aggressive) ticks per contract at 5\,ms~\citep{maciejewski_shadow}. In the view of this survey, results in generated
-markets---agent-based, model-based or generative---are not evidence about trading. A replay keeps the real market; the
+(aggressive) ticks per contract at 5\,ms~\citep{maciejewski_shadow}. This survey evaluates trading results on replay of
+the recorded market (Principle~1); generated markets---agent-based, model-based or generative---serve other purposes
+and are not its focus. A replay keeps the real market; the
 market's response to one's own orders is measured from paper and live executions (Section~\ref{sec:sim-survey}).
 Exact queue position in the recorded market
 needs order-level data and an order-level book; among the replay tools compared, hftbacktest (with order-level
