@@ -638,8 +638,7 @@ The data path is
 exchange multicast (CME MDP~3.0 today) $\to$ socket reader $\to$ message buffer $\to$ decoder $\to$ feed handler
 $\to$ order book $\to$ strategy $\to$ simulated order manager $\to$ [exchange gateway $\mid$ simulated fill].
 \end{center}
-\emph{Multicast} means the exchange sends each packet once and every subscribed host receives it. The strategy
-actors are called \emph{lights} in the code and in the figures.
+\emph{Multicast} means the exchange sends each packet once and every subscribed host receives it. 
 
 \paragraph{The group: one queue for the whole simulator.}\label{sec:kaspar-group} Actors can be placed in a \emph{group}. A group has a single
 message queue and a single thread: a message sent to any member goes into the group's queue, and the thread takes the
@@ -666,7 +665,7 @@ simulation mode it sends them into the reconstructed book, where they are matche
 \node[box] (md) at (0,0.7) {recorded MBO\\(replay)};
 \node[box] (live) at (0,-0.7) {live MDP 3.0\\multicast};
 \node[box] (ob) at (3.2,0) {order book\\(per order)};
-\node[box] (strat) at (5.6,0) {strategy\\(lights)};
+\node[box] (strat) at (5.6,0) {strategy\\actors};
 \node[box] (som) at (7.6,0) {SOM};
 \node[box] (sim) at (10.6,0.9) {fill in\\reconstructed queue};
 \node[box] (ilink) at (10.6,-0.9) {iLink 3\\gateway};
@@ -939,7 +938,7 @@ runs in replay, paper trading and live trading. The description below follows th
 \node[a, fill=gray!10] (feed) at (0,0) {market data\\(replay or live)};
 \node[a, fill=blue!10] (ob) at (3.3,0) {order book\\actor (OB)};
 \node[n] (pred) at (8.8,0) {\textbf{model actor} (new):\\queue imbalance, a Hawkes\\intensity, a network};
-\node[a, fill=green!12] (light) at (13.4,0) {strategy actors\\(lights)};
+\node[a, fill=green!12] (light) at (13.4,0) {strategy\\actors};
 \node[a, fill=gray!10] (som) at (13.4,-2.2) {simulated order\\manager (SOM)};
 \draw[arr] (feed) -- (ob);
 \draw[arr] (ob) -- node[above]{\texttt{EndOfBurst}} node[below, align=center]{book, 16 levels,\\after each update} (pred);
