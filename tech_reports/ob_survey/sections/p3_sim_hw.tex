@@ -371,26 +371,26 @@ as documented in their papers and code.
 \caption{Order-book simulators compared on the properties execution research needs, from their papers, documentation
 and code; citations are in the list above. Queue position: \emph{exact (recorded)} means the simulated order sits in a reconstructed queue of the
 recorded individual orders; \emph{exact (simulated)} means a queue of individual orders in a simulated market;
-\emph{estimated} means a model of the volume ahead. ``--'': not provided.}
+\emph{estimated} means a model of the volume ahead. ``--'': not provided. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor claim, \ev{A} independently audited, \ev{O} the author's own system.}
 \label{tab:simulators}
 \setlength{\tabcolsep}{2.5pt}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.13\linewidth}>{\raggedright\arraybackslash}p{0.12\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.1\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.11\linewidth}}
 \toprule
 Simulator & Market from & Own-order queue position & Latency model & Market reacts & Repeatable runs & Same code live \\
 \midrule
-ABIDES & agents & exact (simulated) & network and processing delays & yes & same seed, same run (ties within a nanosecond in arbitrary order) & -- \\
-ABIDES-Gym & agents & exact (simulated) & pairwise delays & yes & seeded & -- \\
-MAXE & agents & exact (simulated); price--time or pro-rata & message and processing delays & yes & not seeded & -- \\
-PyMarketSim & agents & price--time book; agents withdraw orders on arrival & -- & yes & partly seeded & -- \\
-JAX-LOB & replay (Nasdaq) & approximate: initial levels are one synthetic order each; agent orders re-queued each step & one observation-to-action delay (default 0) & -- & random keys; no claim & -- \\
-mbt\_gym & model & no book; fill probability from quote depth & -- & parametric impact & seeded & -- \\
-hftbacktest & replay (mainly crypto; CME via vendor files) & exact (recorded) with order-level data; estimated with price-level data & feed latency from data; order latency constant or from recorded live latencies & -- & no claim found & yes (two crypto venues) \\
-NautilusTrader & replay & estimated volume ahead & order-entry delays & -- & deterministic runtime claimed; seeded fill model & yes \\
-MarS & generative model & exact (simulated) & computation and communication delays & yes & seeded sampling & -- \\
-TRADES & generative model in ABIDES & exact (simulated) & -- (as shipped) & yes & seeded & -- \\
-Queue-reactive & model & one tagged order, under stated assumptions & -- & yes, through queue sizes & -- & -- \\
+ABIDES\ev{P,C} & agents & exact (simulated) & network and processing delays & yes & same seed, same run (ties within a nanosecond in arbitrary order) & -- \\
+ABIDES-Gym\ev{P,C} & agents & exact (simulated) & pairwise delays & yes & seeded & -- \\
+MAXE\ev{P,C} & agents & exact (simulated); price--time or pro-rata & message and processing delays & yes & not seeded & -- \\
+PyMarketSim\ev{Ab,C} & agents & price--time book; agents withdraw orders on arrival & -- & yes & partly seeded & -- \\
+JAX-LOB\ev{P,C} & replay (Nasdaq) & approximate: initial levels are one synthetic order each; agent orders re-queued each step & one observation-to-action delay (default 0) & -- & random keys; no claim & -- \\
+mbt\_gym\ev{P,C} & model & no book; fill probability from quote depth & -- & parametric impact & seeded & -- \\
+hftbacktest\ev{D,C} & replay (mainly crypto; CME via vendor files) & exact (recorded) with order-level data; estimated with price-level data & feed latency from data; order latency constant or from recorded live latencies & -- & no claim found & yes (two crypto venues) \\
+NautilusTrader\ev{D,C} & replay & estimated volume ahead & order-entry delays & -- & deterministic runtime claimed; seeded fill model & yes \\
+MarS\ev{P,C} & generative model & exact (simulated) & computation and communication delays & yes & seeded sampling & -- \\
+TRADES\ev{P,C} & generative model in ABIDES & exact (simulated) & -- (as shipped) & yes & seeded & -- \\
+Queue-reactive\ev{P} & model & one tagged order, under stated assumptions & -- & yes, through queue sizes & -- & -- \\
 \midrule
-Kaspar (Section~\ref{sec:kaspar}) & replay (any venue with a feed handler; CME MDP~3.0 implemented) & exact (recorded) & separate order, cancel and feed delays & -- & single thread, market-time clock, seeded; argued, test not reported & live path shares all code up to one branch \\
+Kaspar (Section~\ref{sec:kaspar})\ev{O} & replay (any venue with a feed handler; CME MDP~3.0 implemented) & exact (recorded) & separate order, cancel and feed delays & -- & single thread, market-time clock, seeded; identical fills on replay reported & live path shares all code up to one branch \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -448,33 +448,33 @@ Hummingbot~\citep{hummingbot} and Barter~\citep{barter}.
 market unchanged'': the simulated orders do not alter the replayed book (no market impact). ``--'': not provided;
 ``not stated'': documentation silent. Commercial entries (below the line) are from vendor documentation; the Deltix
 knowledge base requires a login and was not read, and no readable documentation of a replay fill simulator was found
-for CQG.}
+for CQG. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor claim, \ev{A} independently audited, \ev{O} the author's own system.}
 \label{tab:replay-tools}
 \setlength{\tabcolsep}{2.5pt}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}p{0.12\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.1\linewidth}>{\raggedright\arraybackslash}p{0.11\linewidth}>{\raggedright\arraybackslash}p{0.14\linewidth}}
 \toprule
 Tool & Data & Own-order queue position & Latency & Recorded market unchanged & Same code live & Feeds \\
 \midrule
-Kaspar & order-level & exact, in the recorded queue & order, cancel and feed delays & yes & yes & CME MDP~3.0 (own handler) \\
-hftbacktest & order- or price-level & exact with order-level data; estimated otherwise & feed from data; order constant or recorded & yes & yes (crypto) & crypto; CME via vendor files \\
-lobsim & order-level & exact count of recorded quantity ahead & optional order delay & yes & -- & Coinbase, LOBSTER files \\
-NautilusTrader & order- or price-level & estimated & order-entry delays & yes & yes & several venues; CME via vendor files \\
-Moallemi--Yuan method & order-level (ITCH) & exact (fill when a later order fills) & -- & yes & -- & Nasdaq \\
-Backtesting-Engine & order-level & exact; own orders matched in the replayed book & -- & no & not stated & crypto (CoinAPI) \\
-Market\-Making\-ML\-Algo & order log & exact; recorded trades re-matched & -- & no & -- & one equity order log \\
-\citet{spooner2018} & price-level, 5 levels & estimated: back of queue, proportional cancels & coded but unused & yes & -- & European equities \\
-\citet{sadighian2019} & price-level snapshots & estimated: volume ahead less trades & -- & yes & -- & crypto \\
-\citet{dixon2018exec} & price-level & estimated (exact with order-level data) & zero in backtest & not stated & -- & CME ES \\
-\citet{vyetrenko2019} & price-level & estimated: back of queue & historical latency profiles & no: synthetic response & -- & futures \\
-hft-backtesting & price-level & estimated, probabilistic & single delay & yes & -- & BitMEX \\
+Kaspar\ev{O} & order-level & exact, in the recorded queue & order, cancel and feed delays & yes & yes & CME MDP~3.0 (own handler) \\
+hftbacktest\ev{D,C} & order- or price-level & exact with order-level data; estimated otherwise & feed from data; order constant or recorded & yes & yes (crypto) & crypto; CME via vendor files \\
+lobsim\ev{C} & order-level & exact count of recorded quantity ahead & optional order delay & yes & -- & Coinbase, LOBSTER files \\
+NautilusTrader\ev{D,C} & order- or price-level & estimated & order-entry delays & yes & yes & several venues; CME via vendor files \\
+Moallemi--Yuan method\ev{P} & order-level (ITCH) & exact (fill when a later order fills) & -- & yes & -- & Nasdaq \\
+Backtesting-Engine\ev{C} & order-level & exact; own orders matched in the replayed book & -- & no & not stated & crypto (CoinAPI) \\
+Market\-Making\-ML\-Algo\ev{C} & order log & exact; recorded trades re-matched & -- & no & -- & one equity order log \\
+\citet{spooner2018}\ev{P,C} & price-level, 5 levels & estimated: back of queue, proportional cancels & coded but unused & yes & -- & European equities \\
+\citet{sadighian2019}\ev{Pr,C} & price-level snapshots & estimated: volume ahead less trades & -- & yes & -- & crypto \\
+\citet{dixon2018exec}\ev{P} & price-level & estimated (exact with order-level data) & zero in backtest & not stated & -- & CME ES \\
+\citet{vyetrenko2019}\ev{Pr} & price-level & estimated: back of queue & historical latency profiles & no: synthetic response & -- & futures \\
+hft-backtesting\ev{C} & price-level & estimated, probabilistic & single delay & yes & -- & BitMEX \\
 \midrule
-TT Backtesting & book and trades; price- or order-level not stated & estimated: quantity ahead reduced by trades, not by cancels & not stated & not stated & yes (TT algos) & TT-connected exchanges \\
-Deltix QuantOffice & price- or order-level & not stated & configurable & no: fills remove replayed liquidity & yes & several asset classes \\
-NinjaTrader Playback & price-level; bid and ask sizes set to 1 & not stated & -- & not stated & yes & data-provider dependent \\
-Bookmap replay & depth and best quotes & estimate displayed; use in fills not stated & not stated & not stated & yes & recorded feeds; CME futures \\
-MultiCharts & levels 1 and 2 & not stated & not stated & not stated & yes & data-provider dependent \\
-Sierra Chart replay & trades with recorded best quotes & none: fills when the opposite quote reaches the price & not stated & not stated & yes & CME and other exchanges \\
-ATAS replay & trades and order book & none: filled at once, in full & -- & not stated & manual trading only & subscription dependent \\
+TT Backtesting\ev{D} & book and trades; price- or order-level not stated & estimated: quantity ahead reduced by trades, not by cancels & not stated & not stated & yes (TT algos) & TT-connected exchanges \\
+Deltix QuantOffice\ev{D} & price- or order-level & not stated & configurable & no: fills remove replayed liquidity & yes & several asset classes \\
+NinjaTrader Playback\ev{D} & price-level; bid and ask sizes set to 1 & not stated & -- & not stated & yes & data-provider dependent \\
+Bookmap replay\ev{D} & depth and best quotes & estimate displayed; use in fills not stated & not stated & not stated & yes & recorded feeds; CME futures \\
+MultiCharts\ev{D} & levels 1 and 2 & not stated & not stated & not stated & yes & data-provider dependent \\
+Sierra Chart replay\ev{D} & trades with recorded best quotes & none: fills when the opposite quote reaches the price & not stated & not stated & yes & CME and other exchanges \\
+ATAS replay\ev{D} & trades and order book & none: filled at once, in full & -- & not stated & manual trading only & subscription dependent \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -505,26 +505,26 @@ hardware is an advantage of Kaspar shared only by Sierra Chart; among open-sourc
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{Running many replay simulations at once on one's own hardware, from documentation, licence terms and code.}
+\caption{Running many replay simulations at once on one's own hardware, from documentation, licence terms and code. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor claim, \ev{A} independently audited, \ev{O} the author's own system.}
 \label{tab:parallel}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X}
 \toprule
 Tool & Parallel runs on own hardware & Restriction or evidence \\
 \midrule
-Kaspar & yes & one process per day; no licence limit \\
-hftbacktest & yes & examples use parallel processes \\
-NautilusTrader & yes & one backtest per process \\
-ABIDES & yes & script starts one replay process per date \\
-JAX-LOB & on one GPU & up to 1,000 parallel environments; GPU memory \\
-lobsim & not documented & open licence; no restriction found \\
+Kaspar\ev{O} & yes & one process per day; no licence limit \\
+hftbacktest\ev{C} & yes & examples use parallel processes \\
+NautilusTrader\ev{D} & yes & one backtest per process \\
+ABIDES\ev{C} & yes & script starts one replay process per date \\
+JAX-LOB\ev{P} & on one GPU & up to 1,000 parallel environments; GPU memory \\
+lobsim\ev{C} & not documented & open licence; no restriction found \\
 \midrule
-TT Backtesting & no & runs on TT's servers only; one trading day per backtest; charged by run time \\
-Bookmap & no & one running copy per licence \\
-ATAS & no & one active session per account \\
-MultiCharts & limited & online on one computer; a second computer offline for backtesting \\
-Sierra Chart & yes & many copies on one computer under one licence \\
-NinjaTrader (depth replay) & not documented & one replay connection per session described \\
-Deltix QuantOffice & not documented & cloud product lists a parallel runner; licence terms behind a login \\
+TT Backtesting\ev{D} & no & runs on TT's servers only; one trading day per backtest; charged by run time \\
+Bookmap\ev{D} & no & one running copy per licence \\
+ATAS\ev{D} & no & one active session per account \\
+MultiCharts\ev{D} & limited & online on one computer; a second computer offline for backtesting \\
+Sierra Chart\ev{D} & yes & many copies on one computer under one licence \\
+NinjaTrader (depth replay)\ev{D} & not documented & one replay connection per session described \\
+Deltix QuantOffice\ev{D} & not documented & cloud product lists a parallel runner; licence terms behind a login \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -705,9 +705,9 @@ design choices then make a replay repeatable:
 \item \textbf{Seeded randomness.} Any randomised strategy decision uses a per-actor seeded
   generator set in configuration.
 \end{enumerate}
-The property this implies, and the test that would check it, is that replaying the same recorded
-file twice with the same configuration yields byte-identical fill records. We argue the property
-from the design; we do not report the test here.
+The property this implies is that replaying the same recorded session twice with the same configuration yields
+identical fills, and the study of Section~\ref{sec:shadow} reports exactly that: ``a fixed session replays to
+identical fills''~\citep{maciejewski_shadow}.
 
 Running the same program in research and in production also removes one source of difference between them: a
 result cannot change because the production code was written separately.
@@ -761,6 +761,46 @@ A predictive model that claims value for passive execution should beat the model
 \emph{in the same replay, under the same fill rule}, on slippage and on post-fill mark-outs. Any
 improvement measured against a naive backtest instead is confounded by the fill-inference bias
 of Section~\ref{sec:replay}.
+
+\paragraph{The benchmark measured in Kaspar on a year of ES data.} \citet{maciejewski_shadow} run the benchmark
+through Kaspar's replay on every regular session of 2025 for which packet captures were available---246 sessions of
+E-mini S\&P~500 futures market-by-order data---as a two-sided execution that buys and sells 100 contracts in each
+10-minute window (Table~\ref{tab:shadow-results}). Three results bear on this survey.
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item \textbf{Resting and crossing cost the same.} At nearly equal participation (4.46\% and 4.86\% of volume), the
+  passive method, which rests for 99\% of its executed quantity, and an aggressive version, which crosses for about
+  half of it, cost $+0.0955$ and $+0.0952$ ticks per contract against the arrival mid-price. The half spread a resting
+  order earns is given back through adverse selection, as Section~\ref{sec:adverse} describes.
+\item \textbf{Adverse selection, measured.} The post-fill mark-out (Equation~\eqref{eq:markout}) is about
+  0.07--0.10 ticks against the fill at 1, 5 and 30 seconds and does not revert: the move is complete within a second.
+\item \textbf{Latency costs money.} With the same delay applied to orders, cancels and market data, the passive
+  method's cost rises from $+0.097$ ticks per contract at zero delay to $+0.150$ at 5\,ms, and the aggressive
+  version's from $+0.087$ to $+0.296$; every step lies outside the previous step's 95\% interval.
+\end{itemize}
+The study's own caveats apply: the replay does not model market impact, so costs are before the market's reaction
+and participation is an upper bound; it covers one instrument, which is one tick wide for most of the session; and
+the parent order is fixed at 100 contracts.
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{The model-free benchmark in Kaspar's replay, from \citet{maciejewski_shadow}: ES futures, 246 sessions of
+2025, 100 contracts bought and 100 sold per 10-minute window. Costs in ticks per contract against the arrival
+mid-price (positive is a loss), with 95\% intervals clustered by session.}
+\label{tab:shadow-results}
+\begin{tabular}{lcc}
+\toprule
+& Passive (rests) & Aggressive (crosses) \\
+\midrule
+Completed windows & 9,592 & 9,581 \\
+Share of quantity that crossed the spread & 1.04\% & 51.86\% \\
+Participation in market volume & 4.46\% & 4.86\% \\
+Cost against the arrival mid-price & $+0.0955 \pm 0.0130$ & $+0.0952 \pm 0.0135$ \\
+Mark-out 1\,s after each fill & $+0.0825 \pm 0.0076$ & $+0.0826 \pm 0.0072$ \\
+Mark-out 30\,s after each fill & $+0.0993 \pm 0.0200$ & $+0.0913 \pm 0.0190$ \\
+Cost at 5\,ms round-trip delay (separate configurations) & $+0.150 \pm 0.015$ & $+0.296 \pm 0.022$ \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 
 \subsubsection{Latency and slippage measurement}
@@ -1028,17 +1068,17 @@ times more structural work than another was 15 times faster~\citep{hedges2026fro
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{Published inference times of order-book models. Each row is as reported by the source.}
+\caption{Published inference times of order-book models. Each row is as reported by the source. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor claim, \ev{A} independently audited, \ev{O} the author's own system.}
 \label{tab:lob-latency}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.33\linewidth}}
 \toprule
 Source & Models and times & Conditions \\
 \midrule
-\citet{zhang2019} & DeepLOB 0.253\,ms & batch size and device for the timing not stated \\
-\citet{tran2019tabl} & C(TABL) 0.025, CNN 0.061, LSTM 0.229\,ms & one sample, Intel i7-4790 CPU \\
-\citet{liu2026microsecond} & 8-bit integer 1D-CNN on FI-2010: 57\,\textmu s & FPGA (KU040), inference core only; from the abstract \\
-\citet{berti2025tlob} & MLP 0.08, LSTM 0.21, DeepLOB 1.31, TLOB 2.24, MLPLOB 4.79\,ms & RTX 3090 GPU; batch size not stated \\
-\citet{hedges2026frontier} & median at batch one: MLPLOB 2.1\,ms (CPU), 2.8\,ms (GPU); TLOB 22.8\,ms (CPU), 5.1\,ms (GPU) & Apple M3 Max, PyTorch, 32-bit floating point; forward pass only, no preprocessing or transfer \\
+\citet{zhang2019}\ev{P} & DeepLOB 0.253\,ms & batch size and device for the timing not stated \\
+\citet{tran2019tabl}\ev{P} & C(TABL) 0.025, CNN 0.061, LSTM 0.229\,ms & one sample, Intel i7-4790 CPU \\
+\citet{liu2026microsecond}\ev{P,Ab} & 8-bit integer 1D-CNN on FI-2010: 57\,\textmu s & FPGA (KU040), inference core only; from the abstract \\
+\citet{berti2025tlob}\ev{Pr} & MLP 0.08, LSTM 0.21, DeepLOB 1.31, TLOB 2.24, MLPLOB 4.79\,ms & RTX 3090 GPU; batch size not stated \\
+\citet{hedges2026frontier}\ev{Pr} & median at batch one: MLPLOB 2.1\,ms (CPU), 2.8\,ms (GPU); TLOB 22.8\,ms (CPU), 5.1\,ms (GPU) & Apple M3 Max, PyTorch, 32-bit floating point; forward pass only, no preprocessing or transfer \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1148,18 +1188,18 @@ tick-to-trade time.
 \begin{table}[!htbp]
 \centering\footnotesize
 \caption{Representative commercial hardware for trading and the figures published by the vendors.
-Except for the STAC result, figures are vendor claims without independent audit.}
+Except for the STAC result, figures are vendor claims without independent audit. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor claim, \ev{A} independently audited, \ev{O} the author's own system.}
 \label{tab:vendors}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
 \toprule
 Offering & What it is & Published figure \\
 \midrule
-AMD Alveo UL3524 / UL3422~\citep{amd_ul3524,amd_ul3422} & FPGA cards built for trading, 64 low-latency transceivers & under 3\,ns transceiver latency, raw loopback excluding logic and protocol \\
-Exegy (incl.\ Enyx, acquired 2022)~\citep{exegy_enyx,exegy_stac2024} & FPGA feed handling, order entry and trigger frameworks & STAC-T0 audited trigger latency of the order of ten nanoseconds \\
-Algo-Logic~\citep{algologic} & CME tick-to-trade system on Alveo U50, with feed handler, book and TCP order entry & under 500\,ns tick-to-trade \\
-Magmio~\citep{magmio} & C++ strategies compiled to FPGA by high-level synthesis & under 100\,ns for triggers; under 350\,ns with book building \\
-Xelera Silva~\citep{xelera_silva} & tree-ensemble and small-network inference on FPGA & about 250\,ns (99th percentile) for a gradient-boosted model inline on UL3524; 1.1--1.3\,\textmu s as card offload; audited STAC-ML: at most 1.95\,\textmu s (Table~\ref{tab:stac}) \\
-Napatech + Xelera~\citep{napatech} & the same inference on FPGA network cards & 1.55\,\textmu s for a 1000-tree model with 100 features \\
+AMD Alveo UL3524 / UL3422~\citep{amd_ul3524,amd_ul3422}\ev{V} & FPGA cards built for trading, 64 low-latency transceivers & under 3\,ns transceiver latency, raw loopback excluding logic and protocol \\
+Exegy (incl.\ Enyx, acquired 2022)~\citep{exegy_enyx,exegy_stac2024}\ev{V,A} & FPGA feed handling, order entry and trigger frameworks & STAC-T0 audited trigger latency of the order of ten nanoseconds \\
+Algo-Logic~\citep{algologic}\ev{V} & CME tick-to-trade system on Alveo U50, with feed handler, book and TCP order entry & under 500\,ns tick-to-trade \\
+Magmio~\citep{magmio}\ev{V} & C++ strategies compiled to FPGA by high-level synthesis & under 100\,ns for triggers; under 350\,ns with book building \\
+Xelera Silva~\citep{xelera_silva}\ev{V,A} & tree-ensemble and small-network inference on FPGA & about 250\,ns (99th percentile) for a gradient-boosted model inline on UL3524; 1.1--1.3\,\textmu s as card offload; audited STAC-ML: at most 1.95\,\textmu s (Table~\ref{tab:stac}) \\
+Napatech + Xelera~\citep{napatech}\ev{V} & the same inference on FPGA network cards & 1.55\,\textmu s for a 1000-tree model with 100 features \\
 \bottomrule
 \end{tabularx}
 \end{table}
