@@ -1,4 +1,4 @@
-\begin{thebibliography}{437}
+\begin{thebibliography}{443}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -381,6 +381,21 @@ Pierre Blanc, Jonathan Donier, and Jean-Philippe Bouchaud.
 \newblock \emph{Quantitative Finance}, 17\penalty0 (2):\penalty0 171--188,
   2017.
 \newblock \doi{10.1080/14697688.2016.1193215}.
+
+\bibitem[{BMLL Technologies}(n.d.{\natexlab{a}})]{bmll_datalab}
+{BMLL Technologies}.
+\newblock Bmll data lab.
+\newblock Product page, n.d.{\natexlab{a}}.
+\newblock URL \url{https://www.bmlltech.com/products/bmll-data-lab}.
+\newblock Vendor description. Accessed 2026-10-04.
+
+\bibitem[{BMLL Technologies}(n.d.{\natexlab{b}})]{bmll_home}
+{BMLL Technologies}.
+\newblock Bmll: Harmonised historical level 3, 2 and 1 order book data and
+  analytics.
+\newblock Company website, n.d.{\natexlab{b}}.
+\newblock URL \url{https://www.bmlltech.com/}.
+\newblock Vendor description. Accessed 2026-10-04.
 
 \bibitem[Bochud and Challet(2007)]{bochud2007}
 Thierry Bochud and Damien Challet.
@@ -826,6 +841,16 @@ David~R. Cox.
   (Methodological)}, 34\penalty0 (2):\penalty0 187--202, 1972.
 \newblock \doi{10.1111/j.2517-6161.1972.tb00899.x}.
 
+\bibitem[{d-Matrix}(2026)]{dmatrix2026production}
+{d-Matrix}.
+\newblock d-matrix corsair ai inference platform enters full production to meet
+  customer demand.
+\newblock Press release, 2026.
+\newblock URL
+  \url{https://www.d-matrix.ai/announcements/d-matrix-corsair-ai-inference-platform-enters-full-production-to-meet-customer-demand/}.
+\newblock Published 2026-06-09. TSMC N6, SRAM in-memory-compute chiplets on
+  organic substrates. Accessed 2026-10-04.
+
 \bibitem[Da~Fonseca and Zaatour(2014)]{dafonseca2014}
 Jos{\'e} Da~Fonseca and Riadh Zaatour.
 \newblock {H}awkes process: Fast calibration, application to trade clustering,
@@ -865,6 +890,14 @@ Abhimanyu Das, Weihao Kong, Rajat Sen, and Yichen Zhou.
 \newblock In \emph{Proceedings of the 41st International Conference on Machine
   Learning}, volume 235 of \emph{Proceedings of Machine Learning Research},
   pages 10148--10167. PMLR, 2024.
+
+\bibitem[{Databento}(2025)]{databento_queue}
+{Databento}.
+\newblock Getting queue position from {L2} and order book data.
+\newblock
+  \url{https://databento.com/blog/getting-queue-position-from-l2-and-order-book-data},
+  2025.
+\newblock Blog post, 2025-02-26. Accessed 2026-10-03.
 
 \bibitem[Debie et~al.(2023)Debie, Gardebroek, Hageboeck, van Leeuwen, Moneta,
   Naumann, Pennings, Trujillo-Barrera, and Verhulst]{debie2023}
@@ -2355,6 +2388,14 @@ Andrei Popov and Martina Huber.
   2026.
 \newblock \doi{10.71465/csb211}.
 
+\bibitem[{Positron AI}(n.d.)]{positron_atlas}
+{Positron AI}.
+\newblock Atlas: Transformer inference server.
+\newblock Product page, n.d.
+\newblock URL \url{https://www.positron.ai/atlas}.
+\newblock Vendor claim. Llama 3.1 8B, BF16: 280 vs 182 tokens/s/user against
+  NVIDIA DGX H200. Accessed 2026-10-04.
+
 \bibitem[Prata et~al.(2024)Prata, Masi, Berti, Arrigoni, Coletta, Cannistraci,
   Vyetrenko, Velardi, and Bartolini]{prata2024}
 Matteo Prata, Giuseppe Masi, Leonardo Berti, Viviana Arrigoni, Andrea Coletta,
@@ -3025,6 +3066,15 @@ Zhuohan Wang and Carmine Ventre.
 \newblock In \emph{Proceedings of the Thirty-Fifth International Joint
   Conference on Artificial Intelligence (IJCAI-26)}, pages 6564--6572, 2026.
 \newblock \doi{10.24963/ijcai.2026/730}.
+
+\bibitem[Ward-Foxton(2026)]{eetimes2026positron}
+Sally Ward-Foxton.
+\newblock Positron's \$230m funding led by financial trading firms.
+\newblock EE Times, 2026.
+\newblock URL
+  \url{https://www.eetimes.com/positron-230-million-funding-led-by-financial-trading-firms/}.
+\newblock Published 2026-02-04. States Atlas uses Agilex-7M FPGAs; quotes Jump
+  Trading CTO on latency vs H100. Accessed 2026-10-04.
 
 \bibitem[Wehrli et~al.(2021)Wehrli, Wheatley, and Sornette]{wehrli2021scale}
 Alexander Wehrli, Spencer Wheatley, and Didier Sornette.

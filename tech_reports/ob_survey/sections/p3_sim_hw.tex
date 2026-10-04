@@ -403,6 +403,12 @@ order-level data and Kaspar provide it, JAX-LOB approximates it, and NautilusTra
 NautilusTrader and Kaspar run the same strategy code in simulation and live trading; the venues each of them connects
 to are compared at the end of this section.
 
+\paragraph{Sources of order-level data.} A replay with exact queue position needs order-level (Level 3) data. It can
+be captured from the exchange's own feed, as Kaspar does, or bought from vendors: LOBSTER reconstructs Nasdaq order
+books from exchange messages~\citep{lobster}; Databento sells order-level data including CME's MDP~3.0
+feed~\citep{databento_queue}; and BMLL sells historical Level 3 order-book data for many venues, with a research
+environment and queue-position analytics, but not a fill simulator~\citep{bmll_home,bmll_datalab}.
+
 \paragraph{Historical-replay tools only.} Kaspar is a historical-replay tool, so Table~\ref{tab:replay-tools}
 compares it with the other tools that replay recorded order-book data and fill a researcher's orders against it. It
 lists every such tool we found with enough documentation or code to classify it, including several not in
@@ -1160,14 +1166,20 @@ Napatech + Xelera~\citep{napatech} & the same inference on FPGA network cards & 
 
 \subsection{Accelerators between FPGAs and GPUs}
 
-A class of accelerators aims at the gap between FPGA determinism and GPU flexibility. This section gives three
+A class of accelerators aims at the gap between FPGA determinism and GPU flexibility. This section gives four
 examples.
 LightTrader~\citep{lighttrader}, from KAIST and the chip designer Rebellions, combines an FPGA for
 market data and orders with dedicated AI processors and a scheduler that manages workload and power;
 back-tested on CME data, it reports speed-ups of about 14 times over a GPU-based and 7 times over an
 FPGA-based system for AI inference. Corsair~\citep{corsair2025} is an in-memory-computing design for large-language-model inference, built from
-chiplets (small dies combined in one package); it is not a trading product, but it illustrates the
-direction of the hardware industry. Network cards with programmable logic carry inference into the
+chiplets (small dies combined in one package); its maker, d-Matrix, announced it in full production in
+2026~\citep{dmatrix2026production}. It is not a trading product, but it illustrates the direction of the hardware
+industry. Positron AI's Atlas is an inference server for Transformer models built on FPGAs (Altera Agilex-7M); its
+published figures are for a large language model, 280 against 182 tokens per second per user for an NVIDIA DGX H200,
+with the batch size not stated~\citep{positron_atlas,eetimes2026positron}. A trading firm, Jump Trading, co-led its
+funding, and its chief technology officer reported about three times lower end-to-end latency than a comparable
+H100-based system on undisclosed workloads~\citep{eetimes2026positron}---an investor's statement, not a benchmark. No
+batch-one latency for order-book models has been published for either product. Network cards with programmable logic carry inference into the
 network path itself~\citep{napatech}.
 
 \subsection{Transformers on FPGAs}
