@@ -1577,10 +1577,11 @@ recorded executions reach an order behind them, and runs the same code in replay
 one day per process, so many days can run at once on one machine (Table~\ref{tab:parallel}). A model of Part~II is added as one more actor that reads the book
 and sends its predictions to the strategy (Section~\ref{sec:kaspar-actor}).
 
-\paragraph{Reinforcement learning.} RL learns the trading policy directly instead of a prediction, and it is only as
-good as the environment it is trained in. Most published agents are trained on replays with estimated queue position
-or on simulators that can be exploited, and none of the studies reviewed reports a live test; a learned policy should
-be judged against the model-free benchmark in a queue-exact replay before it is trusted (Section~\ref{sec:policy}).
+\paragraph{Reinforcement learning.} RL learns the trading policy directly instead of a prediction, and its results
+depend on the environment it is trained in. Of the eight studies in Table~\ref{tab:rl}, only one places the agent's
+orders in recorded order flow with queue priority; the others estimate queue position, fill at the touch or the mid,
+trade with market orders only, or train in a simulator, and in one of them the agent learned to exploit its
+generative simulator. None reports a live or paper-trading test (Section~\ref{sec:policy}).
 
 \paragraph{Hardware.} Book updates take about 8\,\textmu s in Kaspar's software path and a few hundred nanoseconds or
 less on FPGAs; audited FPGA tick-to-trade paths with simple logic run in about 0.1 to 0.6\,\textmu s. Published
