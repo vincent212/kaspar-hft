@@ -1,4 +1,4 @@
-\begin{thebibliography}{456}
+\begin{thebibliography}{459}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -76,6 +76,12 @@ Hirotugu Akaike.
 \newblock \emph{IEEE Transactions on Automatic Control}, 19\penalty0
   (6):\penalty0 716--723, 1974.
 \newblock \doi{10.1109/TAC.1974.1100705}.
+
+\bibitem[Albers et~al.(2025)Albers, Cucuringu, Howison, and
+  Shestopaloff]{albers2025dilemma}
+Jakob Albers, Mihai Cucuringu, Sam Howison, and Alexander~Y. Shestopaloff.
+\newblock The market maker's dilemma: Navigating the fill probability vs.
+  post-fill returns trade-off, 2025.
 
 \bibitem[Alfonsi and Blanc(2016)]{alfonsiblanc2016}
 Aur{\'e}lien Alfonsi and Pierre Blanc.
@@ -1159,6 +1165,11 @@ Timoth{\'e}e Fabre and Ioane Muni~Toke.
 \newblock \doi{10.1080/1351847X.2026.2624485}.
 \newblock arXiv:2502.04027.
 
+\bibitem[Fabre and Ragel(2023)]{fabre2023interpretable}
+Timoth{\'e}e Fabre and Vincent Ragel.
+\newblock Interpretable {ML} for high-frequency execution, 2023.
+\newblock Preprint, v2 27 Sep 2024.
+
 \bibitem[Farmer et~al.(2005)Farmer, Patelli, and Zovko]{farmer2005}
 J.~Doyne Farmer, Paolo Patelli, and Ilija~I. Zovko.
 \newblock The predictive power of zero intelligence in financial markets.
@@ -1918,11 +1929,13 @@ Yang Li and Zhi Chen.
 \newblock {ByteGen}: A tokenizer-free generative model for orderbook events in
   byte space, 2025.
 
-\bibitem[Li et~al.(2024)Li, Wu, Zhong, Liu, and Yang]{li2024simlob}
+\bibitem[Li et~al.(2026)Li, Wu, Zhong, Liu, and Yang]{li2024simlob}
 Yuanzhe Li, Yue Wu, Muyao Zhong, Shengcai Liu, and Peng Yang.
 \newblock {SimLOB}: Learning representations of limited order book for
-  financial market simulation, 2024.
-\newblock Preprint.
+  financial market simulation.
+\newblock \emph{IEEE Transactions on Artificial Intelligence}, 7\penalty0
+  (6):\penalty0 3429--3444, 2026.
+\newblock \doi{10.1109/TAI.2025.3640135}.
 
 \bibitem[Lillo and Farmer(2004)]{lillo2004}
 Fabrizio Lillo and J.~Doyne Farmer.
@@ -1957,6 +1970,14 @@ Jessica Lin, Eamonn Keogh, Li~Wei, and Stefano Lonardi.
 Eljas Linna, Kestutis Baltakys, Alexandros Iosifidis, and Juho Kanniainen.
 \newblock {LOBERT}: Generative {AI} foundation model for limit order book
   messages, 2025.
+
+\bibitem[Linna et~al.(2026)Linna, Baltakys, Manoharan, Iosifidis, and
+  Kanniainen]{linna2026impact}
+Eljas Linna, Kestutis Baltakys, Derrick Manoharan, Alexandros Iosifidis, and
+  Juho Kanniainen.
+\newblock Repurposing deep limit order book forecasting for
+  scenario-conditioned market impact modeling, 2026.
+\newblock Preprint.
 
 \bibitem[Littlestone and Warmuth(1994)]{littlestone1994}
 Nick Littlestone and Manfred~K. Warmuth.

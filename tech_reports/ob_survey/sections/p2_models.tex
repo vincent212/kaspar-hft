@@ -8453,6 +8453,13 @@ levels move, that it does not model individual order identifiers, and that the d
 time only partly. What it shows is the pattern of foundation models applied to the book: learn the structure of the
 message stream once, without labels, then adapt it cheaply to many tasks.
 
+\paragraph{A pretrained encoder applied to execution.} One later study reuses a trained LOBERT forecaster, without
+retraining, to estimate the short-horizon price impact of one's own orders: it inserts hypothetical messages into the
+model's input and reads the change in its forecast. Across scenarios on Nasdaq order-level data for seven stocks, the
+ranking of the estimated impacts agreed with realised outcomes with a rank correlation of 0.99~\citep{linna2026impact}
+(a preprint). It is the only result we found in which a pretrained order-book model is evaluated on an
+execution-side quantity rather than on direction; we found none evaluated on fills or profit.
+
 \subsubsection{Confidence and uncertainty}
 
 \paragraph{Point forecasts and uncertainty.} The deep models of this section are almost all point
@@ -8472,7 +8479,13 @@ not a financial risk) characterised by
 \citet{elyaniv2010} and applied to deep networks by \citet{geifman2017}. Acting on it needs an uncertainty
 that depends on the current input and is \emph{calibrated}: an interval said to contain the outcome 68\%
 of the time should contain it about 68\% of the time. The selective evaluation of LOBERT above, which
-scores only the forecasts made above a confidence threshold, is an example of the same idea.
+scores only the forecasts made above a confidence threshold, is an example of the same idea. A calibrated direction
+forecast is still not enough for a passive order: in a live experiment on a cryptocurrency perpetual future, the
+likelihood that a maker order is filled and its return after the fill were negatively
+correlated~\citep{albers2025dilemma}, so the forecast has to be combined with a fill model (Section~\ref{sec:deep-fill}).
+We found no study that applies conformal prediction---a method that turns any model's errors on held-out data into
+intervals with guaranteed coverage---to order-book forecasts, and no study dedicated to measuring the calibration of
+order-book classifiers.
 
 \paragraph{Uncertainty layers.} UQ-LOB~\citep{manoharan2026uqlob} is a plug-in module that can be attached to any
 pretrained order-book encoder. To make a forecast, it looks not only at the current window but also at a set of
@@ -8784,7 +8797,12 @@ order's queue position and features of the market participants placing orders as
 stock index, and reports a large improvement over the earlier architecture both in likelihood and in how well it ranks
 quickly filled orders ahead of slowly filled ones, which it attributes to the participant information and queue
 position. The study covers one futures contract, but it is consistent with the claim of
-Section~\ref{sec:queue-position} that queue position is a first-class variable.
+Section~\ref{sec:queue-position} that queue position is a first-class variable. \citet{fabre2023interpretable} go
+one step further, to the decision: a small network estimates whether an order will be filled within a fixed horizon,
+treating cancelled orders as censored, a second network estimates the extra cost if it is not, and the two are combined
+into a choice between resting and crossing, scored on real posted orders. On order-level data for Bitcoin and
+for BNP~Paribas the decision scored 0.51 and 0.30 against 0.34 and 0.07 for an exponential baseline (an F-score of the
+post-or-cross decision; a preprint).
 
 \begin{modelcard}{Fill-probability (survival) models}
 \cardrow{What you calibrate}{A survival curve $\P(\tau_F > u \mid X_t)$ for a resting order: for deep
