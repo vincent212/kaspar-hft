@@ -9,7 +9,10 @@ forecasters, and large independent re-tests find that many published deep models
 data. This
 survey asks a different question: \emph{how does information contained in the limit order book
 become an executable trading decision, and how should prediction, queue dynamics, simulation and
-execution be evaluated together?}
+execution be evaluated together?} Its thesis is that a limit-order-book model is useful not because it predicts the
+next price move but if the information it extracts survives representation, prediction, decision, queue position,
+latency and execution to positive out-of-sample economic value; the quantity that matters for trading is the expected
+profit of an action given the market state and the order's place in the queue.
 
 We organise the literature along four axes---representation, model class, prediction objective
 and economic role---and follow a single chain throughout:

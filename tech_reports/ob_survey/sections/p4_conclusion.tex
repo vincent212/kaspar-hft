@@ -101,20 +101,34 @@ The open problems in this group follow from Section~\ref{sec:hardware}.
 \label{sec:conclusion}
 % ================================================================
 
-This section summarises the survey's argument, the two kinds of infrastructure needed to test it, and the order of
-operations it recommends to a reader who must choose a model.
+This section states the survey's conclusion, the evidence for it, the infrastructure needed to test it, and the order
+of operations it recommends to a reader who must choose a model.
 
-The literature on limit-order-book modelling has moved from low-dimensional queue and order-flow
-models to expressive sequence architectures and pretrained message-level encoders. Statistical
-prediction has improved. Statistical prediction and executable trading remain different problems.
-The translation between them is
+The literature on limit-order-book modelling has become increasingly sophisticated at predicting the market, while the
+translation from prediction to executable value has remained comparatively underdeveloped. A model is useful not
+because it predicts the next price move but if the information it extracts survives every link of the chain
 \[
   \text{LOB state} \to \text{representation} \to \text{prediction} \to \text{decision} \to
-  \text{queue} \to \text{execution} \to \text{P\&L}.
+  \text{queue} \to \text{execution} \to \text{P\&L}
 \]
+to positive out-of-sample value; the quantity that matters is the expected profit of an action given the market state
+and the order's place in the queue (Equation~\eqref{eq:thesis}).
 \inwords{the book is turned into model inputs, the inputs into a forecast, the forecast into an order, the order
 waits in a queue and may be filled, and the fill produces a profit or loss. Each link can destroy information or add
 uncertainty.}
+Seven conclusions follow from the evidence reviewed.
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \textbf{Representation matters.} With the network held fixed, the input decides most of the result.
+\item \textbf{The prediction target matters.} How the label is built can decide the reported accuracy.
+\item \textbf{Queue position matters.} Whether a passive order fills, and how good the fill is, depends on its place
+  in the queue.
+\item \textbf{Execution matters.} Resting and crossing can cost the same once adverse selection is counted.
+\item \textbf{Simulation assumptions matter.} A fill rule that ignores the queue overstates results; a replay without
+  market impact answers questions about small orders only.
+\item \textbf{Latency matters.} Cost rises with delay, and faster hardware helps only while the signal lasts.
+\item \textbf{Complexity must earn its cost.} A more complex model is justified only by incremental out-of-sample
+  economic value.
+\end{enumerate}
 
 Order-flow imbalance, queue imbalance, Hawkes intensities and first-passage models give
 interpretable low-dimensional descriptions of market dynamics. Deep and pretrained models give
@@ -131,7 +145,12 @@ empirical hypothesis: a more complex model is justified when it delivers increme
 economic value that survives realistic execution, temporal validation, and the multiple-testing
 burden of its own selection.
 
-Two kinds of infrastructure make that standard testable. The first is the simulator. Agent-based, model-based and
+Two kinds of infrastructure make that standard testable. The first is the simulator, and Kaspar is the survey's
+instrument for it: a queue-exact replay of the exchange's own feed, deterministic, with separate latencies, running
+many days at once and the same code in replay, paper and live trading (Section~\ref{sec:kaspar}). On a year of
+E-mini data it shows the conclusions above in numbers: resting and crossing cost the same, about $+0.095$ ticks per
+contract, post-fill mark-outs show adverse selection completed within a second, and cost rises steadily with
+latency~\citep{maciejewski_shadow}. Agent-based, model-based and
 generative simulators let the market react to the researcher's orders, but their queues are only as realistic as the
 simulated order flow; a replay keeps the real market but cannot react. Exact queue position in the recorded market
 needs order-level data and an order-level book; among the replay tools compared, hftbacktest (with order-level

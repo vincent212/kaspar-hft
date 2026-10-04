@@ -374,6 +374,20 @@ about the next price move. The economically relevant sequence is
 whether and when it trades depends on that place; and only then is money made or lost. A forecast
 can be right and still be lost at any later arrow.}
 
+\paragraph{The thesis of this survey.} Predictive accuracy is not the natural end point of order-book modelling. The
+quantity that matters for trading is the expected profit of an action $a_t$ given the market state $X_t$ and the
+order's place in the queue $Q^{\text{ahead}}_t$,
+\begin{equation}
+  \E\big[\Pi \mid X_t,\, Q^{\text{ahead}}_t,\, a_t\big],
+  \label{eq:thesis}
+\end{equation}
+\inwords{how much, on average, this particular order will make, given what the book looks like now and where the
+order would stand in its queue.}
+A model is useful if the information it extracts survives every arrow of~\eqref{eq:chain}---representation,
+prediction, decision, queue position, latency and execution---to positive out-of-sample value. The rest of the survey
+is organised as evidence for or against that proposition: Part~II asks what information the models extract, and
+Part~III asks what survives simulation, execution and deployment.
+
 \begin{example}[Accurate but untradeable]
 \label{ex:untradeable}
 In ES (tick $0.25$ points, one-tick spread), a classifier is right on the sign of the next mid
@@ -735,7 +749,11 @@ they play no part in the methodology the survey recommends.
 
 \subsection{Source selection}
 
-This is a \emph{narrative} survey, not a \emph{systematic review}. A systematic review fixes a
+This is a \emph{structured narrative survey with tutorial exposition}, not a \emph{systematic review}. It is
+written for two audiences: specialists, as a map of the research, and researchers entering order-book modelling from
+computer science, machine learning or electrical engineering, as a technical entry point; the tutorial material
+connects literatures---financial econometrics, stochastic processes, machine learning, execution and trading
+systems---that are rarely read together. A systematic review fixes a
 search query and a list of databases in advance, screens every result against written criteria, and
 reports how many papers were kept at each step, so another team could repeat the search exactly. A
 narrative survey instead selects work that illustrates and tests an argument. That is appropriate

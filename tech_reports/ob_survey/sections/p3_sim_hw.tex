@@ -1,8 +1,9 @@
 \paragraph{About this part.} Part~II asked what the book predicts. Part~III is about the infrastructure needed to
 turn a prediction into a tested trading decision. It sets out what a simulator must capture for execution
 questions---queue position, adverse selection and latency (Section~\ref{sec:sim-needs}); surveys the order-book
-simulators available and compares them with the Kaspar system, including how an order-book model is added to Kaspar
-as an actor that publishes its predictions to a strategy (Section~\ref{sec:simulators}); explains why order-book
+simulators available (Section~\ref{sec:simulators}); presents Kaspar, the queue-exact replay and trading system used
+throughout, including how an order-book model is added to it as an actor that publishes its predictions to a strategy
+(Section~\ref{sec:kaspar}); explains why order-book
 models are slow at inference and what hardware can accelerate (Section~\ref{sec:hardware}); and ends with a summary
 of the part (Section~\ref{sec:part3-summary}). Open problems and the survey's conclusion are in Part~IV.
 
@@ -559,12 +560,33 @@ Deltix QuantOffice\ev{D} & not documented & cloud product lists a parallel runne
 \end{tabularx}
 \end{table}
 
-\subsection{Kaspar HFT}
+% ================================================================
+\section{Kaspar HFT: queue-exact replay, paper and live trading}
+% ================================================================
 \label{sec:kaspar}
 
-This section describes Kaspar, the replay system used as the worked example in this survey: its data path, how it
-fills simulated orders, which design choices make its replays repeatable, how the same code runs live, a model-free
-benchmark strategy, and how it measures latency and execution cost.
+Kaspar is the system this survey uses to make the execution questions of Section~\ref{sec:sim-needs} measurable. It
+is an open-source trading system and order-book simulator~\citep{maciejewski_shadow}. In one program it provides:
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item \textbf{Queue-exact replay of the exchange's own feed.} It decodes recorded packet captures of the exchange's
+  market-by-order feed, rebuilds the book order by order, places each simulated order in the real first-in-first-out
+  queue and fills it only when recorded executions reach an order behind it (Section~\ref{sec:kaspar-fills}).
+\item \textbf{Separate latencies} for outbound orders, outbound cancels and inbound market data.
+\item \textbf{Deterministic replay:} one thread, a clock driven by market time and seeded randomness, so that a fixed
+  session replays to identical fills (Section~\ref{sec:kaspar-determinism}).
+\item \textbf{The same code in replay, paper and live trading,} with CME's MDP~3.0 market-data and iLink~3 order-entry
+  handlers (Section~\ref{sec:kaspar-equivalence}).
+\item \textbf{Many days at once:} one trading day per process, so a year of data runs in parallel on one large
+  machine (Table~\ref{tab:parallel}).
+\item \textbf{Models as actors:} any model of Part~II is added as an actor that reads the book and sends predictions
+  to the strategy (Section~\ref{sec:kaspar-actor}).
+\item \textbf{Measured on real data:} a full year of E-mini S\&P~500 market-by-order data has been run through it, with
+  identical fills on repeated replay (Section~\ref{sec:shadow}), and its market-data path is measured at about
+  8\,\textmu s from socket to book (Section~\ref{sec:kaspar-measurement}).
+\end{itemize}
+The rest of this section describes its data path, how it fills simulated orders, which design choices make its replays
+repeatable, how the same code runs live, the model-free benchmark strategy and its results, how it measures latency
+and execution cost, and how a model is added to it.
 
 Kaspar is a trading and simulation system written in C++20 on an \emph{actor} framework~\citep{maciejewski_actor}:
 every component is an actor, which owns its state and communicates with other actors only by messages. Its order
@@ -614,7 +636,7 @@ decision in the simulated order manager.}
 \end{figure}
 
 
-\subsubsection{Queue-exact simulated fills}
+\subsection{Queue-exact simulated fills}
 \label{sec:kaspar-fills}
 
 The central requirement of Section~\ref{sec:replay} is that a simulated order should be filled only if
@@ -720,7 +742,7 @@ impact; a reactive simulator for mechanical impact and for comparing tactics in 
 and paper and live trading as the ground truth for both.
 
 
-\subsubsection{Deterministic replay}
+\subsection{Deterministic replay}
 \label{sec:kaspar-determinism}
 
 In the replay configuration the file reader, the order book, the timer, the SOM, the strategy
@@ -743,7 +765,7 @@ Running the same program in research and in production also removes one source o
 result cannot change because the production code was written separately.
 
 
-\subsubsection{Replay, paper and live trading from the same code}
+\subsection{Replay, paper and live trading from the same code}
 \label{sec:kaspar-equivalence}
 
 Two choices are independent: where market data come from (recorded file or live multicast), and
@@ -770,7 +792,7 @@ market impact (Section~\ref{sec:kaspar-fills}) and models latency with configure
 that is profitable in replay can still behave differently live.
 
 
-\subsubsection{A model-free execution benchmark}
+\subsection{A model-free execution benchmark}
 \label{sec:shadow}
 
 \pov{} is the passive execution algorithm used in the case study~\citep{maciejewski_shadow}. It
@@ -833,7 +855,7 @@ Cost at 5\,ms round-trip delay (separate configurations) & $+0.150 \pm 0.015$ & 
 \end{table}
 
 
-\subsubsection{Latency and slippage measurement}
+\subsection{Latency and slippage measurement}
 \label{sec:kaspar-measurement}
 
 Latency claims need their endpoints. In the published measurement of Kaspar's market-data
@@ -1367,8 +1389,9 @@ whose latency and jitter preserve it after costs.
 \label{sec:part3-summary}
 % ================================================================
 
-Part~III turned from models to the infrastructure needed to test and run them. This section collects its main points;
-it adds no new results.
+Part~III turned from models to the infrastructure needed to test and run them: the second half of the thesis of
+Section~\ref{sec:tradeability}, whether the information a model extracts survives queue position, latency and
+execution. This section collects its main points; it adds no new results.
 
 \paragraph{What a simulator must capture.} A passive order earns its average profit as the product of two factors:
 the probability that it is filled and its average profit when it is (Equation~\eqref{eq:decomp}). Both depend on
