@@ -607,7 +607,8 @@ is an open-source trading system and order-book simulator~\citep{kaspar_hft,maci
   market-by-order feed, rebuilds the book order by order, places each simulated order in the real first-in-first-out
   queue and fills it only when recorded executions reach an order behind it (Section~\ref{sec:kaspar-fills}).
 \item \textbf{Separate latencies} for outbound orders, outbound cancels and inbound market data.
-\item \textbf{Deterministic replay:} one thread, a clock driven by market time and seeded randomness, so that a fixed
+\item \textbf{Deterministic replay:} every actor of the simulator in one group with a single message queue and
+  thread, a clock driven by market time and seeded randomness, so that a fixed
   session replays to identical fills (Section~\ref{sec:kaspar-determinism}).
 \item \textbf{The same code in replay, paper and live trading,} with CME's MDP~3.0 market-data and iLink~3 order-entry
   handlers (Section~\ref{sec:kaspar-equivalence}).
@@ -638,8 +639,21 @@ exchange multicast (CME MDP~3.0 today) $\to$ socket reader $\to$ message buffer 
 $\to$ order book $\to$ strategy $\to$ simulated order manager $\to$ [exchange gateway $\mid$ simulated fill].
 \end{center}
 \emph{Multicast} means the exchange sends each packet once and every subscribed host receives it. The strategy
-actors are called \emph{lights} in the code and in the figures. Actors can be placed in a \emph{group}, which runs
-several actors on one thread, processing one message at a time in arrival order. The simulated order manager (SOM)
+actors are called \emph{lights} in the code and in the figures.
+
+\paragraph{The group: one queue for the whole simulator.}\label{sec:kaspar-group} Actors can be placed in a \emph{group}. A group has a single
+message queue and a single thread: a message sent to any member goes into the group's queue, and the thread takes the
+messages out one at a time, in the order they arrived, and delivers each to its actor. The simulator depends on this.
+In replay, every actor---the market-data reader, the order books, the timer, the simulated order manager, the
+strategy actors and the position manager---is a member of one group, so the whole simulated market and everything
+trading in it share one queue. Market data, orders, cancellations, acknowledgements, fills and timer events are
+therefore processed in one total order, the same on every run, and an order sent by a strategy reaches the book
+exactly between the market-data events it would have fallen between. Without the group, each actor would have its own
+thread and queue, and the order in which their messages were handled would depend on how the operating system
+scheduled the threads, so two runs of the same day could fill different orders. In live trading the actors run on
+their own threads, because there the order of events is set by the market itself.
+
+The simulated order manager (SOM)
 sits between the strategy and the venue. In live mode it forwards orders to the exchange gateway (CME iLink~3); in
 simulation mode it sends them into the reconstructed book, where they are matched against recorded order flow.
 
@@ -779,7 +793,8 @@ and paper and live trading as the ground truth for both.
 \label{sec:kaspar-determinism}
 
 In the replay configuration the file reader, the order book, the timer, the SOM, the strategy
-actors and the position manager all run in one actor group on one thread. The reader is added to
+actors and the position manager all run in one actor group, with one queue and one thread
+(Section~\ref{sec:kaspar-group}). The reader is added to
 the group last, so all consumers exist before the first market-data message is delivered. Three
 design choices then make a replay repeatable:
 \begin{enumerate}[leftmargin=1.5em]
