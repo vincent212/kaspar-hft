@@ -8389,11 +8389,47 @@ Output & expected future mid-price, by a matrix formula over all paths & whateve
 \end{tabularx}
 \end{table}
 
-We found no peer-reviewed S4- or
-Mamba-based order-book forecaster with comparisons against baselines. The closest is a design tuned for fast hardware, applied to cryptocurrency
-tick data (recorded at every trade or price change), whose abstract reports 62.7\% next-tick directional accuracy without a baseline
-for comparison~\citep{popov2026ssm}. State-space models for order books remain an open direction rather than
-an established result (Section~\ref{sec:agenda}).
+\paragraph{What goes in and what comes out.} A state-space network is a layer, not a complete model, and it does not
+fix the input or the output. Its input is any sequence of vectors, one per step, and the step can be a snapshot of
+the book, a vector of order flow, or a message turned into numbers or tokens (Table~\ref{tab:input-output-kinds}). At
+every step it updates its state, and an output layer on top of the state produces the prediction: a direction class,
+a return, the next token, or an event intensity. Three order-book uses show the range (Table~\ref{tab:ssm-uses}).
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item \textbf{A generator of messages.} LOBS5~\citep{nagy2023} is built from S5 state-space layers. Its input at each
+  step is one message, split into 22 tokens---type, side, price in ticks from the mid, size, time and the fields of
+  any order it refers to---together with the current volumes at the first levels of the book as real numbers, over a
+  context of 500 messages. It is trained to predict a hidden token of the latest message and is used to generate
+  message streams one token at a time, as a simulator of the market. When the LOBERT authors re-implemented it at a
+  similar size, it predicted the whole next message correctly 6.1\% of the time against 26.4\% for
+  LOBERT~\citep{linna2025lobert}.
+\item \textbf{A Hawkes process.} The Mamba Hawkes process~\citep{gao2024mhp} takes one event per step---its type and the
+  time since the previous event---and outputs the intensity of each event type, from which the type and time of the next
+  event follow (Section~\ref{sec:npp-mamba}). On a financial event benchmark it predicts the next event's type with
+  62.5\% accuracy against 62.2\% for the Transformer Hawkes process, and its time with a smaller error.
+\item \textbf{A direction forecaster.} \citet{popov2026ssm} design a state-space model for FPGA hardware and apply it to
+  cryptocurrency tick data, recorded at every trade or price change; the abstract reports 62.7\% accuracy on the
+  direction of the next tick, without a baseline for comparison.
+\end{itemize}
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{State-space models applied to order-book data: what each takes in and predicts.}
+\label{tab:ssm-uses}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.25\linewidth}>{\raggedright\arraybackslash}p{0.18\linewidth}}
+\toprule
+Model & Input at each step & Output & Used for \\
+\midrule
+LOBS5~\citep{nagy2023} & one message as 22 tokens, plus volumes at the first levels & the next token & generating message streams \\
+Mamba Hawkes~\citep{gao2024mhp} & one event: its type and the time since the last & intensity of each event type & next event type and time \\
+\citet{popov2026ssm} & cryptocurrency tick data & direction of the next tick & forecasting on FPGA hardware \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+We found no peer-reviewed state-space forecaster of the mid-price direction from order-book data with comparisons
+against baselines, of the kind that exists for convolutional, recurrent and attention models. State-space models for
+order books remain an open direction rather than an established result (Section~\ref{sec:agenda}).
 
 \begin{modelcard}{State-space sequence models}
 \cardrow{What you calibrate}{The matrices of a learned linear recurrence and, for selective models such
