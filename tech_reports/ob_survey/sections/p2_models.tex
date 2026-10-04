@@ -1008,7 +1008,9 @@ how large and when.
 
 \paragraph{Pretraining and reported results.} LOBERT is pretrained by \emph{masked message modelling}: messages are hidden
 and the network predicts them, as BERT predicts hidden words. It is designed as a general-purpose,
-fine-tunable foundation model, and is trained and evaluated on Nasdaq ITCH message data for four large US
+fine-tunable \emph{foundation model}: one large network trained once, without labels, on a large body of data,
+and then reused for many different tasks by training only a small extra output layer for each (Section~\ref{sec:foundation}
+explains this in detail). It is trained and evaluated on Nasdaq ITCH message data for four large US
 stocks in 2015, with millisecond timestamps. Its results on next-message and mid-price prediction are
 discussed in Section~\ref{sec:foundation}.
 
@@ -8604,7 +8606,11 @@ forgetting is learned.}
 \label{sec:foundation}
 
 A \emph{foundation model} is pretrained once on a large, generic corpus and then adapted to many
-specific tasks. Two recent contributions from the same group illustrate a useful layering for LOB data.
+specific tasks. The name comes from language models: BERT~\citep{devlin2019} was trained once on a large amount of
+text to fill in hidden words, and the same trained network was then adapted, with a small output layer and little
+extra training, to classify sentences, answer questions or tag names. The expensive first training is the
+foundation; each task is built on it cheaply. On order-book data the corpus is the message stream itself, and the
+tasks are the targets of Section~\ref{sec:deep}, such as the next message or the direction of the mid-price. Two recent contributions from the same group illustrate a useful layering for LOB data.
 
 \subsubsection{LOBERT in detail}
 \label{sec:lobert}
