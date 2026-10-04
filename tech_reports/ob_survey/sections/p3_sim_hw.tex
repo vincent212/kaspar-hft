@@ -607,8 +607,8 @@ is an open-source trading system and order-book simulator~\citep{kaspar_hft,maci
   market-by-order feed, rebuilds the book order by order, places each simulated order in the real first-in-first-out
   queue and fills it only when recorded executions reach an order behind it (Section~\ref{sec:kaspar-fills}).
 \item \textbf{Separate latencies} for outbound orders, outbound cancels and inbound market data.
-\item \textbf{Deterministic replay:} every actor of the simulator in one group with a single message queue and
-  thread, a clock driven by market time and seeded randomness, so that a fixed
+\item \textbf{Deterministic replay:} every actor of the simulator runs in one group with a single message queue and
+  thread---the source of determinism---together with a clock driven by market time and seeded randomness, so that a fixed
   session replays to identical fills (Section~\ref{sec:kaspar-determinism}).
 \item \textbf{The same code in replay, paper and live trading,} with CME's MDP~3.0 market-data and iLink~3 order-entry
   handlers (Section~\ref{sec:kaspar-equivalence}).
@@ -791,14 +791,13 @@ and paper and live trading as the ground truth for both.
 \subsection{Deterministic replay}
 \label{sec:kaspar-determinism}
 
-In the replay configuration the file reader, the order book, the timer, the SOM, the strategy
-actors and the position manager all run in one actor group, with one queue and one thread
-(Section~\ref{sec:kaspar-group}). The reader is added to
-the group last, so all consumers exist before the first market-data message is delivered. Three
-design choices then make a replay repeatable:
+The group is what makes Kaspar's replay deterministic. In the replay configuration the file reader, the order book,
+the timer, the SOM, the strategy actors and the position manager all run in one actor group, with one queue and one
+thread (Section~\ref{sec:kaspar-group}). Every message---market data, orders, acknowledgements, fills, timer
+events---passes through that one queue and is processed in one total order, which is the same on every run of the
+same data. The reader is added to the group last, so all consumers exist before the first market-data message is
+delivered. Two further choices keep the rest of the run repeatable once the group fixes the order of messages:
 \begin{enumerate}[leftmargin=1.5em]
-\item \textbf{One message sequence.} A single thread processes every message---market data, orders,
-  acknowledgements, fills, timer events---in one total order.
 \item \textbf{Market time.} The timer actor is driven by market-data timestamps, not the wall
   clock, so timeouts fire at the same point in the data on every run.
 \item \textbf{Seeded randomness.} Any randomised strategy decision uses a per-actor seeded
@@ -839,24 +838,63 @@ that is profitable in replay can still behave differently live.
 \subsection{A model-free execution benchmark}
 \label{sec:shadow}
 
-\pov{} is the passive execution algorithm used in the case study~\citep{maciejewski_shadow}. It
-makes no prediction about book evolution. When a third-party limit order is added within a
-configured distance of the touch, the algorithm may place its own order at the same price, records
-that participant's exchange order identifier, and cancels when that order leaves the book. The
-placement decision is randomised at a configured rate; cancellation can be delayed by a grace
-period measured in events or time. The design comment for the grace period states the trade-off
-of Section~\ref{sec:adverse} directly: cancel too quickly and fills are given up; cancel too
-slowly and the order bears the adverse selection.
+The point of this benchmark is that it uses no model of the book at all. It follows the order flow and nothing else,
+so it sets the floor that any order-book model has to beat, and any model of Part~II can be plugged into it and scored
+against it in the same replay. Kaspar implements it in two versions, passive and aggressive, as one strategy
+actor~\citep{maciejewski_shadow}.
 
-Its role in this survey is as a null model for passive placement. It defines the bottom rung of a
-hierarchy:
+\paragraph{Two model-free versions: passive and aggressive.} Both follow a fixed fraction of what other participants do
+and both complete a target quantity, a percentage-of-volume (POV) mandate.
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item \textbf{Passive: \pov{}.} When another participant adds a limit order near the best price, the algorithm, with a
+  fixed probability, places its own limit order at the same price and records that participant's exchange order
+  identifier. Its order sits in the queue just behind the one it follows. When the followed order is cancelled, it
+  cancels at once; when the followed order is traded, it waits a short grace period, because the trade that hit the
+  followed order may continue into its own order. It never decides where to rest: the price is inherited from the
+  order it follows.
+\item \textbf{Aggressive: Shadow-APOV.} The same mechanism driven by trades instead of additions: on each trade, with a
+  fixed probability, the algorithm sends an order that crosses the spread at the trade's price, following the aggressor
+  into the book, with a short time limit so that it never turns into a resting order. This is the standard
+  percentage-of-volume rule taken to the grain of single trades~\citep{maciejewski_shadow}.
+\end{itemize}
+Between them the two bracket what can be achieved by following the flow alone: one rests, the other crosses. On a
+year of E-mini data they cost the same, about $+0.095$ ticks per contract, at nearly the same participation
+(Table~\ref{tab:shadow-results}).
+
+\paragraph{Plugging in an order-book model.} Because the two versions make no forecast, a model can be added at the
+points where they act blindly and scored on what it changes. The model runs as an actor that reads the book and sends
+its forecast to the strategy actor (Section~\ref{sec:kaspar-actor}). Some examples, each a design rather than a published
+result:
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item \textbf{A signal model as a gate.} Order-flow or queue imbalance (Section~\ref{sec:ofi}) decides whether to follow
+  a given addition: a passive buy follows only when the imbalance does not point to a falling price, so as to decline
+  the fills most likely to be followed by an adverse move.
+\item \textbf{A queue model for the fill decision.} A queue model or a fill-probability model
+  (Sections~\ref{sec:queue-models} and~\ref{sec:deep-fill}) estimates, for the addition about to be followed, the chance
+  that an order behind it is filled before the price moves, and the depletion time of the opposite queue; additions
+  whose fill chance is low, or whose fill is likely to come just before an adverse move, are skipped, and the grace
+  period can be set from the estimate instead of fixed.
+\item \textbf{An event model for timing.} A Hawkes model (Section~\ref{sec:hawkes}) estimates the intensity of
+  aggressive orders on the opposite side; when a burst is expected, the strategy follows more additions or keeps its
+  orders through the grace period, and when activity is quiet it falls back to the aggressive version to complete the
+  quantity in time.
+\item \textbf{A direction forecast to choose the version.} A deep model's direction probability
+  (Section~\ref{sec:deep}) chooses, order by order, between resting and crossing: cross when the forecast says the
+  price is about to move away, rest otherwise.
+\end{itemize}
+
+\paragraph{How the model is scored.} The model-augmented strategy is run through the same replay, on the same days,
+with the same target quantity and the same participation, and compared with both model-free versions on the cost
+against the arrival mid-price and on post-fill mark-outs. Beating the passive version shows that the forecast is worth
+something over resting blind; beating the aggressive version shows that it is worth something over simply taking
+liquidity. Because both model-free versions cost about the same, the room a model has to improve is the adverse
+selection that the passive version cannot avoid: the fills it would decline if it knew they were toxic. A model that
+beats neither has added complexity for nothing. The hierarchy is
 \begin{center}
-model-free placement $\;\to\;$ predictive placement $\;\to\;$ full predictive execution policy.
+model-free placement $\;\to\;$ predictive placement $\;\to\;$ full predictive execution policy,
 \end{center}
-A predictive model that claims value for passive execution should beat the model-free benchmark
-\emph{in the same replay, under the same fill rule}, on slippage and on post-fill mark-outs. Any
-improvement measured against a naive backtest instead is confounded by the fill-inference bias
-of Section~\ref{sec:replay}.
+and each step must beat the one below it in the same replay, under the same fill rule. An improvement measured against
+a naive backtest instead is confounded by the fill-inference bias of Section~\ref{sec:replay}.
 
 \paragraph{The benchmark measured in Kaspar on a year of ES data.} \citet{maciejewski_shadow} run the benchmark
 through Kaspar's replay on every regular session of 2025 for which packet captures were available---246 sessions of
