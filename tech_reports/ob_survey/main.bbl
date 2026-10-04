@@ -1,4 +1,4 @@
-\begin{thebibliography}{458}
+\begin{thebibliography}{457}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -2056,16 +2056,10 @@ Vincent Maciejewski.
   Synchronous message delivery (fast\_send) and a tick-to-book latency study,
   2026{\natexlab{c}}.
 
-\bibitem[Maciejewski(2026{\natexlab{d}})]{maciejewski_mdlatency}
-Vincent Maciejewski.
-\newblock The queue is inside the packet: Market-data latency measured one
-  message at a time.
-\newblock Technical note, M2 Technologies, 2026{\natexlab{d}}.
-
-\bibitem[Maciejewski(2026{\natexlab{e}})]{maciejewski_shadow}
+\bibitem[Maciejewski(2026{\natexlab{d}})]{maciejewski_shadow}
 Vincent Maciejewski.
 \newblock Model-free passive execution via order-level shadowing,
-  2026{\natexlab{e}}.
+  2026{\natexlab{d}}.
 
 \bibitem[Maglaras et~al.(2022)Maglaras, Moallemi, and Wang]{maglaras2022fill}
 Costis Maglaras, Ciamac~C. Moallemi, and Muye Wang.

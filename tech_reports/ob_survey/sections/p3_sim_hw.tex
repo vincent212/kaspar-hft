@@ -613,7 +613,7 @@ is an open-source trading system and order-book simulator~\citep{kaspar_hft,maci
   to the strategy (Section~\ref{sec:kaspar-actor}).
 \item \textbf{Measured on real data:} a full year of E-mini S\&P~500 market-by-order data has been run through it, with
   identical fills on repeated replay (Section~\ref{sec:shadow}), and its market-data path is measured at about
-  8\,\textmu s from socket to book (Section~\ref{sec:kaspar-measurement}).
+  1\,\textmu s from socket to book at the median (Section~\ref{sec:kaspar-measurement}).
 \end{itemize}
 The rest of this section describes its data path, how it fills simulated orders, which design choices make its replays
 repeatable, how the same code runs live, the model-free benchmark strategy and its results, how it measures latency
@@ -935,13 +935,32 @@ Cost at 5\,ms round-trip delay (separate configurations) & $+0.150 \pm 0.015$ & 
 \subsection{Latency and slippage measurement}
 \label{sec:kaspar-measurement}
 
-Latency claims need their endpoints. In the published measurement of Kaspar's market-data
-handler, the start point is a software timestamp at the socket read and the end point is the order
-book being published; time spent in the network card and kernel before the read is outside the
-measurement, which is therefore socket-to-book, not wire-to-book. Measured on live CME multicast,
-the median is 8.0\,$\mu$s, with book-message medians of 7.1, 7.3 and 7.1\,$\mu$s for ES, NQ and ZN
-and 99th percentiles of 18.5, 13.6 and 57.0\,$\mu$s~\citep{maciejewski_mdlatency}. These numbers are
-quoted as an example of stating endpoints, not as a result of this paper.
+Latency claims need their endpoints. In Kaspar's measurement of its market-data handler, the start point is a
+software timestamp at the socket read and the end point is the order book being published; time spent in the network
+card and socket buffer before the read is outside the measurement, which is therefore socket-to-book, not
+wire-to-book. The socket reader thread decodes each packet and updates the book itself, with no hand-off to another
+thread. Table~\ref{tab:kaspar-latency} gives the result on live CME futures (ES, NQ and ZN) on 2 October 2026: two
+five-minute runs with the first 60\,s of each dropped, Onload kernel bypass, one feed, threads not
+pinned~\citep{kaspar_hft}. Book updates take about 1\,\textmu s at the median (0.8 to 1.1\,\textmu s) and 4.7 to
+20.6\,\textmu s at the 99th percentile.
+
+\begin{table}[!htbp]
+\centering\small
+\caption{Kaspar socket-to-book latency per message on live CME futures, in microseconds~\citep{kaspar_hft}.}
+\label{tab:kaspar-latency}
+\begin{tabular}{lrrrrrrr}
+\toprule
+Stream & Messages & p1 & p10 & p50 & p90 & p99 & p99.9 \\
+\midrule
+ES book & 401,462 & 0.5 & 0.7 & 1.1 & 2.7 & 9.9 & 24.1 \\
+NQ book & 581,010 & 0.4 & 0.5 & 0.8 & 1.9 & 4.7 & 8.8 \\
+ZN book & 141,972 & 0.4 & 0.6 & 1.0 & 2.5 & 20.6 & 69.3 \\
+ES trade & 45,733 & 0.5 & 0.7 & 2.5 & 8.8 & 36.2 & 70.1 \\
+NQ trade & 21,093 & 0.4 & 0.6 & 0.9 & 3.3 & 17.8 & 31.5 \\
+ZN trade & 13,282 & 0.4 & 0.7 & 6.6 & 41.5 & 90.5 & 124.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 The simulator's slippage instrumentation measures execution cost (\emph{slippage}) for each fill against four
 references: the mid at decision time, the interval volume-weighted average price, same-side
@@ -1277,8 +1296,8 @@ bandwidth~\citep{nvidia_cuda_bpg}; a single small transfer over PCIe has been me
 (for a network card, not a GPU)~\citep{neugebauer2018pcie}.
 
 \paragraph{Measured latencies of order-book models.} Table~\ref{tab:lob-latency} collects the published inference
-times we found. They range from about 25\,\textmu s to about 23\,ms---from about 3 to about 3,000 times the roughly
-8\,\textmu s socket-to-book latency of Section~\ref{sec:kaspar-measurement}; about half are below one millisecond
+times we found. They range from about 25\,\textmu s to about 23\,ms---from about 25 to about 23,000 times the roughly
+1\,\textmu s median socket-to-book latency of Section~\ref{sec:kaspar-measurement}; about half are below one millisecond
 and half above. They are not comparable across rows: devices and software differ, and some
 sources do not state the batch size. Latency also does not follow operation counts: in one study a gradient-boosted model with 23
 times more structural work than another was 15 times faster~\citep{hedges2026frontier}.
@@ -1360,7 +1379,7 @@ milliseconds.
 \includegraphics[width=\linewidth]{figs/latency_ladder.png}
 \caption{Latency figures quoted in this section, on one logarithmic axis. Bars are ranges, dots single figures.
 Sources: STAC public summaries (audited), the FPGA book-building papers, the measured server latency
-budget~\citep{zilberman2017where}, Kaspar's published socket-to-book medians~\citep{maciejewski_mdlatency}, and
+budget~\citep{zilberman2017where}, Kaspar's socket-to-book book medians~\citep{kaspar_hft}, and
 Table~\ref{tab:lob-latency}. The figures come from different machines, conditions and years and show orders of
 magnitude, not a single system.}
 \label{fig:latency-ladder}
@@ -1423,7 +1442,7 @@ type; strengths and limitations are our summary of the section.}
 \toprule
 Class & Figures quoted in this section & Strength & Limitation \\
 \midrule
-CPU with kernel bypass & network stack 946\,ns median (measured); Kaspar socket-to-book about 8\,\textmu s & most flexible; easiest to change & jitter from caches, interrupts and scheduling \\
+CPU with kernel bypass & network stack 946\,ns median (measured); Kaspar socket-to-book about 1\,\textmu s median & most flexible; easiest to change & jitter from caches, interrupts and scheduling \\
 GPU & small LSTM 4.70\,\textmu s at the 99th percentile, sliding window (audited); 3.4 to 9.6\,\textmu s per launch of a 2.9\,\textmu s kernel (NVIDIA measurement) & throughput; large models; training & launch and PCIe overheads at a batch of one \\
 FPGA & tick-to-trade 0.115--0.61\,\textmu s (audited); book update 26--280\,ns (papers); small LSTM below 2 to 5\,\textmu s (audited) & fixed, deterministic latency & limited capacity; long development \\
 FPGA network card (SmartNIC) & tree model 1.55\,\textmu s on the card (vendor) & computes in the network path & small models only \\
@@ -1583,7 +1602,7 @@ orders in recorded order flow with queue priority; the others estimate queue pos
 trade with market orders only, or train in a simulator, and in one of them the agent learned to exploit its
 generative simulator. None reports a live or paper-trading test (Section~\ref{sec:policy}).
 
-\paragraph{Hardware.} Book updates take about 8\,\textmu s in Kaspar's software path and a few hundred nanoseconds or
+\paragraph{Hardware.} Book updates take about 1\,\textmu s at the median in Kaspar's software path and a few hundred nanoseconds or
 less on FPGAs; audited FPGA tick-to-trade paths with simple logic run in about 0.1 to 0.6\,\textmu s. Published
 inference times of order-book models range from about 25\,\textmu s to 23\,ms (Table~\ref{tab:lob-latency}). Four
 causes make models slow on a single event: recurrence that runs step by step, attention whose cost grows with the

@@ -159,7 +159,7 @@ data), lobsim and Kaspar provide it without altering the recorded market (Sectio
 Part~II becomes one more actor that reads the book and sends its predictions to the strategy, and the same code runs
 in replay, paper and live trading (Section~\ref{sec:kaspar-actor}).
 
-The second is hardware. Book building takes about 8\,\textmu s from socket to book in Kaspar's software path and
+The second is hardware. Book building takes about 1\,\textmu s from socket to book at the median in Kaspar's software path and
 hundreds of nanoseconds or less in published FPGA designs; published inference times of order-book models range from
 about 25\,\textmu s to about 23\,ms, about half of them above one millisecond (Table~\ref{tab:lob-latency}). Section~\ref{sec:hw-why}
 identifies four causes---recurrence that must run step by step, attention whose cost grows with the square of the
