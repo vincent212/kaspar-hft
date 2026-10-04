@@ -7071,8 +7071,7 @@ four times: two labels (smoothed, leak-free) times two ways of presenting prices
 measured in ticks from the mid at the window's last event). Each run is scored by accuracy and macro-F1 on the 3
 test days, against three rules that use no network: the past-only rule of Section~\ref{sec:deep-real} (is the mid now above or below its average over the last 20
 events?), repeating the most recent label that is already known at $t$ (the label of $t - 20$), and always
-predicting the most common class. Table~\ref{tab:example-results} gives the results; \texttt{run\_output\_zscore.txt}
-and \texttt{run\_output\_relative.txt} hold the full output.
+predicting the most common class. Table~\ref{tab:example-results} gives the results.
 
 \begin{table}[!htbp]
 \centering\footnotesize
