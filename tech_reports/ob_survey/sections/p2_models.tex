@@ -8395,6 +8395,158 @@ Output & expected future mid-price, by a matrix formula over all paths & whateve
 \end{tabularx}
 \end{table}
 
+\subsubsection{Mamba in detail}
+\label{sec:mamba}
+
+Mamba~\citep{gu2024mamba} is the state-space model that made the idea competitive with Transformers on long
+sequences. This subsection follows one update step, shows with numbers how the input changes it, explains why that
+makes Mamba a gated recurrent network trained in parallel, and describes the block that is stacked to make a model.
+
+\paragraph{From a continuous rule to a step rule.} Mamba, like S4, starts from a rule in continuous time for each input
+channel: the state $\mathbf{h}$ (a vector of $N$ numbers) changes as $\mathbf{h}'(t) = \mathbf{A}\mathbf{h}(t) +
+\mathbf{B}x(t)$, and the output is $y(t) = \mathbf{C}\mathbf{h}(t)$, with $\mathbf{A}$ diagonal. To apply it to a
+sequence, time is cut into steps of length $\Delta$, which gives the step rule
+\begin{equation}
+  \mathbf{h}_t = \bar{\mathbf{A}}\,\mathbf{h}_{t-1} + \bar{\mathbf{B}}\,x_t, \qquad y_t = \mathbf{C}\,\mathbf{h}_t,
+  \qquad \bar{\mathbf{A}} = e^{\Delta \mathbf{A}}, \qquad
+  \bar{\mathbf{B}} = (\Delta\mathbf{A})^{-1}\big(e^{\Delta \mathbf{A}} - \mathbf{I}\big)\,\Delta\mathbf{B}
+\label{eq:mamba-step}
+\end{equation}
+(the ``zero-order hold'' discretisation of the paper).
+\inwords{between two steps the state decays by the factor $e^{\Delta \mathbf{A}}$, and the new input is added with a
+weight that grows with the step size.}
+Because the entries of $\mathbf{A}$ are negative, $e^{\Delta\mathbf{A}}$ lies between 0 and 1: a large step size makes
+it small, so the old state is mostly erased; a small step size makes it close to 1, so the old state is kept.
+
+\paragraph{What is selective.} In S4 the step size $\Delta$ and the matrices $\mathbf{B}$ and $\mathbf{C}$ are the same
+at every step. In Mamba they are computed from the current input: $\mathbf{B}_t$ and $\mathbf{C}_t$ by learned linear
+maps of $x_t$, and $\Delta_t$ by a learned linear map followed by a softplus, which keeps it positive. $\mathbf{A}$ itself
+stays a learned constant, because it acts only through $e^{\Delta\mathbf{A}}$ and a selective $\Delta$ already makes that
+factor depend on the input. In the authors' words, ``a large $\Delta$ resets the state $h$ and focuses on the current
+input $x$, while a small $\Delta$ persists the state and ignores the current input''; $\mathbf{B}_t$ decides how much of
+the input enters the state, and $\mathbf{C}_t$ how much of the state reaches the output~\citep{gu2024mamba}.
+Figure~\ref{fig:mamba-step} draws one step.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, scale=0.85, transform shape,
+  b/.style={draw, rounded corners=2pt, align=center, minimum height=8mm, text width=27mm},
+  arr/.style={-{Stealth[length=1.5mm]}, thick}]
+\node[b, fill=gray!10, text width=17mm] (x) at (0,0) {input $x_t$\\(this event)};
+\node[b, fill=orange!15] (d) at (3.6,1.4) {step size $\Delta_t$,\\computed from $x_t$};
+\node[b, fill=blue!12] (bb) at (3.6,0) {$\mathbf{B}_t$ = linear map of $x_t$};
+\node[b, fill=green!12] (cc) at (3.6,-1.4) {$\mathbf{C}_t$ = linear map of $x_t$};
+\node[b, fill=orange!8] (ab) at (7.6,1.4) {$\bar{\mathbf{A}}_t = e^{\Delta_t \mathbf{A}}$\\share of the old state kept};
+\node[b, fill=blue!6] (bbar) at (7.6,0) {$\bar{\mathbf{B}}_t$\\weight on the new input};
+\node[b, fill=yellow!12, text width=33mm] (h) at (11.8,0.7) {new state\\$\mathbf{h}_t = \bar{\mathbf{A}}_t\mathbf{h}_{t-1} + \bar{\mathbf{B}}_t x_t$};
+\node[b, fill=gray!5] (hp) at (11.8,2.4) {previous state $\mathbf{h}_{t-1}$};
+\node[b, fill=green!12] (y) at (11.8,-1.4) {output $y_t = \mathbf{C}_t \mathbf{h}_t$};
+\draw[arr] (x) -- (d); \draw[arr] (x) -- (bb); \draw[arr] (x) -- (cc);
+\draw[arr] (d) -- (ab); \draw[arr] (bb) -- (bbar); \draw[arr] (d.south east) -- (bbar.north west);
+\draw[arr] (ab.east) -- (h.north west); \draw[arr] (bbar.east) -- (h.west); \draw[arr] (hp) -- (h); \draw[arr] (h) -- (y);
+\draw[arr] (cc) -- (y);
+\end{tikzpicture}
+\caption{One step of Mamba's selective state-space layer. The current input sets the step size $\Delta_t$ and the
+matrices $\mathbf{B}_t$ and $\mathbf{C}_t$; the step size sets how much of the previous state survives. After
+\citet{gu2024mamba}.}
+\label{fig:mamba-step}
+\end{figure}
+
+\paragraph{A worked example: a routine event and a sweep.} Take one state number with $A = -1$ and $B = 1$, as in the
+paper's own simplest case. Then $\bar{A} = e^{-\Delta}$ and $\bar{B} = 1 - e^{-\Delta}$, so the update is
+\[
+  h_t = e^{-\Delta_t}\, h_{t-1} + \big(1 - e^{-\Delta_t}\big)\, x_t ,
+\]
+\inwords{the new state is a weighted average of the old state and the new input, and the step size decides the
+weights.}
+Suppose training has made $\Delta_t$ small for routine limit orders and large for a market order that empties the
+best ask (our numbers, to show the mechanism):
+\begin{center}\footnotesize
+\begin{tabular}{lccl}
+\toprule
+Event & $\Delta_t$ & weight on old state $e^{-\Delta_t}$ & effect \\
+\midrule
+routine limit order & 0.1 & 0.905 & state almost unchanged; the event adds 9.5\% \\
+sweep of the best ask & 3 & 0.050 & state almost reset to the new event \\
+\bottomrule
+\end{tabular}
+\end{center}
+After the sweep the state describes the sweep, not the quiet period before it; after a routine order it still
+describes the past. A fixed rule, as in S4, would treat the two events alike.
+
+\paragraph{A gated recurrent network.} The example is a theorem of the paper: with one state number, $A = -1$,
+$B = 1$ and $\Delta_t = \operatorname{softplus}(\text{a linear map of } x_t)$, the update becomes
+$h_t = (1 - g_t)\,h_{t-1} + g_t\,x_t$ with $g_t = \sigma(\text{a linear map of } x_t)$---the gate of a gated recurrent
+network, the same idea as the forget gate of an LSTM (Section~\ref{sec:deep-families})~\citep{gu2024mamba}. The
+difference from an LSTM is that the new state is still linear in the old one, which is what lets the whole sequence be
+computed in parallel in training (the parallel scan above).
+
+\paragraph{Why it needs selection.} The authors motivate the input-dependent step with tasks a fixed rule cannot do. In
+\emph{selective copying}, a few tokens to be remembered sit at random positions among filler; a fixed rule can only
+weigh positions, not contents. S4 solved it 18.3\% of the time, the selective layer 97.0\% and the full Mamba
+model 99.8\%~\citep{gu2024mamba}. In their ablation, making only $\Delta$ input-dependent gave most of the gain. The
+order-book analogue is the example above: what matters is what an event is, not how many steps ago it happened.
+
+\paragraph{How it trains fast on a GPU.} Because the step rule changes from step to step, the convolution of S4 is no
+longer available, and Mamba computes the recurrence with a parallel scan. The difficulty is memory, not arithmetic:
+the full set of states is $N$ times larger than the input. Mamba never writes it to the GPU's large, slow main memory.
+It loads $\Delta$, $\mathbf{A}$, $\mathbf{B}$ and $\mathbf{C}$ into the small, fast on-chip memory, computes the step
+rule and the scan there in one fused operation, and writes back only the outputs; in training it recomputes the states
+when they are needed for the gradients instead of storing them. The authors report this is 20 to 40 times faster than
+a straightforward scan, with memory use similar to an optimised Transformer~\citep{gu2024mamba}.
+
+\paragraph{The Mamba block.} A model is a stack of identical blocks (Figure~\ref{fig:mamba-block}). Each block widens
+the input by a linear map into two branches. One branch passes through a short convolution over neighbouring steps,
+a SiLU non-linearity and the selective state-space layer; the other passes through a SiLU only. The two are multiplied,
+which lets the second branch gate the first, and a linear map returns to the original width. Blocks are stacked with
+normalisation and residual connections; there is no attention and no separate feed-forward layer.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize,
+  b/.style={draw, rounded corners=2pt, align=center, minimum width=20mm, minimum height=6mm},
+  arr/.style={-{Stealth[length=1.5mm]}, thick}]
+\node[b, fill=gray!10] (in) at (0,0) {input};
+\node[b, fill=blue!10] (p1) at (2.6,0.8) {linear (widen)};
+\node[b, fill=blue!10] (p2) at (2.6,-0.8) {linear (widen)};
+\node[b, fill=gray!8] (cv) at (5.2,0.8) {short convolution};
+\node[b, fill=gray!8] (s1) at (7.6,0.8) {SiLU};
+\node[b, fill=yellow!15] (ssm) at (10.0,0.8) {selective SSM};
+\node[b, fill=gray!8] (s2) at (7.6,-0.8) {SiLU};
+\node[circle, draw, inner sep=1pt] (m) at (11.8,0) {$\times$};
+\node[b, fill=blue!10] (po) at (13.5,0) {linear (narrow)};
+\draw[arr] (in) -- (p1); \draw[arr] (in) -- (p2);
+\draw[arr] (p1) -- (cv); \draw[arr] (cv) -- (s1); \draw[arr] (s1) -- (ssm); \draw[arr] (ssm) -| (m);
+\draw[arr] (p2) -- (s2); \draw[arr] (s2) -| (m); \draw[arr] (m) -- (po);
+\end{tikzpicture}
+\caption{The Mamba block. The second branch gates the output of the selective state-space layer by multiplication.
+After \citet{gu2024mamba}.}
+\label{fig:mamba-block}
+\end{figure}
+
+\paragraph{Costs, results and limits.} Training cost grows linearly with the sequence length, and producing each new
+output costs a fixed amount of time and memory, because there is no growing cache of past inputs as in a Transformer.
+On an A100 GPU, generating text, Mamba had 4 to 5 times the throughput of a Transformer of similar size, mainly
+because it can process larger batches. On language modelling, a 2.8-billion-parameter Mamba averaged 63.3 on a set of
+zero-shot tasks against 59.1 for a Transformer of the same size (Pythia-2.8B) and 61.7 for one more than twice its size (Pythia-6.9B); on DNA,
+its perplexity---a measure of prediction error---kept falling as the context grew to about a million positions~\citep{gu2024mamba}. The authors state two
+limits: selection helps on discrete data such as text and DNA but can hurt on continuous signals, where fixed-rule
+models do well, and the experiments stop at small model sizes.
+
+\paragraph{Mamba-2 and attention.} The follow-up model shows that if $\mathbf{A}$ is one number times the identity, the
+selective state-space layer computes the same output as a masked attention without the softmax,
+$\mathbf{Y} = (\mathbf{L} \circ \mathbf{C}\mathbf{B}^{\top})\mathbf{X}$, where each entry of the mask $\mathbf{L}$ is the
+product of the decays between two steps~\citep{dao2024ssd}.
+\inwords{the output at each step is a weighted sum of the inputs at earlier steps, with weights that are the match
+between $\mathbf{C}$ at the current step and $\mathbf{B}$ at the earlier step, times how much has decayed in between.}
+In the language of Section~\ref{sec:attn-intro}, $\mathbf{C}$ plays the role of the query, $\mathbf{B}$ of the key and the
+input of the value, and the decay replaces the softmax: Mamba is an attention whose weights fade with distance, which is
+also how a Hawkes kernel weights the past. Computing it in blocks with matrix multiplications is 2 to 8 times faster than
+Mamba's scan~\citep{dao2024ssd}.
+
+\subsubsection{State-space models on order-book data}
+\label{sec:ssm-lob}
+
 \paragraph{Three uses on order-book data.} Three order-book uses show the range of inputs and outputs (Table~\ref{tab:ssm-uses}).
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
 \item \textbf{A generator of messages.} LOBS5~\citep{nagy2023} is built from S5 state-space layers. Its input at each
@@ -8415,7 +8567,8 @@ Output & expected future mid-price, by a matrix formula over all paths & whateve
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{State-space models applied to order-book data: what each takes in and predicts.}
+\caption{State-space models applied to order-book data: what each takes in and predicts. ByteGen and STRATA are
+preprints; neither forecasts the mid-price from order-book events against baselines.}
 \label{tab:ssm-uses}
 \setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.25\linewidth}>{\raggedright\arraybackslash}p{0.18\linewidth}}
@@ -8425,6 +8578,8 @@ Model & Input at each step & Output & Used for \\
 LOBS5~\citep{nagy2023} & one message as 22 tokens, plus volumes at the first levels & the next token & generating message streams \\
 Mamba Hawkes~\citep{gao2024mhp} & one event: its type and the time since the last & intensity of each event type & next event type and time \\
 \citet{popov2026ssm} & cryptocurrency tick data & direction of the next tick & forecasting on FPGA hardware \\
+ByteGen~\citep{li2025bytegen} (Mamba-2 and Transformer layers) & one order-level event as 32 raw bytes, CME Bitcoin futures & the next byte & generating events; compared only with real-data statistics \\
+STRATA~\citep{chen2026strata} (selective SSM blocks) & 5-minute bars including three levels of bid and ask prices, volumes and order counts & next-day ranking of stocks & cross-sectional forecasting; long--short spread over the trading session indistinguishable from zero \\
 \bottomrule
 \end{tabularx}
 \end{table}

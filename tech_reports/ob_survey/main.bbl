@@ -1,4 +1,4 @@
-\begin{thebibliography}{459}
+\begin{thebibliography}{461}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -698,6 +698,13 @@ Jiadong Chen, Xiao He, Hengyu Ye, Fuxin Jiang, Tieying Zhang, Jianjun Chen, and
 Junxiao Chen and Paul Glasserman.
 \newblock Do {LLMs} understand limit order book dynamics?, 2026.
 
+\bibitem[Chen et~al.(2026)Chen, Zhang, Li, Lo, Yuan, Yu, Ren, and
+  Liu]{chen2026strata}
+Mingju Chen, Enze Zhang, Annan Li, Yui Lo, Xiaomin Yuan, Kaiming Yu, Jinhui
+  Ren, and Yuanhang Liu.
+\newblock A compact selective state-space model for cross-sectional stock
+  return ranking from raw intraday bars, 2026.
+
 \bibitem[Chen and Robert(2022)]{chen2022gtnvf}
 Qinkai Chen and Christian-Yann Robert.
 \newblock Multivariate realized volatility forecasting with graph neural
@@ -906,6 +913,14 @@ D.~J. Daley and D.~Vere-Jones.
   2003.
 \newblock ISBN 0387955410.
 \newblock \doi{10.1007/b97277}.
+
+\bibitem[Dao and Gu(2024)]{dao2024ssd}
+Tri Dao and Albert Gu.
+\newblock Transformers are {SSM}s: Generalized models and efficient algorithms
+  through structured state space duality.
+\newblock In \emph{Proceedings of the 41st International Conference on Machine
+  Learning}, volume 235 of \emph{Proceedings of Machine Learning Research},
+  pages 10041--10071. PMLR, 2024.
 
 \bibitem[Dao et~al.(2022)Dao, Fu, Ermon, Rudra, and
   R{\'e}]{dao2022flashattention}
@@ -1385,10 +1400,10 @@ Nate Gruver, Marc Finzi, Shikai Qiu, and Andrew~Gordon Wilson.
   (NeurIPS 2023)}, pages 19622--19635, 2023.
 \newblock \doi{10.52202/075280-0861}.
 
-\bibitem[Gu and Dao(2023)]{gu2024mamba}
+\bibitem[Gu and Dao(2024)]{gu2024mamba}
 Albert Gu and Tri Dao.
-\newblock Mamba: Linear-time sequence modeling with selective state spaces,
-  2023.
+\newblock Mamba: Linear-time sequence modeling with selective state spaces.
+\newblock In \emph{Conference on Language Modeling (COLM)}, 2024.
 
 \bibitem[Gu et~al.(2022)Gu, Goel, and R{\'e}]{gu2022s4}
 Albert Gu, Karan Goel, and Christopher R{\'e}.
