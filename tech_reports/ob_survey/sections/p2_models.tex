@@ -7539,53 +7539,42 @@ the weight given to each earlier event is computed afresh, every time, from \emp
 current event is a large buy, the cancellations at the ask a few milliseconds earlier can receive most of the
 weight; if it is a quiet limit order, they can receive almost none.
 
-\paragraph{Attention as a weighted look-up.} Think of a search: a \emph{query} describes what you are looking for, each
-item carries a \emph{key} describing what it is, and a \emph{value}, the content you get back. Attention compares the
-query with every key, turns the match scores into weights that are positive and sum to one, and returns the
-weighted average of the values---a ``soft'' look-up that mixes the best-matching items rather than picking one. In
-a network the query, keys and values are all vectors computed from the events themselves by learned matrices; what
-is learned is \emph{how to ask and how to describe}, not which position matters.
+\paragraph{What an attention layer computes.} In terms of inputs and outputs, an attention layer is simple. Its input
+is the window of events, each already turned into a vector: $\mathbf{x}_1, \dots, \mathbf{x}_N$, one per event. Its
+output is a new vector for each event. Take the newest event, number $N$. Its output is a weighted average of
+numbers computed from the earlier events, and the weights are computed from the events themselves rather than fixed
+by position. Three learned matrices turn every input vector into three shorter vectors,
+\[
+  \mathbf{z}^{\text{qry}}_n = \mathbf{W}^{\text{qry}}\mathbf{x}_n, \qquad
+  \mathbf{z}^{\text{key}}_n = \mathbf{W}^{\text{key}}\mathbf{x}_n, \qquad
+  \mathbf{z}^{\text{val}}_n = \mathbf{W}^{\text{val}}\mathbf{x}_n ,
+\]
+and the output for event $N$ is computed in three steps:
+\begin{enumerate}[leftmargin=1.8em,itemsep=1pt]
+\item a score for each earlier event $n$: the dot product $\mathbf{z}^{\text{qry}}_N \cdot \mathbf{z}^{\text{key}}_n$ (multiply the two vectors
+  element by element and add);
+\item weights: the scores passed through the softmax, so that they are positive and sum to one;
+\item the output: $\sum_n (\text{weight}_n)\, \mathbf{z}^{\text{val}}_n$, the weighted average of the earlier events'
+  value vectors $\mathbf{z}^{\text{val}}$.
+\end{enumerate}
+\inwords{each earlier event contributes its value vector to the newest event's output, in proportion to how
+well its key vector lines up with the newest event's query vector.}
+The output goes to the next layer and, in the end, to the prediction. Nothing else is chosen by hand: the three
+matrices are weights like any others, set by training to whatever makes the predictions better. The difference from
+the families above is only that the weight on each earlier event depends on what the events are, through
+the query and key vectors, not on their position. Figure~\ref{fig:attn-who} draws these steps; the full
+calculation with numbers follows in Section~\ref{sec:attn-detail}.
 
-Figures~\ref{fig:attn-library} and~\ref{fig:attn-who} show who does what. The \emph{current} event supplies the query:
-its vector is multiplied by a learned matrix, and the result is the query. Every \emph{earlier} event in the window carries two things made from itself: a key, which
-describes it, and a value, which is what it hands over if chosen. The attention layer does the matching: it compares
-the query with each key, turns the match scores into weights, and returns the weighted average of the values to the
-current event, which uses it as its new description of the recent past.
+\paragraph{Why the three vectors are called query, key and value.} The names are borrowed from searching a database,
+and they are only names. In a database you look items up with a \emph{query}; each item is filed under a
+\emph{key}; and what you get back is its \emph{value}. Attention is a ``soft'' version of such a look-up: instead of
+returning the one item whose key matches the query exactly, it returns a mix of all the values, weighted by how well
+each key matches (Figure~\ref{fig:attn-library}). In the model, the vector $\mathbf{z}^{\text{qry}}_N$ plays the role of the
+query, and each earlier event's $\mathbf{z}^{\text{key}}_n$ and $\mathbf{z}^{\text{val}}_n$ play the roles of key and value. When this survey
+says that a query ``looks for'' something, it is only describing in words which earlier events that vector scores
+highly; in a trained model the vectors usually have no simple meaning.
 
-Nothing in this process asks a question. ``Query'', ``key'' and ``value'' are names for three vectors, and the
-matching is a dot product: earlier events whose keys point in the same direction as the query receive high weight.
-When this survey says that a query ``looks for'' something, it is describing in words which earlier events that
-query vector scores highly. In a trained model nobody chooses what the queries look for: training adjusts the three
-matrices to whatever makes the predictions better, and the resulting queries usually have no simple meaning.
 
-\begin{figure}[!htbp]
-\centering
-\begin{tikzpicture}[font=\scriptsize,
-  key/.style={draw, fill=blue!15, minimum width=34mm, minimum height=5mm},
-  val/.style={draw, fill=green!15, minimum width=34mm, minimum height=5mm},
-  arr/.style={-{Stealth[length=1.6mm]}, thick}]
-\node[draw, fill=orange!20, rounded corners=2pt, align=center, text width=24mm] (q) at (0,0)
-  {\textbf{query}\\what is searched for:\\``sellers leaving''};
-\foreach \i/\k/\v/\w in {1/{sellers leaving}/{book A}/{0.67}, 2/{buyers arriving}/{book B}/{0.09}, 3/{both}/{book C}/{0.24}} {
-  \pgfmathsetmacro{\y}{1.6-1.6*(\i-1)}
-  \node[key] (k\i) at (4.2,\y+0.27) {key (label): \k};
-  \node[val] (v\i) at (4.2,\y-0.27) {value (contents): \v};
-  \draw[rounded corners=2pt, gray] ($(k\i.north west)+(-0.1,0.08)$) rectangle ($(v\i.south east)+(0.1,-0.08)$);
-  \draw[arr, orange!70!black] (q.east) -- ($(k\i.west)+(-0.12,0)$);
-  \node[anchor=west, font=\scriptsize\bfseries] (w\i) at (6.4,\y) {weight \w};
-}
-\node[anchor=south] at (4.2,2.15) {shelf: one drawer per item};
-\node[anchor=north, orange!70!black, align=center] at (0,-0.6) {matched against\\every label};
-\node[draw, fill=green!10, rounded corners=2pt, align=center, text width=30mm] (o) at (10.3,0)
-  {\textbf{result}\\$0.67\times$A $+\ 0.09\times$B\\$+\ 0.24\times$C};
-\foreach \i in {1,2,3} \draw[arr, green!50!black] (w\i.east) -- (o.west);
-\end{tikzpicture}
-\caption{Attention as a library search. You bring a query; every drawer on the shelf carries a key (its label) and a
-value (its contents). The query is matched against every label, the matches become weights that sum to one, and you
-get back a mix of all the contents, mostly from the drawers that matched best. In the model, the query comes from the
-current event and each drawer is one earlier event (Figure~\ref{fig:attn-who}). Numbers from the worked example below.}
-\label{fig:attn-library}
-\end{figure}
 
 \begin{figure}[!htbp]
 \centering
@@ -7624,6 +7613,35 @@ looking for). The attention layer scores the query against every key, converts t
 weighted average of the values back to the current event. In self-attention every event in the window takes its turn
 as the current one, each with its own query, against the keys and values of the events before it.}
 \label{fig:attn-who}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize,
+  key/.style={draw, fill=blue!15, minimum width=34mm, minimum height=5mm},
+  val/.style={draw, fill=green!15, minimum width=34mm, minimum height=5mm},
+  arr/.style={-{Stealth[length=1.6mm]}, thick}]
+\node[draw, fill=orange!20, rounded corners=2pt, align=center, text width=24mm] (q) at (0,0)
+  {\textbf{query}\\what is searched for:\\``sellers leaving''};
+\foreach \i/\k/\v/\w in {1/{sellers leaving}/{book A}/{0.67}, 2/{buyers arriving}/{book B}/{0.09}, 3/{both}/{book C}/{0.24}} {
+  \pgfmathsetmacro{\y}{1.6-1.6*(\i-1)}
+  \node[key] (k\i) at (4.2,\y+0.27) {key (label): \k};
+  \node[val] (v\i) at (4.2,\y-0.27) {value (contents): \v};
+  \draw[rounded corners=2pt, gray] ($(k\i.north west)+(-0.1,0.08)$) rectangle ($(v\i.south east)+(0.1,-0.08)$);
+  \draw[arr, orange!70!black] (q.east) -- ($(k\i.west)+(-0.12,0)$);
+  \node[anchor=west, font=\scriptsize\bfseries] (w\i) at (6.4,\y) {weight \w};
+}
+\node[anchor=south] at (4.2,2.15) {shelf: one drawer per item};
+\node[anchor=north, orange!70!black, align=center] at (0,-0.6) {matched against\\every label};
+\node[draw, fill=green!10, rounded corners=2pt, align=center, text width=30mm] (o) at (10.3,0)
+  {\textbf{result}\\$0.67\times$A $+\ 0.09\times$B\\$+\ 0.24\times$C};
+\foreach \i in {1,2,3} \draw[arr, green!50!black] (w\i.east) -- (o.west);
+\end{tikzpicture}
+\caption{Attention as a library search. You bring a query; every drawer on the shelf carries a key (its label) and a
+value (its contents). The query is matched against every label, the matches become weights that sum to one, and you
+get back a mix of all the contents, mostly from the drawers that matched best. In the model, the query comes from the
+current event and each drawer is one earlier event (Figure~\ref{fig:attn-who}). Numbers from the worked example below.}
+\label{fig:attn-library}
 \end{figure}
 
 \textit{A worked example.} The current event is a buy market order that empties the best ask. The numbers below are
@@ -7865,6 +7883,7 @@ The rest of this subsection describes the models that have been built this way, 
 example worked in numbers.
 
 \subsubsection{Attention on the book, in detail}
+\label{sec:attn-detail}
 
 A model that attends along more than one axis of the book is called \emph{spatial-temporal}: ``space'' is the price
 ladder (and, in multi-asset models, the set of instruments), ``time'' is the sequence of snapshots or events.
