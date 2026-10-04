@@ -384,7 +384,6 @@ and NautilusTrader, appear in both.
 \item \textbf{Generative.} A network trained on order data generates order flow, often conditioned on the
   researcher's orders (Section~\ref{sec:deep-gen}).
 \end{itemize}
-\citet{jain2024sim} review the model-based and generative approaches and the stylised facts used to validate them.
 Figure~\ref{fig:sim-kinds} sets the four kinds side by side.
 
 \begin{figure}[!htbp]
@@ -415,6 +414,41 @@ orders; the other three react, but their queues are only as realistic as the sim
 Tables~\ref{tab:simulators} and~\ref{tab:replay-tools}.}
 \label{fig:sim-kinds}
 \end{figure}
+
+\paragraph{What the review of generating simulators found.} \citet{jain2024sim} review the simulators that generate
+the market---point-process, agent-based, deep-learning and stochastic-differential-equation models---and report five
+findings that bear on this survey. Replay engines, queue position of one's own orders and latency are outside their
+scope.
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item \textbf{Simulators are validated weakly.} Most papers compare simulated and empirical distributions of
+  inter-arrival times, spreads and volumes by plotting them together; Q-Q plots, which test the tails, are used in
+  some papers, and formal statistical tests in few. Deep-learning simulators mostly report training and validation
+  losses and price paths compared by eye. Few papers compare against simpler baselines; the authors recommend doing so
+  and checking that the fitted parameters are stable across conditions and volatility.
+\item \textbf{Poisson models reproduce the first-order facts only.} They reproduce the distributions of spread and
+  volume, the average depth and the average shape of the book, but not the autocorrelation of price changes, the
+  signature plot or long-run volatility.
+\item \textbf{Hawkes models reproduce more, at a cost.} They reproduce clustering, volatility clustering and the Epps
+  effect and fit the tail of inter-arrival times, but exponential kernels are not enough, power-law kernels are harder
+  to calibrate, and the residuals of a plain Hawkes fit are not exponential as they should be---which is why
+  state-dependent and neural variants were proposed (Section~\ref{sec:hawkes}).
+\item \textbf{Market impact differs by kind.} Plain Poisson models have none, apart from queue-reactive and
+  state-dependent variants; Hawkes models have it implicitly, with concave impact while trading and relaxation
+  afterwards; agent-based simulators such as ABIDES show concave impact that falls as the share of market orders in
+  the trading rises; one conditional generative network shows clear impact under TWAP and POV execution where Poisson
+  and Hawkes models show none. The authors warn that a simulator that assumes no impact may give poor out-of-sample
+  performance.
+\item \textbf{No simulator does everything.} Their conclusion is that no simulator yet is parsimonious, explainable
+  and analytically tractable while reproducing most of the stylised facts.
+\end{itemize}
+Their motivation for generating markets is that a strategy fitted to the one recorded history of an instrument will
+overfit it. Replay answers that differently: it tests a strategy on many recorded days held out from its development,
+counting every configuration tried, rather than on generated days. The two approaches answer different questions.
+Replay measures what would have happened to one's orders in the market that occurred, with exact queues and no
+reaction; a generating simulator measures behaviour in markets that did not occur, including reaction and stress,
+with queues only as realistic as the model. For small orders replay is the stricter test; for large orders and stress
+scenarios a generating simulator is needed, and the findings above say how far its outputs can be trusted.
+
 For execution questions the type matters less than five properties: whether the simulated order has an exact
 position in a queue of individual orders; whether latency is modelled; whether the simulated order changes the
 market; whether a run can be repeated exactly; and whether the same code can trade live.

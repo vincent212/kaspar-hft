@@ -517,3 +517,13 @@ Legend: **V** = VERIFIED from the cited source in the sections above; **U** = UN
   - MAXE LNCS volume and editors.
   - hftbacktest author's real name.
   - lobsim and PyLOB (not checked).
+
+## jain2024sim — findings (full text read 2026-10-04, arXiv 2402.17359v2)
+
+- Scope: point process, ABM, deep learning, SDE/SPDE simulators; no replay engines, own-order queue position or latency.
+- Fit testing (Sec. 8): "The technique for testing against this stylized fact is usually a qualitative test where the two distributions (empirical data and simulations) are plotted against each other"; Q-Q plots "in several papers"; Li et al. 2020 "make use of statistical tests"; DL: "training and validation losses being generally reported"; recommend "comparing the model's efficacy against both real world data and simpler baselines"; "robustness of the model's calibrated parameters should be checked against initial conditions, market volatility".
+- Poisson (Sec. 8): "successful in representing a number of 'first order' stylized facts like distribution of spread, volumes, average depth, average order book profile"; ACF of price changes, signature plots, long term volatility "insufficiently replicated" (Abergel and Jedidi 2011).
+- Hawkes (Sec. 3.2, 8): volatility clustering and Epps effect; "fit the tails of the distribution of inter-order arrival time quite well"; exponential kernels "shown to be insufficient"; power law "harder to calibrate"; residuals should be Exp but "this is generally not the case with the generic Hawkes Process".
+- Market impact (Sec. 7): Poisson "do not have market impact as a feature" except queue-reactive/state-dependent variants; Hawkes "implicit form of market impact", concave then convex relaxation (Bacry, Iuga et al. 2015); ABIDES impact "concave and is a decreasing function of the proportion of market orders"; Cont, Cucuringu, Kochems et al. 2023 cWGAN: "clear trend lines" under MO-TWAP, LO-TWAP, POV vs "no clear trend in Poisson or Hawkes"; intro: "a zero Market Impact approximation may lead to poor out-of-sample performance".
+- Conclusion (Sec. 9): "there is a lack of a parsimonious, explainable, analytically tractable model which has a good representation of most of the stylized facts".
+- Motivation (intro): fitting a strategy to "just this one trajectory" causes overfitting.
