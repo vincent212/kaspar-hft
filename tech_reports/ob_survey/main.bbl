@@ -106,9 +106,7 @@ Robert Almgren and Neil Chriss.
 \newblock Product brief, 2023.
 \newblock URL
   \url{https://www.xilinx.com/content/dam/xilinx/publications/product-briefs/2233051_Product_Brief_UL3524_Alveo_Accelerator_Card.pdf}.
-\newblock Product page:
-  https://www.amd.com/en/products/accelerators/alveo/ul3524.html; launch press
-  release 2023-09-27.
+\newblock Launched 2023-09-27.
 
 \bibitem[{AMD}(2024)]{amd_ul3422}
 {AMD}.
@@ -2417,7 +2415,7 @@ Andrei Popov and Martina Huber.
 \newblock Atlas: Transformer inference server.
 \newblock Product page, n.d.
 \newblock URL \url{https://www.positron.ai/atlas}.
-\newblock Figures as published by Positron AI. Accessed 2026-10-04.
+\newblock Accessed 2026-10-04.
 
 \bibitem[Prata et~al.(2024)Prata, Masi, Berti, Arrigoni, Coletta, Cannistraci,
   Vyetrenko, Velardi, and Bartolini]{prata2024}
@@ -2785,8 +2783,7 @@ Satyam Srivastava, Akhil Arunkumar, Nithesh Kurella, Amrit Panda, Gaurav Jain,
 \newblock {STAC} reports: {STAC-ML} on an {NVIDIA} {A100} in a {Supermicro}
   server ({SUT} {ID} {NVDA221118}).
 \newblock \url{https://stacresearch.com/news/nvda221118/}, 2023{\natexlab{b}}.
-\newblock Audited; SUT pages https://docs.stacresearch.com/NVDA221118a,
-  NVDA221118b, NVDA221118c. Accessed 2026-10-04.
+\newblock Accessed 2026-10-04.
 
 \bibitem[{STAC}(2024{\natexlab{a}})]{exegy_stac2024}
 {STAC}.

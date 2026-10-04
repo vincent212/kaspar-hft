@@ -514,7 +514,7 @@ environment and queue-position analytics~\citep{bmll_home,bmll_datalab}.
 
 \paragraph{Historical-replay tools only.} \kasparhft{} is a historical-replay tool, so Table~\ref{tab:replay-tools}
 compares it with the other tools that replay recorded order-book data and fill a researcher's orders against it. It
-includes the replay tools we could classify at order-book level, including several not in
+covers the replay tools we could classify at order-book level, several of which are not in
 Table~\ref{tab:simulators}; JAX-LOB and Tribeca are described in the text. The list below groups them by how they place the simulated order in the queue.
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
 \item \textbf{Exact position in the recorded queue, recorded market unchanged.} Besides hftbacktest and \kasparhft{},
@@ -530,7 +530,9 @@ Table~\ref{tab:simulators}; JAX-LOB and Tribeca are described in the text. The l
   order-level data would make the position exact---and \citet{vyetrenko2019}, who add latency taken from historical
   profiles and a synthetic market response. A note by \citet{rigtorp2013queue} describes one such
   estimation rule. Trading Technologies (TT) provides a simulation environment with position-in-queue
-  estimation~\citep{tt_piq,tt_sim_env}; Deltix provides order-level exchange simulators~\citep{deltix_exsim,deltix_qo_sheet}.
+  estimation~\citep{tt_piq,tt_sim_env}.
+\item \textbf{Fills that interact with the replayed book.} Deltix QuantOffice replays price- or order-level data with
+  fills that interact with the replayed liquidity~\citep{deltix_exsim,deltix_qo_sheet}.
 \item \textbf{Price-cross fills.} Some tools use a price-cross fill rule~\citep{tribeca}.
 \end{itemize}
 Backtesters designed around bar or top-of-book data, such as LEAN~\citep{lean}, Jesse~\citep{jesse},
@@ -576,7 +578,7 @@ several venues and data vendors. hftbacktest and NautilusTrader work with CME da
 October 2026, \kasparhft{} is the only one that decodes an exchange's own market-by-order feed (CME MDP~3.0, from live
 multicast or packet captures), models order, cancel and feed delays separately, and runs the same code in replay,
 paper and live trading against that exchange; we also found no other open-source or documented
-commercial backtester that decodes MDP~3.0 itself.
+commercial backtester that decodes MDP~3.0 packet captures itself.
 
 \paragraph{Running many days at once.} A \kasparhft{} replay processes one trading day per run, from one packet capture or
 one decoded file, on one thread. Days are independent, so many days can be simulated at the same time as separate
@@ -589,7 +591,7 @@ backtest~\citep{tt_backtest_run,tt_backtest_getstarted}.
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{Running many replay simulations at once, from documentation and code. Evidence codes as in Section~\ref{sec:sim-survey}.}
+\caption{Running many replay simulations at once, from papers, documentation and code. Evidence codes as in Section~\ref{sec:sim-survey}.}
 \label{tab:parallel}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X}
 \toprule
@@ -602,7 +604,6 @@ ABIDES\ev{C} & yes & a shipped script starts one replay process per date \\
 JAX-LOB\ev{P} & on one GPU & up to 1,000 parallel environments, within GPU memory \\
 \midrule
 TT Backtesting\ev{D} & hosted service & hosted service; one trading day per backtest \\
-Deltix QuantOffice\ev{D} & -- & cloud product includes a parallel runner \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -821,7 +822,7 @@ order flow under the same rule as in replay.
 The live order-entry path implements CME's iLink~3 protocol: binary message encoding, HMAC request
 signing (a keyed checksum that authenticates each message), sequence management, and failover between primary and secondary gateways. The project
 documentation states that both the market-data handler and the order-entry session have passed CME's
-automated certification. Strategies can be written as in-process actors in C++ or, through an
+automated certification~\citep{kaspar_hft}. Strategies can be written as in-process actors in C++ or, through an
 in-process foreign-function interface, in Rust.
 
 Switching between simulated and live execution is a single configuration setting of the SOM. A strategy tested in
@@ -841,7 +842,7 @@ against it in the same replay. \kasparhft{} implements it in two versions, passi
 actor~\citep{maciejewski_shadow}.
 
 \paragraph{Two model-free versions: passive and aggressive.} Both follow a fixed fraction of what other participants do
-and both complete a target quantity, a percentage-of-volume (POV) mandate.
+and both complete a target quantity, a POV mandate.
 \begin{itemize}[leftmargin=1.5em,itemsep=2pt]
 \item \textbf{Passive: \pov{}.} When another participant adds a limit order near the best price, the algorithm, with a
   fixed probability, places its own limit order at the same price and records that participant's exchange order
@@ -1273,8 +1274,9 @@ instance, sliding-window (Tacana) suite.}
 \toprule
 Benchmark & System & Result \\
 \midrule
-STAC-T0 & LDA network stack on an FPGA card (2020)~\citep{stac_xlx200514} & minimum 24.2\,ns; mean 27.9--29.2\,ns \\
+STAC-T0 & LDA Technologies / Xilinx FPGA solution (2020)~\citep{stac_xlx200514} & minimum 24.2\,ns; mean 27.9--29.2\,ns \\
 STAC-T0 & Exablaze ExaNIC V5P (2019)~\citep{stac_exa181106} & 31 to 44\,ns \\
+STAC-T0 & Exegy nxFramework on AMD Alveo UL3524 (2024)~\citep{exegy_stac2024} & minimum 13.9\,ns \\
 STAC-T1 & ADHOC appliance, AMD Versal FPGA (2024)~\citep{stac_adhc240918} & mean 115\,ns; 99th percentile 140\,ns \\
 STAC-T1 & Exegy Xero FPGA card (2019)~\citep{stac_exg191010} & mean 0.552\,\textmu s; 99th percentile 0.609\,\textmu s \\
 STAC-ML & NVIDIA A100 GPU (2023)~\citep{stac_ml_nvda2023} & smallest LSTM 35.2\,\textmu s; largest 640\,\textmu s \\
@@ -1350,13 +1352,12 @@ optimisation.
 \label{sec:hw-classes}
 
 Six classes of hardware run parts of the pipeline. Table~\ref{tab:hw-classes} compares them by the figures quoted in
-this section and by their main strength and limitation; representative commercial products, with the figures their
-vendors publish, are listed in Section~\ref{sec:app-vendors}.
+this section and by their main strength and limitation.
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{Classes of hardware for order-book systems. Figures are those quoted in this section and
-Section~\ref{sec:app-vendors}, with their evidence type; strengths and limitations are our summary of the section.}
+\caption{Classes of hardware for order-book systems. Figures are those quoted in this section, with their
+evidence type; strengths and limitations are our summary of the section.}
 \label{tab:hw-classes}
 \setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.22\linewidth}}
@@ -1376,11 +1377,9 @@ ASIC (application-specific chip) & none published for trading & speed and power 
 \subsection{Commercial trading hardware}
 \label{sec:app-vendors}
 
-This subsection lists representative commercial products for the classes of hardware compared above.
-Table~\ref{tab:vendors} lists representative offerings with
-the figures their makers publish; STAC-audited results are in Section~\ref{sec:hw-audited}. The figures describe different
-stages (a transceiver loopback, a trigger, a book build, a model inference) and are best read each on its own terms;
-the AMD figure is a transceiver latency, as AMD specifies it.
+Table~\ref{tab:vendors} lists representative commercial offerings for the classes of hardware above, with the
+figures their makers publish; STAC-audited results are in Section~\ref{sec:hw-audited}. The figures describe different
+stages (a transceiver loopback, a trigger, a book build, a model inference) and are best read each on its own terms.
 
 \begin{table}[!htbp]
 \centering\footnotesize
@@ -1391,8 +1390,8 @@ the vendors. Evidence codes as in Section~\ref{sec:sim-survey}.}
 \toprule
 Offering & What it is & Published figure \\
 \midrule
-AMD Alveo UL3524 / UL3422~\citep{amd_ul3524,amd_ul3422}\ev{V} & FPGA cards built for trading, 64 low-latency transceivers & under 3\,ns transceiver latency, as published by AMD \\
-Exegy (incl.\ Enyx, acquired 2022)~\citep{exegy_enyx,exegy_stac2024}\ev{V,A} & FPGA feed handling, order entry and trigger frameworks & STAC-T0 audited on an AMD card~\citep{exegy_stac2024} \\
+AMD Alveo UL3524 / UL3422~\citep{amd_ul3524,amd_ul3422}\ev{V} & FPGA cards built for trading, 64 low-latency transceivers & under 3\,ns transceiver latency \\
+Exegy (incl.\ Enyx, acquired 2022)~\citep{exegy_enyx,exegy_stac2024}\ev{V,A} & FPGA feed handling, order entry and trigger frameworks & STAC-T0 audited: minimum 13.9\,ns on an AMD card (Table~\ref{tab:stac}) \\
 Algo-Logic~\citep{algologic}\ev{V} & CME tick-to-trade system on Alveo U50, with feed handler, book and TCP order entry & under 500\,ns tick-to-trade \\
 Magmio~\citep{magmio}\ev{V} & C++ strategies compiled to FPGA by high-level synthesis & under 100\,ns for triggers; under 350\,ns with book building \\
 Xelera Silva~\citep{xelera_silva}\ev{V,A} & tree-ensemble and small-network inference on FPGA & about 250\,ns (99th percentile) for a gradient-boosted model inline on UL3524; 1.1--1.3\,\textmu s as card offload; audited STAC-ML: at most 1.95\,\textmu s for the two smaller models and 2.88\,\textmu s for the largest (Table~\ref{tab:stac}) \\

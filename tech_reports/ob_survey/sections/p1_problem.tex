@@ -36,7 +36,7 @@ with a mixture of better-informed and uninformed traders quotes a positive sprea
 with no transaction costs and no expected profit: the spread is what the market maker needs to recover,
 from the uninformed, what it loses to the informed. The idea that order flow carries information about
 value is the economic reason the book is worth modelling at all: its stream of orders, cancellations and
-trades---a continuous stream of events in active markets---explains a large part of short-horizon price
+trades explains a large part of short-horizon price
 changes~\citep{cks2014}, and the predictive models of this survey try to extract what it says about the
 next few seconds~\citep{sirignano2019,zhang2019,lucchese2024}.
 
@@ -779,7 +779,7 @@ serves other purposes---scenarios that were never observed, markets that react, 
 is not the focus of this survey, which evaluates strategies on replay of recorded markets (Principle~1,
 Section~\ref{sec:sim-survey}). Generative models are covered in Section~\ref{sec:deep-gen} as models of the book.
 
-\paragraph{Language models.} The surveys of LLMs in trading review systems in which the language model
+\paragraph{Language models.} The surveys of large language models (LLMs) in trading review systems in which the language model
 reads market information, reasons about it and produces trading decisions that are then
 backtested~\citep{ding2024llmtrading,hua2026agentic}. This survey does not review that architecture.
 
@@ -872,8 +872,8 @@ along the objective axis from direction to fill probability and adverse selectio
 simulators and hardware support the economic role of passive execution.
 
 \emph{Third, to expose a gap.} Table~\ref{tab:axes} places the main works discussed in this survey
-on the four axes. The economic-role column is most often `forecast only': many
-learned models are evaluated on accuracy, and the decision their output would drive is left open. The rest of the paper is about filling that column.
+on the four axes. Three of the learned models in the table are `forecast only': they
+are evaluated on accuracy, and the decision their output would drive is left open. The rest of the paper is about filling that column.
 
 \begin{table}[!htbp]
 \centering\footnotesize

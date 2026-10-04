@@ -60,7 +60,7 @@ Testing them against simple baselines on the same inputs---not against each othe
 next step.
 
 \paragraph{Near-criticality and learned models.} Estimated branching ratios of order flow are high,
-from about $0.7$--$0.8$ to about one depending on method. How deep sequence
+from about $0.7$--$0.8$ to about one depending on method (Section~\ref{sec:hawkes-crit}). How deep sequence
 models behave on near-critical, long-memory inputs, and whether Hawkes structure built into them
 (Section~\ref{sec:hybrid}) improves robustness, is untested.
 
@@ -306,7 +306,7 @@ mechanisms described in Part~III, not a reported result.
   contract (Table~\ref{tab:shadow-results}).
   Anything the model adds is measured against both.
 \item \textbf{Build the model.} Order-flow imbalance over the last few book events at the best prices
-  (Section~\ref{sec:ofi}) is used as a gate. \pov{} places a buy behind each addition by another participant near
+  (Section~\ref{sec:ofi}) is used as a gate. \pov{} places a buy, with a fixed probability, behind an addition by another participant near
   the best bid; with the gate, it does so only when the imbalance does not point to a falling price, and the sell
   symmetrically. The gate has two settings, the window and
   the threshold; they are chosen on a training period, and every setting tried is counted, because the best of many
@@ -410,15 +410,15 @@ Front-of-queue positions are worth more than back-of-queue positions, with adver
 Hybrid inputs derived from the same stream add little to a sufficiently large network & Open hypothesis \\
 In the re-test of \citet{lee2024predictability}, DeepLOB's accuracy was 65.9\% with a label that averages past
   prices and 54.6\% with one measured from the current price & Established result; one re-test \\
-Published inference times of LOB models range from tens of microseconds to tens of milliseconds, above the CME publisher period of about 7.5\,\textmu s & Empirical synthesis; five studies measured under different conditions \\
+Published inference times of LOB models range from tens of microseconds to tens of milliseconds & Empirical synthesis; five studies measured under different conditions \\
 Exact own-order queue position in the recorded market requires order-level data and an order-level book &
   Established result; follows from price--time priority \\
 Resting and crossing cost similar amounts for model-free execution, about $+0.095$ ticks per contract on a
   year of ES~\citep{maciejewski_shadow} & Established result; one study (one instrument, queue-exact replay, no
   impact) \\
 Execution cost rises with delay from zero to 5\,ms, to $+0.150$ (passive) and $+0.296$ (aggressive) ticks per
-  contract; every step is outside the previous 95\% interval for the aggressive version, the first step for the
-  passive one~\citep{maciejewski_shadow} & Established result; one study \\
+  contract; for the aggressive version every step lies outside the previous step's 95\% interval; for the
+  passive version only the first step does~\citep{maciejewski_shadow} & Established result; one study \\
 A stage that handles each packet within the CME publisher period of about 7.5\,\textmu s never queues on arrivals;
   above it a queueing tail appears, caused by the clustering of arrivals~\citep{maciejewski2026packets} &
   Established result; more than a year of NQ data \\
