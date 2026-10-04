@@ -830,11 +830,8 @@ documentation states that both the market-data handler and the order-entry sessi
 automated certification. Strategies can be written as in-process actors in C++ or, through an
 in-process foreign-function interface, in Rust.
 
-Two qualifications keep the claim precise. Switching between simulated and live execution is a single
-flag in the SOM, but in the distributed build that flag is set in the program source rather than in a
-configuration file, and the distributed configuration runs in simulation mode; the equivalence
-demonstrated day to day is therefore between replay and paper trading, with the live path sharing all
-code up to the SOM branch. And equivalence of code is not equivalence of outcomes: replay assumes no
+Switching between simulated and live execution is a single configuration setting of the SOM. Equivalence of code is
+not equivalence of outcomes, however: replay assumes no
 market impact (Section~\ref{sec:kaspar-fills}) and models latency with configured delays, so a strategy
 that is profitable in replay can still behave differently live.
 
