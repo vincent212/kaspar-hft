@@ -8940,3 +8940,50 @@ contributions are richer conditioning, pooling across instruments, more flexible
 distributions---advances in what can be estimated. Attention is the one new idea about \emph{how} past
 information should be weighted, and on order-book data its value is still an open question. Section~\ref{sec:hybrid}
 described the designs that try to combine the two traditions directly.
+
+% ================================================================
+\section{Summary of Part II}
+\label{sec:part2-summary}
+% ================================================================
+
+Part~II moved from hand-built signals to learned models. This section collects what each family models, what it is
+used for, and its main finding, as reported in the sections above; it adds no new results.
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{The model families of Part~II, each in one row. ``Main finding'' repeats a result stated in the section
+named; see that section for the source and its conditions.}
+\label{tab:part2-summary}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.14\linewidth}>{\raggedright\arraybackslash}p{0.18\linewidth}>{\raggedright\arraybackslash}p{0.16\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.08\linewidth}}
+\toprule
+Family & Reads from the book & Used for & Main finding & Section \\
+\midrule
+Order-flow imbalance & net change in queue sizes & direction; quote skew & price change roughly linear in OFI, slope falling with depth; multi-level OFI raises the out-of-sample $R^2$ of the same-period regression from about 65\% to about 84\% on large US stocks & \ref{sec:ofi} \\
+Queue imbalance, micro-price & sizes of the best queues & next price move; a fair price & the thinner queue tends to empty first; the micro-price is the expected future mid given imbalance and spread & \ref{sec:ofi}, \ref{sec:microprice} \\
+Cross-instrument order flow & order flow of related instruments & short-horizon forecasts; protecting resting orders & adds nothing to the same-minute fit, helps one-minute-ahead forecasts, and decays within minutes; futures lead cash by milliseconds & \ref{sec:cross} \\
+Queue models & best queue sizes; arrival, cancel and trade rates & next price move; fill probability; simulation & the thin side breaks first; a fill and an adverse move are often the same event; queue position is worth money & \ref{sec:queue-models} \\
+Hawkes processes & times and types of events & activity forecasts; simulation; measuring reactivity & events cluster; estimated branching ratios on E-mini range from about 0.7--0.8 to about one; a background rate that varies but is fitted as constant inflates the estimate & \ref{sec:hawkes} \\
+Meta-models & outputs of the classical models & combined, calibrated forecasts & inputs matter more than learners; simple averages of forecasts are hard to beat & \ref{sec:meta} \\
+Structural hybrids & events and book state, through classical structure & simulation; event prediction & a network inside the queue-reactive model improves its simulated markets; built-in structure is kept, fixed formulas are learned & \ref{sec:hybrid} \\
+Deep networks & snapshots, order flow or messages & direction and other targets & the input matters more than the architecture; label construction can inflate reported accuracy; most deep models are learned analogues of the signal models & \ref{sec:deep} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Three findings that cut across the families.}
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \textbf{The information is in a few well-defined quantities.} Order flow, the sizes of the best queues and
+  the timing of events explain most of what the models in this part can predict. With the network held fixed,
+  order-flow inputs were among the best in 89\% of cases and raw snapshots in 11\%~\citep{lucchese2024}, and with
+  good inputs the choice of learner mattered little (Sections~\ref{sec:meta-summary} and~\ref{sec:deep-adds}).
+\item \textbf{How a model is evaluated changes the answer.} With a label that averages past prices, a re-test of
+  DeepLOB on Apple was right 65.9\% of the time, and 54.6\% with a label measured from the current
+  price~\citep{lee2024predictability}; in the synthetic example of Section~\ref{sec:deep-train} a network reached
+  57.6\% on a market with nothing to predict. A Hawkes branching ratio fitted with a constant background rate can
+  be 0.62 to 0.92 on data with no self-excitation at all (Section~\ref{sec:hawkes-branching-use}).
+\item \textbf{Prediction and execution are different questions.} Most models in this part predict the direction
+  of the price. Whether an order would be filled, and how good the fill would be, depends on queue position and
+  adverse selection, which only the queue models and the generative models address. Part~III takes up those
+  questions and the simulators needed to test them.
+\end{enumerate}

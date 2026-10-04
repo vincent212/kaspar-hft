@@ -1265,6 +1265,44 @@ execution; choose the simplest model that captures that value; only then choose 
 whose latency and jitter preserve it after costs.
 
 % ================================================================
+\section{Summary of Part III}
+\label{sec:part3-summary}
+% ================================================================
+
+Part~III turned from models to the infrastructure needed to test and run them. This section collects its main points;
+it adds no new results.
+
+\paragraph{What a simulator must capture.} A passive order earns its average profit as the product of two factors:
+the probability that it is filled and its average profit when it is (Equation~\eqref{eq:decomp}). Both depend on
+queue position. Fills are biased towards bad ones, because an order is most likely to be filled when an informed
+trader wants to trade against it. Latency eats into a signal: with a 2\,ms half-life, 97\% of its value remains after
+100\,\textmu s and 18\% after 5\,ms (Section~\ref{sec:sim-needs}).
+
+\paragraph{Simulators.} A backtest that fills an order when the price touches it fills orders the market would never
+have reached. Simulators differ in where the market comes from---replay, agents, a fitted model or a generative
+network---and in how they place the simulated order in the queue. Agent-based, model-based and generative simulators
+let the market react to the orders, but their queues are only as realistic as the simulated order flow. Among replay
+tools, three place the simulated order in the recorded queue without changing the recorded market: hftbacktest, lobsim
+and Kaspar. The commercial tools whose documentation we could read estimate queue position, fill without a queue, or
+do not say how they do it (Section~\ref{sec:sim-survey}).
+
+\paragraph{Kaspar.} Kaspar replays an exchange's own market-by-order feed (CME MDP~3.0 today), places simulated orders
+in the reconstructed first-in-first-out queues after separate order, cancel and feed delays, fills them only when
+recorded executions reach an order behind them, and runs the same code in replay, paper and live trading. It replays
+one day per process, so many days can run at once on one machine; among commercial replay tools only Sierra Chart's
+licence allows the same (Table~\ref{tab:parallel}). A model of Part~II is added as one more actor that reads the book
+and sends its predictions to the strategy (Section~\ref{sec:kaspar-actor}).
+
+\paragraph{Hardware.} Book updates take about 8\,\textmu s in Kaspar's software path and a few hundred nanoseconds or
+less on FPGAs; audited FPGA tick-to-trade paths with simple logic run in about 0.1 to 0.6\,\textmu s. Published
+inference times of order-book models range from about 25\,\textmu s to 23\,ms (Table~\ref{tab:lob-latency}). Four
+causes make models slow on a single event: recurrence that runs step by step, attention whose cost grows with the
+square of the window, memory traffic at a batch of one, and fixed overheads per GPU operation
+(Section~\ref{sec:hw-why}). With a sliding window that reuses earlier computation, audited inference of a small LSTM
+takes single-digit microseconds on both FPGAs and GPUs (Table~\ref{tab:stac}). No audited benchmark yet evaluates a
+learned model on a book it has built.
+
+% ================================================================
 \section{Research agenda}
 \label{sec:agenda}
 
