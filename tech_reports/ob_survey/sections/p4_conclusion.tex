@@ -281,7 +281,7 @@ A model too slow for the hot path does not just answer late: it misses signals, 
 off---resting orders and aggressive orders that arrive late and end up resting---and lets the message queue in front of it grow. Hardware decides how much of a signal's value survives to the
 moment of execution, but it cannot rescue a signal whose life is shorter than the pipeline that computes it.
 
-\subsection{One model through the whole method: a worked example in \kasparhft{}}
+\subsection{A worked example in \kasparhft{}: one model from forecast to live trading}
 \label{sec:worked-kaspar}
 
 The method of this survey can be followed end to end for one model. The example below takes the simplest signal of

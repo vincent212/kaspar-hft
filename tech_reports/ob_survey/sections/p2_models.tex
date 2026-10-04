@@ -1282,7 +1282,7 @@ Per-order cancellation rate $\widehat{r}_c(\bar\ell)$ & 0.71 & 0.81 & 0.68 & 0.5
 \end{tabular}
 \end{table}
 
-\subsubsection{From the whole book to two counters racing to zero}
+\subsubsection{Reduction of the book to the two best queues}
 
 \paragraph{Purpose of this subsection.} The full model tracks every queue in the book, which is too much
 to compute with directly. But a trader's questions---will the price go up next, will my order fill
@@ -2054,7 +2054,7 @@ dependence.
   the whole book described below.
 \end{description}
 
-\paragraph{The one closed-form result: how long queues typically are.} In Model~I a queue of size $x$
+\paragraph{Closed-form result: typical queue lengths.} In Model~I a queue of size $x$
 grows at rate $r_L(x)$ and shrinks at rate $r_C(x) + r_M(x)$. In the long run, the fraction of time it
 spends at each size, $\pi(x)$, settles down, and it satisfies a simple balance: the queue must move up
 from $x$ to $x+1$ as often as it moves down from $x+1$ to $x$. That gives
@@ -2141,8 +2141,8 @@ larger moves driven by news.
 
 Queue-reactive Hawkes models add self-excitation to the size-dependent rates (Section~\ref{sec:hawkes-variants}).
 
-\paragraph{Using it in practice: what a built simulator is for.} Suppose the simulator has been built and
-fitted to a contract one trades. What can be done with it? The honest answer has two halves. It is a
+\paragraph{Uses of a built simulator.} Suppose the simulator has been built and
+fitted to a contract one trades. Its uses fall into two parts. It is a
 realistic laboratory for questions about \emph{the mechanics of execution}---how orders join, wait in and
 leave queues, and how one's own orders change that. It is not a source of evidence about \emph{whether a
 trading idea makes money}, because the only information it contains about future prices is what was put
@@ -2223,7 +2223,7 @@ more drivers give up and leave; when it is short, cars are served faster. The si
 running on its own, with the trader able to join the line and watch what happens.}
 \end{modelcard}
 
-\subsection{Summary: what the queue models tell a trader}
+\subsection{Summary of the queue models for trading}
 \label{sec:queue-summary}
 
 \paragraph{The common idea.} All the models of this section start from the same picture. Each best queue
@@ -2462,14 +2462,14 @@ smallest change to the Poisson model that makes events cause events. The next su
 language needed to state it precisely.
 
 
-\subsection{The four ideas in pictures}
+\subsection{Point-process ideas illustrated}
 \label{sec:hawkes-intuition}
 
 Before the formal definitions, this subsection gives the four ideas the rest of the section is built on---
 \emph{intensity}, \emph{self-excitation}, \emph{cross-excitation} and \emph{branching}---in plain language,
 with pictures. Each is defined precisely later; the numbers here are illustrative.
 
-\paragraph{1. Intensity: the speedometer of events.} The intensity $\lambda(t)$ is how fast events are arriving
+\paragraph{1. Intensity.} The intensity $\lambda(t)$ is how fast events are arriving
 \emph{right now}, in events per second. It is not a count of what has happened but a rate: like a car's
 speedometer, it can read 300 at one instant and 20 a second later. It translates into a chance: if the intensity
 is 300 events per second, the chance of an event in the next millisecond is about $300 \times 0.001 = 0.3$. In a
@@ -2501,7 +2501,7 @@ exponential kernels; stylised simulation, not data.}
 \label{fig:intuition-hawkes}
 \end{figure}
 
-\paragraph{4. Branching: family trees of events.} The same process can be read in a second way, as families.
+\paragraph{4. Branching.} The same process can be read in a second way, as families.
 Some events are \emph{immigrants}: they arrive on their own, from outside, at the background rate---news, a
 trader's decision unrelated to recent activity. Every event, immigrant or not, then has a random number of
 \emph{children}: events it directly triggers. Children have children of their own, and so on
@@ -4866,7 +4866,7 @@ below), and on order-book data a neural-network combiner of fifteen deep models 
 them~\citep{prata2024}. A learned combiner is therefore a candidate that must beat the simple average out of
 sample, not a default.
 
-\paragraph{Neural-network combiners: what has been tried.} Neural networks have been used as combiners
+\paragraph{Neural-network combiners tried in the literature.} Neural networks have been used as combiners
 since the mid-1990s, in four forms; Table~\ref{tab:nncomb} lists the main studies.
 \begin{description}[leftmargin=1.5em,style=nextline,itemsep=2pt]
 \item[A small network on the forecasts alone] \citet{donaldson1996annc} feed two daily stock-index volatility
@@ -5190,7 +5190,7 @@ quotes---book imbalance, signed volume, past returns, Kyle-type price-impact rat
 that lasso, ridge, random forests, gradient-boosted trees and feed-forward neural networks with one or two hidden layers ``have very similar
 performance'', with only unpenalised least squares failing through overfitting. They report a median
 out-of-sample $R^2$ of about 10\% for five-second returns and a directional accuracy of about 64\%, most of
-it from the last ten milliseconds or ten trades. Notably, inputs derived from transactions were more useful
+it from the last ten milliseconds or ten trades. Inputs derived from transactions were more useful
 than inputs derived from the state of the book. \citet{easley2021} feed six classical
 measures---the Roll measure and Roll impact, Kyle's lambda, the Amihud ratio, a volatility index and
 VPIN---for 87 futures contracts to a random forest, and predict the direction of changes in spreads,
@@ -5443,7 +5443,7 @@ should make a model more sample-efficient, more stable outside its training regi
 These are hypotheses; the published evidence for them in LOB data is still thin, and each hybrid should be
 tested against its parts.
 
-\subsection{Two ways to build classical structure in}
+\subsection{Two ways of building classical structure into a network}
 \label{sec:hybrid-ways}
 
 \paragraph{1. A classical skeleton with neural parts.} Keep the classical model's form and replace one of its
@@ -6275,7 +6275,7 @@ follow it up.
   attention-based neural-process layer to a pretrained encoder.
 \end{itemize}
 
-\paragraph{Close, but not structural hybrids.} Three designs come near. \citet{fabre2025spoof} compute
+\paragraph{Designs outside the structural hybrids.} Three designs come near. \citet{fabre2025spoof} compute
 Hawkes-style features with \emph{fixed} decay rates and feed them to a network---concatenation, in the terms of
 Section~\ref{sec:hybrid-patterns}. \citet{kolm2023} feed order-flow imbalances to standard networks.
 \citet{lee2023rnnhawkes} train a recurrent network to output the parameters of a Hawkes model, but for
@@ -6681,7 +6681,7 @@ Most deep LOB papers solve one of six problems:
 \item[Generation] produce synthetic message streams or book snapshots (Section~\ref{sec:deep-gen}).
 \end{description}
 
-\paragraph{Tokens are a choice of input, not of architecture.} A common confusion is that every deep LOB model, or
+\paragraph{Tokens as a choice of input.} A common confusion is that every deep LOB model, or
 every Transformer, reads tokens and predicts the next one. Neither is true (Table~\ref{tab:input-output-kinds}). A
 model that reads snapshots or order flow takes real numbers directly and has no tokens, whether it is a
 convolutional network or a Transformer. Tokens appear only when the input is the stream of individual messages and
@@ -6989,7 +6989,7 @@ all.
 day to day, so each input is standardised---its mean subtracted, divided by its standard deviation. The statistics
 must come only from the past: DeepLOB normalises each day with the mean and standard deviation of the previous five
 days, separately for each stock. Using statistics from the whole sample would leak future information into the
-inputs. How inputs are normalised turns out to matter a great deal (Section~\ref{sec:deep-cnn}).
+inputs. How inputs are normalised matters a great deal (Section~\ref{sec:deep-cnn}).
 
 \paragraph{Step 3: windows and labels.} Each training example pairs an input window with a target. The input $X_t$ is
 the last 100 snapshots of the book, each with 40 numbers---price and size, bid and ask, at ten levels---so a $100
@@ -7153,14 +7153,14 @@ Read in words, from left to right:
 \item \textbf{Large move:} will the mid rise by more than $\theta$? With $\theta$ set to the cost of trading, this
   asks whether the move is big enough to pay for itself.
 \item \textbf{Any move:} will the mid move at all within $H$? This is about timing, not direction: in a quiet book
-  the honest answer to ``up or down?'' is often ``neither''.
+  the answer to ``up or down?'' is often ``neither''.
 \item \textbf{Fill:} will my resting order be filled? This depends on my order and its place in the queue, not
   only on the market.
 \item \textbf{Profit:} what do I expect to earn from the order I am about to send? This combines all of the above
   with costs, and it is the only one of the six that decides whether to trade.
 \end{enumerate}
 
-\paragraph{One book, six answers.} A stylised example (our numbers, chosen to keep the arithmetic simple) shows how
+\paragraph{Six targets from one book.} A stylised example (our numbers, chosen to keep the arithmetic simple) shows how
 far apart the answers can be. In ES the spread is one tick, 0.25 points. Suppose that, in books that look like the
 current one, the mid 50 events later is unchanged half the time, one tick higher 30\% of the time and one tick lower
 20\% of the time.
@@ -7479,7 +7479,7 @@ filters that find local patterns, followed by a memory that reads the patterns i
 \subsection{Attention and Transformers for a single asset}
 \label{sec:deep-attn}
 
-\subsubsection{Attention and Transformers from the beginning}
+\subsubsection{Attention and Transformers: the basics}
 \label{sec:attn-intro}
 
 \paragraph{Selecting relevant past events.} A model shown the last 100 events of the book has to decide which of them
@@ -7492,7 +7492,7 @@ the weight given to each earlier event is computed afresh, every time, from \emp
 current event is a large buy, the cancellations at the ask a few milliseconds earlier can receive most of the
 weight; if it is a quiet limit order, they can receive almost none.
 
-\paragraph{What an attention layer computes.} In terms of inputs and outputs, an attention layer is simple. Its input
+\paragraph{Inputs and outputs of an attention layer.} In terms of inputs and outputs, an attention layer is simple. Its input
 is the window of events, each already turned into a vector: $\mathbf{x}_1, \dots, \mathbf{x}_N$, one per event. Its
 output is a new vector for each event. Take the newest event, number $N$. Its output is a weighted average of
 numbers computed from the earlier events, and the weights are computed from the events themselves rather than fixed
@@ -7518,7 +7518,7 @@ the families above is only that the weight on each earlier event depends on what
 the query and key vectors, not on their position. Figure~\ref{fig:attn-who} draws these steps; the full
 calculation with numbers follows in Section~\ref{sec:attn-detail}.
 
-\paragraph{Why the three vectors are called query, key and value.} The names are borrowed from searching a database,
+\paragraph{Origin of the names query, key and value.} The names are borrowed from searching a database,
 and they are only names. In a database you look items up with a \emph{query}; each item is filed under a
 \emph{key}; and what you get back is its \emph{value}. Attention is a ``soft'' version of such a look-up: instead of
 returning the one item whose key matches the query exactly, it returns a mix of all the values, weighted by how well
@@ -8114,7 +8114,7 @@ multi-asset models that choose which peers to read.}
 earlier event and takes a weighted mix of their values, mostly from the closest matches.}
 \end{modelcard}
 
-\subsection{Tokenisation: how vocabularies of market events are built}
+\subsection{Tokenisation: building vocabularies of market events}
 \label{sec:deep-tok}
 
 Models borrowed from language processing---BERT-style encoders and GPT-style decoders
@@ -8235,7 +8235,7 @@ binned combinations, and may pass the exact values alongside. Schematic.}
 \subsection{State-space models}
 \label{sec:deep-ssm}
 
-\paragraph{What goes in and what comes out.} A state-space network is a layer, not a complete model, and it does not
+\paragraph{Inputs and outputs of a state-space layer.} A state-space network is a layer, not a complete model, and it does not
 fix the input or the output. Its input is any sequence of vectors, one per step, and the step can be a snapshot of
 the book, a vector of order flow, or a message turned into numbers or tokens (Table~\ref{tab:input-output-kinds}). At
 every step it updates its state, and an output layer on top of the state produces the prediction: a direction class,
@@ -8249,7 +8249,7 @@ linear rule and reads its prediction off the state:
 \]
 \inwords{the new summary is the old summary multiplied by $\mathbf{A}$, plus the new event multiplied by $\mathbf{B}$.}
 
-\paragraph{What ``forgetting'' means.} Take the simplest case, a state of one number with $A = 0.9$ and $B = 0.1$.
+\paragraph{Forgetting in a state-space layer.} Take the simplest case, a state of one number with $A = 0.9$ and $B = 0.1$.
 Each step keeps 90\% of the old state and adds 10\% of the new input: the state is a running average in which an event
 loses a tenth of its weight at every later step, so after 20 steps it keeps $0.9^{20} \approx 12\%$ of its original
 weight. A value of $A$ closer to one keeps the past longer; a smaller value replaces it faster. ``Forgetting'' is
@@ -8264,7 +8264,7 @@ it nearly unchanged. Saying that ``the model decides how much to forget'' means 
 learned function of the input, set by training like any other weight; nothing chooses it at run time. This is the same
 idea as the forget gate of an LSTM (Section~\ref{sec:deep-families}).
 
-\paragraph{Why they are of interest for order books.} The rule is the classical state-space model of control
+\paragraph{Relevance to order books.} The rule is the classical state-space model of control
 theory~\citep{kalman1960}, and it can be computed in parallel during training (explained below). It processes a sequence at a cost
 proportional to its length, where attention compares every pair of events and costs the square of the length
 (Section~\ref{sec:hw-why}). That makes it attractive for event streams, which are long and irregular;
@@ -8334,7 +8334,7 @@ weight that grows with the step size.}
 Because the entries of $\mathbf{A}$ are negative, $e^{\Delta\mathbf{A}}$ lies between 0 and 1: a large step size makes
 it small, so the old state is mostly erased; a small step size makes it close to 1, so the old state is kept.
 
-\paragraph{What is selective.} In S4 the step size $\Delta$ and the matrices $\mathbf{B}$ and $\mathbf{C}$ are the same
+\paragraph{The selective parameters.} In S4 the step size $\Delta$ and the matrices $\mathbf{B}$ and $\mathbf{C}$ are the same
 at every step. In Mamba they are computed from the current input: $\mathbf{B}_t$ and $\mathbf{C}_t$ by learned linear
 maps of $x_t$, and $\Delta_t$ by a learned linear map followed by a softplus, which keeps it positive. $\mathbf{A}$ itself
 stays a learned constant, because it acts only through $e^{\Delta\mathbf{A}}$ and a selective $\Delta$ already makes that
@@ -8397,13 +8397,13 @@ network, the same idea as the forget gate of an LSTM (Section~\ref{sec:deep-fami
 difference from an LSTM is that the new state is still linear in the old one, which is what lets the whole sequence be
 computed in parallel in training (the parallel scan above).
 
-\paragraph{Why it needs selection.} The authors motivate the input-dependent step with tasks a fixed rule cannot do. In
+\paragraph{Motivation for selection.} The authors motivate the input-dependent step with tasks a fixed rule cannot do. In
 \emph{selective copying}, a few tokens to be remembered sit at random positions among filler; a fixed rule can only
 weigh positions, not contents. S4 solved it 18.3\% of the time, the selective layer 97.0\% and the full Mamba
 model 99.8\%~\citep{gu2024mamba}. In their ablation, making only $\Delta$ input-dependent gave most of the gain. The
 order-book analogue is the example above: what matters is what an event is, not how many steps ago it happened.
 
-\paragraph{How it trains fast on a GPU.} Because the step rule changes from step to step, the convolution of S4 is no
+\paragraph{Parallel training on a GPU.} Because the step rule changes from step to step, the convolution of S4 is no
 longer available, and Mamba computes the recurrence with a parallel scan. The difficulty is memory, not arithmetic:
 the full set of states is $N$ times larger than the input. Mamba never writes it to the GPU's large, slow main memory.
 It loads $\Delta$, $\mathbf{A}$, $\mathbf{B}$ and $\mathbf{C}$ into the small, fast on-chip memory, computes the step
@@ -9245,7 +9245,7 @@ action is the pair of quotes, and the reward is the profit, usually with a penal
 try many actions and see their consequences, so it is trained in a simulator of one of the four kinds of
 Section~\ref{sec:sim-survey}; the simulator is part of the result.
 
-\paragraph{What the studies report.} Table~\ref{tab:rl} lists representative studies. In execution, the earliest
+\paragraph{Reported results.} Table~\ref{tab:rl} lists representative studies. In execution, the earliest
 study on order-book data, \citet{nevmyvaka2006}, combined recorded Nasdaq order flow with the agent's orders in a
 simulator that maintained queue priorities, and reported a cost reduction of 50\% or more against submitting one
 limit order and sending the remainder at market at the deadline. Later studies compare with TWAP, VWAP or the
@@ -9298,7 +9298,7 @@ Study & Task & Environment & Queue position & Result (baseline) \\
   overfitting''~\citep{gasperov2021survey}.
 \end{itemize}
 
-\paragraph{What this means for evaluation.} A learned policy is a candidate like any other model: it has to beat the
+\paragraph{Implications for evaluation.} A learned policy is a candidate like any other model: it has to beat the
 ladder of baselines of Section~\ref{sec:tradeability}, including a model-free benchmark, in an environment whose fill
 rule is credible. \kasparhft{} provides both for small orders. A trained policy runs as an actor next to the order book
 (Section~\ref{sec:kaspar-actor}); it can be evaluated on recorded market-by-order data with exact queue position and
@@ -9339,7 +9339,7 @@ Reinforcement learning & state built from the book, plus time and inventory & ex
 \end{tabularx}
 \end{table}
 
-\paragraph{What is established and what is not.} Table~\ref{tab:part2-status} separates, for each family, what the
+\paragraph{Established and open results.} Table~\ref{tab:part2-status} separates, for each family, what the
 evidence of this part establishes from what it has not yet demonstrated. Each entry repeats a statement made in the
 section named in Table~\ref{tab:part2-summary}.
 

@@ -225,7 +225,7 @@ forecast accuracy yields very different economics.
 An order changes the market it trades in. This subsection separates five situations, from orders too small to matter
 to traders who react to one another, and states which of them a historical replay can answer.
 
-\paragraph{How impact is described.} In \citet{kyle1985}, an informed trader, noise traders and market makers trade
+\paragraph{Models of impact.} In \citet{kyle1985}, an informed trader, noise traders and market makers trade
 one asset, and the price moves linearly with net order flow: $P = p_0 + \lambda(x + u)$, where $x$ is the informed
 order, $u$ the noise orders and $1/\lambda$ measures the depth of the market. \citet{almgren2001} split the cost of
 executing a large order into a \emph{permanent} impact, which stays in the price, and a \emph{temporary} impact, paid
@@ -416,7 +416,7 @@ Tables~\ref{tab:simulators} and~\ref{tab:replay-tools}.}
 \label{fig:sim-kinds}
 \end{figure}
 
-\paragraph{What the review of generating simulators found.} \citet{jain2024sim} review the simulators that generate
+\paragraph{Findings of the review of generating simulators.} \citet{jain2024sim} review the simulators that generate
 the market---point-process, agent-based, deep-learning and stochastic-differential-equation models---and report five
 findings that bear on this survey. Replay engines, queue position of one's own orders and latency are outside their
 scope.
@@ -498,7 +498,7 @@ Queue-reactive\ev{P} & model & one tagged order, under stated assumptions & -- &
 \end{tabularx}
 \end{table}
 
-\paragraph{What the comparison shows.} Agent-based, model-based and generative simulators let the market react to
+\paragraph{Results of the comparison.} Agent-based, model-based and generative simulators let the market react to
 the simulated orders, which replay cannot; but in them the queue is exact only inside a simulated market, so fill
 rates are only as realistic as the simulated order flow. Among replay tools, exact queue position in the recorded
 market requires order-level data and an order-level book: in Table~\ref{tab:simulators}, hftbacktest with
@@ -584,7 +584,7 @@ ATAS replay\ev{D} & trades and order book & none: filled at once, in full & -- &
 \end{tabularx}
 \end{table}
 
-\paragraph{Where \kasparhft{} sits.} Of the replay tools found, three place the simulated order in the recorded queue
+\paragraph{Position of \kasparhft{} among replay tools.} Of the replay tools found, three place the simulated order in the recorded queue
 without changing the recorded market: hftbacktest, lobsim and \kasparhft{}. Of these, lobsim has no live-trading path, and
 hftbacktest trades live on two cryptocurrency exchanges. NautilusTrader, which estimates queue position, connects to
 several venues and data vendors. Both reach CME data only through a data vendor's files. \kasparhft{} is the only one we found that decodes an exchange's own market-by-order feed (CME MDP~3.0, from live
@@ -788,7 +788,7 @@ At step 6 the aggressor reached R4, which arrived after S, so it must have passe
 queue ahead of it was consumed.
 \end{example}
 
-\paragraph{Market impact: a limitation of replay, and a possible extension.} Because the recorded
+\paragraph{Market impact: a limitation of replay.} Because the recorded
 market behaves exactly as it did, whatever the simulated orders do, replay answers ``would my order have
 been filled against this market?'' but not ``how would the market have moved because of my order?''. A
 simulated order never consumes liquidity that real traders would have reacted to. Market impact is
@@ -897,7 +897,7 @@ result:
   price is about to move away, rest otherwise.
 \end{itemize}
 
-\paragraph{How the model is scored.} The model-augmented strategy is run through the same replay, on the same days,
+\paragraph{Scoring the model.} The model-augmented strategy is run through the same replay, on the same days,
 with the same target quantity and the same participation, and compared with both model-free versions on the cost
 against the arrival mid-price and on post-fill mark-outs. Beating the passive version shows that the forecast is worth
 something over resting blind; beating the aggressive version shows that it is worth something over simply taking
@@ -1077,7 +1077,7 @@ and jitter:
 \inwords{a bigger model takes longer to evaluate, and by the time it answers, some of what it
 predicted has already happened.}
 
-\paragraph{Latency decides whether a model can run at all.} In a trading system, the latency of a model is not a
+\paragraph{Latency as a constraint on deployment.} In a trading system, the latency of a model is not a
 detail to be optimised after the model is chosen; it decides whether the model can be used. A model on the hot
 path---the chain every market-data message passes through---must finish before the next message needs it. A model
 that is too slow does not merely produce later answers: it holds up every message behind it and chokes the system.
@@ -1508,7 +1508,7 @@ Part~III turned from models to the infrastructure needed to test and run them: t
 Section~\ref{sec:tradeability}, whether the information a model extracts survives queue position, latency and
 execution. This section collects its main points; it adds no new results.
 
-\paragraph{What a simulator must capture.} A passive order earns its average profit as the product of two factors:
+\paragraph{Requirements for a simulator.} A passive order earns its average profit as the product of two factors:
 the probability that it is filled and its average profit when it is (Equation~\eqref{eq:decomp}). Both depend on
 queue position. Fills are biased towards bad ones, because an order is most likely to be filled when an informed
 trader wants to trade against it. Latency eats into a signal: with a 2\,ms half-life, 97\% of its value remains after
