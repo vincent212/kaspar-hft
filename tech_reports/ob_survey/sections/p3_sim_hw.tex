@@ -329,6 +329,36 @@ and NautilusTrader, appear in both.
   researcher's orders (Section~\ref{sec:deep-gen}).
 \end{itemize}
 \citet{jain2024sim} review the model-based and generative approaches and the stylised facts used to validate them.
+Figure~\ref{fig:sim-kinds} sets the four kinds side by side.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, scale=0.93, transform shape,
+  h/.style={draw, rounded corners=2pt, fill=gray!15, minimum width=34mm, minimum height=6mm, font=\scriptsize\bfseries},
+  c/.style={draw, minimum width=34mm, minimum height=10mm, align=center, text width=32mm},
+  r/.style={anchor=east, align=right, text width=22mm, font=\scriptsize\itshape}]
+\foreach \x/\t in {0/Historical replay,1/Agent-based,2/Model-based,3/Generative} \node[h] at (3.6*\x,0) {\t};
+\node[r] at (-1.9,-0.85) {market comes from};
+\node[r] at (-1.9,-1.85) {reacts to your orders?};
+\node[r] at (-1.9,-2.85) {your order's queue position};
+\node[r] at (-1.9,-3.85) {examples};
+\foreach \x/\a/\b/\cc/\d in {
+  0/{the recorded market}/{no}/{exact with order-level data; otherwise estimated}/{Kaspar, hftbacktest, JAX-LOB},
+  1/{rule-following simulated traders}/{yes}/{exact, in a simulated queue}/{ABIDES, MAXE, PyMarketSim},
+  2/{a fitted stochastic model of the book}/{yes, through the model's rates}/{depends on the model; often none}/{queue-reactive model, mbt\_gym},
+  3/{a network trained on order data}/{yes, conditioned on your orders}/{exact, in a simulated queue}/{MarS, TRADES}} {
+  \node[c, fill=blue!6] at (3.6*\x,-0.85) {\a};
+  \node[c, fill=green!8] at (3.6*\x,-1.85) {\b};
+  \node[c] at (3.6*\x,-2.85) {\cc};
+  \node[c, fill=gray!5] at (3.6*\x,-3.85) {\d};
+}
+\node[c, fill=red!8] at (0,-1.85) {no};
+\end{tikzpicture}
+\caption{The four kinds of order-book simulator. Replay keeps the real market but cannot react to the researcher's
+orders; the other three react, but their queues are only as realistic as the simulated order flow. Summarised from
+Tables~\ref{tab:simulators} and~\ref{tab:replay-tools}.}
+\label{fig:sim-kinds}
+\end{figure}
 For execution questions the type matters less than five properties: whether the simulated order has an exact
 position in a queue of individual orders; whether latency is modelled; whether the simulated order changes the
 market; whether a run can be repeated exactly; and whether the same code can trade live.
@@ -1132,6 +1162,22 @@ half a microsecond. Inference of a small LSTM, in the sliding-window setting, no
 both FPGAs and GPUs: in these results a GH200 GPU was slightly faster than the 2023 FPGA system and slower than the
 2026 one. And no audited benchmark yet combines building the book with evaluating a learned model on it, or uses a
 published order-book architecture.
+
+Figure~\ref{fig:latency-ladder} puts the measured figures quoted in this section on one logarithmic axis. Network
+transfer and book building on FPGAs take tens to hundreds of nanoseconds; software book building and operating-system
+networking take microseconds; published inference of order-book models takes from tens of microseconds to tens of
+milliseconds.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\linewidth]{figs/latency_ladder.png}
+\caption{Latency figures quoted in this section, on one logarithmic axis. Bars are ranges, dots single figures.
+Sources: STAC public summaries (audited), the FPGA book-building papers, the measured server latency
+budget~\citep{zilberman2017where}, Kaspar's published socket-to-book medians~\citep{maciejewski_mdlatency}, and
+Table~\ref{tab:lob-latency}. The figures come from different machines, conditions and years and show orders of
+magnitude, not a single system.}
+\label{fig:latency-ladder}
+\end{figure}
 
 \subsection{Stages that need acceleration}
 \label{sec:hw-what}

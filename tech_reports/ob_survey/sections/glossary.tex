@@ -108,6 +108,10 @@ point processes~\citet{daley2003}.
 \gl{MDP 3.0} CME's Market Data Platform protocol: binary messages over UDP
   multicast~\citep{cme_mdp3}.
 \gl{Order acknowledgement} The exchange's confirmation that it has accepted an order.
+\gl{Packet capture (PCAP)} A file of network packets recorded exactly as they arrived, with timestamps; replaying
+  it reproduces a market-data feed.
+\gl{Price--time priority (FIFO)} The matching rule in which better prices trade first and, at the same price, earlier
+  orders trade first: first in, first out.
 \gl{Snapshot recovery} A periodic full-book message that lets a feed handler resynchronise after
   lost packets.
 \end{description}
@@ -296,6 +300,9 @@ point processes~\citet{daley2003}.
 \gl{FPGA} Field-programmable gate array: a chip whose logic can be reconfigured to implement a
   specific circuit; slower and larger than an ASIC for the same function but
   reprogrammable~\citep{kuon2007}. Its configurable resources are called the \emph{fabric}.
+\gl{GPU} Graphics processing unit: a processor with thousands of simple cores built for many arithmetic operations
+  in parallel; a \emph{kernel} is one function launched on it, and a \emph{CUDA graph} records a sequence of kernels
+  so it can be relaunched with less overhead.
 \gl{High-level synthesis (HLS)} Compiling a program written in a language such as C++ into FPGA logic.
 \gl{Jitter} Variation in latency from one event to the next.
 \gl{Kernel bypass} Receiving and sending network packets directly from user space, skipping the
@@ -303,6 +310,11 @@ point processes~\citet{daley2003}.
 \gl{Multicast} One-to-many UDP delivery: the sender transmits once and every subscribed host
   receives the packet.
 \gl{Operator mix} The kinds of computation a model needs, such as matrix multiplication or softmax.
+\gl{PCIe} The bus that connects a processor to cards such as GPUs, FPGAs and network cards.
+\gl{Queue-exact replay} A historical replay in which the simulated order sits in the reconstructed queue of recorded
+  individual orders and is filled only when recorded executions reach it; Section~\ref{sec:replay}.
+\gl{Roofline model} A model of processor speed: attainable speed is the lower of peak arithmetic rate and memory
+  bandwidth times operations per byte loaded~\citep{williams2009roofline}.
 \gl{SmartNIC} A network card with programmable logic or processors that can compute on packets as they arrive.
 \gl{STAC} An industry body that runs audited benchmarks of trading technology.
 \gl{Tick-to-trade} The time from a market-data packet arriving to the resulting order leaving.
