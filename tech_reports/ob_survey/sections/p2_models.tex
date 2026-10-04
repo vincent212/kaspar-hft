@@ -4126,7 +4126,8 @@ was motivated in part by that limit~\citep{gao2024mhp}.
 
 \paragraph{A state-space recurrence over events.} A state-space model (Section~\ref{sec:deep}) is a recurrence: a memory vector $\mathbf{z}$ is
 multiplied by a matrix and the new input is added. A \emph{selective} state-space model, Mamba, lets the step size
-of the recurrence vary from input to input, so that the model decides how much to forget at each step.
+of the recurrence vary from input to input, so that how much of the old memory fades at each step depends on the
+input, through a function learned in training (Section~\ref{sec:deep-ssm}).
 \citet{gao2024mhp} use this to build the Mamba Hawkes process, with one change: the step size is the actual time
 between events, $\Delta_n = t_n - t_{n-1}$,
 \begin{equation}
@@ -8318,14 +8319,35 @@ binned combinations, and may pass the exact values alongside. Schematic.}
 \subsection{State-space models}
 \label{sec:deep-ssm}
 
-Structured state-space sequence models such as S4~\citep{gu2022s4} and Mamba~\citep{gu2024mamba}
-keep a state vector $\mathbf{s}$ and update it at each step with the new input $\mathbf{x}$ by a learned linear rule,
-$\mathbf{s} \leftarrow \mathbf{A}\mathbf{s} + \mathbf{B}\mathbf{x}$, reading predictions off the state. This is the same
-mathematical object as the classical state-space model of control theory~\citep{kalman1960}, and it can be computed in
-parallel during training. Mamba lets $\mathbf{A}$ and $\mathbf{B}$ depend on the input, so the model decides at each
-step how much to forget. Such models handle long sequences at a cost proportional to their length, unlike attention,
-which makes them attractive for event streams, which are long and irregular (Section~\ref{sec:npp-mamba} describes a
-Hawkes version). We found no peer-reviewed S4- or
+A state-space model reads the events one at a time, like a recurrent network, and keeps a \emph{state}: a vector
+$\mathbf{s}$ that summarises everything seen so far. At each new event $\mathbf{x}$ it updates the state by a learned
+linear rule and reads its prediction off the state:
+\[
+  \mathbf{s} \;\leftarrow\; \mathbf{A}\,\mathbf{s} + \mathbf{B}\,\mathbf{x}.
+\]
+\inwords{the new summary is the old summary multiplied by $\mathbf{A}$, plus the new event multiplied by $\mathbf{B}$.}
+
+\paragraph{What ``forgetting'' means.} Take the simplest case, a state of one number with $A = 0.9$ and $B = 0.1$.
+Each step keeps 90\% of the old state and adds 10\% of the new input: the state is a running average in which an event
+loses a tenth of its weight at every later step, so after 20 steps it keeps $0.9^{20} \approx 12\%$ of its original
+weight. A value of $A$ closer to one keeps the past longer; a smaller value replaces it faster. ``Forgetting'' is
+nothing more than this shrinking of the old state; it is the same exponential fading as the kernel of a Hawkes process
+(Section~\ref{sec:hawkes-one}).
+
+\paragraph{S4 and Mamba.} In S4~\citep{gu2022s4} the rule is the same at every step: training sets $\mathbf{A}$ and
+$\mathbf{B}$ once, so every event fades at the same fixed rate. In Mamba~\citep{gu2024mamba} the step size of the
+update and the weight $\mathbf{B}$ are computed from the current input, so how much of the old state survives
+changes from event to event. A large, unusual event can then overwrite most of the state, while a routine one leaves
+it nearly unchanged. Saying that ``the model decides how much to forget'' means only this: the amount of fading is a
+learned function of the input, set by training like any other weight; nothing chooses it at run time. This is the same
+idea as the forget gate of an LSTM (Section~\ref{sec:deep-families}).
+
+\paragraph{Why they are of interest for order books.} The rule is the classical state-space model of control
+theory~\citep{kalman1960}, and it can be computed in parallel during training. It processes a sequence at a cost
+proportional to its length, where attention compares every pair of events and costs the square of the length
+(Section~\ref{sec:hw-why}). That makes it attractive for event streams, which are long and irregular;
+Section~\ref{sec:npp-mamba} describes a version in which the step size is the actual time between events, so that
+memory fades with elapsed time as in a Hawkes process. We found no peer-reviewed S4- or
 Mamba-based order-book forecaster with comparisons against baselines. The closest is a design tuned for fast hardware, applied to cryptocurrency
 tick data (recorded at every trade or price change), whose abstract reports 62.7\% next-tick directional accuracy without a baseline
 for comparison~\citep{popov2026ssm}. State-space models for order books remain an open direction rather than
