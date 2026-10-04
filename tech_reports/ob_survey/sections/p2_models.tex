@@ -8347,7 +8347,35 @@ theory~\citep{kalman1960}, and it can be computed in parallel during training. I
 proportional to its length, where attention compares every pair of events and costs the square of the length
 (Section~\ref{sec:hw-why}). That makes it attractive for event streams, which are long and irregular;
 Section~\ref{sec:npp-mamba} describes a version in which the step size is the actual time between events, so that
-memory fades with elapsed time as in a Hawkes process. We found no peer-reviewed S4- or
+memory fades with elapsed time as in a Hawkes process. 
+
+\paragraph{Two meanings of ``state''.} The micro-price of Section~\ref{sec:microprice} also forecasts from a state,
+and both models assume that the future depends only on the current state, not on how it was reached. The states are
+different things (Table~\ref{tab:state-kinds}): the micro-price's state is a few features of the book visible now,
+with no memory of the past, while a state-space network's state is a hidden summary of everything it has read. The
+nearest classical relative of S4 and Mamba is therefore not the micro-price but the Kalman filter, which also tracks a
+hidden state from noisy observations, and which Section~\ref{sec:ofi} uses to track the drifting slope of the OFI
+regression.
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{The state of the micro-price and the state of a state-space network.}
+\label{tab:state-kinds}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.19\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\toprule
+& Micro-price (Section~\ref{sec:microprice}) & State-space network (S4, Mamba) \\
+\midrule
+What the state is & a few features of the book now: the imbalance bucket and the spread & a vector the network builds, summarising the whole history it has read \\
+Visible in the book? & yes, read off the current book & no, it exists only inside the model \\
+Memory of the past & none: two books with the same imbalance and spread get the same micro-price, however they got there & yes: each event updates the summary, and older events fade \\
+How it is fitted & counting transitions between states in historical data & gradient descent on a prediction loss \\
+Output & expected future mid-price, by a matrix formula over all paths & whatever its output layer is trained for, such as a direction or a return \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+We found no peer-reviewed S4- or
 Mamba-based order-book forecaster with comparisons against baselines. The closest is a design tuned for fast hardware, applied to cryptocurrency
 tick data (recorded at every trade or price change), whose abstract reports 62.7\% next-tick directional accuracy without a baseline
 for comparison~\citep{popov2026ssm}. State-space models for order books remain an open direction rather than
