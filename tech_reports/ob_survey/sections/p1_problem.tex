@@ -764,8 +764,7 @@ throughout: historical replay is distinguished from generative market simulation
 
 \paragraph{Generative LOB simulation versus historical replay.} The closest neighbouring review, on
 LOB simulation~\citep{jain2024sim}, classifies, by methodology, models that \emph{generate} order-book dynamics, and evaluates them by their ability
-to reproduce stylised facts and price impact. That is one of two legitimate ways of using a simulator,
-and they answer different questions:
+to reproduce stylised facts and price impact. The two kinds of simulator answer different questions:
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
 \item \emph{generative simulation} asks whether a model can produce plausible market trajectories,
   including ones never observed, such as stress scenarios;
@@ -773,8 +772,10 @@ and they answer different questions:
   one observed trajectory.
 \end{itemize}
 To decide whether an order would have executed against the historical market, the market does not
-need to be generated, only reconstructed. This survey is concerned primarily with the second question;
-generative models are covered in Section~\ref{sec:deep-gen} as tools for simulation and stress testing.
+need to be generated, only reconstructed. This survey is concerned with the second question. It is the author's view
+that generating markets to test trading strategies is a mistake: a strategy that makes money in a generated market
+has shown only that it can exploit the generator (Section~\ref{sec:sim-survey}). Generative models are covered in
+Section~\ref{sec:deep-gen} as models of the book, not as test beds for trading.
 
 \paragraph{Language models.} The surveys of LLMs in trading review systems in which the language model
 reads market information, reasons about it and produces trading decisions that are then

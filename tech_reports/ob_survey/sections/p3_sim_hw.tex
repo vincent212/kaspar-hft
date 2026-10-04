@@ -441,13 +441,16 @@ scope.
 \item \textbf{No simulator does everything.} Their conclusion is that no simulator yet is parsimonious, explainable
   and analytically tractable while reproducing most of the stylised facts.
 \end{itemize}
-Their motivation for generating markets is that a strategy fitted to the one recorded history of an instrument will
-overfit it. Replay answers that differently: it tests a strategy on many recorded days held out from its development,
-counting every configuration tried, rather than on generated days. The two approaches answer different questions.
-Replay measures what would have happened to one's orders in the market that occurred, with exact queues and no
-reaction; a generating simulator measures behaviour in markets that did not occur, including reaction and stress,
-with queues only as realistic as the model. For small orders replay is the stricter test; for large orders and stress
-scenarios a generating simulator is needed, and the findings above say how far its outputs can be trusted.
+\paragraph{The author's view: the market is observed, not generated.} Their motivation for generating markets is that
+a strategy fitted to the one recorded history of an instrument will overfit it. This survey takes the opposite
+position, Principle~1, and it is the author's view: generating markets is a mistake. A strategy that makes money in a
+generated market has shown only that it can exploit the generator; it says nothing about the market that trades. The
+findings above are the reason: generators are validated mostly by eye, none reproduces most of the stylised facts,
+and one agent trained in a generative simulator learned to exploit it (Section~\ref{sec:policy}). The answer to
+overfitting is not more invented data but a stricter test on real data: replay on many recorded days held out from
+development, with exact queues and latency, counting every configuration tried. Generated markets are left, in this
+survey, to the study of the models themselves (Section~\ref{sec:deep-gen}); results on them are not evidence about
+trading.
 
 For execution questions the type matters less than five properties: whether the simulated order has an exact
 position in a queue of individual orders; whether latency is modelled; whether the simulated order changes the
