@@ -1145,11 +1145,15 @@ the strategy as well as the signal.
 \begin{enumerate}[leftmargin=1.5em]
 \item \textbf{Missed signals.} By the time the decision is made the signal has decayed, as above; an opportunity
   that lasts less than the evaluation time cannot be acted on at all.
-\item \textbf{Passive orders picked off.} A resting order is protected only by the system's ability to cancel or
+\item \textbf{Orders picked off.} A resting order is protected only by the system's ability to cancel or
   reprice it when the book changes. While the model is still evaluating, the order stays at a price the market has
   moved away from, and faster participants trade against it: it is filled exactly when the fill is unwanted. This
   is adverse selection (Section~\ref{sec:adverse}) caused by the system's own latency, and it is why the passive
-  method above loses value with every millisecond of delay although it never crosses the spread.
+  method above loses value with every millisecond of delay although it never crosses the spread. Aggressive orders
+  are exposed too. An order sent late to cross the spread at a price that has since been taken arrives to find no
+  liquidity left there; a limit order at that price does not fill and rests in the book instead. The aggressive order
+  has become a passive one, at a price the market has already left, and it is open to being picked off in the same
+  way.
 \item \textbf{Message queues that grow.} Market data does not wait for the model. If the model is on the path of
   every message, messages that arrive while it is busy wait in the queue in front of it. On CME the market-data
   publisher sends at most one packet per \emph{publisher period} of about $7.5\,\mu$s, and a burst of
@@ -1593,4 +1597,4 @@ square of the window, memory traffic at a batch of one, and fixed overheads per 
 takes single-digit microseconds on both FPGAs and GPUs (Table~\ref{tab:stac}). No audited benchmark yet evaluates a
 learned model on a book it has built. Every published order-book model inference time is above the CME publisher period of about $7.5\,\mu$s, so
 any of these models placed on the hot path would queue during bursts; a slow model there misses signals, leaves
-passive orders to be picked off and lets the message queue grow (Section~\ref{sec:hardware}).
+orders to be picked off and lets the message queue grow (Section~\ref{sec:hardware}).
