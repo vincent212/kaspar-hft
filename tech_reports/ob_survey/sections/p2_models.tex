@@ -7546,11 +7546,17 @@ weighted average of the values---a ``soft'' look-up that mixes the best-matching
 a network the query, keys and values are all vectors computed from the events themselves by learned matrices; what
 is learned is \emph{how to ask and how to describe}, not which position matters.
 
-Figures~\ref{fig:attn-library} and~\ref{fig:attn-who} show who does what. The \emph{current} event asks the question:
-it produces the query. Every \emph{earlier} event in the window carries two things made from itself: a key, which
+Figures~\ref{fig:attn-library} and~\ref{fig:attn-who} show who does what. The \emph{current} event supplies the query:
+its vector is multiplied by a learned matrix, and the result is the query. Every \emph{earlier} event in the window carries two things made from itself: a key, which
 describes it, and a value, which is what it hands over if chosen. The attention layer does the matching: it compares
 the query with each key, turns the match scores into weights, and returns the weighted average of the values to the
 current event, which uses it as its new description of the recent past.
+
+Nothing in this process asks a question. ``Query'', ``key'' and ``value'' are names for three vectors, and the
+matching is a dot product: earlier events whose keys point in the same direction as the query receive high weight.
+When this survey says that a query ``looks for'' something, it is describing in words which earlier events that
+query vector scores highly. In a trained model nobody chooses what the queries look for: training adjusts the three
+matrices to whatever makes the predictions better, and the resulting queries usually have no simple meaning.
 
 \begin{figure}[!htbp]
 \centering
@@ -7609,7 +7615,7 @@ get back a mix of all the contents, mostly from the drawers that matched best. N
 \draw[arr, orange!70!black, thick] (q.south) -- (q.south |- att.north);
 \node[ev, fill=red!6, align=center] (out) at (10.2,-4.1) {new vector\\for event 4};
 \draw[arr, thick] (att.east) -- (out.west);
-\node[align=left, anchor=west, text width=26mm] at (8.4,-1.5) {the current event asks the question};
+\node[align=left, anchor=west, text width=26mm] at (8.4,-1.5) {the current event supplies the query};
 \end{tikzpicture}
 \caption{Attention on order-book events, for the newest event. Each earlier event is turned by learned matrices into a
 key (how it describes itself) and a value (what it passes on). The current event is turned into a query (what it is
@@ -7619,12 +7625,15 @@ as the current one, each with its own query, against the keys and values of the 
 \label{fig:attn-who}
 \end{figure}
 
-\textit{A worked example.} The current event is a buy market order that empties the best ask. Before predicting
-what happens next, the model asks one question of the recent past: \emph{were sellers leaving the ask?}
+\textit{A worked example.} The current event is a buy market order that empties the best ask. The numbers below are
+chosen by hand so that every vector has a meaning we can read; in a trained model they would be learned and would not.
 
 In this hand-made example each key has two numbers with a meaning: how much the event is a sign of
-\emph{sellers leaving} the ask, and how much it is a sign of \emph{buyers arriving}. The query uses the same two
-numbers to say what the current event is looking for: $(1, 0)$, ``sellers leaving, and nothing else''. The value
+\emph{sellers leaving} the ask, and how much it is a sign of \emph{buyers arriving}. We set the current event's query
+to $(1, 0)$. Its dot product with a key is then simply the key's first number, so this query gives high weight to
+earlier events that look like sellers leaving and no weight to buyers arriving; ``were sellers leaving the ask?''
+is our plain-language reading of what this particular query picks out. We chose it because a buy order that sweeps
+the ask after sellers have withdrawn is an easy pattern to picture, not because a model would necessarily learn it. The value
 of each event is the number of lots it removed from the ask. (In a trained model, keys, queries and values are
 learned and their numbers usually have no simple meaning.)
 
@@ -8128,8 +8137,8 @@ result depends heavily on the data set and labelling, so re-testing on new data 
 calibration.}
 \cardrow{What you do with it}{Direction and multi-horizon forecasts, full-book forecasts, and
 multi-asset models that choose which peers to read.}
-\cardrow{How to picture it}{Every event asks a question of every earlier event and listens most to the
-ones whose answers match.}
+\cardrow{How to picture it}{A soft search: every event compares its query vector with the key of every
+earlier event and takes a weighted mix of their values, mostly from the closest matches.}
 \end{modelcard}
 
 \subsection{Tokenisation: how vocabularies of market events are built}
