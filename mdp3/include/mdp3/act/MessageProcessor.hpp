@@ -23,7 +23,6 @@
 #include "mdp3/msg/DecodePacket.hpp"
 #include "mdp3/msg/DecodeResult.hpp"
 #include "mdp3/msg/DecoderCmd.hpp"
-#include "mdp3/msg/TriggerRecovery.hpp"
 #include "mdp3/msg/DoDataRecovery.hpp"
 #include "mdp3/msg/DoInstrumentRecovery.hpp"
 #include "mdp3/msg/EndDataRecovery.hpp"
@@ -94,7 +93,6 @@ namespace mdp3
             MESSAGE_HANDLER(msg::StartQ, startq_handler); // who sends this?
             MESSAGE_HANDLER(msg::StopQ, stopq_handler);   // who sends this?
             MESSAGE_HANDLER(frame::cons::msg::Get, get_handler);
-            MESSAGE_HANDLER(msg::TriggerRecovery, trigger_recovery_handler);
 
             // if (dorecovery)
             // {
@@ -235,22 +233,6 @@ namespace mdp3
             waitcnt = maxwaitcnt;
         }
 
-        // A parallel decode worker failed (sent by the DataDecoder actor). Respond
-        // exactly as the inline path does to an mbo_data failure: signal the gap
-        // and initiate recovery. Guarded so a burst of failures doesn't restart
-        // recovery repeatedly.
-        void trigger_recovery_handler(const msg::TriggerRecovery *) noexcept
-        {
-            if (in_data_recovery)
-                return;
-            log_err("parallel decode failed -- initiating data recovery");
-            {
-                msg::DecoderCmd c(msg::DecoderCmd::GAP);
-                decoder->fast_send(&c, this);
-            }
-            do_data_recovery();
-        }
-
         void do_instr_recovery()
         {
             if (recovery_processor)
@@ -317,11 +299,9 @@ namespace mdp3
                     // drain. (Contrast `ts` below: the arriving packet's recv_ts,
                     // which is wrong for a packet released out of a gap.)
                     //
-                    // It rides DecodePacket rather than a set_ingress_qlen() call
-                    // because `decoder` is now an actor and the hot path fans out
-                    // to N DecodeWorker threads. A single member on the handler
-                    // would be read by workers decoding a DIFFERENT packet. Per-
-                    // request data is the only race-free way to carry it.
+                    // It rides DecodePacket because `decoder` is an actor: the
+                    // request is the only input its handler gets, and the handler
+                    // hands it to the feed handler via set_ingress_qlen().
                     //
                     // Decode via the DataDecoder actor. fast_send runs its handler
                     // inline (this thread) before we erase msg_q[sn], so no buffer

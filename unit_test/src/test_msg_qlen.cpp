@@ -22,6 +22,9 @@
 
 #include <gtest/gtest.h>
 
+#include <type_traits>
+#include <utility>
+
 #include "actors/Actor.hpp"
 #include "actors/Message.hpp"
 
@@ -55,15 +58,30 @@ TEST(MessageQLen, StampsBacklogAtEnqueue)
 }
 
 // fast_send runs the handler inline on the caller's thread. No queue is
-// involved, so there is no backlog to report and the field must stay zero
-// rather than reporting a stale or unrelated depth.
+// involved, so it leaves qlen as it was (zero for a fresh message) and sets
+// last.
 TEST(MessageQLen, FastSendLeavesQlenZero)
 {
   Sink sink;
   QProbe m(0);
   auto reply = sink.fast_send(&m, nullptr);
   EXPECT_EQ(m.qlen, 0u);
+  EXPECT_TRUE(m.last);
 }
+
+// The delivery flag is framework-private: code outside Actor and Group cannot
+// read Message::is_fast. (Access checking is part of substitution, so the
+// detector below is false when the member is private.)
+namespace
+{
+  template <class T, class = void>
+  struct can_read_is_fast : std::false_type {};
+  template <class T>
+  struct can_read_is_fast<T, decltype((void)std::declval<const T &>().is_fast)>
+    : std::true_type {};
+}
+static_assert(!can_read_is_fast<actors::Message>::value,
+              "Message::is_fast must stay framework-private");
 
 // The ring was 64 slots. Past that, BQueue::push falls back to a heap
 // allocation into overflow_ on the PRODUCER thread under the mailbox mutex --

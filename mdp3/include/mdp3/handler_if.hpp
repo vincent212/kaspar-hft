@@ -20,9 +20,6 @@
 #include <vector>
 #include "oogsl/gvector.hpp"
 #include "frame/mda/msg/Data.hpp"
-#include "mdp3/msg/AssetMap.hpp"
-#include "mdp3/msg/OrderMap.hpp"
-#include "mdp3/msg/ResetMBO.hpp"
 
 #include <boost/unordered/unordered_flat_map.hpp>
 
@@ -48,7 +45,6 @@ struct handler_if : public mdp3::feed_handler_if
   char name[256];
   actor_ptr binrec = 0;
   std::vector<actor_ptr> mbo_order_books;  // Indexed by asset_id for MBO messages (futures - OB.cpp/TachBook)
-  actor_ptr reconstructor = nullptr;       // parallel-decode Reconstructor; notified of securityID->asset_id (defs), orderID->securityID (snapshots) and channel resets
   std::vector<double> latency, cmelatency;
   std::set<uint32_t> instruments;
   uint32_t max_mbp_level=1000;
@@ -380,10 +376,6 @@ struct handler_if : public mdp3::feed_handler_if
         r.update_sec_id(securityID, &a_);
         std::cerr << "mapped securityID: " << securityID << " to asset id: " << a_.id << " name: " << a_.name << std::endl;
         securityid_to_asset_id[securityID] = a_.id;
-        // Feed the Reconstructor its own copy so it never reads this shared map
-        // across threads (the parallel decode path routes on its own thread).
-        if (reconstructor)
-          reconstructor->send(new mdp3::msg::AssetMap(securityID, a_.id), nullptr);
         //a_.cme_sec_id = securityID;
         a_.cfi_code = __cfiCode;
         a_.security_group = std::string(l3.sec_group);
@@ -547,10 +539,6 @@ struct handler_if : public mdp3::feed_handler_if
         auto &r = const_cast<frame::ref::RefData&>(frame::ref::RefData::inst());
         std::cerr << "adding mapping securityID: " << securityID << " to asset id: " << a_.id << " name: " << a_.name << std::endl;
         securityid_to_asset_id[securityID] = a_.id;
-        // Feed the Reconstructor its own copy so it never reads this shared map
-        // across threads (the parallel decode path routes on its own thread).
-        if (reconstructor)
-          reconstructor->send(new mdp3::msg::AssetMap(securityID, a_.id), nullptr);
 
         if (a_.sec_id != 0)
         {
@@ -966,12 +954,6 @@ struct handler_if : public mdp3::feed_handler_if
 
     // Update orderID to securityID mapping (snapshot orders are always added)
     orderid_to_securityid[orderID] = securityID;
-    // Parallel path: the live feed resolves trades against the Reconstructor's
-    // own orderid map, not this one. Seed it with the recovered order so a live
-    // trade referencing a snapshot-resting order still routes. Same guard/pattern
-    // as the AssetMap and ResetMBO sends; null (serial) means nobody to tell.
-    if (reconstructor)
-      reconstructor->send(new mdp3::msg::OrderMap(orderID, securityID), nullptr);
 
     // Record to binrec BEFORE routing to books
     if (binrec)
@@ -1203,11 +1185,6 @@ struct handler_if : public mdp3::feed_handler_if
       recmsg->l3 = l3;
       binrec->send(recmsg, 0);
     }
-
-    // The book is cleared -> tell the Reconstructor to drop its orderID map so a
-    // reused orderID after the reset does not misroute (asset defs persist).
-    if (reconstructor)
-      reconstructor->send(new mdp3::msg::ResetMBO(), nullptr);
   }
 
   virtual void MDIncrementalRefreshVolume(

@@ -177,8 +177,7 @@ The first ~5 minutes are not measurement data — the three recovery actors shar
 one cpu during startup. And confirm what you actually ran:
 
 ```
-Kaspr: chan 310 SERIAL decode (inline)          # cme_decode_workers 0
-Kaspr: chan 310 PARALLEL decode, 8 workers      # cme_decode_workers 8
+Kaspr: chan 310 SERIAL decode (inline)
 ```
 
 ### 5. Output — three files per instrument

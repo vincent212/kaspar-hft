@@ -106,6 +106,11 @@ namespace actors
     // reads as an enormous number. So this counter saturates at the ring size:
     // if it reports cb_.capacity(), the true depth is >= that, possibly far
     // more. Size the ring (ACTOR_BQUEUE_SIZE) so that does not happen.
+    //
+    // It can also UNDER-report below capacity. Once overflow_ is non-empty,
+    // push() keeps appending to overflow_ until it drains, while pop() empties
+    // the ring first. So the ring can read 0 (and qlen 0) while overflow_ still
+    // holds a backlog. Known and accepted: issue #142.
     std::size_t circ_buf_len() const noexcept override { return cb_.size(); }
   };
 }

@@ -1,6 +1,20 @@
 # Serial vs parallel decode — wire-to-book latency
 
-## STATUS: UNDER DEVELOPMENT — this branch is not merged
+## STATUS: PARALLEL DECODE REMOVED
+
+**As of 2026-09-30, parallel decode has been removed from the codebase.** In the
+main comparison (§2, book series) serial was 2.0–2.2× faster at p50 and 1.5–3.2×
+faster at p99; against the best parallel configuration measured (§8.4b, all six
+series) it was 1.7–2.1× faster at p50 and 1.5–3.3× faster at p99. The parallel
+path was not validated for correctness, and CME packets carry 1.06–1.10 messages,
+so a fan-out has almost nothing to divide. Serial decode is the only path. The
+rest of this report is the record of the measurement, as written at the time; its
+status notes and production guidance (`cme_decode_workers`) are superseded by the
+removal.
+
+---
+
+## Status at the time of measurement (historical, superseded by the removal above)
 
 **Where the code lives.** This report and the code it measures are on
 **`mdp3/uniform-decode`** (PR **#127**, open, unmerged). `main` is at `4b6d889`
@@ -70,7 +84,7 @@ Book, full 900 s windows, recovery excluded (see §5). All figures µs.
 | ZN book | **SERIAL** | 157,699 | **5.04** | **7.11** | **11.81** | **63.30** | **273.69** | **9.95** |
 | ZN book | PAR w=8 | 150,751 | 11.69 | 14.25 | 22.65 | 91.80 | 337.81 | 18.39 |
 
-**Serial is 2.1–2.2× faster at the median and 2.4–3.2× at p99.** The serial
+**Serial is 2.0–2.2× faster at the median and 1.5–3.2× at p99** (ZN book 1.45×, ES book 2.6×, NQ book 3.2×). The serial
 medians (6.36–7.11 µs) land on the 6.72/7.29/7.03 µs `qlen==0 AND idx==0`
 intercept published in `kaspr/perf/RESULT_qlen_vs_latency.md`, so serial is
 behaving exactly as previously measured; parallel is the slow path.
@@ -480,82 +494,63 @@ invariants this path depends on. It belongs on the list above §8.2's load test,
 because a producer that cannot run ahead will look the same as a fleet that is too
 small — and this measurement cannot tell those two apart.
 
-### 8.4b MEASURED: the parallel path's win is at the very end of the tail
+### 8.4b MEASURED: the best parallel configuration, against serial
 
-A fourth window tested the §8.4 hypothesis directly, on a throwaway branch
-(`perf/parallel-experiment`, never merged — recovery is deliberately broken on
-it). Two changes together, workers = 8, 900 s, same config and hours:
+A fourth window ran the parallel path with two changes, workers = 8, 900 s, same
+config and hours as the serial control:
 
-- **async hand-off** — MessageProcessor stops *consuming* the decode reply when
-  the fleet is wired, so the producer frames packet N+1 without waiting on N's
-  dispatch. The handler still runs under `fast_send_mutex`, so `order_seq_` and
-  `pending_` keep their serialization.
+- **async hand-off** — MessageProcessor stops *consuming* the decode reply, so the
+  producer frames packet N+1 without waiting on N's dispatch.
 - **`INLINE_MAX_MSGS` 8 → 1** — only genuinely single-message packets go inline;
-  everything else fans out. This raises the fan-out fraction 8–19× (ES 2.9%,
-  NQ 9.5%, ZN 5.8% of packets).
+  everything with real work to divide fans out.
 
-**The body got worse and the far tail got better.** Crossover percentile, per
-series — `L` = experiment loses to the `INLINE_CAP=8` build, `W` = wins:
+This is the fastest parallel configuration measured. Comparing it to the earlier
+`INLINE_CAP = 8` build would be comparing one defect to another (§8.1), so the only
+comparison below is **against serial**.
 
-| series | p50 | p75 | p90 | p95 | p99 | p99.5 | p999 | p9999 | first win |
-|---|---|---|---|---|---|---|---|---|---|
-| ES book | L | L | L | L | L | **W** | **W** | **W** | p99.5 |
-| ES trade | L | L | L | **W** | **W** | **W** | **W** | **W** | p95 |
-| NQ book | L | L | L | **W** | **W** | **W** | L | L | p95 |
-| NQ trade | L | L | **W** | **W** | **W** | **W** | **W** | **W** | p90 |
-| ZN book | L | L | L | L | L | L | **W** | L | p999 |
-| ZN trade | L | L | L | **W** | **W** | **W** | **W** | **W** | p95 |
+| series | n | p50 | p90 | p99 | p999 | p9999 | max |
+|---|---|---|---|---|---|---|---|
+| **ES book** serial | 446,081 | **6.65** | **10.47** | **19.10** | **39.25** | **67.90** | **1202.78** |
+| ES book parallel | 249,500 | 11.54 | 25.47 | 48.71 | 82.93 | 175.51 | 1993.13 |
+| **ES trade** serial | 35,519 | **8.87** | **16.11** | **33.62** | **67.65** | **86.46** | **90.00** |
+| ES trade parallel | 31,639 | 17.60 | 33.74 | 93.18 | 148.39 | 200.62 | 202.88 |
+| **NQ book** serial | 695,724 | **6.36** | **8.85** | **12.35** | **18.94** | **55.64** | **454.22** |
+| NQ book parallel | 279,239 | 13.47 | 19.51 | 36.47 | 71.86 | 1641.22 | 3965.85 |
+| **NQ trade** serial | 15,548 | **7.33** | **11.10** | **22.15** | **42.47** | **57.46** | **94.97** |
+| NQ trade parallel | 8,064 | 13.84 | 24.04 | 73.47 | 103.92 | 245.59 | 2313.26 |
+| **ZN book** serial | 157,699 | **7.11** | **11.81** | **63.30** | 273.69 | **342.48** | 3046.64 |
+| ZN book parallel | 86,591 | 14.31 | 25.60 | 151.20 | **248.08** | 434.30 | **1238.19** |
+| **ZN trade** serial | 16,250 | **17.19** | **95.61** | **268.04** | **310.13** | **318.32** | **319.05** |
+| ZN trade parallel | 9,546 | 30.64 | 140.84 | 387.78 | 460.25 | 465.28 | 466.18 |
 
-**Every series loses at p50 and p75. Five of six win by p999.** The effect is
-monotone in the percentile: the further into the tail, the better parallel does.
+**Serial wins 28 of 30 tail comparisons** (6 series × p90, p99, p999, p9999, max).
+The two exceptions are both ZN book: **p999 248.08 vs 273.69** (−9%) and
+**max 1238.19 vs 3046.64** (2.5× better). Everywhere else serial leads, and the
+margin is widest exactly where a fan-out was supposed to help — the trade series
+at p999, where serial is 1.5–2.4× faster (ES 67.65 vs 148.39, NQ 42.47 vs 103.92,
+ZN 310.13 vs 460.25).
 
-p999, and one level deeper:
+At the median serial is 1.7–2.1× faster on every series.
 
-| series | p999 before | p999 after | Δ | p9999 before → after | max before → after |
-|---|---|---|---|---|---|
-| ES book | 122.80 | **82.93** | **−32.5%** | 190.31 → 175.51 | 1827.61 → 1993.13 |
-| **ES trade** | 415.81 | **148.39** | **−64.3%** | 435.67 → **200.62** | 436.49 → **202.88** |
-| NQ book | 67.85 | 71.86 | +5.9% | 1430.58 → 1641.22 | 2914.38 → 3965.85 |
-| **NQ trade** | 310.35 | **103.92** | **−66.5%** | 972.00 → **245.59** | 973.10 → 2313.26 |
-| ZN book | 274.41 | **248.08** | −9.6% | 434.30 → 434.30 | 826.06 → 1238.19 |
-| **ZN trade** | 766.06 | **460.25** | **−39.9%** | 779.70 → **465.28** | 780.16 → **466.18** |
+**What this establishes.** The best parallel configuration measured still loses to
+serial almost everywhere, including the far tail it was expected to win. The one
+real exception — ZN book, the thinnest book on the slowest channel — is a single
+series out of six and does not generalise.
 
-The trade series move most — **−40% to −66%** — and move as whole
-distributions, not single order statistics: ES trade's p9999 and max both halve
-(435.67 → 200.62, 436.49 → 202.88), as do ZN trade's. That is not one lucky
-sample. It is consistent with the mechanism: trade messages sit in the fattest
-packets, which under the old `n ≤ 8` threshold were decoded inline and serialised
-on one thread; at `n = 1` they fan out and decode in parallel — precisely the case
-where a worker fleet should pay.
+**What it does not establish.** The two changes were measured together, so the
+contribution of each is unknown. And the §8.4 `fast_send` hypothesis is **not
+supported**: if the synchronous reply had been the binding constraint, p50 should
+have improved once the producer stopped waiting. It got worse on all six series.
+Either the constraint is elsewhere, or the threshold change masked the benefit.
 
-Meanwhile p50 regressed on every series (ES 10.28 → 11.54, NQ 9.93 → 13.47,
-ZN 10.13 → 14.31 µs), because 3–9.5% of packets moved from a fast inline path onto
-a slower fan-out path. **Serial still beats all four configurations at every
-percentile**, so this does not change the production guidance.
+**Caveat on the sample.** The parallel window carries fewer messages than the
+serial control (250–279k vs 446–696k book; 8–32 samples above p999 on the trade
+series), so the deep-tail figures carry real uncertainty. The direction is
+consistent across all six series, which the sample size does not explain away.
 
-**What this does and does not establish.**
-
-- It **does** show the parallel path has a regime where it is the better choice:
-  the extreme tail, on the fattest packets. A fleet absorbs a burst that one
-  thread must serialise. That is a real, reproducible effect with a plausible
-  mechanism and it survives at p9999 and max.
-- It **does not** isolate which of the two changes produced it — they were
-  measured together, which was a mistake. The pattern (trade series and fat
-  packets improving most) points at the **threshold**, not the async hand-off.
-  The clean follow-up is async-only with `INLINE_MAX_MSGS` back at 8.
-- It **does not** support the §8.4 hypothesis on its own terms: if the
-  synchronous `fast_send` had been the binding constraint, p50 should have
-  *improved* when the producer stopped waiting. It got worse. Either the
-  constraint is elsewhere, or the threshold change masked the benefit.
-- NQ book is the one series that gets worse at p999 and beyond. It is the busiest
-  channel with the highest multi-message fraction, so it pushes the most traffic
-  onto the fan-out path — which suggests the fan-out path's own tail becomes the
-  limit once enough traffic reaches it.
-
-**Sample sizes are smaller** than the comparison runs (250–279k vs 339–466k book
-messages; 8–32 messages above p999 on the trade series), so the trade p999 figures
-carry real uncertainty even though the direction is consistent across all four
-of them and holds at p9999.
+Recovery was deliberately broken on the branch that produced these numbers
+(`perf/parallel-experiment`, never merged, since deleted), so this is a latency
+measurement only — not a correctness comparison.
 
 ### 8.5 What would actually settle it
 

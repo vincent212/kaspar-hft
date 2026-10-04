@@ -22,7 +22,7 @@ Read these files before making changes:
 4. **File structure** — `FILE_STRUCTURE.md` — complete directory and file inventory with descriptions.
 5. **Actor inventory** — `ACTORS_INVENTORY.md` — every actor in the system, its header, library, and purpose.
 6. **Latency measurement** — `kaspr/perf/README.md` — how to measure MD handler performance end to end: pipeline, build flags, `run_probe.sh`, the three output formats, and an index of all 21 `kh_*.py` analysis scripts. Read before quoting any latency number.
-7. **Decode paths** — `tech_reports/serial_vs_parallel_decode.md` — serial vs parallel decode, measured. Parallel is RESEARCH ONLY and slower; production runs `cme_decode_workers 0`.
+7. **Decode paths** — `tech_reports/serial_vs_parallel_decode.md` — serial vs parallel decode, measured. Parallel decode was slower and has been removed; decode is always serial, and `cme_decode_workers` is no longer read.
 
 ## Build
 

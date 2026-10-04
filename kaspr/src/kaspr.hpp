@@ -55,8 +55,6 @@
 #include "mdp3/if/mdp3.hpp"
 #include "mdp3/handler_if.hpp"
 #include "mdp3/DataDecoder.hpp"
-#include "mdp3/act/DecodeWorker.hpp"
-#include "mdp3/act/Reconstructor.hpp"
 
 //
 // Frame (kaspr uses frame_kaspr for runtime components)
@@ -305,8 +303,7 @@ private:
      * @param venue Exchange venue (CMEMDFUT or CMEMD)
      *
      * TreasOnly selects the treasury-futures handler_if variant (asset-keyed
-     * RefData lookup) AND the matching Reconstructor key from one flag, so the
-     * serial and parallel paths cannot disagree. The definition and every call
+     * RefData lookup). The definition and every call
      * site live in kaspr.cpp, so the template body need not be in this header.
      */
     template <bool TreasOnly = false>

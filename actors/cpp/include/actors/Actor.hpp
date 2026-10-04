@@ -116,7 +116,9 @@ namespace actors
     // Which concrete mailbox an actor uses (see set_mailbox). Public so callers
     // can name a kind; the setter itself is protected (an actor selects its own
     // mailbox, in its constructor, before its thread starts).
-    enum class MailboxKind { BQueue, BQueueBatched, ShardedBQueue, LockFreeMPSC };
+    // LockFreeMPSCSpin is LockFreeMPSC with a consumer that never sleeps: the
+    // actor's thread busy-polls its mailbox and burns its core.
+    enum class MailboxKind { BQueue, BQueueBatched, ShardedBQueue, LockFreeMPSC, LockFreeMPSCSpin };
 
     /**
      * Send a message asynchronously (fire-and-forget)
@@ -220,6 +222,7 @@ namespace actors
         case MailboxKind::BQueueBatched: msgq.emplace<BQueueBatched<MailboxMsg>>(cap ? cap : ACTOR_BQUEUE_SIZE); break;
         case MailboxKind::ShardedBQueue: msgq.emplace<ShardedBQueue<MailboxMsg>>(cap ? cap : 8); break;
         case MailboxKind::LockFreeMPSC:  msgq.emplace<LockFreeMPSC<MailboxMsg>>(cap ? cap : 1024); break;
+        case MailboxKind::LockFreeMPSCSpin: msgq.emplace<LockFreeMPSC<MailboxMsg>>(cap ? cap : 1024, true); break;
       }
     }
 
