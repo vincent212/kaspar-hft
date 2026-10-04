@@ -1,4 +1,4 @@
-\begin{thebibliography}{462}
+\begin{thebibliography}{458}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -164,20 +164,12 @@ Nino Antulov-Fantulin, Tian Guo, and Fabrizio Lillo.
 \newblock \emph{Quantitative Finance}, 24\penalty0 (1):\penalty0 35--57, 2024.
 \newblock \doi{10.1080/14697688.2023.2286351}.
 
-\bibitem[{ATAS}(n.d.{\natexlab{a}})]{atas_auth}
-{ATAS}.
-\newblock Authorization window and platform version selection.
-\newblock
-  \url{https://help.atas.net/en/support/solutions/articles/72000602319-authorization-window-and-platform-version-selection},
-  n.d.{\natexlab{a}}.
-\newblock ATAS Help Center. Accessed 2026-10-04.
-
-\bibitem[{ATAS}(n.d.{\natexlab{b}})]{atas_replay}
+\bibitem[{ATAS}(n.d.)]{atas_replay}
 {ATAS}.
 \newblock Replay trading simulator in {ATAS}.
 \newblock
   \url{https://help.atas.net/en/support/solutions/articles/72000662219-replay-trading-simulator-in-atas},
-  n.d.{\natexlab{b}}.
+  n.d.
 \newblock ATAS help center. Accessed 2026-10-04.
 
 \bibitem[Avellaneda and Stoikov(2008)]{avellaneda2008}
@@ -423,15 +415,6 @@ Thierry Bochud and Damien Challet.
 Hamza Bodor and Laurent Carlier.
 \newblock Deep learning meets queue-reactive: A framework for realistic limit
   order book simulation, 2025.
-
-\bibitem[{Bookmap Ltd.}(2026)]{bookmap_sysreq}
-{Bookmap Ltd.}
-\newblock Bookmap system requirements.
-\newblock
-  \url{https://bookmap.com/knowledgebase/docs/KB-IntroductionToBookmap-SystemRequirements},
-  2026.
-\newblock Bookmap Knowledge Base, last updated 27 July 2026. Accessed
-  2026-10-04.
 
 \bibitem[{Bookmap Ltd.}(n.d.)]{bookmap_replay}
 {Bookmap Ltd.}
@@ -2195,15 +2178,6 @@ Luca Mucciante and Alessio Sancetta.
 \newblock \doi{10.1093/jjfinec/nbad021}.
 \newblock Published online 11 Aug 2023.
 
-\bibitem[{MultiCharts, LLC}(2017)]{multicharts_license2pc}
-{MultiCharts, LLC}.
-\newblock How to use your license on two computers at the same time.
-\newblock
-  \url{https://www.multicharts.com/trading-software/index.php/How_to_use_your_license_on_two_computers_at_the_same_time},
-  2017.
-\newblock MultiCharts wiki, last modified 30 May 2017. Read via web.archive.org
-  snapshot 2018-10-08. Accessed 2026-10-04.
-
 \bibitem[{MultiCharts, LLC}(n.d.)]{multicharts_sim}
 {MultiCharts, LLC}.
 \newblock How to use simulated trading; data playback.
@@ -2780,20 +2754,11 @@ Zijian Shi, Yu~Chen, and John Cartlidge.
   Intelligence}, volume~35, pages 548--556, 2021.
 \newblock \doi{10.1609/aaai.v35i1.16133}.
 
-\bibitem[{Sierra Chart}(n.d.{\natexlab{a}})]{sierrachart_purchase}
-{Sierra Chart}.
-\newblock Purchase information: Licensing / number of systems.
-\newblock
-  \url{https://www.sierrachart.com/index.php?page=doc/PurchaseInformation.php},
-  n.d.{\natexlab{a}}.
-\newblock Sierra Chart documentation. Accessed 2026-10-04.
-
-\bibitem[{Sierra Chart}(n.d.{\natexlab{b}})]{sierrachart_replay}
+\bibitem[{Sierra Chart}(n.d.)]{sierrachart_replay}
 {Sierra Chart}.
 \newblock Replaying charts.
 \newblock
-  \url{https://www.sierrachart.com/index.php?page=doc/ReplayChart.html},
-  n.d.{\natexlab{b}}.
+  \url{https://www.sierrachart.com/index.php?page=doc/ReplayChart.html}, n.d.
 \newblock Accessed 2026-10-04.
 
 \bibitem[Sirignano and Cont(2019)]{sirignano2019}

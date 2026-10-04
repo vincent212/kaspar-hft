@@ -512,7 +512,8 @@ Hummingbot~\citep{hummingbot} and Barter~\citep{barter}.
 \centering\scriptsize
 \caption{Historical-replay backtesters at order-book level, from their papers, documentation and code. ``Recorded
 market unchanged'': the simulated orders do not alter the replayed book (no market impact). ``--'': not provided;
-``not stated'': documentation silent. Commercial entries (below the line) are from vendor documentation; the Deltix
+``not stated'': documentation silent. Commercial entries are from vendor documentation: institutional tools below the first line, retail
+charting platforms below the second; the Deltix
 knowledge base requires a login and was not read, and no readable documentation of a replay fill simulator was found
 for CQG. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor claim, \ev{A} independently audited, \ev{O} the author's own system.}
 \label{tab:replay-tools}
@@ -536,6 +537,7 @@ hft-backtesting\ev{C} & price-level & estimated, probabilistic & single delay & 
 \midrule
 TT Backtesting\ev{D} & book and trades; price- or order-level not stated & estimated: quantity ahead reduced by trades, not by cancels & not stated & not stated & yes (TT algos) & TT-connected exchanges \\
 Deltix QuantOffice\ev{D} & price- or order-level & not stated & configurable & no: fills remove replayed liquidity & yes & several asset classes \\
+\midrule
 NinjaTrader Playback\ev{D} & price-level; bid and ask sizes set to 1 & not stated & -- & not stated & yes & data-provider dependent \\
 Bookmap replay\ev{D} & depth and best quotes & estimate displayed; use in fills not stated & not stated & not stated & yes & recorded feeds; CME futures \\
 MultiCharts\ev{D} & levels 1 and 2 & not stated & not stated & not stated & yes & data-provider dependent \\
@@ -561,13 +563,11 @@ the number of runs. The other tools differ on this point (Table~\ref{tab:paralle
 the same: hftbacktest's examples run backtests in parallel processes~\citep{hftbacktest}, NautilusTrader recommends one
 process per backtest~\citep{nautilustrader}, and ABIDES ships a script that starts one replay process per
 date~\citep{abides_repo}; JAX-LOB instead runs up to a thousand environments in parallel on one GPU~\citep{frey2023}.
-Among the commercial tools, TT's backtests run only on TT's servers, are charged by run time, and cover at most one
-trading day each~\citep{tt_backtest_run,tt_backtest_getstarted}; Bookmap and ATAS allow one running copy or session per
-licence or account~\citep{bookmap_sysreq,atas_auth}; and a MultiCharts licence runs online on one computer at a
-time~\citep{multicharts_license2pc}. Sierra Chart is the exception: its licence allows many copies on one computer at the
-same time~\citep{sierrachart_purchase}. For NinjaTrader's depth replay, Deltix and lobsim the documentation does not
-say. Compared with the commercial replay tools, therefore, the ability to run many days in parallel on one's own
-hardware is an advantage of Kaspar shared only by Sierra Chart; among open-source tools it is common.
+Among the institutional commercial tools, TT's backtests run only on TT's servers, are charged by run time, and cover
+at most one trading day each~\citep{tt_backtest_run,tt_backtest_getstarted}; for Deltix and lobsim the documentation
+does not say. Retail charting platforms are left out of this comparison: they fill replayed orders without a queue or
+do not document how they fill them (Section~\ref{sec:sim-survey}), so running many copies of them does not provide
+the same kind of simulation.
 
 \begin{table}[!htbp]
 \centering\footnotesize
@@ -585,11 +585,6 @@ JAX-LOB\ev{P} & on one GPU & up to 1,000 parallel environments; GPU memory \\
 lobsim\ev{C} & not documented & open licence; no restriction found \\
 \midrule
 TT Backtesting\ev{D} & no & runs on TT's servers only; one trading day per backtest; charged by run time \\
-Bookmap\ev{D} & no & one running copy per licence \\
-ATAS\ev{D} & no & one active session per account \\
-MultiCharts\ev{D} & limited & online on one computer; a second computer offline for backtesting \\
-Sierra Chart\ev{D} & yes & many copies on one computer under one licence \\
-NinjaTrader (depth replay)\ev{D} & not documented & one replay connection per session described \\
 Deltix QuantOffice\ev{D} & not documented & cloud product lists a parallel runner; licence terms behind a login \\
 \bottomrule
 \end{tabularx}
@@ -1579,8 +1574,7 @@ do not say how they do it (Section~\ref{sec:sim-survey}).
 \paragraph{Kaspar.} Kaspar replays an exchange's own market-by-order feed (CME MDP~3.0 today), places simulated orders
 in the reconstructed first-in-first-out queues after separate order, cancel and feed delays, fills them only when
 recorded executions reach an order behind them, and runs the same code in replay, paper and live trading. It replays
-one day per process, so many days can run at once on one machine; among commercial replay tools only Sierra Chart's
-licence allows the same (Table~\ref{tab:parallel}). A model of Part~II is added as one more actor that reads the book
+one day per process, so many days can run at once on one machine (Table~\ref{tab:parallel}). A model of Part~II is added as one more actor that reads the book
 and sends its predictions to the strategy (Section~\ref{sec:kaspar-actor}).
 
 \paragraph{Reinforcement learning.} RL learns the trading policy directly instead of a prediction, and it is only as
