@@ -1,0 +1,218 @@
+% refs_rl.bib -- reinforcement learning on limit order books, checked 2026-10-04
+% Provenance per entry in the comment line above it; details in notes/claims_rl.md.
+%
+% REUSED existing keys (NOT repeated here):
+%   hambly2023, spooner2018, rl_markets, sadighian2019, cryptorl, kumar2020drl,
+%   kumar2021hawkes, kumar2023marl, guo2023mm, zhao2021ber, gasperov2022, karpe2020,
+%   balch2019replay, vyetrenko2019 (bib/refs_sim2.bib)
+%   lalor2025nhp, byrd2020abides, coletta2022 (bib/refs_dl.bib)
+%   frey2023 (refs.bib; duplicate jaxlob2023 in bib/refs_eval.bib)
+%   amrouni2021abidesgym, jerome2023mbtgym (bib/refs_sim.bib)
+%   bailey2014, bailey2014pbo, avellaneda2008, almgren2001 (refs.bib)
+
+% ================= Surveys =================
+
+% Crossref [META]; full text read from MDPI PDF [FT]
+@article{gasperov2021survey,
+  author  = {Ga{\v{s}}perov, Bruno and Begu{\v{s}}i{\'c}, Stjepan and Posedel {\v{S}}imovi{\'c}, Petra and Kostanj{\v{c}}ar, Zvonko},
+  title   = {Reinforcement Learning Approaches to Optimal Market Making},
+  journal = {Mathematics},
+  volume  = {9},
+  number  = {21},
+  pages   = {2689},
+  year    = {2021},
+  doi     = {10.3390/math9212689}
+}
+
+% Crossref [META]; full text read is arXiv v1 2109.13851 (2021), not the journal version
+@article{sun2023qtsurvey,
+  author  = {Sun, Shuo and Wang, Rundong and An, Bo},
+  title   = {Reinforcement Learning for Quantitative Trading},
+  journal = {ACM Transactions on Intelligent Systems and Technology},
+  volume  = {14},
+  number  = {3},
+  pages   = {1--29},
+  year    = {2023},
+  doi     = {10.1145/3582560},
+  eprint        = {2109.13851},
+  archivePrefix = {arXiv}
+}
+
+% ================= Optimal execution =================
+
+% Crossref [META]; full text from author PDF [FT]
+@inproceedings{nevmyvaka2006,
+  author    = {Nevmyvaka, Yuriy and Feng, Yi and Kearns, Michael},
+  title     = {Reinforcement Learning for Optimized Trade Execution},
+  booktitle = {Proceedings of the 23rd International Conference on Machine Learning (ICML '06)},
+  pages     = {673--680},
+  year      = {2006},
+  doi       = {10.1145/1143844.1143929}
+}
+
+% Crossref [META] (issued 2021, vol 28 no 4; DOI has a 2022 suffix); full text arXiv v2 [FT]
+@article{ning2021ddqn,
+  author  = {Ning, Brian and Lin, Franco Ho Ting and Jaimungal, Sebastian},
+  title   = {Double Deep Q-Learning for Optimal Execution},
+  journal = {Applied Mathematical Finance},
+  volume  = {28},
+  number  = {4},
+  pages   = {361--380},
+  year    = {2021},
+  doi     = {10.1080/1350486X.2022.2077783},
+  eprint        = {1812.06600},
+  archivePrefix = {arXiv}
+}
+
+% Crossref [META]; full text from ijcai.org [FT]
+@inproceedings{lin2020ppo,
+  author    = {Lin, Siyu and Beling, Peter A.},
+  title     = {An End-to-End Optimal Trade Execution Framework Based on Proximal Policy Optimization},
+  booktitle = {Proceedings of the Twenty-Ninth International Joint Conference on Artificial Intelligence (IJCAI-20)},
+  pages     = {4548--4554},
+  year      = {2020},
+  doi       = {10.24963/ijcai.2020/627}
+}
+
+% Crossref [META]; full text arXiv v1 (arXiv title says model instead of framework) [FT]
+@inproceedings{hendricks2014,
+  author    = {Hendricks, Dieter and Wilcox, Diane},
+  title     = {A Reinforcement Learning Extension to the {A}lmgren-{C}hriss Framework for Optimal Trade Execution},
+  booktitle = {2014 IEEE Conference on Computational Intelligence for Financial Engineering \& Economics (CIFEr)},
+  pages     = {457--464},
+  year      = {2014},
+  doi       = {10.1109/CIFEr.2014.6924109},
+  eprint        = {1403.2229},
+  archivePrefix = {arXiv}
+}
+
+% Crossref [META]; full text arXiv v1 [FT]
+@inproceedings{zhang2023generalizable,
+  author    = {Zhang, Chuheng and Duan, Yitong and Chen, Xiaoyu and Chen, Jianyu and Li, Jian and Zhao, Li},
+  title     = {Towards Generalizable Reinforcement Learning for Trade Execution},
+  booktitle = {Proceedings of the Thirty-Second International Joint Conference on Artificial Intelligence (IJCAI-23)},
+  pages     = {4975--4983},
+  year      = {2023},
+  doi       = {10.24963/ijcai.2023/553},
+  eprint        = {2307.11685},
+  archivePrefix = {arXiv}
+}
+
+% Crossref [META]; full text arXiv v1 [FT]
+@inproceedings{fang2021opd,
+  author    = {Fang, Yuchen and Ren, Kan and Liu, Weiqing and Zhou, Dong and Zhang, Weinan and Bian, Jiang and Yu, Yong and Liu, Tie-Yan},
+  title     = {Universal Trading for Order Execution with Oracle Policy Distillation},
+  booktitle = {Proceedings of the AAAI Conference on Artificial Intelligence},
+  volume    = {35},
+  number    = {1},
+  pages     = {107--115},
+  year      = {2021},
+  doi       = {10.1609/aaai.v35i1.16083},
+  eprint        = {2103.10860},
+  archivePrefix = {arXiv}
+}
+
+% ================= Market making =================
+
+% Crossref [META] (issued 2019, vol 26 no 5); full text arXiv v1 [FT]
+@article{gueant2019bonds,
+  author  = {Gu{\'e}ant, Olivier and Manziuk, Iuliia},
+  title   = {Deep Reinforcement Learning for Market Making in Corporate Bonds: Beating the Curse of Dimensionality},
+  journal = {Applied Mathematical Finance},
+  volume  = {26},
+  number  = {5},
+  pages   = {387--452},
+  year    = {2019},
+  doi     = {10.1080/1350486X.2020.1714455},
+  eprint        = {1910.13205},
+  archivePrefix = {arXiv}
+}
+
+% arXiv API [META]; no venue found; full text [FT]
+@misc{sadighian2020,
+  author        = {Sadighian, Jonathan},
+  title         = {Extending Deep Reinforcement Learning Frameworks in Cryptocurrency Market Making},
+  year          = {2020},
+  eprint        = {2004.06985},
+  archivePrefix = {arXiv}
+}
+
+% arXiv API [META]; no venue in arXiv metadata; full text [FT]
+@misc{ganesh2019dealer,
+  author        = {Ganesh, Sumitra and Vadori, Nelson and Xu, Mengda and Zheng, Hua and Reddy, Prashant and Veloso, Manuela},
+  title         = {Reinforcement Learning for Market Making in a Multi-agent Dealer Market},
+  year          = {2019},
+  eprint        = {1911.05892},
+  archivePrefix = {arXiv}
+}
+
+% Crossref [META]; open-access full text [FT]
+@article{gasperov2021signals,
+  author  = {Ga{\v{s}}perov, Bruno and Kostanj{\v{c}}ar, Zvonko},
+  title   = {Market Making With Signals Through Deep Reinforcement Learning},
+  journal = {IEEE Access},
+  volume  = {9},
+  pages   = {61611--61622},
+  year    = {2021},
+  doi     = {10.1109/ACCESS.2021.3074782}
+}
+
+% Crossref [META]; full text arXiv v1 [FT]
+@inproceedings{niu2024imm,
+  author    = {Niu, Hui and Li, Siyuan and Zheng, Jiahao and Lin, Zhouchi and An, Bo and Li, Jian and Guo, Jian},
+  title     = {{IMM}: An Imitative Reinforcement Learning Approach with Predictive Representation Learning for Automatic Market Making},
+  booktitle = {Proceedings of the Thirty-Third International Joint Conference on Artificial Intelligence (IJCAI-24)},
+  pages     = {5999--6007},
+  year      = {2024},
+  doi       = {10.24963/ijcai.2024/663},
+  eprint        = {2308.08918},
+  archivePrefix = {arXiv}
+}
+
+% arXiv API [META]; preprint only (Authorea and SSRN copies, no peer-reviewed version found); full text v2 [FT]
+@misc{ragel2025timetravel,
+  author        = {Ragel, Vincent and Challet, Damien},
+  title         = {Consistent Time Travel for Realistic Interactions with Historical Data: Reinforcement Learning for Market Making},
+  year          = {2025},
+  eprint        = {2408.02322},
+  archivePrefix = {arXiv},
+  note          = {arXiv v2, 29 Jan 2025}
+}
+
+% ================= Simulator realism / robustness =================
+
+% Crossref [META] (ICAIF 2020); full text read is arXiv v1, which states NeurIPS 2019 workshop [FT]
+@inproceedings{vyetrenko2020getreal,
+  author    = {Vyetrenko, Svitlana and Byrd, David and Petosa, Nick and Mahfouz, Mahmoud and Dervovic, Danial and Veloso, Manuela and Balch, Tucker},
+  title     = {Get Real: Realism Metrics for Robust Limit Order Book Market Simulations},
+  booktitle = {Proceedings of the First ACM International Conference on AI in Finance (ICAIF '20)},
+  pages     = {1--8},
+  year      = {2020},
+  doi       = {10.1145/3383455.3422561},
+  eprint        = {1912.04941},
+  archivePrefix = {arXiv}
+}
+
+% Crossref [META]; full text arXiv v1 [FT]
+@inproceedings{coletta2023cgan,
+  author    = {Coletta, Andrea and Jerome, Joseph and Savani, Rahul and Vyetrenko, Svitlana},
+  title     = {Conditional Generators for Limit Order Book Environments: Explainability, Challenges, and Robustness},
+  booktitle = {Proceedings of the 4th ACM International Conference on AI in Finance (ICAIF '23)},
+  pages     = {27--35},
+  year      = {2023},
+  doi       = {10.1145/3604237.3626854},
+  eprint        = {2306.12806},
+  archivePrefix = {arXiv}
+}
+
+% ================= Imitation / inverse RL =================
+
+% arXiv API comment and abs-page metadata [META] (Rullan as in arXiv metadata; PDF prints Rul.lan); workshop paper; full text [FT]
+@misc{roavicens2019irl,
+  author        = {Roa-Vicens, Jacobo and Chtourou, Cyrine and Filos, Angelos and Rullan, Francisco and Gal, Yarin and Silva, Ricardo},
+  title         = {Towards Inverse Reinforcement Learning for Limit Order Book Dynamics},
+  year          = {2019},
+  eprint        = {1906.04813},
+  archivePrefix = {arXiv},
+  note          = {ICML 2019 Workshop on AI in Finance: Applications and Infrastructure for Multi-Agent Learning}
+}

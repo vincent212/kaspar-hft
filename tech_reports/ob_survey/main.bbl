@@ -1,4 +1,4 @@
-\begin{thebibliography}{443}
+\begin{thebibliography}{452}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -771,6 +771,15 @@ Andrea Coletta, Aymeric Moulin, Svitlana Vyetrenko, and Tucker Balch.
   in Finance (ICAIF '22)}, pages 428--436, 2022.
 \newblock \doi{10.1145/3533271.3561753}.
 
+\bibitem[Coletta et~al.(2023)Coletta, Jerome, Savani, and
+  Vyetrenko]{coletta2023cgan}
+Andrea Coletta, Joseph Jerome, Rahul Savani, and Svitlana Vyetrenko.
+\newblock Conditional generators for limit order book environments:
+  Explainability, challenges, and robustness.
+\newblock In \emph{Proceedings of the 4th ACM International Conference on AI in
+  Finance (ICAIF '23)}, pages 27--35, 2023.
+\newblock \doi{10.1145/3604237.3626854}.
+
 \bibitem[{Commodity Futures Trading Commission}(2013)]{cftc2013spoofing}
 {Commodity Futures Trading Commission}.
 \newblock Antidisruptive practices authority.
@@ -1217,6 +1226,13 @@ Stefan Frey and Patrik Sand{\aa}s.
   1750007, 2017.
 \newblock \doi{10.1142/S2010139217500070}.
 
+\bibitem[Ganesh et~al.(2019)Ganesh, Vadori, Xu, Zheng, Reddy, and
+  Veloso]{ganesh2019dealer}
+Sumitra Ganesh, Nelson Vadori, Mengda Xu, Hua Zheng, Prashant Reddy, and
+  Manuela Veloso.
+\newblock Reinforcement learning for market making in a multi-agent dealer
+  market, 2019.
+
 \bibitem[Gao et~al.(2024)Gao, Dai, and Hu]{gao2024mhp}
 Anningzhe Gao, Shan Dai, and Yan Hu.
 \newblock {M}amba {H}awkes process, 2024.
@@ -1227,6 +1243,14 @@ Robert Garrison, Pankaj Jain, and Mark Paddrik.
 \newblock OFR Working Paper 19-04, Office of Financial Research, 2019.
 \newblock URL
   \url{https://www.financialresearch.gov/working-papers/files/OFRwp-19_04_cross-asset-market-order-flow-liquidity-and-price-discovery.pdf}.
+
+\bibitem[Ga{\v{s}}perov et~al.(2021)Ga{\v{s}}perov, Begu{\v{s}}i{\'c},
+  Posedel~{\v{S}}imovi{\'c}, and Kostanj{\v{c}}ar]{gasperov2021survey}
+Bruno Ga{\v{s}}perov, Stjepan Begu{\v{s}}i{\'c}, Petra
+  Posedel~{\v{S}}imovi{\'c}, and Zvonko Kostanj{\v{c}}ar.
+\newblock Reinforcement learning approaches to optimal market making.
+\newblock \emph{Mathematics}, 9\penalty0 (21):\penalty0 2689, 2021.
+\newblock \doi{10.3390/math9212689}.
 
 \bibitem[Gatheral et~al.(2018)Gatheral, Jaisson, and
   Rosenbaum]{gatheral2018rough}
@@ -1471,6 +1495,14 @@ C.~Evans Hedges.
   for limit order book prediction, 2026.
 \newblock Preprint.
 
+\bibitem[Hendricks and Wilcox(2014)]{hendricks2014}
+Dieter Hendricks and Diane Wilcox.
+\newblock A reinforcement learning extension to the {A}lmgren-{C}hriss
+  framework for optimal trade execution.
+\newblock In \emph{2014 IEEE Conference on Computational Intelligence for
+  Financial Engineering \& Economics (CIFEr)}, pages 457--464, 2014.
+\newblock \doi{10.1109/CIFEr.2014.6924109}.
+
 \bibitem[Hewitt et~al.(1973)Hewitt, Bishop, and Steiger]{hewitt1973}
 Carl Hewitt, Peter Bishop, and Richard Steiger.
 \newblock A universal modular {ACTOR} formalism for artificial intelligence.
@@ -1669,6 +1701,14 @@ R.~E. Kalman.
 \newblock \emph{Journal of Basic Engineering}, 82\penalty0 (1):\penalty0
   35--45, 1960.
 \newblock \doi{10.1115/1.3662552}.
+
+\bibitem[Karpe et~al.(2020)Karpe, Fang, Ma, and Wang]{karpe2020}
+Micha{\"e}l Karpe, Jin Fang, Zhongyao Ma, and Chen Wang.
+\newblock Multi-agent reinforcement learning in a realistic limit order book
+  market simulation.
+\newblock In \emph{Proceedings of the First ACM International Conference on AI
+  in Finance (ICAIF '20)}, 2020.
+\newblock \doi{10.1145/3383455.3422570}.
 
 \bibitem[Kawawa-Beaudan et~al.(2026)Kawawa-Beaudan, Sood, Papasotiriou,
   Borrajo, and Veloso]{tradefm2026}
@@ -2185,12 +2225,26 @@ Rolf Neugebauer, Gianni Antichi, Jos{\'e}~Fernando Zazo, Yury Audzevich, Sergio
   2018.
 \newblock \doi{10.1145/3230543.3230560}.
 
+\bibitem[Nevmyvaka et~al.(2006)Nevmyvaka, Feng, and Kearns]{nevmyvaka2006}
+Yuriy Nevmyvaka, Yi~Feng, and Michael Kearns.
+\newblock Reinforcement learning for optimized trade execution.
+\newblock In \emph{Proceedings of the 23rd International Conference on Machine
+  Learning (ICML '06)}, pages 673--680, 2006.
+\newblock \doi{10.1145/1143844.1143929}.
+
 \bibitem[Niculescu-Mizil and Caruana(2005)]{niculescu2005}
 Alexandru Niculescu-Mizil and Rich Caruana.
 \newblock Predicting good probabilities with supervised learning.
 \newblock In \emph{Proceedings of the 22nd International Conference on Machine
   Learning (ICML '05)}, pages 625--632, 2005.
 \newblock \doi{10.1145/1102351.1102430}.
+
+\bibitem[Ning et~al.(2021)Ning, Lin, and Jaimungal]{ning2021ddqn}
+Brian Ning, Franco Ho~Ting Lin, and Sebastian Jaimungal.
+\newblock Double deep q-learning for optimal execution.
+\newblock \emph{Applied Mathematical Finance}, 28\penalty0 (4):\penalty0
+  361--380, 2021.
+\newblock \doi{10.1080/1350486X.2022.2077783}.
 
 \bibitem[{NinjaTrader, LLC}(n.d.)]{ninjatrader_playback}
 {NinjaTrader, LLC}.
@@ -3035,6 +3089,16 @@ Svitlana Vyetrenko and Shaojie Xu.
 \newblock Risk-sensitive compact decision trees for autonomous execution in
   presence of simulated market response, 2019.
 
+\bibitem[Vyetrenko et~al.(2020)Vyetrenko, Byrd, Petosa, Mahfouz, Dervovic,
+  Veloso, and Balch]{vyetrenko2020getreal}
+Svitlana Vyetrenko, David Byrd, Nick Petosa, Mahmoud Mahfouz, Danial Dervovic,
+  Manuela Veloso, and Tucker Balch.
+\newblock Get real: Realism metrics for robust limit order book market
+  simulations.
+\newblock In \emph{Proceedings of the First ACM International Conference on AI
+  in Finance (ICAIF '20)}, pages 1--8, 2020.
+\newblock \doi{10.1145/3383455.3422561}.
+
 \bibitem[Wallbridge(2020)]{wallbridge2020}
 James Wallbridge.
 \newblock Transformers for limit order books, 2020.
@@ -3236,6 +3300,14 @@ Ilia Zaznov, Julian Kunkel, Alfonso Dufour, and Atta Badii.
   survey.
 \newblock \emph{Mathematics}, 10\penalty0 (8):\penalty0 1234, 2022.
 \newblock \doi{10.3390/math10081234}.
+
+\bibitem[Zhang et~al.(2023)Zhang, Duan, Chen, Chen, Li, and
+  Zhao]{zhang2023generalizable}
+Chuheng Zhang, Yitong Duan, Xiaoyu Chen, Jianyu Chen, Jian Li, and Li~Zhao.
+\newblock Towards generalizable reinforcement learning for trade execution.
+\newblock In \emph{Proceedings of the Thirty-Second International Joint
+  Conference on Artificial Intelligence (IJCAI-23)}, pages 4975--4983, 2023.
+\newblock \doi{10.24963/ijcai.2023/553}.
 
 \bibitem[Zhang et~al.(2020)Zhang, Lipani, Kirnap, and Yilmaz]{zhang2020sahp}
 Qiang Zhang, Aldo Lipani, Omer Kirnap, and Emine Yilmaz.
