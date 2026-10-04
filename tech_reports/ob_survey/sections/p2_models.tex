@@ -6677,6 +6677,35 @@ Most deep LOB papers solve one of six problems:
 \item[Generation] produce synthetic message streams or book snapshots (Section~\ref{sec:deep-gen}).
 \end{description}
 
+\paragraph{Tokens are a choice of input, not of architecture.} A common confusion is that every deep LOB model, or
+every Transformer, reads tokens and predicts the next one. Neither is true (Table~\ref{tab:input-output-kinds}). A
+model that reads snapshots or order flow takes real numbers directly and has no tokens, whether it is a
+convolutional network or a Transformer. Tokens appear only when the input is the stream of individual messages and
+each message, or each of its fields, is mapped to an entry of a fixed vocabulary, as words are in a language model
+(Section~\ref{sec:deep-tok}). What a model predicts is set separately, by its output layer and its loss: the same
+network body can end in a classification head (a direction), a regression head (a return, or several), a head over
+the vocabulary (the next message), or a survival curve (the time to a fill).
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{Input format, tokenisation and prediction for representative deep LOB models.}
+\label{tab:input-output-kinds}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.22\linewidth}>{\raggedright\arraybackslash}p{0.16\linewidth}>{\raggedright\arraybackslash}X}
+\toprule
+Model & Input & Tokens? & Predicts \\
+\midrule
+DeepLOB~\citep{zhang2019} (CNN + LSTM) & last 100 snapshots, 40 real numbers each & no & direction class at 20, 50 and 100 events \\
+TransLOB~\citep{wallbridge2020}, TLOB~\citep{berti2025tlob} (Transformers) & windows of snapshots, real numbers & no & direction class \\
+Multi-horizon models~\citep{kolm2023,zhangzohren2021} & order flow or snapshots & no & returns, or their directions, at several horizons \\
+Full-book forecasting~\citep{arxiv240902277} & snapshots & no & future prices and volumes at several levels \\
+Fill-time models (Section~\ref{sec:deep-fill}) & book features and the order's situation & no & survival curve of the time to a fill \\
+LOBERT~\citep{linna2025lobert} (Transformer encoder) & messages: one token per message, with exact price, size and time attached & yes & pretrained on hidden messages; fine-tuned for the next message and for direction at 10, 50 and 100 messages \\
+Generators~\citep{nagy2023,wheeler2024marketgpt} (GPT-style) & messages: several tokens per message, one per field & yes & the next token, used to generate message streams \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
 \subsubsection{The FI-2010 data set}
 \label{sec:deep-io-fi2010}
 
