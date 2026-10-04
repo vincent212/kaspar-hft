@@ -6686,6 +6686,13 @@ each message, or each of its fields, is mapped to an entry of a fixed vocabulary
 network body can end in a classification head (a direction), a regression head (a return, or several), a head over
 the vocabulary (the next message), or a survival curve (the time to a fill).
 
+\paragraph{Tokens and labels.} The two are different. A \emph{token} is a unit of input: one entry of the vocabulary
+that a message, or one of its fields, is turned into. A \emph{label} is the correct answer for a training example
+(Section~\ref{sec:deep-what}): ``up'', ``stationary'' or ``down'' for the mid 20 events later, say. Every supervised
+model has labels; only message-level models have tokens. The two meet in models trained to predict the next message:
+there the label for each position is simply the token at the next position, so the message stream supplies its own
+answers and no labels have to be built by hand---which is why such training is called \emph{self-supervised}.
+
 \begin{table}[!htbp]
 \centering\footnotesize
 \caption{Input format, tokenisation and prediction for representative deep LOB models.}
