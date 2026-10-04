@@ -1,7 +1,7 @@
 \paragraph{About this part.} Part~II asked what the book predicts. Part~III is about the infrastructure needed to
 turn a prediction into a tested trading decision. It sets out what a simulator must capture for execution
 questions---queue position, adverse selection and latency (Section~\ref{sec:sim-needs}); surveys the order-book
-simulators available (Section~\ref{sec:simulators}); presents Kaspar, the queue-exact replay and trading system used
+simulators available (Section~\ref{sec:simulators}); presents \kasparhft{}, the queue-exact replay and trading system used
 throughout, including how an order-book model is added to it as an actor that publishes its predictions to a strategy
 (Section~\ref{sec:kaspar}); explains why order-book
 models are slow at inference and what hardware can accelerate (Section~\ref{sec:hardware}); and ends with a summary
@@ -242,17 +242,17 @@ and is strongly concave in size~\citep{toth2011}.
 \begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
 \item \textbf{A passive order against an unchanged market.} Would this resting order have been filled, and at what
   price, if the market had behaved as recorded? A queue-exact replay answers this directly: it is the question
-  Kaspar's replay is built for (Section~\ref{sec:kaspar-fills}).
+  \kasparhft{}'s replay is built for (Section~\ref{sec:kaspar-fills}).
 \item \textbf{Small orders, counterfactually.} If the strategy's orders are small compared with the volume at their
   prices, the recorded market is a reasonable stand-in for the market that would have occurred. Replay costs are then
-  costs before the market's reaction; the Kaspar study reports participation as an upper bound for this
+  costs before the market's reaction; the \kasparhft{} study reports participation as an upper bound for this
   reason~\citep{maciejewski_shadow}.
 \item \textbf{Large orders.} A metaorder moves the price by an amount that grows with its size and partly persists.
   Replay cannot measure this, because the recorded market does not respond; it needs an impact model such as those
   above, calibrated on the trader's own executions.
 \item \textbf{Mechanical impact in a reacting simulator.} A model-based simulator lets the strategy's orders consume
   queues and the rates respond. A neural queue-reactive simulator reproduces the square-root law when metaorders are
-  injected~\citep{deepqr}; Kaspar's separation of the market-data source from the book, order manager and strategy lets such a
+  injected~\citep{deepqr}; \kasparhft{}'s separation of the market-data source from the book, order manager and strategy lets such a
   simulator replace the recorded feed without changing the rest of the system (Section~\ref{sec:kaspar-fills}).
 \item \textbf{Strategic interaction.} Other traders may detect a large trader and trade against it: when a trader
   must sell and others know it, they sell first and buy back later~\citep{brunnermeier2005}. Neither replay nor a
@@ -269,7 +269,7 @@ response. Most execution questions about passive orders by a single strategy fal
 An order-book simulator estimates what would have happened to a researcher's orders. Simulators differ in where the
 market comes from and in how faithfully they model the mechanics of Section~\ref{sec:sim-needs}. This section first
 shows why a naive backtest is not a simulator for passive orders and what a queue-exact replay requires; it then
-surveys the simulators in use for research and compares them on those requirements, describes the Kaspar system in
+surveys the simulators in use for research and compares them on those requirements, describes the \kasparhft{} system in
 detail, and shows how an order-book model is added to it.
 
 \subsection{Naive backtests and queue-exact replay}
@@ -370,7 +370,7 @@ has to be detected and the interval excluded or repaired.
 
 This section compares existing simulators in two steps. Table~\ref{tab:simulators} covers the simulators most used
 in research, of all four kinds described below; Table~\ref{tab:replay-tools} then narrows to historical-replay tools
-only, the kind Kaspar belongs to, and includes every such tool we could classify. A few tools, such as hftbacktest
+only, the kind \kasparhft{} belongs to, and includes every such tool we could classify. A few tools, such as hftbacktest
 and NautilusTrader, appear in both.
 
 \paragraph{Four kinds of simulator.} Simulators differ first in where the market comes from.
@@ -399,7 +399,7 @@ Figure~\ref{fig:sim-kinds} sets the four kinds side by side.
 \node[r] at (-1.9,-2.85) {your order's queue position};
 \node[r] at (-1.9,-3.85) {examples};
 \foreach \x/\a/\b/\cc/\d in {
-  0/{the recorded market}/{no}/{exact with order-level data; otherwise estimated}/{Kaspar, hftbacktest, JAX-LOB},
+  0/{the recorded market}/{no}/{exact with order-level data; otherwise estimated}/{\kasparhft{}, hftbacktest, JAX-LOB},
   1/{rule-following simulated traders}/{yes}/{exact, in a simulated queue}/{ABIDES, MAXE, PyMarketSim},
   2/{a fitted stochastic model of the book}/{yes, through the model's rates}/{depends on the model; often none}/{queue-reactive model, mbt\_gym},
   3/{a network trained on order data}/{yes, conditioned on your orders}/{exact, in a simulated queue}/{MarS, TRADES}} {
@@ -425,7 +425,7 @@ reinforcement-learning interface ABIDES-Gym~\citep{amrouni2021abidesgym} (Python
 a Python interface) and PyMarketSim~\citep{mascioli2024pymarketsim} (Python, for reinforcement learning). JAX-LOB replays
 Nasdaq order messages on a GPU so that many simulations run in parallel for reinforcement-learning
 training~\citep{frey2023}; hftbacktest replays mainly cryptocurrency data and, with order-level data, uses the same fill
-rule as Kaspar~\citep{hftbacktest}; NautilusTrader is an event-driven backtester and live-trading platform in Rust and
+rule as \kasparhft{}~\citep{hftbacktest}; NautilusTrader is an event-driven backtester and live-trading platform in Rust and
 Python~\citep{nautilustrader}. mbt\_gym simulates prices and fills from parametric models without a
 book~\citep{jerome2023mbtgym}. MarS generates order flow with a large generative model trained on Chinese equity
 orders~\citep{li2025mars}, TRADES with a diffusion model inside ABIDES~\citep{berti2025trades}, and the queue-reactive
@@ -455,7 +455,7 @@ MarS\ev{P,C} & generative model & exact (simulated) & computation and communicat
 TRADES\ev{P,C} & generative model in ABIDES & exact (simulated) & -- (as shipped) & yes & seeded & -- \\
 Queue-reactive\ev{P} & model & one tagged order, under stated assumptions & -- & yes, through queue sizes & -- & -- \\
 \midrule
-Kaspar (Section~\ref{sec:kaspar})\ev{O} & replay (any venue with a feed handler; CME MDP~3.0 implemented) & exact (recorded) & separate order, cancel and feed delays & -- & single thread, market-time clock, seeded; identical fills on replay reported & live path shares all code up to one branch \\
+\kasparhft{} (Section~\ref{sec:kaspar})\ev{O} & replay (any venue with a feed handler; CME MDP~3.0 implemented) & exact (recorded) & separate order, cancel and feed delays & -- & single thread, market-time clock, seeded; identical fills on replay reported & live path shares all code up to one branch \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -464,22 +464,22 @@ Kaspar (Section~\ref{sec:kaspar})\ev{O} & replay (any venue with a feed handler;
 the simulated orders, which replay cannot; but in them the queue is exact only inside a simulated market, so fill
 rates are only as realistic as the simulated order flow. Among replay tools, exact queue position in the recorded
 market requires order-level data and an order-level book: in Table~\ref{tab:simulators}, hftbacktest with
-order-level data and Kaspar provide it, JAX-LOB approximates it, and NautilusTrader estimates it. Only hftbacktest,
-NautilusTrader and Kaspar run the same strategy code in simulation and live trading; the venues each of them connects
+order-level data and \kasparhft{} provide it, JAX-LOB approximates it, and NautilusTrader estimates it. Only hftbacktest,
+NautilusTrader and \kasparhft{} run the same strategy code in simulation and live trading; the venues each of them connects
 to are compared at the end of this section.
 
 \paragraph{Sources of order-level data.} A replay with exact queue position needs order-level (Level 3) data. It can
-be captured from the exchange's own feed, as Kaspar does, or bought from vendors: LOBSTER reconstructs Nasdaq order
+be captured from the exchange's own feed, as \kasparhft{} does, or bought from vendors: LOBSTER reconstructs Nasdaq order
 books from exchange messages~\citep{lobster}; Databento sells order-level data including CME's MDP~3.0
 feed~\citep{databento_queue}; and BMLL sells historical Level 3 order-book data for many venues, with a research
 environment and queue-position analytics, but not a fill simulator~\citep{bmll_home,bmll_datalab}.
 
-\paragraph{Historical-replay tools only.} Kaspar is a historical-replay tool, so Table~\ref{tab:replay-tools}
+\paragraph{Historical-replay tools only.} \kasparhft{} is a historical-replay tool, so Table~\ref{tab:replay-tools}
 compares it with the other tools that replay recorded order-book data and fill a researcher's orders against it. It
 lists every such tool we found with enough documentation or code to classify it, including several not in
 Table~\ref{tab:simulators}. The list below groups them by how they place the simulated order in the queue.
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
-\item \textbf{Exact position in the recorded queue, recorded market unchanged.} Besides hftbacktest and Kaspar,
+\item \textbf{Exact position in the recorded queue, recorded market unchanged.} Besides hftbacktest and \kasparhft{},
   \textbf{lobsim}~\citep{lobsim}, a C++20 library, replays order-level data and counts exactly how much recorded
   quantity is ahead of each simulated order; it has optional order latency, states that it is deterministic, and has
   no live-trading path. \citet{moallemi2017} use the same rule as a method on Nasdaq ITCH data, without software: a
@@ -521,7 +521,7 @@ for CQG. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab
 \toprule
 Tool & Data & Own-order queue position & Latency & Recorded market unchanged & Same code live & Feeds \\
 \midrule
-Kaspar\ev{O} & order-level & exact, in the recorded queue & order, cancel and feed delays & yes & yes & CME MDP~3.0 (own handler) \\
+\kasparhft{}\ev{O} & order-level & exact, in the recorded queue & order, cancel and feed delays & yes & yes & CME MDP~3.0 (own handler) \\
 hftbacktest\ev{D,C} & order- or price-level & exact with order-level data; estimated otherwise & feed from data; order constant or recorded & yes & yes (crypto) & crypto; CME via vendor files \\
 lobsim\ev{C} & order-level & exact count of recorded quantity ahead & optional order delay & yes & -- & Coinbase, LOBSTER files \\
 NautilusTrader\ev{D,C} & order- or price-level & estimated & order-entry delays & yes & yes & several venues; CME via vendor files \\
@@ -546,16 +546,16 @@ ATAS replay\ev{D} & trades and order book & none: filled at once, in full & -- &
 \end{tabularx}
 \end{table}
 
-\paragraph{Where Kaspar sits.} Of the replay tools found, three place the simulated order in the recorded queue
-without changing the recorded market: hftbacktest, lobsim and Kaspar. Of these, lobsim has no live-trading path, and
+\paragraph{Where \kasparhft{} sits.} Of the replay tools found, three place the simulated order in the recorded queue
+without changing the recorded market: hftbacktest, lobsim and \kasparhft{}. Of these, lobsim has no live-trading path, and
 hftbacktest trades live on two cryptocurrency exchanges. NautilusTrader, which estimates queue position, connects to
-several venues and data vendors. Both reach CME data only through a data vendor's files. Kaspar is the only one we found that decodes an exchange's own market-by-order feed (CME MDP~3.0, from live
+several venues and data vendors. Both reach CME data only through a data vendor's files. \kasparhft{} is the only one we found that decodes an exchange's own market-by-order feed (CME MDP~3.0, from live
 multicast or packet captures), models order, cancel and feed delays separately, and runs the same code in replay,
 paper and live trading against that exchange. We found no open-source or documented commercial backtester that
 decodes MDP~3.0 itself. None of the commercial documentation we could read describes filling a simulated order by its
 exact place in a recorded order-level queue: the tools estimate the position, fill without a queue, or do not say.
 
-\paragraph{Running many days at once.} A Kaspar replay processes one trading day per run, from one packet capture or
+\paragraph{Running many days at once.} A \kasparhft{} replay processes one trading day per run, from one packet capture or
 one decoded file, on one thread. Days are independent, so many days can be simulated at the same time as separate
 processes on one large machine---for example a large cloud instance---with one process per day and no licence limit on
 the number of runs. The other tools differ on this point (Table~\ref{tab:parallel}). The open-source replay tools allow
@@ -576,7 +576,7 @@ the same kind of simulation.
 \toprule
 Tool & Parallel runs on own hardware & Restriction or evidence \\
 \midrule
-Kaspar\ev{O} & yes & one process per day; no licence limit \\
+\kasparhft{}\ev{O} & yes & one process per day; no licence limit \\
 hftbacktest\ev{C} & yes & examples use parallel processes \\
 NautilusTrader\ev{D} & yes & one backtest per process \\
 ABIDES\ev{C} & yes & script starts one replay process per date \\
@@ -590,11 +590,11 @@ Deltix QuantOffice\ev{D} & not documented & cloud product lists a parallel runne
 \end{table}
 
 % ================================================================
-\section{Kaspar HFT: queue-exact replay, paper and live trading}
+\section{\kasparhft{}: queue-exact replay, paper and live trading}
 % ================================================================
 \label{sec:kaspar}
 
-Kaspar is the system this survey uses to make the execution questions of Section~\ref{sec:sim-needs} measurable. It
+\kasparhft{} is the system this survey uses to make the execution questions of Section~\ref{sec:sim-needs} measurable. It
 is an open-source trading system and order-book simulator~\citep{kaspar_hft,maciejewski_shadow}. In one program it provides:
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
 \item \textbf{Queue-exact replay of the exchange's own feed.} It decodes recorded packet captures of the exchange's
@@ -618,7 +618,7 @@ The rest of this section describes its data path, how it fills simulated orders,
 repeatable, how the same code runs live, the model-free benchmark strategy and its results, how it measures latency
 and execution cost, and how a model is added to it.
 
-Kaspar is a trading and simulation system written in C++20 on an \emph{actor} framework~\citep{maciejewski_actor}:
+\kasparhft{} is a trading and simulation system written in C++20 on an \emph{actor} framework~\citep{maciejewski_actor}:
 every component is an actor, which owns its state and communicates with other actors only by messages. Its order
 book, simulated order manager, strategy actors and replay are not tied to one exchange: a venue is connected through
 a market-data handler, which turns the venue's feed into book updates, and an order-entry gateway. The handlers
@@ -671,7 +671,7 @@ simulation mode it sends them into the reconstructed book, where they are matche
 \draw[arr] (som) -- node[below left, font=\scriptsize]{live} (ilink);
 \draw[arr, dashed] (sim.north) |- ++(0,5mm) -| node[pos=0.25, above, font=\scriptsize]{simulated order enters the book} (ob.north);
 \end{tikzpicture}
-\caption{Kaspar data and order paths. Everything downstream of the market-data source is the same
+\caption{\kasparhft{} data and order paths. Everything downstream of the market-data source is the same
 code in replay and live operation; the branch between simulated and live execution is a single
 decision in the simulated order manager.}
 \label{fig:kaspar}
@@ -682,7 +682,7 @@ decision in the simulated order manager.}
 \label{sec:kaspar-fills}
 
 The central requirement of Section~\ref{sec:replay} is that a simulated order should be filled only if
-a real order in its place would have been. This section explains how Kaspar meets it: simulated
+a real order in its place would have been. This section explains how \kasparhft{} meets it: simulated
 orders sit in the same per-order queue as real ones, reach the book after a modelled delay, and are
 filled only by real executions that reach them. Here and throughout, \emph{queue-exact} means exact
 with respect to the displayed order sequence carried by the input MBO feed and the documented matching
@@ -785,7 +785,7 @@ and paper and live trading as the ground truth for both.
 \subsection{Deterministic replay}
 \label{sec:kaspar-determinism}
 
-The group is what makes Kaspar's replay deterministic. In the replay configuration the file reader, the order book,
+The group is what makes \kasparhft{}'s replay deterministic. In the replay configuration the file reader, the order book,
 the timer, the SOM, the strategy actors and the position manager all run in one actor group, with one queue and one
 thread (Section~\ref{sec:kaspar-group}). Every message---market data, orders, acknowledgements, fills, timer
 events---passes through that one queue and is processed in one total order, which is the same on every run of the
@@ -834,7 +834,7 @@ that is profitable in replay can still behave differently live.
 
 The point of this benchmark is that it uses no model of the book at all. It follows the order flow and nothing else,
 so it sets the floor that any order-book model has to beat, and any model of Part~II can be plugged into it and scored
-against it in the same replay. Kaspar implements it in two versions, passive and aggressive, as one strategy
+against it in the same replay. \kasparhft{} implements it in two versions, passive and aggressive, as one strategy
 actor~\citep{maciejewski_shadow}.
 
 \paragraph{Two model-free versions: passive and aggressive.} Both follow a fixed fraction of what other participants do
@@ -890,8 +890,8 @@ model-free placement $\;\to\;$ predictive placement $\;\to\;$ full predictive ex
 and each step must beat the one below it in the same replay, under the same fill rule. An improvement measured against
 a naive backtest instead is confounded by the fill-inference bias of Section~\ref{sec:replay}.
 
-\paragraph{The benchmark measured in Kaspar on a year of ES data.} \citet{maciejewski_shadow} run the benchmark
-through Kaspar's replay on every regular session of 2025 for which packet captures were available---246 sessions of
+\paragraph{The benchmark measured in \kasparhft{} on a year of ES data.} \citet{maciejewski_shadow} run the benchmark
+through \kasparhft{}'s replay on every regular session of 2025 for which packet captures were available---246 sessions of
 E-mini S\&P~500 futures market-by-order data---as a two-sided execution that buys and sells 100 contracts in each
 10-minute window (Table~\ref{tab:shadow-results}). Three results bear on this survey.
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
@@ -911,7 +911,7 @@ the parent order is fixed at 100 contracts.
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{The model-free benchmark in Kaspar's replay, from \citet{maciejewski_shadow}: ES futures, 246 sessions of
+\caption{The model-free benchmark in \kasparhft{}'s replay, from \citet{maciejewski_shadow}: ES futures, 246 sessions of
 2025, 100 contracts bought and 100 sold per 10-minute window. Costs in ticks per contract against the arrival
 mid-price (positive is a loss), with 95\% intervals clustered by session.}
 \label{tab:shadow-results}
@@ -934,7 +934,7 @@ Cost at 5\,ms round-trip delay (separate configurations) & $+0.150 \pm 0.015$ & 
 \subsection{Latency and slippage measurement}
 \label{sec:kaspar-measurement}
 
-Latency claims need their endpoints. In Kaspar's measurement of its market-data handler, the start point is a
+Latency claims need their endpoints. In \kasparhft{}'s measurement of its market-data handler, the start point is a
 software timestamp at the socket read and the end point is the order book being published; time spent in the network
 card and socket buffer before the read is outside the measurement, which is therefore socket-to-book, not
 wire-to-book. The socket reader thread decodes each packet and updates the book itself, with no hand-off to another
@@ -945,7 +945,7 @@ pinned~\citep{kaspar_hft}. Book updates take about 1\,\textmu s at the median (0
 
 \begin{table}[!htbp]
 \centering\small
-\caption{Kaspar socket-to-book latency per message on live CME futures, in microseconds~\citep{kaspar_hft}.}
+\caption{\kasparhft{} socket-to-book latency per message on live CME futures, in microseconds~\citep{kaspar_hft}.}
 \label{tab:kaspar-latency}
 \begin{tabular}{lrrrrrrr}
 \toprule
@@ -968,10 +968,10 @@ market drift from adverse selection. Post-fill mark-outs at fixed times and afte
 of book events provide the mark-out $R^{\text{fill}}_{h}$ of~\eqref{eq:markout} (the event-count version is
 its analogue on an event clock) and the adverse-selection quantity of Section~\ref{sec:adverse}.
 
-\subsection{Adding an order-book model to Kaspar}
+\subsection{Adding an order-book model to \kasparhft{}}
 \label{sec:kaspar-actor}
 
-Any model of Part~II can be added to Kaspar as one more actor between the order book and the strategy. The actor
+Any model of Part~II can be added to \kasparhft{} as one more actor between the order book and the strategy. The actor
 subscribes to the book, computes its prediction each time the book changes, and sends the prediction to the
 strategy actors as a message (Figure~\ref{fig:kaspar-actor}). Because it is an actor like the others, the same model
 runs in replay, paper trading and live trading. The description below follows the code; the parts marked
@@ -995,7 +995,7 @@ runs in replay, paper trading and live trading. The description below follows th
 \draw[arr] (light) -- node[right]{orders} (som);
 \draw[arr] (pred.south) -- ++(0,-0.9) -| node[pos=0.25, below]{\texttt{Subscribe(HI)}, sent once at start} (ob.south);
 \end{tikzpicture}
-\caption{An order-book model added to Kaspar as an actor. It subscribes to the order book, receives the book after
+\caption{An order-book model added to \kasparhft{} as an actor. It subscribes to the order book, receives the book after
 each burst of updates, and sends a prediction message to each strategy actor. Message names are those in the code;
 the model actor, the \texttt{Prediction} message and its handler in the strategy are new.}
 \label{fig:kaspar-actor}
@@ -1021,7 +1021,7 @@ the model actor, the \texttt{Prediction} message and its handler in the strategy
   alongside the strategy actors of the same order book.
 \end{enumerate}
 
-The code for each step is in the Kaspar repository~\citep{maciejewski_shadow}; the notes accompanying this survey give
+The code for each step is in the \kasparhft{} repository~\citep{maciejewski_shadow}; the notes accompanying this survey give
 the file and line of every call used.
 
 Three properties of the present code matter for anyone doing this.
@@ -1060,7 +1060,7 @@ detail to be optimised after the model is chosen; it decides whether the model c
 path---the chain every market-data message passes through---must finish before the next message needs it. A model
 that is too slow does not merely produce later answers: it holds up every message behind it and chokes the system.
 How fast a signal decays is the second constraint: with a 2\,ms half-life, 97\% of a signal's value remains after
-100\,\textmu s and 18\% after 5\,ms (Section~\ref{sec:latency}). Measured on a year of E-mini data in Kaspar's
+100\,\textmu s and 18\% after 5\,ms (Section~\ref{sec:latency}). Measured on a year of E-mini data in \kasparhft{}'s
 replay, a passive execution method lost about 0.011 ticks per contract for each millisecond of added delay and an
 aggressive one about 0.042~\citep{maciejewski_shadow}: every strategy pays for latency, and the price depends on
 the strategy as well as the signal.
@@ -1152,7 +1152,7 @@ CPUs. On FPGAs the book itself has been built in hardware: a depth-of-book desig
 253\,ns per update, estimated from clock-cycle counts~\citep{dvorak2014book}; a later design reports 26 to 209\,ns,
 3.5 to 37.6 times faster than its software version~\citep{liu2024book}; and a complete trading system written in
 high-level synthesis (C++ compiled into FPGA logic)---network stack, parsing, book and strategy---measured an on-board round trip below
-870\,ns~\citep{boutros2017build}. For Kaspar's software path, socket-to-book latency is reported in Section~\ref{sec:kaspar-measurement}.
+870\,ns~\citep{boutros2017build}. For \kasparhft{}'s software path, socket-to-book latency is reported in Section~\ref{sec:kaspar-measurement}.
 
 \paragraph{The model.} This is the stage that grows with model complexity. A linear score on a few order-flow
 features takes tens of multiply--add operations; DeepLOB has about 60,000 weights (Table~\ref{tab:deeplob-params}),
@@ -1289,7 +1289,7 @@ milliseconds.
 \includegraphics[width=\linewidth]{figs/latency_ladder.png}
 \caption{Latency figures quoted in this section, on one logarithmic axis. Bars are ranges, dots single figures.
 Sources: STAC public summaries (audited), the FPGA book-building papers, the measured server latency
-budget~\citep{zilberman2017where}, Kaspar's socket-to-book book medians~\citep{kaspar_hft}, and
+budget~\citep{zilberman2017where}, \kasparhft{}'s socket-to-book book medians~\citep{kaspar_hft}, and
 Table~\ref{tab:lob-latency}. The figures come from different machines, conditions and years and show orders of
 magnitude, not a single system.}
 \label{fig:latency-ladder}
@@ -1352,7 +1352,7 @@ type; strengths and limitations are our summary of the section.}
 \toprule
 Class & Figures quoted in this section & Strength & Limitation \\
 \midrule
-CPU with kernel bypass & network stack 946\,ns median (measured); Kaspar socket-to-book about 1\,\textmu s median & most flexible; easiest to change & jitter from caches, interrupts and scheduling \\
+CPU with kernel bypass & network stack 946\,ns median (measured); \kasparhft{} socket-to-book about 1\,\textmu s median & most flexible; easiest to change & jitter from caches, interrupts and scheduling \\
 GPU & small LSTM 4.70\,\textmu s at the 99th percentile, sliding window (audited); 3.4 to 9.6\,\textmu s per launch of a 2.9\,\textmu s kernel (NVIDIA measurement) & throughput; large models; training & launch and PCIe overheads at a batch of one \\
 FPGA & tick-to-trade 0.115--0.61\,\textmu s (audited); book update 26--280\,ns (papers); small LSTM below 2 to 5\,\textmu s (audited) & fixed, deterministic latency & limited capacity; long development \\
 FPGA network card (SmartNIC) & tree model 1.55\,\textmu s on the card (vendor) & computes in the network path & small models only \\
@@ -1497,16 +1497,16 @@ have reached. Simulators differ in where the market comes from---replay, agents,
 network---and in how they place the simulated order in the queue. Agent-based, model-based and generative simulators
 let the market react to the orders, but their queues are only as realistic as the simulated order flow. Among replay
 tools, three place the simulated order in the recorded queue without changing the recorded market: hftbacktest, lobsim
-and Kaspar. The commercial tools whose documentation we could read estimate queue position, fill without a queue, or
+and \kasparhft{}. The commercial tools whose documentation we could read estimate queue position, fill without a queue, or
 do not say how they do it (Section~\ref{sec:sim-survey}).
 
-\paragraph{Kaspar.} Kaspar replays an exchange's own market-by-order feed (CME MDP~3.0 today), places simulated orders
+\paragraph{\kasparhft{}.} \kasparhft{} replays an exchange's own market-by-order feed (CME MDP~3.0 today), places simulated orders
 in the reconstructed first-in-first-out queues after separate order, cancel and feed delays, fills them only when
 recorded executions reach an order behind them, and runs the same code in replay, paper and live trading. It replays
 one day per process, so many days can run at once on one machine (Table~\ref{tab:parallel}). A model of Part~II is added as one more actor that reads the book
 and sends its predictions to the strategy (Section~\ref{sec:kaspar-actor}).
 
-\paragraph{Hardware.} Book updates take about 1\,\textmu s at the median in Kaspar's software path and a few hundred nanoseconds or
+\paragraph{Hardware.} Book updates take about 1\,\textmu s at the median in \kasparhft{}'s software path and a few hundred nanoseconds or
 less on FPGAs; audited FPGA tick-to-trade paths with simple logic run in about 0.1 to 0.6\,\textmu s. Published
 inference times of order-book models range from about 25\,\textmu s to 23\,ms (Table~\ref{tab:lob-latency}). Four
 causes make models slow on a single event: recurrence that runs step by step, attention whose cost grows with the

@@ -14,9 +14,9 @@ and how strongly each kind of claim should be believed.
 This section introduces the object of study and the language used to describe it. It explains how an
 electronic market matches buyers and sellers through a limit order book, what the book looks like as
 data, and how exchanges publish it; then fixes the notation and the few ideas from probability that
-the rest of the survey needs. It ends with the survey's main argument---prediction, execution and
-simulation are different problems---and the three principles and four axes used to organise the
-literature.
+the rest of the survey needs. It explains why the survey covers models, simulators and hardware together---they are the stages from theory to
+production---and ends with the survey's main argument---prediction, execution and simulation are different
+problems---and the three principles and four axes used to organise the literature.
 
 \subsection{The limit order book as a dynamic market state}
 
@@ -49,8 +49,25 @@ date~\citep{hull}. The running examples are the E-mini S\&P~500 future (ES, on a
 large US stocks), the E-mini Nasdaq-100 future (NQ) and the 10-year US Treasury note future (ZN),
 all traded on CME Group's electronic platform. Each such contract is an \emph{instrument}.
 
-\paragraph{Kaspar, the system used as the worked example.} Throughout the survey, questions about simulation and
-execution are made concrete with Kaspar~\citep{kaspar_hft}, an open-source trading system and order-book simulator
+\paragraph{Three surveys in one, from theory to production.} The survey covers three subjects that are usually
+treated separately: order-book models, order-book simulators, and the hardware that runs a trading system. They are
+put together because they are the three stages a model passes through on its way to production, and the survey is
+arranged in that order.
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \textbf{Theory (Part~II).} The models of the book: how each is built, what its properties are, what it predicts,
+  and how well it does so.
+\item \textbf{Simulation (Part~III, Sections~\ref{sec:sim-needs}--\ref{sec:kaspar}).} How a model is turned into a
+  trading strategy and tested before any money is at risk: what a simulator must capture, which simulators exist, and
+  how a model is added to one and scored.
+\item \textbf{Deployment (Part~III, Section~\ref{sec:hardware}).} How a strategy that works in simulation is run on
+  hardware fast enough for it: where the time goes, what can be accelerated, and why a model too slow for the hot path
+  cannot be deployed there at all.
+\end{enumerate}
+A practitioner or student who wants to take a model from a paper to a trading server needs all three. Each part can be
+read on its own, but the order is the order of the work: a model is understood first, then simulated, then deployed.
+
+\paragraph{\kasparhft{}, the system used as the worked example.} Throughout the survey, questions about simulation and
+execution are made concrete with \kasparhft{}~\citep{kaspar_hft}, an open-source trading system and order-book simulator
 written by the author. It rebuilds the book order by order from the exchange's own market-data feed, replays recorded
 trading days with the researcher's simulated orders placed in the real queues, and runs the same code in replay, paper
 and live trading on CME futures. It has been used to evaluate an execution method on a full year of E-mini S\&P~500
@@ -195,7 +212,7 @@ the reconstructed book the order leaves its place and rejoins at the back. Third
 produce only \texttt{P} messages and never enter the book: the book a feed lets you build is the
 \emph{displayed} book. ITCH is delivered over a sequenced UDP multicast protocol (MoldUDP64), so a
 receiver can detect lost packets by gaps in the sequence numbers. CME's MDP~3.0 market-by-order feed,
-used by the Kaspar system of Section~\ref{sec:kaspar}, follows the same pattern with its own binary
+used by the \kasparhft{} system of Section~\ref{sec:kaspar}, follows the same pattern with its own binary
 encoding~\citep{cme_mdp3}.
 
 At time $t$, an $L$-level description of the book is
@@ -426,7 +443,7 @@ Part~III asks what survives simulation, execution and deployment. Figure~\ref{fi
 \draw[decorate, decoration={brace, amplitude=5pt, mirror}] (-5.0,-5.6) -- (-5.0,-9.8)
   node[midway, left=6pt, align=right]{\textbf{Part III}\\what survives\\to execution};
 \node[side, fill=blue!5] (sim) at (6.6,-7.6) {\textbf{Simulation} (Sections~\ref{sec:simulators}--\ref{sec:kaspar})\\
-  tests decision $\to$ queue $\to$ execution $\to$ P\&L on recorded or simulated markets; Kaspar replays the
+  tests decision $\to$ queue $\to$ execution $\to$ P\&L on recorded or simulated markets; \kasparhft{} replays the
   exchange's own feed with exact queue position};
 \node[side, fill=red!5] (hw) at (6.6,-5.1) {\textbf{Hardware} (Section~\ref{sec:hardware})\\
   sets the latency between prediction and execution, and so how much of a short-lived signal survives};
@@ -516,7 +533,7 @@ apart. \emph{Generative market simulation} draws new market paths from a model o
 simulators, agent-based markets and the generative networks of Section~\ref{sec:deep-gen}.
 \emph{Historical replay} does not draw paths at all: it reconstructs the one path that was recorded,
 event by event, and evaluates the counterfactual outcome of the researcher's own orders against it---an
-estimate of~(5) on observed data. The Kaspar system of Section~\ref{sec:kaspar} is a replay system, not a generative
+estimate of~(5) on observed data. The \kasparhft{} system of Section~\ref{sec:kaspar} is a replay system, not a generative
 simulator; Section~\ref{sec:simulators} compares the kinds of simulator.
 They are related but not interchangeable. A Hawkes process can generate realistic clustered order
 flow without producing directional alpha. A survival model can give accurate fill probabilities
@@ -749,6 +766,8 @@ This survey & information-to-decision chain: classical and deep models, queue po
 
 \paragraph{Contributions.} The survey offers:
 \begin{enumerate}[leftmargin=1.8em,itemsep=1pt]
+\item one account of the path from theory to production: the models of the book, the simulators in which they are
+  turned into strategies and tested, and the hardware on which tested strategies are deployed;
 \item a single chain---representation, prediction, decision, queue, execution, profit---that places
   classical and learned models in one framework;
 \item a treatment of queue position, fill probability and adverse selection as modelling targets in
@@ -758,7 +777,7 @@ This survey & information-to-decision chain: classical and deep models, queue po
   accuracy (Section~\ref{sec:deep});
 \item a treatment of the two ways of combining classical and learned models, meta-models and structural hybrids,
   with published examples taken apart step by step (Sections~\ref{sec:meta} and~\ref{sec:hybrid});
-\item a survey of order-book simulators compared with Kaspar~\citep{kaspar_hft}, a queue-exact, deterministic replay
+\item a survey of order-book simulators compared with \kasparhft{}~\citep{kaspar_hft}, a queue-exact, deterministic replay
   and trading system used as the evaluation instrument for execution claims, including how a model is added to it as
   an actor (Part~III);
 \item an account of why order-book models are slow at inference and what hardware can accelerate
@@ -931,10 +950,10 @@ conference papers, 69 preprints, 14 books, 1 thesis, and 74 sources of other kin
 specifications, software documentation and repositories, vendor material and benchmark reports. The counts are taken
 from the bibliography entries.
 
-\paragraph{Disclosure.} The author of this survey designed and wrote the Kaspar system described in
-Section~\ref{sec:kaspar} and the model-free benchmark of Section~\ref{sec:shadow}. Statements about Kaspar come from
+\paragraph{Disclosure.} The author of this survey designed and wrote the \kasparhft{} system described in
+Section~\ref{sec:kaspar} and the model-free benchmark of Section~\ref{sec:shadow}. Statements about \kasparhft{} come from
 its code and from the author's published study~\citep{maciejewski_shadow}; statements about the other tools come from
-their own papers, documentation and code. The comparison tables mark Kaspar's row accordingly.
+their own papers, documentation and code. The comparison tables mark \kasparhft{}'s row accordingly.
 
 \subsection{Strength of evidence for a claim}
 

@@ -1,7 +1,7 @@
 \paragraph{About this part.} The last part looks across the whole survey. It collects the open problems that the
 previous parts identified, grouped by the part they come from and sorted by what is needed to test them
 (Section~\ref{sec:agenda}), and states the survey's conclusion (Section~\ref{sec:conclusion}): the two literatures
-it joins, the chain from order book to profit with its findings, a worked example in Kaspar, reading paths through the
+it joins, the chain from order book to profit with its findings, a worked example in \kasparhft{}, reading paths through the
 survey, and the evidence status of its claims.
 
 % ================================================================
@@ -10,7 +10,7 @@ survey, and the evidence status of its claims.
 
 The survey has identified places where the literature stops short of what a trader needs. They are described below
 grouped by the part of the survey they come from. Table~\ref{tab:agenda-needs} sorts the same problems by what is
-needed to test them. Most can be tested now, with recorded order-level data and a queue-exact replay such as Kaspar;
+needed to test them. Most can be tested now, with recorded order-level data and a queue-exact replay such as \kasparhft{};
 the rest need a market that reacts to one's own orders, live trading, or hardware and benchmarks that do not yet
 exist.
 
@@ -132,10 +132,23 @@ The open problems in this group follow from Section~\ref{sec:hardware}.
 \label{sec:conclusion}
 % ================================================================
 
-This section places the survey between the two literatures it draws on, attaches its findings to the chain from
+This section restates the path from theory to production that the survey follows, places the survey between the two
+literatures it draws on, attaches its findings to the chain from
 order book to profit, states the conclusions and the evidence for them, follows one model through the whole method in
-Kaspar, gives the order of operations it recommends, and ends with reading paths through the survey and the evidence
+\kasparhft{}, gives the order of operations it recommends, and ends with reading paths through the survey and the evidence
 status of its main claims.
+
+\subsection{From theory to production}
+\label{sec:theory-to-production}
+
+The survey has followed the path a model takes to production. Part~II covered the theory: how the models of the book
+are built, what their properties are and what they predict. Part~III covered simulation, where a model becomes a
+strategy and is tested against recorded markets with queue position and latency, and deployment, where a tested
+strategy runs on hardware fast enough for it. The three are surveyed together because a model has to pass through all
+of them: a model that predicts well but has not been simulated has not been shown to trade, and a strategy that works
+in simulation but is too slow for the hot path cannot be deployed. \kasparhft{} connects the last two stages: the
+same code that is replayed in simulation runs in paper and live trading, and its measured latency places it on the
+hardware ladder of Section~\ref{sec:hardware}.
 
 \subsection{Two literatures that are rarely read together}
 \label{sec:two-literatures}
@@ -155,7 +168,7 @@ pretrained order-book model evaluated on fills or profit (Section~\ref{sec:found
 studies reviewed, which do learn to act, reports a live or paper-trading test (Section~\ref{sec:policy}); and a
 forecast is usually turned into orders by a separate, hand-written rule. Joining the two needs a test bench in which a
 forecast changes an order, the order waits in a real queue, and the result is measured in money. That is what the
-simulators of Part~III, and Kaspar in particular, provide.
+simulators of Part~III, and \kasparhft{} in particular, provide.
 
 \subsection{The chain from order book to profit, with the findings}
 \label{sec:chain-findings}
@@ -244,7 +257,7 @@ empirical hypothesis: a more complex model is justified when it delivers increme
 economic value that survives realistic execution, temporal validation, and the multiple-testing
 burden of its own selection.
 
-Two kinds of infrastructure make that standard testable. The first is the simulator, and Kaspar is the survey's
+Two kinds of infrastructure make that standard testable. The first is the simulator, and \kasparhft{} is the survey's
 instrument for it: a queue-exact replay of the exchange's own feed, deterministic, with separate latencies, running
 many days at once and the same code in replay, paper and live trading (Section~\ref{sec:kaspar}). On a year of
 E-mini data it shows the conclusions above in numbers: resting and crossing cost the same, about $+0.095$ ticks per
@@ -253,11 +266,11 @@ latency~\citep{maciejewski_shadow}. Agent-based, model-based and
 generative simulators let the market react to the researcher's orders, but their queues are only as realistic as the
 simulated order flow; a replay keeps the real market but cannot react. Exact queue position in the recorded market
 needs order-level data and an order-level book; among the replay tools compared, hftbacktest (with order-level
-data), lobsim and Kaspar provide it without altering the recorded market (Section~\ref{sec:sim-survey}). In a replay built from actors, a model of
+data), lobsim and \kasparhft{} provide it without altering the recorded market (Section~\ref{sec:sim-survey}). In a replay built from actors, a model of
 Part~II becomes one more actor that reads the book and sends its predictions to the strategy, and the same code runs
 in replay, paper and live trading (Section~\ref{sec:kaspar-actor}).
 
-The second is hardware. Book building takes about 1\,\textmu s from socket to book at the median in Kaspar's software path and
+The second is hardware. Book building takes about 1\,\textmu s from socket to book at the median in \kasparhft{}'s software path and
 hundreds of nanoseconds or less in published FPGA designs; published inference times of order-book models range from
 about 25\,\textmu s to about 23\,ms, about half of them above one millisecond (Table~\ref{tab:lob-latency}). Section~\ref{sec:hw-why}
 identifies four causes---recurrence that must run step by step, attention whose cost grows with the square of the
@@ -269,11 +282,11 @@ A model too slow for the hot path does not just answer late: it misses signals, 
 off---resting orders and aggressive orders that arrive late and end up resting---and lets the message queue in front of it grow. Hardware decides how much of a signal's value survives to the
 moment of execution, but it cannot rescue a signal whose life is shorter than the pipeline that computes it.
 
-\subsection{One model through the whole method: a worked example in Kaspar}
+\subsection{One model through the whole method: a worked example in \kasparhft{}}
 \label{sec:worked-kaspar}
 
 The method of this survey can be followed end to end for one model. The example below takes the simplest signal of
-Part~II, order-flow imbalance, and carries it from a forecast to live trading in Kaspar. It is a design that uses the
+Part~II, order-flow imbalance, and carries it from a forecast to live trading in \kasparhft{}. It is a design that uses the
 mechanisms described in Part~III, not a reported result.
 \begin{enumerate}[leftmargin=1.8em,itemsep=3pt]
 \item \textbf{Choose what the output is for.} The use is passive execution: buying and selling a fixed quantity in

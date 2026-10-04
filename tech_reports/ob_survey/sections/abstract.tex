@@ -14,28 +14,33 @@ next price move but if the information it extracts survives representation, pred
 latency and execution to positive out-of-sample economic value; the quantity that matters for trading is the expected
 profit of an action given the market state and the order's place in the queue.
 
-We organise the literature along four axes---representation, model class, prediction objective
-and economic role---and follow a single chain throughout:
-LOB state $\to$ representation $\to$ prediction $\to$ decision $\to$ queue $\to$ execution $\to$
-P\&L. Each link can destroy information or add uncertainty. We distinguish models that predict
-prices or events from models that estimate execution outcomes---fill probability, queue depletion,
-adverse selection---and argue that residual queue position and conditional execution value form
-the missing translation layer between LOB prediction research and trading. For the learned models we explain, from
-first principles, how they are built and trained, take apart meta-models and structural hybrids that combine them
-with classical models, and show how much reported accuracy can come from the construction of the label and the data
-split rather than from the network, with a small PyTorch example on a synthetic market.
+The survey is three surveys in one, arranged in the order a model follows on its way to production. The first
+covers the theory of order-book models: how each is built, what its properties are and what it predicts. The second
+covers the simulators in which a model is turned into a trading strategy and tested. The third covers the hardware on
+which a tested strategy is deployed. The three are rarely treated together, but a model has to pass through all of
+them to reach production, and a practitioner or student who wants to take one there needs all three; that path is
+the reason for the survey's structure.
 
-The last part turns to the infrastructure that execution research depends on. We survey order-book
-simulators---historical replay, agent-based, model-based and generative---and compare them on the
-properties execution questions need: per-order queue position, explicit latency, determinism and a
-shared code path to live trading. The Kaspar system---a venue-independent system whose CME
-handlers are implemented---serves as the worked example of a deterministic, queue-exact replay in which simulated orders enter the
-reconstructed historical first-in-first-out queue and are filled only by recorded executions that reach an order
-behind them, and we show how an order-book model is added to it as an actor that publishes its predictions to a
-strategy.
-We then explain why order-book models are slow at inference---book building, sequential recurrence,
+The chain LOB state $\to$ representation $\to$ prediction $\to$ decision $\to$ queue $\to$ execution $\to$ P\&L
+frames the survey: each link can destroy information or add uncertainty. We place the main works on four axes---
+representation, model class, prediction objective and economic role---and distinguish models that predict prices or
+events from models that estimate execution outcomes such as fill probability, queue depletion and adverse selection,
+which we treat as modelling targets in their own right. For the learned models we explain, from first principles, how
+they are built and trained, take apart meta-models and structural hybrids that combine them with classical models,
+and show how much reported accuracy can come from the construction of the label and the data split rather than from
+the network, with a small PyTorch example on a synthetic market.
+
+For simulation, we survey order-book simulators---historical replay, agent-based, model-based and generative---and
+compare them on the properties execution questions need: per-order queue position, explicit latency, determinism and
+a shared code path to live trading. \kasparhft{}, an open-source trading system and simulator, serves as the worked
+example of a deterministic, queue-exact replay in which simulated orders enter the reconstructed historical
+first-in-first-out queue and are filled only by recorded executions that reach an order behind them; we show how an
+order-book model is added to it as an actor that publishes its predictions to a strategy, and how the same code runs
+in replay, paper and live trading.
+For deployment, we explain why order-book models are slow at inference---book building, sequential recurrence,
 attention whose cost grows with the square of the sequence length, and memory-bound evaluation at batch
-size one---and which stages can be accelerated on FPGAs, GPUs and other processors.
+size one---why a model too slow for the hot path chokes the system, and which stages can be accelerated on FPGAs,
+GPUs and other processors.
 
 Two criteria run through the survey: \emph{tradeability}, under which predictive performance is
 judged after latency, spread, fees, queue position and adverse selection; and \emph{Occam's

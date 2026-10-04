@@ -1898,7 +1898,7 @@ produces, event by event, a stream of limit orders, cancellations and market ord
 levels, the resulting queue sizes, and the price moves they cause---an artificial trading day that
 looks statistically like the real ones. It is a \emph{generative} simulator in the sense of
 Section~\ref{sec:three-problems}: it invents new market paths from a model, rather than replaying a
-recorded one as the Kaspar system of Section~\ref{sec:kaspar} does. Two features make it useful. The paths it generates
+recorded one as the \kasparhft{} system of Section~\ref{sec:kaspar} does. Two features make it useful. The paths it generates
 reproduce the observed behaviour of queues; and because every rate depends on the current state of the
 book, a trader's own simulated order changes what the simulated market does next, so tactics can be
 tested against a market that reacts. The book it generates is coarse: queues are counts of orders of
@@ -9387,7 +9387,7 @@ Study & Task & Environment & Queue position & Result (baseline) \\
 
 \paragraph{What this means for evaluation.} A learned policy is a candidate like any other model: it has to beat the
 ladder of baselines of Section~\ref{sec:tradeability}, including a model-free benchmark, in an environment whose fill
-rule is credible. Kaspar provides both for small orders. A trained policy runs as an actor next to the order book
+rule is credible. \kasparhft{} provides both for small orders. A trained policy runs as an actor next to the order book
 (Section~\ref{sec:kaspar-actor}); it can be evaluated on recorded market-by-order data with exact queue position and
 modelled latency, against the model-free benchmark of Section~\ref{sec:shadow} in the same replay, and then run
 unchanged in paper and live trading. The limits are those of any replay: the recorded market does not react to the

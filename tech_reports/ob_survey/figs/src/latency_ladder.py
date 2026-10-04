@@ -10,7 +10,7 @@ rows = [  # (label, low, high, category)
     ("FPGA order-book update (papers)",                   26 * NS, 280 * NS, "book"),
     ("STAC-T1: FPGA tick-to-trade, CME (audited)",       115 * NS, 609 * NS, "path"),
     ("One small PCIe read (measured median)",            572 * NS, 572 * NS, "net"),
-    ("Kaspar software socket-to-book (book medians)",    0.8 * US, 1.1 * US, "book"),
+    ("Kaspar-HFT software socket-to-book (book medians)",    0.8 * US, 1.1 * US, "book"),
     ("Kernel-bypass network stack (measured median)",    946 * NS, 946 * NS, "net"),
     ("Small LSTM inference, sliding window (STAC-ML)",     2 * US, 35.2 * US, "model"),
     ("OS network stack (measured median)",               4.5 * US, 4.5 * US, "net"),
