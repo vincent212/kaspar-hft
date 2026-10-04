@@ -283,11 +283,8 @@ lists what a simulation must model to give trustworthy answers, and states what 
 \subsubsection{Assumptions of a naive backtest}
 
 A common backtest of a passive signal assumes that a limit order placed at the bid is filled when
-the signal fires, or when the price touches the order's level:
-\begin{lstlisting}
-naive:   signal at t -> assume filled at bid -> P&L = m(t+H) - bid
-\end{lstlisting}
-This fills every order, including those the market would never have reached. The orders it wrongly
+the signal fires, or when the price touches the order's level, and books the profit $m_{t+H} - \text{bid}$
+(Figure~\ref{fig:naive-vs-replay}, top). This fills every order, including those the market would never have reached. The orders it wrongly
 fills are exactly the ones where the price moved away before the queue was consumed---the fills a
 real passive order does not get, and which would have been profitable. The naive backtest is
 therefore biased toward adverse-selection-free fills that do not exist.
@@ -305,14 +302,29 @@ A replay that can answer the execution questions of this part needs:
 \item a stated assumption about market impact.
 \end{enumerate}
 
-\begin{lstlisting}
-replay:  strategy sees the book at market time t
-         (the feed reached it a feed delay after the exchange event)
-         -> order arrives at the exchange at t + feed delay + order delay
-         -> appended at the tail of the real FIFO queue at its price
-         -> filled only when recorded executions reach an order behind it
-         -> P&L from the actual (simulated) fill time and price
-\end{lstlisting}
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, scale=0.82, transform shape,
+  b/.style={draw, rounded corners=2pt, align=center, text width=24mm, minimum height=11mm},
+  arr/.style={-{Stealth[length=1.6mm]}, thick}]
+\node[anchor=east, font=\scriptsize\bfseries] at (-1.6,0) {naive};
+\node[b, fill=red!8] (n1) at (0,0) {signal at $t$};
+\node[b, fill=red!8] (n2) at (2.9,0) {assume filled\\at the bid};
+\node[b, fill=red!8] (n3) at (5.8,0) {profit\\$m_{t+H} - \text{bid}$};
+\draw[arr] (n1) -- (n2); \draw[arr] (n2) -- (n3);
+\node[anchor=east, font=\scriptsize\bfseries] at (-1.6,-1.7) {replay};
+\node[b, fill=green!10] (r1) at (0,-1.7) {strategy sees the book at market time $t$ (one feed delay late)};
+\node[b, fill=green!10] (r2) at (2.9,-1.7) {order reaches the exchange at $t$ + feed delay + order delay};
+\node[b, fill=green!10] (r3) at (5.8,-1.7) {joins the back of the recorded queue at its price};
+\node[b, fill=green!10] (r4) at (8.7,-1.7) {filled only when recorded executions reach an order behind it};
+\node[b, fill=green!10] (r5) at (11.6,-1.7) {profit from the actual fill time and price};
+\foreach \x/\y in {r1/r2,r2/r3,r3/r4,r4/r5} \draw[arr] (\x) -- (\y);
+\end{tikzpicture}
+\caption{A naive backtest and a queue-exact replay of the same passive order. The naive backtest fills the order as
+soon as the signal fires; the replay sends it with its delays, places it in the recorded queue and fills it only when
+the recorded executions reach it.}
+\label{fig:naive-vs-replay}
+\end{figure}
 
 The fill rule rests on price--time priority: if a recorded aggressor reached a resting order that
 arrived later than the simulated order at the same price, it must have passed through the
@@ -683,13 +695,12 @@ that makes a fill inference definable at all~\citep{maciejewski_shadow}.
 In simulation mode the SOM turns a new order into a book \emph{add} message tagged with a
 simulated venue identifier and sends it to the order-book actor. The book does not insert it
 immediately. It holds the order on a delay queue until its modelled arrival time at the matching
-engine:
-\begin{lstlisting}[language=C++]
-auto order_engine_arrive_time =
-    order_leave_time
-      + uint64_t(feed_delay) * 1000
-      + uint64_t(std::max(40, eff_delay)) * 1000; // 40 us floor
-\end{lstlisting}
+engine,
+\begin{equation}
+  t_{\text{arrive}} = t_{\text{leave}} + d_{\text{feed}} + \max\big(40\,\mu\text{s},\; d_{\text{order}}\big),
+\end{equation}
+\inwords{the order reaches the matching engine after the feed delay and the order delay, and never less than
+40\,\textmu s after it leaves.}
 The outbound order delay, the outbound cancel delay and the inbound feed delay are independent
 parameters. The feed delay is added because the strategy saw the market late by that amount, so a
 round trip is feed plus order, not order alone. When the order arrives it is appended at the tail
@@ -699,36 +710,35 @@ of the queue at its price, behind all depth already resting there.
 
 A recorded cancellation of a real order simply unlinks it, and every order behind it moves up. A
 recorded execution triggers simulated fills only when the executing real order is the first real
-order in the queue and a simulated order sits ahead of it:
-\begin{lstlisting}[language=C++]
-// fill sim orders only if the executing order is at the front
-if (o == q->get_head_no_sim())
-{
-  fill_prev_sim_order();
-  ...
-}
-\end{lstlisting}
-Any remaining executed quantity is carried forward to earlier simulated orders. This is the
-price--time-priority argument of Section~\ref{sec:replay} in code: an aggressor that reached a
+order in the queue and a simulated order sits ahead of it; the simulated order is then filled. Any remaining executed
+quantity is carried forward to earlier simulated orders. This is the price--time-priority argument of
+Section~\ref{sec:replay}, implemented in the book: an aggressor that reached a
 real order which arrived after the simulated order must have passed through the simulated order.
 Simulated orders are excluded from the best bid and offer that the strategy sees, so a strategy
 cannot react to its own quote. Market impact is not modelled~\citep{maciejewski_shadow}.
 
 \begin{example}[A fill, step by step]
 \label{ex:trace}
-Bid queue at 5000.00 over seven successive steps \#0--\#6, sizes in lots, real orders R1--R4 and
+Bid queue at 5000.00 over seven successive steps 0--6, sizes in lots, real orders R1--R4 and
 one simulated order S:
-\begin{lstlisting}
-#0  resting:            R1(10) R2(5) R3(20)
-#1  S(3) arrives:       R1(10) R2(5) R3(20) S(3)      appended at tail
-#2  R2 cancels:         R1(10) R3(20) S(3)            S moves up
-#3  exec 10 vs R1:      R3(20) S(3)                   none ahead of R1: no fill
-#4  exec 20 vs R3:      S(3)                          S is behind R3: no fill
-#5  R4(8) joins:        S(3) R4(8)
-#6  exec 5 vs R4:       R4 is head real, S ahead  ->  S filled 3 @ 5000.00
-\end{lstlisting}
-At step \#6 the aggressor reached R4, which arrived after S, so it must have passed through S. A
-``touch'' backtest would have filled S at step \#3, three recorded events earlier and before the
+\begin{center}\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{c>{\raggedright\arraybackslash}p{0.27\linewidth}>{\raggedright\arraybackslash}p{0.27\linewidth}>{\raggedright\arraybackslash}X}
+\toprule
+Step & Event & Queue after the event (front to back) & Simulated order S \\
+\midrule
+0 & --- & R1(10) R2(5) R3(20) & not yet placed \\
+1 & S(3) arrives & R1(10) R2(5) R3(20) S(3) & joins at the back \\
+2 & R2 cancels & R1(10) R3(20) S(3) & moves up \\
+3 & execution of 10 against R1 & R3(20) S(3) & no fill: nothing simulated ahead of R1 \\
+4 & execution of 20 against R3 & S(3) & no fill: S is behind R3 \\
+5 & R4(8) joins & S(3) R4(8) & --- \\
+6 & execution of 5 against R4 & R4(3) & filled, 3 lots at 5000.00 \\
+\bottomrule
+\end{tabularx}
+\end{center}
+At step 6 the aggressor reached R4, which arrived after S, so it must have passed through S. A
+``touch'' backtest would have filled S at step 3, three recorded events earlier and before the
 queue ahead of it was consumed.
 \end{example}
 
@@ -949,56 +959,13 @@ the model actor, the \texttt{Prediction} message and its handler in the strategy
   alongside the strategy actors of the same order book.
 \end{enumerate}
 
-In outline (the full sketch, with the file and line of every call used, is in the notes accompanying this survey):
-\begin{lstlisting}[language=C++]
-namespace ob_msg  = frame::ob::msg;
-namespace mda_msg = frame::mda::msg;
-
-// New message type: the model's output for one book update.
-struct Prediction : actors::MessageT<Prediction> {
-  uint     sym;          // instrument
-  uint64_t market_time;  // time of the book update it came from
-  double   value;        // e.g. queue imbalance in [-1, 1]
-  Prediction(uint s, uint64_t t, double v)
-      : sym(s), market_time(t), value(v) {}
-};
-
-// New actor: subscribes to the book, publishes one prediction per update.
-class ImbalanceModel : public actors::Actor {
-  actor_ptr ob;                    // the order book it reads
-  std::vector<actor_ptr> lights;   // the strategy actors it feeds
-
- public:
-  ImbalanceModel(actor_ptr ob_, std::vector<actor_ptr> lights_)
-      : ob(ob_), lights(std::move(lights_)) {
-    MESSAGE_HANDLER(actors::msg::Start, on_start);
-    MESSAGE_HANDLER(ob_msg::EndOfBurst, on_book);
-  }
-
-  void on_start(const actors::msg::Start*) {
-    ob->send(new mda_msg::Subscribe(mda_msg::Subscribe::HI), this);
-  }
-
-  void on_book(const ob_msg::EndOfBurst* m) {
-    const auto& pl = m->payload;          // the book after the burst
-    // skip bad data and bursts sent while the book is being rebuilt
-    // after a gap, as the strategy actors do
-    if (!pl || pl->point_.baddata || pl->recovery) return;
-    double b = pl->point_.bid_sz[0];      // size at the best bid
-    double a = pl->point_.ask_sz[0];      // size at the best ask
-    if (a + b <= 0) return;
-    double imb = (b - a) / (b + a);
-    for (auto l : lights)                 // a new message per recipient
-      l->send(new Prediction(pl->sym, pl->txtim_epoch, imb), this);
-  }
-};
-\end{lstlisting}
+The code for each step is in the Kaspar repository~\citep{maciejewski_shadow}; the notes accompanying this survey give
+the file and line of every call used.
 
 Three properties of the present code matter for anyone doing this.
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
 \item \textbf{Ordering and determinism.} In the replay simulator every actor runs in one group, on one thread, in
-  one message order, so a replay with the model actor added is still deterministic. From reading the code (not
-  tested), a prediction sent with \texttt{send} for a book update reaches the strategy after the strategy has acted
+  one message order, so a replay with the model actor added is still deterministic. A prediction sent with \texttt{send} for a book update reaches the strategy after the strategy has acted
   on that update and before the next one; the framework's synchronous \texttt{fast\_send} would deliver it first.
   In the trading binary each actor has its own thread, and the order in which the book update and the prediction
   reach the strategy is not fixed.

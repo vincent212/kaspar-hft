@@ -740,38 +740,10 @@ A book in state H has a micro-price about $0.02$ points---a sixth of a half-tick
 book in state L, the same amount below.
 \end{example}
 
-\noindent A minimal implementation of the offline part, with the states already numbered and the data
-already symmetrised:
-\begin{lstlisting}[language=Python]
-import numpy as np
-
-def fit_microprice(x, y, dm, n_states, jumps, n_terms=6):
-    # x, y: state before / after each step; dm: mid change;
-    # jumps: sorted nonzero mid changes
-    U  = np.zeros((n_states, n_states))
-    J1 = np.zeros((n_states, len(jumps)))
-    J2 = np.zeros((n_states, n_states))
-    for xi, yi, d in zip(x, y, dm):
-        if d == 0:
-            U[xi, yi] += 1
-        else:
-            J1[xi, np.searchsorted(jumps, d)] += 1
-            J2[xi, yi] += 1
-    total = U.sum(1) + J1.sum(1)       # all transitions out of each state
-    U, J1, J2 = (M / total[:, None] for M in (U, J1, J2))
-    # A sums over steps with no mid change
-    A = np.linalg.inv(np.eye(n_states) - U)
-    g = A @ J1 @ jumps                 # g^(1)
-    B = A @ J2
-    g_star = g.copy()
-    for _ in range(n_terms - 1):
-        g = B @ g                      # g^(k+1) = B g^(k)
-        g_star += g
-    return g_star                      # one adjustment per state
-
-# online, at every book update:
-#   micro = mid + g_star[state(iota, spread)]
-\end{lstlisting}
+\noindent In practice the offline part counts, on historical data, the transitions between states with the mid
+unchanged and the transitions with a mid change, divides each count by the number of transitions out of its starting
+state to obtain probabilities, computes $\mathbf{A}$ and $g^{(1)}$, and adds the first six terms of the series; the
+online part looks up the current state and adds its adjustment $g^{\star}$ to the mid at every book update.
 The bucket counts, the six-term truncation and the symmetrisation follow Stoikov's reference notebook and
 talk slides; the published paper may present them differently.
 
@@ -822,28 +794,6 @@ closed form:
 \item repeat for $N_{\text{paths}}$ independent paths and average the recorded changes; the average
   estimates $g^{\star}(x)$.
 \end{enumerate}
-\begin{lstlisting}[language=Python]
-import numpy as np
-rng = np.random.default_rng(0)
-
-def microprice_mc(x0, U, Jk, jumps, n_changes=6, n_paths=100_000):
-    # U[x, y]: P(go to y, mid unchanged)
-    # Jk[j][x, y]: P(mid changes by jumps[j], go to y)
-    n = U.shape[0]
-    P = np.hstack([U] + list(Jk))   # row x: all possible next steps from x
-    total = 0.0
-    for _ in range(n_paths):
-        x, dm, changes = x0, 0.0, 0
-        while changes < n_changes:
-            c = rng.choice(P.shape[1], p=P[x])
-            # block 0: no mid change; block j: jump jumps[j-1]
-            block, x = divmod(c, n)
-            if block > 0:
-                dm += jumps[block - 1]
-                changes += 1
-        total += dm
-    return total / n_paths          # estimate of g_star[x0]
-\end{lstlisting}
 Simulation needs one extra estimate the closed form does not: the joint probability of a jump of a given
 size \emph{and} the state the book lands in, which is $\mathbf{J}^{(2)}$ split by jump size. The two
 methods estimate the same number. The closed form is exact for the fitted chain and costs a matrix
@@ -1117,14 +1067,8 @@ out.
   the convention $\inf \emptyset = \infty$ gives $\tau^a = \infty$---the queue never depletes.
 \end{description}
 So the whole expression reads: \emph{the earliest time after now at which the best-ask queue is
-empty}. In code, it is the loop
-\begin{lstlisting}[language=Python]
-u = 0.0
-while ask_size(t + u) > 0:     # ask_size(.) = v^a_1 at that time
-    u = time_of_next_event_after(t + u) - t
-tau_a = u                      # first time the queue is seen empty
-\end{lstlisting}
-run on the future of the book---which is why $\tau^a$ is a random quantity, not a number known now: the
+empty}. Computed on a recorded future, it is found by stepping forward event by event until the best-ask queue is
+first empty; on the real future it cannot be computed in advance---which is why $\tau^a$ is a random quantity, not a number known now: the
 models of this section give its probability distribution.
 
 \begin{example}[One depletion time]
@@ -6204,17 +6148,9 @@ learned temporal encodings; the explicit kernel bias above is a design we propos
 than a published LOB result. The closest published model we found, by \citet{hwang2025shockbiased}, adds to
 the attention scores of a Transformer Hawkes process a bias whose size depends on the event's type and decays
 exponentially with elapsed time, and reports results on financial event prediction; we could read only its
-abstract, so its data and results are not verified here. A minimal implementation:
-\begin{lstlisting}[language=Python]
-def hawkes_biased_attention(E, t, Wq, Wk, Wv, log_alpha, omega):
-    # E: one embedding row per event; t: event times (sorted)
-    Q, K, V = E @ Wq, E @ Wk, E @ Wv
-    scores = Q @ K.T / sqrt(Q.shape[1])
-    dt = t[:, None] - t[None, :]     # time from event n' to event n
-    scores = scores + (log_alpha - omega * dt)  # log of exp. kernel
-    scores[dt < 0] = -inf            # causal: no attention to later events
-    return softmax(scores, axis=1) @ V
-\end{lstlisting}
+abstract, so its data and results are not verified here. In an implementation, the only change to standard
+attention is that the term $\ln\alpha - \omega\,(t_n - t_{n'})$ is added to each score before the softmax, and scores for
+later events are set to $-\infty$ so that they receive no weight.
 The added cost over standard attention is one subtraction per pair of events.
 
 Figure~\ref{fig:mech-attn} shows the effect on a single event. In panel~(1), standard attention weights earlier
@@ -6988,11 +6924,11 @@ training needs automatically, so the modeller writes only the forward computatio
 \end{itemize}
 Framework use was checked in each project's public repository in October 2026.
 
-\paragraph{The code in this subsection.} Each step below is followed by Python code that implements it: PyTorch
-for the network and its training, NumPy for the data, scikit-learn for the scores. The files are in
-\texttt{code/deep\_lob\_example/} with this survey, and the whole example runs on a laptop CPU in minutes. The
-data are synthetic, so that the example can be run without a data licence; Step~6 uses this to show what the
-choice of label does when there is nothing to predict.
+\paragraph{The example in this subsection.} Each step below is followed by what a small worked example does at that
+step. The example is a Python program---PyTorch for the network and its training, NumPy for the data, scikit-learn
+for the scores---whose files, with instructions for running it, are in \texttt{code/deep\_lob\_example/} with this
+survey; it runs on a laptop. The data are synthetic, so that the example can be run without a data licence; Step~6
+uses this to show what the choice of label does when there is nothing to predict.
 
 \begin{figure}[!htbp]
 \centering
@@ -7015,20 +6951,19 @@ choice of label does when there is nothing to predict.
 08:30 to 16:00), recorded at every event: about 150,000 events per stock per day, more than 134 million samples in
 all.
 
-The example replaces this with a synthetic book (Listing~\ref{lst:synth}). The mid-price is a random walk in event
+The example replaces this with a synthetic book. The mid-price is a random walk in event
 time: at each event it moves up one tick with probability 0.1, down one tick with probability 0.1, and otherwise
 stays. The spread is one tick, and the sizes at every level are independent random numbers. Nothing in this book
-predicts the next price move. The example uses 20 days of 3,000 events.
-\lstinputlisting[style=pycode, firstline=13, lastline=23, caption={Synthetic book: one day of snapshots in
-DeepLOB's column order.}, label=lst:synth]{code/deep_lob_example/synthetic_book.py}
+predicts the next price move. The example uses 20 days of 3,000 events, each recorded as a row of 40 numbers in
+DeepLOB's column order.
 
 \paragraph{Step 2: normalise.} Prices and sizes are on very different scales, and their typical values drift from
 day to day, so each input is standardised---its mean subtracted, divided by its standard deviation. The statistics
 must come only from the past: DeepLOB normalises each day with the mean and standard deviation of the previous five
 days, separately for each stock. Using statistics from the whole sample would leak future information into the
-inputs. How inputs are normalised turns out to matter a great deal (Section~\ref{sec:deep-cnn}).
-\lstinputlisting[style=pycode, firstline=3, lastline=13, caption={Normalising each day with the previous five
-days.}, label=lst:norm]{code/deep_lob_example/lob_normalise.py}
+inputs. How inputs are normalised turns out to matter a great deal (Section~\ref{sec:deep-cnn}). The example does the
+same: it computes the mean and standard deviation of each of the 40 columns over the previous five days, standardises
+the current day with them, and uses the first five days only as statistics.
 
 \paragraph{Step 3: windows and labels.} Each training example pairs an input window with a target. The input $X_t$ is
 the last 100 snapshots of the book, each with 40 numbers---price and size, bid and ask, at ten levels---so a $100
@@ -7050,18 +6985,16 @@ how many examples fall in each class. Both choices change the problem: averaging
 makes the label partly predictable from the past, which inflates accuracy~\citep{lee2024predictability}
 (Section~\ref{sec:deep-real}).
 
-Listing~\ref{lst:windows} builds both labels. With \texttt{past\_average=True} the reference is the average of the
-last $H$ mid-prices (the smoothed label); with \texttt{False} it is the current mid-price $m_t$ (the label of
-Equation~\eqref{eq:deep-label}, which we call leak-free). The example uses $H = 20$ and sets $\theta$ on the
-training days so that about a third of the labels are stationary.
-\lstinputlisting[style=pycode, caption={Labels and input windows.}, label=lst:windows]{code/deep_lob_example/lob_windows.py}
+The example builds both labels from running sums of the mid-price: the smoothed label measures the change from the
+average of the last $H$ mid-prices, the leak-free one from the current mid-price $m_t$ (the label of
+Equation~\eqref{eq:deep-label}). It uses $H = 20$, sets $\theta$ on the training days so that about a third of the
+labels are stationary, and cuts the book into overlapping windows of the last 100 snapshots, one per event.
 
 \paragraph{Step 4: split by time.} DeepLOB trains on the first six months, uses the next three to tune and to decide
 when to stop, and tests on the last three. The split must follow time: shuffling examples before splitting puts
 almost identical, overlapping windows into both training and test sets, and reports skill the model does not have.
 Several published studies made this mistake (Section~\ref{sec:deep-real}). The example trains on 9 days,
 validates on 3 and tests on the last 3, after the first 5 days are used only for the normalisation statistics.
-\lstinputlisting[style=pycode, firstline=15, lastline=19, caption={Splitting by time.}, label=lst:split]{code/deep_lob_example/lob_normalise.py}
 
 \paragraph{Step 5: train.} The network outputs three probabilities, $\hat p_{\text{down}}$, $\hat p_{\text{stat}}$ and
 $\hat p_{\text{up}}$. Training adjusts the weights to make the probability of the observed label as high as
@@ -7081,14 +7014,12 @@ the validation months has not improved for 20 epochs (about 40 epochs in all). T
 weights and takes about a quarter of a millisecond per prediction; the paper does not state the device or the
 batch size used for that timing (Section~\ref{sec:hw-why}).
 
-Listing~\ref{lst:model} is DeepLOB in PyTorch, following the description of Section~\ref{sec:deeplob}. Printing
-its parameter count gives 60,947: the same as Table~\ref{tab:deeplob-params} stage by stage, except the LSTM,
-where PyTorch keeps two bias vectors per gate instead of one ($4 \times 64 = 256$ more). Listing~\ref{lst:train}
-is the training loop. It uses Adam with a learning rate of 0.0001 and batches of 128, the values in the authors'
+The example builds DeepLOB in PyTorch, following the description of Section~\ref{sec:deeplob}. Its parameter count is
+60,947: the same as Table~\ref{tab:deeplob-params} stage by stage, except the LSTM,
+where PyTorch keeps two bias vectors per gate instead of one ($4 \times 64 = 256$ more). Its training loop shuffles batches within the training days only, and after each pass
+measures the loss on the validation days, keeping the weights with the lowest. It uses Adam with a learning rate of 0.0001 and batches of 128, the values in the authors'
 public TensorFlow notebook, which differ from the 0.01 and 32 stated in the paper. To keep the run short, training stops after 5
 epochs without improvement instead of 20, and after 30 epochs at most.
-\lstinputlisting[style=pycode, caption={DeepLOB in PyTorch.}, label=lst:model]{code/deep_lob_example/lob_model.py}
-\lstinputlisting[style=pycode, caption={Training with early stopping on the validation days.}, label=lst:train]{code/deep_lob_example/lob_train.py}
 
 \paragraph{Step 6: evaluate.} On the test months DeepLOB reports F1 scores of about 70\%, 63\% and 61\% for the three
 horizons, and similar numbers on five stocks it had not seen. Three further checks separate a useful model from a
@@ -7099,13 +7030,11 @@ after costs, not only classification accuracy (Sections~\ref{sec:benchmarks-dl} 
 
 \paragraph{Step 6 in the example: results on a market with nothing to predict.} The example trains the network
 four times: two labels (smoothed, leak-free) times two ways of presenting prices (z-scored by day as in Step~2, or
-measured in ticks from the mid at the window's last event, the function \texttt{relative\_prices} in
-Listing~\ref{lst:windows}). Each run is scored on the 3 test days against three rules that use no network
-(Listing~\ref{lst:eval}): the past-only rule of Section~\ref{sec:deep-real} (is the mid now above or below its average over the last 20
+measured in ticks from the mid at the window's last event). Each run is scored by accuracy and macro-F1 on the 3
+test days, against three rules that use no network: the past-only rule of Section~\ref{sec:deep-real} (is the mid now above or below its average over the last 20
 events?), repeating the most recent label that is already known at $t$ (the label of $t - 20$), and always
 predicting the most common class. Table~\ref{tab:example-results} gives the results; \texttt{run\_output\_zscore.txt}
 and \texttt{run\_output\_relative.txt} hold the full output.
-\lstinputlisting[style=pycode, caption={Scoring.}, label=lst:eval]{code/deep_lob_example/lob_evaluate.py}
 
 \begin{table}[!htbp]
 \centering\footnotesize

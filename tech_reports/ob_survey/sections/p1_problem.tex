@@ -176,33 +176,11 @@ Type & Name & Effect on the book \\
 \end{tabular}
 \end{center}
 
-\noindent Building the book is a short event loop over these messages:
-\begin{lstlisting}[language=Python]
-book   = {'B': SortedDict(), 'S': SortedDict()}  # price -> deque of orders
-orders = {}                                       # reference number -> order
-
-def on_message(m):
-    if m.type in 'AF':                            # add: join the back of the queue
-        o = Order(m.ref, m.side, m.price, m.shares)
-        book[o.side].setdefault(o.price, deque()).append(o)
-        orders[o.ref] = o
-    elif m.type in 'ECX':                         # execution or partial cancel
-        o = orders[m.ref]
-        o.shares -= m.shares
-        if o.shares == 0: remove(o)
-    elif m.type == 'D':                           # full cancel
-        remove(orders[m.ref])
-    elif m.type == 'U':                           # replace: remove, re-add at back
-        old = orders[m.old_ref]
-        remove(old)
-        on_message(Add(m.new_ref, old.side, m.price, m.shares))
-
-def remove(o):
-    q = book[o.side][o.price]
-    q.remove(o)                                   # O(1) with a linked list
-    if not q: del book[o.side][o.price]
-    del orders[o.ref]
-\end{lstlisting}
+\noindent Building the book needs two structures: for each side, an ordered map from price to a first-in-first-out
+queue of orders, and a table from reference number to order. Each message updates them as the table says: an add
+appends the order to the back of the queue at its price and records it in the table; an execution or partial cancel
+finds the order by its reference number and reduces its shares, removing it at zero; a delete removes it; a replace
+removes the old order and adds a new one at the back of the queue. An empty price level is removed from the map.
 Three details matter later in this survey. First, an execution message names the waiting order
 that traded, so the feed reveals \emph{which} order in the queue was hit---the information needed
 to reconstruct queue positions (Section~\ref{sec:simulators}). Second, a replace carries a new reference number, so in

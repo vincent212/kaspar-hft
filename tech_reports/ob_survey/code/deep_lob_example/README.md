@@ -7,16 +7,16 @@ against three rules that use no network.
 
 ## Files
 
-| File | What it does | Listing in the paper |
-|---|---|---|
-| `synthetic_book.py` | one day of synthetic snapshots (40 numbers per event) | Listing 1 |
-| `lob_normalise.py` | z-score each day with the previous five days; split by time | Listings 2, 4 |
-| `lob_windows.py` | labels (smoothed and leak-free), 100-event windows, relative prices | Listing 3 |
-| `lob_model.py` | DeepLOB in PyTorch (60,947 parameters) | Listing 5 |
-| `lob_train.py` | Adam, cross-entropy, early stopping on validation loss | Listing 6 |
-| `lob_evaluate.py` | accuracy and macro-F1 | Listing 7 |
-| `run_experiment.py` | builds the data, trains, scores; prints the results | -- |
-| `run_output_zscore.txt`, `run_output_relative.txt` | the output reported in the results table of Section 10.4 | -- |
+| File | What it does |
+|---|---|
+| `synthetic_book.py` | one day of synthetic snapshots (40 numbers per event) |
+| `lob_normalise.py` | z-score each day with the previous five days; split by time |
+| `lob_windows.py` | labels (smoothed and leak-free), 100-event windows, relative prices |
+| `lob_model.py` | DeepLOB in PyTorch (60,947 parameters) |
+| `lob_train.py` | Adam, cross-entropy, early stopping on validation loss |
+| `lob_evaluate.py` | accuracy and macro-F1 |
+| `run_experiment.py` | builds the data, trains, scores; prints the results |
+| `run_output_zscore.txt`, `run_output_relative.txt` | the output reported in the results table of Section 10.4 |
 
 ## Requirements
 
