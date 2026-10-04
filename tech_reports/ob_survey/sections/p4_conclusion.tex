@@ -125,8 +125,8 @@ Seven conclusions follow from the evidence reviewed.
 \item \textbf{Execution matters.} Resting and crossing can cost the same once adverse selection is counted.
 \item \textbf{Simulation assumptions matter.} A fill rule that ignores the queue overstates results; a replay without
   market impact answers questions about small orders only.
-\item \textbf{Latency matters.} Cost rises with delay. A slow model on the hot path misses signals, leaves passive
-  orders to be picked off and lets message queues grow; a model's evaluation time is part of its specification.
+\item \textbf{Latency matters.} Cost rises with delay. A slow model on the hot path misses signals, leaves orders
+  to be picked off, including aggressive orders that arrive late and rest in the book, and lets message queues grow; a model's evaluation time is part of its specification.
 \item \textbf{Complexity must earn its cost.} A more complex model is justified only by incremental out-of-sample
   economic value.
 \end{enumerate}
@@ -167,8 +167,8 @@ window, memory traffic at a batch of one, and fixed overheads per operation---an
 candidate remedies: shorter or incremental windows, smaller and lower-precision models, fused kernels, and moving the
 regular stages to FPGAs. All of these inference times exceed the CME publisher period of about $7.5\,\mu$s, the
 time within which a stage on the hot path must handle each packet to avoid queueing~\citep{maciejewski2026packets}.
-A model too slow for the hot path does not just answer late: it misses signals, leaves passive orders to be picked
-off, and lets the message queue in front of it grow. Hardware decides how much of a signal's value survives to the
+A model too slow for the hot path does not just answer late: it misses signals, leaves orders to be picked
+off---resting orders and aggressive orders that arrive late and end up resting---and lets the message queue in front of it grow. Hardware decides how much of a signal's value survives to the
 moment of execution, but it cannot rescue a signal whose life is shorter than the pipeline that computes it.
 
 For a reader who must choose a model, the survey's guidance reduces to an order of operations.
