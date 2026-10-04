@@ -63,6 +63,45 @@ arranged in that order.
   hardware fast enough for it: where the time goes, what can be accelerated, and why a model too slow for the hot path
   cannot be deployed there at all.
 \end{enumerate}
+Figure~\ref{fig:theory-to-production} shows the process.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, scale=0.95, transform shape,
+  st/.style={draw, rounded corners=3pt, align=left, text width=44mm, inner sep=4pt, minimum height=38mm, anchor=north},
+  arr/.style={-{Stealth[length=1.8mm]}, thick},
+  back/.style={-{Stealth[length=1.6mm]}, dashed}]
+\node[st, fill=orange!10] (t) at (0,0) {\textbf{1. Theory} \hfill Part~II\\[3pt]
+  \emph{Question:} what does the book predict?\\[3pt]
+  choose the representation and the target;\\
+  build the model;\\
+  compare it with simple baselines on proper scores\\[3pt]
+  \emph{Output:} a forecast};
+\node[st, fill=blue!8] (s) at (5.6,0) {\textbf{2. Simulation} \hfill \S\ref{sec:sim-needs}--\ref{sec:kaspar}\\[3pt]
+  \emph{Question:} does the forecast survive the queue, the fill and the latency?\\[3pt]
+  add the model to a strategy;\\
+  replay recorded days with exact queue position and delays;\\
+  score against the model-free benchmark\\[3pt]
+  \emph{Output:} a tested strategy};
+\node[st, fill=green!10] (d) at (11.2,0) {\textbf{3. Deployment} \hfill \S\ref{sec:hardware}\\[3pt]
+  \emph{Question:} is it fast enough to run?\\[3pt]
+  paper trading, then live;\\
+  keep the model within the hot-path budget;\\
+  place each stage on CPU, FPGA or GPU\\[3pt]
+  \emph{Output:} a strategy in production};
+\draw[arr] (t.east) -- (s.west);
+\draw[arr] (s.east) -- (d.west);
+\draw[back] (s.north) -- ++(0,0.45) -| node[pos=0.25, above]{fails after costs: change the model or the target} (t.north);
+\draw[back] (d.north) -- ++(0,0.95) -| node[pos=0.25, above]{too slow for the hot path: a smaller model, or off the hot path} ([xshift=-8mm]t.north);
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}] ([yshift=-2mm]s.south west) -- ([yshift=-2mm]d.south east)
+  node[midway, below=6pt, align=center]{\kasparhft{}: the same code in replay, paper and live trading;\\
+  moving from simulation to deployment is a configuration setting};
+\end{tikzpicture}
+\caption{The path from theory to production that the survey follows. Each stage asks its own question and passes on
+its output only if the answer is yes; a strategy that fails in simulation, or a model too slow for the hot path, goes
+back to the first stage.}
+\label{fig:theory-to-production}
+\end{figure}
 In \kasparhft{}, the system used throughout (below), the step from simulation to deployment involves no change of
 code: the strategy tested in the simulator is the strategy deployed, and only a configuration setting differs. A
 practitioner or student who wants to take a model from a paper to a trading server needs all three. Each part can be

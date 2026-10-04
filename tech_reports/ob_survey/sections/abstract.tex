@@ -22,8 +22,8 @@ them to reach production, and a practitioner or student who wants to take one th
 the reason for the survey's structure.
 
 The chain LOB state $\to$ representation $\to$ prediction $\to$ decision $\to$ queue $\to$ execution $\to$ P\&L
-frames the survey: each link can destroy information or add uncertainty. We place the main works on four axes---
-representation, model class, prediction objective and economic role---and distinguish models that predict prices or
+frames the survey: each link can destroy information or add uncertainty. We place the main works on four
+axes---representation, model class, prediction objective and economic role---and distinguish models that predict prices or
 events from models that estimate execution outcomes such as fill probability, queue depletion and adverse selection,
 which we treat as modelling targets in their own right. For the learned models we explain, from first principles, how
 they are built and trained, take apart meta-models and structural hybrids that combine them with classical models,
@@ -32,7 +32,7 @@ the network, with a small PyTorch example on a synthetic market.
 
 For simulation, we survey order-book simulators---historical replay, agent-based, model-based and generative---and
 compare them on the properties execution questions need: per-order queue position, explicit latency, determinism and
-a shared code path to live trading. \kasparhft{}, an open-source trading system and simulator, serves as the worked
+a shared code path to live trading. \kasparhft{}\footnote{\kasparhft{} is available at \url{https://github.com/vincent212/kaspar-hft}.}, an open-source trading system and simulator, serves as the worked
 example of a deterministic, queue-exact replay in which simulated orders enter the reconstructed historical
 first-in-first-out queue and are filled only by recorded executions that reach an order behind them; we show how an
 order-book model is added to it as an actor that publishes its predictions to a strategy. A strategy tested in its
