@@ -1093,6 +1093,16 @@ and jitter:
 \inwords{a bigger model takes longer to evaluate, and by the time it answers, some of what it
 predicted has already happened.}
 
+\paragraph{The question this section answers: when does faster inference produce economic value?} Faster hardware
+is worth its cost only if the time it saves would otherwise destroy value. Two quantities decide that: how fast the
+value of a signal decays, and how much latency the faster hardware removes. With a 2\,ms half-life, 97\% of a signal's
+value remains after 100\,\textmu s and 18\% after 5\,ms (Section~\ref{sec:latency}); with a 5\,ms half-life, evaluating
+it in 50\,\textmu s instead of 500\,ns changes almost nothing (Section~\ref{sec:hw-lifetime}). Measured on a year of
+E-mini data in Kaspar's replay, a passive execution method lost about 0.011 ticks per contract for each millisecond of
+added delay and an aggressive one about 0.042~\citep{maciejewski_shadow}: the price of latency depends on the
+strategy as well as the signal. Hardware therefore matters most for short-lived signals and for strategies that take
+liquidity; for slow signals, model quality decides the result.
+
 This section first follows one market event through a model-driven trading system and shows where the time is
 spent; it then explains why recurrent networks and Transformers are slow at that task, collects the published and
 the independently audited latency measurements, and lists the stages worth accelerating. The remaining subsections
@@ -1330,34 +1340,30 @@ can lose money if latency spikes at the moments when its signal is acted on.
 Deterministic, fixed-cycle execution is therefore a risk-control property, not only a speed
 optimisation.
 
-\subsection{Commercial FPGA products for trading}
+\subsection{Classes of hardware compared}
 \label{sec:hw-landscape}
+\label{sec:hw-classes}
 
-Most production hardware for trading is commercial, and most of its published figures are vendor
-claims rather than audited measurements. This section lists representative products and how to read their figures. Table~\ref{tab:vendors} lists representative offerings with
-the figures their makers publish; audited results are in Section~\ref{sec:hw-audited}, and the STAC-T0 result of an
-Exegy framework on an AMD card is shown here for reference~\citep{exegy_stac2024}. Two cautions apply when reading such
-numbers. They measure different things---a transceiver loopback (a signal sent out and straight back through the circuit
-that puts bits on the wire), a trigger, a book build, a model
-inference---that must not be compared directly. And the AMD transceiver figure explicitly excludes
-protocol processing and programmable logic, so it is a lower bound on a component, not a
-tick-to-trade time.
+Six classes of hardware run parts of the pipeline. Table~\ref{tab:hw-classes} compares them by the figures quoted in
+this section and by their main strength and limitation; representative commercial products, with the figures their
+vendors publish, are listed in Appendix~\ref{sec:app-vendors}.
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{Representative commercial hardware for trading and the figures published by the vendors.
-Except for the STAC result, figures are vendor claims without independent audit. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor claim, \ev{A} independently audited, \ev{O} the author's own system.}
-\label{tab:vendors}
-\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\caption{Classes of hardware for order-book systems. Figures are those quoted in this section, with their evidence
+type; strengths and limitations are our summary of the section.}
+\label{tab:hw-classes}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.22\linewidth}}
 \toprule
-Offering & What it is & Published figure \\
+Class & Figures quoted in this section & Strength & Limitation \\
 \midrule
-AMD Alveo UL3524 / UL3422~\citep{amd_ul3524,amd_ul3422}\ev{V} & FPGA cards built for trading, 64 low-latency transceivers & under 3\,ns transceiver latency, raw loopback excluding logic and protocol \\
-Exegy (incl.\ Enyx, acquired 2022)~\citep{exegy_enyx,exegy_stac2024}\ev{V,A} & FPGA feed handling, order entry and trigger frameworks & STAC-T0 audited trigger latency of the order of ten nanoseconds \\
-Algo-Logic~\citep{algologic}\ev{V} & CME tick-to-trade system on Alveo U50, with feed handler, book and TCP order entry & under 500\,ns tick-to-trade \\
-Magmio~\citep{magmio}\ev{V} & C++ strategies compiled to FPGA by high-level synthesis & under 100\,ns for triggers; under 350\,ns with book building \\
-Xelera Silva~\citep{xelera_silva}\ev{V,A} & tree-ensemble and small-network inference on FPGA & about 250\,ns (99th percentile) for a gradient-boosted model inline on UL3524; 1.1--1.3\,\textmu s as card offload; audited STAC-ML: at most 1.95\,\textmu s (Table~\ref{tab:stac}) \\
-Napatech + Xelera~\citep{napatech}\ev{V} & the same inference on FPGA network cards & 1.55\,\textmu s for a 1000-tree model with 100 features \\
+CPU with kernel bypass & network stack 946\,ns median (measured); Kaspar socket-to-book about 8\,\textmu s & most flexible; easiest to change & jitter from caches, interrupts and scheduling \\
+GPU & small LSTM 4.70\,\textmu s at the 99th percentile, sliding window (audited); 3.4 to 9.6\,\textmu s per launch of a 2.9\,\textmu s kernel (NVIDIA measurement) & throughput; large models; training & launch and PCIe overheads at a batch of one \\
+FPGA & tick-to-trade 0.115--0.61\,\textmu s (audited); book update 26--280\,ns (papers); small LSTM below 2 to 5\,\textmu s (audited) & fixed, deterministic latency & limited capacity; long development \\
+FPGA network card (SmartNIC) & tree model 1.55\,\textmu s on the card (vendor) & computes in the network path & small models only \\
+Programmable switch & ITCH filtering, all messages within 50\,\textmu s against 300\,\textmu s in software (paper) & processing inside the network & few operations per packet; no measured order book \\
+ASIC & none published for trading & speed and power & fixed design; cost of a chip \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1457,6 +1463,7 @@ Moving a model to faster hardware is justified only when the reduction in latenc
 measurably improves post-cost performance.
 
 \subsection{Hardware cannot extend signal lifetime}
+\label{sec:hw-lifetime}
 
 Simpler models have a structural advantage on deterministic hardware: fewer parameters and
 simpler data flow map onto fixed-point, branch-free pipelines. Acceleration can rescue part of a
