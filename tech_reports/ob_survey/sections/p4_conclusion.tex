@@ -45,7 +45,7 @@ The open problems in this group concern what the models of Part~II predict and h
 
 \paragraph{Execution-aware objectives.} Most prediction models stop at
 an estimate of $\P(\Delta m_{t,H} > 0 \mid X_t)$. The more useful objective is an estimate of
-$\E[\Pi \mid a_t, X_t]$, the expected profit of each available action,
+$\E[\Pi \mid X_t, Q^{\text{ahead}}_t, a_t]$, the expected profit of each available action,
 combining prediction, fill probability, queue position and adverse selection. Calibrated
 confidence~\citep{manoharan2026uqlob} is a step toward it: it tells an execution policy when to act.
 
@@ -90,7 +90,8 @@ causal: they ask what happens to the queue and the price \emph{if} an order is p
 no-impact assumption answers this only for small orders. Models of the market's response to one's own
 orders, measured and validated on real executions, remain open.
 
-\paragraph{Generative evaluation.} Generators should be evaluated by market invariants and downstream
+\paragraph{Generative evaluation.} Generators should be evaluated by market invariants (statistical regularities
+that hold across assets and periods, such as the clustering of events) and downstream
 utility rather than by visual or marginal similarity alone~\citep{lobbench2025}.
 
 \paragraph{Cross-asset information after costs.} An open question is when cross-asset information remains
@@ -173,8 +174,8 @@ simulators of Part~III, and \kasparhft{} in particular, provide.
 \subsection{The chain from order book to profit, with the findings}
 \label{sec:chain-findings}
 
-A model is useful not because it predicts the next price move but if the information it extracts survives every link
-of the chain
+A model is useful only if the information it extracts survives every link of the chain of
+Equation~\eqref{eq:chain},
 \[
   \text{LOB state} \to \text{representation} \to \text{prediction} \to \text{decision} \to
   \text{queue} \to \text{execution} \to \text{P\&L}
@@ -200,8 +201,9 @@ Figure~\ref{fig:chain-findings} attaches to each link what the survey found ther
 \node[c] (n6) at (0,-9.5)  {\textbf{execution}};
 \node[c, fill=green!12] (n7) at (0,-11.4) {\textbf{P\&L}};
 \foreach \a/\b in {n1/n2,n2/n3,n3/n4,n4/n5,n5/n6,n6/n7} \draw[arr] (\a) -- (\b);
-\node[f] (f1) at (2.2,-0.95) {\textbf{The input decides most of the result.} With the network fixed, order-flow inputs were
-  among the best in 89\% of cases and raw snapshots in 11\%~\citep{lucchese2024} (Section~\ref{sec:deep-io-effect}).};
+\node[f] (f1) at (2.2,-0.95) {\textbf{Representation matters.} With the network held fixed, the choice of input decided
+  most of the result in one large comparison: order-flow inputs were among the best in 89\% of cases and raw
+  snapshots in 11\%~\citep{lucchese2024} (Section~\ref{sec:deep-io-effect}).};
 \node[f] (f2) at (2.2,-2.85) {\textbf{The label can decide the reported accuracy.} DeepLOB on Apple: 65.9\% with a label
   that averages past prices, 54.6\% with one measured from the current price~\citep{lee2024predictability}
   (Section~\ref{sec:deep-real}).};
@@ -214,8 +216,8 @@ Figure~\ref{fig:chain-findings} attaches to each link what the survey found ther
   overstates results; exact queue position needs order-level data and an order-level book
   (Sections~\ref{sec:replay} and~\ref{sec:kaspar-fills}).};
 \node[f] (f6) at (2.2,-10.45) {\textbf{Resting and crossing cost similar amounts.} About $+0.095$ ticks per contract on a year of
-  ES in one study; adverse selection is complete within a second, and cost rises with every millisecond of delay
-  (Section~\ref{sec:shadow}).};
+  ES in one study; adverse selection is complete within a second, and cost rose with every step of delay from 0
+  to 5\,ms (Section~\ref{sec:shadow}).};
 \foreach \i/\a/\b in {1/n1/n2,2/n2/n3,3/n3/n4,4/n4/n5,5/n5/n6,6/n6/n7}
   \draw[dashed] ($(\a)!0.5!(\b)$) -- (f\i.west);
 \end{tikzpicture}
@@ -229,15 +231,17 @@ quoted in the sections named, with their sources there.}
 
 Seven conclusions follow from the evidence reviewed.
 \begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
-\item \textbf{Representation matters.} With the network held fixed, the input decides most of the result.
+\item \textbf{Representation matters.} With the network held fixed, the choice of input decided most of the result
+  in one large comparison~\citep{lucchese2024}.
 \item \textbf{The prediction target matters.} How the label is built can decide the reported accuracy.
 \item \textbf{Queue position matters.} Whether a passive order fills, and how good the fill is, depends on its place
   in the queue.
 \item \textbf{Execution matters.} Resting and crossing can cost similar amounts once adverse selection is counted.
 \item \textbf{Simulation assumptions matter.} A fill rule that ignores the queue overstates results; a replay without
   market impact answers questions about small orders only.
-\item \textbf{Latency matters.} Cost rises with delay. A slow model on the hot path misses signals, leaves orders
-  to be picked off, including aggressive orders that arrive late and rest in the book, and lets message queues grow; a model's evaluation time is part of its specification.
+\item \textbf{Latency matters.} Cost rose with every step of delay. A slow model on the hot path misses signals,
+  leaves orders to be picked off, and lets message queues grow; a model's evaluation time is part of its
+  specification.
 \item \textbf{Complexity must earn its cost.} A more complex model is justified only by incremental out-of-sample
   economic value.
 \end{enumerate}
@@ -245,25 +249,27 @@ Seven conclusions follow from the evidence reviewed.
 Order-flow imbalance, queue imbalance, Hawkes intensities and first-passage models give
 interpretable low-dimensional descriptions of market dynamics. Deep and pretrained models give
 representational capacity and, increasingly, calibrated confidence; most of them are learned analogues of
-the classical signal models rather than of the mechanistic ones (Section~\ref{sec:deep-adds}). Meta-models and
+the classical signal models rather than of the mechanistic ones, the queue and Hawkes models that describe how the
+book evolves and can be run forward with an order inserted (Section~\ref{sec:deep-adds}). Meta-models and
 structural hybrids combine the two, either by feeding classical outputs to a learner or by building classical
 structure inside a network. Much of the accuracy reported for deep models depends on how the label and the data
-split are built: with a label that averages past prices, a re-test of DeepLOB on Apple was right 65.9\% of the time
-and 54.6\% with a label measured from the current price~\citep{lee2024predictability}. The choice of input
-matters as much: with the network fixed, order-flow inputs were among the best in 89\% of cases and raw snapshots in
-11\%~\citep{lucchese2024}. The conclusion is not that simple models are superior. It is that complexity is an
+split are built, and the choice of input decided most of the result in one large comparison
+(Figure~\ref{fig:chain-findings}). The conclusion is not that simple models are superior. It is that complexity is an
 empirical hypothesis: a more complex model is justified when it delivers incremental out-of-sample
 economic value that survives realistic execution, temporal validation, and the multiple-testing
 burden of its own selection.
 
 Two kinds of infrastructure make that standard testable. The first is the simulator, and \kasparhft{} is the survey's
-instrument for it: a queue-exact replay of the exchange's own feed, deterministic, with separate latencies, running
-many days at once and the same code in replay, paper and live trading (Section~\ref{sec:kaspar}). On a year of
-E-mini data it shows the conclusions above in numbers: resting and crossing cost similar amounts, about $+0.095$ ticks per
-contract, post-fill mark-outs show adverse selection completed within a second, and cost rises steadily with
-latency~\citep{maciejewski_shadow}. Agent-based, model-based and
-generative simulators let the market react to the researcher's orders, but their queues are only as realistic as the
-simulated order flow; a replay keeps the real market but cannot react. Exact queue position in the recorded market
+instrument for it: a queue-exact replay of the exchange's own feed, deterministic, with separately configurable
+market-data and order delays, running many days at once and the same code in replay, paper and live trading
+(Section~\ref{sec:kaspar}). On a year of E-mini data it shows the conclusions above in numbers: resting and crossing
+cost similar amounts, about $+0.095$ ticks per contract; post-fill mark-outs show adverse selection completed within a
+second; and with the same delay applied to orders, cancels and market data, from 0 to 5\,ms, cost rose with every step
+of delay for both versions, and more steeply for the aggressive one, reaching $+0.150$ (passive) and $+0.296$
+(aggressive) ticks per contract at 5\,ms~\citep{maciejewski_shadow}. In the view of this survey, results in generated
+markets---agent-based, model-based or generative---are not evidence about trading. A replay keeps the real market; the
+market's response to one's own orders is measured from paper and live executions (Section~\ref{sec:sim-survey}).
+Exact queue position in the recorded market
 needs order-level data and an order-level book; among the replay tools compared, hftbacktest (with order-level
 data), lobsim and \kasparhft{} provide it without altering the recorded market (Section~\ref{sec:sim-survey}). In a replay built from actors, a model of
 Part~II becomes one more actor that reads the book and sends its predictions to the strategy, and the same code runs
@@ -275,11 +281,13 @@ about 25\,\textmu s to about 23\,ms, about half of them above one millisecond (T
 identifies four causes---recurrence that must run step by step, attention whose cost grows with the square of the
 window, memory traffic at a batch of one, and fixed overheads per operation---and Section~\ref{sec:hw-what} lists the
 candidate remedies: shorter or incremental windows, smaller and lower-precision models, fused kernels, and moving the
-regular stages to FPGAs. All of these inference times exceed the CME publisher period of about $7.5\,\mu$s, the
-time within which a stage on the hot path must handle each packet to avoid queueing~\citep{maciejewski2026packets}.
-A model too slow for the hot path does not just answer late: it misses signals, leaves orders to be picked
-off---resting orders and aggressive orders that arrive late and end up resting---and lets the message queue in front of it grow. Hardware decides how much of a signal's value survives to the
-moment of execution, but it cannot rescue a signal whose life is shorter than the pipeline that computes it.
+regular stages to FPGAs. All of these inference times exceed the CME publisher period (the minimum spacing of about
+7.5\,\textmu s between packets from CME's market-data publisher), the time within which a stage on the hot path must
+handle each packet to avoid queueing~\citep{maciejewski2026packets}. A model too slow for the hot path does not just
+answer late. It misses signals and lets the message queue in front of it grow. It also leaves orders to be picked off:
+resting orders, and aggressive orders that arrive late and end up resting. Hardware decides how much of a signal's
+value survives to the moment of execution. If the signal stops being useful before the pipeline has finished computing
+it, no hardware recovers that value.
 
 \subsection{A worked example in \kasparhft{}: one model from forecast to live trading}
 \label{sec:worked-kaspar}
@@ -292,11 +300,13 @@ mechanisms described in Part~III, not a reported result.
   each ten-minute window, as in the benchmark of Section~\ref{sec:shadow}. The quantity that matters is therefore at
   levels 4 and 5 of the hierarchy: whether a passive fill will be followed by an adverse move (its mark-out), not
   whether the next price move is up.
-\item \textbf{Set the floor.} The two model-free versions, passive \pov{} and aggressive Shadow-APOV, are the
-  baselines. On a year of ES data they cost about $+0.095$ ticks per contract each (Table~\ref{tab:shadow-results}).
+\item \textbf{Set the floor.} The two model-free versions, passive \pov{} and \textsc{Shadow-APOV} (aggressive
+  percentage-of-volume), are the baselines. On a year of ES data they cost similar amounts, about $+0.095$ ticks per
+  contract (Table~\ref{tab:shadow-results}).
   Anything the model adds is measured against both.
 \item \textbf{Build the model.} Order-flow imbalance over the last few book events at the best prices
-  (Section~\ref{sec:ofi}) is used as a gate: the passive buy follows another participant's addition only when the
+  (Section~\ref{sec:ofi}) is used as a gate (\pov{} places a buy behind each addition by another participant near
+  the best bid): the passive buy follows another participant's addition only when the
   imbalance does not point to a falling price, and the sell symmetrically. The gate has two settings, the window and
   the threshold; they are chosen on a training period, and every setting tried is counted, because the best of many
   settings looks better than it is.
@@ -309,7 +319,7 @@ mechanisms described in Part~III, not a reported result.
   same fills, and any difference from the baselines is due to the gate. Each day runs as a separate process, so a year
   of sessions runs in parallel on one machine.
 \item \textbf{Score.} On held-out sessions, compare cost against the arrival mid-price and post-fill mark-outs with
-  both baselines, with intervals clustered by session. Check participation too: a gate that declines additions also
+  both baselines, with confidence intervals that treat each session as one independent sample. Check participation too: a gate that declines additions also
   fills less, and the quantity must still be completed. The model is kept only if it beats both versions.
 \item \textbf{Check the latency budget.} Order-flow imbalance is a running sum updated by a few additions per
   event, well within the time between packets. A larger model in its place---a deep network reading the same
@@ -330,14 +340,15 @@ For a reader who must choose a model, the survey's guidance reduces to an order 
 Decide first what the output is for---aggressive trading, passive execution, market making or
 simulation---and therefore which of the targets of Section~\ref{sec:deep} matters. Establish the
 strongest simple baseline on the best available representation: order-flow imbalance, queue
-imbalance, the micro-price, the queue race, and for passive orders the volume ahead. Evaluate it with
+imbalance, the micro-price, the queue race (which of the two best queues empties first;
+Section~\ref{sec:queue-models}), and for passive orders the volume ahead. Evaluate it with
 proper scores and economic metrics in a queue-exact replay, counting every configuration tried. Only
 then add capacity---a shallow network, a sequence model, a hybrid---and keep it only if the increment
 survives the same test.
 
 A useful future literature should therefore report not only whether a model predicts the market,
 but what information it extracts, what decision it changes, how that decision is executed, and
-whether the incremental value survives a properly constructed null.
+whether the incremental value survives the simple-baseline comparison of Section~\ref{sec:tradeability}.
 
 \subsection{Reading paths through the survey}
 \label{sec:reading-paths}
@@ -373,46 +384,49 @@ Judge a published order-book study & \ref{sec:method}, \ref{sec:comparable}, \re
 \label{sec:evidence-status}
 
 Table~\ref{tab:evidence} classifies the main claims of the survey by the strength of the evidence behind them, in the
-terms of Section~\ref{sec:method}: established, measured in one study, synthesis, or open hypothesis.
+four categories of Section~\ref{sec:method}: established result, empirical synthesis, methodological recommendation and
+open hypothesis. A qualifier after a semicolon says what the status rests on.
 
 \begin{table}[!htbp]
 \centering\small
 \caption{Evidence status of the main claims in this survey.}
 \label{tab:evidence}
-\begin{tabularx}{\linewidth}{Xl}
+\begin{tabularx}{\linewidth}{X>{\raggedright\arraybackslash}p{0.3\linewidth}}
 \toprule
 Claim & Status \\
 \midrule
 Short-horizon mid changes are approximately linear in OFI, with slope inversely related to
-  depth~\citep{cks2014} & established \\
-Hawkes stationarity when $\rho(\Gamma) < 1$ and $\bar\lambda = (I-\Gamma)^{-1}\mu$ & established \\
-Input representation can matter as much as the architecture & synthesis \\
-Naive ``touch'' backtests overstate passive fills relative to queue-exact replay & synthesis;
+  depth~\citep{cks2014} & Established result \\
+A Hawkes process is stable when each event triggers on average fewer than one further event
+  (Section~\ref{sec:pp-branching}) & Established result; a theorem \\
+With the network held fixed, the choice of input decided most of the result in one large
+  comparison~\citep{lucchese2024} & Established result; one study (10 stocks) \\
+Naive ``touch'' backtests overstate passive fills relative to queue-exact replay & Empirical synthesis;
   argued from price--time priority \\
 Front-of-queue positions are worth more than back-of-queue positions, with adverse selection
-  increasing in queue position~\citep{moallemi2017} & established in a model; size across regimes open \\
-Hybrid inputs derived from the same stream add little to a sufficiently large network & open
-  hypothesis \\
-Labels that average past prices inflate reported direction accuracy~\citep{lee2024predictability} & one re-test on
-  real data \\
-Order-flow inputs beat raw snapshots with the network held fixed~\citep{lucchese2024} & established in one study
-  (10 stocks) \\
-Published inference times of LOB models range from tens of microseconds to tens of milliseconds, above book-update times & measured in five
-  studies under different conditions \\
+  increasing in queue position~\citep{moallemi2017} & Established result in a model; its size across regimes is
+  an open hypothesis \\
+Hybrid inputs derived from the same stream add little to a sufficiently large network & Open hypothesis \\
+Labels that average past prices inflate reported direction accuracy~\citep{lee2024predictability} & Established
+  result; one re-test on real data \\
+Published inference times of LOB models range from tens of microseconds to tens of milliseconds, above book-update
+  times & Empirical synthesis; five studies measured under different conditions \\
 Exact own-order queue position in the recorded market requires order-level data and an order-level book &
-  synthesis; argued from price--time priority \\
+  Empirical synthesis; argued from price--time priority \\
 Resting and crossing cost similar amounts for model-free execution, about $+0.095$ ticks per contract on a
-  year of ES~\citep{maciejewski_shadow} & measured in one study (one instrument, queue-exact replay, no impact) \\
+  year of ES~\citep{maciejewski_shadow} & Established result; one study (one instrument, queue-exact replay, no
+  impact) \\
 Execution cost rises with every step of delay from zero to 5\,ms, to $+0.150$ ticks per contract (passive) and
-  $+0.296$ (aggressive)~\citep{maciejewski_shadow} & measured in one study \\
+  $+0.296$ (aggressive)~\citep{maciejewski_shadow} & Established result; one study \\
 A stage that handles each packet within the CME publisher period of about 7.5\,\textmu s never queues on arrivals;
-  above it a queueing tail appears, caused by the clustering of arrivals~\citep{maciejewski2026packets} & measured on
-  more than a year of NQ data \\
-Every published inference time of an order-book model exceeds the CME publisher period & synthesis of the
-  measurements above \\
-Pretrained order-book models have not been evaluated on fills or profit & literature search; none found \\
-None of the reinforcement-learning studies reviewed reports a live or paper-trading test & literature search; eight
-  studies (Table~\ref{tab:rl}) \\
+  above it a queueing tail appears, caused by the clustering of arrivals~\citep{maciejewski2026packets} &
+  Established result; more than a year of NQ data \\
+Every published inference time of an order-book model exceeds the CME publisher period & Empirical synthesis of
+  the measurements above \\
+Pretrained order-book models have not been evaluated on fills or profit & Empirical synthesis; literature search,
+  none found \\
+None of the reinforcement-learning studies reviewed reports a live or paper-trading test & Empirical synthesis;
+  eight studies (Table~\ref{tab:rl}) \\
 \bottomrule
 \end{tabularx}
 \end{table}

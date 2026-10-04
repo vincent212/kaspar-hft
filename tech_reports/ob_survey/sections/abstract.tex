@@ -13,15 +13,18 @@ hardware---how a tested strategy is deployed fast enough to run. Its thesis is t
 expected profit of an action given the market state and the order's place in the queue, not the accuracy of the
 forecast behind it.
 
-The survey shows a practitioner how to check each step. Whether a reported accuracy is real: with the same network,
-the construction of the label alone took a re-test of DeepLOB from 65.9\% to 54.6\%, and with the network held
-fixed the choice of input decided most of the result. Whether a forecast survives execution: what a simulator must capture, which simulators
-provide it, and a model-free execution benchmark that sets the floor---on a year of E-mini S\&P~500 data, resting and
-crossing cost similar amounts, about $0.095$ ticks per contract, and the cost rises with every millisecond of delay. Whether a
-model can be deployed: published inference times of order-book models range from 25\,\textmu s to 23\,ms, while a stage
-on the hot path of a CME feed must handle each packet in about 7.5\,\textmu s or the queue in front of it grows, the
-strategy misses signals and its orders are picked off; the survey then sets out which stages FPGAs, GPUs and other
-processors can accelerate.
+The survey shows a practitioner how to check each step. The first check is whether a reported accuracy is real. In a
+re-test of DeepLOB on a year of Apple data, with the same network, the construction of the label alone moved accuracy
+from 65.9\% to 54.6\%; with the network held fixed, the choice of input decided most of the result in one large
+comparison. The second check is whether a forecast survives execution: what a simulator must capture, which simulators
+provide it, and a model-free execution benchmark that sets the floor. On a year of E-mini S\&P~500 data, resting
+(leaving a limit order in the queue) and crossing (trading at once at the opposite price) cost similar amounts, about
+$0.095$ ticks per contract, and cost rose with every step of delay. The third check is whether a model can be
+deployed. Published inference times of order-book models range from 25\,\textmu s to 23\,ms, while a stage on the hot
+path of a CME feed (the chain every market-data message passes through) must handle each packet in about
+7.5\,\textmu s. A slower stage lets the queue in front of it grow: the strategy misses signals and its orders are
+picked off (filled by faster traders after the price has moved). The survey sets out which stages FPGAs, GPUs and
+other processors can accelerate.
 
 The worked example throughout is \kasparhft{}\footnote{\kasparhft{} is available at
 \url{https://github.com/vincent212/kaspar-hft}.}, an open-source, venue-independent trading system and
@@ -30,7 +33,7 @@ recorded executions that reach them; a model is added as one more actor that sen
 the strategy tested in the simulator is the strategy deployed, with no change of code---moving from replay to paper and
 live trading is a configuration setting.
 
-Three positions run through the survey: the market is observed, not generated; complexity, in the model or in the
+Three principles run through the survey: the market is observed, not generated; complexity, in the model or in the
 hardware, must earn its place by out-of-sample economic value; and representations are compared before
 architectures.
 

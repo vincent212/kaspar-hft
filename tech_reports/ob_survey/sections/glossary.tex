@@ -21,8 +21,12 @@ point processes~\citet{daley2003}.
 \gl{Alpha} The return of a strategy or signal beyond an appropriate benchmark, after the relevant risk
   and cost adjustments; in this survey, usually the part of a short-horizon forecast that is profitable
   after costs.
+\gl{Arrival price} The mid-price at the moment an order is decided, used as the reference price for
+  its execution cost.
 \gl{Backtest} Running a trading strategy on historical data to estimate how it would have done.
 \gl{Basis point (bp)} One hundredth of a percent, 0.01\%. A parameter of 300\,bp is 3\%.
+\gl{Bid and ask} A waiting buy order is a bid and a waiting sell order an ask (or offer); the best
+  bid is the highest bid price and the best ask the lowest ask price.
 \gl{Capacity} How much a strategy can trade before its own price impact erases its profit.
 \gl{Clearing fees} Fees paid to the clearing house, the institution that settles trades and
   guarantees both sides.
@@ -35,7 +39,6 @@ point processes~\citet{daley2003}.
 \gl{Equity / fixed income} Stocks / bonds and other interest-rate products.
 \gl{ETF} Exchange-traded fund: a share, traded like a stock, that holds a basket of assets.
 \gl{Fill} The execution of an order, in full or in part.
-\gl{Fragmentation} The same asset trading on several venues, so its liquidity is split among them.
 \gl{Futures contract} A standardised exchange-traded agreement to buy or sell an asset at a set
   future date and price~\citep{hull}. ES, NQ and ZN are futures on the S\&P~500 index, the
   Nasdaq-100 index and the 10-year US Treasury note.
@@ -51,25 +54,31 @@ point processes~\citet{daley2003}.
   spread is almost always one tick and queues are long.
 \gl{Lifting the offer / hitting the bid} Buying aggressively at the ask / selling aggressively at
   the bid.
+\gl{Limit order} An order to buy or sell up to a given quantity at a given price or better; what
+  cannot trade at once waits in the book.
 \gl{Liquidity} How easily one can trade without moving the price. Resting limit orders supply it;
   aggressive orders consume it.
-\gl{Mark-out} The gain or loss of a fill measured against the mid a fixed time later.
-  Equation~\eqref{eq:markout}.
 \gl{Market impact} How much one's own trading moves the price against oneself~\citep{bouchaud2018}.
 \gl{Market making} Continuously posting both a bid and an ask in order to earn the spread, while
   managing inventory~\citep{avellaneda2008,cartea2015}. A posted bid or ask is a \emph{quote}.
+\gl{Market order} An order to buy or sell a quantity now at whatever price is available; it trades
+  at once against waiting orders and never waits itself.
+\gl{Mark-out} The gain or loss of a fill measured against the mid a fixed time later.
+  Equation~\eqref{eq:markout}.
 \gl{Mass cancel} A single command cancelling all of a trader's open orders.
-\gl{Meta-order} A large order executed as a sequence of smaller orders over time.
+\gl{Metaorder} A large order executed as a sequence of smaller orders over time.
 \gl{Micro-price} An estimate of the ``fair'' price that adjusts the mid toward the side with the
   smaller queue~\citep{stoikov2018}.
+\gl{Mid-price} The average of the best bid and the best ask.
 \gl{Optimal execution} Splitting a large order over time to minimise its total cost and
   risk~\citep{almgren2001}.
-\gl{P\&L} Profit and loss.
 \gl{Paper trading} Running a strategy on live data with simulated, not real, orders.
+\gl{P\&L} Profit and loss.
 \gl{Pre-trade checks} Automatic checks that block an order breaking size, price or position limits
   before it is sent.
 \gl{Price point} The contract's own price unit. One ES point is four ticks, worth \$50 per
   contract.
+\gl{Queue position} The volume waiting ahead of an order in the queue at its price.
 \gl{Quote skew} Shifting both a market maker's bid and ask in the direction of expected price movement or to reduce inventory.
 \gl{Rebate} A payment some venues make to passive orders for supplying liquidity, funded by fees on
   aggressive orders.
@@ -81,9 +90,11 @@ point processes~\citet{daley2003}.
 \gl{Spoofing / layering} Placing orders one intends to cancel before they trade---one large order
   (spoofing) or several stacked across prices (layering)---to create a false impression of supply
   or demand. Illegal in US futures markets~\citep{cftc2013spoofing}.
-\gl{Square-root impact law} The empirical regularity that the price impact of a meta-order grows roughly with the square root of its size~\citep{bouchaud2018}.
+\gl{Spread} The difference between the best ask and the best bid.
+\gl{Square-root impact law} The empirical regularity that the price impact of a metaorder grows roughly with the square root of its size~\citep{bouchaud2018}.
 \gl{Stress testing} Checking a system or strategy under extreme or rare scenarios.
 \gl{The touch} The current best bid and best ask.
+\gl{Tick} The smallest allowed price step of an instrument.
 \gl{Venue} A trading platform or exchange.
 \gl{Volatility} How much the price fluctuates, usually the standard deviation of returns.
 \gl{VWAP} Volume-weighted average price: the average trade price over an interval, each trade
@@ -119,15 +130,14 @@ point processes~\citet{daley2003}.
 \subsection{Statistics and evaluation}
 \begin{description}[leftmargin=1.2em,style=sameline,itemsep=1pt,font=\normalfont\bfseries]
 \gl{Ablation} Removing or adding one component of a model to measure what it contributes.
-\gl{Akaike / Bayesian information criterion (AIC / BIC)} Scores that trade goodness of fit against the number of parameters; BIC penalises parameters more heavily in large samples~\citep{akaike1974,schwarz1978}.
 \gl{AUC} Area under the ROC curve: the probability that a randomly chosen positive case receives a
   higher score than a randomly chosen negative one~\citep{fawcett2006}.
 \gl{Balanced accuracy} The average of the recall (true-positive rate) of each class.
 \gl{Brier score} The mean squared difference between predicted probabilities and 0/1
   outcomes~\citep{brier1950}.
-\gl{Calibration error} A summary of how far predicted probabilities are from observed frequencies~\citep{guo2017}.
 \gl{Calibration} Agreement between predicted probabilities and observed frequencies: events given
   70\% happen about 70\% of the time~\citep{guo2017}.
+\gl{Calibration error} A summary of how far predicted probabilities are from observed frequencies~\citep{guo2017}.
 \gl{Coefficient of determination ($R^2$)} The fraction of the variance of a target explained by a fitted model.
 \gl{Concordance (C-index)} The fraction of pairs whose predicted order of event times matches the
   actual order.
@@ -136,12 +146,10 @@ point processes~\citet{daley2003}.
 \gl{Confounding} Mixing of two effects so that the cause of an observed difference cannot be
   isolated.
 \gl{Counterfactual} What would have happened under an action that was not actually taken.
-\gl{CRPS} Continuous ranked probability score: a distance between a predicted distribution and the
-  realised outcome; lower is better~\citep{gneiting2007}.
+\gl{Cross-validation (random folds)} Splitting data into several parts, training on all but one and testing on the
+  remaining one, in rotation~\citep{hastie2009}. Inappropriate for time-ordered market data
+  (Section~\ref{sec:deep-real}).
 \gl{Decile} One tenth of a sorted data set.
-\gl{Deflated Sharpe ratio} A Sharpe ratio corrected for the number of strategies tried and for
-  non-normal returns~\citep{bailey2014}.
-\gl{Double descent} The observation that test error can fall again as model capacity grows past the point of fitting the training data exactly~\citep{belkin2019}.
 \gl{Epps effect} The fall in measured correlation between two assets when it is computed over very short intervals.
 \gl{F1 / macro-F1} F1 is the harmonic mean of precision and recall; macro-F1 averages F1 over the
   classes with equal weight.
@@ -152,17 +160,13 @@ point processes~\citet{daley2003}.
   never seen.
 \gl{Interval coverage} The fraction of outcomes that fall inside predicted intervals, compared
   with the intended (\emph{nominal}) fraction.
-\gl{Cross-validation (random folds)} Splitting data into several parts, training on all but one and testing on the
-  remaining one, in rotation~\citep{hastie2009}. Inappropriate for time-ordered market data
-  (Section~\ref{sec:deep-real}).
-\gl{Lead--lag} A relation in which one instrument's price moves first and a related one follows after a short delay.
 \gl{Lag} A past value of a variable at a fixed offset in time.
 \gl{Lasso} Regression with a penalty on the sum of absolute coefficients, which sets unhelpful coefficients exactly to zero~\citep{tibshirani1996}.
-\gl{Log loss} The average of $-\ln$ of the probability a classifier gave to the true class
-  (cross-entropy); lower is better~\citep{hastie2009}.
+\gl{Lead--lag} A relation in which one instrument's price moves first and a related one follows after a short delay.
 \gl{Log-likelihood} The logarithm of the probability a model assigns to the observed data; higher
   means a better fit.
-\gl{Matthews correlation coefficient (MCC)} A classification score between $-1$ and $1$ that remains informative when classes are unbalanced.
+\gl{Log loss} The average of $-\ln$ of the probability a classifier gave to the true class
+  (cross-entropy); lower is better~\citep{hastie2009}.
 \gl{Model confidence set} The set of models that cannot be statistically distinguished from the best, at a stated confidence level~\citep{hansen2011mcs}.
 \gl{MSE / MAE} Mean squared error / mean absolute error.
 \gl{Multiple testing} Trying many hypotheses inflates the chance that some look good by
@@ -174,15 +178,10 @@ point processes~\citet{daley2003}.
 \gl{Principal component} A direction in the data along which variance is largest; the first principal component is the best one-number summary of several correlated variables.
 \gl{Probability of backtest overfitting} The estimated probability that the configuration that
   looked best in sample performs below the median out of sample~\citep{bailey2014pbo}.
-\gl{Proper scoring rule} A score that a forecaster optimises by reporting true beliefs, such as log loss, the Brier score and the CRPS~\citep{gneiting2007}.
+\gl{Proper scoring rule} A score that a forecaster optimises by reporting true beliefs, such as log loss and the Brier score~\citep{gneiting2007}.
 \gl{Purging / embargo} Removing training samples whose information overlaps the test period / leaving
   a gap after each test period, both to prevent leakage of future
   information~\citep{lopezdeprado2018}.
-\gl{Rademacher complexity} A measure of how well a family of models can fit random noise on the observed data; it bounds the gap between training and test error~\citep{bartlett2002}.
-\gl{Reality check} A resampling test of whether the best of many strategies truly beats a
-  benchmark~\citep{white2000}.
-\gl{Risk--coverage curve} The error rate plotted against the fraction of predictions kept, as the
-  least confident are discarded~\citep{geifman2017}.
 \gl{Selective prediction} Acting only on predictions whose confidence exceeds a
   threshold~\citep{geifman2017}.
 \gl{Signature plot} Measured volatility plotted against the sampling interval; higher measured volatility at short intervals reveals bid--ask bounce.
@@ -193,7 +192,6 @@ point processes~\citet{daley2003}.
 \gl{Time-rescaling test} A goodness-of-fit test for point-process models: rescaling time by the
   fitted intensity should turn the gaps between events into independent unit-exponential
   variables~\citep{brown2002}.
-\gl{VC dimension} The largest number of points a family of classifiers can label in every possible way; a measure of capacity~\citep{vapnik1998}.
 \gl{Walk-forward evaluation} Train on a past window, test on the next, roll forward and
   repeat~\citep{lopezdeprado2018}.
 \end{description}
@@ -216,7 +214,6 @@ point processes~\citet{daley2003}.
 \gl{Cross-entropy loss} The negative log-likelihood of the true class under a classifier's predicted
   probabilities; the standard training loss for classification.
 \gl{Data augmentation} Enlarging a training set with modified or synthetic examples.
-\gl{Differential evolution} A derivative-free optimisation method that evolves a population of candidate parameter vectors.
 \gl{Diffusion model} A generative model that learns to reverse a gradual process of adding noise to data.
 \gl{Embedding} A learned vector representation of an input.
 \gl{Encoder} A network that maps an input to a learned vector representation.
@@ -234,10 +231,10 @@ point processes~\citet{daley2003}.
   parameters.
 \gl{Out-of-sample predictions (for stacking)} Predictions of a first-stage model on data it was not fitted on; a second-stage model must be trained on these, not on in-sample predictions, or it learns from the first stage's overfitting~\citep{breiman1996stack}.
 \gl{Pretraining} Training a model on a generic task before adapting it to a specific one.
-\gl{Query, key, value} The three vectors an attention layer computes for each element: the query is
-  matched against every key to set the weights, and the output is the weighted average of the values.
 \gl{Quantisation} Using low-precision integers instead of floating point for a network's weights
   and arithmetic, for speed or to fit hardware~\citep{jacob2018}.
+\gl{Query, key, value} The three vectors an attention layer computes for each element: the query is
+  matched against every key to set the weights, and the output is the weighted average of the values.
 \gl{Reinforcement learning} Learning a decision policy by trial and error from rewards.
 \gl{Selective state-space model} A state-space model, such as Mamba, whose recurrence parameters depend on the current input~\citep{gu2024mamba}.
 \gl{Softmax} A function that turns a vector of scores into probabilities that are positive and sum to one.
@@ -251,22 +248,21 @@ point processes~\citet{daley2003}.
   language models~\citep{vaswani2017}.
 \gl{Tree ensemble} Many decision trees combined, as in random forests or gradient
   boosting~\citep{hastie2009}.
-\gl{World model} A model's internal representation of how the state of a system evolves.
 \end{description}
 
 \subsection{Probability and stochastic processes}
 \begin{description}[leftmargin=1.2em,style=sameline,itemsep=1pt,font=\normalfont\bfseries]
 \gl{Birth--death process} A counting process that moves up by one at a birth rate and down by one at a death rate that may depend on its current value~\citep{cst2010}.
+\gl{Branching process} A model in which each individual independently produces a random number of offspring; a Hawkes process is one~\citep{hawkesoakes1974}.
 \gl{Branching ratio} In a Hawkes process, the expected number of events directly triggered by one
   event (the spectral radius of the branching matrix in several dimensions); below one, every cascade dies out.
-\gl{Branching process} A model in which each individual independently produces a random number of offspring; a Hawkes process is one~\citep{hawkesoakes1974}.
 \gl{Cox--Ingersoll--Ross process} A continuous-time random process that is always positive and
   reverts toward a mean; used for interest rates and volatility.
 \gl{Diffusive limit} The continuous random process that a jumpy process resembles when viewed at a
   large scale of time and size.
 \gl{Ergodic} Having a unique long-run distribution, so that averages over a long history converge to fixed values.
-\gl{Expectation--maximisation (EM)} An iterative fitting method for models with hidden quantities: guess the hidden quantities probabilistically from the current parameters, re-estimate the parameters, and repeat~\citep{veen2008em}.
 \gl{Exogenous / endogenous} Caused from outside / triggered by earlier events of the same process.
+\gl{Expectation--maximisation (EM)} An iterative fitting method for models with hidden quantities: guess the hidden quantities probabilistically from the current parameters, re-estimate the parameters, and repeat~\citep{veen2008em}.
 \gl{First-passage time} The first time a random quantity reaches a given level.
 \gl{Hawkes process} A self-exciting point process in which each event temporarily raises the rate
   of future events~\citep{hawkes1971,bacry2015}. Section~\ref{sec:hawkes}.
@@ -279,9 +275,8 @@ point processes~\citet{daley2003}.
 \gl{Markov} A process whose future depends only on its present state, not on its history.
 \gl{Martingale} A process whose expected future value, given the present, equals its present value.
 \gl{Point process} A random sequence of event times~\citep{daley2003}.
-\gl{Queue-reactive model} A model of the book in which the rate of each event type at a queue depends on the current queue sizes~\citep{huang2015}.
 \gl{Queueing model} A probabilistic model of arrivals to and departures from queues.
-\gl{Rough volatility} Volatility whose paths are rougher than those of Brownian motion, with a Hurst parameter below $0.5$.
+\gl{Queue-reactive model} A model of the book in which the rate of each event type at a queue depends on the current queue sizes~\citep{huang2015}.
 \gl{Stationary} Having statistical properties that do not change over time. For a Hawkes process,
   the cascade of triggered events does not explode.
 \gl{Stochastic} Random.
@@ -294,12 +289,11 @@ point processes~\citet{daley2003}.
 \gl{Actor model} A model of concurrency in which independent actors own their state and communicate
   only by messages~\citep{hewitt1973}.
 \gl{ASIC} Application-specific integrated circuit: a chip designed for one task.
-\gl{CGRA} Coarse-grained reconfigurable array: a programmable chip whose building blocks are larger than an FPGA's, often used for AI inference.
 \gl{Chiplet} One of several small dies packaged together to act as a single processor.
 \gl{Colocation} Placing trading servers in the exchange's data centre to minimise network distance.
 \gl{FPGA} Field-programmable gate array: a chip whose logic can be reconfigured to implement a
   specific circuit; slower and larger than an ASIC for the same function but
-  reprogrammable~\citep{kuon2007}. Its configurable resources are called the \emph{fabric}.
+  reprogrammable~\citep{kuon2007}.
 \gl{GPU} Graphics processing unit: a processor with thousands of simple cores built for many arithmetic operations
   in parallel; a \emph{kernel} is one function launched on it, and a \emph{CUDA graph} records a sequence of kernels
   so it can be relaunched with less overhead.
@@ -325,7 +319,6 @@ point processes~\citet{daley2003}.
 
 \subsection{Economics}
 \begin{description}[leftmargin=1.2em,style=sameline,itemsep=1pt,font=\normalfont\bfseries]
-\gl{Abduction} Forming a new hypothesis that would explain a surprising observation, as opposed to searching among hypotheses already given~\citep{zahavy2026}.
 \gl{Agent-based model} A simulation of many artificial traders following rules and interacting.
 \gl{Econometric / reduced-form model} A statistical model fitted to economic data that describes
   relationships without modelling traders' decisions.

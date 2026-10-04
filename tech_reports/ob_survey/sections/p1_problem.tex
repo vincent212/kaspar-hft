@@ -41,8 +41,8 @@ trades---thousands of events a second in active markets---explains a large part 
 changes~\citep{cks2014}, and the predictive models of this survey try to extract what it says about the
 next few seconds~\citep{sirignano2019,zhang2019,lucchese2024}.
 
-This survey is written for readers with a computer-science or electrical-engineering background
-and no prior finance. Market, statistical and machine-learning terms are explained where they first
+This survey is written for students with a computer-science or electrical-engineering background
+and no prior finance, and for practitioners. Market, statistical and machine-learning terms are explained where they first
 appear, and Appendix~\ref{app:glossary} collects them with references. Most examples use
 \emph{futures}: standardised exchange-traded contracts to buy or sell an asset at a set future
 date~\citep{hull}. The running examples are the E-mini S\&P~500 future (ES, on an index of 500
@@ -201,7 +201,8 @@ The three levels, and the forms in which the data reach models, are not equivale
 \begin{table}[!htbp]
 \centering\footnotesize
 \caption{Representations of the book and the information each carries. ``Queue position'' is the place of one order
-in the queue at its price. Our synthesis of Sections~\ref{sec:intro}, \ref{sec:events} and~\ref{sec:deep-io}.}
+in the queue at its price. Models named here are defined in Part~II. Our synthesis of Sections~\ref{sec:intro},
+\ref{sec:events} and~\ref{sec:deep-io}.}
 \label{tab:representations}
 \setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}cccc>{\raggedright\arraybackslash}X}
@@ -260,6 +261,7 @@ At time $t$, an $L$-level description of the book is
 \begin{equation}
   \mathcal{L}_t = \left\{ p^{b}_{\ell,t},\, v^{b}_{\ell,t},\, p^{a}_{\ell,t},\, v^{a}_{\ell,t}
   \right\}_{\ell=1}^{L},
+  \label{eq:lob-state}
 \end{equation}
 where $p^{b}_{\ell,t}$ and $v^{b}_{\ell,t}$ are the price and displayed volume at the $\ell$-th best
 bid level ($\ell = 1$ is the best bid), and $p^{a}_{\ell,t}$, $v^{a}_{\ell,t}$ the same on the ask side.
@@ -280,8 +282,9 @@ levels, the sequence of events that produced the current state, and the queue po
 individual order.
 
 Throughout, numerical examples use stylised values chosen to make the arithmetic visible. They are
-not empirical estimates. The only computations the paper reports are illustrations on synthetic data---simulated
-point processes; it reports no new results on market data.
+not empirical estimates. The computations the paper carries out itself are illustrations on synthetic data---simulated
+point processes. The market-data figures it quotes come from published studies, from the author's cited studies, and
+from \kasparhft{}'s own measurement.
 
 \begin{example}[Same mid, different market]
 Two E-mini S\&P 500 (ES) books have the same mid (5000.125) and the same one-tick spread (tick
@@ -416,6 +419,10 @@ asks: of all the moments
 \item[{$\inf\{u > 0 : \text{condition}\}$}] ``The earliest time $u$ after now at which the condition
   holds''---the time a \texttt{while} loop that polls the condition would exit.
 \item[{A hat, as in $\widehat{Y}_t$}] An estimate produced by a model, as opposed to the true value.
+\item[{$\lambda_i(t)$, the intensity of events of type $i$}] The expected number of events of type $i$ per second at
+  time $t$, given what has happened before $t$.
+\item[{$\arg\max_a f(a)$}] The action $a$ that gives the largest value of $f(a)$, as opposed to $\max_a f(a)$, which
+  is that largest value.
 \end{description}
 
 \subsection{Prediction versus tradeability}
@@ -429,15 +436,15 @@ spread but may never execute, and the event that makes it execute may itself car
 about the next price move. The economically relevant sequence is
 \begin{equation}
   \begin{gathered}
-  X_t \;\to\; \widehat{Y}_t \;\to\; a_t \;\to\; \text{placement} \;\to\; \text{queue position}\\
+  \text{LOB state} \;\to\; X_t \;\to\; \widehat{Y}_t \;\to\; a_t \;\to\; Q^{\text{ahead}}_t\\
   \;\to\; \text{execution} \;\to\; \text{realised profit and loss (P\&L)}.
   \end{gathered}
   \label{eq:chain}
 \end{equation}
-\inwords{data go into a model; the model makes a forecast; the forecast is turned into a decision
-(buy, sell, wait, cancel); the decision becomes an order; the order takes a place in a queue;
-whether and when it trades depends on that place; and only then is money made or lost. A forecast
-can be right and still be lost at any later arrow.}
+\inwords{the book is turned into the model's inputs $X_t$ (the representation); the model makes a forecast
+$\widehat{Y}_t$ (the prediction); the forecast is turned into a decision $a_t$ (buy, sell, wait, cancel), which is
+sent as an order; the order takes a place $Q^{\text{ahead}}_t$ in a queue; whether and when it trades depends on that
+place; and only then is money made or lost. A forecast can be right and still be lost at any later arrow.}
 
 \paragraph{The thesis of this survey.} Predictive accuracy is not the natural end point of order-book modelling. The
 quantity that matters for trading is the expected profit of an action $a_t$ given the market state $X_t$ and the
@@ -448,8 +455,9 @@ order's place in the queue $Q^{\text{ahead}}_t$,
 \end{equation}
 \inwords{how much, on average, this particular order will make, given what the book looks like now and where the
 order would stand in its queue.}
-A model is useful if the information it extracts survives every arrow of~\eqref{eq:chain}---representation,
-prediction, decision, queue position, latency and execution---to positive out-of-sample value. The rest of the survey
+A model is useful only if the information it extracts survives every arrow of~\eqref{eq:chain}---LOB state $\to$
+representation $\to$ prediction $\to$ decision $\to$ queue $\to$ execution $\to$ P\&L---to positive out-of-sample
+value; latency acts between prediction and execution (Section~\ref{sec:hardware}). The rest of the survey
 is organised as evidence for or against that proposition: Part~II asks what information the models extract, and
 Part~III asks what survives simulation, execution and deployment. Figure~\ref{fig:survey-map} maps the survey onto the chain.
 
@@ -468,10 +476,10 @@ Part~III asks what survives simulation, execution and deployment. Figure~\ref{fi
 \node[s, fill=orange!10] (m2) at (-1.2,-3.1) {queue models};
 \node[s, fill=orange!10] (m3) at (1.2,-3.1) {Hawkes and\\neural point\\processes};
 \node[s, fill=orange!10] (m4) at (3.6,-3.1) {deep networks,\\meta-models,\\hybrids};
-\node[c] (pred) at (0,-4.7) {\textbf{prediction}: market state, price or event,\\event intensities (levels 1--3)};
+\node[c] (pred) at (0,-4.7) {\textbf{prediction}: market state, price or event,\\event intensities};
 \node[c] (dec) at (0,-6.0) {\textbf{decision} $a_t$: place, keep, cancel, cross};
 \node[c] (q) at (0,-7.1) {\textbf{queue position} $Q^{\text{ahead}}_t$};
-\node[c] (ex) at (0,-8.2) {\textbf{execution}: fill, adverse selection (levels 4--5)};
+\node[c] (ex) at (0,-8.2) {\textbf{execution}: fill, adverse selection};
 \node[c, fill=green!12] (pl) at (0,-9.3) {\textbf{profit and loss} $\E[\Pi \mid X_t, Q^{\text{ahead}}_t, a_t]$};
 \foreach \r in {r1,r2,r3} \draw[arr] (lob) -- (\r);
 \draw[arr] (r1) -- (m1); \draw[arr] (r2) -- (m1); \draw[arr] (r1) -- (m2); \draw[arr] (r3) -- (m2);
@@ -483,7 +491,7 @@ Part~III asks what survives simulation, execution and deployment. Figure~\ref{fi
 \draw[decorate, decoration={brace, amplitude=5pt, mirror}] (-5.0,-5.6) -- (-5.0,-9.8)
   node[midway, left=6pt, align=right]{\textbf{Part III}\\what survives\\to execution};
 \node[side, fill=blue!5] (sim) at (6.6,-7.6) {\textbf{Simulation} (Sections~\ref{sec:simulators}--\ref{sec:kaspar})\\
-  tests decision $\to$ queue $\to$ execution $\to$ P\&L on recorded or simulated markets; \kasparhft{} replays the
+  tests decision $\to$ queue $\to$ execution $\to$ P\&L on recorded markets; \kasparhft{} replays the
   exchange's own feed with exact queue position};
 \node[side, fill=red!5] (hw) at (6.6,-5.1) {\textbf{Hardware} (Section~\ref{sec:hardware})\\
   sets the latency between prediction and execution, and so how much of a short-lived signal survives};
@@ -514,12 +522,12 @@ an execution question (Part~III), not an accuracy question.
 
 A related line of work asks not only for a forecast but for a measure of \emph{when the forecast
 can be trusted}. UQ-LOB~\citep{manoharan2026uqlob} attaches an uncertainty module to a pretrained
-LOB encoder and outputs a \emph{calibrated} distribution---one whose stated probabilities match
-observed frequencies, so that events given 70\% happen about 70\% of the time~\citep{guo2017}---with
-a scalar confidence. Restricting attention to the most confident tenth (\emph{decile}) of
-predictions raises directional macro-F1 by 0.11--0.15 in its regression variant (F1 is the harmonic
-mean of precision and recall; \emph{macro}-F1 averages it over the classes ``up'', ``down'' and
-``stationary''), across seven cryptocurrency assets at 5, 10 and 15 second horizons. Selective
+LOB encoder. It outputs a \emph{calibrated} distribution together with a single confidence number. A calibrated
+distribution is one whose stated probabilities match observed frequencies: events given 70\% happen about 70\% of
+the time~\citep{guo2017}. In UQ-LOB's regression variant, keeping only the most confident tenth (\emph{decile}) of
+predictions raises directional macro-F1 by 0.11--0.15, across seven cryptocurrency assets at 5, 10 and 15 second
+horizons. (F1 is high only if the model's ``up'' calls are mostly right and it catches most of the real ``ups'';
+\emph{macro}-F1 averages it over the classes ``up'', ``down'' and ``stationary''; Section~\ref{sec:deep-real}.) Selective
 prediction changes the tradeability arithmetic directly: if a confident tier moved accuracy from
 55\% to 70\% on a tenth of the signals, the expected edge per trade in
 Example~\ref{ex:untradeable} would rise from $0.10$ to $0.40$ of the typical move, with one tenth
@@ -529,7 +537,7 @@ evaluate reliability, not profitability, and that a trading simulation with real
 and fees is required before any claim about returns~\citep{manoharan2026uqlob}. That is the step
 this survey is about.
 
-This is the central question of the survey:
+The central question of the survey is:
 
 \begin{quote}
 \emph{Which information extracted from the limit order book survives the complete translation from
@@ -549,31 +557,31 @@ probability or an expected value (Section~\ref{sec:primer}). The big $\P$ is ``t
 of'', $\E$ is ``the average of'', and the vertical bar is read ``given'': everything to the right of
 the bar is what we already know, everything to the left is what we want to know.
 \begin{align}
-  \text{Prediction:} &\quad \P(Y_{t+H} \mid X_t), \\
+  \text{Prediction:} &\quad \P(Y_{t+H} \mid X_t), \label{eq:prediction}\\
   \text{Execution:}  &\quad \P(\Fill \mid X_t, Q^{\text{ahead}}_t, a_t)
-                        \ \text{or}\ \E[\Pi \mid X_t, Q^{\text{ahead}}_t, a_t], \\
-  \text{Simulation:} &\quad \P\big(\{X_u\}_{u \in (t,\,t+H]} \mid X_t\big).
+                        \ \text{or}\ \E[\Pi \mid X_t, Q^{\text{ahead}}_t, a_t], \label{eq:execution}\\
+  \text{Simulation:} &\quad \P\big(\{X_u\}_{u \in (t,\,t+H]} \mid X_t\big). \label{eq:simulation}
 \end{align}
 \inwords{
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
-\item \emph{Prediction}~(4): given what we can see now, how likely is each possible value of some
+\item \emph{Prediction}~\eqref{eq:prediction}: given what we can see now, how likely is each possible value of some
   future quantity $Y$---for example, ``will the mid be higher in one second?'' It is a question
   about the market, and our own orders play no part in it.
-\item \emph{Execution}~(5): given what we can see now, how much volume is ahead of our order, and
+\item \emph{Execution}~\eqref{eq:execution}: given what we can see now, how much volume is ahead of our order, and
   what we chose to do, how likely is our order to be filled within $H$ seconds---or, in the second
   form, how much do we expect to earn? It is a question about \emph{our} order, and its answer
   changes with our action $a_t$.
-\item \emph{Simulation}~(6): given what we can see now, how likely is each possible \emph{whole
+\item \emph{Simulation}~\eqref{eq:simulation}: given what we can see now, how likely is each possible \emph{whole
   future path} of the market over the next $H$ seconds? A simulator draws sample paths from this
-  distribution. The difference from~(4) is the difference between a weather simulator, which
+  distribution. The difference from~\eqref{eq:prediction} is the difference between a weather simulator, which
   produces whole plausible tomorrows, and a forecast of tomorrow's maximum temperature.
 \end{itemize}}
 Two different activities are both called ``simulation'' in this literature, and the survey keeps them
-apart. \emph{Generative market simulation} draws new market paths from a model of~(6): Hawkes
+apart. \emph{Generative market simulation} draws new market paths from a model of~\eqref{eq:simulation}: Hawkes
 simulators, agent-based markets and the generative networks of Section~\ref{sec:deep-gen}.
 \emph{Historical replay} does not draw paths at all: it reconstructs the one path that was recorded,
 event by event, and evaluates the counterfactual outcome of the researcher's own orders against it---an
-estimate of~(5) on observed data. The \kasparhft{} system of Section~\ref{sec:kaspar} is a replay system, not a generative
+estimate of~\eqref{eq:execution} on observed data. The \kasparhft{} system of Section~\ref{sec:kaspar} is a replay system, not a generative
 simulator; Section~\ref{sec:simulators} compares the kinds of simulator.
 They are related but not interchangeable. A Hawkes process can generate realistic clustered order
 flow without producing directional alpha. A survival model can give accurate fill probabilities
@@ -619,7 +627,7 @@ places each model family of Part~II on the ladder, with the evaluation that fits
   l/.style={draw, rounded corners=2pt, minimum width=38mm, minimum height=7mm, align=center},
   arr/.style={-{Stealth[length=1.5mm]}, thick}]
 \foreach \i/\t/\c/\ex in {
-  1/{1. market state $\P(X_{t+H}\mid X_t)$}/blue!8/{generative models, simulators},
+  1/{1. market state $\P(X_{t+H}\mid X_t)$}/blue!8/{generative models},
   2/{2. price or event $\P(\Delta m > 0 \mid X_t)$}/blue!8/{OFI, queue imbalance, deep classifiers},
   3/{3. event intensities $\lambda_i(t)$}/blue!8/{Hawkes, neural point processes},
   4/{4. fill $\P(\Fill \mid X_t, Q, a_t)$}/orange!15/{queue models, fill-probability models},
@@ -655,15 +663,15 @@ Hawkes, neural point processes (\S\ref{sec:hawkes}) & event times and types & in
 Meta-models (\S\ref{sec:meta}) & classical outputs & the learner's target & 2--5 & combined signal & proper score against the equal-weight average and the best single model \\
 Deep classifiers (\S\ref{sec:deep}) & snapshots, order flow or messages & direction & 2 & signal & macro-F1 against a persistence baseline on a leak-free label, then net profit \\
 Fill-probability models (\S\ref{sec:deep-fill}) & book and queue position & time to fill & 4 & passive placement & survival likelihood; calibration \\
-Generative models (\S\ref{sec:deep-gen}) & event history & future paths & 1 & simulation & stylised facts; usefulness for a downstream task \\
+Generative models (\S\ref{sec:deep-gen}) & event history & future paths & 1 & model of the book; not a test bed for trading & stylised facts; usefulness for a downstream task \\
 Policies (\S\ref{sec:policy}) & state & action & 6 & execution; market making & economic reward in replay, against a model-free benchmark \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\subsection{Three fixed positions}
+\subsection{Three principles}
 
-Three positions recur throughout the paper.
+Three principles recur throughout the survey.
 
 \begin{principle}[The market is observed, not generated]
 Recorded exchange data are the ground truth. A replay simulator reconstructs the historical book
@@ -687,8 +695,8 @@ should be compared first, and architectures only on the best available represent
 \end{principle}
 
 \noindent The evidence of Part~II supports this ordering. With the network held fixed, the choice of input decided
-most of the result: order-flow inputs were among the best in 89\% of cases and raw snapshots in
-11\%~\citep{lucchese2024}. Summing messages into order flow loses the event types, which no later network can recover
+most of the result in one large comparison~\citep{lucchese2024}: order-flow inputs were among the best in 89\% of
+cases and raw snapshots in 11\%. Summing messages into order flow loses the event types, which no later network can recover
 (Section~\ref{sec:deep-io}). The literature has spent more effort comparing architectures---convolutional,
 recurrent, Transformer---than comparing representations---snapshots, order flow, queues, messages.
 
@@ -720,7 +728,8 @@ The modelling of order books has passed through five overlapping stages.
   change and the probability of its direction~\citep{cst2010,contlarrard2013}, later with rates that
   depend on queue sizes~\citep{huang2015}.
 \item \textbf{Self-exciting point processes.} Hawkes models capture the clustering of events and the
-  fact that many events are triggered by earlier ones; estimated branching ratios on E-mini S\&P data
+  fact that many events are triggered by earlier ones; estimated branching ratios (the average number of further
+  events each event triggers) on E-mini S\&P data
   range from about $0.7$--$0.8$ to about one~\citep{bacry2015,filimonovsornette2012,hardimanbercotbouchaud2013}.
 \item \textbf{Hand-engineered signals.} Order-flow imbalance~\citep{cks2014}, queue
   imbalance~\citep{gould2016qi} and the micro-price~\citep{stoikov2018} compress the book into a few
@@ -757,8 +766,8 @@ survey that brings these strands together around the question of how information
 LOB survives the complete translation from statistical prediction to executable trading. That question
 is also this survey's criterion for selecting literature: a model or method is included when it bears
 on one link of the chain---representation, prediction, calibration, decision, queue position,
-execution, simulation, inference hardware and economic value. The individual subjects are not new; the
-integration, and the criterion that connects them, are. One distinction follows from it and recurs
+execution, simulation, inference hardware and economic value. Each of these subjects has been surveyed before; this
+survey treats them together, under that criterion. One distinction follows from it and recurs
 throughout: historical replay is distinguished from generative market simulation.
 
 \paragraph{Generative LOB simulation versus historical replay.} The closest neighbouring review, on
@@ -780,8 +789,7 @@ Section~\ref{sec:deep-gen} as models of the book, not as test beds for trading.
 reads market information, reasons about it and produces trading decisions that are then
 backtested~\citep{ding2024llmtrading,hua2026agentic}. This survey does not review that architecture.
 
-The purpose here is therefore not another catalogue of architectures, but an organisation of the
-literature around the translation from information to decision. Three questions recur: what representation contains the useful information;
+The survey therefore organises the literature around the translation from information to decision. Three questions recur: what representation contains the useful information;
 what model extracts it; and does the result produce incremental economic value after execution
 constraints?
 
@@ -828,7 +836,8 @@ This survey & information-to-decision chain: classical and deep models, queue po
 \end{enumerate}
 
 \paragraph{Reading order.} Readers new to markets should read Part~I in full and use the
-glossary. Readers interested mainly in models should read Part~II, then Section~\ref{sec:benchmarks-dl}.
+glossary. Readers interested mainly in models should read Part~II, paying particular attention to the benchmark re-tests of
+deep models in Section~\ref{sec:benchmarks-dl}.
 Practitioners concerned with execution, simulation or hardware should read Part~III. Part~IV collects the open
 problems and the conclusion. Readers new to point processes
 should start Section~\ref{sec:hawkes} at its beginning, which introduces them from scratch.
@@ -840,16 +849,16 @@ answer to each. Think of the four answers as the four fields of a record; a work
 four-dimensional space.
 
 \begin{description}[leftmargin=1.5em,style=nextline,itemsep=2pt]
-\item[Representation: what does the model see?] The input format: raw book snapshots (the table
-  of Equation~(1) at sampled times); event or message streams (every add, cancel and trade, in
+\item[Representation: the input the model sees] The input format: raw book snapshots (the table
+  of Equation~\eqref{eq:lob-state} at sampled times); event or message streams (every add, cancel and trade, in
   order); order-flow aggregates such as OFI (Section~\ref{sec:ofi}); queue state (sizes and
   positions in the queues); or the state of several instruments at once.
-\item[Model class: what kind of function maps input to output?] Linear and econometric models;
+\item[Model class: the kind of function that maps input to output] Linear and econometric models;
   queue and first-passage models; point processes such as Hawkes; state-space models; convolutional
   and recurrent networks; Transformers; pretrained encoders; or a hybrid of these.
-\item[Objective: what quantity does it output?] Price direction; return; event intensity;
+\item[Objective: the quantity the model outputs] Price direction; return; event intensity;
   volatility; queue depletion time; fill probability; execution cost; or a simulated future.
-\item[Economic role: what decision is the output for?] Aggressive trading (crossing the spread);
+\item[Economic role: the decision the output is for] Aggressive trading (crossing the spread);
   passive trading (resting orders); market making (quoting both sides); execution of a given
   order; risk measurement; or simulation for research. A paper that evaluates only statistical
   accuracy and names no decision has an \emph{unspecified} economic role.
@@ -952,8 +961,8 @@ they play no part in the methodology the survey recommends.
 \subsection{Source selection}
 
 This is a \emph{structured narrative survey with tutorial exposition}, not a \emph{systematic review}. It is
-written for two audiences: specialists, as a map of the research, and researchers entering order-book modelling from
-computer science, machine learning or electrical engineering, as a technical entry point; the tutorial material
+written for two audiences: students with a computer-science or electrical-engineering background and no prior
+finance, as a technical entry point, and practitioners, as a map of the research; the tutorial material
 connects literatures---financial econometrics, stochastic processes, machine learning, execution and trading
 systems---that are rarely read together. A systematic review fixes a
 search query and a list of databases in advance, screens every result against written criteria, and
@@ -976,9 +985,8 @@ checked against the publisher, the preprint server or the official documentation
 described only in documentation, code or vendor material rather than in papers. These were found with targeted
 searches in October 2026: GitHub repository search and the code of each tool; arXiv, Crossref and OpenAlex for papers
 and their reference lists; the public result listings of the STAC benchmarks; and vendors' product pages, datasheets
-and help libraries, read through archived copies (the Internet Archive) where a live site blocked access. Some sources
-could not be read: the Deltix knowledge base and the full STAC reports require a login, and some general web searches
-were not available. Statements of the form ``we found no \ldots'' and ``the only one we found'' are therefore bounded
+and help libraries. Some sources could not be read: the Deltix knowledge base and the full STAC reports require a
+login. Statements of the form ``we found no \ldots'' and ``the only one we found'' are therefore bounded
 by these searches, not claims about everything that exists.
 
 \paragraph{Claim verification.} Every number and factual statement was traced to a source that was read, and
@@ -1006,9 +1014,9 @@ reader should ask of every claim which kind it is.
   \emph{Example:} a linear Hawkes process is stationary if and only if the cascade of events it
   triggers dies out (Section~\ref{sec:hawkes}). This is a theorem; no data can overturn it.
 \item[Empirical synthesis] A conclusion drawn by comparing several studies, none of which tested it
-  directly. \emph{Example:} ``the input representation can matter as much as the architecture''
-  (Section~\ref{sec:deep}). It rests on a pattern across papers, so it can be wrong for a market
-  those papers did not study.
+  directly. \emph{Example:} ``every published inference time of an order-book model exceeds the minimum spacing
+  of about 7.5\,\textmu s between packets from CME's market-data publisher'' (Section~\ref{sec:hardware}). It rests on comparing measurements made in different papers under different
+  conditions, so a new measurement can overturn it.
 \item[Methodological recommendation] A proposed standard, argued for rather than proved.
   \emph{Example:} every result should report how many model configurations were tried
   \citep{white2000,harvey2016}. Its justification is a statistical argument, not a measurement.

@@ -1,4 +1,4 @@
-\begin{thebibliography}{457}
+\begin{thebibliography}{447}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -69,13 +69,6 @@ Yacine A{\"i}t-Sahalia, Jianqing Fan, Lirong Xue, and Xiaonan Zhu.
   2026.
 \newblock \doi{10.1287/mnsc.2022.02435}.
 \newblock Earlier version: NBER Working Paper 30366 (2022), doi:10.3386/w30366.
-
-\bibitem[Akaike(1974)]{akaike1974}
-Hirotugu Akaike.
-\newblock A new look at the statistical model identification.
-\newblock \emph{IEEE Transactions on Automatic Control}, 19\penalty0
-  (6):\penalty0 716--723, 1974.
-\newblock \doi{10.1109/TAC.1974.1100705}.
 
 \bibitem[Albers et~al.(2025)Albers, Cucuringu, Howison, and
   Shestopaloff]{albers2025dilemma}
@@ -234,14 +227,6 @@ Emmanuel Bacry, Martin Bompaire, Philip Deegan, St{\'e}phane Ga{\"i}ffas, and
   (214):\penalty0 1--5, 2018.
 \newblock URL \url{http://jmlr.org/papers/v18/17-381.html}.
 
-\bibitem[Bailey and L{\'o}pez~de Prado(2014)]{bailey2014}
-David~H. Bailey and Marcos L{\'o}pez~de Prado.
-\newblock The deflated {S}harpe ratio: Correcting for selection bias, backtest
-  overfitting, and non-normality.
-\newblock \emph{The Journal of Portfolio Management}, 40\penalty0 (5):\penalty0
-  94--107, 2014.
-\newblock \doi{10.3905/jpm.2014.40.5.094}.
-
 \bibitem[Bailey et~al.(2017)Bailey, Borwein, L{\'o}pez~de Prado, and
   Zhu]{bailey2014pbo}
 David~H. Bailey, Jonathan~M. Borwein, Marcos L{\'o}pez~de Prado, and Qiji~Jim
@@ -287,15 +272,6 @@ Matthew Baron, Jonathan Brogaard, Bj{\"o}rn Hagstr{\"o}mer, and Andrei
 \newblock \url{https://github.com/barter-rs/barter-rs}, 2026.
 \newblock Rust, MIT. Accessed 2026-10-03.
 
-\bibitem[Bartlett and Mendelson(2002)]{bartlett2002}
-Peter~L. Bartlett and Shahar Mendelson.
-\newblock Rademacher and {G}aussian complexities: Risk bounds and structural
-  results.
-\newblock \emph{Journal of Machine Learning Research}, 3:\penalty0 463--482,
-  2002.
-\newblock URL
-  \url{https://jmlr.org/papers/volume3/bartlett02a/bartlett02a.pdf}.
-
 \bibitem[Bates and Granger(1969)]{bates1969}
 J.~M. Bates and C.~W.~J. Granger.
 \newblock The combination of forecasts.
@@ -311,14 +287,6 @@ Peter Belcak, Jan-Peter Calliess, and Stefan Zohren.
 \newblock In \emph{Multi-Agent-Based Simulation XXII}, Lecture Notes in
   Computer Science, pages 42--56, Cham, 2022. Springer.
 \newblock \doi{10.1007/978-3-030-94548-0_4}.
-
-\bibitem[Belkin et~al.(2019)Belkin, Hsu, Ma, and Mandal]{belkin2019}
-Mikhail Belkin, Daniel Hsu, Siyuan Ma, and Soumik Mandal.
-\newblock Reconciling modern machine-learning practice and the classical
-  bias--variance trade-off.
-\newblock \emph{Proceedings of the National Academy of Sciences}, 116\penalty0
-  (32):\penalty0 15849--15854, 2019.
-\newblock \doi{10.1073/pnas.1903070116}.
 
 \bibitem[Ben~Bouall{\`e}gue et~al.(2024)Ben~Bouall{\`e}gue, Weyn, Clare,
   Dramsch, Dueben, and Chantry]{benbouallegue2024poet}
@@ -2633,13 +2601,6 @@ Fran{\c{c}}ois Roueff and Rainer von Sachs.
 Jonathan Sadighian.
 \newblock Deep reinforcement learning in cryptocurrency market making, 2019.
 
-\bibitem[Schwarz(1978)]{schwarz1978}
-Gideon Schwarz.
-\newblock Estimating the dimension of a model.
-\newblock \emph{The Annals of Statistics}, 6\penalty0 (2):\penalty0 461--464,
-  1978.
-\newblock \doi{10.1214/aos/1176344136}.
-
 \bibitem[Sennrich et~al.(2016)Sennrich, Haddow, and Birch]{sennrich2016bpe}
 Rico Sennrich, Barry Haddow, and Alexandra Birch.
 \newblock Neural machine translation of rare words with subword units.
@@ -3090,13 +3051,6 @@ Aaron van~den Oord, Oriol Vinyals, and Koray Kavukcuoglu.
 \newblock In \emph{Advances in Neural Information Processing Systems 30 (NIPS
   2017)}, 2017.
 
-\bibitem[Vapnik(1998)]{vapnik1998}
-Vladimir~N. Vapnik.
-\newblock \emph{Statistical Learning Theory}.
-\newblock Adaptive and Learning Systems for Signal Processing, Communications,
-  and Control. Wiley, 1998.
-\newblock ISBN 978-0-471-03003-4.
-
 \bibitem[Vaswani et~al.(2017)Vaswani, Shazeer, Parmar, Uszkoreit, Jones, Gomez,
   Kaiser, and Polosukhin]{vaswani2017}
 Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones,
@@ -3112,11 +3066,6 @@ Alejandro Veen and Frederic~P. Schoenberg.
 \newblock \emph{Journal of the American Statistical Association}, 103\penalty0
   (482):\penalty0 614--624, 2008.
 \newblock \doi{10.1198/016214508000000148}.
-
-\bibitem[Vinkovskaya(2014)]{vinkovskaya2014thesis}
-Ekaterina Vinkovskaya.
-\newblock \emph{A Point Process Model for the Dynamics of Limit Order Books}.
-\newblock PhD thesis, Columbia University, 2014.
 
 \bibitem[Vyetrenko and Xu(2019)]{vyetrenko2019}
 Svitlana Vyetrenko and Shaojie Xu.
@@ -3173,23 +3122,6 @@ Sally Ward-Foxton.
   \url{https://www.eetimes.com/positron-230-million-funding-led-by-financial-trading-firms/}.
 \newblock Published 2026-02-04. States Atlas uses Agilex-7M FPGAs; quotes Jump
   Trading CTO on latency vs H100. Accessed 2026-10-04.
-
-\bibitem[Wehrli et~al.(2021)Wehrli, Wheatley, and Sornette]{wehrli2021scale}
-Alexander Wehrli, Spencer Wheatley, and Didier Sornette.
-\newblock Scale-, time- and asset-dependence of {H}awkes process estimates on
-  high frequency price changes.
-\newblock \emph{Quantitative Finance}, 21\penalty0 (5):\penalty0 729--752,
-  2021.
-\newblock \doi{10.1080/14697688.2020.1838602}.
-
-\bibitem[Wheatley et~al.(2019)Wheatley, Wehrli, and
-  Sornette]{wheatley2019endoexo}
-Spencer Wheatley, Alexander Wehrli, and Didier Sornette.
-\newblock The endo--exo problem in high frequency financial price fluctuations
-  and rejecting criticality.
-\newblock \emph{Quantitative Finance}, 19\penalty0 (7):\penalty0 1165--1178,
-  2019.
-\newblock \doi{10.1080/14697688.2018.1550266}.
 
 \bibitem[Wheeler and Varner(2024)]{wheeler2024marketgpt}
 Aaron Wheeler and Jeffrey~D. Varner.
@@ -3321,12 +3253,6 @@ Bianca Zadrozny and Charles Elkan.
 \newblock In \emph{Proceedings of the Eighth ACM SIGKDD International
   Conference on Knowledge Discovery and Data Mining}, pages 694--699, 2002.
 \newblock \doi{10.1145/775047.775151}.
-
-\bibitem[Zahavy(2026)]{zahavy2026}
-Tom Zahavy.
-\newblock {LLMs} can't jump.
-\newblock Position paper (preprint), Google DeepMind, 2026.
-\newblock URL \url{https://www.tomzahavy.com/files/llms-cant-jump.pdf}.
 
 \bibitem[Zaznov et~al.(2022)Zaznov, Kunkel, Dufour, and Badii]{zaznov2022}
 Ilia Zaznov, Julian Kunkel, Alfonso Dufour, and Atta Badii.

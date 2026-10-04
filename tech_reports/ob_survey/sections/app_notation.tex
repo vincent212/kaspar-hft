@@ -33,7 +33,7 @@ $u$ & elapsed time after a reference time & \S\ref{sec:queue-models} \\
 \midrule
 \multicolumn{3}{l}{\emph{Information, actions and outcomes}} \\
 $X_t$, $Y_{t+H}$, $\widehat{Y}_t$ & observable information; target; prediction & \S\ref{sec:notation} \\
-$a_t$, $d$ & action; order side ($+1$ buy, $-1$ sell) & \S\ref{sec:notation} \\
+$a_t$, $d$ & action; order side ($+1$ buy, $-1$ sell; in \S\ref{sec:npp} $d$ is a decay rate) & \S\ref{sec:notation} \\
 $Q^{\text{ahead}}_t$, $q$ & volume ahead of an order in its queue; a value of it & \S\ref{sec:notation} \\
 $\tau_F$, $t_F$, $p^{\text{fill}}$ & time to fill; fill time; fill price & \S\ref{sec:notation} \\
 $\Fill$, $\mathbb{1}_{\Fill}$ & event $\{\tau_F \le H\}$; its indicator & \S\ref{sec:notation} \\
@@ -79,7 +79,8 @@ $\mathbf{W}$, $r^{\mathbf{W}}_{a,\ell}(\mathbf{y})$, $R^{\mathbf{W}}(\mathbf{y})
 $\widehat{Y}^{(m)}_t$, $a_{m,t}$ & forecast of component model $m$; its attention weight & \S\ref{sec:meta-attn} \\
 $J_k$, $\bar J$, $\sigma_J$, $p$ & size of the $k$-th mid move in a compound Hawkes model; its long-run average; its variance constant; probability a move repeats the previous direction & \S\ref{sec:hawkes-prices} \\
 $R(x)$, $p^{\mathbf{W}}(v\mid\cdot)$ & total queue-reactive rate; learned order-size probability & \S\ref{sec:hybrid-dqr} \\
-$c(t)$, $\bar c$, $d$, $h_i(t)$ & memory cell of a continuous-time LSTM; its target; its decay rate; output for type $i$ & \S\ref{sec:hybrid-nhp} \\
+$c(t)$, $\bar c$, $d$ & memory cell of a continuous-time LSTM; its target; its decay rate (a local use of $d$, which elsewhere is the order side) & \S\ref{sec:npp} \\
+$h_i(t)$ & output of the continuous-time LSTM for type $i$ & \S\ref{sec:hybrid-nhp} \\
 $\mathrm{sgn}_i$, $J^{\text{mid}}$ & direction of the mid move caused by event type $i$; size of the move in ticks & \S\ref{sec:hybrid-nhp} \\
 $Q_t$, $\text{Cash}_t$, $\varkappa$ & market maker's inventory; cash; inventory penalty & \S\ref{sec:hybrid-nhp} \\
 $p_{\text{ref}}$, $\pi_{\text{move}}$, $\pi_{\text{reinit}}$ & reference price; probability it moves when a best queue empties; probability the book is redrawn & \S\ref{sec:qr} \\
@@ -128,20 +129,21 @@ $\mathrm{e}$, $\ln$ & Euler's number; natural logarithm & -- \\
 \begin{center}\footnotesize
 \begin{tabularx}{\linewidth}{lX@{\hspace{1em}}lX}
 \toprule
-AIC & Akaike information criterion & LOB & limit order book \\
-AUC & area under the ROC curve & LSTM & long short-term memory network \\
-BIC & Bayesian information criterion & MBO / MBP & market by order / by price \\
-CNN & convolutional neural network & MCC & Matthews correlation coefficient \\
-CRPS & continuous ranked probability score & MDP & CME Market Data Platform \\
-DSR & deflated Sharpe ratio & MLP & multilayer perceptron \\
-FIFO & first in, first out & OFI & order-flow imbalance \\
-FPGA & field-programmable gate array & OOS & out of sample \\
-GPU & graphics processing unit & P\&L & profit and loss \\
+ASIC & application-specific integrated circuit & MDP & CME Market Data Platform \\
+AUC & area under the ROC curve & MLP & multilayer perceptron \\
+CNN & convolutional neural network & OFI & order-flow imbalance \\
+CPU & central processing unit & OOS & out of sample \\
+FIFO & first in, first out & P\&L & profit and loss \\
+FPGA & field-programmable gate array & PCIe & PCI Express, the bus linking a processor to add-in cards \\
+GPU & graphics processing unit & POV & percentage of volume \\
 HFT & high-frequency trading & QI & queue imbalance \\
-IOC / FOK & immediate-or-cancel / fill-or-kill & RNN & recurrent neural network \\
-ITCH & Nasdaq market-by-order data protocol & SOM & simulated order manager \\
-\lamd{} & LLM-assisted model discovery & SSM & state-space model \\
-LLM & large language model & VC & Vapnik--Chervonenkis \\
+HMAC & hash-based message authentication code & RNN & recurrent neural network \\
+IOC / FOK & immediate-or-cancel / fill-or-kill & SOM & simulated order manager \\
+ITCH & Nasdaq market-by-order data protocol & SSM & state-space model \\
+LLM & large language model & STAC & Securities Technology Analysis Center \\
+LOB & limit order book & TWAP & time-weighted average price \\
+LSTM & long short-term memory network & UDP & User Datagram Protocol \\
+MBO / MBP & market by order / by price & VWAP & volume-weighted average price \\
 \bottomrule
 \end{tabularx}
 \end{center}

@@ -225,7 +225,7 @@ forecast accuracy yields very different economics.
 An order changes the market it trades in. This subsection separates five situations, from orders too small to matter
 to traders who react to one another, and states which of them a historical replay can answer.
 
-\paragraph{Models of impact.} In \citet{kyle1985}, an informed trader, noise traders and market makers trade
+\paragraph{Models of impact.} The symbols in this paragraph are local to it. In \citet{kyle1985}, an informed trader, noise traders and market makers trade
 one asset, and the price moves linearly with net order flow: $P = p_0 + \lambda(x + u)$, where $x$ is the informed
 order, $u$ the noise orders and $1/\lambda$ measures the depth of the market. \citet{almgren2001} split the cost of
 executing a large order into a \emph{permanent} impact, which stays in the price, and a \emph{temporary} impact, paid
@@ -270,8 +270,7 @@ response. Most execution questions about passive orders by a single strategy fal
 An order-book simulator estimates what would have happened to a researcher's orders. Simulators differ in where the
 market comes from and in how faithfully they model the mechanics of Section~\ref{sec:sim-needs}. This section first
 shows why a naive backtest is not a simulator for passive orders and what a queue-exact replay requires; it then
-surveys the simulators in use for research and compares them on those requirements, describes the \kasparhft{} system in
-detail, and shows how an order-book model is added to it.
+surveys the simulators in use for research and compares them on those requirements.
 
 \subsection{Naive backtests and queue-exact replay}
 \label{sec:replay}
@@ -453,9 +452,13 @@ development, with exact queues and latency, counting every configuration tried. 
 survey, to the study of the models themselves (Section~\ref{sec:deep-gen}); results on them are not evidence about
 trading.
 
-For execution questions the type matters less than five properties: whether the simulated order has an exact
-position in a queue of individual orders; whether latency is modelled; whether the simulated order changes the
-market; whether a run can be repeated exactly; and whether the same code can trade live.
+For execution questions the source of the market comes first: a simulator whose market is generated cannot answer
+them, because its results describe the generator, not the market. Among tools that replay the observed market, five
+properties then rank them: whether the simulated order has an exact position in a queue of individual orders; whether
+latency is modelled; whether the simulated order changes the market; whether a run can be repeated exactly; and
+whether the same code can trade live. Table~\ref{tab:simulators} lists simulators of all four kinds against these
+properties for reference; for the agent-based, model-based and generative ones, an entry describes the simulated
+market only.
 
 \paragraph{Simulators of all four kinds.} Table~\ref{tab:simulators} compares the simulators most used in research,
 as documented in their papers and code. The agent-based ones are ABIDES~\citep{byrd2020abides} and its
@@ -471,8 +474,9 @@ model and its neural extension simulate the queues at the first five levels~\cit
 
 \begin{table}[!htbp]
 \centering\scriptsize
-\caption{Order-book simulators compared on the properties execution research needs, from their papers, documentation
-and code; citations are in the list above. Queue position: \emph{exact (recorded)} means the simulated order sits in a reconstructed queue of the
+\caption{Order-book simulators compared on the five properties above, from their papers, documentation and code;
+citations are in the list above. Only the replay rows describe the observed market; the other rows describe a
+generated market. Queue position: \emph{exact (recorded)} means the simulated order sits in a reconstructed queue of the
 recorded individual orders; \emph{exact (simulated)} means a queue of individual orders in a simulated market;
 \emph{estimated} means a model of the volume ahead. ``--'': not provided. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor claim, \ev{A} independently audited, \ev{O} the author's own system.}
 \label{tab:simulators}
@@ -534,12 +538,7 @@ Table~\ref{tab:simulators}. The list below groups them by how they place the sim
   for all markets, counting trades ahead of the order but not cancellations~\citep{tt_piq,tt_sim_env}; Deltix
   documents order-level simulators whose fills remove liquidity from the replayed book, but not how they place the
   order in the queue~\citep{deltix_exsim,deltix_qo_sheet}.
-\item \textbf{No queue at all.} Some tools fill an order only when the price crosses it~\citep{tribeca}. Retail
-  platforms replay the depth of book for display but fill without a queue: Sierra Chart fills a limit order when the
-  opposite best quote reaches its price, and states that its queue tracking does not apply in
-  replay~\citep{sierrachart_replay}; ATAS fills replayed orders at once and in full~\citep{atas_replay}. NinjaTrader,
-  Bookmap and MultiCharts replay depth with simulated trading but do not document how replayed orders are
-  filled~\citep{ninjatrader_playback,bookmap_replay,multicharts_sim}.
+\item \textbf{No queue at all.} Some tools fill an order only when the price crosses it~\citep{tribeca}.
 \end{itemize}
 Bar-level backtesters, which see only open, high, low and close prices over fixed intervals or the best quotes, are
 outside the scope of this comparison: for example LEAN~\citep{lean}, Jesse~\citep{jesse} and the backtesters of
@@ -549,8 +548,7 @@ Hummingbot~\citep{hummingbot} and Barter~\citep{barter}.
 \centering\scriptsize
 \caption{Historical-replay backtesters at order-book level, from their papers, documentation and code. ``Recorded
 market unchanged'': the simulated orders do not alter the replayed book (no market impact). ``--'': not provided;
-``not stated'': documentation silent. Commercial entries are from vendor documentation: institutional tools below the first line, retail
-charting platforms below the second; the Deltix
+``not stated'': documentation silent. Commercial entries, below the line, are from vendor documentation; the Deltix
 knowledge base requires a login and was not read, and no readable documentation of a replay fill simulator was found
 for CQG. Basis of each row: \ev{P} peer-reviewed paper, \ev{Pr} preprint, \ev{Ab} abstract only, \ev{D} documentation, \ev{C} source code read, \ev{V} vendor claim, \ev{A} independently audited, \ev{O} the author's own system.}
 \label{tab:replay-tools}
@@ -574,15 +572,13 @@ hft-backtesting\ev{C} & price-level & estimated, probabilistic & single delay & 
 \midrule
 TT Backtesting\ev{D} & book and trades; price- or order-level not stated & estimated: quantity ahead reduced by trades, not by cancels & not stated & not stated & yes (TT algos) & TT-connected exchanges \\
 Deltix QuantOffice\ev{D} & price- or order-level & not stated & configurable & no: fills remove replayed liquidity & yes & several asset classes \\
-\midrule
-NinjaTrader Playback\ev{D} & price-level; bid and ask sizes set to 1 & not stated & -- & not stated & yes & data-provider dependent \\
-Bookmap replay\ev{D} & depth and best quotes & estimate displayed; use in fills not stated & not stated & not stated & yes & recorded feeds; CME futures \\
-MultiCharts\ev{D} & levels 1 and 2 & not stated & not stated & not stated & yes & data-provider dependent \\
-Sierra Chart replay\ev{D} & trades with recorded best quotes & none: fills when the opposite quote reaches the price & not stated & not stated & yes & CME and other exchanges \\
-ATAS replay\ev{D} & trades and order book & none: filled at once, in full & -- & not stated & manual trading only & subscription dependent \\
 \bottomrule
 \end{tabularx}
 \end{table}
+
+Retail charting platforms (Sierra Chart, ATAS, NinjaTrader, Bookmap, MultiCharts) replay depth of book for display;
+Sierra Chart and ATAS fill replayed orders without a queue and the others do not document how they
+fill~\citep{sierrachart_replay,atas_replay,ninjatrader_playback,bookmap_replay,multicharts_sim}.
 
 \paragraph{Position of \kasparhft{} among replay tools.} Of the replay tools found, three place the simulated order in the recorded queue
 without changing the recorded market: hftbacktest, lobsim and \kasparhft{}. Of these, lobsim has no live-trading path, and
@@ -663,8 +659,8 @@ book, simulated order manager, strategy actors and replay are not tied to one ex
 a market-data handler, which turns the venue's feed into book updates, and an order-entry gateway. The handlers
 implemented today are for CME---the MDP~3.0 market-by-order feed and the iLink~3 order-entry protocol---and are used
 for ES, NQ and Treasury futures. Another market---equities, other futures exchanges, cryptocurrency venues---needs
-only its own pair of handlers; the rest of the system is reused unchanged. Every statement below describes the design
-and code; the few numbers quoted come from previously published measurements, attributed where they appear.
+only its own pair of handlers; the rest of the system is reused unchanged. The numbers quoted below come from
+published measurements and from the \kasparhft{} repository, attributed where they appear.
 
 The data path is
 \begin{center}\small
@@ -745,8 +741,8 @@ engine,
 \begin{equation}
   t_{\text{arrive}} = t_{\text{leave}} + d_{\text{feed}} + \max\big(40\,\mu\text{s},\; d_{\text{order}}\big),
 \end{equation}
-\inwords{the order reaches the matching engine after the feed delay and the order delay, and never less than
-40\,\textmu s after it leaves.}
+\inwords{the order reaches the matching engine after the feed delay and the order delay; the order delay is never
+taken below 40\,\textmu s.}
 The outbound order delay, the outbound cancel delay and the inbound feed delay are independent
 parameters. The feed delay is added because the strategy saw the market late by that amount, so a
 round trip is feed plus order, not order alone. When the order arrives it is appended at the tail
@@ -756,8 +752,12 @@ of the queue at its price, behind all depth already resting there.
 
 A recorded cancellation of a real order simply unlinks it, and every order behind it moves up. A
 recorded execution triggers simulated fills only when the executing real order is the first real
-order in the queue and a simulated order sits ahead of it; the simulated order is then filled. Any remaining executed
-quantity is carried forward to earlier simulated orders. This is the price--time-priority argument of
+order in the queue and a simulated order sits directly ahead of it. That simulated order is filled first, up to the
+executed quantity. If executed quantity is left over, it passes to the next simulated order towards the front of the
+queue, and so on, until the quantity is used up or no simulated order remains ahead. So when several simulated
+orders sit ahead of the executing order and the execution is smaller than their total, the ones nearest the
+executing order are filled, the last one reached may be filled only in part, and the ones further towards the front
+are not filled by that execution. This is the price--time-priority argument of
 Section~\ref{sec:replay}, implemented in the book: an aggressor that reached a
 real order which arrived after the simulated order must have passed through the simulated order.
 Simulated orders are excluded from the best bid and offer that the strategy sees, so a strategy
@@ -903,7 +903,7 @@ against the arrival mid-price and on post-fill mark-outs. Beating the passive ve
 something over resting blind; beating the aggressive version shows that it is worth something over simply taking
 liquidity. Because both model-free versions cost similar amounts in that study, the room a model has to improve is the adverse
 selection that the passive version cannot avoid: the fills it would decline if it knew they were toxic. A model that
-beats neither has added complexity for nothing. The hierarchy is
+beats neither adds complexity without improving execution. The hierarchy is
 \begin{center}
 model-free placement $\;\to\;$ predictive placement $\;\to\;$ full predictive execution policy,
 \end{center}
@@ -919,9 +919,10 @@ E-mini S\&P~500 futures market-by-order data---as a two-sided execution that buy
   passive method, which rests for 99\% of its executed quantity, and an aggressive version, which crosses for about
   half of it, cost $+0.0955$ and $+0.0952$ ticks per contract against the arrival mid-price. The half spread a resting
   order earns is given back through adverse selection, as Section~\ref{sec:adverse} describes. This is one
-  instrument and one pair of configurations; whether resting and crossing cost the same in general is not known.
+  instrument and one pair of configurations; whether resting and crossing cost similar amounts in general is not known.
 \item \textbf{Adverse selection, measured.} The post-fill mark-out (Equation~\eqref{eq:markout}) is about
-  0.07--0.10 ticks against the fill at 1, 5 and 30 seconds and does not revert: the move is complete within a second.
+  0.07--0.10 ticks against the fill at 1, 5 and 30 seconds; the mark-out does not revert, and its change after one
+  second is within the 95\% intervals.
 \item \textbf{Latency costs money.} With the same delay applied to orders, cancels and market data, the cost of
   both versions rises at every step from zero to 5\,ms, reaching $+0.150$ ticks per contract for the passive method
   and $+0.296$ for the aggressive version. For the aggressive version every step lies outside the previous step's
@@ -936,7 +937,8 @@ the parent order is fixed at 100 contracts.
 \centering\footnotesize
 \caption{The model-free benchmark in \kasparhft{}'s replay, from \citet{maciejewski_shadow}: ES futures, 246 sessions of
 2025, 100 contracts bought and 100 sold per 10-minute window. Costs in ticks per contract against the arrival
-mid-price (positive is a loss), with 95\% intervals clustered by session.}
+mid-price (positive is a loss), with 95\% intervals clustered by session. $^{a}$Separate configurations, each
+version at its own working settings.}
 \label{tab:shadow-results}
 \begin{tabular}{lcc}
 \toprule
@@ -948,7 +950,7 @@ Participation in market volume & 4.46\% & 4.86\% \\
 Cost against the arrival mid-price & $+0.0955 \pm 0.0130$ & $+0.0952 \pm 0.0135$ \\
 Mark-out 1\,s after each fill & $+0.0825 \pm 0.0076$ & $+0.0826 \pm 0.0072$ \\
 Mark-out 30\,s after each fill & $+0.0993 \pm 0.0200$ & $+0.0913 \pm 0.0190$ \\
-Cost at 5\,ms round-trip delay (separate configurations) & $+0.150 \pm 0.015$ & $+0.296 \pm 0.022$ \\
+Cost with a 5\,ms delay on orders, cancels and feed$^{a}$ & $+0.150 \pm 0.015$ & $+0.296 \pm 0.022$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -964,7 +966,8 @@ wire-to-book. The socket reader thread decodes each packet and updates the book 
 thread. Table~\ref{tab:kaspar-latency} gives the result on live CME futures (ES, NQ and ZN) on 2 October 2026: two
 five-minute runs with the first 60\,s of each dropped, Onload kernel bypass, one feed, threads not
 pinned~\citep{kaspar_hft}. Book updates take about 1\,\textmu s at the median (0.8 to 1.1\,\textmu s) and 4.7 to
-20.6\,\textmu s at the 99th percentile.
+20.6\,\textmu s at the 99th percentile. In the table, the ``book'' rows are each instrument's book-update messages and
+the ``trade'' rows its trade messages, two separate message streams of the feed.
 
 \begin{table}[!htbp]
 \centering\small
@@ -1044,7 +1047,8 @@ the model actor, the \texttt{Prediction} message and its handler in the strategy
   alongside the strategy actors of the same order book.
 \end{enumerate}
 
-The code for each step is in the \kasparhft{} repository~\citep{kaspar_hft}.
+The framework calls used in each step are in the \kasparhft{} repository~\citep{kaspar_hft}; the parts marked new have
+to be written.
 
 Three properties of the present code matter for anyone doing this.
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
@@ -1053,12 +1057,13 @@ Three properties of the present code matter for anyone doing this.
   on that update and before the next one; the framework's synchronous \texttt{fast\_send} would deliver it first.
   In the trading binary each actor has its own thread, and the order in which the book update and the prediction
   reach the strategy is not fixed.
-\item \textbf{Which book.} The model actor should subscribe to the price-level book (OB). The order-level book
-  (TachBook) accepts high-priority subscribers only under specific names, and in the trading binary it receives
-  data only in a measurement mode that starves the other consumers.
-\item \textbf{What is missing.} There is no general publish--subscribe bus: a model actor must hold a pointer to
-  the book and to each strategy actor. The strategy has no input for an external signal today; its only numeric
-  input sets a position target.
+\item \textbf{Which book.} \kasparhft{} has two order-book implementations. OB is the order-book actor of
+  Section~\ref{sec:kaspar-fills}: it holds every order, the simulator fills against it, and the strategy actors
+  subscribe to it. TachBook is \kasparhft{}'s fast order-level (market-by-order) book implementation; it does not
+  take general subscribers. A model actor should subscribe to OB, as the strategy actors do.
+\item \textbf{What is missing.} A model actor sends its messages directly, so it must hold a pointer to the book and
+  to each strategy actor. The strategy has no input for an external signal today; its only numeric input sets a
+  position target.
 \end{itemize}
 
 % ================================================================
@@ -1080,12 +1085,13 @@ predicted has already happened.}
 \paragraph{Latency as a constraint on deployment.} In a trading system, the latency of a model is not a
 detail to be optimised after the model is chosen; it decides whether the model can be used. A model on the hot
 path---the chain every market-data message passes through---must finish before the next message needs it. A model
-that is too slow does not merely produce later answers: it holds up every message behind it and chokes the system.
+that is too slow does not merely produce later answers: it blocks every message behind it.
 How fast a signal decays is the second constraint: with a 2\,ms half-life, 97\% of a signal's value remains after
 100\,\textmu s and 18\% after 5\,ms (Section~\ref{sec:latency}). Measured on a year of E-mini data in \kasparhft{}'s
-replay, a passive execution method lost about 0.011 ticks per contract for each millisecond of added delay and an
-aggressive one about 0.042~\citep{maciejewski_shadow}: every strategy pays for latency, and the price depends on
-the strategy as well as the signal.
+replay, with the same delay on orders, cancels and market data, the cost of a passive and an aggressive execution
+method rose with every step of delay, more steeply for the aggressive one, reaching $+0.150$ (passive) and $+0.296$
+(aggressive) ticks per contract at 5\,ms~\citep{maciejewski_shadow}: every strategy pays for latency, and the price
+depends on the strategy as well as the signal.
 
 \paragraph{Three costs of a slow model.} A model that takes too long to evaluate costs the system in three ways:
 \begin{enumerate}[leftmargin=1.5em]
@@ -1094,8 +1100,9 @@ the strategy as well as the signal.
 \item \textbf{Orders picked off.} A resting order is protected only by the system's ability to cancel or
   reprice it when the book changes. While the model is still evaluating, the order stays at a price the market has
   moved away from, and faster participants trade against it: it is filled exactly when the fill is unwanted. This
-  is adverse selection (Section~\ref{sec:adverse}) caused by the system's own latency, and it is why the passive
-  method above loses value with every millisecond of delay although it never crosses the spread. Aggressive orders
+  is adverse selection (Section~\ref{sec:adverse}) caused by the system's own latency, and it is why the cost of the
+  passive method above rises at every step of delay although it rests almost all of its quantity; only its first
+  step, from zero to 0.5\,ms, clears the previous step's 95\% interval. Aggressive orders
   are exposed too. An order sent late to cross the spread at a price that has since been taken arrives to find no
   liquidity left there; a limit order at that price does not fill and rests in the book instead. The aggressive order
   has become a passive one, at a price the market has already left, and it is open to being picked off in the same
@@ -1194,7 +1201,8 @@ models.
 \paragraph{1. Recurrence is sequential.} A recurrent network computes its memory at step $t$ from its memory at step
 $t-1$ (Section~\ref{sec:deep-families}), so the 100 steps of a window must be computed one after another; this
 ``inherently sequential nature precludes parallelization within training examples''~\citep{vaswani2017}. A layer needs
-a number of sequential steps that grows with the sequence length $n$, where self-attention needs a constant
+a number of sequential steps that grows with the sequence length $n$ (in this subsection $n$ and $d$ are local
+symbols), where self-attention needs a constant
 number~\citep{vaswani2017}. On an FPGA, a recurrent layer built from one reused block has a latency that grows linearly
 with the sequence length; unrolling it over time steps removes that growth but multiplies the hardware used by the
 sequence length~\citep{khoda2023rnn}.
@@ -1231,8 +1239,9 @@ bandwidth~\citep{nvidia_cuda_bpg}; a single small transfer over PCIe has been me
 times we found. They range from about 25\,\textmu s to about 23\,ms---from about 25 to about 23,000 times the roughly
 1\,\textmu s median socket-to-book latency of Section~\ref{sec:kaspar-measurement}; about half are below one millisecond
 and half above. They are not comparable across rows: devices and software differ, and some
-sources do not state the batch size. Latency also does not follow operation counts: in one study a gradient-boosted model with 23
-times more structural work than another was 15 times faster~\citep{hedges2026frontier}.
+sources do not state the batch size. Latency also does not follow operation counts: in one study a gradient-boosted model that the
+study counts as doing 23 times more work than another model ran 15 times faster than that other
+model~\citep{hedges2026frontier}.
 
 \begin{table}[!htbp]
 \centering\footnotesize
@@ -1295,10 +1304,10 @@ STAC-ML & Xelera Silva, AMD Alveo V80 (2026)~\citep{stac_ml_xlra2026} & gradient
 \end{tabularx}
 \end{table}
 
-Three points follow. A complete tick-to-trade path on an FPGA, with simple decision logic, runs in about a tenth to
-half a microsecond. Inference of a small LSTM, in the sliding-window setting, now takes single-digit microseconds on
-both FPGAs and GPUs: in these results a GH200 GPU was slightly faster than the 2023 FPGA system and slower than the
-2026 one. And no audited benchmark yet combines building the book with evaluating a learned model on it, or uses a
+Three points follow. A complete tick-to-trade path on an FPGA, with simple decision logic, runs in about 0.1 to
+0.6\,\textmu s. Inference of a small LSTM, in the sliding-window setting, now takes single-digit microseconds on
+both FPGAs and GPUs: in these results a GH200 GPU was faster than the 2023 FPGA system, slightly for the smallest
+LSTM and about twice for the largest, and slower than the 2026 one. And no audited benchmark yet combines building the book with evaluating a learned model on it, or uses a
 published order-book architecture.
 
 Figure~\ref{fig:latency-ladder} puts the measured figures quoted in this section on one logarithmic axis. Network
@@ -1311,7 +1320,7 @@ milliseconds.
 \includegraphics[width=\linewidth]{figs/latency_ladder.png}
 \caption{Latency figures quoted in this section, on one logarithmic axis. Bars are ranges, dots single figures.
 Sources: STAC public summaries (audited), the FPGA book-building papers, the measured server latency
-budget~\citep{zilberman2017where}, \kasparhft{}'s socket-to-book book medians~\citep{kaspar_hft}, and
+budget~\citep{zilberman2017where}, \kasparhft{}'s socket-to-book medians for book updates~\citep{kaspar_hft}, and
 Table~\ref{tab:lob-latency}. The figures come from different machines, conditions and years and show orders of
 magnitude, not a single system.}
 \label{fig:latency-ladder}
@@ -1361,22 +1370,22 @@ optimisation.
 \label{sec:hw-classes}
 
 Six classes of hardware run parts of the pipeline. Table~\ref{tab:hw-classes} compares them by the figures quoted in
-this section and by their main strength and limitation; representative commercial products, with the figures their
+this section and Appendix~\ref{sec:app-vendors} and by their main strength and limitation; representative commercial products, with the figures their
 vendors publish, are listed in Appendix~\ref{sec:app-vendors}.
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\caption{Classes of hardware for order-book systems. Figures are those quoted in this section, with their evidence
-type; strengths and limitations are our summary of the section.}
+\caption{Classes of hardware for order-book systems. Figures are those quoted in this section and
+Appendix~\ref{sec:app-vendors}, with their evidence type; strengths and limitations are our summary of the section.}
 \label{tab:hw-classes}
 \setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.22\linewidth}}
 \toprule
-Class & Figures quoted in this section & Strength & Limitation \\
+Class & Figures quoted & Strength & Limitation \\
 \midrule
 CPU with kernel bypass & network stack 946\,ns median (measured); \kasparhft{} socket-to-book about 1\,\textmu s median & most flexible; easiest to change & jitter from caches, interrupts and scheduling \\
 GPU & small LSTM 4.70\,\textmu s at the 99th percentile, sliding window (audited); 3.4 to 9.6\,\textmu s per launch of a 2.9\,\textmu s kernel (NVIDIA measurement) & throughput; large models; training & launch and PCIe overheads at a batch of one \\
-FPGA & tick-to-trade 0.115--0.61\,\textmu s (audited); book update 26--280\,ns (papers); small LSTM below 2 to 5\,\textmu s (audited) & fixed, deterministic latency & limited capacity; long development \\
+FPGA & tick-to-trade 0.115--0.61\,\textmu s (audited); book update 26--253\,ns (papers); small LSTM about 2 to 5\,\textmu s (audited) & fixed, deterministic latency & limited capacity; long development \\
 FPGA network card (SmartNIC) & tree model 1.55\,\textmu s on the card (vendor) & computes in the network path & small models only \\
 Programmable switch & ITCH filtering, all messages within 50\,\textmu s against 300\,\textmu s in software (paper) & processing inside the network & few operations per packet; no measured order book \\
 ASIC & none published for trading & speed and power & fixed design; cost of a chip \\
@@ -1393,8 +1402,7 @@ market data and orders with dedicated AI processors and a scheduler that manages
 back-tested on CME data, it reports speed-ups of about 14 times over a GPU-based and 7 times over an
 FPGA-based system for AI inference. Corsair~\citep{corsair2025} is an in-memory-computing design for large-language-model inference, built from
 chiplets (small dies combined in one package); its maker, d-Matrix, announced it in full production in
-2026~\citep{dmatrix2026production}. It is not a trading product, but it illustrates the direction of the hardware
-industry. Positron AI's Atlas is an inference server for Transformer models built on FPGAs (Altera Agilex-7M); its
+2026~\citep{dmatrix2026production}. Positron AI's Atlas is an inference server for Transformer models built on FPGAs (Altera Agilex-7M); its
 published figures are for a large language model, 280 against 182 tokens per second per user for an NVIDIA DGX H200,
 with the batch size not stated~\citep{positron_atlas,eetimes2026positron}. A trading firm, Jump Trading, co-led its
 funding, and its chief technology officer reported about three times lower end-to-end latency than a comparable
