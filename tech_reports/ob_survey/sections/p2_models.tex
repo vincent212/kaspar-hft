@@ -6964,10 +6964,9 @@ training needs automatically, so the modeller writes only the forward computatio
 \end{itemize}
 Framework use was checked in each project's public repository in October 2026.
 
-\paragraph{The example in this subsection.} Each step below is followed by what a small worked example does at that
-step. The example is a Python program---PyTorch for the network and its training, NumPy for the data, scikit-learn
-for the scores. The data are synthetic, so that the example can be run without a data licence; Step~6
-uses this to show what the choice of label does when there is nothing to predict.
+\paragraph{The example in this subsection.} Each step below is followed by what a small worked example on
+synthetic data does at that step. Step~6 uses the synthetic data to show what the choice of label does when there is
+nothing to predict.
 
 \begin{figure}[!htbp]
 \centering
@@ -7053,9 +7052,9 @@ the validation months has not improved for 20 epochs (about 40 epochs in all). T
 weights and takes about a quarter of a millisecond per prediction; the paper does not state the device or the
 batch size used for that timing (Section~\ref{sec:hw-why}).
 
-The example builds DeepLOB in PyTorch, following the description of Section~\ref{sec:deeplob}. Its parameter count is
+The example builds DeepLOB following the description of Section~\ref{sec:deeplob}. Its parameter count is
 60,947: the same as Table~\ref{tab:deeplob-params} stage by stage, except the LSTM,
-where PyTorch keeps two bias vectors per gate instead of one ($4 \times 64 = 256$ more). Its training loop shuffles batches within the training days only, and after each pass
+which has two bias vectors per gate instead of one ($4 \times 64 = 256$ more). Its training loop shuffles batches within the training days only, and after each pass
 measures the loss on the validation days, keeping the weights with the lowest. It uses Adam with a learning rate of 0.0001 and batches of 128, the values in the authors'
 public TensorFlow notebook, which differ from the 0.01 and 32 stated in the paper. To keep the run short, training stops after 5
 epochs without improvement instead of 20, and after 30 epochs at most.
