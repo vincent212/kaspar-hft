@@ -409,37 +409,16 @@ position in a queue of individual orders; whether latency is modelled; whether t
 market; whether a run can be repeated exactly; and whether the same code can trade live.
 
 \paragraph{Simulators of all four kinds.} Table~\ref{tab:simulators} compares the simulators most used in research,
-as documented in their papers and code.
-\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
-\item \textbf{ABIDES}~\citep{byrd2020abides} and its reinforcement-learning interface
-  \textbf{ABIDES-Gym}~\citep{amrouni2021abidesgym} are discrete-event agent-based simulators in Python. The exchange
-  keeps every order in first-in-first-out queues, and messages between agents and the exchange carry modelled
-  network and processing delays.
-\item \textbf{MAXE}~\citep{belcak2022maxe} is an agent-based simulator in C++ with a Python interface, with
-  price--time and pro-rata matching and message and processing delays.
-\item \textbf{PyMarketSim}~\citep{mascioli2024pymarketsim} is an agent-based environment in Python for
-  reinforcement learning.
-\item \textbf{JAX-LOB}~\citep{frey2023} replays Nasdaq order messages (LOBSTER) on a GPU, so that many simulations run
-  in parallel for reinforcement-learning training. It starts each episode from a snapshot in which each price
-  level is a single synthetic order, so the agent's position relative to orders that were resting at the start is
-  approximate, and it re-submits the agent's orders at each step.
-\item \textbf{mbt\_gym}~\citep{jerome2023mbtgym} simulates the price and fills from parametric models, without a
-  book; fills depend on the distance of the quote from the mid.
-\item \textbf{hftbacktest}~\citep{hftbacktest} replays market-by-price or market-by-order data, mainly from
-  cryptocurrency venues. With market-by-order data it keeps every order in a first-in-first-out queue and fills
-  the simulated order when an execution reaches an order behind it---the same rule as Kaspar; with price-level
-  data it estimates the volume ahead. It models feed latency from the data's timestamps and order latency from
-  recorded live latencies, and the same Rust strategy code can trade live on two cryptocurrency exchanges.
-\item \textbf{NautilusTrader}~\citep{nautilustrader} is an event-driven backtester and live-trading platform in Rust
-  and Python. It tracks an estimate of the displayed quantity ahead of a simulated order, models order-entry
-  delays, and runs the same strategy code in backtest and live trading.
-\item \textbf{MarS}~\citep{li2025mars} generates order flow with a large generative model trained on Chinese
-  equity orders and matches it in an order-level exchange; the generated market responds to injected orders.
-\item \textbf{TRADES}~\citep{berti2025trades}, released in the DeepMarket framework, generates orders with a
-  diffusion model inside ABIDES.
-\item \textbf{The queue-reactive model}~\citep{huang2015} and its neural extension~\citep{deepqr} are model-based
-  simulators of the queues at the first five levels (Section~\ref{sec:qr}).
-\end{itemize}
+as documented in their papers and code. The agent-based ones are ABIDES~\citep{byrd2020abides} and its
+reinforcement-learning interface ABIDES-Gym~\citep{amrouni2021abidesgym} (Python), MAXE~\citep{belcak2022maxe} (C++ with
+a Python interface) and PyMarketSim~\citep{mascioli2024pymarketsim} (Python, for reinforcement learning). JAX-LOB replays
+Nasdaq order messages on a GPU so that many simulations run in parallel for reinforcement-learning
+training~\citep{frey2023}; hftbacktest replays mainly cryptocurrency data and, with order-level data, uses the same fill
+rule as Kaspar~\citep{hftbacktest}; NautilusTrader is an event-driven backtester and live-trading platform in Rust and
+Python~\citep{nautilustrader}. mbt\_gym simulates prices and fills from parametric models without a
+book~\citep{jerome2023mbtgym}. MarS generates order flow with a large generative model trained on Chinese equity
+orders~\citep{li2025mars}, TRADES with a diffusion model inside ABIDES~\citep{berti2025trades}, and the queue-reactive
+model and its neural extension simulate the queues at the first five levels~\citep{huang2015,deepqr}.
 
 \begin{table}[!htbp]
 \centering\scriptsize

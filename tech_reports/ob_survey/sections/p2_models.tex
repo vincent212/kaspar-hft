@@ -2192,25 +2192,7 @@ which, in the model, is the job of the resets. One practical reading of this res
 order-book model can and cannot be expected to forecast: the mechanics of the next tick or two, not the
 larger moves driven by news.
 
-\paragraph{Uses: the questions answered by simulation.} With the rates fitted, the model is run forward
-to answer questions that have no formula.
-\begin{description}[leftmargin=1.5em,style=nextline,itemsep=2pt]
-\item[Will my order be filled?] A trader's order is placed in the simulated queue and followed until it
-  is filled or the price moves away. Because the rates react to the queue, the order's own presence, and
-  the orders that join behind it, change the outcome. The authors find that the different versions of
-  the model give similar execution probabilities, while a model with constant (Poisson) rates overstates
-  them.
-\item[How should a large order be worked?] A large order is split into slices over time, and two tactics
-  are compared in simulation: placing each slice and leaving it (``fire and forget''), or keeping it
-  repriced at the best quote (``pegging''), under different schedules for the slice sizes.
-\item[Where does volatility come from?] As described above, switching the resets on and off measures how
-  much of the price movement the queues alone can produce.
-\end{description}
-Its neural extension learns the dependence of the rates on the book with networks~\citep{deepqr}, and
-queue-reactive Hawkes models add self-excitation to the size-dependent rates
-(Section~\ref{sec:hawkes-variants}). Its neural extension learns the
-dependence of the rates on the book with networks~\citep{deepqr}, and queue-reactive Hawkes models add
-self-excitation to the size-dependent rates (Section~\ref{sec:hawkes-variants}).
+Queue-reactive Hawkes models add self-excitation to the size-dependent rates (Section~\ref{sec:hawkes-variants}).
 
 \paragraph{Using it in practice: what a built simulator is for.} Suppose the simulator has been built and
 fitted to a contract one trades. What can be done with it? The honest answer has two halves. It is a
@@ -2218,8 +2200,9 @@ realistic laboratory for questions about \emph{the mechanics of execution}---how
 leave queues, and how one's own orders change that. It is not a source of evidence about \emph{whether a
 trading idea makes money}, because the only information it contains about future prices is what was put
 into it, and in particular its news-driven price moves are random by construction. Table~\ref{tab:qr-uses}
-lists the main uses with that line drawn. The published applications are fill probabilities and the
-comparison of placement tactics~\citep{huang2015}; for its neural extension, reproducing the square-root
+lists the main uses with that line drawn. The published applications are fill probabilities---the versions of the model give similar
+execution probabilities, while a model with constant (Poisson) rates overstates them---and the comparison of
+placement tactics such as leaving a slice in place or pegging it to the best quote~\citep{huang2015}; for its neural extension, reproducing the square-root
 law of market impact, order-size distributions and correlations between queues on Bund futures~\citep{deepqr};
 and, for related reactive simulators built on neural Hawkes processes, serving as the training
 environment for a reinforcement-learning market maker~\citep{lalor2025nhp}. The other rows are uses that
