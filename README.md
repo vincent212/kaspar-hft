@@ -263,6 +263,20 @@ Most execution algorithms either cross the spread (expensive) or continuously qu
 
 For more detail — *Model-Free Passive Execution via Order-Level Shadowing* — on arXiv: [**arXiv:2609.18019**](https://arxiv.org/abs/2609.18019).
 
+## Adding an Order-Book Model
+
+Kaspar is model-agnostic: any order-book model (order-flow imbalance, a queue or Hawkes model, a deep network) plugs in as one more actor between the order book and the strategy. The same actor then runs unchanged in replay, paper and live trading.
+
+1. **Define a message.** Derive a `Prediction` message from `actors::MessageT<Prediction>` (the id is assigned automatically). Carry the instrument, the market time of the book update, and the predicted value.
+2. **Write the model actor.** Derive from `actors::Actor` and register two handlers with `MESSAGE_HANDLER`: `Start`, where it sends `Subscribe(Subscribe::HI)` to the order book, and `EndOfBurst`, which the book sends after each burst of updates.
+3. **Compute and publish.** On each `EndOfBurst`, read up to 16 price levels, compute the prediction, and `send` a new `Prediction` to each strategy actor.
+4. **Use it in the strategy.** Add a `Prediction` handler to the strategy actor and use the latest value in its placement decision, for example as a gate on whether to follow an addition.
+5. **Wire it in.** In the replay simulator, add the actor to the simulator's group before the market-data reader; the whole replay stays on one queue and one thread, so it stays deterministic. In the trading binary, add it next to the strategy actors.
+
+To evaluate a model, run it against the model-free shadow benchmark in the same replay: same days, same target quantity, same delays.
+
+For the models themselves (how each is built, what it predicts, how to test it in a queue-exact replay and how to deploy it on accelerated hardware), see *A Survey of Limit-Order-Book Models, Simulators and Hardware Acceleration* ([PDF](tech_reports/ob_survey/main.pdf)).
+
 ## Deep Dives
 
 Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.substack.com](https://vincentmayeski.substack.com)):
