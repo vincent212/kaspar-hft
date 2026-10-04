@@ -1,4 +1,4 @@
-"""Re-plot of Table 1 of Shi & Cartlidge (KDD 2022). Not our data. Source: notes/claims_predhybrid.md."""
+"""Re-plot of Table 1 of Shi & Cartlidge (KDD 2022). Not our data."""
 from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
