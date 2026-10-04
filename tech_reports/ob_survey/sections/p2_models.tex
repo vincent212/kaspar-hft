@@ -8319,6 +8319,12 @@ binned combinations, and may pass the exact values alongside. Schematic.}
 \subsection{State-space models}
 \label{sec:deep-ssm}
 
+\paragraph{What goes in and what comes out.} A state-space network is a layer, not a complete model, and it does not
+fix the input or the output. Its input is any sequence of vectors, one per step, and the step can be a snapshot of
+the book, a vector of order flow, or a message turned into numbers or tokens (Table~\ref{tab:input-output-kinds}). At
+every step it updates its state, and an output layer on top of the state produces the prediction: a direction class,
+a return, the next token, or an event intensity.
+
 A state-space model reads the events one at a time, like a recurrent network, and keeps a \emph{state}: a vector
 $\mathbf{s}$ that summarises everything seen so far. At each new event $\mathbf{x}$ it updates the state by a learned
 linear rule and reads its prediction off the state:
@@ -8389,11 +8395,7 @@ Output & expected future mid-price, by a matrix formula over all paths & whateve
 \end{tabularx}
 \end{table}
 
-\paragraph{What goes in and what comes out.} A state-space network is a layer, not a complete model, and it does not
-fix the input or the output. Its input is any sequence of vectors, one per step, and the step can be a snapshot of
-the book, a vector of order flow, or a message turned into numbers or tokens (Table~\ref{tab:input-output-kinds}). At
-every step it updates its state, and an output layer on top of the state produces the prediction: a direction class,
-a return, the next token, or an event intensity. Three order-book uses show the range (Table~\ref{tab:ssm-uses}).
+\paragraph{Three uses on order-book data.} Three order-book uses show the range of inputs and outputs (Table~\ref{tab:ssm-uses}).
 \begin{itemize}[leftmargin=1.5em,itemsep=1pt]
 \item \textbf{A generator of messages.} LOBS5~\citep{nagy2023} is built from S5 state-space layers. Its input at each
   step is one message, split into 22 tokens---type, side, price in ticks from the mid, size, time and the fields of
