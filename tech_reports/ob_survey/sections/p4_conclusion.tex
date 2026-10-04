@@ -1,0 +1,193 @@
+\paragraph{About this part.} The last part looks across the whole survey. It collects the open problems that the
+previous parts identified, grouped by the part they come from (Section~\ref{sec:agenda}), and states the survey's
+conclusion (Section~\ref{sec:conclusion}).
+
+% ================================================================
+\section{Research agenda}
+\label{sec:agenda}
+
+The survey has identified places where the literature stops short of what a trader needs. They are grouped below
+by the part of the survey they come from.
+
+\subsection{Models}
+
+The open problems in this group concern what the models of Part~II predict and how they are built.
+
+\paragraph{Execution-aware objectives.} Most prediction models stop at
+an estimate of $\P(\Delta m_{t,H} > 0 \mid X_t)$. The more useful objective is an estimate of
+$\E[\Pi \mid a_t, X_t]$, the expected profit of each available action,
+combining prediction, fill probability, queue position and adverse selection. Calibrated
+confidence~\citep{manoharan2026uqlob} is a step toward it: it tells an execution policy when to act.
+
+\paragraph{Message-level foundation models for execution.} Pretrained message-level encoders have
+so far been evaluated mainly on mid-price and next-message prediction~\citep{linna2025lobert}.
+Fine-tuning them for fill probability and conditional mark-outs, evaluated in queue-exact replay,
+is an open direction.
+
+\paragraph{State-space and long-context models for event streams.} State-space sequence models are well
+suited to long, irregular event streams, yet apart from one hardware-oriented design~\citep{popov2026ssm} we found no established LOB forecaster built on them.
+Testing them against simple baselines on the same inputs---not against each other---is a clear
+next step.
+
+\paragraph{Near-criticality and learned models.} Estimated branching ratios of order flow are high,
+from about $0.7$--$0.8$ to about one depending on method. How deep sequence
+models behave on near-critical, long-memory inputs, and whether Hawkes structure built into them
+(Section~\ref{sec:hybrid}) improves robustness, is untested.
+
+\paragraph{A parsimony audit.} For each widely cited deep LOB model, re-estimate its incremental
+economic value and deflated performance against the best low-capacity baseline on the same data and
+fill model. Such a meta-study would directly test the central claim of this survey.
+
+\subsection{Execution and simulation}
+
+The open problems in this group concern how predictions become orders and how simulators measure the result
+(Sections~\ref{sec:sim-needs} and~\ref{sec:simulators}).
+
+\paragraph{Queue-aware benchmarks.} Queue position should be a first-class state variable.
+Benchmarks should report performance conditional on queue rank, residual volume, spread and expected
+depletion time, and should measure the size of the queue-rank effect on fill probability and on
+conditional mark-outs across assets and regimes, rather than take a single model estimate as
+given.
+
+\paragraph{End-to-end signal and execution.} Most models output a forecast and leave execution to a
+separate rule. Models whose output is the decision itself---quote, keep, cancel, cross---and whose
+training objective is execution value would close the gap that this survey describes. Reinforcement
+learning in LOB simulators~\citep{lalor2025nhp,frey2023} is one route, ideally validated in queue-exact replay; its results must be
+judged against model-free benchmarks in the same simulator.
+
+\paragraph{Causal rather than predictive questions.} The questions that matter for execution are
+causal: they ask what happens to the queue and the price \emph{if} an order is placed at a given price. Replay with a
+no-impact assumption answers this only for small orders. Models of the market's response to one's own
+orders, and ways to validate them without live experiments, remain open.
+
+\paragraph{Generative evaluation.} Generators should be evaluated by market invariants and downstream
+utility rather than by visual or marginal similarity alone~\citep{lobbench2025}.
+
+\paragraph{Cross-asset information after costs.} An open question is when cross-asset information remains
+valuable after costs, latency, multiple testing and parameter instability.
+
+\paragraph{Simulators against live fills.} The simulators of Table~\ref{tab:simulators} have not been compared on the
+same orders. Running one strategy through several of them and through paper trading, and comparing fill rates and
+post-fill mark-outs with the live fills, would measure how much each simulator's assumptions---estimated queue
+position, simulated order flow, no market impact---cost in accuracy.
+
+\paragraph{Replay with a reacting market.} Replay cannot measure the market's response to one's own orders; a
+model-based simulator can, mechanically (Section~\ref{sec:kaspar-fills}). Combining the two---recorded flow for the
+rest of the market, a fitted model for the response to the strategy's orders---and validating the response against
+live trading is open.
+
+\subsection{Hardware}
+
+The open problems in this group follow from Section~\ref{sec:hardware}.
+
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item Training objectives that penalise expected inference latency and resource use on a target
+  device, so that models trade accuracy against deployability explicitly.
+\item Which components of spatial-temporal LOB models survive mapping to programmable logic without
+  losing their economic value.
+\item Hawkes intensities in hardware: exponential kernels update in constant time and suit pipelines,
+  and a power-law kernel can be approximated by a few exponentials, each with its own running
+  sum~\citep{bochud2007}; how many are needed at the precision of fixed-point hardware, and how
+  state-dependent kernels map to pipelines, are open.
+\item Whether the statistical properties of a strategy developed on one hardware and latency profile
+  survive deployment on another---the research--production gap of Section~\ref{sec:kaspar-determinism}, at the hardware layer.
+\item Public, auditable benchmarks that cover book building and inference together: STAC-T1 audits a whole
+  tick-to-trade path with simple logic, and STAC-ML audits inference alone, excluding data ingestion and features;
+  neither evaluates a learned model on a book it has built.
+\end{itemize}
+
+% ================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% ================================================================
+
+This section summarises the survey's argument, the two kinds of infrastructure needed to test it, and the order of
+operations it recommends to a reader who must choose a model.
+
+The literature on limit-order-book modelling has moved from low-dimensional queue and order-flow
+models to expressive sequence architectures and pretrained message-level encoders. Statistical
+prediction has improved. Statistical prediction and executable trading remain different problems.
+The translation between them is
+\[
+  \text{LOB state} \to \text{representation} \to \text{prediction} \to \text{decision} \to
+  \text{queue} \to \text{execution} \to \text{P\&L}.
+\]
+\inwords{the book is turned into model inputs, the inputs into a forecast, the forecast into an order, the order
+waits in a queue and may be filled, and the fill produces a profit or loss. Each link can destroy information or add
+uncertainty.}
+
+Order-flow imbalance, queue imbalance, Hawkes intensities and first-passage models give
+interpretable low-dimensional descriptions of market dynamics. Deep and pretrained models give
+representational capacity and, increasingly, calibrated confidence; most of them are learned analogues of
+the classical signal models rather than of the mechanistic ones (Section~\ref{sec:deep-adds}). Meta-models and
+structural hybrids combine the two, either by feeding classical outputs to a learner or by building classical
+structure inside a network. Much of the accuracy reported for deep models depends on how the label and the data
+split are built: with a label that averages past prices, a re-test of DeepLOB on Apple was right 65.9\% of the time
+and 54.6\% with a label measured from the current price~\citep{lee2024predictability}, and in our synthetic example a
+network reached 57.6\% on a market with nothing to predict (Section~\ref{sec:deep-train}). The choice of input
+matters as much: with the network fixed, order-flow inputs were among the best in 89\% of cases and raw snapshots in
+11\%~\citep{lucchese2024}. The conclusion is not that simple models are superior. It is that complexity is an
+empirical hypothesis: a more complex model is justified when it delivers incremental out-of-sample
+economic value that survives realistic execution, temporal validation, and the multiple-testing
+burden of its own selection.
+
+Two kinds of infrastructure make that standard testable. The first is the simulator. Agent-based, model-based and
+generative simulators let the market react to the researcher's orders, but their queues are only as realistic as the
+simulated order flow; a replay keeps the real market but cannot react. Exact queue position in the recorded market
+needs order-level data and an order-level book; among the replay tools compared, hftbacktest (with order-level
+data), lobsim and Kaspar provide it without altering the recorded market (Section~\ref{sec:sim-survey}). In a replay built from actors, a model of
+Part~II becomes one more actor that reads the book and sends its predictions to the strategy, and the same code runs
+in replay, paper and live trading (Section~\ref{sec:kaspar-actor}).
+
+The second is hardware. Book building takes about 8\,\textmu s from socket to book in Kaspar's software path and
+hundreds of nanoseconds or less in published FPGA designs; published inference times of order-book models range from
+about 25\,\textmu s to about 23\,ms, about half of them above one millisecond (Table~\ref{tab:lob-latency}). Section~\ref{sec:hw-why}
+identifies four causes---recurrence that must run step by step, attention whose cost grows with the square of the
+window, memory traffic at a batch of one, and fixed overheads per operation---and Section~\ref{sec:hw-what} lists the
+candidate remedies: shorter or incremental windows, smaller and lower-precision models, fused kernels, and moving the
+regular stages to FPGAs. Hardware
+decides how much of a signal's value survives to the moment of execution, but it cannot rescue a signal whose life is
+shorter than the pipeline that computes it.
+
+For a reader who must choose a model, the survey's guidance reduces to an order of operations.
+Decide first what the output is for---aggressive trading, passive execution, market making or
+simulation---and therefore which of the targets of Section~\ref{sec:deep} matters. Establish the
+strongest simple baseline on the best available representation: order-flow imbalance, queue
+imbalance, the micro-price, the queue race, and for passive orders the volume ahead. Evaluate it with
+proper scores and economic metrics in a queue-exact replay, counting every configuration tried. Only
+then add capacity---a shallow network, a sequence model, a hybrid---and keep it only if the increment
+survives the same test.
+
+A useful future literature should therefore report not only whether a model predicts the market,
+but what information it extracts, what decision it changes, how that decision is executed, and
+whether the incremental value survives a properly constructed null.
+
+\begin{table}[!htbp]
+\centering\small
+\caption{Evidence status of the main claims in this survey.}
+\label{tab:evidence}
+\begin{tabularx}{\linewidth}{Xl}
+\toprule
+Claim & Status \\
+\midrule
+Short-horizon mid changes are approximately linear in OFI, with slope inversely related to
+  depth~\citep{cks2014} & established \\
+Hawkes stationarity when $\rho(\Gamma) < 1$ and $\bar\lambda = (I-\Gamma)^{-1}\mu$ & established \\
+Input representation can matter as much as the architecture & synthesis \\
+Naive ``touch'' backtests overstate passive fills relative to queue-exact replay & synthesis;
+  argued from price--time priority \\
+Front-of-queue positions are worth more than back-of-queue positions, with adverse selection
+  increasing in queue position~\citep{moallemi2017} & established in a model; size across regimes open \\
+Hybrid inputs derived from the same stream add little to a sufficiently large network & open
+  hypothesis \\
+Labels that average past prices inflate reported direction accuracy~\citep{lee2024predictability} & one re-test on
+  real data; reproduced on synthetic data here \\
+Order-flow inputs beat raw snapshots with the network held fixed~\citep{lucchese2024} & established in one study
+  (10 stocks) \\
+Published inference times of LOB models range from tens of microseconds to tens of milliseconds, above book-update times & measured in five
+  studies under different conditions \\
+Exact own-order queue position in the recorded market requires order-level data and an order-level book &
+  synthesis; argued from price--time priority \\
+\bottomrule
+\end{tabularx}
+\end{table}
