@@ -1,9 +1,9 @@
 \begin{abstract}
 A large literature predicts short-term price moves from the limit order book (LOB): order-flow imbalance and the
 micro-price, queue and first-passage models, Hawkes and neural point processes, and deep networks up to Transformers
-and pretrained message-level encoders. Most of these models are scored on the forecast itself, by directional accuracy; in an independent re-test of fifteen published deep models on later Nasdaq data, F1 scores (combining precision and recall) were
-48--61\%, below those reported on the FI-2010 benchmark. A trader needs to know whether a model's information survives the queue,
-the fill and the latency of a real order, and still makes money.
+and pretrained message-level encoders. Most of the learned models are judged by how well they forecast the next
+move. A trader needs to know something else: whether a model's information survives the queue, the fill and the
+latency of a real order, and still makes money.
 
 This survey follows a model from theory to production. It is three surveys in one, in the order the work is done:
 order-book models---how each is built and what it predicts; simulators---how a model becomes a strategy and is
@@ -11,20 +11,17 @@ tested against recorded markets with its orders in the real queues; and hardware
 fast enough to run. What matters for trading is the expected profit of an action given the market state and the
 order's place in the queue, not the accuracy of the forecast behind it.
 
-The survey shows how to check each step. Accuracy: in a re-test of DeepLOB on a year of Apple data, the construction
-of the label alone moved accuracy from 65.9\% to 54.6\%. Execution: on a year of E-mini S\&P~500 data, a model-free
-benchmark that rests limit orders in the queue and one that crosses the spread cost similar amounts, about $0.095$
-ticks per contract, and cost rose with delay. Deployment: published inference times of order-book
-models range from 25\,\textmu s to 23\,ms, while a stage that every CME market-data packet passes through must handle
-each packet in about 7.5\,\textmu s; a slower stage builds a queue, misses signals and leaves orders to be filled by
-faster traders after the price has moved.
+The survey shows how to check each step: whether a reported accuracy reflects the market or the way the label and the
+data split were built; whether a forecast still adds value once orders wait in real queues, against a model-free
+execution benchmark; and whether a model is fast enough for the path every market-data message takes, where a slow
+stage misses signals and leaves orders to be filled by faster traders after the price has moved.
 
 The worked example is \kasparhft{}\footnote{\kasparhft{} is available at
 \url{https://github.com/vincent212/kaspar-hft}.}, an open-source, venue-independent trading system and deterministic,
-queue-exact simulator, with handlers implemented for CME. A model is added as one more actor, and the strategy
-tested in the simulator is the strategy deployed, with no change of code: moving to paper and live trading is a
-configuration setting. Three principles run through the survey: the market is observed, not generated; complexity
-must earn its place by out-of-sample economic value; and representations are compared before architectures.
+queue-exact simulator. A model is added as one more actor, and the strategy tested in the simulator is the strategy
+deployed, with no change of code: moving to paper and live trading is a configuration setting. Three principles run
+through the survey: the market is observed, not generated; complexity must earn its place by out-of-sample economic
+value; and representations are compared before architectures.
 
 \medskip
 \noindent\textbf{Keywords:} limit order book, market microstructure, order-flow imbalance, micro-price,

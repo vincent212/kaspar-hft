@@ -364,8 +364,8 @@ Pierre Blanc, Jonathan Donier, and Jean-Philippe Bouchaud.
 
 \bibitem[{BMLL Technologies}(n.d.{\natexlab{b}})]{bmll_home}
 {BMLL Technologies}.
-\newblock Bmll: Harmonised historical level 3, 2 and 1 order book data and
-  analytics.
+\newblock {BMLL: Harmonised Historical Level 3, 2 and 1 Order Book Data and
+  Analytics}.
 \newblock Company website, n.d.{\natexlab{b}}.
 \newblock URL \url{https://www.bmlltech.com/}.
 \newblock Company website. Accessed 2026-10-04.
@@ -815,8 +815,8 @@ David~R. Cox.
 
 \bibitem[{d-Matrix}(2026)]{dmatrix2026production}
 {d-Matrix}.
-\newblock d-matrix corsair ai inference platform enters full production to meet
-  customer demand.
+\newblock {d-Matrix Corsair AI Inference Platform Enters Full Production to
+  Meet Customer Demand}.
 \newblock Press release, 2026.
 \newblock URL
   \url{https://www.d-matrix.ai/announcements/d-matrix-corsair-ai-inference-platform-enters-full-production-to-meet-customer-demand/}.
@@ -1757,7 +1757,7 @@ Gary Koop and Dimitris Korobilis.
 
 \bibitem[{koteyevlev}(2021)]{koteyevlev_mm}
 {koteyevlev}.
-\newblock Marketmakingmlalgo: Market making backtest on a full order log.
+\newblock {MarketMakingMLAlgo: Market Making Backtest on a Full Order Log}.
 \newblock \url{https://github.com/koteyevlev/MarketMakingMLAlgo}, 2021.
 \newblock Python, MIT. Accessed 2026-10-03.
 
@@ -2747,8 +2747,8 @@ Satyam Srivastava, Akhil Arunkumar, Nithesh Kurella, Amrit Panda, Gaurav Jain,
 
 \bibitem[{STAC}(2019{\natexlab{a}})]{stac_exa181106}
 {STAC}.
-\newblock Stac reports: Exablaze under stac-t0 (tick-to-trade network i/o) and
-  stac-ts.pse (sut id exa181106).
+\newblock {STAC Reports: Exablaze under STAC-T0 (tick-to-trade network I/O) and
+  STAC-TS.PSE (SUT ID EXA181106)}.
 \newblock STAC news post (Internet Archive copy), audited STAC-T0,
   2019{\natexlab{a}}.
 \newblock URL
@@ -2757,16 +2757,16 @@ Satyam Srivastava, Akhil Arunkumar, Nithesh Kurella, Amrit Panda, Gaurav Jain,
 
 \bibitem[{STAC}(2019{\natexlab{b}})]{stac_exg191010}
 {STAC}.
-\newblock Stac report: Cme tick-to-trade with exegy xero fpga card (sut id
-  exg191010).
+\newblock {STAC Report: CME tick-to-trade with Exegy Xero FPGA card (SUT ID
+  EXG191010)}.
 \newblock STAC news post, audited STAC-T1, 2019{\natexlab{b}}.
 \newblock URL \url{https://docs.stacresearch.com/news/EXG191010}.
 \newblock Posted October 15, 2019. Accessed 2026-10-04.
 
 \bibitem[{STAC}(2020)]{stac_xlx200514}
 {STAC}.
-\newblock Stac report: New lda/xilinx solution under stac-t0 (tick-to-trade
-  network i/o) (sut id xlx200514).
+\newblock {STAC Report: New LDA/Xilinx solution under STAC-T0 (tick-to-trade
+  network I/O) (SUT ID XLX200514)}.
 \newblock STAC news post, audited STAC-T0, 2020.
 \newblock URL \url{https://docs.stacresearch.com/news/XLX200514}.
 \newblock Posted May 25, 2020. Accessed 2026-10-04.
@@ -2794,8 +2794,8 @@ Satyam Srivastava, Akhil Arunkumar, Nithesh Kurella, Amrit Panda, Gaurav Jain,
 
 \bibitem[{STAC}(2024{\natexlab{b}})]{stac_adhc240918}
 {STAC}.
-\newblock Stac report: Stac-t1 with adhoc teknoloji hfft-02a (versal premium)
-  based ultra low latency hft solution (sut id adhc240918).
+\newblock {STAC Report: STAC-T1 with ADHOC Teknoloji HFFT-02A (Versal Premium)
+  Based Ultra Low Latency HFT Solution (SUT ID ADHC240918)}.
 \newblock STAC news post, audited STAC-T1, 2024{\natexlab{b}}.
 \newblock URL \url{https://docs.stacresearch.com/news/ADHC240918}.
 \newblock Posted October 16, 2024. Accessed 2026-10-04.
@@ -3068,7 +3068,7 @@ Zhuohan Wang and Carmine Ventre.
 
 \bibitem[Ward-Foxton(2026)]{eetimes2026positron}
 Sally Ward-Foxton.
-\newblock Positron's \$230m funding led by financial trading firms.
+\newblock {Positron's \$230M Funding Led By Financial Trading Firms}.
 \newblock EE Times, 2026.
 \newblock URL
   \url{https://www.eetimes.com/positron-230-million-funding-led-by-financial-trading-firms/}.

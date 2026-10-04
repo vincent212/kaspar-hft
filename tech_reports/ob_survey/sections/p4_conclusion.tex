@@ -200,15 +200,15 @@ Figure~\ref{fig:chain-findings} attaches to each link what the survey found ther
 \node[c, fill=green!12] (n7) at (0,-11.4) {\textbf{P\&L}};
 \foreach \a/\b in {n1/n2,n2/n3,n3/n4,n4/n5,n5/n6,n6/n7} \draw[arr] (\a) -- (\b);
 \node[f] (f1) at (2.2,-0.95) {\textbf{Representation matters.} With the network held fixed, the choice of input decided
-  most of the result in one large comparison: the best order-flow variant (L2) was among the best in 89\% of cases, the
-  simpler variant (L1) in 22\%, and raw snapshots in 11\%~\citep{lucchese2024} (Section~\ref{sec:deep-io-effect}).};
+  most of the result in one large comparison: the best order-flow variant was among the best in 89\% of cases, the
+  simpler variant in 22\%, and raw snapshots in 11\%~\citep{lucchese2024} (Section~\ref{sec:deep-io-effect}).};
 \node[f] (f2) at (2.2,-2.85) {\textbf{The label can decide the reported accuracy.} In the re-test of \citet{lee2024predictability}, DeepLOB's accuracy on
   Apple was 65.9\% with a label that averages past prices and 54.6\% with one measured from the current price
   (Section~\ref{sec:deep-real}).};
 \node[f] (f3) at (2.2,-4.75) {\textbf{A forecast is not a decision.} In the studies we reviewed, most stop at a forecast and
   leave the decision to a separate, hand-written rule; none of the RL studies we reviewed reports a live or
   paper-trading test (Section~\ref{sec:policy}).};
-\node[f] (f4) at (2.2,-6.65) {\textbf{Latency decides whether a model can run.} Published inference takes 25\,\textmu s
+\node[f] (f4) at (2.2,-6.65) {\textbf{Latency decides whether a model can run.} Inference in published research takes 25\,\textmu s
   to 23\,ms; a hot-path stage must handle each packet within about 7.5\,\textmu s or a queue builds in bursts. A slow
   model misses signals and leaves orders to be filled by faster traders after the price has moved
   (Section~\ref{sec:hardware}).};
@@ -278,12 +278,12 @@ Part~II becomes one more actor that reads the book and sends its predictions to 
 in replay, paper and live trading (Section~\ref{sec:kaspar-actor}).
 
 The second is hardware. Book building takes about 1\,\textmu s from socket to book at the median in \kasparhft{}'s software path and
-hundreds of nanoseconds or less in published FPGA designs; published inference times of order-book models range from
+hundreds of nanoseconds or less in published FPGA designs (Sections~\ref{sec:kaspar-measurement} and~\ref{sec:hardware}); published research inference times of order-book models range from
 about 25\,\textmu s to about 23\,ms, about half of them above one millisecond (Table~\ref{tab:lob-latency}). Section~\ref{sec:hw-why}
 identifies four causes---recurrence that must run step by step, attention whose cost grows with the square of the
 window, memory traffic at a batch of one, and fixed overheads per operation---and Section~\ref{sec:hw-what} lists the
 candidate remedies: shorter or incremental windows, smaller and lower-precision models, fused kernels, and moving the
-regular stages to FPGAs. All of these inference times exceed the CME publisher period (the minimum spacing of about
+regular stages to FPGAs. All of these research inference times exceed the CME publisher period (the minimum spacing of about
 7.5\,\textmu s between packets from CME's market-data publisher), the time within which a stage on the hot path must
 handle each packet to avoid queueing~\citep{maciejewski2026packets}. A model too slow for the hot path does not just
 answer late. It misses signals and lets the message queue in front of it grow. It also leaves orders to be picked off:
@@ -410,7 +410,7 @@ Front-of-queue positions are worth more than back-of-queue positions, with adver
 Hybrid inputs derived from the same stream add little to a sufficiently large network & Open hypothesis \\
 In the re-test of \citet{lee2024predictability}, DeepLOB's accuracy was 65.9\% with a label that averages past
   prices and 54.6\% with one measured from the current price & Established result; one re-test \\
-Published inference times of LOB models range from tens of microseconds to tens of milliseconds & Empirical synthesis; five studies measured under different conditions \\
+Inference times of LOB models published in research papers range from tens of microseconds to tens of milliseconds & Empirical synthesis; five studies measured under different conditions \\
 Exact own-order queue position in the recorded market requires order-level data and an order-level book &
   Established result; follows from price--time priority \\
 Resting and crossing cost similar amounts for model-free execution, about $+0.095$ ticks per contract on a
@@ -422,7 +422,7 @@ Execution cost rises with delay from zero to 5\,ms, to $+0.150$ (passive) and $+
 A stage that handles each packet within the CME publisher period of about 7.5\,\textmu s never queues on arrivals;
   above it a queueing tail appears, caused by the clustering of arrivals~\citep{maciejewski2026packets} &
   Established result; more than a year of NQ data \\
-Every published inference time of an order-book model that we found exceeds the CME publisher period & Empirical synthesis of
+Every inference time of an order-book model published in the research papers we found (Table~\ref{tab:lob-latency}) exceeds the CME publisher period; audited STAC-ML benchmark models run below it & Empirical synthesis of
   the measurements above \\
 We found no evaluation of pretrained order-book models on fills or profit & Empirical synthesis; literature search,
   none found \\

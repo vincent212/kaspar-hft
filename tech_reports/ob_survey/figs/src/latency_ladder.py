@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 NS, US, MS = 1e-9, 1e-6, 1e-3
 rows = [  # (label, low, high, category)
-    ("STAC-T0: network in/out on FPGA (audited)",        24 * NS, 44 * NS, "net"),
+    ("STAC-T0: network in/out on FPGA (audited)",        13.9 * NS, 44 * NS, "net"),
     ("FPGA order-book update (papers)",                   26 * NS, 280 * NS, "book"),
     ("STAC-T1: FPGA tick-to-trade, CME (audited)",       115 * NS, 609 * NS, "path"),
     ("One small PCIe read (measured median)",            572 * NS, 572 * NS, "net"),

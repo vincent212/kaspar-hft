@@ -586,7 +586,7 @@ modelling queue dynamics. Each model must be evaluated against the problem it so
 
 \begin{table}[!htbp]
 \centering\small
-\caption{One event stream (a day of ES market-by-order data), three models, three evaluation
+\caption{One event stream (for example, a day of ES market-by-order data), three models, three evaluation
 criteria. A metric from another column scores a model on a target it was not built for.}
 \label{tab:three-problems}
 \begin{tabularx}{\linewidth}{lXXX}
@@ -692,8 +692,8 @@ should be compared first, and architectures only on the best available represent
 \end{principle}
 
 \noindent The evidence of Part~II supports this ordering. With the network held fixed, the choice of input decided
-most of the result in one large comparison~\citep{lucchese2024}: the best order-flow variant (L2) was among the best in 89\% of
-cases, the simpler variant (L1) in 22\%, and raw snapshots in 11\%. Summing messages into order flow loses the event types, which no later network can recover
+most of the result in one large comparison~\citep{lucchese2024}: the best order-flow variant was among the best in 89\% of
+cases, the simpler order-flow variant in 22\%, and raw snapshots in 11\%. Summing messages into order flow loses the event types, which no later network can recover
 (Section~\ref{sec:deep-io}). Comparisons of architectures---convolutional, recurrent, Transformer---are more common in the papers we reviewed
 than comparisons of representations---snapshots, order flow, queues, messages.
 
@@ -995,7 +995,7 @@ from the bibliography entries.
 
 \paragraph{Disclosure.} The author of this survey designed and wrote the \kasparhft{} system described in
 Section~\ref{sec:kaspar} and the model-free benchmark of Section~\ref{sec:shadow}. Statements about \kasparhft{} come from
-its code and from the author's published study~\citep{maciejewski_shadow}. The CME market-data measurement
+its code and from the author's study~\citep{maciejewski_shadow}. The CME market-data measurement
 study~\citep{maciejewski2026packets} is also by the author. Statements about the other tools come from
 their own papers, documentation and code. The comparison tables mark \kasparhft{}'s row accordingly.
 
@@ -1009,7 +1009,7 @@ reader should ask of every claim which kind it is.
   \emph{Example:} a linear Hawkes process is stationary if and only if the cascade of events it
   triggers dies out (Section~\ref{sec:hawkes}). This is a theorem; no data can overturn it.
 \item[Empirical synthesis] A conclusion drawn by comparing several studies, none of which tested it
-  directly. \emph{Example:} ``every published inference time of an order-book model that we found exceeds the minimum spacing
+  directly. \emph{Example:} ``every inference time of an order-book model published in the research papers we found exceeds the minimum spacing
   of about 7.5\,\textmu s between packets from CME's market-data publisher'' (Section~\ref{sec:hardware}). It rests on comparing measurements made in different papers under different
   conditions, so a new measurement can overturn it.
 \item[Methodological recommendation] A proposed standard, argued for rather than proved.

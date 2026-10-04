@@ -1206,8 +1206,8 @@ batch of one, each weight loaded from memory is used for about one multiplicatio
 computation is limited by memory bandwidth~\citep{kim2023fullstack}; for large language models ``at small batch sizes
 \ldots\ the time to load weights dominates''~\citep{pope2023scaling}. Attention is itself mostly limited by memory
 traffic, which FlashAttention reduces by keeping blocks of the computation in on-chip memory~\citep{dao2022flashattention}.
-These measurements are for large models; whether weight loading dominates for a model as small as DeepLOB, whose
-weights fit in on-chip memory, has not been measured. One measured case shows the batch effect directly: an LSTM on a
+These measurements are for large models; we found no measurement of whether weight loading dominates for a model as
+small as DeepLOB, whose weights fit in on-chip memory. One measured case shows the batch effect directly: an LSTM on a
 V100 GPU processed 660 events per second at batch one, about 7,700 at batch ten and about 30,000 at batch
 100~\citep{khoda2023rnn}.
 
