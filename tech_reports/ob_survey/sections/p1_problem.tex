@@ -14,9 +14,8 @@ and how strongly each kind of claim should be believed.
 This section introduces the object of study and the language used to describe it. It explains how an
 electronic market matches buyers and sellers through a limit order book, what the book looks like as
 data, and how exchanges publish it; then fixes the notation and the few ideas from probability that
-the rest of the survey needs. It explains why the survey covers models, simulators and hardware together---they are the stages from theory to
-production---and ends with the survey's main argument---prediction, execution and simulation are different
-problems---and the three principles and four axes used to organise the literature.
+the rest of the survey needs. It then explains why models, simulators and hardware are covered together, separates prediction, execution and
+simulation, and sets out the three principles and four axes used to organise the literature.
 
 \subsection{The limit order book as a dynamic market state}
 
@@ -61,7 +60,7 @@ arranged in that order.
   how a model is added to one and scored.
 \item \textbf{Deployment (Part~III, Section~\ref{sec:hardware}).} How a strategy that works in simulation is run on
   hardware fast enough for it: where the time goes, what can be accelerated, and why a model too slow for the hot path
-  cannot be deployed there at all.
+  (the chain of processing every market-data message passes through) cannot be deployed there at all.
 \end{enumerate}
 Figure~\ref{fig:theory-to-production} shows the process.
 
@@ -85,7 +84,7 @@ Figure~\ref{fig:theory-to-production} shows the process.
   \emph{Output:} a tested strategy};
 \node[st, fill=green!10] (d) at (11.2,0) {\textbf{3. Deployment} \hfill \S\ref{sec:hardware}\\[3pt]
   \emph{Question:} is it fast enough to run?\\[3pt]
-  paper trading, then live;\\
+  paper trading (live data, simulated orders), then live;\\
   keep the model within the hot-path budget;\\
   place each stage on CPU, FPGA or GPU\\[3pt]
   \emph{Output:} a strategy in production};
@@ -102,9 +101,8 @@ its output only if the answer is yes; a strategy that fails in simulation, or a 
 back to the first stage.}
 \label{fig:theory-to-production}
 \end{figure}
-In \kasparhft{}, the system used throughout (below), the step from simulation to deployment involves no change of
-code: the strategy tested in the simulator is the strategy deployed, and only a configuration setting differs. A
-practitioner or student who wants to take a model from a paper to a trading server needs all three. Each part can be
+A practitioner or student who wants to take a model from a paper to a trading server needs all three: theory,
+simulation and deployment. Each part can be
 read on its own, but the order is the order of the work: a model is understood first, then simulated, then deployed.
 
 \paragraph{\kasparhft{}, the system used as the worked example.} Throughout the survey, questions about simulation and
@@ -282,9 +280,8 @@ levels, the sequence of events that produced the current state, and the queue po
 individual order.
 
 Throughout, numerical examples use stylised values chosen to make the arithmetic visible. They are
-not empirical estimates. The computations the paper carries out itself are illustrations on synthetic data---simulated
-point processes. The market-data figures it quotes come from published studies, from the author's cited studies, and
-from \kasparhft{}'s own measurement.
+not empirical estimates. The paper's own computations are illustrations on simulated data (queue models and point processes).
+Market-data figures come from cited studies, including the author's, and from measurements of \kasparhft{}.
 
 \begin{example}[Same mid, different market]
 Two E-mini S\&P 500 (ES) books have the same mid (5000.125) and the same one-tick spread (tick
@@ -515,7 +512,7 @@ trade in the predicted direction is
   (0.55 - 0.45)\times 0.125 = 0.0125 \text{ points},
 \]
 while an aggressive entry costs the half spread, $0.125$ points, before fees. The expected directional edge is
-one tenth of the half-spread cost, before fees, so it does not cover even the cost of entry. The accuracy is real, and the strategy loses money. The same signal used to decide
+one tenth of the half-spread cost, so it does not cover even the cost of entry. The accuracy is real, and the strategy loses money. The same signal used to decide
 \emph{which resting passive order to keep and which to cancel} pays no spread; whether it helps is
 an execution question (Part~III), not an accuracy question.
 \end{example}
@@ -552,7 +549,7 @@ improves the timing or selection of passive executions.
 \subsection{Prediction, execution and simulation are different problems}
 \label{sec:three-problems}
 
-LOB research frequently mixes up three different questions. Each is written below as a
+Three different questions arise in LOB research, and the survey keeps them apart. Each is written below as a
 probability or an expected value (Section~\ref{sec:primer}). The big $\P$ is ``the probability
 of'', $\E$ is ``the average of'', and the vertical bar is read ``given'': everything to the right of
 the bar is what we already know, everything to the left is what we want to know.
@@ -591,7 +588,7 @@ modelling queue dynamics. Each model must be evaluated against the problem it so
 \begin{table}[!htbp]
 \centering\small
 \caption{One event stream (a day of ES market-by-order data), three models, three evaluation
-criteria. Using the wrong column is a common source of misleading comparisons.}
+criteria. A metric from another column scores a model on a target it was not built for.}
 \label{tab:three-problems}
 \begin{tabularx}{\linewidth}{lXXX}
 \toprule
@@ -663,7 +660,7 @@ Hawkes, neural point processes (\S\ref{sec:hawkes}) & event times and types & in
 Meta-models (\S\ref{sec:meta}) & classical outputs & the learner's target & 2--5 & combined signal & proper score against the equal-weight average and the best single model \\
 Deep classifiers (\S\ref{sec:deep}) & snapshots, order flow or messages & direction & 2 & signal & macro-F1 against a persistence baseline on a leak-free label, then net profit \\
 Fill-probability models (\S\ref{sec:deep-fill}) & book and queue position & time to fill & 4 & passive placement & survival likelihood; calibration \\
-Generative models (\S\ref{sec:deep-gen}) & event history & future paths & 1 & model of the book; not a test bed for trading & stylised facts; usefulness for a downstream task \\
+Generative models (\S\ref{sec:deep-gen}) & event history & future paths & 1 & model of the book; scenarios not in the record & stylised facts; usefulness for a downstream task \\
 Policies (\S\ref{sec:policy}) & state & action & 6 & execution; market making & economic reward in replay, against a model-free benchmark \\
 \bottomrule
 \end{tabularx}
@@ -697,8 +694,8 @@ should be compared first, and architectures only on the best available represent
 \noindent The evidence of Part~II supports this ordering. With the network held fixed, the choice of input decided
 most of the result in one large comparison~\citep{lucchese2024}: order-flow inputs were among the best in 89\% of
 cases and raw snapshots in 11\%. Summing messages into order flow loses the event types, which no later network can recover
-(Section~\ref{sec:deep-io}). The literature has spent more effort comparing architectures---convolutional,
-recurrent, Transformer---than comparing representations---snapshots, order flow, queues, messages.
+(Section~\ref{sec:deep-io}). Comparisons of architectures---convolutional, recurrent, Transformer---are more common in the papers we reviewed
+than comparisons of representations---snapshots, order flow, queues, messages.
 
 \paragraph{A ladder of baselines.} Principles~2 and~3 imply a fixed order of comparison. A new model has not shown an
 advantage until it beats each of the following, on the same data, label and split (our synthesis):
@@ -766,9 +763,7 @@ survey that brings these strands together around the question of how information
 LOB survives the complete translation from statistical prediction to executable trading. That question
 is also this survey's criterion for selecting literature: a model or method is included when it bears
 on one link of the chain---representation, prediction, calibration, decision, queue position,
-execution, simulation, inference hardware and economic value. Each of these subjects has been surveyed before; this
-survey treats them together, under that criterion. One distinction follows from it and recurs
-throughout: historical replay is distinguished from generative market simulation.
+execution, simulation, inference hardware and economic value.
 
 \paragraph{Generative LOB simulation versus historical replay.} The closest neighbouring review, on
 LOB simulation~\citep{jain2024sim}, classifies, by methodology, models that \emph{generate} order-book dynamics, and evaluates them by their ability
@@ -789,7 +784,7 @@ Section~\ref{sec:sim-survey}). Generative models are covered in Section~\ref{sec
 reads market information, reasons about it and produces trading decisions that are then
 backtested~\citep{ding2024llmtrading,hua2026agentic}. This survey does not review that architecture.
 
-The survey therefore organises the literature around the translation from information to decision. Three questions recur: what representation contains the useful information;
+The survey organises the literature around the translation from information to decision. Three questions recur: what representation contains the useful information;
 what model extracts it; and does the result produce incremental economic value after execution
 constraints?
 
@@ -878,9 +873,9 @@ along the objective axis from direction to fill probability and adverse selectio
 simulators and hardware support the economic role of passive execution.
 
 \emph{Third, to expose a gap.} Table~\ref{tab:axes} places the main works discussed in this survey
-on the four axes. The economic-role column is where the literature is thinnest: many of the
-learned models are evaluated on accuracy alone, and the decision their output would drive is
-not stated. The rest of the paper is about filling that column.
+on the four axes. The economic-role column is the one most often marked `not stated': many
+learned models are evaluated on accuracy, and the decision their output would drive is not
+specified. The rest of the paper is about filling that column.
 
 \begin{table}[!htbp]
 \centering\footnotesize
@@ -955,8 +950,9 @@ the book), \emph{execution} (deciding how to place, keep and cancel orders), or 
 rational traders, are deliberately left out except where they help explain an LOB model. Agent-based models, which
 simulate many rule-following traders, are covered as simulators (Section~\ref{sec:simulators}), not as models fitted
 to the data. Synthetic market data produced by
-learned generative models are discussed in Section~\ref{sec:deep-gen}, but, following Principle~1,
-they play no part in the methodology the survey recommends.
+learned generative models are discussed in Section~\ref{sec:deep-gen} as models of the book; generating
+markets serves other purposes and is not the focus of this survey, which evaluates strategies on replay of
+recorded markets (Principle~1).
 
 \subsection{Source selection}
 
@@ -994,14 +990,15 @@ the kind of source is stated where it matters: a peer-reviewed paper, a preprint
 source code, a vendor-reported figure, or an independently audited benchmark. The comparison tables of Part~III mark each row
 with its basis. Where only an abstract or a vendor page was available, the text says so.
 
-\paragraph{The literature in numbers.} The survey cites 443 works: 295 peer-reviewed journal articles and
+\paragraph{The literature in numbers.} The survey cites 442 works: 294 peer-reviewed journal articles and
 conference papers, 69 preprints, 13 books, and 66 sources of other kinds---exchange
 specifications, software documentation and repositories, vendor material and benchmark reports. The counts are taken
 from the bibliography entries.
 
 \paragraph{Disclosure.} The author of this survey designed and wrote the \kasparhft{} system described in
 Section~\ref{sec:kaspar} and the model-free benchmark of Section~\ref{sec:shadow}. Statements about \kasparhft{} come from
-its code and from the author's published study~\citep{maciejewski_shadow}; statements about the other tools come from
+its code and from the author's published study~\citep{maciejewski_shadow}. The CME market-data measurement
+study~\citep{maciejewski2026packets} is also by the author. Statements about the other tools come from
 their own papers, documentation and code. The comparison tables mark \kasparhft{}'s row accordingly.
 
 \subsection{Strength of evidence for a claim}
@@ -1014,7 +1011,7 @@ reader should ask of every claim which kind it is.
   \emph{Example:} a linear Hawkes process is stationary if and only if the cascade of events it
   triggers dies out (Section~\ref{sec:hawkes}). This is a theorem; no data can overturn it.
 \item[Empirical synthesis] A conclusion drawn by comparing several studies, none of which tested it
-  directly. \emph{Example:} ``every published inference time of an order-book model exceeds the minimum spacing
+  directly. \emph{Example:} ``every published inference time of an order-book model that we found exceeds the minimum spacing
   of about 7.5\,\textmu s between packets from CME's market-data publisher'' (Section~\ref{sec:hardware}). It rests on comparing measurements made in different papers under different
   conditions, so a new measurement can overturn it.
 \item[Methodological recommendation] A proposed standard, argued for rather than proved.
@@ -1022,7 +1019,7 @@ reader should ask of every claim which kind it is.
   \citep{white2000,harvey2016}. Its justification is a statistical argument, not a measurement.
 \item[Open hypothesis] Plausible, but the evidence is incomplete or conflicting. \emph{Example:}
   adding Hawkes intensities to a large network that already sees the same events adds little value
-  (Section~\ref{sec:hybrid}). The survey argues for it; nobody has shown it.
+  (Section~\ref{sec:hybrid}). The survey argues for it; we found no study that shows it.
 \end{description}
 
 \noindent The distinction matters because LOB studies differ in assets, horizons, targets and data,
@@ -1033,8 +1030,8 @@ in these terms.
 \subsection{Conditions for comparing two LOB studies}
 \label{sec:comparable}
 
-Papers in this field routinely report a single headline number---an accuracy, an F1 score, a
-Sharpe ratio---and readers routinely compare those numbers across papers. Such comparisons are
+A study often reports a single headline number---an accuracy, an F1 score, a Sharpe
+ratio---and such numbers are often compared across papers. Such comparisons are
 meaningful only when the studies agree on the conditions that produced the numbers.
 Table~\ref{tab:comparable} lists the conditions that matter most and explains how each one can
 change the headline number on its own, with no change to the model.
@@ -1095,8 +1092,8 @@ Table~\ref{tab:comparable}. Their equality carries no comparative information.
 \subsection{A reader's checklist}
 \label{sec:checklist}
 
-The following questions can be asked of any paper in this field, including this one. A study that
-cannot answer them has not yet shown that its result is useful for trading.
+The following questions can be asked of any paper in this field, including this one. The answers
+determine how far a result can be read as evidence of trading value.
 
 \begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
 \item \textbf{What exactly is predicted, over what horizon, on what clock?} (Section~\ref{sec:deep})

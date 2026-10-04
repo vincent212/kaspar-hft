@@ -1,4 +1,4 @@
-\begin{thebibliography}{443}
+\begin{thebibliography}{442}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -574,14 +574,6 @@ Charles Cao, Oliver Hansch, and Xiaoxin Wang.
 \newblock \emph{Algorithmic and High-Frequency Trading}.
 \newblock Cambridge University Press, 2015.
 \newblock ISBN 978-1-107-09114-6.
-
-\bibitem[Cartea et~al.(2018)Cartea, Jaimungal, and Ricci]{cartea2018siamrev}
-{\'A}lvaro Cartea, Sebastian Jaimungal, and Jason Ricci.
-\newblock Algorithmic trading, stochastic control, and mutually exciting
-  processes.
-\newblock \emph{SIAM Review}, 60\penalty0 (3):\penalty0 673--703, 2018.
-\newblock \doi{10.1137/18M1176968}.
-\newblock SIGEST republication of cartea2014buylow.
 
 \bibitem[Cartea et~al.(2020)Cartea, Jaimungal, and Wang]{cartea2020spoof}
 {\'A}lvaro Cartea, Sebastian Jaimungal, and Yixuan Wang.
