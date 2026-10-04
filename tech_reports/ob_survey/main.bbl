@@ -1,4 +1,4 @@
-\begin{thebibliography}{452}
+\begin{thebibliography}{456}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -202,11 +202,20 @@ Emmanuel Bacry, Sylvain Delattre, Marc Hoffmann, and Jean-Fran{\c{c}}ois Muzy.
 \newblock \emph{Quantitative Finance}, 13\penalty0 (1):\penalty0 65--77, 2013.
 \newblock \doi{10.1080/14697688.2011.647054}.
 
-\bibitem[Bacry et~al.(2015)Bacry, Mastromatteo, and Muzy]{bacry2015}
+\bibitem[Bacry et~al.(2015{\natexlab{a}})Bacry, Iuga, Lasnier, and
+  Lehalle]{bacry2015impact}
+Emmanuel Bacry, Adrian Iuga, Matthieu Lasnier, and Charles-Albert Lehalle.
+\newblock Market impacts and the life cycle of investors orders.
+\newblock \emph{Market Microstructure and Liquidity}, 1\penalty0 (2):\penalty0
+  1550009, 2015{\natexlab{a}}.
+\newblock \doi{10.1142/S2382626615500094}.
+
+\bibitem[Bacry et~al.(2015{\natexlab{b}})Bacry, Mastromatteo, and
+  Muzy]{bacry2015}
 Emmanuel Bacry, Iacopo Mastromatteo, and Jean-Fran{\c{c}}ois Muzy.
 \newblock Hawkes processes in finance.
 \newblock \emph{Market Microstructure and Liquidity}, 1\penalty0 (1):\penalty0
-  1550005, 2015.
+  1550005, 2015{\natexlab{b}}.
 \newblock \doi{10.1142/S2382626615500057}.
 
 \bibitem[Bacry et~al.(2016)Bacry, Jaisson, and Muzy]{bacry2016}
@@ -538,6 +547,13 @@ Emery~N. Brown, Riccardo Barbieri, Val{\'e}rie Ventura, Robert~E. Kass, and
   data analysis.
 \newblock \emph{Neural Computation}, 14\penalty0 (2):\penalty0 325--346, 2002.
 \newblock \doi{10.1162/08997660252741149}.
+
+\bibitem[Brunnermeier and Pedersen(2005)]{brunnermeier2005}
+Markus~K. Brunnermeier and Lasse~Heje Pedersen.
+\newblock Predatory trading.
+\newblock \emph{The Journal of Finance}, 60\penalty0 (4):\penalty0 1825--1863,
+  2005.
+\newblock \doi{10.1111/j.1540-6261.2005.00781.x}.
 
 \bibitem[Buckland and {STAC}(2025)]{stac_ml_limits2025}
 Stuart Buckland and {STAC}.
@@ -2113,6 +2129,14 @@ Maxime Morariu-Patrichi and Mikko~S. Pakkanen.
   2022.
 \newblock \doi{10.1080/14697688.2021.1983199}.
 
+\bibitem[Moro et~al.(2009)Moro, Vicente, Moyano, Gerig, Farmer, Vaglica, Lillo,
+  and Mantegna]{moro2009}
+Esteban Moro, Javier Vicente, Luis~G. Moyano, Austin Gerig, J.~Doyne Farmer,
+  Gabriella Vaglica, Fabrizio Lillo, and Rosario~N. Mantegna.
+\newblock Market impact and trading profile of hidden orders in stock markets.
+\newblock \emph{Physical Review E}, 80\penalty0 (6):\penalty0 066102, 2009.
+\newblock \doi{10.1103/PhysRevE.80.066102}.
+
 \bibitem[Morris et~al.(2009)Morris, Thomas, and Luk]{morris2009fpga}
 Gareth~W. Morris, David~B. Thomas, and Wayne Luk.
 \newblock {FPGA} accelerated low-latency market data feed processing.
@@ -2951,6 +2975,15 @@ Mehdi Tomas, Iacopo Mastromatteo, and Michael Benzaquen.
 \newblock \emph{Quantitative Finance}, 22\penalty0 (6):\penalty0 1017--1036,
   2022.
 \newblock \doi{10.1080/14697688.2021.2020328}.
+
+\bibitem[T{\'o}th et~al.(2011)T{\'o}th, Lemp{\'e}ri{\`e}re, Deremble,
+  de~Lataillade, Kockelkoren, and Bouchaud]{toth2011}
+Bence T{\'o}th, Yves Lemp{\'e}ri{\`e}re, Cyril Deremble, Joachim de~Lataillade,
+  Julien Kockelkoren, and Jean-Philippe Bouchaud.
+\newblock Anomalous price impact and the critical nature of liquidity in
+  financial markets.
+\newblock \emph{Physical Review X}, 1\penalty0 (2):\penalty0 021006, 2011.
+\newblock \doi{10.1103/PhysRevX.1.021006}.
 
 \bibitem[{Trading Technologies International,
   Inc.}(n.d.{\natexlab{a}})]{tt_backtest_getstarted}

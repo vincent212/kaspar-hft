@@ -15,7 +15,8 @@ of the part (Section~\ref{sec:part3-summary}). Open problems and the survey's co
 A simulator for execution research has to reproduce the mechanics that decide whether an order trades and what
 the trade is worth. This section sets out those mechanics: the difference between crossing the spread and
 waiting in the queue, how queue position determines whether a passive order is filled, why the fills it does get
-are biased towards bad ones, and how latency reduces the value of a signal. Section~\ref{sec:simulators} then
+are biased towards bad ones, how latency reduces the value of a signal, and which effects of an order on the market a
+replay can and cannot capture. Section~\ref{sec:simulators} then
 compares simulators on how well they model each of them.
 
 \subsection{Passive and aggressive execution}
@@ -218,6 +219,48 @@ $2^{-T_{\text{lat}}/2\,\mathrm{ms}}$ of it remains after a delay $T_{\text{lat}}
 $2^{-0.05} \approx 97\%$ of its value remains; at 5 ms only $2^{-2.5} \approx 18\%$ does. The same
 forecast accuracy yields very different economics.
 \end{example}
+
+\subsection{Market impact and what a replay can answer}
+\label{sec:impact}
+
+An order changes the market it trades in. This subsection separates five situations, from orders too small to matter
+to traders who react to one another, and states which of them a historical replay can answer.
+
+\paragraph{How impact is described.} In \citet{kyle1985}, an informed trader, noise traders and market makers trade
+one asset, and the price moves linearly with net order flow: $P = p_0 + \lambda(x + u)$, where $x$ is the informed
+order, $u$ the noise orders and $1/\lambda$ measures the depth of the market. \citet{almgren2001} split the cost of
+executing a large order into a \emph{permanent} impact, which stays in the price, and a \emph{temporary} impact, paid
+only while trading, and choose a schedule that trades impact cost against the risk of waiting. Empirically, the price
+change caused by a \emph{metaorder}---a large order executed in many pieces---grows roughly with the square root of
+its size, $\Delta(Q) \approx Y \sigma \sqrt{Q/V}$, where $\sigma$ is the daily volatility, $V$ the daily volume and
+$Y$ a constant of order one~\citep{toth2011,moro2009,bacry2015impact}.
+\inwords{doubling the size of a large order raises its price impact by about 40\%, not 100\%.}
+After the metaorder ends, part of the impact reverts: to about 0.5 to 0.7 of its peak in one
+study~\citep{moro2009}. The impact of a single small order is a different quantity from the impact of a metaorder,
+and is strongly concave in size~\citep{toth2011}.
+
+\paragraph{Five situations.}
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \textbf{A passive order against an unchanged market.} Would this resting order have been filled, and at what
+  price, if the market had behaved as recorded? A queue-exact replay answers this directly: it is the question
+  Kaspar's replay is built for (Section~\ref{sec:kaspar-fills}).
+\item \textbf{Small orders, counterfactually.} If the strategy's orders are small compared with the volume at their
+  prices, the recorded market is a reasonable stand-in for the market that would have occurred. Replay costs are then
+  costs before the market's reaction; the Kaspar study reports participation as an upper bound for this
+  reason~\citep{maciejewski_shadow}.
+\item \textbf{Large orders.} A metaorder moves the price by an amount that grows with its size and partly persists.
+  Replay cannot measure this, because the recorded market does not respond; it needs an impact model such as those
+  above, calibrated on the trader's own executions.
+\item \textbf{Mechanical impact in a reacting simulator.} A model-based simulator lets the strategy's orders consume
+  queues and the rates respond. A neural queue-reactive simulator reproduces the square-root law when metaorders are
+  injected~\citep{deepqr}; Kaspar's separation of the market-data source from the book, order manager and strategy lets such a
+  simulator replace the recorded feed without changing the rest of the system (Section~\ref{sec:kaspar-fills}).
+\item \textbf{Strategic interaction.} Other traders may detect a large trader and trade against it: when a trader
+  must sell and others know it, they sell first and buy back later~\citep{brunnermeier2005}. Neither replay nor a
+  simulator whose rates depend only on the book captures this; it needs agents that infer and respond.
+\end{enumerate}
+A replay therefore answers situations 1 and 2 exactly as recorded, and situations 3 to 5 need a model of the market's
+response. Most execution questions about passive orders by a single strategy fall in the first two.
 
 % ================================================================
 \section{Order-book simulators}
