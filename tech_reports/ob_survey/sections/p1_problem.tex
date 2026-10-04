@@ -2,7 +2,7 @@
 scope. It explains what a
 limit order book is and how it is built from exchange messages, fixes the notation and the probability
 used throughout, and makes the survey's central distinction: predicting the next price move is not the
-same as making money from it. Section~\ref{sec:intro} covers the market, the notation and the two
+same as making money from it. Section~\ref{sec:intro} covers the market, the notation and the three
 principles that organise the survey; Section~\ref{sec:method} explains how the literature was chosen
 and how strongly each kind of claim should be believed.
 
@@ -15,7 +15,7 @@ This section introduces the object of study and the language used to describe it
 electronic market matches buyers and sellers through a limit order book, what the book looks like as
 data, and how exchanges publish it; then fixes the notation and the few ideas from probability that
 the rest of the survey needs. It ends with the survey's main argument---prediction, execution and
-simulation are different problems---and the two principles and four axes used to organise the
+simulation are different problems---and the three principles and four axes used to organise the
 literature.
 
 \subsection{The limit order book as a dynamic market state}
@@ -129,6 +129,29 @@ modification, with an order identifier. MBO data provide the information needed 
 reconstruct the displayed order-level queues, and therefore to estimate queue positions, subject to the
 venue's matching rules and feed semantics; hidden liquidity and feed gaps remain outside what any feed
 shows.
+
+The three levels, and the forms in which the data reach models, are not equivalent information sets
+(Table~\ref{tab:representations}). Each step down the table keeps something the step above discards.
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{Representations of the book and the information each carries. ``Queue position'' is the place of one order
+in the queue at its price. Our synthesis of Sections~\ref{sec:intro}, \ref{sec:events} and~\ref{sec:deep-io}.}
+\label{tab:representations}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.2\linewidth}cccc>{\raggedright\arraybackslash}X}
+\toprule
+Representation & Order identity & Queue position & Event type & Event timing & Typical models \\
+\midrule
+Level 1 (best quotes) & no & no & no & at quote changes & queue imbalance, weighted mid \\
+Level 2 / MBP snapshots & no & estimated only & no (net change only) & per update & OFI, micro-price, DeepLOB \\
+Level 3 / MBO book & yes & exact & yes & per message & queue models, queue-exact replay \\
+MBO message sequence & yes & exact & yes & exact & Hawkes, neural point processes, LOBERT \\
+Trades only & no & no & trades only & exact & Hawkes models of trades \\
+Derived features & varies & varies & varies & varies & meta-models, many deep models \\
+\bottomrule
+\end{tabularx}
+\end{table}
 
 \paragraph{Example: building the book from Nasdaq ITCH.}
 Nasdaq's TotalView-ITCH~5.0 feed is a widely used MBO protocol and a clear example of how a book is
@@ -386,7 +409,52 @@ order would stand in its queue.}
 A model is useful if the information it extracts survives every arrow of~\eqref{eq:chain}---representation,
 prediction, decision, queue position, latency and execution---to positive out-of-sample value. The rest of the survey
 is organised as evidence for or against that proposition: Part~II asks what information the models extract, and
-Part~III asks what survives simulation, execution and deployment.
+Part~III asks what survives simulation, execution and deployment. Figure~\ref{fig:survey-map} maps the survey onto the chain.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, scale=0.95, transform shape,
+  c/.style={draw, rounded corners=2pt, align=center, minimum width=44mm, minimum height=8mm, fill=gray!8},
+  s/.style={draw, rounded corners=2pt, align=center, text width=17mm, minimum height=9mm, fill=blue!6},
+  side/.style={draw, rounded corners=3pt, align=left, text width=44mm, inner sep=4pt},
+  arr/.style={-{Stealth[length=1.6mm]}, thick}]
+\node[c, fill=gray!20] (lob) at (0,0) {\textbf{limit order book}\\exchange messages (Section~\ref{sec:intro})};
+\node[s] (r1) at (-2.4,-1.5) {snapshots\\(Level 1, 2)};
+\node[s] (r2) at (0,-1.5) {order flow};
+\node[s] (r3) at (2.4,-1.5) {order-level\\messages (Level 3)};
+\node[s, fill=orange!10] (m1) at (-3.6,-3.1) {signals\\OFI, imbalance,\\micro-price};
+\node[s, fill=orange!10] (m2) at (-1.2,-3.1) {queue models};
+\node[s, fill=orange!10] (m3) at (1.2,-3.1) {Hawkes and\\neural point\\processes};
+\node[s, fill=orange!10] (m4) at (3.6,-3.1) {deep networks,\\meta-models,\\hybrids};
+\node[c] (pred) at (0,-4.7) {\textbf{prediction}: market state, price or event,\\event intensities (levels 1--3)};
+\node[c] (dec) at (0,-6.0) {\textbf{decision} $a_t$: place, keep, cancel, cross};
+\node[c] (q) at (0,-7.1) {\textbf{queue position} $Q^{\text{ahead}}_t$};
+\node[c] (ex) at (0,-8.2) {\textbf{execution}: fill, adverse selection (levels 4--5)};
+\node[c, fill=green!12] (pl) at (0,-9.3) {\textbf{profit and loss} $\E[\Pi \mid X_t, Q^{\text{ahead}}_t, a_t]$};
+\foreach \r in {r1,r2,r3} \draw[arr] (lob) -- (\r);
+\draw[arr] (r1) -- (m1); \draw[arr] (r2) -- (m1); \draw[arr] (r1) -- (m2); \draw[arr] (r3) -- (m2);
+\draw[arr] (r3) -- (m3); \draw[arr] (r2) -- (m4); \draw[arr] (r3) -- (m4);
+\foreach \m in {m1,m2,m3,m4} \draw[arr] (\m) -- (pred);
+\draw[arr] (pred) -- (dec); \draw[arr] (dec) -- (q); \draw[arr] (q) -- (ex); \draw[arr] (ex) -- (pl);
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}] (-5.0,-0.9) -- (-5.0,-5.2)
+  node[midway, left=6pt, align=right]{\textbf{Part II}\\what information\\the models extract};
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}] (-5.0,-5.6) -- (-5.0,-9.8)
+  node[midway, left=6pt, align=right]{\textbf{Part III}\\what survives\\to execution};
+\node[side, fill=blue!5] (sim) at (6.6,-7.6) {\textbf{Simulation} (Sections~\ref{sec:simulators}--\ref{sec:kaspar})\\
+  tests decision $\to$ queue $\to$ execution $\to$ P\&L on recorded or simulated markets; Kaspar replays the
+  exchange's own feed with exact queue position};
+\node[side, fill=red!5] (hw) at (6.6,-5.1) {\textbf{Hardware} (Section~\ref{sec:hardware})\\
+  sets the latency between prediction and execution, and so how much of a short-lived signal survives};
+\draw[dashed, thick] (sim.west) -- ++(-0.6,0) |- (dec.east);
+\draw[dashed, thick] (sim.west) -- ++(-0.6,0) |- (pl.east);
+\draw[dashed, thick] (hw.west) -- ++(-0.6,0) |- (pred.east);
+\draw[dashed, thick] (hw.west) -- ++(-0.6,0) |- (dec.east);
+\end{tikzpicture}
+\caption{A map of the survey. The limit order book reaches models through one of three representations; the models
+produce predictions; a decision turns a prediction into an order, which takes a place in a queue and may be filled.
+Part~II covers the upper half, Part~III the lower half, with simulation and hardware attached where they act.}
+\label{fig:survey-map}
+\end{figure}
 
 \begin{example}[Accurate but untradeable]
 \label{ex:untradeable}
@@ -486,9 +554,74 @@ Classifier & $\P(\Delta m_{t,H} > 0 \mid X_t)$ & log loss, AUC, then net P\&L & 
 \end{tabularx}
 \end{table}
 
-\subsection{Two fixed positions}
+\paragraph{A hierarchy of prediction objectives.} The three questions above are points on a longer ladder. Each
+level asks for more than the one before, and only the last is a decision (Figure~\ref{fig:objective-ladder}):
+\begin{align*}
+  &\text{1. Market state:} && \P(X_{t+H} \mid X_t) \\
+  &\text{2. Price or event:} && \P(\Delta m_{t,H} > 0 \mid X_t) \\
+  &\text{3. Event dynamics:} && \lambda_i(t), \text{ the intensity of each event type given the history} \\
+  &\text{4. Execution:} && \P(\Fill \mid X_t, Q^{\text{ahead}}_t, a_t) \\
+  &\text{5. Conditional economics:} && \E[\Pi \mid X_t, Q^{\text{ahead}}_t, a_t] \\
+  &\text{6. Policy:} && a^*_t = \arg\max_{a}\, \E[\Pi \mid X_t, Q^{\text{ahead}}_t, a]
+\end{align*}
+\inwords{levels 1 to 3 are about the market and do not involve our order; levels 4 and 5 are about the consequence
+of a particular order; level 6 chooses the order. Forecasting the market is not the same problem as forecasting the
+consequence of acting in it.}
+This ladder is our synthesis. Most of the literature reviewed in Part~II works at levels 2 and 3; the thesis of this
+survey (Equation~\eqref{eq:thesis}) is that trading value is decided at levels 4 to 6. Table~\ref{tab:objective-matrix}
+places each model family of Part~II on the ladder, with the evaluation that fits its target.
 
-Two positions recur throughout the paper.
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize,
+  l/.style={draw, rounded corners=2pt, minimum width=38mm, minimum height=7mm, align=center},
+  arr/.style={-{Stealth[length=1.5mm]}, thick}]
+\foreach \i/\t/\c/\ex in {
+  1/{1. market state $\P(X_{t+H}\mid X_t)$}/blue!8/{generative models, simulators},
+  2/{2. price or event $\P(\Delta m > 0 \mid X_t)$}/blue!8/{OFI, queue imbalance, deep classifiers},
+  3/{3. event intensities $\lambda_i(t)$}/blue!8/{Hawkes, neural point processes},
+  4/{4. fill $\P(\Fill \mid X_t, Q, a_t)$}/orange!15/{queue models, fill-probability models},
+  5/{5. profit $\E[\Pi \mid X_t, Q, a_t]$}/orange!15/{execution value; Section~\ref{sec:tradeability-framework}},
+  6/{6. policy $a^*_t$}/green!15/{market making, execution, reinforcement learning}} {
+  \node[l, fill=\c] (n\i) at (0,-0.95*\i) {\t};
+  \node[anchor=west, text width=55mm] at (2.3,-0.95*\i) {\ex};
+}
+\foreach \i/\j in {1/2,2/3,3/4,4/5,5/6} \draw[arr] (n\i) -- (n\j);
+\draw[decorate, decoration={brace, amplitude=4pt, mirror}] (-2.2,-0.6) -- (-2.2,-3.2) node[midway, left=5pt, align=right]{about the\\market};
+\draw[decorate, decoration={brace, amplitude=4pt, mirror}] (-2.2,-3.45) -- (-2.2,-5.1) node[midway, left=5pt, align=right]{about our\\order};
+\draw[decorate, decoration={brace, amplitude=4pt, mirror}] (-2.2,-5.35) -- (-2.2,-6.1) node[midway, left=5pt]{decision};
+\end{tikzpicture}
+\caption{The hierarchy of prediction objectives, with the model families that work at each level. Our synthesis.}
+\label{fig:objective-ladder}
+\end{figure}
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{The model families of this survey by what they read, what they predict, and how that prediction should be
+evaluated. ``Level'' refers to the hierarchy of Figure~\ref{fig:objective-ladder}. Our synthesis of Part~II and
+Part~III.}
+\label{tab:objective-matrix}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.14\linewidth}>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}p{0.13\linewidth}c>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}X}
+\toprule
+Family & Reads & Predicts & Level & Trading use & Evaluation that fits \\
+\midrule
+Order-flow imbalance (\S\ref{sec:ofi}) & recent changes in queue sizes & price change over a window & 2 & directional filter; quote skew & out-of-sample $R^2$, then net profit \\
+Queue imbalance, micro-price (\S\ref{sec:ofi}) & best queue sizes, spread & next mid move; expected mid & 2 & fair price; passive placement & calibration, log loss \\
+Queue models (\S\ref{sec:queue-models}) & queue sizes and rates & next move; depletion time; fill & 2, 4 & placement; fill estimate & calibration against fills, by queue position \\
+Hawkes, neural point processes (\S\ref{sec:hawkes}) & event times and types & intensities & 3 & activity forecast; simulation & log-likelihood; time-rescaling residuals \\
+Meta-models (\S\ref{sec:meta}) & classical outputs & the learner's target & 2--5 & combined signal & proper score against the equal-weight average and the best single model \\
+Deep classifiers (\S\ref{sec:deep}) & snapshots, order flow or messages & direction & 2 & signal & macro-F1 against a persistence baseline on a leak-free label, then net profit \\
+Fill-probability models (\S\ref{sec:deep-fill}) & book and queue position & time to fill & 4 & passive placement & survival likelihood; calibration \\
+Generative models (\S\ref{sec:deep-gen}) & event history & future paths & 1 & simulation & stylised facts; usefulness for a downstream task \\
+Policies (\S\ref{sec:policy}) & state & action & 6 & execution; market making & economic reward in replay, against a model-free benchmark \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Three fixed positions}
+
+Three positions recur throughout the paper.
 
 \begin{principle}[The market is observed, not generated]
 Recorded exchange data are the ground truth. A replay simulator reconstructs the historical book
@@ -506,6 +639,29 @@ that survives realistic execution assumptions and the multiple-testing burden of
 \noindent Occam's razor is applied here to economic value, not to statistical fit alone: a more
 complex model is not rejected for being complex, but it carries the burden of showing that its
 extra value is real.
+\begin{principle}[Representation before architecture]
+A more expressive architecture cannot recover information that the representation has discarded. Representations
+should be compared first, and architectures only on the best available representation.
+\end{principle}
+
+\noindent The evidence of Part~II supports this ordering. With the network held fixed, the choice of input decided
+most of the result: order-flow inputs were among the best in 89\% of cases and raw snapshots in
+11\%~\citep{lucchese2024}. Summing messages into order flow loses the event types, which no later network can recover
+(Section~\ref{sec:deep-io}). The literature has spent more effort comparing architectures---convolutional,
+recurrent, Transformer---than comparing representations---snapshots, order flow, queues, messages.
+
+\paragraph{A ladder of baselines.} Principles~2 and~3 imply a fixed order of comparison. A new model has not shown an
+advantage until it beats each of the following, on the same data, label and split (our synthesis):
+\begin{enumerate}[leftmargin=1.8em,itemsep=1pt]
+\setcounter{enumi}{-1}
+\item a naive forecast: always the most common class, or repeating the last known label;
+\item a single book feature: queue imbalance or the micro-price;
+\item a linear or logistic model on order-flow imbalance and queue imbalance;
+\item a classical model of the same target: a queue model, or a Hawkes model for event targets;
+\item a small network on the same inputs as the candidate;
+\end{enumerate}
+and then only if the improvement survives costs, latency and the queue (Part~III).
+
 
 \subsection{Development of the field}
 \label{sec:history}

@@ -8973,6 +8973,37 @@ Deep networks & snapshots, order flow or messages & direction and other targets 
 \end{tabularx}
 \end{table}
 
+\paragraph{What is established and what is not.} Table~\ref{tab:part2-status} separates, for each family, what the
+evidence of this part establishes from what it has not yet demonstrated. Each entry repeats a statement made in the
+section named in Table~\ref{tab:part2-summary}.
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{The state of the evidence for each model family of Part~II.}
+\label{tab:part2-status}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.17\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\toprule
+Family & Established & Not yet demonstrated \\
+\midrule
+Order-flow and queue imbalance & same-period price changes are roughly linear in order-flow imbalance; the thinner
+  queue tends to empty first & standalone value after costs; the one lead--lag test that crossed the spread was not
+  profitable \\
+Queue models & a fill and an adverse move are often the same event; in a model, the front of the queue is worth more
+  than the back & the size of the queue-position effect across assets and regimes \\
+Hawkes processes & events cluster; fitted branching ratios are high & whether markets are near-critical or the high
+  estimates come from a background rate fitted as constant \\
+Meta-models & inputs matter more than learners; simple averages of forecasts are hard to beat & any study that feeds
+  queue-model outputs to a learner \\
+Structural hybrids & a network inside the queue-reactive model improves its simulated markets & that Hawkes inputs
+  add value to a large network that already sees the same events \\
+Deep networks & the book carries short-horizon predictive information that networks fit; the input matters more than
+  the architecture; label construction can inflate accuracy & that any architecture is superior on the same inputs;
+  that published scores hold on new data; that pretrained encoders produce value after costs \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
 \paragraph{Three findings that cut across the families.}
 \begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
 \item \textbf{The information is in a few well-defined quantities.} Order flow, the sizes of the best queues and
