@@ -7565,7 +7565,7 @@ matrices to whatever makes the predictions better, and the resulting queries usu
   val/.style={draw, fill=green!15, minimum width=34mm, minimum height=5mm},
   arr/.style={-{Stealth[length=1.6mm]}, thick}]
 \node[draw, fill=orange!20, rounded corners=2pt, align=center, text width=24mm] (q) at (0,0)
-  {\textbf{query} (you)\\``sellers leaving''};
+  {\textbf{query}\\what is searched for:\\``sellers leaving''};
 \foreach \i/\k/\v/\w in {1/{sellers leaving}/{book A}/{0.67}, 2/{buyers arriving}/{book B}/{0.09}, 3/{both}/{book C}/{0.24}} {
   \pgfmathsetmacro{\y}{1.6-1.6*(\i-1)}
   \node[key] (k\i) at (4.2,\y+0.27) {key (label): \k};
@@ -7582,7 +7582,8 @@ matrices to whatever makes the predictions better, and the resulting queries usu
 \end{tikzpicture}
 \caption{Attention as a library search. You bring a query; every drawer on the shelf carries a key (its label) and a
 value (its contents). The query is matched against every label, the matches become weights that sum to one, and you
-get back a mix of all the contents, mostly from the drawers that matched best. Numbers from the worked example below.}
+get back a mix of all the contents, mostly from the drawers that matched best. In the model, the query comes from the
+current event and each drawer is one earlier event (Figure~\ref{fig:attn-who}). Numbers from the worked example below.}
 \label{fig:attn-library}
 \end{figure}
 
