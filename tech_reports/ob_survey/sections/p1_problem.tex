@@ -49,6 +49,13 @@ date~\citep{hull}. The running examples are the E-mini S\&P~500 future (ES, on a
 large US stocks), the E-mini Nasdaq-100 future (NQ) and the 10-year US Treasury note future (ZN),
 all traded on CME Group's electronic platform. Each such contract is an \emph{instrument}.
 
+\paragraph{Kaspar, the system used as the worked example.} Throughout the survey, questions about simulation and
+execution are made concrete with Kaspar~\citep{kaspar_hft}, an open-source trading system and order-book simulator
+written by the author. It rebuilds the book order by order from the exchange's own market-data feed, replays recorded
+trading days with the researcher's simulated orders placed in the real queues, and runs the same code in replay, paper
+and live trading on CME futures. It has been used to evaluate an execution method on a full year of E-mini S\&P~500
+data~\citep{maciejewski_shadow}. Section~\ref{sec:kaspar} describes it in detail.
+
 \paragraph{Orders and order types.}
 An \emph{order} is an instruction to buy or sell a quantity of a contract. The quantity is counted
 in \emph{lots} (one futures contract, or one share), and prices are restricted to multiples of the
@@ -751,8 +758,9 @@ This survey & information-to-decision chain: classical and deep models, queue po
   accuracy (Section~\ref{sec:deep});
 \item a treatment of the two ways of combining classical and learned models, meta-models and structural hybrids,
   with published examples taken apart step by step (Sections~\ref{sec:meta} and~\ref{sec:hybrid});
-\item a survey of order-book simulators, with queue-exact deterministic replay as the evaluation
-  instrument for execution claims, and a description of how a model is added to one as an actor (Part~III);
+\item a survey of order-book simulators compared with Kaspar~\citep{kaspar_hft}, a queue-exact, deterministic replay
+  and trading system used as the evaluation instrument for execution claims, including how a model is added to it as
+  an actor (Part~III);
 \item an account of why order-book models are slow at inference and what hardware can accelerate
   (Part~III);
 \item a reader-oriented apparatus: notation, a probability primer, plain-language explanations of every

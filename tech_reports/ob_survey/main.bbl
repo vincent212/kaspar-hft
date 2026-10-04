@@ -1,4 +1,4 @@
-\begin{thebibliography}{461}
+\begin{thebibliography}{462}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -2056,27 +2056,33 @@ Shaohui Ma and Robert Fildes.
   (1):\penalty0 111--128, 2021.
 \newblock \doi{10.1016/j.ejor.2020.05.038}.
 
-\bibitem[Maciejewski(2026{\natexlab{a}})]{maciejewski2026packets}
+\bibitem[Maciejewski(2026{\natexlab{a}})]{kaspar_hft}
+Vincent Maciejewski.
+\newblock kaspar-hft: an open-source low-latency trading system and order-book
+  simulator.
+\newblock \url{https://github.com/vincent212/kaspar-hft}, 2026{\natexlab{a}}.
+
+\bibitem[Maciejewski(2026{\natexlab{b}})]{maciejewski2026packets}
 Vincent Maciejewski.
 \newblock Packets, transactions and queues: Design principles for {HFT} systems
-  from a measurement study of {CME} market data, 2026{\natexlab{a}}.
+  from a measurement study of {CME} market data, 2026{\natexlab{b}}.
 
-\bibitem[Maciejewski(2026{\natexlab{b}})]{maciejewski_actor}
+\bibitem[Maciejewski(2026{\natexlab{c}})]{maciejewski_actor}
 Vincent Maciejewski.
 \newblock Adapting the actor model of concurrency for high-frequency trading:
   Synchronous message delivery (fast\_send) and a tick-to-book latency study,
-  2026{\natexlab{b}}.
+  2026{\natexlab{c}}.
 
-\bibitem[Maciejewski(2026{\natexlab{c}})]{maciejewski_mdlatency}
+\bibitem[Maciejewski(2026{\natexlab{d}})]{maciejewski_mdlatency}
 Vincent Maciejewski.
 \newblock The queue is inside the packet: Market-data latency measured one
   message at a time.
-\newblock Technical note, M2 Technologies, 2026{\natexlab{c}}.
+\newblock Technical note, M2 Technologies, 2026{\natexlab{d}}.
 
-\bibitem[Maciejewski(2026{\natexlab{d}})]{maciejewski_shadow}
+\bibitem[Maciejewski(2026{\natexlab{e}})]{maciejewski_shadow}
 Vincent Maciejewski.
 \newblock Model-free passive execution via order-level shadowing,
-  2026{\natexlab{d}}.
+  2026{\natexlab{e}}.
 
 \bibitem[Maglaras et~al.(2022)Maglaras, Moallemi, and Wang]{maglaras2022fill}
 Costis Maglaras, Ciamac~C. Moallemi, and Muye Wang.
