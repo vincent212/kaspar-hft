@@ -1070,8 +1070,8 @@ per-message service time of that servicing chain, and hence how fast its queue
 drains, is set by the aggregate cost of these \fs{}s. The case study
 (Section~\ref{sec:casestudy}) measures the capture-to-book part of this path in
 two configurations: with the reader$\to$buffer hand-off (median
-$\sim\!7~\mu$s, 2026-09-16), and with the reader decoding and updating the book
-on its own thread (book-update medians $0.8$--$1.1~\mu$s, 2026-10-02).}
+$\sim\!7~\mu$s), and with the reader decoding and updating the book
+on its own thread (book-update medians $0.8$--$1.1~\mu$s).}
 \label{fig:hftarch}
 \end{figure}
 
@@ -1417,9 +1417,9 @@ section grounds that number in a live measurement of the \textsc{kaspar-hft}
 market-data path on production exchange data, and asks the paper's title question
 directly: is the actor model's overhead small enough for a high-frequency
 market-data path? Two configurations of the deployed system were measured. The
-main result is a one-thread configuration (2026-10-02), in which the socket
+main result is a one-thread configuration, in which the socket
 reader decodes each packet and updates the book itself. A slower multi-thread
-configuration (2026-09-16), in which each datagram is handed across threads
+configuration, in which each datagram is handed across threads
 through an asynchronous mailbox, is kept for comparison; it is the one the
 per-message model, the floor estimates, the distribution, and the queue analysis
 below are based on, and its numbers are labelled two-stage throughout.
@@ -1431,7 +1431,7 @@ read a UDP datagram off CME MDP~3.0 multicast, decode the Simple Binary Encoding
 (SBE) messages \cite{fixsbe} inside it, apply them to an order book, and publish.
 Two timestamps are taken per message --- $t_0$ when the datagram comes up from the
 socket, $t_1$ when the book update is published --- and their difference is
-recorded for every message. In the two-stage configuration (2026-09-16) there
+recorded for every message. In the two-stage configuration there
 are two actor stages: a socket-reader
 actor hands each datagram to a decode-and-order-book actor by an asynchronous
 \snd{} (necessarily asynchronous --- a blocking reader would stop draining its
@@ -1448,18 +1448,16 @@ the difference is a few percent of the mailbox cost and negligible against the
 $\sim\!7~\mu$s two-stage floor.
 Three instruments (E-mini S\&P~500, ES; E-mini Nasdaq-100, NQ;
 10-year Treasury Note, ZN), each with a book-update and a trade stream:
-$8.29$~million messages over 53 minutes of a busy afternoon
-(2026-09-16). In the one-thread configuration (2026-10-02) there is no hand-off,
+$8.29$~million messages over 53 minutes of a busy afternoon. In the one-thread configuration there is no hand-off,
 no ring, and no $\text{qlen}$: the socket-reader thread decodes each packet and
 updates the book itself. One caveat bounds both measurements: $t_0$ is a
 \emph{software} timestamp taken at the socket read, so time spent in the NIC and
 the kernel is excluded. This is socket-to-book, not wire-to-book.
 
-\subsection{One-thread configuration (2026-10-02)}
+\subsection{One-thread configuration}
 \label{sec:onethread}
 
-Socket-to-book latency was measured on live CME futures (ES, NQ and ZN) on
-2026-10-02: two 5-minute runs, the first $60$~s of each dropped, Onload, one feed
+Socket-to-book latency was measured on live CME futures (ES, NQ and ZN): two 5-minute runs, the first $60$~s of each dropped, Onload, one feed
 (feed~B switched off), threads not pinned. The socket reader thread decodes each
 packet and updates the book itself, with no thread hand-off. Latency is measured
 per message from the socket read ($t_0$) to the book publish ($t_1$); time in the
@@ -1472,7 +1470,7 @@ pays with no cross-thread hand-off in the path. Against it, a \fs{} hop
 \begin{table}[!htb]
 \centering
 \caption{\textbf{One-thread configuration:} socket-to-book latency ($\mu$s) on
-live CME futures, 2026-10-02. Two 5-minute runs, the first $60$~s of each
+live CME futures. Two 5-minute runs, the first $60$~s of each
 dropped; Onload; one feed (feed~B off); threads not pinned. The socket reader
 thread decodes each packet and updates the book itself, with no thread hand-off.
 Measured per message from the socket read ($t_0$) to the book publish ($t_1$);
@@ -1494,7 +1492,7 @@ ZN trade & 13{,}282 & 0.4 & 0.7 & 6.6 & 41.5 & 90.5 & 124.0 \\
 \end{table}
 
 \paragraph{Comparison with the two-stage configuration.} The slower multi-thread
-configuration of 2026-09-16, kept for comparison, has book-update medians of
+configuration, kept for comparison, has book-update medians of
 $7.1$--$7.3~\mu$s (Table~\ref{tab:mddist}), about $6~\mu$s more. The main
 structural difference between the two is the cross-thread hand-off through the
 asynchronous mailbox, and the direction is the one the paper's own measurements
@@ -1569,7 +1567,7 @@ $0.8$--$1.1~\mu$s (Table~\ref{tab:onethread}).
 \centering
 \caption{The per-message model
 $\text{median}\approx\text{floor}+\text{slope}\times\text{idx}$ in the two-stage
-configuration (2026-09-16), fitted on medians at queue length zero. The
+configuration, fitted on medians at queue length zero. The
 two-stage floor (a message first in its packet; it includes the cross-thread
 hand-off) agrees within $0.42~\mu$s across six streams; the slope (the
 per-message decode-and-book cost) varies $\sim\!3\times$ and drives the
@@ -1632,7 +1630,7 @@ the spread is $1.41~\mu$s; across the three book streams it is $0.35~\mu$s.
 
 \begin{table}[!htb]
 \centering
-\caption{\textbf{Direct hot-path floor, two-stage configuration} (2026-09-16):
+\caption{\textbf{Direct hot-path floor, two-stage configuration}:
 median latency of the subset at $\text{qlen}=0$ and $\text{idx}=0$, with the
 sample size. No queue and no in-packet
 serialization contribute to these messages; the cross-thread hand-off does.}
@@ -1663,7 +1661,7 @@ microsecond.
 \begin{table}[!htb]
 \centering
 \caption{\textbf{Three independent estimates of the two-stage floor} ($\mu$s),
-book streams, 2026-09-16.
+book streams.
 The three methods differ in their sample, their estimator, and the load regime
 they were taken under, and agree to within $0.4~\mu$s.}
 \label{tab:floor3}
@@ -1690,7 +1688,7 @@ packet rate rose tenfold.
 
 For a trading system the relevant quantity is the tail, not the median.
 Table~\ref{tab:mddist} gives the unconditional distribution in the two-stage
-configuration (2026-09-16). The medians cluster
+configuration. The medians cluster
 --- three separate multicast channels, three instruments, all within $0.2~\mu$s
 --- but the tails diverge: ES book's $p99$ is $18.5~\mu$s, ZN book's is
 $57.0~\mu$s, and ZN trade's is $219~\mu$s. Expressed as amplification from median
@@ -1703,7 +1701,7 @@ $0.8$--$1.1~\mu$s, but a ZN~trade $p99$ of $90.5~\mu$s.
 \begin{table}[t]
 \centering
 \caption{Unconditional socket-to-book latency distribution ($\mu$s) in the
-two-stage configuration (cross-thread hand-off; 2026-09-16), every admitted
+two-stage configuration (cross-thread hand-off), every admitted
 message per stream, no conditioning. The median is uniform across
 streams; the tail is not.}
 \label{tab:mddist}
@@ -1805,8 +1803,7 @@ full deconfounding from packet size is carried out in the companion paper
 \addplot[green!55!black,mark=triangle*] coordinates {(0,6.9)(1,6.0)(2,7.6)(3,9.4)(4,11.6)(5,21.7)};   \addlegendentry{ZN book}
 \end{axis}
 \end{tikzpicture}
-\caption{\textbf{Latency rises with queue occupancy} (two-stage configuration,
-2026-09-16). Median socket-to-book latency against queue occupancy $\text{qlen}$ for the three book streams, with
+\caption{\textbf{Latency rises with queue occupancy} (two-stage configuration). Median socket-to-book latency against queue occupancy $\text{qlen}$ for the three book streams, with
 in-packet position held at $\text{idx}=0$ to isolate the queue from packet size.
 At $\text{qlen}=0$ --- the state $87\%$--$99.7\%$ of messages find --- the median
 sits at the $\sim\!7~\mu$s two-stage floor; each further queued packet adds more than the
@@ -1856,8 +1853,8 @@ decode-and-book slope --- and the feed's batch structure.
 
 $t_0$ is a software timestamp at the socket read, so both are socket-to-book, not
 wire-to-book; hardware receive timestamps would close that gap and were not taken.
-The two-stage data is one box and one $53$-minute session (2026-09-16); the
-one-thread data is two 5-minute runs on another day (2026-10-02), with one feed
+The two-stage data is one box and one $53$-minute session; the
+one-thread data is two 5-minute runs on another day, with one feed
 and threads not pinned. Because the two configurations were not measured
 side by side, the $\sim\!6~\mu$s between their medians is not attributed to the
 hand-off alone. In the two-stage data the per-message service cost varies $\sim\!3\times$
