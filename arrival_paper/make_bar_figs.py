@@ -269,7 +269,7 @@ def crossval_floor(out): # tab:crossval-floor
     grouped(ax, ["ES", "NQ", "ZN"], [[7.01, 7.24, 6.89], [6.98, 7.23, 6.83], [7.1, 7.5, 7.0]], plt.cm.Greens(np.linspace(0.45, 0.9, 3)),
             ["median, empty queue, first in packet", "intercept of the position ladder", "single-message packets during FOMC"], fmt="{:.2f}", fs=10, dy=0.03)
     ax.axhspan(7.43, 7.53, color=VERM, alpha=0.3, label="publisher period, 7.43–7.53 µs")
-    ax.set_ylim(6, 8.6); ax.set_ylabel("decode floor (µs)"); ax.legend(frameon=False, loc="upper left", fontsize=10, ncol=2)
+    ax.set_ylim(6, 8.6); ax.set_ylabel("service floor (µs)"); ax.legend(frameon=False, loc="upper left", fontsize=10, ncol=2)
     save(fig, out, "crossval_floor")
 
 def crossval_crossing(out):  # tab:crossval-crossing
