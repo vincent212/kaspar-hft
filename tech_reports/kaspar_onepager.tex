@@ -165,7 +165,7 @@ receiver's handler inline on the caller's thread and returns the reply as a valu
 {\color{ink3}\sffamily\bfseries\scriptsize PATH} &
 {\color{ink3}\sffamily\bfseries\scriptsize TIME} \\
 \midrule
-\code{fast\_send}, inline, same thread & {\color{accent}\bfseries\code{\textasciitilde10 ns}} \\
+\code{fast\_send}, inline, same thread & {\color{accent}\bfseries\code{\textasciitilde30 ns}} \\
 Queued send, one \code{Group} thread & \code{\textasciitilde90 ns} \\
 Queued send, separate threads, spinning & \code{\textasciitilde370 ns} \\
 Queued send, separate threads & \code{\textasciitilde3{,}370 ns} \\
@@ -177,7 +177,8 @@ Round trip with plain \code{new} (2 messages) & \code{\textasciitilde128 ns} \\
 
 \vspace{3pt}
 \tnote{Median round-trip times (send, handle, reply) with one message in flight, from
-the microbenchmarks in \code{actors/cpp/perf}.}
+the microbenchmarks in \code{actors/cpp/perf}; the \code{fast\_send} figure is amortized, because its
+per-sample median is below the clock resolution.}
 
 
 % ===============================================================
