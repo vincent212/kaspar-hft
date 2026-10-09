@@ -101,8 +101,8 @@
 \vspace{8pt}
 \textbf{From production to simulation.} It is a production trading
 system --- multicast market data in, full order books reconstructed order by
-order, an execution algorithm on top, order management session out to
-the exchange. It is also a an order simulator: the same books rebuilt from recorded
+order, an execution algorithm on top, an order-management session out to
+the exchange. It is also an order book simulator: the same books rebuilt from recorded
 packet captures.
 
 The same strategy code, the same execution algorithm
@@ -129,11 +129,11 @@ entirely on one. Scale out by giving actors their own threads; collapse to a
 single-threaded hot path by grouping them, from the same source either way.}
 
 \tile{Strategy authoring in C++ or Rust}{C++ in-process actors for the lowest
-latency, or Rust across an in-process FFI interop. Either way the strategy runs
+latency, or Rust through an in-process FFI. Either way the strategy runs
 in the same process as the book.}
 
 \tile{Execution}{\textbf{Shadow-POV}, a passive/aggressive percentage-of-volume algorithm
-that places by following orders in the market.}
+that places orders by following other participants' orders in the market.}
 
 \end{minipage}\hfill%
 \begin{minipage}[t]{0.485\textwidth}
@@ -143,8 +143,8 @@ trades, order-by-order MBO, instrument definitions, snapshot recovery. Sequence
 gaps are detected and repaired automatically.}
 
 \tile{Order book}{Order-by-order reconstruction, holding every resting order
-individually. That is what makes a queue position, and therefore a fill
-inference, definable at all.}
+individually. That is what makes queue position, and therefore fill
+inference, exact.}
 
 \tile{Order entry}{\textbf{iLink 3} session handler: SBE encoding, HMAC
 authentication, sequence management, negotiation and establishment,
