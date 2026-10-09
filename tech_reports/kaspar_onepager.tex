@@ -171,13 +171,12 @@ Queued send, one \code{Group} thread & \code{\textasciitilde90 ns} & queue push/
 Queued send, separate threads & \code{\textasciitilde3{,}370 ns} & two cross-core mailbox wakeups \\
 \midrule
 Pooled round trip (2 messages) & \code{\textasciitilde92 ns} & vs \code{\textasciitilde128 ns} with plain \code{new} \\
-Allocator tail (max observed) & \code{\textasciitilde33 \textmu s} & vs \code{\textasciitilde5.5 ms} without the pool \\
 \bottomrule
 \end{tabularx}
 
 \vspace{3pt}
-\tnote{Median round-trip times (send, handle, reply) with one message in flight, except
-the allocator tail, which is the maximum observed; from the microbenchmarks in \code{actors/cpp/perf}.}
+\tnote{Median round-trip times (send, handle, reply) with one message in flight, from
+the microbenchmarks in \code{actors/cpp/perf}.}
 
 
 % ===============================================================
