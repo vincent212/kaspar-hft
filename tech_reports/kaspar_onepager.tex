@@ -160,17 +160,18 @@ Messaging costs of the actor framework. \code{fast\_send} runs the
 receiver's handler inline on the caller's thread and returns the reply as a value.
 
 \vspace{3pt}
-\noindent\begin{tabularx}{\textwidth}{@{}Xr>{\raggedright\arraybackslash}p{62mm}@{}}
+\noindent\begin{tabularx}{\textwidth}{@{}Xr@{}}
 \toprule
 {\color{ink3}\sffamily\bfseries\scriptsize PATH} &
-{\color{ink3}\sffamily\bfseries\scriptsize TIME} &
-{\color{ink3}\sffamily\bfseries\scriptsize NOTES} \\
+{\color{ink3}\sffamily\bfseries\scriptsize TIME} \\
 \midrule
-\code{fast\_send}, inline, same thread & {\color{accent}\bfseries\code{\textasciitilde10 ns}} & $\approx$ one polymorphic virtual call \\
-Queued send, one \code{Group} thread & \code{\textasciitilde90 ns} & queue push/pop + dispatch \\
-Queued send, separate threads & \code{\textasciitilde3{,}370 ns} & two cross-core mailbox wakeups \\
+\code{fast\_send}, inline, same thread & {\color{accent}\bfseries\code{\textasciitilde10 ns}} \\
+Queued send, one \code{Group} thread & \code{\textasciitilde90 ns} \\
+Queued send, separate threads, spinning & \code{\textasciitilde370 ns} \\
+Queued send, separate threads & \code{\textasciitilde3{,}370 ns} \\
 \midrule
-Pooled round trip (2 messages) & \code{\textasciitilde92 ns} & vs \code{\textasciitilde128 ns} with plain \code{new} \\
+Pooled round trip (2 messages) & \code{\textasciitilde92 ns} \\
+Round trip with plain \code{new} (2 messages) & \code{\textasciitilde128 ns} \\
 \bottomrule
 \end{tabularx}
 
