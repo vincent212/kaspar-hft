@@ -75,7 +75,7 @@
 {\color{ink2}\sffamily\bfseries\fontsize{19}{19}\selectfont Open Source}
 
 \vspace{4pt}
-{\color{ink2}\sffamily\large A turn-key CME futures trading system and order book simulator.}
+{\color{ink2}\sffamily\large A CME futures trading system and order book simulator.}
 
 \vspace{7pt}
 {\color{ink}\hrule height 1.6pt}
@@ -111,22 +111,19 @@ exchange. Moving between them is a configuration change, so a backtest
 exercises the code path that will trade.
 
 % ===============================================================
-\section{What is in the box}
-
-\vspace{-2pt}
-{\color{ink3}\footnotesize Feed handler, book, execution logic and exchange session layer all included.}
-\vspace{4pt}
+\section{Components}
+\vspace{2pt}
 
 \noindent\begin{minipage}[t]{0.485\textwidth}
 
-\tile{Simulation}{Three modes off one binary: \textbf{PCAP replay}, live
-multicast paper trading, live iLink execution. Deterministic --- a fixed session
-replays to identical fills.}
+\tile{Simulation}{Three modes in one binary: \textbf{PCAP replay}, live
+multicast paper trading and live iLink execution. Replay is deterministic: a
+session replayed twice gives identical fills.}
 
-\tile{Concurrency}{A custom \textbf{C++20 actor framework} --- a formal
-concurrency model, and the same code whether the hot path runs across threads or
-entirely on one. Scale out by giving actors their own threads; collapse to a
-single-threaded hot path by grouping them, from the same source either way.}
+\tile{Concurrency}{A \textbf{C++20 actor framework} with a formal
+concurrency model. The same code runs with actors on their own threads or
+grouped onto one thread, so the hot path can be spread out or kept on a single
+thread without code changes.}
 
 \tile{Strategy authoring in C++ or Rust}{C++ in-process actors for the lowest
 latency, or Rust through an in-process FFI. Either way the strategy runs
@@ -143,8 +140,8 @@ trades, order-by-order MBO, instrument definitions, snapshot recovery. Sequence
 gaps are detected and repaired automatically.}
 
 \tile{Order book}{Order-by-order reconstruction, holding every resting order
-individually. That is what makes queue position, and therefore fill
-inference, exact.}
+individually. Queue position, and therefore fill inference, is
+exact.}
 
 \tile{Order entry}{\textbf{iLink 3} session handler: SBE encoding, HMAC
 authentication, sequence management, negotiation and establishment,
@@ -161,23 +158,22 @@ primary/secondary failover.}
 \code{-O3 -march=native}}
 \vspace{4pt}
 
-The usual objection to actors is messaging overhead. The answer is
-\code{fast\_send}, which runs the receiver's handler inline on the caller's
-thread and returns the reply as a value.
+Measured messaging costs of the actor framework. \code{fast\_send} runs the
+receiver's handler inline on the caller's thread and returns the reply as a value.
 
 \vspace{3pt}
 \noindent\begin{tabularx}{\textwidth}{@{}Xr>{\raggedright\arraybackslash}p{62mm}@{}}
 \toprule
 {\color{ink3}\sffamily\bfseries\scriptsize PATH} &
 {\color{ink3}\sffamily\bfseries\scriptsize P50} &
-{\color{ink3}\sffamily\bfseries\scriptsize WHAT IT COSTS} \\
+{\color{ink3}\sffamily\bfseries\scriptsize NOTES} \\
 \midrule
 \code{fast\_send} --- inline, same thread & {\color{accent}\bfseries\code{\textasciitilde10 ns}} & $\approx$ one polymorphic virtual call \\
 Queued send, one \code{Group} thread & \code{\textasciitilde90 ns} & queue push/pop + dispatch \\
-Queued send, separate threads & \code{\textasciitilde3{,}370 ns} & cross-core mailbox wakeup, twice \\
+Queued send, separate threads & \code{\textasciitilde3{,}370 ns} & two cross-core mailbox wakeups \\
 \midrule
 Pooled round trip (2 messages) & \code{\textasciitilde92 ns} & vs \code{\textasciitilde128 ns} with plain \code{new} \\
-Allocator tail (max observed) & \code{\textasciitilde33 \textmu s} & vs \code{\textasciitilde5.5 ms} unpooled --- the durable win \\
+Allocator tail (max observed) & \code{\textasciitilde33 \textmu s} & vs \code{\textasciitilde5.5 ms} without the pool \\
 \bottomrule
 \end{tabularx}
 
