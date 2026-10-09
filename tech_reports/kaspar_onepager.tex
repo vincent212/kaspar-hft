@@ -52,8 +52,6 @@
   \quad\textperiodcentered\quad MIT \quad\textperiodcentered\quad \thepage}
 
 % Provenance chip: every performance number says where it came from.
-\newcommand{\measured}{{\color{accent}\sffamily\bfseries\scriptsize
-  \setlength{\fboxsep}{1.5pt}\fbox{\scshape measured}}}
 \newcommand{\code}[1]{{\ttfamily\small #1}}
 \newcommand{\tnote}[1]{{\color{ink2}\footnotesize #1\par}}
 
@@ -158,17 +156,17 @@ primary/secondary failover.}
 \code{-O3 -march=native}}
 \vspace{4pt}
 
-Measured messaging costs of the actor framework. \code{fast\_send} runs the
+Messaging costs of the actor framework. \code{fast\_send} runs the
 receiver's handler inline on the caller's thread and returns the reply as a value.
 
 \vspace{3pt}
 \noindent\begin{tabularx}{\textwidth}{@{}Xr>{\raggedright\arraybackslash}p{62mm}@{}}
 \toprule
 {\color{ink3}\sffamily\bfseries\scriptsize PATH} &
-{\color{ink3}\sffamily\bfseries\scriptsize P50} &
+{\color{ink3}\sffamily\bfseries\scriptsize TIME} &
 {\color{ink3}\sffamily\bfseries\scriptsize NOTES} \\
 \midrule
-\code{fast\_send} --- inline, same thread & {\color{accent}\bfseries\code{\textasciitilde10 ns}} & $\approx$ one polymorphic virtual call \\
+\code{fast\_send}, inline, same thread & {\color{accent}\bfseries\code{\textasciitilde10 ns}} & $\approx$ one polymorphic virtual call \\
 Queued send, one \code{Group} thread & \code{\textasciitilde90 ns} & queue push/pop + dispatch \\
 Queued send, separate threads & \code{\textasciitilde3{,}370 ns} & two cross-core mailbox wakeups \\
 \midrule
@@ -178,8 +176,8 @@ Allocator tail (max observed) & \code{\textasciitilde33 \textmu s} & vs \code{\t
 \end{tabularx}
 
 \vspace{3pt}
-\tnote{\measured\ Round trip through the framework --- send, handle, reply ---
-one message in flight, from the microbenchmarks in \code{actors/cpp/perf}.}
+\tnote{Median round-trip times (send, handle, reply) with one message in flight, except
+the allocator tail, which is the maximum observed; from the microbenchmarks in \code{actors/cpp/perf}.}
 
 
 % ===============================================================
