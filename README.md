@@ -1,10 +1,10 @@
 <p align="center">
   <h1 align="center">Kaspar</h1>
   <p align="center">
-    <strong>Turn-Key Production Trading System and Position-Aware Order Book Simulator</strong>
+    <strong>Production Trading System and Position-Aware Order Book Simulator</strong>
   </p>
   <p align="center">
-    CME Futures &bull; MDP3 Market Data &bull; iLink 3 &bull; PCAP Replay &bull; POV Execution &bull; C++20
+    Venue-independent &bull; CME MDP3 and iLink 3 included &bull; PCAP Replay &bull; POV Execution &bull; C++20
   </p>
 </p>
 
@@ -16,14 +16,14 @@
   <a href="tech_reports/kaspar_onepager.pdf">one-pager</a>
 </p>
 
-**Kaspar-hft** is a turn-key CME futures production trading system *and* a queue-position-accurate order-book simulator — the same strategy code runs in backtest, paper trading, and live — built on a high-performance C++20 actor framework with nanosecond-scale messaging.
+**Kaspar-hft** takes a strategy through three stages on one code path: simulation from packet captures, paper trading on live market data, and live execution. It is a production trading system *and* a queue-position-accurate order-book simulator, built on a C++20 actor framework. It is not tied to one market: the feed handler and the order-entry session are pluggable, and it ships with CME's MDP3 market data and iLink 3 order entry pre-built and CME-certified. Equities or other venues need their own handlers for those two pieces; the book, simulator, actor framework and strategy code are the same.
 
 ## Kaspar-hft highlights
 
 - **Low-latency actor framework:** No data races, no locks in your code, and almost no framework overhead.
 - **Backtest == production:** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live iLink 3; switching is a config change, so a backtest exercises the exact code path that will trade.
-- **CME-certified:** The MDP3 market-data handler and the iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
-- **Shadow execution algorithm:** Efficient, production-grade, turn-key execution algorithm.
+- **Venue-independent, CME included:** Feed handler and order-entry session are pluggable. The included MDP3 market-data handler and iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
+- **Shadow execution algorithm:** A model-free percentage-of-volume execution algorithm, passive and aggressive, measured on a year of ES data.
 - **Strategy authoring in C++ or Rust:** Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop.
 - **Two papers to dive deeper, more in the works:** The C++ actor framework design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
 - **Formal semantics for fast_send:** `fast_send` added to the actor model as a second primitive, with an operational semantics and proofs of what it keeps (isolation, determinism relative to replies) and what it costs (liveness holds unless actors wait on each other in a circle) — [paper draft (PDF)](https://github.com/vincent212/kaspar-hft/blob/feature/fpga-runtime/tech_reports/extended_actor_model/extended_actor_model.pdf).
@@ -33,7 +33,7 @@
 
 **Kaspar** is two things sharing one codebase.
 
-It is a **turn-key production trading system**: MDP3 multicast in, full order books reconstructed order-by-order, an execution algorithm on top, and iLink 3 sessions out to CME — with SBE encoding, HMAC authentication, sequence management and primary/secondary failover already certified.
+It is a **production trading system**: market data in, full order books reconstructed order-by-order, an execution algorithm on top, and order-entry sessions out. The feed handler and the order-entry session are the venue-specific pieces; the included CME pair (MDP3 multicast in, iLink 3 out — SBE encoding, HMAC authentication, sequence management and primary/secondary failover) is certified. Another venue plugs in its own handler and session.
 
 It is also a **position-aware order book simulator**: order books rebuilt from packet capture files, with your orders placed in the price-time queue and filled only when the market actually trades through them. Fills are inferred from exact queue accounting.
 
