@@ -33,6 +33,7 @@
 #include "frame/cons/msg/Get.hpp"
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/info_parser.hpp>
+#include "frame/ob/FillSlate.hpp"
 // std::flat_map is C++23 but not yet supported by clang, use std::map as fallback
 #if __has_include(<flat_map>) && defined(__cpp_lib_flat_map)
 #include <flat_map>
@@ -148,7 +149,15 @@ namespace frame
         std::string stats_fname;
         int maxprice;
 
-        std::map<uint64_t, std::queue<payload_ptr_t>> exec_slate;
+        // EXECs are slated until the filled order's own book record arrives
+        // (a trade record has no price; an order modified to cross is still
+        // in the book at its OLD price when the trade arrives). Released as
+        // RESTING -> process_q, or dropped as the AGGRESSOR's own fill.
+        // Rules and tests: frame/ob/FillSlate.hpp, unit_test/src/test_fill_slate.cpp.
+        // RELEASE_AT_OWN_RECORD: an undecided EXEC must be processed before
+        // its order's CANC/CANCD removes the order, or process_q finds no
+        // order and drops it (sim orders queued ahead are then never filled).
+        frame::ob::FillSlate<payload_ptr_t> exec_slate{frame::ob::Undecided::RELEASE_AT_OWN_RECORD};
 
         // vwap_acc vacc;
         // presh_acc pacc;
