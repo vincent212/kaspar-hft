@@ -1,14 +1,8 @@
 /*
- * Copyright (c) 2026 M2 Tech (16425640 Canada Inc.). All rights reserved.
+ * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
- * PROPRIETARY AND CONFIDENTIAL — TRADE SECRET.
- *
- * This file contains unpublished proprietary source code of
- * M2 Tech (16425640 Canada Inc.) and constitutes a trade secret.
- * No license, express or implied, is granted. Unauthorized copying,
- * use, distribution, modification, reverse engineering, or disclosure,
- * in whole or in part, is strictly prohibited and will be prosecuted
- * to the fullest extent permitted by law.
+ * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
 //
@@ -79,8 +73,9 @@ namespace
 //   TRADE 4 offers @104.71875 x14,1,1,1
 //   CHANGE 8419050632586 BUY 104.71875 x49   <- arrives AFTER the trades
 //   DELETE the 4 offers
-// Before the fix TachBook2 published hit=17 tak=17 (signed flow 0) and an
-// EXEC at 104.6875. Correct: tak 17, hit 0, nothing printed at 104.6875.
+// Before the fix the book counted it on both sides (hit=17 tak=17, signed
+// flow 0) and printed an EXEC at 104.6875. Correct: tak 17, hit 0, nothing
+// printed at 104.6875.
 // ---------------------------------------------------------------------------
 TEST(FillSlate, ModifiedAggressorPartialFill_ZN_8419050632586)
 {

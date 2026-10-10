@@ -1,21 +1,15 @@
 #pragma once
 
 /*
- * Copyright (c) 2026 M2 Tech (16425640 Canada Inc.). All rights reserved.
+ * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
+ * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
  *
- * PROPRIETARY AND CONFIDENTIAL — TRADE SECRET.
- *
- * This file contains unpublished proprietary source code of
- * M2 Tech (16425640 Canada Inc.) and constitutes a trade secret.
- * No license, express or implied, is granted. Unauthorized copying,
- * use, distribution, modification, reverse engineering, or disclosure,
- * in whole or in part, is strictly prohibited and will be prosecuted
- * to the fullest extent permitted by law.
+ * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
 //
 // FillSlate -- decides which fills in a CME MBO trade are RESTING fills and
-// which one is the AGGRESSOR's own fill. Shared by TachBook2 and OB.
+// which one is the AGGRESSOR's own fill. Shared by TachBook and OB.
 //
 // WHY
 //   An MBO trade record (bfile::l3_mbo_trd_v2_t) carries orderID and lastQty
@@ -31,7 +25,7 @@
 //   bought. Measured on the 2026-10-08 captures:
 //     trade record before the order's book record: 340,161 of 340,164 (ZN)
 //     ZN order 8419050632586: bid 104.6875 raised to 104.71875, bought 17 ->
-//       TachBook2 published hit=17 tak=17 and an EXEC at 104.6875.
+//       printed as a resting bid filled at 104.6875.
 //
 //   So each fill is held ("slated") until its own order's book record arrives,
 //   and released with a role:
@@ -89,8 +83,8 @@
 //   order, not trade-record order.
 //
 //   Undecided fills at their own record:
-//     Undecided::HOLD                  keep holding (TachBook2: only volume
-//                                      and prints depend on the verdict)
+//     Undecided::HOLD                  keep holding (TachBook: only its
+//                                      prints depend on the verdict)
 //     Undecided::RELEASE_AT_OWN_RECORD release now as AMBIGUOUS (OB: its EXEC
 //                                      must be processed before the order's
 //                                      CANC/CANCD removes the order, or the
