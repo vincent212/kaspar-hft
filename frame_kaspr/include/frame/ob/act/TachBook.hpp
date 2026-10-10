@@ -36,6 +36,7 @@
 #include "frame/ob/msg/TradeNotify.hpp"
 #include <boost/format.hpp>
 #include "logger/act/Logger.hpp"
+#include "frame/ob/FillSlate.hpp"
 #include "chutil/Time.hpp"   // publish_ts stamp; was only reached transitively
                              // via the TRACKTIME blocks, which are #ifdef'd out
 #include "frame/ref/Price.hpp"  // the one price->tick conversion; see to_px()
@@ -175,6 +176,78 @@ namespace frame::ob::act
     OrderBookSide<1> ask;  // 1 = ask side
     boost::unordered_flat_map<uint64_t, bfile::l3_mbo_v2_t> orders;
     std::vector<actors::Actor*> hiprio_subs, loprio_subs, aggr_subs, bbbosubs, bbbo_only_subs;
+
+    // Fills are SLATED, not published at the trade record.
+    //
+    // A trade record has no price and no side; both come from the order in
+    // the book. CME lists every filled order, the aggressor included, and an
+    // existing order modified to cross is still in the book at its OLD price
+    // and side when the trade arrives -- its Change follows the trade.
+    // Published at the trade record, that fill printed at the old limit,
+    // outside the bid/offer, on the wrong side: ZN 2026-10-08 order
+    // 8419050632586, a bid raised from 104.6875 to 104.71875 that bought 17,
+    // came out as a resting bid filled at 104.6875.
+    //
+    // Each fill is held until its own order's book record arrives and then
+    // released as RESTING (EXEC sent) or AGGRESSOR (dropped: the resting
+    // orders it traded against carry their own fills). Rules and tests:
+    // frame/ob/FillSlate.hpp, unit_test/src/test_fill_slate.cpp. Same
+    // mechanism as OB.cpp's exec slate.
+    //
+    // Latency: a fill goes out at the book record that decides its
+    // transaction (Release::AT_DECISION), normally the first book record
+    // after the trade records -- in a LATER packet for most fills. Measured
+    // wait, CME sendingTime of that record minus the trade record's,
+    // 2026-10-08: ZN p50 15us p90 646us p99 2.3ms; ES p50 10us p90 34us
+    // p99 338us. publish_ts is stamped at release, so it includes the wait.
+    using trade_pl_t = boost::intrusive_ptr<frame::mda::msg::data_pay_load>;
+    using fill_slate_t = frame::ob::FillSlate<trade_pl_t>;
+    fill_slate_t fill_slate;
+
+    void release_fill(const fill_slate_t::Fill &f, frame::ob::FillRole r)
+    {
+      if (r == frame::ob::FillRole::AGGRESSOR)
+        return;  // the incoming order's own fill: no print
+      if (f.pl)
+        send_trade(f.pl);
+    }
+
+    void send_trade(const trade_pl_t &pl)
+    {
+      // initialize point with 0
+      pl->point_ = {};
+
+#ifdef DEBUGTACHBOOK
+      std::cerr << get_name() << " sending trade notify " << *pl << std::endl;
+#endif
+
+      // Trades do NOT go through publish_book, so stamp here too. Note the
+      // different denominator: this path has no fast_compare and no
+      // baddata filter -- its only reject is order-not-found. Trade and
+      // book-update latencies must be reported separately; pooling them
+      // mixes two populations selected by different rules.
+      pl->publish_ts = chutil::Time::epoch();
+
+      for (auto &sub : aggr_subs)
+      {
+        frame::ob::msg::TradeNotify msg(pl);
+        sub->send(&msg, this);
+      }
+
+      // publish to subs send out TradeNotify (avoid duplicates)
+      for (auto &sub : hiprio_subs)
+      {
+        sub->send(new frame::ob::msg::TradeNotify(pl), this);
+      }
+
+#ifdef tradenotifyforbbbo
+      // also send TradeNotify to bbbo_only_subs (precomputed difference)
+      for (auto &sub : bbbo_only_subs)
+      {
+        sub->send(new frame::ob::msg::TradeNotify(pl), this);
+      }
+#endif
+    }
 
     int prev_best_bid_px = 0, prev_best_ask_px = std::numeric_limits<int>::max();
     int sym;
@@ -340,6 +413,12 @@ namespace frame::ob::act
     void shutdown_handler(const actors::msg::Shutdown *m) noexcept
     {
       (void)m;
+      // Release fills still held for the last transaction (end of session,
+      // or a thin book whose next record never came) so their TradeNotify
+      // reaches subscribers instead of being lost.
+      fill_slate.flush([this](const fill_slate_t::Fill &f, frame::ob::FillRole r) {
+        release_fill(f, r);
+      });
       // Every drop reason, with its denominator, on one line. Without this a
       // book that publishes nothing is indistinguishable from a book that is
       // fed nothing, and the latency CSV just says n=0.
@@ -527,6 +606,15 @@ namespace frame::ob::act
         if (mbo.securityID != sec_id)
           return;
 
+        // Release slated fills (see fill_slate). Must run BEFORE this record
+        // is applied: it is the record that tells whether the filled order
+        // was resting or the aggressor.
+        if (!mbo.recovery)
+          fill_slate.on_book(mbo.orderID, mbo.transactTime, mbo.orderUpdateAction, mbo.pxd,
+                             [this](const fill_slate_t::Fill &f, frame::ob::FillRole r) {
+                               release_fill(f, r);
+                             });
+
         // handle add
         if (is_add(mbo))
         {
@@ -539,6 +627,27 @@ namespace frame::ob::act
           //   std::cerr << "DEBUG: got orderID 127131791135780" << std::endl;
           // }
 
+          // An ADD for an order already in the book is a snapshot
+          // (recovery) record re-sending a live order -- possibly at a new
+          // price or size, when the capture missed its live Change. It
+          // REPLACES the order: take the old quantity off its old level
+          // first. Before, orders.emplace kept the OLD record (emplace does
+          // not overwrite) while update_sz added the quantity again, so the
+          // order's price went stale and level sizes grew with every
+          // snapshot cycle. ZN 2026-10-08: 18 of 18 prints far outside the
+          // bid/offer were orders a snapshot had moved (e.g. printed at
+          // 106.078125, snapshot said 104.5625).
+          if (auto ex = orders.find(mbo.orderID); ex != orders.end())
+          {
+            const auto old_side = get_side(ex->second);
+            const int old_px = to_px(ex->second.pxd);
+            const int old_qty = static_cast<int>(ex->second.displayQty);
+            if (old_side == en::bs::BUY)
+              bid.update_sz(old_px, -old_qty);
+            else if (old_side == en::bs::SEL)
+              ask.update_sz(old_px, -old_qty);
+            orders.erase(ex);
+          }
           orders.emplace(mbo.orderID, mbo);
           auto side = get_side(mbo);
           auto px = to_px(mbo.pxd);
@@ -938,6 +1047,14 @@ namespace frame::ob::act
         const auto &mbot = std::get<bfile::l3_mbo_trd_v2_t>(m->l3);
         // trades do not affect order book
         {
+          // Trade records reach every book on the venue. Any record of a
+          // later transaction closes out fills still held for the previous
+          // one -- even when this order is not ours -- so they never wait
+          // for this instrument's next book record.
+          fill_slate.advance(mbot.transactTime,
+                             [this](const fill_slate_t::Fill &f, frame::ob::FillRole r) {
+                               release_fill(f, r);
+                             });
           auto oid = mbot.orderID;
           auto p = orders.find(oid);
           if (p == orders.end())
@@ -976,39 +1093,30 @@ namespace frame::ob::act
           pl->pkt_entry_idx = mbot.pkt_entry_idx;
           pl->pkt_seq_num = mbot.pkt_seq_num;
 
-          // initialize point with 0
-          pl->point_ = {};
-
-#ifdef DEBUGTACHBOOK
-          std::cerr << get_name() << " sending trade notify " << *pl << std::endl;
-#endif
-
-          // Trades do NOT go through publish_book, so stamp here too. Note the
-          // different denominator: this path has no fast_compare and no
-          // baddata filter -- its only reject is order-not-found above. Trade
-          // and book-update latencies must be reported separately; pooling
-          // them mixes two populations selected by different rules.
-          pl->publish_ts = chutil::Time::epoch();
-
-          for (auto &sub : aggr_subs)
+          // Being in the book does NOT make this order the resting side:
+          // an order modified to cross is the aggressor and is still here at
+          // its old price and side. So nothing is published here; the fill
+          // is slated and released by fill_slate.on_book() in the MBO branch.
+          // No resting side (implied / auction / mid): published now, as it
+          // always was -- there is no side for FillSlate to reason about.
+          if (side != en::bs::BUY && side != en::bs::SEL)
           {
-            frame::ob::msg::TradeNotify msg(pl);
-            sub->send(&msg, this);
+            send_trade(pl);
+            return;
           }
-
-          // publish to subs send out TradeNotify (avoid duplicates)
-          for (auto &sub : hiprio_subs)
-          {
-            sub->send(new frame::ob::msg::TradeNotify(pl), this);
-          }
-
-#ifdef tradenotifyforbbbo
-          // also send TradeNotify to bbbo_only_subs (precomputed difference)
-          for (auto &sub : bbbo_only_subs)
-          {
-            sub->send(new frame::ob::msg::TradeNotify(pl), this);
-          }
-#endif
+          // at_touch: is the order at the best price on its side? A resting
+          // order fills at the touch; a modified aggressor's stored price is
+          // its old limit. FillSlate uses this to tell them apart in a
+          // 1-vs-1 trade where both orders are simply Deleted.
+          const int ord_px = to_px(ord.pxd);
+          const bool at_touch = side == en::bs::BUY ? ord_px == bid.get_best()
+                                                    : ord_px == ask.get_best();
+          fill_slate.on_trade(oid, mbot.transactTime, ord.pxd,
+                              side == en::bs::BUY ? fill_slate_t::BUY : fill_slate_t::SEL,
+                              static_cast<uint32_t>(mbot.lastQty), at_touch, std::move(pl),
+                              [this](const fill_slate_t::Fill &f, frame::ob::FillRole r) {
+                                release_fill(f, r);
+                              });
 
 #ifdef TRACKTIME
           if (mbot.handlerendtim)
@@ -1031,6 +1139,11 @@ namespace frame::ob::act
         ask.clear();
         bid.clear();
         orders.clear();
+        // Held fills are real trades with a known stored price and side; they
+        // do not depend on the book being cleared. Release them, do not drop.
+        fill_slate.flush([this](const fill_slate_t::Fill &f, frame::ob::FillRole r) {
+          release_fill(f, r);
+        });
         // do we notify subs?
         for (auto &sub : hiprio_subs)
         {

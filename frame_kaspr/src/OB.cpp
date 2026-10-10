@@ -243,6 +243,7 @@ void act::OB::clear()
 {
   log_inf("act::OB::clear() called");
   ordermap.clear();
+  exec_slate.clear();   // held EXECs refer to orders that no longer exist
   for (const auto &s : lowprio_datasubs)
   {
     s->send(new msg::Clear(sym), this);
@@ -1949,29 +1950,44 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
   }
 
   /**
+   * @brief release a slated exec decided by FillSlate
+   *
+   * RESTING (and AMBIGUOUS, as before) -> process_q. AGGRESSOR -> dropped:
+   * it is the incoming order's own fill, at its OLD price, and processing it
+   * would fill sim orders queued at that old level where nothing traded. The
+   * resting orders it traded against carry their own EXECs.
+   */
+  auto release_exec = [this](const frame::ob::FillSlate<payload_ptr_t>::Fill &f,
+                             frame::ob::FillRole r)
+  {
+    if (r == frame::ob::FillRole::AGGRESSOR)
+      return;
+    // process_q sets OB's clock (currtim, txtim_epoch) from the payload. A
+    // held EXEC of an EARLIER transaction, released while a later record is
+    // being handled, would turn the clock back, and the record's own payload
+    // would then be stamped with the old time (ZN 2026-10-09: order
+    // 8419054694208's fill at tx ...768769705 printed at ...766216757).
+    const auto saved_currtim = currtim;
+    const auto saved_txtim = txtim_epoch;
+    process_q(f.pl.get());
+    currtim = saved_currtim;
+    txtim_epoch = saved_txtim;
+  };
+
+  /**
    * @brief process slated exec
-   * @param ordref id of order to be cancelled
+   * @param mbo the book record (Change or Delete) of the order
    * @param pl payload for the canc or cancd
    *
+   * The order's own book record decides whether its slated exec was a
+   * resting fill or the aggressor's (see frame/ob/FillSlate.hpp). Decided
+   * execs are released before the record's own payload.
    */
-  auto process_slated_exec = [this](auto ordref, auto pl)
+  auto process_slated_exec = [this, &release_exec](const bfile::l3_mbo_v2_t &mbo, auto pl)
   {
-    auto p = exec_slate.find(ordref);
-    if (p == exec_slate.end())
-    {
-      process_q(pl.get());
-    }
-    else
-    {
-      auto exec_ptr = p->second.front();
-      p->second.pop();
-      if (p->second.empty())
-      {
-        exec_slate.erase(p);
-      }
-      process_q(exec_ptr.get());
-      process_q(pl.get());
-    }
+    exec_slate.on_book(mbo.orderID, mbo.transactTime, mbo.orderUpdateAction, mbo.pxd,
+                       release_exec);
+    process_q(pl.get());
   };
 
   if (is_add(m->l3) && !badpx_force_delete)
@@ -1994,6 +2010,22 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
       if (ptr_ != ordermap.end())
       {
         found = true;
+      }
+
+      if (found && mbo.recovery && mbo.pxd > 0 && mbo.displayQty > 0)
+      {
+        // A snapshot re-sends an order we already hold, with its CURRENT
+        // price, size and side -- it may have been modified since, and the
+        // capture misses some incremental records. Keep ordermap current so
+        // its later fills are priced right (ZN 2026-10-09: 13 of OB's 15
+        // prints outside the bid/offer came from stale stored prices here).
+        // Levels and queues are left alone: OB rebuilds them from recovery
+        // through its own clear-on-first-snapshot path.
+        auto &o = ptr_->second;
+        o.px = mbo.pxd;
+        o.sz = mbo.displayQty;
+        o.side = get_side(m->l3);
+        return;
       }
 
       if (found)
@@ -2067,6 +2099,10 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
 
     const auto &mbot = std::get<bfile::l3_mbo_trd_v2_t>(m->l3);
 
+    // A trade record of a later transaction closes out EXECs still held for
+    // the previous one, even when this order is not in the book.
+    exec_slate.advance(mbot.transactTime, release_exec);
+
     bool found = false;
     auto ptr_ = ordermap.find(mbot.orderID);
     order_info_t *ord = nullptr;
@@ -2107,10 +2143,20 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
     pl->hndl_tim_epoch = handlerendtim;
 
     //
-    // not sure if a q is necessary or is the
-    // correspondence of execs to cancs 1 to 1 ?
+    // Slated until this order's own book record arrives. The stored px and
+    // side above are only right if the order was RESTING; an order modified
+    // to cross is the aggressor and its Change comes after this record.
     //
-    exec_slate[ordref].push(pl);
+    // at_touch: the order is at OB's best price on its side (OB's integer
+    // price units, as its payloads carry them). Lets FillSlate tell the
+    // resting order from a modified aggressor in a 1-vs-1 trade.
+    const int ord_px_int = ref::Price((long double)ord->px, sym).to_int();
+    const bool at_touch = ord->side == en::bs::BUY ? ord_px_int == int(best_bid)
+                                                   : ord_px_int == int(best_ask);
+    exec_slate.on_trade(mbot.orderID, mbot.transactTime, ord->px,
+                        ord->side == en::bs::BUY ? frame::ob::FillSlate<payload_ptr_t>::BUY
+                                                 : frame::ob::FillSlate<payload_ptr_t>::SEL,
+                        static_cast<uint32_t>(mbot.lastQty), at_touch, pl, release_exec);
   }
   else if (is_canc(m->l3) && !badpx_force_delete)
   {
@@ -2190,7 +2236,7 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
       pl1->sendtim_epoch = sendtim_epoch;
       pl1->hndl_tim_epoch = handlerendtim;
 
-      process_slated_exec(ordref, pl1);
+      process_slated_exec(mbo, pl1);
 
       // now add
       ordref = mda::OrderID::longid(mbo.venue, bookoid++);
@@ -2252,7 +2298,7 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
       pl->sendtim_epoch = sendtim_epoch;
       pl->hndl_tim_epoch = handlerendtim;
 
-      process_slated_exec(ordref, pl);
+      process_slated_exec(mbo, pl);
     }
   }
   else if (is_cand(m->l3) || badpx_force_delete)
@@ -2303,7 +2349,7 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
     pl->sendtim_epoch = sendtim_epoch;
     pl->hndl_tim_epoch = handlerendtim;
 
-    process_slated_exec(ordref, pl);
+    process_slated_exec(mbo, pl);
 
     ordermap.erase(mbo.orderID);
   }
@@ -3410,6 +3456,9 @@ void act::OB::check_sim_handler(const frame::ob::msg::CheckSim *m) noexcept
 
 void act::OB::shutdown_handler(const actors::msg::Shutdown *) noexcept
 {
+  // exec_slate is deliberately NOT flushed here: releasing pushes EXECs
+  // through process_q into the sim queues while actors shut down. Only
+  // EXECs whose order's own record never arrived can still be held.
   std::cerr << get_name() << " shutting down numadd: " << num_add
             << " numexec: " << num_exec
             << " badpx: " << num_bad_px
