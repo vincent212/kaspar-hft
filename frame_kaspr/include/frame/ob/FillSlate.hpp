@@ -38,7 +38,10 @@
 //                prints are AT the bid or offer; the cost is one double-counted
 //                volume with zero net flow.
 //
-// RULES, per transaction (one transactTime = one incoming order)
+// RULES, per transaction (one transactTime = one incoming order). Counted in
+// distinct ORDERS, not fills: CME lists an order once per price level it
+// trades at, so a modified bid sweeping two one-order levels is listed twice
+// (1,044 such transactions on channel 314 2026-10-08).
 //   all listed orders on one side       -> all RESTING (aggressor was new)
 //   one side 1 order, other side >= 2   -> the lone order is the AGGRESSOR
 //                                          (one incoming order per event, so a
@@ -53,7 +56,8 @@
 //     price on its side when the trade arrives -> that order is RESTING,
 //     the other the AGGRESSOR (a resting order fills at the touch; a
 //     modified aggressor's stored price is its old limit, often far off)
-//     otherwise (both Deleted, both or neither at the touch) -> AMBIGUOUS
+//     otherwise (both Deleted, both or neither at the touch) -> AMBIGUOUS,
+//     known once both orders' records are in
 //
 //   The decision is taken at the transaction's first book record that settles
 //   it, and is then FIXED for the rest of the transaction. Trade records that
@@ -72,26 +76,29 @@
 //               side; the overload without it assumes true (no information).
 //   on_book():  for each LIVE (recovery == 0) book record, BEFORE applying it,
 //               with CME's OrderUpdateAction (0 New, 1 Change, 2 Delete).
-//   flush():    end of data / shutdown: release everything held.
-//   clear():    channel reset / book clear: drop held fills without releasing.
+//   flush():    end of data / shutdown / channel reset: release everything.
+//   clear():    book clear: drop held fills without releasing.
 //
 //   Fills are released through the callback `release(const Fill&, FillRole)`.
-//   A fill is released at its own order's book record when the transaction is
-//   decided by then; fills whose records came before the decision are released
-//   together at the record that decides it; anything left goes out, in trade
-//   order, when the transaction closes. So release order follows book-record
-//   order, not trade-record order.
+//   When, is set per book:
+//     Release::AT_DECISION    every fill of the transaction goes out at the
+//                             record that decides it (usually the first book
+//                             record after the trade records), and any later
+//                             fill of a decided transaction at once. An
+//                             undecided 1 vs 1 goes out, AMBIGUOUS, as soon as
+//                             both orders' records are in. For a book whose
+//                             prints and volume only depend on the verdict
+//                             (TachBook): no fill waits longer than it must.
+//     Release::AT_OWN_RECORD  each fill goes out at its own order's book
+//                             record, BEFORE the caller applies it -- AMBIGUOUS
+//                             if still undecided. For OB: an EXEC must be
+//                             processed before its order's CANC/CANCD removes
+//                             the order, or the EXEC finds no order.
+//   Anything left goes out, in trade order, when the transaction closes.
 //
-//   Undecided fills at their own record:
-//     Undecided::HOLD                  keep holding (TachBook: only its
-//                                      prints depend on the verdict)
-//     Undecided::RELEASE_AT_OWN_RECORD release now as AMBIGUOUS (OB: its EXEC
-//                                      must be processed before the order's
-//                                      CANC/CANCD removes the order, or the
-//                                      EXEC finds no order and is dropped)
-//
-//   Cost: O(1) per record via an orderID index; one pass over the
-//   transaction's fills when it is decided and one when it closes.
+//   Cost: O(1) per record via an orderID index that does not allocate once
+//   warm (entries are erased one by one at close, never clear()ed); one pass
+//   over the transaction's fills when it is decided and one when it closes.
 //
 // Side convention: the caller passes FillSlate::BUY or FillSlate::SEL for the
 // order's STORED side.
@@ -102,7 +109,7 @@
 #include <cstddef>
 #include <utility>
 #include <vector>
-#include <unordered_map>
+#include <boost/unordered/unordered_flat_map.hpp>
 
 namespace frame::ob
 {
@@ -125,10 +132,10 @@ namespace frame::ob
     return "?";
   }
 
-  enum class Undecided : int8_t
+  enum class Release : int8_t
   {
-    HOLD,
-    RELEASE_AT_OWN_RECORD
+    AT_DECISION,
+    AT_OWN_RECORD
   };
 
   template <class Payload>
@@ -146,13 +153,16 @@ namespace frame::ob
       uint32_t qty;      // lastQty
       int      side;     // BUY / SEL, the order's STORED side
       Payload  pl;       // caller's payload (e.g. the EXEC), released as-is
-      int8_t   hint;     // 0 none, 1 Change kept price, 2 Change moved price
-      bool     seen;     // the order's own book record has arrived
+      int32_t  next;     // next fill of the same order in this transaction, -1 none
       bool     at_touch; // stored price was the best on its side at the trade
       bool     released;
     };
 
-    explicit FillSlate(Undecided mode = Undecided::HOLD) : mode_(mode) {}
+    explicit FillSlate(Release mode = Release::AT_DECISION) : mode_(mode)
+    {
+      fills_.reserve(64);
+      idx_.reserve(64);
+    }
 
     // diagnostics, cumulative
     uint64_t n_resting = 0;
@@ -183,11 +193,26 @@ namespace frame::ob
         tx_open_ = true;
         tx_ = tx;
       }
-      (side == BUY ? nb_ : ns_)++;
-      (side == BUY ? buy_at_touch_ : sel_at_touch_) = at_touch;
-      idx_[oid].push_back(static_cast<uint32_t>(fills_.size()));
-      fills_.push_back(Fill{oid, tx, px, qty, side, std::move(pl), 0, false, at_touch, false});
+      const auto i = static_cast<int32_t>(fills_.size());
+      fills_.push_back(Fill{oid, tx, px, qty, side, std::move(pl), -1, at_touch, false});
       ++held_;
+      auto [it, is_new] = idx_.try_emplace(oid, Ord{i, i, false});
+      if (is_new)
+      {
+        // a new ORDER on this side; a repeat listing of the same order
+        // (one per price level it traded at) is not
+        (side == BUY ? nb_ : ns_)++;
+        (side == BUY ? buy_at_touch_ : sel_at_touch_) = at_touch;
+      }
+      else
+      {
+        fills_[it->second.last].next = i;
+        it->second.last = i;
+      }
+      // A decided transaction (AT_DECISION) releases its later fills at once;
+      // so does a fill whose order's record already came.
+      if (aside_ != SIDE_UNKNOWN && (mode_ == Release::AT_DECISION || it->second.seen))
+        release_one(fills_[i], role_for(fills_[i]), release);
     }
 
     // action: CME OrderUpdateAction -- 0 New, 1 Change, 2 Delete.
@@ -204,40 +229,37 @@ namespace frame::ob
       if (action != 1 && action != 2)
         return;
       auto it = idx_.find(oid);
-      if (it == idx_.end())
+      if (it == idx_.end() || it->second.seen)
         return;
-      Fill *f = nullptr;
-      for (uint32_t i : it->second)
-        if (!fills_[i].seen)
-        {
-          f = &fills_[i];
-          break;
-        }
-      if (!f)
-        return;
-      f->seen = true;
+      Ord &o = it->second;
+      o.seen = true;
+      ++seen_orders_;
+      const Fill &first = fills_[o.first];
       if (action == 1)
-      {
-        f->hint = same_px(px, f->px) ? 1 : 2;
-        (f->hint == 1 ? kept_side_ : moved_side_) = f->side;
-      }
+        (same_px(px, first.px) ? kept_side_ : moved_side_) = first.side;
       if (aside_ == SIDE_UNKNOWN)
       {
         aside_ = compute_side();
         if (aside_ != SIDE_UNKNOWN)
         {
-          // just decided: release every fill whose record has arrived
+          // just decided
           for (auto &g : fills_)
-            if (g.seen && !g.released)
+            if (!g.released && (mode_ == Release::AT_DECISION || idx_.find(g.oid)->second.seen))
               release_one(g, role_for(g), release);
           return;
         }
-        if (mode_ == Undecided::RELEASE_AT_OWN_RECORD)
-          release_one(*f, FillRole::AMBIGUOUS, release);
+        // still undecided (1 vs 1)
+        if (mode_ == Release::AT_OWN_RECORD)
+          release_order(o, FillRole::AMBIGUOUS, release);
+        else if (seen_orders_ == nb_ + ns_)
+          // every listed order's record is in: nothing more can decide it
+          for (auto &g : fills_)
+            if (!g.released)
+              release_one(g, FillRole::AMBIGUOUS, release);
         return;
       }
-      if (!f->released)
-        release_one(*f, role_for(*f), release);
+      if (mode_ == Release::AT_OWN_RECORD)
+        release_order(o, FillRole::AMBIGUOUS /* unused: decided */, release);
     }
 
     template <class F>
@@ -245,8 +267,9 @@ namespace frame::ob
 
     void clear() noexcept
     {
+      for (auto &f : fills_)
+        idx_.erase(f.oid);
       fills_.clear();
-      idx_.clear();
       held_ = 0;
       reset_tx();
     }
@@ -257,16 +280,23 @@ namespace frame::ob
     static constexpr int SIDE_NONE = -2;     // no aggressor among the listed orders
     static constexpr int SIDE_UNKNOWN = -1;  // 1 vs 1, not decided yet
 
-    Undecided mode_;
+    struct Ord
+    {
+      int32_t first, last;   // its fills in fills_, chained through Fill::next
+      bool    seen;          // its book record has arrived
+    };
+
+    Release mode_;
     std::vector<Fill> fills_;   // this transaction's fills, in trade order
-    std::unordered_map<uint64_t, std::vector<uint32_t>> idx_;   // oid -> fills_ indices
+    boost::unordered_flat_map<uint64_t, Ord> idx_;   // this transaction's orders
     std::size_t held_ = 0;      // fills not released yet
 
     // Facts about the CURRENT transaction. Fixed for the whole transaction,
     // independent of which fills have already been released.
     bool        tx_open_ = false;
     uint64_t    tx_ = 0;
-    std::size_t nb_ = 0, ns_ = 0;           // orders listed on each side
+    std::size_t nb_ = 0, ns_ = 0;           // distinct orders listed on each side
+    std::size_t seen_orders_ = 0;           // of those, with their book record in
     int         moved_side_ = SIDE_UNKNOWN; // side of an order whose Change moved its price
     int         kept_side_ = SIDE_UNKNOWN;  // side of an order whose Change kept its price
     bool        buy_at_touch_ = true;       // 1 vs 1: the BUY order was at the best bid
@@ -277,6 +307,7 @@ namespace frame::ob
     {
       tx_open_ = false;
       nb_ = ns_ = 0;
+      seen_orders_ = 0;
       moved_side_ = kept_side_ = SIDE_UNKNOWN;
       buy_at_touch_ = sel_at_touch_ = true;
       aside_ = SIDE_UNKNOWN;
@@ -318,12 +349,22 @@ namespace frame::ob
     template <class F>
     void release_one(Fill &f, FillRole r, F &release)
     {
+      if (f.released)
+        return;
       f.released = true;
       --held_;
       if (r == FillRole::RESTING)        ++n_resting;
       else if (r == FillRole::AGGRESSOR) ++n_aggressor;
       else                               ++n_ambiguous;
       release(static_cast<const Fill &>(f), r);
+    }
+
+    // Release all of one order's fills: with the decided role, or `undecided`.
+    template <class F>
+    void release_order(const Ord &o, FillRole undecided, F &release)
+    {
+      for (int32_t i = o.first; i >= 0; i = fills_[i].next)
+        release_one(fills_[i], aside_ == SIDE_UNKNOWN ? undecided : role_for(fills_[i]), release);
     }
 
     // Release everything still held, in trade order, and start afresh.
@@ -335,10 +376,7 @@ namespace frame::ob
       for (auto &f : fills_)
         if (!f.released)
           release_one(f, role_for(f), release);
-      fills_.clear();
-      idx_.clear();
-      held_ = 0;
-      reset_tx();
+      clear();
     }
   };
 

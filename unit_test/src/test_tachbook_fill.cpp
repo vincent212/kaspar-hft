@@ -223,7 +223,7 @@ TEST_F(TachBookFillTest, NewAggressorSweepUnchanged) {
   EXPECT_FALSE(p[1].resting_buy);
 }
 
-// An undecided fill (1 vs 1, both at the touch, both Deleted) is held. A
+// An undecided fill (1 vs 1, both at the touch, one record in) is held. A
 // trade record of a later transaction -- for an order this book does not
 // have -- releases it, not this instrument's next book record.
 TEST_F(TachBookFillTest, HeldFillReleasedByLaterTradeRecord) {
@@ -232,8 +232,7 @@ TEST_F(TachBookFillTest, HeldFillReleasedByLaterTradeRecord) {
   sink.clear();
   f->trade(70, 1, 2);
   f->trade(70, 2, 2);
-  f->mbo(70, DELETE, 1, BID, 104.71875, 2);
-  f->mbo(70, DELETE, 2, OFFER, 104.734375, 2);
+  f->mbo(70, DELETE, 1, BID, 104.71875, 2);   // the other record never comes
   EXPECT_TRUE(sink.prints().empty()) << "undecided: held";
   f->trade(80, 99999, 1);
   EXPECT_EQ(sink.prints().size(), 2u);
@@ -246,8 +245,7 @@ TEST_F(TachBookFillTest, ShutdownFlushesHeldFills) {
   sink.clear();
   f->trade(70, 1, 2);
   f->trade(70, 2, 2);
-  f->mbo(70, DELETE, 1, BID, 104.71875, 2);
-  f->mbo(70, DELETE, 2, OFFER, 104.734375, 2);
+  f->mbo(70, DELETE, 1, BID, 104.71875, 2);   // the other record never comes
   EXPECT_TRUE(sink.prints().empty());
   actors::msg::Shutdown sd;
   TestHelper::invoke_handler(tb.get(), &sd, nullptr);

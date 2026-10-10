@@ -121,13 +121,14 @@ TEST(FillSlate, ModifiedAggressorChangeArrivesLast)
   s.on_trade(2, tx, 104.71875, SEL, 14, 2, k.fn());
   s.on_trade(3, tx, 104.71875, SEL, 3, 3, k.fn());
   s.on_book(2, tx, DELETE, 104.71875, k.fn());
-  s.on_book(3, tx, DELETE, 104.71875, k.fn());
-  EXPECT_EQ(k.tak, 17u) << "resting fills go out at their own records";
+  // 1 buy vs 2 sells: decided at the first record, everything released
+  EXPECT_EQ(k.tak, 17u);
   EXPECT_EQ(k.hit, 0u);
-  EXPECT_EQ(k.find(1), nullptr) << "aggressor not released before its own record";
-  s.on_book(1, tx, CHANGE, 104.71875, k.fn());
   ASSERT_NE(k.find(1), nullptr);
   EXPECT_EQ(k.find(1)->role, FillRole::AGGRESSOR);
+  s.on_book(3, tx, DELETE, 104.71875, k.fn());
+  s.on_book(1, tx, CHANGE, 104.71875, k.fn());
+  EXPECT_EQ(k.out.size(), 3u);
   EXPECT_EQ(k.hit, 0u);
 }
 
@@ -175,7 +176,7 @@ TEST(FillSlate, OneVsOneAggressorChangeMovesPrice)
 }
 
 // 1 vs 1, both fully filled and BOTH at the touch: two Deletes, nothing
-// tells them apart. Released as AMBIGUOUS when the transaction closes.
+// tells them apart. Released as AMBIGUOUS once both records are in.
 TEST(FillSlate, OneVsOneBothDeletedIsAmbiguous)
 {
   Slate s;
@@ -183,9 +184,8 @@ TEST(FillSlate, OneVsOneBothDeletedIsAmbiguous)
   s.on_trade(1, 7, 104.70, BUY, 5, 1, k.fn());
   s.on_trade(2, 7, 104.72, SEL, 5, 2, k.fn());
   s.on_book(1, 7, DELETE, 104.70, k.fn());
+  EXPECT_TRUE(k.out.empty()) << "undecided: held while a record can still decide it";
   s.on_book(2, 7, DELETE, 104.72, k.fn());
-  EXPECT_TRUE(k.out.empty()) << "undecided: held until the transaction closes";
-  s.on_book(99, 8, NEW, 104.70, k.fn());  // a record of the next transaction
   ASSERT_EQ(k.out.size(), 2u);
   EXPECT_EQ(k.out[0].role, FillRole::AMBIGUOUS);
   EXPECT_EQ(k.out[1].role, FillRole::AMBIGUOUS);
@@ -203,7 +203,7 @@ TEST(FillSlate, NewAggressorSweepIsAllResting)
   s.on_trade(1, 5, 104.71875, SEL, 14, 1, k.fn());
   s.on_trade(2, 5, 104.71875, SEL, 3, 2, k.fn());
   s.on_book(1, 5, DELETE, 104.71875, k.fn());
-  ASSERT_EQ(k.out.size(), 1u) << "each fill released at its own record";
+  ASSERT_EQ(k.out.size(), 2u) << "one-sided: decided at the first record, all released";
   EXPECT_EQ(k.out[0].oid, 1u);
   s.on_book(2, 5, CHANGE, 104.71875, k.fn());  // partial fill, same price
   ASSERT_EQ(k.out.size(), 2u);
@@ -390,7 +390,7 @@ TEST(FillSlate, DecisionIsStickyWhenLateTradesArrive)
 // order's record, after OB had erased the order, so the EXEC was dropped.
 TEST(FillSlate, ReleaseAtOwnRecordModeReleasesUndecidedImmediately)
 {
-  frame::ob::FillSlate<int> s(frame::ob::Undecided::RELEASE_AT_OWN_RECORD);
+  frame::ob::FillSlate<int> s(frame::ob::Release::AT_OWN_RECORD);
   Sink k;
   s.on_trade(1, 9, 104.70, BUY, 5, /*at_touch=*/true, 1, k.fn());
   s.on_trade(2, 9, 104.72, SEL, 5, /*at_touch=*/true, 2, k.fn());
@@ -402,8 +402,9 @@ TEST(FillSlate, ReleaseAtOwnRecordModeReleasesUndecidedImmediately)
   ASSERT_EQ(k.out.size(), 2u);
 }
 
-// ...while the default HOLD mode keeps holding the same undecided fill.
-TEST(FillSlate, HoldModeKeepsUndecided)
+// ...while the default AT_DECISION mode holds it until the other order's
+// record is in too.
+TEST(FillSlate, AtDecisionModeKeepsUndecidedUntilBothRecordsIn)
 {
   Slate s;
   Sink k;
@@ -463,3 +464,76 @@ TEST(FillSlate, LargeSweepIsLinear)
   EXPECT_LT(ms, 200) << "on_book over a " << N << "-order sweep took " << ms << " ms";
 }
 
+
+// ---------------------------------------------------------------------------
+// Second review (kaspar-hft PR #171)
+// ---------------------------------------------------------------------------
+
+// Review #2: CME lists an order once per price level it trades at. A bid
+// modified to sweep two one-order offer levels is listed twice: 1 buy ORDER
+// vs 2 sell orders, not "2 vs 2". Counted in fills it read as an auction,
+// every fill RESTING, and the aggressor's fills printed at its old price.
+TEST(FillSlate, RepeatListingCountsOneOrder)
+{
+  Slate s;
+  Sink k;
+  s.on_trade(1, 9, 104.6875, BUY, 3, 1, k.fn());     // level 1
+  s.on_trade(2, 9, 104.71875, SEL, 3, 2, k.fn());
+  s.on_trade(1, 9, 104.6875, BUY, 2, 3, k.fn());     // level 2, same order
+  s.on_trade(3, 9, 104.734375, SEL, 2, 4, k.fn());
+  s.on_book(2, 9, DELETE, 104.71875, k.fn());
+  s.on_book(3, 9, DELETE, 104.734375, k.fn());
+  s.on_book(1, 9, CHANGE, 104.734375, k.fn());
+  s.flush(k.fn());
+  EXPECT_EQ(k.hit, 0u);
+  EXPECT_EQ(k.tak, 5u);
+  int aggr = 0;
+  for (auto &o : k.out)
+    aggr += o.role == FillRole::AGGRESSOR;
+  EXPECT_EQ(aggr, 2) << "both of the bid's fills are the aggressor's";
+}
+
+// Review #4: one book record per order covers all its fills. In
+// AT_OWN_RECORD mode (OB) both fills of a twice-listed resting order go out
+// at its record, before the caller applies it -- not at close, after the
+// order is gone.
+TEST(FillSlate, OneRecordReleasesAllFillsOfTheOrder)
+{
+  frame::ob::FillSlate<int> s(frame::ob::Release::AT_OWN_RECORD);
+  Sink k;
+  s.on_trade(5, 9, 104.71875, SEL, 1, 1, k.fn());
+  s.on_trade(5, 9, 104.71875, SEL, 2, 2, k.fn());   // the same resting order again
+  s.on_book(5, 9, DELETE, 104.71875, k.fn());
+  ASSERT_EQ(k.out.size(), 2u);
+  EXPECT_EQ(k.tak, 3u);
+}
+
+// Review #3: in AT_DECISION mode (TachBook) every fill goes out at the record
+// that decides the transaction, not each at its own order's record.
+TEST(FillSlate, AtDecisionReleasesAllFillsAtOnce)
+{
+  Slate s;
+  Sink k;
+  s.on_trade(1, 9, 104.71875, SEL, 1, 1, k.fn());
+  s.on_trade(2, 9, 104.71875, SEL, 1, 2, k.fn());
+  s.on_trade(3, 9, 104.734375, SEL, 1, 3, k.fn());
+  s.on_book(1, 9, DELETE, 104.71875, k.fn());       // one-sided: decided here
+  EXPECT_EQ(k.out.size(), 3u);
+  s.on_trade(4, 9, 104.734375, SEL, 1, 4, k.fn());  // a late fill of the decided tx
+  EXPECT_EQ(k.out.size(), 4u) << "released on arrival";
+}
+
+// Review #6: an undecided 1 vs 1 goes out as soon as both orders' records
+// are in -- nothing later can decide it.
+TEST(FillSlate, UndecidedReleasedWhenAllRecordsIn)
+{
+  Slate s;
+  Sink k;
+  s.on_trade(1, 9, 104.70, BUY, 5, true, 1, k.fn());
+  s.on_trade(2, 9, 104.72, SEL, 5, true, 2, k.fn());
+  s.on_book(1, 9, DELETE, 104.70, k.fn());
+  EXPECT_TRUE(k.out.empty());
+  s.on_book(2, 9, DELETE, 104.72, k.fn());
+  ASSERT_EQ(k.out.size(), 2u);
+  EXPECT_EQ(k.out[0].role, FillRole::AMBIGUOUS);
+}

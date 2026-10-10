@@ -157,7 +157,7 @@ namespace frame
         // RELEASE_AT_OWN_RECORD: an undecided EXEC must be processed before
         // its order's CANC/CANCD removes the order, or process_q finds no
         // order and drops it (sim orders queued ahead are then never filled).
-        frame::ob::FillSlate<payload_ptr_t> exec_slate{frame::ob::Undecided::RELEASE_AT_OWN_RECORD};
+        frame::ob::FillSlate<payload_ptr_t> exec_slate{frame::ob::Release::AT_OWN_RECORD};
 
         // vwap_acc vacc;
         // presh_acc pacc;

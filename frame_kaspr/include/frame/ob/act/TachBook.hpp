@@ -194,8 +194,12 @@ namespace frame::ob::act
     // frame/ob/FillSlate.hpp, unit_test/src/test_fill_slate.cpp. Same
     // mechanism as OB.cpp's exec slate.
     //
-    // Latency: a held EXEC goes out at its order's book record, usually the
-    // next record of the same event; publish_ts is stamped at release.
+    // Latency: a fill goes out at the book record that decides its
+    // transaction (Release::AT_DECISION), normally the first book record
+    // after the trade records -- in a LATER packet for most fills. Measured
+    // wait, CME sendingTime of that record minus the trade record's,
+    // 2026-10-08: ZN p50 15us p90 646us p99 2.3ms; ES p50 10us p90 34us
+    // p99 338us. publish_ts is stamped at release, so it includes the wait.
     using trade_pl_t = boost::intrusive_ptr<frame::mda::msg::data_pay_load>;
     using fill_slate_t = frame::ob::FillSlate<trade_pl_t>;
     fill_slate_t fill_slate;
@@ -1135,7 +1139,11 @@ namespace frame::ob::act
         ask.clear();
         bid.clear();
         orders.clear();
-        fill_slate.clear();  // fills of orders that no longer exist
+        // Held fills are real trades with a known stored price and side; they
+        // do not depend on the book being cleared. Release them, do not drop.
+        fill_slate.flush([this](const fill_slate_t::Fill &f, frame::ob::FillRole r) {
+          release_fill(f, r);
+        });
         // do we notify subs?
         for (auto &sub : hiprio_subs)
         {
