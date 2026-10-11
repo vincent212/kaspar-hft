@@ -275,8 +275,6 @@ Kaspar is model-agnostic: any order-book model (order-flow imbalance, a queue or
 
 To evaluate a model, run it against the model-free shadow benchmark in the same replay: same days, same target quantity, same delays.
 
-For the models themselves (how each is built, what it predicts, how to test it in a queue-exact replay and how to deploy it on accelerated hardware), see *A Survey of Limit-Order-Book Models, Simulators and Hardware Acceleration* ([PDF](tech_reports/ob_survey/main.pdf)).
-
 ## Deep Dives
 
 Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.substack.com](https://vincentmayeski.substack.com)):
