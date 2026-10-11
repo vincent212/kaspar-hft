@@ -135,6 +135,9 @@ tech_reports/*.toc
 # tracked -- the paper releases it -- as are the grid outputs the tables come from.
 arrival_paper/figs/qsim_cache*/arrivals/
 arrival_paper/figs/qsim_grid_5min/
+# per-session span dumps (one npz per session, 297 MB / 22 GB; regenerable from the tapes)
+arrival_paper/figs/qsim_spans/
+arrival_paper/figs/qsim_spans_tr/
 arrival_paper/*.aux
 arrival_paper/*.toc
 arrival_paper/*.lof
