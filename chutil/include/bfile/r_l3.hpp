@@ -719,6 +719,42 @@ namespace bfile
 
   } l3_chr_v2_t;
 
+  // END OF PACKET. One record per MDP3 packet, written from
+  // mdp3::handler_if::EndOfPacket, which DataDecoder.hpp calls once per packet
+  // after its message loop.
+  //
+  // WHY IT EXISTS. The packet is not recoverable from the other records after
+  // the fact. Measured on the 2026-10-08 channel-318 capture (91.8M records):
+  //   endOfEvent groups   5.73M, but sendingTime VARIED inside 68% of them,
+  //                       so endOfEvent is a book-transaction boundary, not a
+  //                       packet boundary;
+  //   sendingTime runs    73.7M, but only 7.4% ended on an endOfEvent, so the
+  //                       stamp is finer than a packet;
+  //   l3_eob_t (BurstEnd) 0 records, and a burst is a drained BATCH of packets
+  //                       anyway, which merges the publisher trains.
+  // So the packet boundary has to be stamped at decode time or it is lost.
+  //
+  // msgSeqNum is the channel's packet sequence number -- a real packet index,
+  // better than anything reconstructable -- and sendingTime is the publisher's
+  // send time for that packet.
+  typedef struct [[gnu::packed]]
+  {
+    l3_typ_t typ;
+    char venue;
+    uint32_t msgSeqNum;
+    uint64_t sendingTime;
+
+  } l3_eop_packed_t;
+
+  typedef struct
+  {
+    l3_typ_t typ;
+    char venue;
+    uint32_t msgSeqNum;
+    uint64_t sendingTime;
+
+  } l3_eop_t;
+
   typedef struct [[gnu::packed]]
   {
     l3_typ_t typ;
@@ -1695,6 +1731,25 @@ namespace bfile
     return unpacked;
   }
 
+  // l3_eop_t conversion functions
+  inline static l3_eop_packed_t to_packed(const l3_eop_t& unpacked) {
+    l3_eop_packed_t packed = {};
+    packed.typ = unpacked.typ;
+    packed.venue = unpacked.venue;
+    packed.msgSeqNum = unpacked.msgSeqNum;
+    packed.sendingTime = unpacked.sendingTime;
+    return packed;
+  }
+
+  inline static l3_eop_t from_packed(const l3_eop_packed_t& packed) {
+    l3_eop_t unpacked = {};
+    unpacked.typ = packed.typ;
+    unpacked.venue = packed.venue;
+    unpacked.msgSeqNum = packed.msgSeqNum;
+    unpacked.sendingTime = packed.sendingTime;
+    return unpacked;
+  }
+
   // l3_sim_t conversion functions
   inline static l3_sim_packed_t to_packed(const l3_sim_t& unpacked) {
     l3_sim_packed_t packed = {};
@@ -2014,6 +2069,7 @@ namespace bfile
       l3_gap_v2_t,
       l3_chr_v2_t,
       l3_eob_t,
+      l3_eop_t,
       l3_sim_t,
       l3_fenics_sys_event_t,
       l3_fenics_bdf_t,
@@ -2188,6 +2244,14 @@ namespace bfile
       auto packed = to_packed(m);
       packed.typ = en::l3::EOB;
       datsz = sizeof(l3_eob_packed_t);
+      write_record_l3((const char *)&packed, datsz, outf);
+    }
+    else if (std::holds_alternative<l3_eop_t>(l3))
+    {
+      const auto &m = std::get<l3_eop_t>(l3);
+      auto packed = to_packed(m);
+      packed.typ = en::l3::EOP;
+      datsz = sizeof(l3_eop_packed_t);
       write_record_l3((const char *)&packed, datsz, outf);
     }
     else if (std::holds_alternative<l3_sim_t>(l3))
@@ -2494,6 +2558,21 @@ namespace bfile
       auto eob = from_packed(eob_packed);
       l3 = eob;
       ts = 0;
+      break;
+    }
+    case en::l3::EOP:
+    {
+      l3_eop_packed_t eop_packed;
+      if (!read_rec(eop_packed))
+        return false;
+      auto eop = from_packed(eop_packed);
+      l3 = eop;
+      // ts is the packet's publisher send time -- unlike EOB, this record
+      // carries a real timestamp, so hand it back rather than 0.
+      ts = 0;   // like EOB: ts is engine time for timed records; EOP has
+                // none. Its send time is in eop.sendingTime. Returning it here
+                // would mix two clocks in one ts stream (merge/verify tools
+                // order and check records by ts).
       break;
     }
     case en::l3::FENICS_SYSTEMEVENT:

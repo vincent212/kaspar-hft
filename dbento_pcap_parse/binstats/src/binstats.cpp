@@ -112,18 +112,21 @@ static const char* l3_variant_name(size_t idx) {
         "l3_gap_v2",                     // 15
         "l3_chr_v2",                     // 16
         "l3_eob",                        // 17
-        "l3_sim",                        // 18
-        "l3_fenics_sys_event",           // 19
-        "l3_fenics_bdf",                 // 20
-        "l3_fenics_trading_action",      // 21
-        "l3_fenics_instrumentstats",     // 22
-        "l3_dealerweb_bookdir",          // 23
-        "l3_dealerweb_sys_event",        // 24
-        "l3_dealerweb_orderbookstate",   // 25
-        "l3_dealerweb_information",      // 26
-        "l3_dealerweb_brokentrade",      // 27
+        "l3_eop",                        // 18  (end of MDP3 packet)
+        "l3_sim",                        // 19
+        "l3_fenics_sys_event",           // 20
+        "l3_fenics_bdf",                 // 21
+        "l3_fenics_trading_action",      // 22
+        "l3_fenics_instrumentstats",     // 23
+        "l3_dealerweb_bookdir",          // 24
+        "l3_dealerweb_sys_event",        // 25
+        "l3_dealerweb_orderbookstate",   // 26
+        "l3_dealerweb_information",      // 27
+        "l3_dealerweb_brokentrade",      // 28
     };
     constexpr size_t N = sizeof(names) / sizeof(names[0]);
+    static_assert(N == std::variant_size_v<bfile::l3_t>,
+                  "names[] out of sync with bfile::l3_t");
     return idx < N ? names[idx] : "(unknown)";
 }
 
