@@ -1249,11 +1249,28 @@ struct handler_if : public mdp3::feed_handler_if
   // counter climbing without bound across a gap fill, and every record after
   // the first recovery would carry a junk index. EndOfPacket fires for every
   // packet regardless of how it arrived, so the counter cannot run away.
+  //
+  // It also writes one EOP record per packet to the bin recorder, the only
+  // place the packet boundary is known. Recorder only, not BOOKSEND: nothing
+  // downstream consumes a per-packet marker, and it fires once per packet.
   virtual void EndOfPacket(
-      [[maybe_unused]] u_int32_t msgSeqNum,
-      [[maybe_unused]] uint64_t sendingTme) noexcept override
+      u_int32_t msgSeqNum,
+      uint64_t sendingTme) noexcept override
   {
     pkt_entry_idx_ = 0;
+
+    if (!binrec)
+      return;
+
+    bfile::l3_eop_t l3;
+    l3.typ = en::l3::EOP;
+    l3.venue = xchg;
+    l3.msgSeqNum = msgSeqNum;
+    l3.sendingTime = sendingTme;
+
+    auto recmsg = new frame::mda::msg::Data();
+    recmsg->l3 = l3;
+    binrec->send(recmsg, 0);
   }
 
   // the parameter here ?

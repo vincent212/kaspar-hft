@@ -299,9 +299,26 @@ namespace frame::mda::act
       volume_file.close();
     }
 
+    // EOP records (one per MDP3 packet) read and dropped so far; see process().
+    uint64_t eop_dropped() const { return eop_dropped_; }
+
   private:
+    uint64_t eop_dropped_ = 0;
+
     void process(const bfile::l3_t &l3) noexcept
     {
+      // END OF PACKET. The recorder writes one EOP record per MDP3 packet
+      // (handler_if::EndOfPacket). No book in this repo consumes it: TachBook
+      // logs unknown types and OB returns early for raw records it does not
+      // handle. Forwarding it would go down the broadcast path below and copy
+      // it to every book on the venue, one message per book per packet (on
+      // the order of 100M a day on a busy channel), for nothing. Drop it here.
+      // A consumer that needs packet boundaries reads them from the .bin.
+      if (std::holds_alternative<bfile::l3_eop_t>(l3))
+      {
+        ++eop_dropped_;
+        return;
+      }
 
       bool is_fut = false;
 

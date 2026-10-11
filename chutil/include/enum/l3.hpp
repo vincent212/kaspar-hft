@@ -54,7 +54,8 @@ struct l3 {
         DEALERWEB_BROKENTRADE,
         INTERVAL,
         QLEN,
-        VOLUME
+        VOLUME,
+        EOP
     };
 
     // Implicit conversion to uint for backward compatibility
@@ -66,7 +67,7 @@ struct l3 {
 };
 
 // Constexpr lookup tables for l3
-inline constexpr std::array<const char*, 32> l3_names = {{
+inline constexpr std::array<const char*, 33> l3_names = {{
     "UNI",
     "MBO_V1",
     "MBOT_V1",
@@ -99,9 +100,10 @@ inline constexpr std::array<const char*, 32> l3_names = {{
     "INTERVAL",
     "QLEN",
     "VOLUME",
+    "EOP",
 }};
 
-inline constexpr std::array<std::uint32_t, 32> l3_values = {{
+inline constexpr std::array<std::uint32_t, 33> l3_values = {{
     l3::UNI,
     l3::MBO_V1,
     l3::MBOT_V1,
@@ -134,11 +136,12 @@ inline constexpr std::array<std::uint32_t, 32> l3_values = {{
     l3::INTERVAL,
     l3::QLEN,
     l3::VOLUME,
+    l3::EOP,
 }};
 
 using l3_pair = std::pair<l3, const char*>;
 
-inline constexpr std::array<l3_pair, 32> l3_name_hash = {{
+inline constexpr std::array<l3_pair, 33> l3_name_hash = {{
     l3_pair{l3::UNI, "UNI"},
     l3_pair{l3::MBO_V1, "MBO_V1"},
     l3_pair{l3::MBOT_V1, "MBOT_V1"},
@@ -171,12 +174,13 @@ inline constexpr std::array<l3_pair, 32> l3_name_hash = {{
     l3_pair{l3::INTERVAL, "INTERVAL"},
     l3_pair{l3::QLEN, "QLEN"},
     l3_pair{l3::VOLUME, "VOLUME"},
+    l3_pair{l3::EOP, "EOP"},
 }};
 
 // Type-safe array indexed by l3
 template<typename T>
 struct l3_array {
-    std::array<T, 32> data;
+    std::array<T, 33> data;
 
     // Access operators
     constexpr T& operator[](l3 idx) { return data[idx.value]; }
@@ -218,7 +222,7 @@ INLINE constexpr const char* to_string(l3 n) {
 }
 
 INLINE constexpr std::size_t l3_num_syms() {
-    return 32;
+    return 33;
 }
 
 INLINE constexpr bool is_valid(l3 n) {
