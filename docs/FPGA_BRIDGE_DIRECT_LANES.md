@@ -1,7 +1,7 @@
 # FPGA bridge without routing threads
 
 **Status:** design proposal, 2026-10-15. Nothing here is implemented yet.
-**Applies to:** `feature/fpga-runtime` (`actors/fpga/`), plus one new mailbox kind in `actors/cpp`.
+**Applies to:** `feature/fpga-runtime` (`actors/fpga/`), plus a new mailbox kind and a host for portable actors in `actors/cpp`.
 
 ---
 
@@ -264,8 +264,8 @@ moves to such a card.)
    way a mailbox kind is chosen today.
 4. **No allocation and no locks on the hot path.**
 
-Non-goals: changing the FPGA runtime's internals (`actor.hpp`, `links.hpp`), the envelope
-format, or the actor-code API. Those are handled separately.
+Non-goals for the link: changing the FPGA runtime's internals (`actor.hpp`, `links.hpp`)
+or the envelope format. How actor code is written for both runtimes is section 9.
 
 ## 4. The principle
 
@@ -407,7 +407,7 @@ The choice is per actor or per group, at deployment, like choosing a mailbox kin
 
 **Expected result:** a `fast_send` round trip in either direction comes down to roughly
 the PCIe round trip itself, plus a handler, instead of PCIe plus thread wake-ups. This is
-an estimate; it has to be measured (section 11).
+an estimate; it has to be measured (section 12).
 
 ## 8. Changes on the card side
 
@@ -423,7 +423,416 @@ rings:
 The discovery table gains a host-side map: CPU actor id → (lane ring, priority ring).
 This is fixed at deployment, like the rest of the table.
 
-## 9. What carries over from the branch
+## 9. Actor code: one source for CPU and FPGA
+
+Sections 4–8 make the *link* transparent: a CPU actor holding an `ActorRef` does not know
+the peer is on the card. This section is about the *code*: how to keep an actor written
+for the FPGA as close as possible to one written for the CPU, ideally the same source.
+
+### 9.1 Where we are today
+
+The same actor, written for each runtime on the branch (`examples/cpu_fpga/`):
+
+**CPU (`actors/cpp`)**
+
+```cpp
+struct Ping : public actors::Message_N<301>
+{
+  uint32_t count = 0;
+  Ping() = default;
+  explicit Ping(uint32_t c) : count(c) {}
+  KFPGA_FIELDS(count)
+};
+
+class CpuPong : public actors::Actor
+{
+public:
+  CpuPong() { MESSAGE_HANDLER(Ping, on_ping); }
+  uint32_t pings = 0;
+
+private:
+  void on_ping(const Ping *m)
+  {
+    ++pings;
+    reply(new Pong(m->count + 1000 * pings));
+  }
+};
+```
+
+**FPGA (`actors/fpga`)**
+
+```cpp
+struct Ping
+{
+  static constexpr kfpga::MsgId id = 301;
+  uint32_t count = 0;
+  KFPGA_FIELDS(count)
+};
+
+struct FpgaPong
+{
+  static constexpr kfpga::ActorId kId = 2;
+  uint32_t pings = 0;
+
+  KFPGA_HANDLERS(KFPGA_ON(Ping, on_ping))
+
+  template <class Ctx>
+  void on_ping(const Ping &m, Ctx &ctx)
+  {
+    ++pings;
+    Pong r;
+    r.count = m.count + 1000 * pings;
+    ctx.reply(r);
+  }
+};
+```
+
+The logic is identical. Everything around it differs:
+
+| | CPU | FPGA |
+|---|---|---|
+| message | class deriving `Message_N<301>`, heap-allocated with `new` | plain struct with `static id`, passed by value |
+| message declared | once per side, by hand, kept in sync by hand | |
+| actor | class deriving `actors::Actor` | plain struct with `kId` |
+| handler table | `MESSAGE_HANDLER` in the constructor, at run time | `KFPGA_HANDLERS(...)`, a compile-time `switch` |
+| handler | `void on_x(const X *m)` | `template <class Ctx> void on_x(const X &m, Ctx &ctx)` |
+| send | `ref.send(new X(...), this)` | `ctx.send(dst_id, x)` |
+| reply | `reply(new X(...))` | `ctx.reply(x)` |
+| `fast_send` | `auto r = ref.fast_send(&x, this)` returns `unique_ptr<const Message>` | `bool ok = ctx.fast_send(dst, x, rep)` |
+| addressing | `ActorRef` handed in at construction | numeric id, routed by a table fixed at build time |
+
+Two copies of every message and two styles of every actor: that is what has to go.
+
+### 9.2 The approach: portable actors
+
+Keep two kinds of actor:
+
+- **CPU actors.** Every existing Kaspar actor, unchanged. They can talk to FPGA actors
+  through `ActorRef` (sections 4–8), and can use anything C++ offers.
+- **Portable actors.** Written **once**, in the FPGA style, and run **unchanged** on
+  either runtime. Where one runs is a deployment decision, like choosing a `Group` or a
+  mailbox kind today.
+
+The FPGA style is the one to standardize on, because it is the restrictive one: code that
+synthesizes also compiles for the CPU, but not the other way round. The CPU runtime gets
+an adapter that hosts a portable actor as an ordinary `actors::Actor`.
+
+Four pieces make this work.
+
+**1. One message definition.** A message is declared once, as the plain struct the FPGA
+already uses. The CPU class is derived from it, not written by hand:
+
+```cpp
+// msgs.hpp: the only declaration
+struct Ping
+{
+  static constexpr kfpga::MsgId id = 301;
+  uint32_t count = 0;
+  KFPGA_FIELDS(count)
+};
+
+// actors/cpp side, generic (written once in the framework, not per message)
+namespace actors {
+template <class P>
+struct Wire : public Message_N<P::id>, public P
+{
+  Wire() = default;
+  explicit Wire(const P &p) : P(p) {}
+};
+}
+
+// CPU code that sends to a portable or FPGA actor
+namespace cpu { using Ping = actors::Wire<msgs::Ping>; }
+```
+
+`Wire<P>` *is a* `P`, so a CPU handler receiving `const Wire<Ping> *` can pass it to
+portable code as `const Ping &` with no copy, and the bridge encodes it with the same
+`KFPGA_FIELDS` list. There is one source of truth for the id and the fields. For larger
+sets of messages, generate `msgs.hpp` from a schema, as `actors/rust/interop/codegen/
+generate.py` already does for Rust.
+
+**2. One handler body.** Handlers are templates on a `Ctx`, and use only the `Ctx` API:
+
+| call | on the FPGA (`kfpga::Ctx`) | on the CPU (`CpuCtx`, new) |
+|---|---|---|
+| `ctx.send(dst, m)` | write into the FIFO to `dst` | `ref(dst).send(new Wire<M>(m), &actor)` |
+| `ctx.reply(m)` | reply FIFO, or held for a `fast_send` caller | `actor.reply(new Wire<M>(m))`, which already handles both cases |
+| `ctx.fast_send(dst, req, rep)` | request FIFO, wait for the reply | `ref(dst).fast_send(&wire, &actor)`, check the reply id, copy into `rep` |
+| `ctx.fast_send(b, req, rep)` | `b` is an actor in the same process: its handler runs inline | the same: `b` is a member, its handler runs inline |
+| `ctx.sender()`, `ctx.self()` | actor ids | actor ids, from the CPU table below |
+
+**3. One addressing scheme.** Portable actors address peers by **actor id**, on both
+sides. On the CPU, a deployment table maps id → `ActorRef`, the same idea as the FPGA's
+`DiscoveryTable`. The table is where "Risk runs on the card, Strategy runs on core 7" is
+written down. The actor's code never says.
+
+**4. A CPU host for portable actors.** `actors::Portable<Logic>` is an ordinary CPU actor
+that owns a `Logic` (the portable struct), registers a handler for each message in
+`Logic`'s handler table, and calls the portable handler with a `CpuCtx`:
+
+```cpp
+template <class Logic>
+class Portable : public actors::Actor
+{
+public:
+  Portable(const char *nm, const CpuDiscovery &rt) : rt_(rt)
+  {
+    std::strncpy(name, nm, sizeof(name) - 1);
+    register_handlers(typename Logic::kfpga_messages{});   // one MESSAGE_HANDLER per type
+  }
+  Logic logic;
+
+private:
+  template <class M>
+  void on(const actors::Wire<M> *m)
+  {
+    CpuCtx ctx(*this, rt_, m->sender);
+    logic.kfpga_dispatch_typed(static_cast<const M &>(*m), ctx);
+  }
+  const CpuDiscovery &rt_;
+};
+```
+
+This needs one change to the FPGA runtime: `KFPGA_HANDLERS` must also expose the list of
+message types it handles (`kfpga_messages`) and a typed dispatch, so the CPU host can
+register them. The FPGA side keeps its `switch`.
+
+### 9.3 Example: Pong, written once
+
+```cpp
+// pong.hpp: compiled into the FPGA design AND into the CPU binary
+template <kfpga::ActorId Id>
+struct Pong
+{
+  static constexpr kfpga::ActorId kId = Id;
+  uint32_t pings = 0;
+
+  KFPGA_HANDLERS(KFPGA_ON(msgs::Ping, on_ping))
+
+  template <class Ctx>
+  void on_ping(const msgs::Ping &m, Ctx &ctx)
+  {
+    ++pings;
+    msgs::Pong r;
+    r.count = m.count + 1000 * pings;
+    ctx.reply(r);
+  }
+};
+```
+
+On the card it is `actor_proc<Pong<kPong>, 1>(links)`. On the CPU it is
+`new actors::Portable<Pong<kPong>>("pong", table)`, added to the `Manager` like any
+other actor. A CPU actor calling it writes the same thing either way:
+
+```cpp
+cpu::Ping p; p.count = 1;
+auto r = pong_ref.fast_send(&p, this);   // pong_ref: an ActorRef, local or FPGA
+```
+
+### 9.4 Example: a pre-trade risk gate
+
+A more realistic actor, and a natural one to move to the card: every order passes through
+it, it keeps a little state, and it must be fast. The strategy sends it orders; it checks
+position and rate limits, and forwards the order to the order gateway or rejects it.
+
+```cpp
+namespace msgs {
+struct NewOrder
+{
+  static constexpr kfpga::MsgId id = 310;
+  uint16_t instr = 0;     // index into the universe, not a symbol string
+  uint8_t side = 0;       // 0 buy, 1 sell
+  int32_t qty = 0;
+  int64_t px = 0;         // price in ticks: no floating point in messages
+  uint32_t client_id = 0;
+  KFPGA_FIELDS(instr, side, qty, px, client_id)
+};
+struct Reject
+{
+  static constexpr kfpga::MsgId id = 311;
+  uint32_t client_id = 0;
+  uint8_t reason = 0;     // 1 position limit, 2 rate limit, 3 unknown instrument
+  KFPGA_FIELDS(client_id, reason)
+};
+struct Fill
+{
+  static constexpr kfpga::MsgId id = 312;
+  uint16_t instr = 0;
+  uint8_t side = 0;
+  int32_t qty = 0;
+  KFPGA_FIELDS(instr, side, qty)
+};
+struct Tick   // sent by a timer actor; on the card, by the runtime's cycle counter
+{
+  static constexpr kfpga::MsgId id = 313;
+  KFPGA_FIELDS()
+};
+}
+
+template <kfpga::ActorId Id, kfpga::ActorId Gateway>
+struct RiskGate
+{
+  static constexpr kfpga::ActorId kId = Id;
+  static constexpr int kInstr = 16;          // fixed size: no heap, no std::vector
+  static constexpr int kMaxPerTick = 50;
+
+  int32_t pos[kInstr] = {};
+  int32_t limit[kInstr] = {};               // set by a Limits message (not shown)
+  int32_t sent_this_tick = 0;
+
+  KFPGA_HANDLERS(KFPGA_ON(msgs::NewOrder, on_order)
+                 KFPGA_ON(msgs::Fill, on_fill)
+                 KFPGA_ON(msgs::Tick, on_tick))
+
+  template <class Ctx>
+  void on_order(const msgs::NewOrder &o, Ctx &ctx)
+  {
+    if (o.instr >= kInstr)
+      return reject(o, 3, ctx);
+    const int32_t signed_qty = o.side == 0 ? o.qty : -o.qty;
+    const int32_t after = pos[o.instr] + signed_qty;
+    if (after > limit[o.instr] || after < -limit[o.instr])
+      return reject(o, 1, ctx);
+    if (sent_this_tick >= kMaxPerTick)
+      return reject(o, 2, ctx);
+    ++sent_this_tick;
+    ctx.send(Gateway, o);                    // to the gateway, wherever it runs
+  }
+
+  template <class Ctx>
+  void on_fill(const msgs::Fill &f, Ctx &)
+  {
+    if (f.instr < kInstr)
+      pos[f.instr] += f.side == 0 ? f.qty : -f.qty;
+  }
+
+  template <class Ctx>
+  void on_tick(const msgs::Tick &, Ctx &) { sent_this_tick = 0; }
+
+private:
+  template <class Ctx>
+  void reject(const msgs::NewOrder &o, uint8_t why, Ctx &ctx)
+  {
+    msgs::Reject r;
+    r.client_id = o.client_id;
+    r.reason = why;
+    ctx.reply(r);                            // to the strategy that sent the order
+  }
+};
+```
+
+The strategy, a CPU actor, does not change when the gate moves:
+
+```cpp
+void Strategy::on_book_update(const frame::ob::msg::EndOfBurst *eob)
+{
+  auto *o = new cpu::NewOrder;               // actors::Wire<msgs::NewOrder>
+  o->instr = es_; o->side = 0; o->qty = 1; o->px = to_ticks(eob->best_bid);   // illustrative
+  o->client_id = ++next_id_;
+  risk_.send(o, this);                       // ActorRef: Portable<RiskGate> or the card
+}
+
+void Strategy::on_reject(const cpu::Reject *r) { /* ... */ }
+```
+
+Deployment, CPU only (backtest, paper):
+
+```cpp
+auto *risk = new actors::Portable<RiskGate<kRisk, kGateway>>("risk", table);
+table.put(kRisk, actors::ActorRef(risk));
+table.put(kGateway, actors::ActorRef(som));
+```
+
+Deployment, risk on the card (live):
+
+```cpp
+table.put(kRisk, bridge->ref(kRisk));        // same id, now an FPGA ActorRef
+// and in the HLS top: actor_proc<RiskGate<kRisk, kGateway>, 0>(links);
+```
+
+The backtest then runs the **same** risk logic that the card runs live, which is the
+whole point of "backtest == production".
+
+### 9.5 Example: actors in one process (the `Group` equivalent)
+
+On the CPU, actors in one `Group` share a thread and `fast_send` each other cheaply. On
+the card, the equivalent is an actor held as a member of another, called with the inline
+`fast_send(b, ...)`. The same code works on both, because `CpuCtx` implements the inline
+form the same way:
+
+```cpp
+template <kfpga::ActorId Id, kfpga::ActorId Gateway>
+struct QuoteEngine   // BookTop and make_quote() not shown
+{
+  static constexpr kfpga::ActorId kId = Id;
+  RiskGate<Id + 1, Gateway> risk;            // inside this actor's process / thread
+
+  KFPGA_HANDLERS(KFPGA_ON(msgs::BookTop, on_top))
+  KFPGA_INNER(risk)
+
+  template <class Ctx>
+  void on_top(const msgs::BookTop &t, Ctx &ctx)
+  {
+    msgs::NewOrder o = make_quote(t);
+    msgs::Reject rej;
+    if (ctx.fast_send(risk, o, rej))         // risk.on_order runs now, inline
+      return;                                // rejected
+    // accepted: RiskGate already forwarded it to the gateway
+  }
+};
+```
+
+### 9.6 The rules for portable code
+
+A portable actor follows the FPGA rules (guide, section 4) everywhere, including on the
+CPU:
+
+- no heap: fixed-size members and arrays, no `new`, `std::vector`, `std::string`;
+- every loop has a compile-time bound;
+- no recursion, virtual functions, function pointers or exceptions;
+- messages carry integers only: prices in ticks, sizes as integers, instruments as
+  indices, never symbol strings;
+- C++14, the dialect Vitis HLS accepts;
+- no I/O: no logging, no files. To log, send a message to a CPU logging actor.
+
+### 9.7 How we make sure the code stays the same
+
+Writing it once is not enough; we need to know the two builds behave the same.
+
+1. **One source file, two builds, in CI.** Every portable actor is compiled for the CPU
+   host and checked as C++14 for the FPGA (`make check14`), and periodically run through
+   Vitis HLS C simulation. Code that breaks either build fails CI.
+2. **Compile-time checks.** `static_assert`s on message structs (trivially copyable,
+   integer fields only, at most 12 words) and on actor structs (no virtual functions,
+   trivially destructible). These catch most rule violations in the CPU build already.
+3. **One test suite, three runtimes.** The same tests (send messages in, check the
+   replies and the state) run against:
+   - `Portable<A>` on the CPU runtime;
+   - the FPGA runtime stepped in software (`Design::step`, deterministic);
+   - the FPGA runtime on `SoftCard` behind the bridge (section 5).
+
+   A differential test then feeds the same recorded message stream (for example, orders
+   generated from a PCAP replay) through the CPU host and through the FPGA model, and
+   requires identical outputs, message for message.
+4. **Semantics written down once.** The extended actor model paper defines `send`,
+   `fast_send` and `reply`; both runtimes are tested against it. Known differences are
+   listed in 9.8 and nowhere else.
+
+### 9.8 What will stay different
+
+These cannot be made identical, and are kept as small and explicit as possible:
+
+| difference | why | how it is contained |
+|---|---|---|
+| deployment code (`Manager`, `Group` vs the HLS top and discovery table) | hardware is fixed at build time | lives only in the deployment files, never in actor code |
+| lifecycle (`Start`, shutdown) | the card has no `Manager` | the FPGA runtime sends `Start` to each actor at reset, so handlers see the same message |
+| timers | the card has no OS timer | a `Tick` message: from the timer actor on the CPU, from a cycle-counter process on the card |
+| multiple replies to a `fast_send` | the FPGA keeps the first; the CPU behaviour has to be checked in `Actor::reply` | make both keep the first, and test it |
+| a full FIFO (section 11, item 1) | hardware FIFOs are bounded; CPU mailboxes grow | sizing rules per design; reported, never silent |
+| CPU-only actors | they use the heap, strings, logging, the OS | they stay CPU actors; they still talk to portable and FPGA actors through `ActorRef` |
+| floating point | not in messages; avoid in portable logic | fixed-point integer types shared by both sides |
+
+## 10. What carries over from the branch
 
 | part | fate |
 |---|---|
@@ -436,7 +845,7 @@ This is fixed at deployment, like the rest of the table.
 | bridge tests (16) | keep the scenarios; they must pass against the new transport |
 | extended actor model paper | keep; add a note on the callee-thread `fast_send` in 5.4 |
 
-## 10. Open questions
+## 11. Open questions
 
 1. **Full rings.** A CPU sender facing a full request ring spins (as a `LockFreeMPSC`
    producer does). A card `host_out` facing a full CPU lane stalls, and that blocks every
@@ -456,7 +865,7 @@ This is fixed at deployment, like the rest of the table.
    many VIs and filters the SFC9250 gives one process, since the Ethernet variant uses up to
    three VIs per CPU thread (transmit, lane, priority lane).
 
-## 11. Plan
+## 12. Plan
 
 1. **Loopback prototype.** Software rings in shared memory, with a thread standing in for
    the card. Implement 5.1–5.4 and the `FpgaLanes` mailbox. Benchmark round-trip latency
@@ -469,3 +878,8 @@ This is fixed at deployment, like the rest of the table.
 3. **Card side.** Rework `host_in` / `host_out` for rings in the software model, then
    synthesize.
 4. **Real transport.** A `CardTransport` for the card's DMA, then measure on hardware.
+5. **Portable actors (section 9).** `actors::Wire<P>`, `CpuCtx`, `actors::Portable<Logic>`,
+   the CPU discovery table, and the `KFPGA_HANDLERS` type list. Port Pong, then write
+   `RiskGate`, with one test suite run on all three runtimes.
+6. **Differential test.** Replay a recorded order stream through `Portable<RiskGate>` and
+   through the FPGA model, and require identical output.
