@@ -562,18 +562,20 @@ four FIFOs between A and B:
 template <kfpga::ActorId Id>
 struct ActorRef
 {
+  static constexpr kfpga::ActorId kId = Id;   // B's id: ids live in references
+
   hls::stream<Envelope> &msg;   // A -> B messages
   hls::stream<Envelope> &freq;  // A -> B fast_send requests
   hls::stream<Envelope> &frep;  // B -> A fast_send replies
   hls::stream<Envelope> &back;  // B -> A replies to A's sends
 
   template <class M, class Self>
-  void send(const M &m, Self *self) { msg.write(pack(m, Id, Self::kId)); }
+  void send(const M &m, Self *self) { msg.write(pack(m, kId)); }
 
   template <class Req, class Rep, class Self>
   bool fast_send(const Req &req, Rep &rep, Self *self)
   {
-    freq.write(pack(req, Id, Self::kId));
+    freq.write(pack(req, kId));
     return unpack_reply(frep.read(), rep);   // A's process stalls; the chip runs on
   }
 };
@@ -594,9 +596,15 @@ struct ActorRef
   reference's FIFOs the current message came in on and whether it was a `fast_send`.
   `reply(m)` writes to that pair's `frep` (held for the caller until the handler ends) or
   `back`.
+- **Actors declare no id.** An actor's id lives in the references that point at it, as a
+  CPU actor is known by its `ActorRef`. The target's id travels in each envelope (`dst`).
+  The sender's id is not needed inside the chip, because a reply goes back on the pair of
+  FIFOs the message came in on. For the host link and error reports, the top gives each
+  actor process its id when it binds the design, and the runtime stamps it as `src`.
 - **A reference to an actor in the same process** (an actor held as a member, the `Group`
-  equivalent) holds no FIFOs. Its `fast_send` reaches the member through `self` and the
-  existing `KFPGA_INNER` dispatch, and runs the handler inline.
+  equivalent) is bound to the member instead of to FIFOs, and its `fast_send` runs the
+  member's handler inline. `KFPGA_INNER` takes these references, so envelopes from the host
+  addressed to the member's id reach it.
 - **A reference to a CPU actor** is bound to the holding actor's FIFOs to and from the host
   link. Several such references held by one actor share those FIFOs; there is still one
   writing process.
@@ -615,7 +623,7 @@ void my_top(/* host streams */)
 #pragma HLS DATAFLOW
   static hls::stream<Envelope> p2q_msg, p2q_freq, q2p_frep, q2p_back;
   static PingActor ping{{p2q_msg, p2q_freq, q2p_frep, q2p_back}};   // ping.pong bound
-  static PongActor<kPong> pong;
+  static PongActor pong;
   ping_process(ping /*, Ping's inputs */);
   pong_process(pong, p2q_msg, p2q_freq, q2p_frep, q2p_back /*, Pong's other inputs */);
 }
@@ -680,10 +688,8 @@ keeps its `switch`.
 
 ```cpp
 // pong.hpp: compiled into the FPGA design AND into the CPU binary
-template <kfpga::ActorId Id>
-struct Pong : kfpga::Actor<Pong<Id>>
+struct Pong : kfpga::Actor<Pong>
 {
-  static constexpr kfpga::ActorId kId = Id;
   uint32_t pings = 0;
 
   KFPGA_HANDLERS(KFPGA_ON(msgs::Ping, on_ping))
@@ -693,14 +699,14 @@ struct Pong : kfpga::Actor<Pong<Id>>
     ++pings;
     msgs::Pong r;
     r.count = m.count + 1000 * pings;
-    this->reply(r);
+    reply(r);
   }
 };
 ```
 
 On the card it is a process in the HLS top, with the references that point at it bound
 to its FIFOs (piece 2). On the CPU it is
-`new actors::Portable<Pong<kPong>>("pong", table)`, added to the `Manager` like any
+`new actors::Portable<Pong>("pong", table)`, added to the `Manager` like any
 other actor. A CPU actor calling it writes the same thing either way:
 
 ```cpp
@@ -748,11 +754,9 @@ struct Tick   // sent by a timer actor; on the card, by the runtime's cycle coun
 };
 }
 
-template <kfpga::ActorId Id, kfpga::ActorId Gateway>
-struct RiskGate : kfpga::Actor<RiskGate<Id, Gateway>>
+struct RiskGate : kfpga::Actor<RiskGate>
 {
-  static constexpr kfpga::ActorId kId = Id;
-  kfpga::ActorRef<Gateway> gateway;          // where accepted orders go
+  kfpga::ActorRef<kGateway> gateway;         // where accepted orders go
   static constexpr int kInstr = 16;          // fixed size: no heap, no std::vector
   static constexpr int kMaxPerTick = 50;
 
@@ -792,7 +796,7 @@ private:
     msgs::Reject r;
     r.client_id = o.client_id;
     r.reason = why;
-    this->reply(r);                          // to the strategy that sent the order
+    reply(r);                                // to the strategy that sent the order
   }
 };
 ```
@@ -814,7 +818,7 @@ void Strategy::on_reject(const cpu::Reject *r) { /* ... */ }
 Deployment, CPU only (backtest, paper):
 
 ```cpp
-auto *risk = new actors::Portable<RiskGate<kRisk, kGateway>>("risk", table);
+auto *risk = new actors::Portable<RiskGate>("risk", table);
 table.put(kRisk, actors::ActorRef(risk));
 table.put(kGateway, actors::ActorRef(som));
 ```
@@ -823,7 +827,7 @@ Deployment, risk on the card (live):
 
 ```cpp
 table.put(kRisk, bridge->ref(kRisk));        // same id, now an FPGA ActorRef
-// and in the HLS top: actor_proc<RiskGate<kRisk, kGateway>, 0>(links);
+// and in the HLS top: a RiskGate process, with the references to it bound to its FIFOs
 ```
 
 The backtest then runs the **same** risk logic that the card runs live, which is the
@@ -837,15 +841,13 @@ reference; the table says the target is in the same process, so the call runs in
 same code works on both, because the CPU host resolves it the same way:
 
 ```cpp
-template <kfpga::ActorId Id, kfpga::ActorId Gateway>
-struct QuoteEngine : kfpga::Actor<QuoteEngine<Id, Gateway>>   // BookTop, make_quote() not shown
+struct QuoteEngine : kfpga::Actor<QuoteEngine>   // BookTop, make_quote() not shown
 {
-  static constexpr kfpga::ActorId kId = Id;
-  RiskGate<Id + 1, Gateway> risk;            // inside this actor's process / thread
-  kfpga::ActorRef<Id + 1> risk_ref;
+  RiskGate risk;                             // inside this actor's process / thread
+  kfpga::ActorRef<kInnerRisk> risk_ref{risk};  // bound to the member, no FIFOs
 
   KFPGA_HANDLERS(KFPGA_ON(msgs::BookTop, on_top))
-  KFPGA_INNER(risk)
+  KFPGA_INNER(risk_ref)
 
   void on_top(const msgs::BookTop &t)
   {
