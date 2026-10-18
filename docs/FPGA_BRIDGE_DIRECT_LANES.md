@@ -2,6 +2,7 @@
 
 **Status:** design proposal, 2026-10-15. Nothing here is implemented yet.
 **Applies to:** `feature/fpga-runtime` (`actors/fpga/`), plus a new mailbox kind and a host for portable actors in `actors/cpp`.
+**Target card:** AMD Alveo X3522PV (section 2.6).
 
 ---
 
@@ -149,108 +150,76 @@ These are the practices this design follows. Each later section points back to t
 
 Sections 4–8 make this concrete.
 
-### 2.6 Variant: Solarflare NICs with Onload (ef_vi)
+### 2.6 The target card: AMD Alveo X3522PV
 
-This machine has an AMD (Xilinx) Solarflare **XtremeScale SFC9250** (the X2 family) with
-**Onload 8.1.3**, which Kaspar already uses for MDP3 market data. The SFC9250 is a NIC
-ASIC, not an FPGA, so the FPGA is a separate card (for example the Alveo UL3524 the branch
-targets). That gives two ways to connect CPU actors to FPGA actors:
+The bridge targets the **AMD Alveo X3522PV** (A-X3522PV-P08G-PQ-G). From AMD's data sheet
+(DS1002 v1.3) and product brief:
 
-- **Over PCIe**, as in sections 2.1–2.5: a DMA path to the FPGA card that we write and
-  maintain ourselves.
-- **Over Ethernet through the Solarflare NIC**: cable an FPGA card port to a Solarflare
-  port and carry actor messages as Ethernet frames. The CPU side then uses Solarflare's
-  existing, hardened kernel-bypass stack instead of a custom DMA driver.
-
-This section explains the second option.
-
-#### Use ef_vi, not Onload sockets
-
-The Onload package contains three layers:
-
-| layer | what it is | use here |
-|---|---|---|
-| **Onload** | transparent acceleration of ordinary sockets (`onload ./kaspr`) | no: socket semantics, UDP/TCP processing and per-call overhead we do not need |
-| **TCPDirect** | a slimmer zero-copy TCP/UDP API | no: still a protocol stack |
-| **ef_vi** | the raw layer: user-space access to the NIC's own queues | **yes** |
-
-**ef_vi** gives a process a *virtual interface* (VI): its own receive ring, transmit ring
-and event queue, mapped into user space, with no kernel on the data path. It is section
-2.4's best practices already built and supported: rings in pinned host memory, polled from
-user space, kernel bypass, one owner per VI. The headers are installed in
-`/usr/include/etherfabric/` (`ef_vi.h`, `pio.h`, `efct_vi.h`).
-
-#### The mechanisms, mapped
-
-| primer concept (2.2) | ef_vi equivalent |
+| | X3522PV |
 |---|---|
-| write-combined MMIO push of a small message | **CTPIO** (cut-through PIO, `EF_VI_TX_CTPIO`): the CPU writes the frame straight into the NIC through a write-combined window, and the NIC starts sending it before the whole frame has arrived. The lowest-latency transmit path on X2 |
-| DMA ring in host memory, polled | the VI's **receive ring and event queue**: the NIC writes the frame into a host buffer and posts an event; the thread polls `ef_eventq_poll()` |
-| one ring per writer | **one VI per CPU thread**: each thread transmits on its own VI and receives on its own VI |
-| choosing which ring receives | **hardware filters** (`ef_filter_spec`) steer a frame to a VI by MAC address, VLAN, or IP/port |
-| interrupt wake-up | ef_vi can arm the event queue for an interrupt and block on it (`ef_eventq_wait`), for threads that do not spin |
+| chip | one XCUX35 FPGA (XCUX35-3VSVA1365E), 16 nm UltraScale+, -3 speed grade |
+| logic | 1,030K LUTs, 2,059K registers, 1,320 DSP slices; 74.3 Mb block RAM, 99 Mb UltraRAM |
+| memory on the card | 2 × 4 GB DDR4 with ECC |
+| network | 2 × DSFP28 cages, two ports each (4 × 10/25 GbE); wired to the programmable logic |
+| host link | PCIe Gen4 ×8 (Gen3 ×8 fallback) |
+| software AMD lists | Vivado (RTL), Vitis HLS, P4; XRT/XOCL |
+| power | 70–75 W, passively cooled, half height, half length |
 
-#### The four paths over Ethernet
+**There is no NIC on the PV.** The data sheet lists Onload, TCPDirect and ef_vi for the
+X3522 (the low-latency network adapter built on the same chip), not for the X3522PV. The
+network ports go straight into the FPGA's logic, and the host link is whatever our design
+puts behind the PCIe endpoint. So on this card:
 
-An actor envelope is about 60 bytes. With a 14-byte Ethernet header it is a 74-byte
-frame, above Ethernet's 60-byte minimum, so one envelope is one frame. The FPGA side needs
-a low-latency Ethernet MAC on the card; its `host_in` / `host_out` processes parse and
-build these frames instead of PCIe transactions.
+- **The CPU ↔ FPGA transport is PCIe, memory-mapped**, exactly as in 2.1–2.5. There is no
+  Ethernet option between the host and the card without building a NIC in the FPGA.
+- **Our FPGA design provides the host interface:** the chip's hard PCIe block (Gen4 ×8),
+  write-combining windows the CPU writes envelopes into (5.1), and a DMA engine that writes
+  envelopes into host-memory rings (5.2–5.4). The DMA engine is either AMD's DMA IP or our
+  own; which AMD IP Vivado supports on the XCUX35 is still to check (section 11).
+- **The host side uses `vfio-pci`, not XRT.** XRT/XOCL is supported on the PV, but it is
+  built around buffer objects and kernel launches, with every call going through its
+  driver. The bridge maps the BARs and the rings into the process with VFIO and runs the
+  ring protocol directly.
+- **Write-combining under VFIO.** `vfio-pci` maps BARs uncached, so a 64-byte store would
+  leave as several small writes. The envelope windows therefore go in a **prefetchable BAR**
+  in our design, mapped through the kernel's sysfs file for it
+  (`/sys/bus/pci/devices/<address>/resourceN_wc`). The control registers stay in an
+  ordinary BAR mapped through VFIO.
+- **One envelope, one store.** An envelope is about 60 bytes, padded to 64. The CPU sends
+  it with one AVX-512 store into its window followed by `sfence`; a full, aligned 64-byte
+  write-combining line normally leaves as one PCIe write. The EPYC 9374F (Zen 4) has
+  AVX-512.
+- **Market data can arrive on the card.** The PV's four ports feed the FPGA directly, so
+  FPGA actors could take MDP3 off the wire themselves instead of through the SFC9250 and
+  Onload. That is a separate decision from the bridge and does not change this design.
 
-- **CPU → FPGA `send`:** the thread builds the frame on its stack and sends it with CTPIO
-  on its own VI. No lock: the VI belongs to the thread.
-- **CPU → FPGA `fast_send`:** the same CTPIO send, then the thread spins on its own VI's
-  event queue for the reply. The FPGA addresses the reply to that thread, for example with
-  a destination MAC per thread; a filter steers it to the thread's VI. The thread's VI is
-  its reply slot.
-- **FPGA → CPU `send`:** the FPGA sends a frame addressed to the receiving actor's thread;
-  a filter steers it to that thread's lane VI. The `FpgaLanes` mailbox polls that VI's
-  event queue.
-- **FPGA → CPU `fast_send`:** the same, addressed to the thread's *priority* VI (a second
-  VI with its own filter), which the drain loop polls first. The reply goes back by CTPIO.
+### 2.7 Not chosen: X3522 in hybrid mode (ef_vi)
 
-The design in sections 4–8 is unchanged. Only the transport under the rings is different:
-a "lane" is a VI, and a "ring write" is a CTPIO send or a NIC receive.
+The X3522 has a paid hybrid-mode upgrade (SKU SW-X3522-001). AMD's April 2023 STAC Summit
+slide, marked "subject to change", shows it as: AMD's low-latency NIC fixed in the chip,
+so the host keeps Onload, TCPDirect and ef_vi; up to 400K LUTs of our logic between the
+Ethernet MACs and the NIC, on four 32-bit AXI-Stream links each way at 322 MHz; plus an
+AXI memory-mapped DMA path to the host and access to the DDR.
 
-#### What Ethernet changes, and how to handle it
+The CPU could then reach FPGA actors with raw Ethernet frames through ef_vi: frames the
+CPU sends pass through our logic on their way to the MAC, and our logic can hand frames to
+the NIC for delivery to the CPU. It is not chosen because:
 
-1. **Ethernet drops; PCIe does not.** When a VI's receive ring has no free buffers, the
-   NIC **drops** the frame. The actor model forbids silent loss. Fix: **credit-based flow
-   control.** The FPGA may send to a lane only while it holds credits for it; the CPU
-   thread returns credits (in batches, piggy-backed on its own traffic) as it refills the
-   receive ring. In the other direction, the FPGA's receive FIFOs need the same
-   protection.
-2. **Bit errors.** A frame with a bad checksum is dropped by the MAC. On a short direct
-   cable this is rare, but it is not impossible. Fix: a **sequence number per lane** in
-   the envelope header. A gap is detected and reported loudly; a lost `fast_send` request
-   or reply is answered with an error, never left waiting forever.
-3. **Ordering.** Frames on one link and one VI arrive in order, so per-sender FIFO order
-   holds, as long as each (sender, receiver) pair uses one VI and one link.
-4. **No switch.** Cable the FPGA directly to the NIC. A switch adds latency and jitter
-   and another place to drop frames.
-5. **Keep market data separate.** Kaspar's MDP3 feed already runs on this NIC through
-   Onload. Put the FPGA link on its own port, and on its own VIs and cores, so actor
-   traffic never queues behind market data.
-6. **NUMA.** Pin the threads that own these VIs to the NIC's NUMA node, as in 2.4 (7).
+- **Frames can be lost.** A receive queue with no room drops the frame, and a bad checksum
+  drops it too. Actor messages cannot be lost silently, so every lane would need credits
+  and sequence numbers. PCIe is lossless.
+- **X3 ef_vi constraints.** Receive buffers are shared and managed by the driver (frames
+  arrive as `EF_EVENT_TYPE_RX_REF`, read with `efct_vi_rxpkt_get` and released promptly);
+  receive queues can be shared between processes unless one is reserved with
+  `EF_FILTER_FLAG_EXCLUSIVE_RXQ`; transmit is CTPIO only, with no checksum offload; there
+  is no interrupt mode yet; an interface has at most 15 VIs, some taken by Onload. The
+  lanes design wants up to three per CPU thread.
+- **Less logic and an unconfirmed interface.** 400K LUTs instead of 1,030K, and the
+  layout comes from one slide marked "subject to change".
 
-#### PCIe or Ethernet?
-
-| | PCIe DMA to the FPGA card | Ethernet via Solarflare + ef_vi |
-|---|---|---|
-| CPU-side code | our own driver: rings, doorbells, VFIO, the card's DMA IP | Solarflare's supported stack; we write only framing and credits |
-| loss | none (the link is lossless) | possible: credits and sequence numbers needed |
-| latency | one PCIe crossing each way | one PCIe crossing to the NIC, plus the two MACs and the wire; CTPIO keeps the NIC part small |
-| FPGA side | PCIe DMA engine and host interface | an Ethernet MAC, which a trading FPGA usually has anyway |
-| bonus | — | the FPGA can sit on the same network as market data and orders |
-
-Which one is faster has to be measured. The Ethernet path costs extra MAC and wire hops
-but saves writing and debugging a PCIe DMA path, and it fits how trading FPGAs are usually
-built. A sensible order is to prototype over Ethernet with ef_vi first, since the CPU side
-already exists on this machine, and keep the PCIe path as the alternative.
-
-(The ef_vi library also has an extension API, `smartnic_exts.h`, for AMD NICs that carry
-an FPGA region of their own. The SFC9250 does not have one; check this API if the hardware
-moves to such a card.)
+If the bridge ever has to run on an X3522 rather than a PV, this is the fallback, and the
+design above (sections 4–8) still holds: a lane becomes a VI, and a ring write becomes a
+CTPIO send or a frame received.
 
 ## 3. Goals
 
@@ -298,8 +267,10 @@ Done entirely on the caller's thread inside `FpgaActorRef::send`:
 
 1. encode the message into an envelope on the stack (fixed size, no allocation);
 2. write it into **this thread's** request ring to the card;
-3. ring the card's doorbell (or, on cards that support it, do a single 64-byte
-   write-combined store into a per-thread register window).
+3. on the X3522PV, the write is a single 64-byte write-combined store into this thread's
+   window on the card, followed by `sfence` (2.6); the card takes each 64-byte write as one
+   envelope. A ring in host memory plus a doorbell, with the card fetching by DMA, is the
+   fallback if the windows run short.
 
 Each sending thread has its own ring, so producers need no lock or atomic claim.
 Per-sender FIFO order holds: an actor always sends from the same thread, so its messages
@@ -416,7 +387,7 @@ rings:
 
 | process | today | proposed |
 |---|---|---|
-| `host_in` | reads `from_host` | reads the per-thread request rings, round-robin, via descriptor/doorbell |
+| `host_in` | reads `from_host` | takes envelopes from the per-thread write-combining windows, round-robin (2.6) |
 | `host_in_reply` | reads `from_host_reply` | unchanged in role: CPU replies to FPGA `fast_send`s, kept separate so they never queue behind messages |
 | `host_out` | writes `to_pcie` | writes each envelope to its destination: a CPU thread's lane, its priority lane, or a CPU caller's reply slot (from the tag) |
 
@@ -851,19 +822,20 @@ These cannot be made identical, and are kept as small and explicit as possible:
    producer does). A card `host_out` facing a full CPU lane stalls, and that blocks every
    other destination behind it (head-of-line blocking). Options: per-lane credits, so
    `host_out` skips a full lane, or a dedicated `host_out` per lane. To decide.
-2. **How the card reads N request rings.** Per-thread doorbells with a DMA descriptor
-   engine (e.g. QDMA on the Alveo UL3524), or per-thread write-combined MMIO windows.
-   This depends on the card and needs a look at the vendor's DMA IP.
+2. **Windows and DMA on the XCUX35.** The starting point is per-thread write-combining
+   windows in a prefetchable BAR (2.6). To settle: how many windows, so how large a BAR;
+   which AMD DMA IP (QDMA, XDMA) Vivado supports on the XCUX35 for the card → host rings,
+   or whether to write our own; and confirming on the card that one AVX-512 store leaves
+   as one 64-byte PCIe write.
 3. **Id space.** `kMaxActors = 16` is shared by FPGA and CPU actors today. CPU actors
    addressed by the card need a separate, larger id space (it only has to map to lanes).
 4. **Locking for 5.4.** Confirm how the drain loop and `Actor::fast_send` serialize today,
    so serving FPGA requests on the callee's thread keeps isolation.
 5. **Interrupt mode.** MSI-X → `eventfd` needs driver support; it may come later than the
    spinning mode.
-6. **PCIe or Ethernet transport.** Section 2.6: measure an ef_vi/CTPIO loop through the
-   SFC9250 against a PCIe DMA path to the FPGA card before committing to either. Check how
-   many VIs and filters the SFC9250 gives one process, since the Ethernet variant uses up to
-   three VIs per CPU thread (transmit, lane, priority lane).
+6. **Write-combining under VFIO.** Mapping the envelope windows through sysfs
+   `resourceN_wc` while the device is bound to `vfio-pci` has to be tried on the card;
+   if it does not work, find another way to get a write-combining mapping of that BAR.
 
 ## 12. Plan
 
@@ -875,9 +847,10 @@ These cannot be made identical, and are kept as small and explicit as possible:
    the cases this design changes: FPGA `fast_send` served on the callee's thread while CPU
    threads also `fast_send` it; a CPU handler calling back into the FPGA during an FPGA
    `fast_send`; FIFO order per sender across lanes.
-3. **Card side.** Rework `host_in` / `host_out` for rings in the software model, then
-   synthesize.
-4. **Real transport.** A `CardTransport` for the card's DMA, then measure on hardware.
+3. **Card side.** Rework `host_in` / `host_out` for the windows and rings in the software
+   model, then synthesize for the X3522PV's XCUX35 (XCUX35-3VSVA1365E).
+4. **Real transport.** A `CardTransport` for the X3522PV over `vfio-pci`: the PCIe endpoint,
+   envelope windows and DMA engine in the design (2.6), then measure on hardware.
 5. **Portable actors (section 9).** `actors::Wire<P>`, `CpuCtx`, `actors::Portable<Logic>`,
    the CPU discovery table, and the `KFPGA_HANDLERS` type list. Port Pong, then write
    `RiskGate`, with one test suite run on all three runtimes.
