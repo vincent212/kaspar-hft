@@ -62,8 +62,8 @@ directory is the current version, described above.
 - **A process is a `Group`.** A group of actors is declared in the HLS top,
   `kfpga::Group<A, B, ...>`, and runs as one process. It behaves like a CPU `Group`: one
   handler at a time, `send` through the group's own queue, `fast_send` inline. Which
-  actors share a group is decided at deployment, as on the CPU; actors never contain
-  other actors, and `KFPGA_INNER` goes away.
+  actors share a group is decided at deployment, as on the CPU, and `KFPGA_INNER`
+  goes away.
 - **`fast_send` only within a group.** Between FPGA processes, and between the CPU and
   the card, actors only `send`; a request and its answer are two messages. The card has
   no natural mechanism for running another process's handler, and a cross-process

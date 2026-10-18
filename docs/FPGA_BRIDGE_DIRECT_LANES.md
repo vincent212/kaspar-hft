@@ -596,8 +596,8 @@ struct ActorRef
   FIFOs the message came in on. For the host link and error reports, the top gives each
   actor process its id when it binds the design, and the runtime stamps it as `src`.
 - **A reference to an actor in the same group** is bound by the top directly to that actor
-  instead of to FIFOs, and its `fast_send` runs the target's handler inline (9.5). Actors
-  never contain other actors; `KFPGA_INNER` is removed, because the group lists its
+  instead of to FIFOs, and its `fast_send` runs the target's handler inline (9.5).
+  `KFPGA_INNER` is removed, because the group lists its
   members.
 - **A reference to a CPU actor** is bound to the holding actor's FIFOs to and from the host
   link. Several such references held by one actor share those FIFOs; there is still one
@@ -850,7 +850,7 @@ It is also why `fast_send` stops at the process boundary (1.1): inside a group o
 the handler can run inline; across processes nothing can run another process's circuit.
 
 **On the card, a group is declared in the HLS top, as on the CPU.** A CPU `Group` is
-assembled at deployment with `grp.add(...)`; actors never contain each other. The FPGA
+assembled at deployment with `grp.add(...)`. The FPGA
 runtime gets the same thing, `kfpga::Group<A, B, ...>` (new; the current runtime has no
 group type, and puts actors in one process only by having one actor contain the others,
 with `KFPGA_INNER`). A group:
