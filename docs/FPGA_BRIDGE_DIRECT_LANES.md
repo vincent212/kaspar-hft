@@ -2,7 +2,7 @@
 
 **Status:** design proposal, 2026-10-15. Nothing here is implemented yet.
 **Applies to:** `feature/fpga-runtime` (`actors/fpga/`), plus a new mailbox kind and a host for portable actors in `actors/cpp`.
-**Target card:** AMD Alveo X3522PV (section 2.6).
+**Cards:** the design is card-independent; the first card is the AMD Alveo X3522PV (section 2.6).
 
 ---
 
@@ -150,9 +150,23 @@ These are the practices this design follows. Each later section points back to t
 
 Sections 4–8 make this concrete.
 
-### 2.6 The target card: AMD Alveo X3522PV
+### 2.6 Cards, and the first one: AMD Alveo X3522PV
 
-The bridge targets the **AMD Alveo X3522PV** (A-X3522PV-P08G-PQ-G). From AMD's data sheet
+**The design does not depend on a particular card.** Everything card-specific is kept to
+two adapters at the edge:
+
+- **On the FPGA:** a card adapter that connects the actor design's host streams
+  (`from_host`, `from_host_reply`, `to_pcie`, or the per-thread windows and rings of
+  sections 5 and 8) to that card's PCIe endpoint, DMA engine or vendor shell.
+- **On the CPU:** one `CardTransport` implementation per card (`host/CardTransport.hpp`),
+  which maps that card's windows and rings into the process.
+
+Actor code, messages, the FPGA runtime, the lanes protocol and the CPU bridge are the same
+on every card. `SoftCard` is already one such implementation. A card is usable if it has a
+PCIe endpoint the CPU can write into (ideally through a write-combining window) and a way
+for the card to write into host memory.
+
+The first card is the **AMD Alveo X3522PV** (A-X3522PV-P08G-PQ-G). From AMD's data sheet
 (DS1002 v1.3) and product brief:
 
 | | X3522PV |
