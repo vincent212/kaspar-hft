@@ -510,14 +510,17 @@ an adapter that hosts a portable actor as an ordinary `actors::Actor`.
 
 Four pieces make this work.
 
-**1. One message definition.** A message is declared once, as the plain struct the FPGA
-already uses. The CPU class is derived from it, not written by hand:
+**1. One message definition.** A message is declared once and derives from
+`kfpga::Message<id>`, the FPGA counterpart of `actors::Message_N<id>`: a base class that
+carries the id, with no virtual functions and nothing on the heap, so it synthesizes. The id
+is assigned by hand, as `Message_N` ids are, because the message crosses between the CPU
+and the card and both sides must agree on the integer. The CPU class is derived from it,
+not written by hand:
 
 ```cpp
 // msgs.hpp: the only declaration
-struct Ping
+struct Ping : kfpga::Message<301>
 {
-  static constexpr kfpga::MsgId id = 301;
   uint32_t count = 0;
   KFPGA_FIELDS(count)
 };
@@ -722,9 +725,8 @@ position and rate limits, and forwards the order to the order gateway or rejects
 
 ```cpp
 namespace msgs {
-struct NewOrder
+struct NewOrder : kfpga::Message<310>
 {
-  static constexpr kfpga::MsgId id = 310;
   uint16_t instr = 0;     // index into the universe, not a symbol string
   uint8_t side = 0;       // 0 buy, 1 sell
   int32_t qty = 0;
@@ -732,24 +734,21 @@ struct NewOrder
   uint32_t client_id = 0;
   KFPGA_FIELDS(instr, side, qty, px, client_id)
 };
-struct Reject
+struct Reject : kfpga::Message<311>
 {
-  static constexpr kfpga::MsgId id = 311;
   uint32_t client_id = 0;
   uint8_t reason = 0;     // 1 position limit, 2 rate limit, 3 unknown instrument
   KFPGA_FIELDS(client_id, reason)
 };
-struct Fill
+struct Fill : kfpga::Message<312>
 {
-  static constexpr kfpga::MsgId id = 312;
   uint16_t instr = 0;
   uint8_t side = 0;
   int32_t qty = 0;
   KFPGA_FIELDS(instr, side, qty)
 };
-struct Tick   // sent by a timer actor; on the card, by the runtime's cycle counter
+struct Tick : kfpga::Message<313>   // sent by a timer actor; on the card, by the runtime's cycle counter
 {
-  static constexpr kfpga::MsgId id = 313;
   KFPGA_FIELDS()
 };
 }
