@@ -488,6 +488,11 @@ The logic is identical. Everything around it differs:
 
 Two copies of every message and two styles of every actor: that is what has to go.
 
+One more thing has to go: on the FPGA today an actor sends **through its context, by id**
+(`ctx.send(dst_id, x)`, `ctx.fast_send(dst, x, rep)`). That is not the actor model as
+Kaspar uses it. An actor sends through an **actor reference**; the context of the message
+being handled is only for replying to its sender. 9.2 fixes this on both runtimes.
+
 ### 9.2 The approach: portable actors
 
 Keep two kinds of actor:
@@ -536,20 +541,31 @@ portable code as `const Ping &` with no copy, and the bridge encodes it with the
 sets of messages, generate `msgs.hpp` from a schema, as `actors/rust/interop/codegen/
 generate.py` already does for Rust.
 
-**2. One handler body.** Handlers are templates on a `Ctx`, and use only the `Ctx` API:
+**2. Sends go through actor references; the context only replies.** An actor holds a
+`kfpga::ActorRef<Id>` member for each actor it talks to, and sends through it. The
+handler's `Ctx` is passed as the sender, the way `this` is on the CPU, and is otherwise
+used only to reply:
 
-| call | on the FPGA (`kfpga::Ctx`) | on the CPU (`CpuCtx`, new) |
+| call | on the FPGA | on the CPU host (`CpuCtx`, new) |
 |---|---|---|
-| `ctx.send(dst, m)` | write into the FIFO to `dst` | `ref(dst).send(new Wire<M>(m), &actor)` |
+| `ref.send(m, ctx)` | one write into the FIFO from this process to the target | look up the id in the CPU table, `actors_ref.send(new Wire<M>(m), &actor)` |
+| `ref.fast_send(req, rep, ctx)` | target in another process: request FIFO, blocking read on the reply FIFO. Target inside this process: its handler runs inline | `actors_ref.fast_send(&wire, &actor)`, check the reply id, copy into `rep`. Target a member: its handler runs inline |
 | `ctx.reply(m)` | reply FIFO, or held for a `fast_send` caller | `actor.reply(new Wire<M>(m))`, which already handles both cases |
-| `ctx.fast_send(dst, req, rep)` | request FIFO, wait for the reply | `ref(dst).fast_send(&wire, &actor)`, check the reply id, copy into `rep` |
-| `ctx.fast_send(b, req, rep)` | `b` is an actor in the same process: its handler runs inline | the same: `b` is a member, its handler runs inline |
 | `ctx.sender()`, `ctx.self()` | actor ids | actor ids, from the CPU table below |
 
-**3. One addressing scheme.** Portable actors address peers by **actor id**, on both
-sides. On the CPU, a deployment table maps id → `ActorRef`, the same idea as the FPGA's
-`DiscoveryTable`. The table is where "Risk runs on the card, Strategy runs on core 7" is
-written down. The actor's code never says.
+`ActorRef<Id>` is a compile-time reference: it holds the target's id as a template
+parameter, so on the FPGA the FIFO it writes to, or the inline call, is fixed when the
+design is built and every FIFO keeps one writer. Ids still travel in the envelope header
+(`dst`, `src`) so that replies find their way back, but actor code never sends by id.
+
+**3. One addressing scheme.** References resolve through a deployment table on both
+sides: on the FPGA, the `DiscoveryTable` maps id → FIFO; on the CPU, a table maps
+id → `actors::ActorRef`. The table is where "Risk runs on the card, Strategy runs on
+core 7" is written down. The actor's code never says.
+
+**This replaces the current FPGA API.** `Ctx::send(ActorId, ...)`, `Ctx::fast_send(ActorId,
+...)` and `Ctx::fast_send(b, ...)` in `actor.hpp` are removed; the examples and tests move
+to references.
 
 **4. A CPU host for portable actors.** `actors::Portable<Logic>` is an ordinary CPU actor
 that owns a `Logic` (the portable struct), registers a handler for each message in
@@ -658,6 +674,7 @@ template <kfpga::ActorId Id, kfpga::ActorId Gateway>
 struct RiskGate
 {
   static constexpr kfpga::ActorId kId = Id;
+  kfpga::ActorRef<Gateway> gateway;          // where accepted orders go
   static constexpr int kInstr = 16;          // fixed size: no heap, no std::vector
   static constexpr int kMaxPerTick = 50;
 
@@ -681,7 +698,7 @@ struct RiskGate
     if (sent_this_tick >= kMaxPerTick)
       return reject(o, 2, ctx);
     ++sent_this_tick;
-    ctx.send(Gateway, o);                    // to the gateway, wherever it runs
+    gateway.send(o, ctx);                    // to the gateway, wherever it runs
   }
 
   template <class Ctx>
@@ -741,9 +758,9 @@ whole point of "backtest == production".
 ### 9.5 Example: actors in one process (the `Group` equivalent)
 
 On the CPU, actors in one `Group` share a thread and `fast_send` each other cheaply. On
-the card, the equivalent is an actor held as a member of another, called with the inline
-`fast_send(b, ...)`. The same code works on both, because `CpuCtx` implements the inline
-form the same way:
+the card, the equivalent is an actor held as a member of another. The caller still uses a
+reference; the table says the target is in the same process, so the call runs inline. The
+same code works on both, because the CPU host resolves it the same way:
 
 ```cpp
 template <kfpga::ActorId Id, kfpga::ActorId Gateway>
@@ -751,6 +768,7 @@ struct QuoteEngine   // BookTop and make_quote() not shown
 {
   static constexpr kfpga::ActorId kId = Id;
   RiskGate<Id + 1, Gateway> risk;            // inside this actor's process / thread
+  kfpga::ActorRef<Id + 1> risk_ref;
 
   KFPGA_HANDLERS(KFPGA_ON(msgs::BookTop, on_top))
   KFPGA_INNER(risk)
@@ -760,7 +778,7 @@ struct QuoteEngine   // BookTop and make_quote() not shown
   {
     msgs::NewOrder o = make_quote(t);
     msgs::Reject rej;
-    if (ctx.fast_send(risk, o, rej))         // risk.on_order runs now, inline
+    if (risk_ref.fast_send(o, rej, ctx))     // risk.on_order runs now, inline
       return;                                // rejected
     // accepted: RiskGate already forwarded it to the gateway
   }
@@ -865,7 +883,8 @@ These cannot be made identical, and are kept as small and explicit as possible:
    model, then synthesize for the X3522PV's XCUX35 (XCUX35-3VSVA1365E).
 4. **Real transport.** A `CardTransport` for the X3522PV over `vfio-pci`: the PCIe endpoint,
    envelope windows and DMA engine in the design (2.6), then measure on hardware.
-5. **Portable actors (section 9).** `actors::Wire<P>`, `CpuCtx`, `actors::Portable<Logic>`,
+5. **Portable actors (section 9).** `kfpga::ActorRef<Id>` replacing sends through `Ctx`
+   by id, `actors::Wire<P>`, `CpuCtx`, `actors::Portable<Logic>`,
    the CPU discovery table, and the `KFPGA_HANDLERS` type list. Port Pong, then write
    `RiskGate`, with one test suite run on all three runtimes.
 6. **Differential test.** Replay a recorded order stream through `Portable<RiskGate>` and
