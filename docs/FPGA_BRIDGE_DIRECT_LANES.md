@@ -31,6 +31,34 @@ The threads exist for a correctness reason: the reader must never run a CPU hand
 because a handler that calls back into the FPGA would wait for a reply that only the
 reader can deliver. The fix has to remove the threads without bringing that deadlock back.
 
+### 1.1 Decision: no `fast_send` across the link or between FPGA processes
+
+`fast_send` exists for performance: on the CPU the caller's thread runs the receiver's
+handler itself, with no queue and no hand-off. **The card has no natural mechanism for
+this.** On an FPGA a handler is a piece of circuit built into its own actor's process,
+wired to that actor's state; another process cannot run it, and neither can a CPU thread
+on the other side of PCIe. A `fast_send` between FPGA processes, or between the CPU and the
+card, can only be built out of streams: a request FIFO, the receiver's process running the
+handler, and a blocking wait on a reply FIFO. That is a `send` plus a wait. It gives none
+of the speed that `fast_send` exists for, it stalls the caller, and it adds the only way to
+deadlock (two callers waiting on each other).
+
+So:
+
+- **between the CPU and the card: `send` only**, in both directions;
+- **between FPGA processes: `send` only**;
+- **`fast_send` on the FPGA only to an actor inside the caller's own process**, where the
+  handler is part of the caller's circuit and runs inline, like a CPU `Group`;
+- **`fast_send` between CPU actors** is unchanged.
+
+A request and its answer between processes, or across the link, are two messages: the
+caller `send`s, and the receiver's `reply` arrives as a message to a second handler. If a
+synchronous form ever proves worth having, it can be added later on top of the same
+streams.
+
+This removes the two `fast_send` rows of the table above, and with them the reply map,
+the condition variables, the worker threads and the deadlock they guarded against.
+
 ## 2. Primer: how a CPU and an FPGA card communicate
 
 This section is background for the rest of the document. It describes the mechanisms
@@ -143,9 +171,8 @@ These are the practices this design follows. Each later section points back to t
 | actor operation | mechanism |
 |---|---|
 | CPU actor `send` to FPGA actor | MMIO write-combined 64-byte store into the sending thread's window (or a ring write plus doorbell) |
-| CPU actor `fast_send` to FPGA actor | the same write, then spin on the thread's reply slot in host memory, which the card fills by DMA |
 | FPGA actor `send` to CPU actor | DMA write into a lane ring of the CPU actor's thread, polled by that thread |
-| FPGA actor `fast_send` to CPU actor | DMA write into that thread's priority lane; the reply goes back like a CPU `send` |
+| `fast_send` either way | not supported (1.1) |
 | waking a CPU actor that does not spin | MSI-X interrupt → `eventfd` that the actor's own thread waits on |
 
 Sections 4–8 make this concrete.
@@ -239,9 +266,9 @@ CTPIO send or a frame received.
 
 1. **No routing threads.** Every crossing is written by the thread that has the data and
    read by the thread that will use it.
-2. **Same semantics as the CPU runtime.** One message at a time per actor, isolation,
-   per-sender FIFO order, `fast_send` served ahead of the mailbox and never interrupting a
-   running handler, deadlock only on a genuine `fast_send` cycle.
+2. **Same semantics as the CPU runtime for `send`.** One message at a time per actor,
+   isolation, per-sender FIFO order. `fast_send` only where it is natural (1.1): between
+   CPU actors, and on the card inside one process.
 3. **Transparent to actor code.** Senders hold an `ActorRef`; receivers get messages in
    their handlers. Whether a peer is on the card is a deployment decision, made the same
    way a mailbox kind is chosen today.
@@ -260,9 +287,8 @@ window), with **exactly one CPU thread on its end**. There is no shared queue, n
 dispatcher, no reader thread.
 
 ```
-CPU thread T ──(T's request ring)─────────────► card host-in ──► FPGA actor
-CPU thread T ◄──(T's reply slot)─────────────── card host-out ◄── FPGA actor   fast_send reply
-FPGA actor ──► card host-out ──(T's lane ring)──► CPU thread T's mailbox       send / fast_send request
+CPU thread T ──(T's window on the card)──────► card host-in ──► FPGA actor
+FPGA actor ──► card host-out ──(T's lane ring)──► CPU thread T's mailbox
 ```
 
 An envelope is about 60 bytes (`envelope.hpp`: 12-byte header, 12 × 4-byte payload), so
@@ -273,7 +299,7 @@ and one cache-line read by the receiver.
 so the group's thread owns the rings and serves all its members. A stand-alone actor owns
 its own.
 
-## 5. The four paths
+## 5. The paths
 
 ### 5.1 CPU → FPGA `send`
 
@@ -290,17 +316,11 @@ Each sending thread has its own ring, so producers need no lock or atomic claim.
 Per-sender FIFO order holds: an actor always sends from the same thread, so its messages
 to a given FPGA actor go through one ring in order.
 
-### 5.2 CPU → FPGA `fast_send`
+### 5.2 CPU → FPGA `fast_send`: not supported
 
-1. Encode the request; its `tag` names **this thread's reply slot**.
-2. Write it into this thread's request ring.
-3. **Spin on the reply slot**: a cache line in host memory with a sequence number. The
-   card's host-out process writes the reply envelope into the slot named by the tag,
-   then bumps the sequence number.
-4. Decode the reply onto the caller's stack and return it, as a CPU `fast_send` does.
-
-A thread can have only one `fast_send` outstanding (it is blocked in it), so **one slot per
-thread** is enough. There is no `pending_` map, no mutex and no condition variable.
+See 1.1. A CPU actor that needs an answer from an FPGA actor `send`s the request; the FPGA
+actor's `reply` comes back on the CPU actor's lane (5.3) as a message. There are no reply
+slots and no spinning caller.
 
 ### 5.3 FPGA → CPU `send`
 
@@ -317,34 +337,13 @@ To keep one writer per ring on the card side too, there is one lane per (card ho
 CPU thread) pair. The card's discovery table maps a CPU actor id to the lane of the
 thread that runs it.
 
-### 5.4 FPGA → CPU `fast_send`
+### 5.4 FPGA → CPU `fast_send`: not supported
 
-The card writes the request into a **priority lane** of the CPU actor's thread. The
-thread's drain loop serves the priority lane before anything else, runs the handler,
-and writes the reply into its request ring tagged as a `FAST_REPLY`. The card's host-in
-puts that on the `from_host_reply` stream, which already exists, so a reply never waits
-behind ordinary traffic.
-
-**Same semantics as CPU `fast_send`:**
-- it is served ahead of the mailbox;
-- it never interrupts a running handler, because the drain loop checks the priority lane
-  only between messages;
-- the caller is blocked until it gets the reply (here the caller is an FPGA process, and
-  its stall is local to that process).
-
-**One unavoidable difference:** on the CPU, `fast_send` runs the handler on the
-*caller's* thread. Here the caller is hardware and has no CPU thread, so the handler runs
-on the *callee's* thread. Handler code and its guarantees do not change: the actor's
-state is still touched by one thread at a time. To keep that true when other CPU threads
-`fast_send` the same actor concurrently, the drain loop serves the request under the same
-per-actor `fast_send_mutex` that `Actor::fast_send` takes (this needs checking against
-the exact locking in `Actor.cpp`).
-
-**The deadlock that the worker threads guarded against is gone.** If the CPU handler
-`fast_send`s back to the FPGA, it does what 5.2 says: it writes its request and spins on
-its own reply slot. Nobody else has to deliver that reply. Only a genuine cycle (FPGA
-actor A → CPU actor B → FPGA actor A) deadlocks, exactly as a `fast_send` cycle does
-inside the CPU runtime.
+See 1.1. An FPGA actor that needs an answer from a CPU actor `send`s the request through
+its reference (5.3 in reverse: the card's host-in path, 5.1); the CPU actor's `reply` goes
+back to the card as a message. No CPU handler ever runs on behalf of a waiting FPGA
+process, so there is no priority lane, no callee-thread `fast_send` and no locking
+question.
 
 ## 6. Changes in `actors/cpp`
 
@@ -359,28 +358,25 @@ enum class MailboxKind { BQueue, BQueueBatched, ShardedBQueue, LockFreeMPSC,
 
 `FpgaLanes` is:
 - the existing `LockFreeMPSC` ring, for CPU senders;
-- one or more **external lanes**: host-memory rings the card writes into;
-- one **priority lane** for FPGA `fast_send` requests.
+- one or more **external lanes**: host-memory rings the card writes into.
 
-Its drain loop, in order:
-1. the priority lane (FPGA `fast_send` requests);
-2. the external lanes, round-robin;
-3. the CPU ring.
+Its drain loop takes the external lanes round-robin, then the CPU ring.
 
 It has **no condition variable**: the card cannot signal one. See section 7.
 
 A `Group` that hosts FPGA-facing actors uses the same lane set on the group thread.
 
 `ActorRef`/`FpgaActorRef` keep their current shape (the `FpgaLink` interface added on the
-branch). Only the implementation behind `FpgaLink::send` and `FpgaLink::fast_send`
-changes: from "write, and let the reader route" to sections 5.1 and 5.2.
+branch). Only the implementation behind `FpgaLink::send` changes: from "write, and let the
+reader route" to 5.1. `FpgaLink::fast_send` is removed (1.1); calling `fast_send` on an
+`ActorRef` to an FPGA actor fails.
 
 ## 7. The cost: who spins
 
 The card cannot wake a sleeping thread through a condition variable. So **a CPU thread
 that receives from the card has to poll its lanes**, like `LockFreeMPSCSpin` today:
 
-- **Latency-critical actors** (anything on the FPGA's synchronous path): spinning
+- **Latency-critical actors** (anything that must see the card's messages at once): spinning
   `FpgaLanes`, pinned to an isolated core. This is normal HFT practice and the same
   tradeoff the framework already offers.
 - **Everything else** (logging, risk reports, monitoring): `FpgaLanes` with **interrupt
@@ -390,9 +386,9 @@ that receives from the card has to poll its lanes**, like `LockFreeMPSCSpin` tod
 
 The choice is per actor or per group, at deployment, like choosing a mailbox kind.
 
-**Expected result:** a `fast_send` round trip in either direction comes down to roughly
-the PCIe round trip itself, plus a handler, instead of PCIe plus thread wake-ups. This is
-an estimate; it has to be measured (section 12).
+**Expected result:** a message from the card reaches the CPU actor's handler after one
+PCIe crossing and a poll, with no thread wake-up in between. This is an estimate; it has to
+be measured (section 12).
 
 ## 8. Changes on the card side
 
@@ -402,10 +398,10 @@ rings:
 | process | today | proposed |
 |---|---|---|
 | `host_in` | reads `from_host` | takes envelopes from the per-thread write-combining windows, round-robin (2.6) |
-| `host_in_reply` | reads `from_host_reply` | unchanged in role: CPU replies to FPGA `fast_send`s, kept separate so they never queue behind messages |
-| `host_out` | writes `to_pcie` | writes each envelope to its destination: a CPU thread's lane, its priority lane, or a CPU caller's reply slot (from the tag) |
+| `host_in_reply` | reads `from_host_reply` | **removed**: it carried CPU replies to FPGA `fast_send`s (1.1) |
+| `host_out` | writes `to_pcie` | writes each envelope into the lane ring of the CPU thread that runs its destination |
 
-The discovery table gains a host-side map: CPU actor id → (lane ring, priority ring).
+The discovery table gains a host-side map: CPU actor id → lane ring.
 This is fixed at deployment, like the rest of the table.
 
 ## 9. Actor code: one source for CPU and FPGA
@@ -552,14 +548,15 @@ Actor code is written as on the CPU:
   not allow);
 - handlers are ordinary member functions, `void on_x(const X &m)`;
 - it holds a `kfpga::ActorRef<Id>` member for each actor it talks to, and sends with
-  `ref.send(m, this)` or `ref.fast_send(req, rep, this)`, passing `this` as the sender;
+  `ref.send(m, this)`, passing `this` as the sender. `ref.fast_send(req, rep, this)`
+  exists only on a reference to a member of the same process (1.1);
 - it answers with `reply(m)`, from the base class.
 
 There is no `Ctx` in actor code.
 
 **On the FPGA, a reference holds the streams.** An `ActorRef` held by actor A and pointing
-at actor B stands for exactly one (sender, receiver) pair, so it holds references to the
-four FIFOs between A and B:
+at actor B in another process stands for exactly one (sender, receiver) pair, so it holds
+references to the two FIFOs between A and B:
 
 ```cpp
 template <kfpga::ActorId Id>
@@ -568,37 +565,29 @@ struct ActorRef
   static constexpr kfpga::ActorId kId = Id;   // B's id: ids live in references
 
   hls::stream<Envelope> &msg;   // A -> B messages
-  hls::stream<Envelope> &freq;  // A -> B fast_send requests
-  hls::stream<Envelope> &frep;  // B -> A fast_send replies
-  hls::stream<Envelope> &back;  // B -> A replies to A's sends
+  hls::stream<Envelope> &back;  // B -> A replies to A's messages
 
   template <class M, class Self>
   void send(const M &m, Self *self) { msg.write(pack(m, kId)); }
 
-  template <class Req, class Rep, class Self>
-  bool fast_send(const Req &req, Rep &rep, Self *self)
-  {
-    freq.write(pack(req, kId));
-    return unpack_reply(frep.read(), rep);   // A's process stalls; the chip runs on
-  }
+  // no fast_send: B is another process (1.1)
 };
 ```
 
 (Simplified: the real code reports errors, as `Ctx` does today.)
 
 - **The FIFOs are declared once, in the HLS top**, because a FIFO has two ends in two
-  processes and both must reach it. The top binds each reference to its four FIFOs and
-  gives B's process the same four to read from.
+  processes and both must reach it. The top binds each reference to its two FIFOs and
+  gives B's process the same two.
 - **One writer per FIFO by construction.** Only A holds the reference, so A is the only
-  writer of `msg` and `freq` and B the only writer of `frep` and `back`. This is what made
+  writer of `msg` and B the only writer of `back`. This is what made
   `Ctx` necessary before; the reference now carries it.
-- **B's mailbox** is the set of `msg` and `freq` FIFOs from every reference that points at
-  B. B's process merges them as today: `fast_send` requests first, round-robin, then its
-  self-queue, then messages, round-robin.
+- **B's mailbox** is the set of `msg` FIFOs from every reference that points at B. B's
+  process merges them: its self-queue first, then messages, round-robin.
 - **`reply`.** Before running a handler, the runtime records in the base class which
-  reference's FIFOs the current message came in on and whether it was a `fast_send`.
-  `reply(m)` writes to that pair's `frep` (held for the caller until the handler ends) or
-  `back`.
+  reference's FIFOs the current message came in on, and `reply(m)` writes to that pair's
+  `back`. For an inline `fast_send` from the owner, the reply is returned to the caller
+  as a value.
 - **Actors declare no id.** An actor's id lives in the references that point at it, as a
   CPU actor is known by its `ActorRef`. The target's id travels in each envelope (`dst`).
   The sender's id is not needed inside the chip, because a reply goes back on the pair of
@@ -624,11 +613,11 @@ Sketch of the top for Ping → Pong:
 void my_top(/* host streams */)
 {
 #pragma HLS DATAFLOW
-  static hls::stream<Envelope> p2q_msg, p2q_freq, q2p_frep, q2p_back;
-  static PingActor ping{{p2q_msg, p2q_freq, q2p_frep, q2p_back}};   // ping.pong bound
+  static hls::stream<Envelope> p2q_msg, q2p_back;
+  static PingActor ping{{p2q_msg, q2p_back}};   // ping.pong bound
   static PongActor pong;
   ping_process(ping /*, Ping's inputs */);
-  pong_process(pong, p2q_msg, p2q_freq, q2p_frep, q2p_back /*, Pong's other inputs */);
+  pong_process(pong, p2q_msg, q2p_back /*, Pong's other inputs */);
 }
 ```
 
@@ -638,8 +627,8 @@ types:
 | call | on the FPGA | on the CPU host |
 |---|---|---|
 | `ref.send(m, this)` | one write into the reference's `msg` FIFO | `actors_ref.send(new Wire<M>(m), host)` |
-| `ref.fast_send(req, rep, this)` | `freq` write, blocking `frep` read; or inline for a member | `actors_ref.fast_send(&wire, host)`, check the reply id, copy into `rep`; or inline for a member |
-| `reply(m)` | `frep` or `back` of the pair the message came in on | `host->reply(new Wire<M>(m))`, which already handles both cases |
+| `ref.fast_send(req, rep, this)` | only to a member: its handler runs inline | only to a member: its handler runs inline |
+| `reply(m)` | `back` of the pair the message came in on; to an inline caller, returned as a value | `host->reply(new Wire<M>(m))` |
 
 where `host` is the `Portable` actor hosting this one (piece 4) and `actors_ref` is the
 `actors::ActorRef` the reference was bound to.
@@ -710,12 +699,16 @@ struct Pong : kfpga::Actor<Pong>
 On the card it is a process in the HLS top, with the references that point at it bound
 to its FIFOs (piece 2). On the CPU it is
 `new actors::Portable<Pong>("pong", table)`, added to the `Manager` like any
-other actor. A CPU actor calling it writes the same thing either way:
+other actor. A CPU actor talking to it writes the same thing either way:
 
 ```cpp
-cpu::Ping p; p.count = 1;
-auto r = pong_ref.fast_send(&p, this);   // pong_ref: an ActorRef, local or FPGA
+auto *p = new cpu::Ping; p->count = 1;
+pong_ref.send(p, this);   // pong_ref: an ActorRef, on the CPU or on the card;
+                          // the Pong comes back as a message
 ```
+
+(A CPU actor may `fast_send` a `Portable<Pong>` on the CPU, but not a Pong on the card,
+so code meant to work with either uses `send`.)
 
 ### 9.4 Example: a pre-trade risk gate
 
@@ -919,8 +912,8 @@ These cannot be made identical, and are kept as small and explicit as possible:
 | `FpgaBridge`: codecs, `Proxy` stand-ins, error reporting, orderly `stop()` | keep, adapted |
 | `FpgaBridge`: reader thread, worker threads, `pending_` map, condition variables | **remove** |
 | `SoftCard` | rework into a software model of the host-memory rings, so all of this is testable without hardware |
-| bridge tests (16) | keep the scenarios; they must pass against the new transport |
-| extended actor model paper | keep; add a note on the callee-thread `fast_send` in 5.4 |
+| bridge tests (16) | keep the `send` scenarios; drop the CPU ↔ FPGA `fast_send` ones (1.1) |
+| extended actor model paper | keep; add 1.1: `fast_send` only where the handler can run inline |
 
 ## 11. Open questions
 
@@ -935,24 +928,21 @@ These cannot be made identical, and are kept as small and explicit as possible:
    as one 64-byte PCIe write.
 3. **Id space.** `kMaxActors = 16` is shared by FPGA and CPU actors today. CPU actors
    addressed by the card need a separate, larger id space (it only has to map to lanes).
-4. **Locking for 5.4.** Confirm how the drain loop and `Actor::fast_send` serialize today,
-   so serving FPGA requests on the callee's thread keeps isolation.
-5. **Interrupt mode.** MSI-X → `eventfd` needs driver support; it may come later than the
+4. **Interrupt mode.** MSI-X → `eventfd` needs driver support; it may come later than the
    spinning mode.
-6. **Write-combining under VFIO.** Mapping the envelope windows through sysfs
+5. **Write-combining under VFIO.** Mapping the envelope windows through sysfs
    `resourceN_wc` while the device is bound to `vfio-pci` has to be tried on the card;
    if it does not work, find another way to get a write-combining mapping of that BAR.
 
 ## 12. Plan
 
 1. **Loopback prototype.** Software rings in shared memory, with a thread standing in for
-   the card. Implement 5.1–5.4 and the `FpgaLanes` mailbox. Benchmark round-trip latency
+   the card. Implement 5.1 and 5.3 and the `FpgaLanes` mailbox. Benchmark round-trip latency
    against today's `FpgaBridge` on the same loopback, same machine, pinned. This tells us
    how much the routing threads actually cost before any hardware work.
-2. **Semantics tests.** Port the 16 bridge scenarios to the new transport. Add tests for
-   the cases this design changes: FPGA `fast_send` served on the callee's thread while CPU
-   threads also `fast_send` it; a CPU handler calling back into the FPGA during an FPGA
-   `fast_send`; FIFO order per sender across lanes.
+2. **Semantics tests.** Port the `send` bridge scenarios to the new transport. Add tests
+   for FIFO order per sender across lanes, request/reply as two messages in both
+   directions, and that `fast_send` to an FPGA actor is rejected.
 3. **Card side.** Rework `host_in` / `host_out` for the windows and rings in the software
    model, then synthesize for the X3522PV's XCUX35 (XCUX35-3VSVA1365E).
 4. **Real transport.** A `CardTransport` for the X3522PV over `vfio-pci`: the PCIe endpoint,
