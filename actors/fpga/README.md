@@ -45,6 +45,36 @@ decisions and the known limitations.
 
 ---
 
+## The next version
+
+The design for the next version of the runtime and its CPU bridge is in
+[docs/FPGA_BRIDGE_DIRECT_LANES.md](../../docs/FPGA_BRIDGE_DIRECT_LANES.md). The code in this
+directory is the current version, described above.
+
+- **Actors are written as on the CPU.** An actor derives from `kfpga::Actor<Self>` (no
+  virtual functions), handlers are ordinary member functions, it sends with
+  `ref.send(m, this)` and answers with `reply(m)`. Messages derive from
+  `kfpga::Message<id>`. There is no `Ctx` in actor code.
+- **References hold the streams.** An actor holds a `kfpga::ActorRef<Id>` for each actor
+  it talks to. A reference to an actor in another process holds references to the FIFOs
+  between the two, declared once in the HLS top, so every FIFO has one writer by
+  construction. Actor ids live in the references, not in the actors.
+- **A process is a `Group`.** Several actors in one FPGA process behave like a CPU
+  `Group`: one handler at a time, `send` through the process's own queue, `fast_send`
+  inline. Which actors share a process is decided at deployment, as group membership is
+  on the CPU.
+- **`fast_send` only inside a process.** Between FPGA processes, and between the CPU and
+  the card, actors only `send`; a request and its answer are two messages. The card has
+  no natural mechanism for running another process's handler, and a cross-process
+  `fast_send` could only be a `send` plus a blocking wait.
+- **No routing threads in the bridge.** Each CPU thread writes to the card through its
+  own window, and the card writes into rings owned by the CPU thread that runs the
+  receiving actor.
+- **Card-independent.** Everything card-specific is two adapters, one in the FPGA design
+  and one `CardTransport` on the CPU. The first card is the AMD Alveo X3522PV.
+
+---
+
 ## Running the examples and tests
 
 Needs a C++17 compiler, GoogleTest, and the CPU actor library built in `actors/cpp`
