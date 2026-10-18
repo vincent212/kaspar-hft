@@ -48,7 +48,8 @@ So:
 - **between the CPU and the card: `send` only**, in both directions;
 - **between FPGA processes: `send` only**;
 - **`fast_send` on the FPGA only to an actor inside the caller's own process**, where the
-  handler is part of the caller's circuit and runs inline, like a CPU `Group`;
+  handler is part of the caller's circuit and runs inline. A process is a CPU `Group`
+  (9.5): one handler at a time, `send` through its own queue, `fast_send` inline;
 - **`fast_send` between CPU actors** is unchanged.
 
 A request and its answer between processes, or across the link, are two messages: the
@@ -825,12 +826,30 @@ table.put(kRisk, bridge->ref(kRisk));        // same id, now an FPGA ActorRef
 The backtest then runs the **same** risk logic that the card runs live, which is the
 whole point of "backtest == production".
 
-### 9.5 Example: actors in one process (the `Group` equivalent)
+### 9.5 A process is a `Group`
 
-On the CPU, actors in one `Group` share a thread and `fast_send` each other cheaply. On
-the card, the equivalent is an actor held as a member of another. The caller still uses a
-reference; the table says the target is in the same process, so the call runs inline. The
-same code works on both, because the CPU host resolves it the same way:
+An FPGA process holding several actors has exactly the semantics of a CPU `Group`, and
+this is the organizing idea for placing actors on the card:
+
+| | CPU `Group` | FPGA process |
+|---|---|---|
+| members | several actors, one thread, one shared mailbox | several actors, one state machine |
+| handlers | one at a time across all members, each to the end; no locks between members | the same: one state machine steps through one handler at a time |
+| `send` between members | enqueued on the group's queue, handled after the current handler | enqueued on the process's own queue, handled on a later step |
+| `fast_send` between members | inline on the same thread, reply as a value | inline in the same circuit, reply as a value |
+| messages from outside | arrive in the shared mailbox, dispatched to the member | arrive on the process's input FIFOs, dispatched to the member |
+| order | deterministic | deterministic |
+| different groups / processes | run in parallel on different threads | run in parallel, every cycle |
+
+So the deployment question "which actors share a `Group`" and "which actors share a
+process" are the same question: actors that call each other synchronously and must not run
+concurrently go together; actors that only exchange messages go apart and run in parallel.
+It is also why `fast_send` stops at the process boundary (1.1): inside a group or process
+the handler can run inline; across processes nothing can run another process's circuit.
+
+Example: the risk gate held inside a quote engine. The caller uses a reference bound to
+the member, so the call runs inline. The same code works on both runtimes, because the CPU
+host resolves it the same way:
 
 ```cpp
 struct QuoteEngine : kfpga::Actor<QuoteEngine>   // BookTop, make_quote() not shown
