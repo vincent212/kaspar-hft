@@ -59,11 +59,12 @@ directory is the current version, described above.
   it talks to. A reference to an actor in another process holds references to the FIFOs
   between the two, declared once in the HLS top, so every FIFO has one writer by
   construction. Actor ids live in the references, not in the actors.
-- **A process is a `Group`.** Several actors in one FPGA process behave like a CPU
-  `Group`: one handler at a time, `send` through the process's own queue, `fast_send`
-  inline. Which actors share a process is decided at deployment, as group membership is
-  on the CPU.
-- **`fast_send` only inside a process.** Between FPGA processes, and between the CPU and
+- **A process is a `Group`.** A group of actors is declared in the HLS top,
+  `kfpga::Group<A, B, ...>`, and runs as one process. It behaves like a CPU `Group`: one
+  handler at a time, `send` through the group's own queue, `fast_send` inline. Which
+  actors share a group is decided at deployment, as on the CPU; actors never contain
+  other actors, and `KFPGA_INNER` goes away.
+- **`fast_send` only within a group.** Between FPGA processes, and between the CPU and
   the card, actors only `send`; a request and its answer are two messages. The card has
   no natural mechanism for running another process's handler, and a cross-process
   `fast_send` could only be a `send` plus a blocking wait.

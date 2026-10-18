@@ -47,7 +47,8 @@ So:
 
 - **between the CPU and the card: `send` only**, in both directions;
 - **between FPGA processes: `send` only**;
-- **`fast_send` on the FPGA only to an actor inside the caller's own process**, where the
+- **`fast_send` on the FPGA only to an actor in the caller's own group**, which runs as one
+  process, where the
   handler is part of the caller's circuit and runs inline. A process is a CPU `Group`
   (9.5): one handler at a time, `send` through its own queue, `fast_send` inline;
 - **`fast_send` between CPU actors** is unchanged.
@@ -550,7 +551,7 @@ Actor code is written as on the CPU:
 - handlers are ordinary member functions, `void on_x(const X &m)`;
 - it holds a `kfpga::ActorRef<Id>` member for each actor it talks to, and sends with
   `ref.send(m, this)`, passing `this` as the sender. `ref.fast_send(req, rep, this)`
-  exists only on a reference to a member of the same process (1.1);
+  exists only on a reference to an actor in the same group (1.1);
 - it answers with `reply(m)`, from the base class.
 
 There is no `Ctx` in actor code.
@@ -594,10 +595,10 @@ struct ActorRef
   The sender's id is not needed inside the chip, because a reply goes back on the pair of
   FIFOs the message came in on. For the host link and error reports, the top gives each
   actor process its id when it binds the design, and the runtime stamps it as `src`.
-- **A reference to an actor in the same process** (an actor held as a member, the `Group`
-  equivalent) is bound to the member instead of to FIFOs, and its `fast_send` runs the
-  member's handler inline. `KFPGA_INNER` takes these references, so envelopes from the host
-  addressed to the member's id reach it.
+- **A reference to an actor in the same group** is bound by the top directly to that actor
+  instead of to FIFOs, and its `fast_send` runs the target's handler inline (9.5). Actors
+  never contain other actors; `KFPGA_INNER` is removed, because the group lists its
+  members.
 - **A reference to a CPU actor** is bound to the holding actor's FIFOs to and from the host
   link. Several such references held by one actor share those FIFOs; there is still one
   writing process.
@@ -628,7 +629,7 @@ types:
 | call | on the FPGA | on the CPU host |
 |---|---|---|
 | `ref.send(m, this)` | one write into the reference's `msg` FIFO | `actors_ref.send(new Wire<M>(m), host)` |
-| `ref.fast_send(req, rep, this)` | only to a member: its handler runs inline | only to a member: its handler runs inline |
+| `ref.fast_send(req, rep, this)` | only within a group: the handler runs inline | only within a group: the handler runs inline |
 | `reply(m)` | `back` of the pair the message came in on; to an inline caller, returned as a value | `host->reply(new Wire<M>(m))` |
 
 where `host` is the `Portable` actor hosting this one (piece 4) and `actors_ref` is the
@@ -641,7 +642,8 @@ written down. The actor's code never says. The FPGA's `DiscoveryTable` remains o
 host link, to deliver envelopes from the CPU to the right actor process.
 
 **This replaces the current FPGA API.** Plain actor structs with handlers templated on
-`Ctx`, `Ctx::send(ActorId, ...)`, `Ctx::fast_send(ActorId, ...)`, `Ctx::fast_send(b, ...)`
+`Ctx`, `Ctx::send(ActorId, ...)`, `Ctx::fast_send(ActorId, ...)`, `Ctx::fast_send(b, ...)`,
+actors held as members of other actors, `KFPGA_INNER`
 and `ctx.reply` in `actor.hpp` are removed; `Links<NE>` with FIFOs for every pair of
 endpoints becomes FIFOs declared per reference, so only pairs that talk get FIFOs. The
 examples and tests move to the base class and references.
@@ -847,29 +849,58 @@ concurrently go together; actors that only exchange messages go apart and run in
 It is also why `fast_send` stops at the process boundary (1.1): inside a group or process
 the handler can run inline; across processes nothing can run another process's circuit.
 
-Example: the risk gate held inside a quote engine. The caller uses a reference bound to
-the member, so the call runs inline. The same code works on both runtimes, because the CPU
-host resolves it the same way:
+**On the card, a group is declared in the HLS top, as on the CPU.** A CPU `Group` is
+assembled at deployment with `grp.add(...)`; actors never contain each other. The FPGA
+runtime gets the same thing, `kfpga::Group<A, B, ...>` (new; the current runtime has no
+group type, and puts actors in one process only by having one actor contain the others,
+with `KFPGA_INNER`). A group:
+
+- runs as one process: one state machine, one handler at a time across its members;
+- lists its members, so the process knows whom to dispatch to; no `KFPGA_INNER`;
+- has its own queue for `send` between members;
+- binds references between its members directly to the target actor, so `fast_send` on
+  them runs inline. References to actors outside the group are bound to FIFOs and have no
+  `fast_send`.
+
+Example: a quote engine that checks every quote with the risk gate before it goes out.
+The actors are written independently:
 
 ```cpp
 struct QuoteEngine : kfpga::Actor<QuoteEngine>   // BookTop, make_quote() not shown
 {
-  RiskGate risk;                             // inside this actor's process / thread
-  kfpga::ActorRef<kInnerRisk> risk_ref{risk};  // bound to the member, no FIFOs
+  kfpga::ActorRef<kRisk> risk;
 
   KFPGA_HANDLERS(KFPGA_ON(msgs::BookTop, on_top))
-  KFPGA_INNER(risk_ref)
 
   void on_top(const msgs::BookTop &t)
   {
     msgs::NewOrder o = make_quote(t);
     msgs::Reject rej;
-    if (risk_ref.fast_send(o, rej, this))    // risk.on_order runs now, inline
+    if (risk.fast_send(o, rej, this))        // RiskGate::on_order runs now, inline
       return;                                // rejected
     // accepted: RiskGate already forwarded it to the gateway
   }
 };
 ```
+
+and deployment puts them in one group:
+
+```cpp
+// HLS top
+static QuoteEngine quotes;
+static RiskGate risk;
+static kfpga::Group<QuoteEngine, RiskGate> g(quotes, risk);   // one process
+
+// CPU
+actors::Group grp("quoting");
+grp.add(new actors::Portable<QuoteEngine>("quotes", table));
+grp.add(new actors::Portable<RiskGate>("risk", table));
+```
+
+`QuoteEngine` does not say where `RiskGate` runs. If deployment moved `RiskGate` to another
+group, the FPGA build would no longer compile, and the `fast_send` would have to become a
+`send`. (On the CPU, `fast_send` across groups still works; portable code should not rely
+on it.)
 
 ### 9.6 The rules for portable code
 
@@ -966,7 +997,8 @@ These cannot be made identical, and are kept as small and explicit as possible:
    model, then synthesize for the X3522PV's XCUX35 (XCUX35-3VSVA1365E).
 4. **Real transport.** A `CardTransport` for the X3522PV over `vfio-pci`: the PCIe endpoint,
    envelope windows and DMA engine in the design (2.6), then measure on hardware.
-5. **Portable actors (section 9).** The `kfpga::Actor<Self>` base class and
+5. **Portable actors (section 9).** `kfpga::Group<...>` declared in the HLS top, the
+   `kfpga::Actor<Self>` base class and
    `kfpga::ActorRef<Id>` holding stream references, replacing `Ctx` and `Links<NE>`
    (confirm in the first synthesis run that Vitis HLS accepts the `hls::stream&` members);
    CPU implementations of both, `actors::Wire<P>`, `actors::Portable<Logic>`,
