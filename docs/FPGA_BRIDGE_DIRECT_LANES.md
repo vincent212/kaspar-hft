@@ -488,10 +488,11 @@ The logic is identical. Everything around it differs:
 
 Two copies of every message and two styles of every actor: that is what has to go.
 
-One more thing has to go: on the FPGA today an actor sends **through its context, by id**
-(`ctx.send(dst_id, x)`, `ctx.fast_send(dst, x, rep)`). That is not the actor model as
-Kaspar uses it. An actor sends through an **actor reference**; the context of the message
-being handled is only for replying to its sender. 9.2 fixes this on both runtimes.
+One more thing has to go: on the FPGA today an actor is a plain struct with no base
+class, and it sends **through its context, by id** (`ctx.send(dst_id, x)`,
+`ctx.fast_send(dst, x, rep)`). That is not the actor model as Kaspar uses it. An actor
+derives from an actor base class, sends through an **actor reference** with `this` as the
+sender, and replies with `reply`. 9.2 does this on both runtimes.
 
 ### 9.2 The approach: portable actors
 
@@ -541,42 +542,120 @@ portable code as `const Ping &` with no copy, and the bridge encodes it with the
 sets of messages, generate `msgs.hpp` from a schema, as `actors/rust/interop/codegen/
 generate.py` already does for Rust.
 
-**2. Sends go through actor references; the context only replies.** An actor holds a
-`kfpga::ActorRef<Id>` member for each actor it talks to, and sends through it. The
-handler's `Ctx` is passed as the sender, the way `this` is on the CPU, and is otherwise
-used only to reply:
+**2. Actors derive from a base class and send through references that hold streams.**
+Actor code is written as on the CPU:
 
-| call | on the FPGA | on the CPU host (`CpuCtx`, new) |
+- an actor derives from `kfpga::Actor<Self>` (CRTP: no virtual functions, which HLS does
+  not allow);
+- handlers are ordinary member functions, `void on_x(const X &m)`;
+- it holds a `kfpga::ActorRef<Id>` member for each actor it talks to, and sends with
+  `ref.send(m, this)` or `ref.fast_send(req, rep, this)`, passing `this` as the sender;
+- it answers with `reply(m)`, from the base class.
+
+There is no `Ctx` in actor code.
+
+**On the FPGA, a reference holds the streams.** An `ActorRef` held by actor A and pointing
+at actor B stands for exactly one (sender, receiver) pair, so it holds references to the
+four FIFOs between A and B:
+
+```cpp
+template <kfpga::ActorId Id>
+struct ActorRef
+{
+  hls::stream<Envelope> &msg;   // A -> B messages
+  hls::stream<Envelope> &freq;  // A -> B fast_send requests
+  hls::stream<Envelope> &frep;  // B -> A fast_send replies
+  hls::stream<Envelope> &back;  // B -> A replies to A's sends
+
+  template <class M, class Self>
+  void send(const M &m, Self *self) { msg.write(pack(m, Id, Self::kId)); }
+
+  template <class Req, class Rep, class Self>
+  bool fast_send(const Req &req, Rep &rep, Self *self)
+  {
+    freq.write(pack(req, Id, Self::kId));
+    return unpack_reply(frep.read(), rep);   // A's process stalls; the chip runs on
+  }
+};
+```
+
+(Simplified: the real code reports errors, as `Ctx` does today.)
+
+- **The FIFOs are declared once, in the HLS top**, because a FIFO has two ends in two
+  processes and both must reach it. The top binds each reference to its four FIFOs and
+  gives B's process the same four to read from.
+- **One writer per FIFO by construction.** Only A holds the reference, so A is the only
+  writer of `msg` and `freq` and B the only writer of `frep` and `back`. This is what made
+  `Ctx` necessary before; the reference now carries it.
+- **B's mailbox** is the set of `msg` and `freq` FIFOs from every reference that points at
+  B. B's process merges them as today: `fast_send` requests first, round-robin, then its
+  self-queue, then messages, round-robin.
+- **`reply`.** Before running a handler, the runtime records in the base class which
+  reference's FIFOs the current message came in on and whether it was a `fast_send`.
+  `reply(m)` writes to that pair's `frep` (held for the caller until the handler ends) or
+  `back`.
+- **A reference to an actor in the same process** (an actor held as a member, the `Group`
+  equivalent) holds no FIFOs. Its `fast_send` reaches the member through `self` and the
+  existing `KFPGA_INNER` dispatch, and runs the handler inline.
+- **A reference to a CPU actor** is bound to the holding actor's FIFOs to and from the host
+  link. Several such references held by one actor share those FIFOs; there is still one
+  writing process.
+- **Ids still travel in the envelope** (`dst`, `src`, `tag`), for the host link, for error
+  reports and for the CPU side. Actor code never sends by id.
+
+This assumes Vitis HLS accepts `hls::stream&` members in a struct bound in the top;
+AMD's documentation neither shows nor forbids it, so the first synthesis run of the
+reworked runtime confirms it.
+
+Sketch of the top for Ping → Pong:
+
+```cpp
+void my_top(/* host streams */)
+{
+#pragma HLS DATAFLOW
+  static hls::stream<Envelope> p2q_msg, p2q_freq, q2p_frep, q2p_back;
+  static PingActor ping{{p2q_msg, p2q_freq, q2p_frep, q2p_back}};   // ping.pong bound
+  static PongActor<kPong> pong;
+  ping_process(ping /*, Ping's inputs */);
+  pong_process(pong, p2q_msg, p2q_freq, q2p_frep, q2p_back /*, Pong's other inputs */);
+}
+```
+
+**On the CPU host**, the same source compiles against CPU implementations of the same two
+types:
+
+| call | on the FPGA | on the CPU host |
 |---|---|---|
-| `ref.send(m, ctx)` | one write into the FIFO from this process to the target | look up the id in the CPU table, `actors_ref.send(new Wire<M>(m), &actor)` |
-| `ref.fast_send(req, rep, ctx)` | target in another process: request FIFO, blocking read on the reply FIFO. Target inside this process: its handler runs inline | `actors_ref.fast_send(&wire, &actor)`, check the reply id, copy into `rep`. Target a member: its handler runs inline |
-| `ctx.reply(m)` | reply FIFO, or held for a `fast_send` caller | `actor.reply(new Wire<M>(m))`, which already handles both cases |
-| `ctx.sender()`, `ctx.self()` | actor ids | actor ids, from the CPU table below |
+| `ref.send(m, this)` | one write into the reference's `msg` FIFO | `actors_ref.send(new Wire<M>(m), host)` |
+| `ref.fast_send(req, rep, this)` | `freq` write, blocking `frep` read; or inline for a member | `actors_ref.fast_send(&wire, host)`, check the reply id, copy into `rep`; or inline for a member |
+| `reply(m)` | `frep` or `back` of the pair the message came in on | `host->reply(new Wire<M>(m))`, which already handles both cases |
 
-`ActorRef<Id>` is a compile-time reference: it holds the target's id as a template
-parameter, so on the FPGA the FIFO it writes to, or the inline call, is fixed when the
-design is built and every FIFO keeps one writer. Ids still travel in the envelope header
-(`dst`, `src`) so that replies find their way back, but actor code never sends by id.
+where `host` is the `Portable` actor hosting this one (piece 4) and `actors_ref` is the
+`actors::ActorRef` the reference was bound to.
 
-**3. One addressing scheme.** References resolve through a deployment table on both
-sides: on the FPGA, the `DiscoveryTable` maps id → FIFO; on the CPU, a table maps
-id → `actors::ActorRef`. The table is where "Risk runs on the card, Strategy runs on
-core 7" is written down. The actor's code never says.
+**3. One addressing scheme: references bound at deployment.** On the FPGA, the HLS top
+binds references to FIFOs; on the CPU, `Portable` binds them from a table that maps
+id → `actors::ActorRef`. That is where "Risk runs on the card, Strategy runs on core 7" is
+written down. The actor's code never says. The FPGA's `DiscoveryTable` remains only for the
+host link, to deliver envelopes from the CPU to the right actor process.
 
-**This replaces the current FPGA API.** `Ctx::send(ActorId, ...)`, `Ctx::fast_send(ActorId,
-...)` and `Ctx::fast_send(b, ...)` in `actor.hpp` are removed; the examples and tests move
-to references.
+**This replaces the current FPGA API.** Plain actor structs with handlers templated on
+`Ctx`, `Ctx::send(ActorId, ...)`, `Ctx::fast_send(ActorId, ...)`, `Ctx::fast_send(b, ...)`
+and `ctx.reply` in `actor.hpp` are removed; `Links<NE>` with FIFOs for every pair of
+endpoints becomes FIFOs declared per reference, so only pairs that talk get FIFOs. The
+examples and tests move to the base class and references.
 
 **4. A CPU host for portable actors.** `actors::Portable<Logic>` is an ordinary CPU actor
-that owns a `Logic` (the portable struct), registers a handler for each message in
-`Logic`'s handler table, and calls the portable handler with a `CpuCtx`:
+that owns a `Logic` (the portable actor), binds its references from the deployment table,
+registers a handler for each message in `Logic`'s handler table, and calls the portable
+handler:
 
 ```cpp
 template <class Logic>
 class Portable : public actors::Actor
 {
 public:
-  Portable(const char *nm, const CpuDiscovery &rt) : rt_(rt)
+  Portable(const char *nm, const CpuDiscovery &rt) : logic(rt, this)   // binds logic's refs
   {
     std::strncpy(name, nm, sizeof(name) - 1);
     register_handlers(typename Logic::kfpga_messages{});   // one MESSAGE_HANDLER per type
@@ -587,41 +666,40 @@ private:
   template <class M>
   void on(const actors::Wire<M> *m)
   {
-    CpuCtx ctx(*this, rt_, m->sender);
-    logic.kfpga_dispatch_typed(static_cast<const M &>(*m), ctx);
+    logic.kfpga_set_current(m->sender);                     // for reply()
+    logic.kfpga_dispatch_typed(static_cast<const M &>(*m));
   }
-  const CpuDiscovery &rt_;
 };
 ```
 
-This needs one change to the FPGA runtime: `KFPGA_HANDLERS` must also expose the list of
-message types it handles (`kfpga_messages`) and a typed dispatch, so the CPU host can
-register them. The FPGA side keeps its `switch`.
+This needs `KFPGA_HANDLERS` to also expose the list of message types it handles
+(`kfpga_messages`) and a typed dispatch, so the CPU host can register them. The FPGA side
+keeps its `switch`.
 
 ### 9.3 Example: Pong, written once
 
 ```cpp
 // pong.hpp: compiled into the FPGA design AND into the CPU binary
 template <kfpga::ActorId Id>
-struct Pong
+struct Pong : kfpga::Actor<Pong<Id>>
 {
   static constexpr kfpga::ActorId kId = Id;
   uint32_t pings = 0;
 
   KFPGA_HANDLERS(KFPGA_ON(msgs::Ping, on_ping))
 
-  template <class Ctx>
-  void on_ping(const msgs::Ping &m, Ctx &ctx)
+  void on_ping(const msgs::Ping &m)
   {
     ++pings;
     msgs::Pong r;
     r.count = m.count + 1000 * pings;
-    ctx.reply(r);
+    this->reply(r);
   }
 };
 ```
 
-On the card it is `actor_proc<Pong<kPong>, 1>(links)`. On the CPU it is
+On the card it is a process in the HLS top, with the references that point at it bound
+to its FIFOs (piece 2). On the CPU it is
 `new actors::Portable<Pong<kPong>>("pong", table)`, added to the `Manager` like any
 other actor. A CPU actor calling it writes the same thing either way:
 
@@ -671,7 +749,7 @@ struct Tick   // sent by a timer actor; on the card, by the runtime's cycle coun
 }
 
 template <kfpga::ActorId Id, kfpga::ActorId Gateway>
-struct RiskGate
+struct RiskGate : kfpga::Actor<RiskGate<Id, Gateway>>
 {
   static constexpr kfpga::ActorId kId = Id;
   kfpga::ActorRef<Gateway> gateway;          // where accepted orders go
@@ -686,39 +764,35 @@ struct RiskGate
                  KFPGA_ON(msgs::Fill, on_fill)
                  KFPGA_ON(msgs::Tick, on_tick))
 
-  template <class Ctx>
-  void on_order(const msgs::NewOrder &o, Ctx &ctx)
+  void on_order(const msgs::NewOrder &o)
   {
     if (o.instr >= kInstr)
-      return reject(o, 3, ctx);
+      return reject(o, 3);
     const int32_t signed_qty = o.side == 0 ? o.qty : -o.qty;
     const int32_t after = pos[o.instr] + signed_qty;
     if (after > limit[o.instr] || after < -limit[o.instr])
-      return reject(o, 1, ctx);
+      return reject(o, 1);
     if (sent_this_tick >= kMaxPerTick)
-      return reject(o, 2, ctx);
+      return reject(o, 2);
     ++sent_this_tick;
-    gateway.send(o, ctx);                    // to the gateway, wherever it runs
+    gateway.send(o, this);                   // to the gateway, wherever it runs
   }
 
-  template <class Ctx>
-  void on_fill(const msgs::Fill &f, Ctx &)
+  void on_fill(const msgs::Fill &f)
   {
     if (f.instr < kInstr)
       pos[f.instr] += f.side == 0 ? f.qty : -f.qty;
   }
 
-  template <class Ctx>
-  void on_tick(const msgs::Tick &, Ctx &) { sent_this_tick = 0; }
+  void on_tick(const msgs::Tick &) { sent_this_tick = 0; }
 
 private:
-  template <class Ctx>
-  void reject(const msgs::NewOrder &o, uint8_t why, Ctx &ctx)
+  void reject(const msgs::NewOrder &o, uint8_t why)
   {
     msgs::Reject r;
     r.client_id = o.client_id;
     r.reason = why;
-    ctx.reply(r);                            // to the strategy that sent the order
+    this->reply(r);                          // to the strategy that sent the order
   }
 };
 ```
@@ -764,7 +838,7 @@ same code works on both, because the CPU host resolves it the same way:
 
 ```cpp
 template <kfpga::ActorId Id, kfpga::ActorId Gateway>
-struct QuoteEngine   // BookTop and make_quote() not shown
+struct QuoteEngine : kfpga::Actor<QuoteEngine<Id, Gateway>>   // BookTop, make_quote() not shown
 {
   static constexpr kfpga::ActorId kId = Id;
   RiskGate<Id + 1, Gateway> risk;            // inside this actor's process / thread
@@ -773,12 +847,11 @@ struct QuoteEngine   // BookTop and make_quote() not shown
   KFPGA_HANDLERS(KFPGA_ON(msgs::BookTop, on_top))
   KFPGA_INNER(risk)
 
-  template <class Ctx>
-  void on_top(const msgs::BookTop &t, Ctx &ctx)
+  void on_top(const msgs::BookTop &t)
   {
     msgs::NewOrder o = make_quote(t);
     msgs::Reject rej;
-    if (risk_ref.fast_send(o, rej, ctx))     // risk.on_order runs now, inline
+    if (risk_ref.fast_send(o, rej, this))    // risk.on_order runs now, inline
       return;                                // rejected
     // accepted: RiskGate already forwarded it to the gateway
   }
@@ -883,8 +956,10 @@ These cannot be made identical, and are kept as small and explicit as possible:
    model, then synthesize for the X3522PV's XCUX35 (XCUX35-3VSVA1365E).
 4. **Real transport.** A `CardTransport` for the X3522PV over `vfio-pci`: the PCIe endpoint,
    envelope windows and DMA engine in the design (2.6), then measure on hardware.
-5. **Portable actors (section 9).** `kfpga::ActorRef<Id>` replacing sends through `Ctx`
-   by id, `actors::Wire<P>`, `CpuCtx`, `actors::Portable<Logic>`,
+5. **Portable actors (section 9).** The `kfpga::Actor<Self>` base class and
+   `kfpga::ActorRef<Id>` holding stream references, replacing `Ctx` and `Links<NE>`
+   (confirm in the first synthesis run that Vitis HLS accepts the `hls::stream&` members);
+   CPU implementations of both, `actors::Wire<P>`, `actors::Portable<Logic>`,
    the CPU discovery table, and the `KFPGA_HANDLERS` type list. Port Pong, then write
    `RiskGate`, with one test suite run on all three runtimes.
 6. **Differential test.** Replay a recorded order stream through `Portable<RiskGate>` and
