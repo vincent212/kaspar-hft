@@ -177,6 +177,7 @@ longer windows. 2026-10-12 was Columbus Day (cash bond market closed).
 | `--config` | directory with `lights.ini` (shadow algorithm settings) and `som.ini` (position and size limits). `config_a` is the standard one; `config_zn` is tuned for ZN (use it with `--probe-size 100`: about 2% participation instead of 0.01%, see the comments in its `lights.ini`) |
 | `--probe-size` | contracts per leg for the SlippageProbe. **Without it the lights have no position to work and place no orders** |
 | `--probe-date` | the **trading days**, ET: `YYYYMMDD` for one day, or `YYYYMMDD-YYYYMMDD` for every weekday (Mon–Fri) in the range. The probe trades 09:29–16:00 ET on each. For a week-long recording pass its Monday to Friday. Default: the date in the file name, which is the Sunday the recording *started*, so always pass it for these files |
+| `--probe-end` | end of each trading day, `HHMM` ET (default `1600`). **Use `1200` for Treasury futures** |
 | `--probe-out` | CSV, one row per probe window |
 | `--quiet` | keep the log small (otherwise ~600 MB per session) |
 

@@ -31,7 +31,15 @@ ET = ZoneInfo('America/New_York')
 
 
 def day_of(row):
-    return datetime.datetime.fromtimestamp(int(row['fire_ts']) / 1e9, ET).strftime('%Y-%m-%d %a')
+    """Trading day of a row, or None if fire_ts is missing or not a plausible
+    epoch-ns timestamp (e.g. a truncated last line from a killed run)."""
+    try:
+        ts = int(row.get('fire_ts') or '')
+    except ValueError:
+        return None
+    if ts < 10**18:          # before 2001-09: not an epoch-ns fire time
+        return None
+    return datetime.datetime.fromtimestamp(ts / 1e9, ET).strftime('%Y-%m-%d %a')
 
 
 def main():
@@ -43,11 +51,16 @@ def main():
     # day -> (completed fires, total rows, outcome counts)
     days = collections.defaultdict(lambda: ([], [0], collections.Counter()))
     sym = None
+    skipped = 0
     for path in a.probe_csv:
         with open(path) as fh:
             for row in csv.DictReader(fh):
+                day = day_of(row)
+                if day is None:
+                    skipped += 1
+                    continue
                 sym = sym or row.get('sym')
-                fires, total, oc = days[day_of(row)]
+                fires, total, oc = days[day]
                 total[0] += 1
                 oc[row.get('outcome', '?')] += 1
                 if row.get('outcome') == 'ok':
@@ -98,6 +111,8 @@ def main():
               f"{fmt(r['part_median'] * 100, '>9.3f')}%{fmt(r['part_aggregate'] * 100, '>9.3f')}%"
               f"{r['buy_leg_s']:>7.1f}{r['child_fills']:>7.1f}")
 
+    if skipped:
+        print(f'\nskipped {skipped} unreadable row(s) (no valid fire_ts)')
     bad = {k: v for k, v in all_oc.items() if k != 'ok'}
     if bad:
         print('\nnot costed (leg did not fill before the data ended): '

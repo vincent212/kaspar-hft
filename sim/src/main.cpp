@@ -59,7 +59,8 @@ static uint64_t et_to_epoch_ns(int y, int mo, int d, int h, int mi)
 }
 
 // 09:29 to 16:00 ET inclusive, every `every_min` minutes.
-static std::vector<uint64_t> probe_schedule(const std::string &date_yyyymmdd, int every_min)
+static std::vector<uint64_t> probe_schedule(const std::string &date_yyyymmdd, int every_min,
+                                            int end_hhmm = 1600)
 {
   std::vector<uint64_t> out;
   if (date_yyyymmdd.size() != 8) return out;
@@ -88,7 +89,10 @@ static std::vector<uint64_t> probe_schedule(const std::string &date_yyyymmdd, in
   // One minute earlier puts the open INSIDE the first window, which is where it
   // belongs -- the first window then spans 09:29-09:39 and contains the whole
   // of it.
-  for (int mins = 9 * 60 + 29; mins <= 16 * 60; mins += every_min)
+  // --probe-end moves the 16:00 end; Treasury runs end at 12:00
+  // (--probe-end 1200).
+  const int end_mins = (end_hhmm / 100) * 60 + end_hhmm % 100;
+  for (int mins = 9 * 60 + 29; mins <= end_mins; mins += every_min)
     out.push_back(et_to_epoch_ns(y, mo, d, mins / 60, mins % 60));
   return out;
 }
@@ -240,6 +244,9 @@ int main(int argc, char* argv[])
                     "YYYYMMDD-YYYYMMDD for every weekday (Mon-Fri) in the range, "
                     "e.g. 20261019-20261023 for a week-long recording. Empty = the "
                     "date in the datafile name. ET wall-clock, DST handled.")
+      ("probe-end", po::value<int>()->default_value(1600),
+                    "end of the probe's trading day, HHMM ET (default 1600). "
+                    "Use 1200 for Treasury futures.")
       ("probe-every-min", po::value<int>()->default_value(10),
                     "minutes between window boundaries (09:29-16:00 ET). This is "
                     "the MINIMUM window length: a window closes once it has "
@@ -303,7 +310,13 @@ int main(int argc, char* argv[])
     }
     for (const auto &d : dates)
     {
-      auto fires = probe_schedule(d, vm["probe-every-min"].as<int>());
+      const int pend = vm["probe-end"].as<int>();
+      if (pend < 1000 || pend > 2359 || pend % 100 > 59)
+      {
+        cerr << "Error: --probe-end must be HHMM between 1000 and 2359, got " << pend << "\n";
+        return 1;
+      }
+      auto fires = probe_schedule(d, vm["probe-every-min"].as<int>(), pend);
       if (fires.empty())
       {
         cerr << "Error: could not build a probe schedule for date " << d << "\n";

@@ -64,9 +64,11 @@ namespace light::act
     int delayed_cancel_ms = 0;
     // How much the side may have WORKING, as a multiple of what is left to fill
     // (diff_from_target). Summed over every light sharing this side's QCoord and
-    // every price. 1.0 (the default) never works more than is left, so a fill
-    // can never overshoot the target; above 1.0 more orders queue at once, which
-    // fills faster in deep books (ZN) at the cost of occasional overfills.
+    // every price. The check runs BEFORE the new order is sized, and the order
+    // is capped at what is left to fill, not at the room under this cap, so the
+    // side can end up to ord_sz-1 lots past it (at 1.0, a leg can overfill by
+    // that much). Above 1.0 more orders queue at once, which fills faster in
+    // deep books (ZN) at the cost of more overfills. 1.0 is the default.
     double work_multiple = 1.0;
     std::mt19937 rng{1};            // per-light, deterministically seeded
     uint64_t place_rate_thresh = 0;  // place_rate_bp * 2^32 / 10000
@@ -212,9 +214,6 @@ namespace light::act
       ASSERTF(work_multiple >= 1.0,
               boost::format("work_multiple %g < 1: the side could never work what is left to fill")
                 % work_multiple);
-      // std::cerr, not log_opr: constructor, the Logger is not started yet.
-      std::cerr << get_name() << " work_multiple=" << work_multiple
-                << " delayed_cancel_events=" << delayed_cancel_events << std::endl;
 
       // Per-light deterministic RNG. std::rand() is process-global, unseeded and
       // shared with every other caller, so two runs of the same session placed

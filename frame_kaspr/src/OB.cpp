@@ -1486,7 +1486,20 @@ static uint64_t record_tx_time(const bfile::l3_t &l3)
 static bool in_cme_daily_break(uint64_t epoch_ns)
 {
   namespace ch = std::chrono;
-  static const ch::time_zone *et = ch::locate_zone("America/New_York");
+  // locate_zone throws when the host has no tz database, and data_handler is
+  // noexcept, so an escaping exception would terminate the process -- live
+  // kaspr included. Without a zone, say "not in the break" (the old
+  // behaviour: matching stays on) and say so once.
+  static const ch::time_zone *et = []() -> const ch::time_zone * {
+    try { return ch::locate_zone("America/New_York"); }
+    catch (const std::exception &e)
+    {
+      std::cerr << "OB: no America/New_York time zone (" << e.what()
+                << "); the 17:00-18:00 ET pre-open rule is off" << std::endl;
+      return nullptr;
+    }
+  }();
+  if (!et) return false;
   const ch::zoned_time zt{et, ch::sys_time<ch::nanoseconds>{ch::nanoseconds{epoch_ns}}};
   const auto lt = zt.get_local_time();
   return ch::hh_mm_ss{lt - ch::floor<ch::days>(lt)}.hours().count() == 17;

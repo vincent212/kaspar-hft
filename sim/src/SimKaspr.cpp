@@ -225,14 +225,9 @@ void SimKaspr::create_order_books()
   // One book, for --contract only. Building a book for every future in the
   // universe (~460 on channel 344) is disabled: main() requires --contract.
   ASSERTF(!contract_.empty(), boost::format("SimKaspr: --contract is required"));
-  std::vector<const frame::ref::Asset*> wanted;
+  auto a = frame::ref::RefData::get_asset(contract_);
+  ASSERTF(a, boost::format("contract %s is not in %s") % contract_ % universe_json_);
   {
-    auto a = frame::ref::RefData::get_asset(contract_);
-    ASSERTF(a, boost::format("contract %s is not in %s") % contract_ % universe_json_);
-    wanted.push_back(a);
-  }
-
-  for (auto a : wanted) {
     const auto j = static_cast<size_t>(a->id);
     ASSERTF(a->maxpx > 1,
             boost::format("%s (secID %d) has no usable daily price limit, so its "
@@ -293,15 +288,9 @@ void SimKaspr::create_probe()
   if (probe_size_ <= 0 || probe_days_.empty())
     return;
 
-  // The probe measures one instrument against one mid. With more than one book
-  // there is no single "the contract", so require --contract rather than pick
-  // one silently.
-  if (books_.size() != 1)
-  {
-    std::cerr << "SimKaspr: --probe-size needs exactly one book; pass --contract "
-              << "(have " << books_.size() << ")" << std::endl;
-    return;
-  }
+  // The probe measures one instrument against one mid; the sim builds exactly
+  // one book (--contract is required).
+  ASSERT(books_.size() == 1, "probe: expected exactly one book");
 
   auto a = frame::ref::RefData::inst().get_asset(book_syms_[0]);
   ASSERT(a, "probe: no asset for the book");
@@ -365,7 +354,12 @@ void SimKaspr::create_lights()
   std::cerr << "SimKaspr: lights place_rate_bp=" << pt_light.get<int>("place_rate_bp", 300)
             << " ord_sz=" << pt_light.get<int>("ord_sz", 1)
             << " rng_seed=" << pt_light.get<uint32_t>("rng_seed", 1)
-            << " max_dist=" << pt_light.get<int>("max_dist", 4) << std::endl;
+            << " max_dist=" << pt_light.get<int>("max_dist", 4)
+            << " max_dist_cancel=" << pt_light.get<int>("max_dist_cancel", pt_light.get<int>("max_dist", 4) + 2)
+            << " work_multiple=" << pt_light.get<double>("work_multiple", 1.0)
+            << " delayed_cancel_events=" << pt_light.get<int>("delayed_cancel_events", 0)
+            << " nlights_per_side=" << pt_light.get<int>("nlights_per_side", 4)
+            << " lev_orders_max=" << pt_light.get<int>("lev_orders_max", 1) << std::endl;
 
   for (size_t i = 0; i < books_.size(); ++i) {
     auto ob  = books_[i];
@@ -412,13 +406,13 @@ void SimKaspr::create_lights()
     // could rest 4 x lev_orders_max at one price, and none of them knew the
     // others were there. The cap read like a per-price limit and was not one.
     //
-    // What blocked sharing was the mmid. QCoord::mmid_orders is a uint64_t
-    // bitmask with one bit per mmid, and every call site passed mmid 0 -- so
-    // all four lights contended for bit 0 and one light's remove_order cleared
-    // the flag for its siblings. Giving each light its own mmid fixes that:
-    // px_mmid_ord is already keyed px -> mmid -> ord, so distinct mmids give
-    // each light its own slot at a price while sz_at_px sums across all of
-    // them. 64 bits is ample for the light counts here.
+    // What blocked sharing was the mmid. QCoord::mmid_orders has one bit per
+    // mmid, and every call site passed mmid 0 -- so all four lights contended
+    // for bit 0 and one light's remove_order cleared the flag for its
+    // siblings. Giving each light its own mmid fixes that: px_mmid_ord is
+    // already keyed px -> mmid -> ord, so distinct mmids give each light its
+    // own slot at a price while sz_at_px sums across all of them. The bitset
+    // holds QCoord::kMaxMmid (256) lights per side.
     //
     // Named with the index, exactly as kaspr.cpp does. The name is not
     // cosmetic: light22 mixes it into the per-light RNG seed, so two lights
@@ -491,8 +485,9 @@ void SimKaspr::create_lights()
       // light its own slot in that QCoord's bitmask, and the distinct name
       // gives it its own RNG stream.
       const int n_aggr_side = pt_light.get<int>("aggr_nlights_per_side", 1);
-      ASSERTF(n_aggr_side > 0 && n_aggr_side <= 64,
-              boost::format("aggr_nlights_per_side must be 1..64, got %d") % n_aggr_side);
+      // At most 8 aggressive lights per side (decided 2026-10-24).
+      ASSERTF(n_aggr_side > 0 && n_aggr_side <= 8,
+              boost::format("aggr_nlights_per_side must be 1..8, got %d") % n_aggr_side);
 
       auto qcoord_aggr_buy = create_QCoord();
       auto qcoord_aggr_sel = create_QCoord();
