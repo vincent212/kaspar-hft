@@ -55,7 +55,7 @@ namespace sim
              int nlights_per_side = -1,
              int probe_size = 0,
              std::string probe_out = "",
-             std::vector<uint64_t> probe_fires = {});
+             std::vector<std::vector<uint64_t>> probe_days = {});
     ~SimKaspr() override = default;
 
   private:
@@ -104,7 +104,7 @@ namespace sim
     // fixed wall-clock hour would drift against ET when DST starts.
     int                   probe_size_;
     std::string           probe_out_;
-    std::vector<uint64_t> probe_fires_;
+    std::vector<std::vector<uint64_t>> probe_days_;   // window boundaries, one list per trading day
     // The MINIMUM a measurement window runs for, seconds of market time. Not
     // the timer period -- the timer polls every second, because a window also
     // has to wait for both legs to fill their size before it can close.

@@ -363,7 +363,15 @@ namespace frame
         // Defaults to true so a session with no status message still enforces
         // the invariant -- the point of it is to catch our own reconstruction
         // bugs, and silence should not switch it off.
+        //
+        // Except when the first record falls in CME's daily break, 17:00-18:00
+        // ET: then the market is in pre-open (or closed) and CME only sends a
+        // status message when the status CHANGES, so a recording that starts
+        // there may never see the PreOpen that is already in force. Pre-open
+        // books legitimately cross, so matching starts false and waits for CME
+        // to change the status (data_handler, first_record_seen).
         bool matching = true;
+        bool first_record_seen = false;
 
         // MDP3 SecurityTradingStatus. 17 ReadyToTrade is the only one that
         // matches; 2 TradingHalt, 4 Close, 15 NewPriceIndication, 18

@@ -39,6 +39,36 @@ def ci95(xs):
     if n < 2: return float('nan')
     return 1.96 * st.stdev(xs) / math.sqrt(n)
 
+def parse_row(row):
+    """One completed fire as a dict of floats, or None if the row is unusable.
+
+    Built COMPLETE in a local and returned only once every key is set. Writing
+    the optional keys into a list entry after appending it meant a bad value in
+    one of them -- a truncated final line from a killed run, a stray comma --
+    left a half-keyed row behind, and summarise() then died with KeyError over
+    an entire multi-hour grid instead of skipping the one bad row.
+    """
+    try:
+        f = {k: float(row[k]) for k in (
+            'slip_buy_ticks', 'slip_sel_ticks', 'slip_paired_ticks',
+            'buy_filled', 'sel_filled',
+            'buy_leg_mkt_vol', 'sel_leg_mkt_vol',
+            'buy_part', 'sel_part', 'buy_ns', 'sel_ns',
+            'buy_fills', 'parent_sz')}
+        # Optional: added after the first runs, and drift replaced slip_legsum
+        # (which had become algebraically identical to slip_paired once both
+        # legs began quoting together). Absent in an older CSV, where None means
+        # "not measured" and is kept distinct from a measured 0.0.
+        for k in ('slip_vs_vwap', 'slip_buy_vs_vwap',
+                  'slip_vs_touch', 'slip_buy_vs_touch',
+                  'buy_drift_ticks', 'sel_drift_ticks',
+                  'drift_ticks'):
+            v = row.get(k)
+            f[k] = float(v) if v not in (None, '') else None
+        return f
+    except (KeyError, ValueError):
+        return None
+
 def load(cfg_dir):
     """Every fire for one config, plus the completion tally."""
     fires, total, by_outcome = [], 0, {}
@@ -50,34 +80,9 @@ def load(cfg_dir):
                 by_outcome[oc] = by_outcome.get(oc, 0) + 1
                 if oc != 'ok':
                     continue
-                try:
-                    # Built COMPLETE in a local and appended only once every key
-                    # is set. Writing the optional keys into fires[-1] after the
-                    # append meant a bad value in the 2nd, 3rd or 4th of them --
-                    # a truncated final line from a killed run, a stray comma --
-                    # left a half-keyed row in the list, and summarise() then
-                    # died with KeyError over an entire multi-hour grid instead
-                    # of skipping the one bad row.
-                    f = {k: float(row[k]) for k in (
-                        'slip_buy_ticks', 'slip_sel_ticks', 'slip_paired_ticks',
-                        'buy_filled', 'sel_filled',
-                        'buy_leg_mkt_vol', 'sel_leg_mkt_vol',
-                        'buy_part', 'sel_part', 'buy_ns', 'sel_ns',
-                        'buy_fills', 'parent_sz')}
-                    # Optional: added after the first runs, and drift replaced
-                    # slip_legsum (which had become algebraically identical to
-                    # slip_paired once both legs began quoting together). Absent
-                    # in an older CSV, where None means "not measured" and is
-                    # kept distinct from a measured 0.0.
-                    for k in ('slip_vs_vwap', 'slip_buy_vs_vwap',
-                              'slip_vs_touch', 'slip_buy_vs_touch',
-                              'buy_drift_ticks', 'sel_drift_ticks',
-                              'drift_ticks'):
-                        v = row.get(k)
-                        f[k] = float(v) if v not in (None, '') else None
+                f = parse_row(row)
+                if f is not None:
                     fires.append(f)
-                except (KeyError, ValueError):
-                    continue
     return fires, total, by_outcome
 
 def summarise(name, params, fires, total, by_outcome):

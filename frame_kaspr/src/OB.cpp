@@ -35,6 +35,7 @@
 #include "frame/ob/msg/CheckRes.hpp"
 #include <random>
 #include <limits>
+#include <chrono>
 #include "frame/ob/act/OB.hpp"
 #include "chutil/hash_map.hpp"
 #include <algorithm>
@@ -1470,8 +1471,60 @@ void act::OB::process_message(cmsgt msg) noexcept
   }
 }
 
+// Exchange time of a record: transactTime, or txtim for the record types that
+// name it that way; 0 for records that carry neither.
+static uint64_t record_tx_time(const bfile::l3_t &l3)
+{
+  return std::visit([](const auto &r) -> uint64_t {
+    if constexpr (requires { r.transactTime; }) return r.transactTime;
+    else if constexpr (requires { r.txtim; }) return r.txtim;
+    else return 0;
+  }, l3);
+}
+
+// CME's daily break, 17:00-18:00 America/New_York (DST from the tz database).
+static bool in_cme_daily_break(uint64_t epoch_ns)
+{
+  namespace ch = std::chrono;
+  // locate_zone throws when the host has no tz database, and data_handler is
+  // noexcept, so an escaping exception would terminate the process -- live
+  // kaspr included. Without a zone, say "not in the break" (the old
+  // behaviour: matching stays on) and say so once.
+  static const ch::time_zone *et = []() -> const ch::time_zone * {
+    try { return ch::locate_zone("America/New_York"); }
+    catch (const std::exception &e)
+    {
+      std::cerr << "OB: no America/New_York time zone (" << e.what()
+                << "); the 17:00-18:00 ET pre-open rule is off" << std::endl;
+      return nullptr;
+    }
+  }();
+  if (!et) return false;
+  const ch::zoned_time zt{et, ch::sys_time<ch::nanoseconds>{ch::nanoseconds{epoch_ns}}};
+  const auto lt = zt.get_local_time();
+  return ch::hh_mm_ss{lt - ch::floor<ch::days>(lt)}.hours().count() == 17;
+}
+
 void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
 {
+  // See OB.hpp, `matching`: a recording that starts in the daily break is in
+  // pre-open already, so do not enforce the no-cross invariant until CME
+  // changes the status. A first record that IS a status message sets
+  // `matching` itself below.
+  if (!first_record_seen)
+  {
+    if (const uint64_t t = record_tx_time(m->l3))
+    {
+      first_record_seen = true;
+      if (!std::holds_alternative<bfile::l3_sst_t>(m->l3) && in_cme_daily_break(t))
+      {
+        matching = false;
+        log_opr("%s first record at tx %llu is in CME's 17:00-18:00 ET break: "
+                "matching OFF until CME changes the trading status",
+                get_name(), (unsigned long long)t);
+      }
+    }
+  }
 
   // Change types to uint64_t
   uint64_t extim = 0, sendtim = 0;

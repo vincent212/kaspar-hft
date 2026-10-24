@@ -45,7 +45,7 @@ SimKaspr::SimKaspr(std::string data_file,
                    int nlights_per_side,
                    int probe_size,
                    std::string probe_out,
-                   std::vector<uint64_t> probe_fires)
+                   std::vector<std::vector<uint64_t>> probe_days)
     : Manager("sim_manager")
     , data_file_(std::move(data_file))
     , universe_json_(std::move(universe_json))
@@ -63,9 +63,9 @@ SimKaspr::SimKaspr(std::string data_file,
     , max_dist_(max_dist), nlights_per_side_(nlights_per_side)
     , probe_size_(probe_size)
     , probe_out_(std::move(probe_out))
-    , probe_fires_(std::move(probe_fires))
-    , probe_window_s_(probe_fires_.size() > 1
-                          ? int((probe_fires_[1] - probe_fires_[0]) / 1000000000ull)
+    , probe_days_(std::move(probe_days))
+    , probe_window_s_(!probe_days_.empty() && probe_days_[0].size() > 1
+                          ? int((probe_days_[0][1] - probe_days_[0][0]) / 1000000000ull)
                           : 15 * 60)
 {
   std::cerr << "SimKaspr: data=" << data_file_ << "\n"
@@ -92,9 +92,11 @@ SimKaspr::SimKaspr(std::string data_file,
   create_som();
   create_lights();
   if (probe_ && !lights_.empty())
+  {
     // The probe drives the two position books directly; it sends no targets.
     probe_->set_lights(buy_lights_, sel_lights_);
     probe_->set_coords(probe_pcoord_buy_, probe_pcoord_sel_);
+  }
   create_position_manager();
   create_bfa();
 
@@ -218,20 +220,14 @@ void SimKaspr::create_order_books()
 
   // Assets come from add_future_asset(), which allocates ids from its own
   // counter — they are NOT a dense 1..num_assets() range seeded by the CSV, so
-  // scanning by id finds nothing. Resolve by name instead: the contract when
-  // one is named, otherwise every future we registered.
-  std::vector<const frame::ref::Asset*> wanted;
-  if (!contract_.empty()) {
-    auto a = frame::ref::RefData::get_asset(contract_);
-    ASSERTF(a, boost::format("contract %s is not in %s") % contract_ % universe_json_);
-    wanted.push_back(a);
-  } else {
-    for (const auto& sym : registered_) {
-      if (auto a = frame::ref::RefData::get_asset(sym)) wanted.push_back(a);
-    }
-  }
-
-  for (auto a : wanted) {
+  // scanning by id finds nothing. Resolve by name instead.
+  //
+  // One book, for --contract only. Building a book for every future in the
+  // universe (~460 on channel 344) is disabled: main() requires --contract.
+  ASSERTF(!contract_.empty(), boost::format("SimKaspr: --contract is required"));
+  auto a = frame::ref::RefData::get_asset(contract_);
+  ASSERTF(a, boost::format("contract %s is not in %s") % contract_ % universe_json_);
+  {
     const auto j = static_cast<size_t>(a->id);
     ASSERTF(a->maxpx > 1,
             boost::format("%s (secID %d) has no usable daily price limit, so its "
@@ -289,18 +285,12 @@ void SimKaspr::create_timer()
 
 void SimKaspr::create_probe()
 {
-  if (probe_size_ <= 0 || probe_fires_.empty())
+  if (probe_size_ <= 0 || probe_days_.empty())
     return;
 
-  // The probe measures one instrument against one mid. With more than one book
-  // there is no single "the contract", so require --contract rather than pick
-  // one silently.
-  if (books_.size() != 1)
-  {
-    std::cerr << "SimKaspr: --probe-size needs exactly one book; pass --contract "
-              << "(have " << books_.size() << ")" << std::endl;
-    return;
-  }
+  // The probe measures one instrument against one mid; the sim builds exactly
+  // one book (--contract is required).
+  ASSERT(books_.size() == 1, "probe: expected exactly one book");
 
   auto a = frame::ref::RefData::inst().get_asset(book_syms_[0]);
   ASSERT(a, "probe: no asset for the book");
@@ -309,11 +299,14 @@ void SimKaspr::create_probe()
   cfg.sym_name  = a->name;
   cfg.sym       = book_syms_[0];
   cfg.parent_sz = probe_size_;
-  // The schedule collapses to its bounds: the repeating timer supplies every
-  // boundary in between, so the probe needs only where the session starts and
-  // where it ends.
-  cfg.session_start = probe_fires_.front();
-  cfg.session_end   = probe_fires_.back();
+  // Each day's schedule collapses to its bounds: the repeating timer supplies
+  // every boundary in between, so the probe needs only where each session
+  // starts and where it ends.
+  for (const auto &day : probe_days_)
+    if (!day.empty()) cfg.sessions.emplace_back(day.front(), day.back());
+  ASSERT(!cfg.sessions.empty(), "probe: empty schedule");
+  cfg.session_start = cfg.sessions.front().first;
+  cfg.session_end   = cfg.sessions.front().second;
   cfg.tick_s        = 1;               // poll the clock every second of market time
   cfg.min_window_ns = uint64_t(probe_window_s_) * 1000000000ull;
   cfg.out_path  = probe_out_;
@@ -356,12 +349,17 @@ void SimKaspr::create_lights()
   // set to, and the "market comes to us" effect that multiple resting prices
   // buy you is simply absent.
   const int nlights = pt_light.get<int>("nlights_per_side", 4);
-  ASSERTF(nlights > 0 && nlights <= 64,
-          boost::format("nlights_per_side must be 1..64, got %d") % nlights);
+  ASSERTF(nlights > 0 && nlights <= light::QCoord::kMaxMmid,
+          boost::format("nlights_per_side must be 1..%d, got %d") % light::QCoord::kMaxMmid % nlights);
   std::cerr << "SimKaspr: lights place_rate_bp=" << pt_light.get<int>("place_rate_bp", 300)
             << " ord_sz=" << pt_light.get<int>("ord_sz", 1)
             << " rng_seed=" << pt_light.get<uint32_t>("rng_seed", 1)
-            << " max_dist=" << pt_light.get<int>("max_dist", 4) << std::endl;
+            << " max_dist=" << pt_light.get<int>("max_dist", 4)
+            << " max_dist_cancel=" << pt_light.get<int>("max_dist_cancel", pt_light.get<int>("max_dist", 4) + 2)
+            << " work_multiple=" << pt_light.get<double>("work_multiple", 1.0)
+            << " delayed_cancel_events=" << pt_light.get<int>("delayed_cancel_events", 0)
+            << " nlights_per_side=" << pt_light.get<int>("nlights_per_side", 4)
+            << " lev_orders_max=" << pt_light.get<int>("lev_orders_max", 1) << std::endl;
 
   for (size_t i = 0; i < books_.size(); ++i) {
     auto ob  = books_[i];
@@ -408,13 +406,13 @@ void SimKaspr::create_lights()
     // could rest 4 x lev_orders_max at one price, and none of them knew the
     // others were there. The cap read like a per-price limit and was not one.
     //
-    // What blocked sharing was the mmid. QCoord::mmid_orders is a uint64_t
-    // bitmask with one bit per mmid, and every call site passed mmid 0 -- so
-    // all four lights contended for bit 0 and one light's remove_order cleared
-    // the flag for its siblings. Giving each light its own mmid fixes that:
-    // px_mmid_ord is already keyed px -> mmid -> ord, so distinct mmids give
-    // each light its own slot at a price while sz_at_px sums across all of
-    // them. 64 bits is ample for the light counts here.
+    // What blocked sharing was the mmid. QCoord::mmid_orders has one bit per
+    // mmid, and every call site passed mmid 0 -- so all four lights contended
+    // for bit 0 and one light's remove_order cleared the flag for its
+    // siblings. Giving each light its own mmid fixes that: px_mmid_ord is
+    // already keyed px -> mmid -> ord, so distinct mmids give each light its
+    // own slot at a price while sz_at_px sums across all of them. The bitset
+    // holds QCoord::kMaxMmid (256) lights per side.
     //
     // Named with the index, exactly as kaspr.cpp does. The name is not
     // cosmetic: light22 mixes it into the per-light RNG seed, so two lights
@@ -487,8 +485,9 @@ void SimKaspr::create_lights()
       // light its own slot in that QCoord's bitmask, and the distinct name
       // gives it its own RNG stream.
       const int n_aggr_side = pt_light.get<int>("aggr_nlights_per_side", 1);
-      ASSERTF(n_aggr_side > 0 && n_aggr_side <= 64,
-              boost::format("aggr_nlights_per_side must be 1..64, got %d") % n_aggr_side);
+      // At most 8 aggressive lights per side (decided 2026-10-24).
+      ASSERTF(n_aggr_side > 0 && n_aggr_side <= 8,
+              boost::format("aggr_nlights_per_side must be 1..8, got %d") % n_aggr_side);
 
       auto qcoord_aggr_buy = create_QCoord();
       auto qcoord_aggr_sel = create_QCoord();

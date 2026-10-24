@@ -8,8 +8,12 @@
 /**
  * build_universe.cpp - Extract instrument definitions from CME .bin files
  *
- * Scans .bin file for FDF (futures), ODF (options), and SDF (spreads) messages
- * and creates:
+ * Scans .bin file for FDF (futures), ODF (options), and SDF (spreads) messages,
+ * plus the price-limit records (LIM: high/low limit and max price variation),
+ * and creates the files below. When CME sends no high limit (Treasury futures
+ * have none), high_limit_px defaults to twice the median traded price in the
+ * file; high_limit_source says which it is ("cme" or "default").
+ * Creates:
  *   - universe.{chan}.{date}.{timestamp}.csv - parsed fields
  *   - universe.{chan}.{date}.{timestamp}.json - complete FDF/ODF/SDF messages
  *
@@ -23,6 +27,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <cstring>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
@@ -44,6 +49,8 @@ struct UniverseEntry {
     double minCabPrice;
     double dispFactor;
     std::string securityType;
+    double def_high_limit_px = 0.0;  // limits carried on the definition itself
+    double def_low_limit_px = 0.0;
 
     // Full message for JSON output
     json full_message;
@@ -77,19 +84,111 @@ private:
         return value;
     }
 
-    // securityID -> daily price limits, from l3_lim records.
-    std::map<int32_t, bfile::l3_lim_t> limits_;
+    // Price limits per securityID, from l3_lim records (MDP3
+    // MDIncrementalRefreshLimitsBanding). Each field is kept independently, as
+    // the last USABLE value seen: a record often carries only some of the three
+    // (e.g. a band with null high/low), and keeping the whole last record let a
+    // later record with a null high wipe out an earlier valid one.
+    struct Limits {
+        double pxh = 0.0;     // high limit, 0 = never seen
+        double pxl = 0.0;     // low limit
+        double pxvar = 0.0;   // max price variation (the band)
+        uint32_t records = 0; // l3_lim records seen for this securityID
+    };
+    std::map<int32_t, Limits> limits_;
 
-    // Limit price for a securityID, preferring the dedicated l3_lim record and
-    // falling back to whatever the definition carried. Returns null when
-    // neither is usable, so the consumer can apply its own default.
+    static bool usable_px(double v) { return v > 0.0 && v < 1e8; }
+
+    void add_lim(const bfile::l3_lim_t& lim) {
+        auto& l = limits_[lim.securityID];
+        ++l.records;
+        if (usable_px(lim.pxh)) l.pxh = lim.pxh;
+        if (usable_px(lim.pxl)) l.pxl = lim.pxl;
+        if (usable_px(lim.pxvar)) l.pxvar = lim.pxvar;
+    }
+
+    // Limit price for a securityID, preferring the l3_lim records and falling
+    // back to whatever the definition carried. Returns null when neither is
+    // usable, so the consumer can apply its own default.
     json limit_px(int32_t sec_id, bool high, double def_from_definition) {
         auto it = limits_.find(sec_id);
         if (it != limits_.end()) {
             const double v = high ? it->second.pxh : it->second.pxl;
-            if (v > 0.0 && v < 1e8) return v;
+            if (usable_px(v)) return v;
         }
         return sanitize_price(def_from_definition);
+    }
+
+    // Traded prices per securityID, as a histogram (price -> number of trade
+    // records), in the file's native price units (the same units as
+    // minPriceIncrement and the limits). A session trades at a few hundred
+    // distinct prices at most, so this stays small.
+    std::map<int32_t, std::map<double, uint64_t>> traded_px_;
+
+    void see_px(int32_t sec_id, double px) {
+        if (!usable_px(px)) return;
+        ++traded_px_[sec_id][px];
+    }
+
+    static double median_px(const std::map<double, uint64_t>& h) {
+        uint64_t n = 0;
+        for (const auto& kv : h) n += kv.second;
+        uint64_t seen = 0;
+        for (const auto& kv : h) {
+            seen += kv.second;
+            if (2 * seen >= n) return kv.first;
+        }
+        return 0.0;
+    }
+
+    // orderID -> (securityID, price) for every order still in the book.
+    std::unordered_map<uint64_t, std::pair<int32_t, double>> live_orders_;
+
+    // Default high limit when CME sends none (the SBE null): twice the MEDIAN
+    // traded price in this file. CME publishes no daily high limit for Treasury
+    // futures, only a price band, and OB cannot size its price ladder without a
+    // top. The median, not the maximum: a few trade records point at an order
+    // priced far from the market (ZNZ6 on 2026-10-18 showed a "trade" at
+    // 105275), and one of those would size the ladder at millions of ticks.
+    // Twice the median covers any real session move. No trades means no
+    // default: the instrument stays null. (Orders priced above the ladder are
+    // dropped by OB, which logs each one.)
+    static constexpr double kDefaultHighMultiple = 2.0;
+
+    json max_price_variation(int32_t sec_id) {
+        auto it = limits_.find(sec_id);
+        if (it != limits_.end() && usable_px(it->second.pxvar)) return it->second.pxvar;
+        return nullptr;
+    }
+
+    uint32_t limit_records(int32_t sec_id) {
+        auto it = limits_.find(sec_id);
+        return it == limits_.end() ? 0 : it->second.records;
+    }
+
+    // Limits arrive throughout the file, often after the definition. Fill them
+    // in once the whole file has been read, so every instrument sees the
+    // final values whatever the record order.
+    void apply_limits() {
+        for (auto& [secID, entry] : entries_) {
+            auto& m = entry.full_message;
+            json high = limit_px(secID, true, entry.def_high_limit_px);
+            const auto tp = traded_px_.find(secID);
+            const bool traded = tp != traded_px_.end() && !tp->second.empty();
+            if (!high.is_null())
+                m["high_limit_source"] = "cme";
+            else if (traded) {
+                high = kDefaultHighMultiple * median_px(tp->second);
+                m["high_limit_source"] = "default";
+            } else
+                m["high_limit_source"] = nullptr;
+            m["high_limit_px"] = high;
+            m["median_traded_px"] = traded ? json(median_px(tp->second)) : json(nullptr);
+            m["max_traded_px"] = traded ? json(tp->second.rbegin()->first) : json(nullptr);
+            m["low_limit_px"] = limit_px(secID, false, entry.def_low_limit_px);
+            m["max_price_variation"] = max_price_variation(secID);
+            m["limit_records"] = limit_records(secID);
+        }
     }
 
     void parse_filename() {
@@ -127,6 +226,8 @@ private:
         entry.minCabPrice = 0.0;  // Not used for futures
         entry.dispFactor = fdf.dispFactor;
         entry.securityType = sanitize(fdf.securityType, 16);
+        entry.def_high_limit_px = fdf.high_limit_px;
+        entry.def_low_limit_px = fdf.low_limit_px;
 
         // Build JSON for full message
         entry.full_message = {
@@ -136,8 +237,6 @@ private:
             {"asset", entry.asset},
             {"venue", en::to_string(en::x(fdf.venue))},
             {"cfiCode", sanitize(fdf.cfiCode, 8)},
-            {"high_limit_px", limit_px(fdf.securityID, true,  fdf.high_limit_px)},
-            {"low_limit_px", limit_px(fdf.securityID, false, fdf.low_limit_px)},
             {"minPriceIncrement", sanitize_price(fdf.minPriceIncrement)},
             {"dispFactor", fdf.dispFactor},
             {"securityType", entry.securityType},
@@ -160,6 +259,8 @@ private:
         entry.minCabPrice = odf.minCabPrice;
         entry.dispFactor = odf.dispFactor;
         entry.securityType = sanitize(odf.securityType, 16);
+        entry.def_high_limit_px = odf.high_limit_px;
+        entry.def_low_limit_px = odf.low_limit_px;
 
         // Build JSON for full message
         entry.full_message = {
@@ -169,8 +270,6 @@ private:
             {"asset", entry.asset},
             {"venue", en::to_string(en::x(odf.venue))},
             {"cfiCode", sanitize(odf.cfiCode, 8)},
-            {"high_limit_px", sanitize_price(odf.high_limit_px)},
-            {"low_limit_px", sanitize_price(odf.low_limit_px)},
             {"minPriceIncrement", sanitize_price(odf.minPriceIncrement)},
             {"minCabPrice", sanitize_price(odf.minCabPrice)},
             {"dispFactor", odf.dispFactor},
@@ -196,6 +295,8 @@ private:
         entry.minCabPrice = 0.0;  // Not used for spreads
         entry.dispFactor = sdf.dispFactor;
         entry.securityType = sanitize(sdf.securityType, 16);
+        entry.def_high_limit_px = sdf.high_limit_px;
+        entry.def_low_limit_px = sdf.low_limit_px;
 
         // Build JSON for full message
         entry.full_message = {
@@ -205,8 +306,6 @@ private:
             {"asset", entry.asset},
             {"venue", en::to_string(en::x(sdf.venue))},
             {"cfiCode", sanitize(sdf.cfiCode, 8)},
-            {"high_limit_px", sanitize_price(sdf.high_limit_px)},
-            {"low_limit_px", sanitize_price(sdf.low_limit_px)},
             {"minPriceIncrement", sanitize_price(sdf.minPriceIncrement)},
             {"dispFactor", sdf.dispFactor},
             {"securityType", entry.securityType},
@@ -235,7 +334,7 @@ public:
         }
 
         size_t msg_count = 0;
-        size_t fdf_count = 0, odf_count = 0, sdf_count = 0;
+        size_t fdf_count = 0, odf_count = 0, sdf_count = 0, lim_count = 0;
 
         bfile::l3_t l3;
         uint64_t ts;
@@ -250,17 +349,39 @@ public:
                 add_odf(std::get<bfile::l3_odf_t>(l3));
                 odf_count++;
             } else if (std::holds_alternative<bfile::l3_lim_t>(l3)) {
-                // Daily price limits arrive as their own record, separate from
-                // the instrument definition. CME leaves high/low_limit_px unset
-                // on the FDF for equity futures, so this is the only place the
-                // ladder bounds appear — and OB needs them to size its price
-                // array. Last sighting wins.
-                const auto& lim = std::get<bfile::l3_lim_t>(l3);
-                limits_[lim.securityID] = lim;
+                // Price limits arrive as their own record, separate from the
+                // instrument definition; OB sizes its price ladder from them.
+                add_lim(std::get<bfile::l3_lim_t>(l3));
+                lim_count++;
             } else if (std::holds_alternative<bfile::l3_sdf_t>(l3)) {
                 add_sdf(std::get<bfile::l3_sdf_t>(l3));
                 sdf_count++;
             }
+
+            // Traded prices, for the default high limit (see
+            // kDefaultHighMultiple). A trade record (l3_mbo_trd_v2_t) carries
+            // the resting order's id but no price and no securityID, so both
+            // come from the book: every live order's price is tracked from
+            // its add/change and dropped on delete. Resting prices themselves
+            // are NOT used: with no daily limit CME accepts resting orders far
+            // from the market (ZNZ6 had a sell resting at 10426), and one of
+            // those would size the ladder at millions of ticks.
+            std::visit([this](const auto& r) {
+                using R = std::decay_t<decltype(r)>;
+                if constexpr (std::is_same_v<R, bfile::l3_mbo_v2_t> ||
+                              std::is_same_v<R, bfile::l3_mbo_snap_t>) {
+                    if (r.orderUpdateAction == 2)   // MDP3 OrderUpdateAction: 0 new, 1 change, 2 delete
+                        live_orders_.erase(r.orderID);
+                    else
+                        live_orders_[r.orderID] = {r.securityID, r.pxd};
+                } else if constexpr (std::is_same_v<R, bfile::l3_mbo_trd_v2_t>) {
+                    auto it = live_orders_.find(r.orderID);
+                    if (it != live_orders_.end())
+                        see_px(it->second.first, it->second.second);
+                } else if constexpr (std::is_same_v<R, bfile::l3_mbp_trd_t>) {
+                    see_px(r.securityID, r.pxd);
+                }
+            }, l3);
 
             // Progress update every 1M messages
             if (msg_count % 1000000 == 0) {
@@ -269,11 +390,13 @@ public:
         }
 
         gzclose(file);
+        apply_limits();
 
         std::cerr << "Scan complete: " << msg_count << " messages" << std::endl;
         std::cerr << "  FDF: " << fdf_count << std::endl;
         std::cerr << "  ODF: " << odf_count << std::endl;
         std::cerr << "  SDF: " << sdf_count << std::endl;
+        std::cerr << "  LIM: " << lim_count << " records for " << limits_.size() << " securityIDs" << std::endl;
         std::cerr << "  Total instruments: " << entries_.size() << std::endl;
     }
 

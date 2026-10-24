@@ -14,8 +14,10 @@
 #include <boost/thread/thread.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <fenv.h>
@@ -57,7 +59,8 @@ static uint64_t et_to_epoch_ns(int y, int mo, int d, int h, int mi)
 }
 
 // 09:29 to 16:00 ET inclusive, every `every_min` minutes.
-static std::vector<uint64_t> probe_schedule(const std::string &date_yyyymmdd, int every_min)
+static std::vector<uint64_t> probe_schedule(const std::string &date_yyyymmdd, int every_min,
+                                            int end_hhmm = 1600)
 {
   std::vector<uint64_t> out;
   if (date_yyyymmdd.size() != 8) return out;
@@ -86,8 +89,46 @@ static std::vector<uint64_t> probe_schedule(const std::string &date_yyyymmdd, in
   // One minute earlier puts the open INSIDE the first window, which is where it
   // belongs -- the first window then spans 09:29-09:39 and contains the whole
   // of it.
-  for (int mins = 9 * 60 + 29; mins <= 16 * 60; mins += every_min)
+  // --probe-end moves the 16:00 end; Treasury runs end at 12:00
+  // (--probe-end 1200).
+  const int end_mins = (end_hhmm / 100) * 60 + end_hhmm % 100;
+  for (int mins = 9 * 60 + 29; mins <= end_mins; mins += every_min)
     out.push_back(et_to_epoch_ns(y, mo, d, mins / 60, mins % 60));
+  return out;
+}
+
+// The trading days named by --probe-date: "YYYYMMDD" is that one day;
+// "YYYYMMDD-YYYYMMDD" is every weekday (Mon-Fri) from the first to the last,
+// inclusive. Empty on a malformed spec. Holidays are not removed: a day with no
+// session simply produces no windows.
+static std::vector<std::string> probe_dates(const std::string &spec)
+{
+  namespace ch = std::chrono;
+  auto parse = [](const std::string &d, ch::year_month_day &out) {
+    if (d.size() != 8 || !std::all_of(d.begin(), d.end(), ::isdigit)) return false;
+    out = ch::year{std::stoi(d.substr(0, 4))} / std::stoi(d.substr(4, 2)) / std::stoi(d.substr(6, 2));
+    return out.ok();
+  };
+  std::vector<std::string> out;
+  const auto dash = spec.find('-');
+  if (dash == std::string::npos)
+  {
+    ch::year_month_day one;
+    if (parse(spec, one)) out.push_back(spec);
+    return out;
+  }
+  ch::year_month_day first, last;
+  if (!parse(spec.substr(0, dash), first) || !parse(spec.substr(dash + 1), last)) return out;
+  for (ch::sys_days d = first; d <= ch::sys_days{last}; d += ch::days{1})
+  {
+    const ch::weekday wd{d};
+    if (wd == ch::Saturday || wd == ch::Sunday) continue;
+    const ch::year_month_day ymd{d};
+    char buf[9];
+    std::snprintf(buf, sizeof(buf), "%04d%02u%02u", int(ymd.year()), unsigned(ymd.month()),
+                  unsigned(ymd.day()));
+    out.push_back(buf);
+  }
   return out;
 }
 
@@ -134,8 +175,9 @@ int main(int argc, char* argv[])
       ("datafile",  po::value<string>(), "gzip'd L3 .bin to replay (required)")
       ("universe",  po::value<string>(), "universe JSON for the session (required) -- "
                                          "see dbento_pcap_parse/scripts/build_universe_day.sh")
-      ("contract",  po::value<string>()->default_value(""),
-                    "single contract to trade, e.g. ESH5; empty = every contract in the universe")
+      ("contract",  po::value<string>(),
+                    "contract to trade, e.g. ESH5 (required). The sim builds one book, "
+                    "for this contract only.")
       // config_a, not config: sim/config/ was deleted when the arms were split
       // into config_a / config_b / config_close, but the default still named it.
       // SimKaspr reads the directory with read_info(config_dir_ + "/som.ini"),
@@ -198,8 +240,13 @@ int main(int argc, char* argv[])
       ("probe-out", po::value<string>()->default_value(""),
                     "CSV for the probe's per-fire rows; empty = log only")
       ("probe-date", po::value<string>()->default_value(""),
-                    "session date YYYYMMDD for the probe schedule; empty = take it "
-                    "from the datafile name. ET wall-clock, DST handled.")
+                    "trading day(s) for the probe: YYYYMMDD for one day, or "
+                    "YYYYMMDD-YYYYMMDD for every weekday (Mon-Fri) in the range, "
+                    "e.g. 20261019-20261023 for a week-long recording. Empty = the "
+                    "date in the datafile name. ET wall-clock, DST handled.")
+      ("probe-end", po::value<int>()->default_value(1600),
+                    "end of the probe's trading day, HHMM ET (default 1600). "
+                    "Use 1200 for Treasury futures.")
       ("probe-every-min", po::value<int>()->default_value(10),
                     "minutes between window boundaries (09:29-16:00 ET). This is "
                     "the MINIMUM window length: a window closes once it has "
@@ -231,6 +278,8 @@ int main(int argc, char* argv[])
   }
   if (!vm.count("datafile")) { cerr << "Error: --datafile required\n"; return 1; }
   if (!vm.count("universe")) { cerr << "Error: --universe required\n"; return 1; }
+  if (!vm.count("contract") || vm["contract"].as<string>().empty())
+  { cerr << "Error: --contract required\n"; return 1; }
 
   const auto venue_str = vm["venue"].as<string>();
   const en::x venue = (venue_str == "CMEMDFUT") ? en::x::CMEMDFUT : en::x::CMEMD;
@@ -241,7 +290,7 @@ int main(int argc, char* argv[])
   polonaise::logger::act::Logger::synchrolog = vm.count("logdebug") > 0;
 
   const int probe_size = vm["probe-size"].as<int>();
-  std::vector<uint64_t> probe_fires;
+  std::vector<std::vector<uint64_t>> probe_days;   // window boundaries per trading day
   if (probe_size > 0)
   {
     std::string pdate = vm["probe-date"].as<string>();
@@ -252,17 +301,34 @@ int main(int argc, char* argv[])
               "datafile name\n";
       return 1;
     }
-    probe_fires = probe_schedule(pdate, vm["probe-every-min"].as<int>());
-    if (probe_fires.empty())
+    const auto dates = probe_dates(pdate);
+    if (dates.empty())
     {
-      cerr << "Error: could not build a probe schedule for date " << pdate << "\n";
+      cerr << "Error: bad --probe-date '" << pdate << "': want YYYYMMDD or YYYYMMDD-YYYYMMDD "
+              "with at least one weekday\n";
       return 1;
     }
-    // BOUNDARIES, not fires. N boundaries close N-1 windows: the first opens
-    // the first window and each later one closes a window and opens the next.
-    cerr << "probe schedule: " << probe_fires.size() << " boundaries ("
-         << (probe_fires.size() - 1) << " windows) on " << pdate
-         << " ET, first=" << probe_fires.front() << " last=" << probe_fires.back() << "\n";
+    for (const auto &d : dates)
+    {
+      const int pend = vm["probe-end"].as<int>();
+      if (pend < 1000 || pend > 2359 || pend % 100 > 59)
+      {
+        cerr << "Error: --probe-end must be HHMM between 1000 and 2359, got " << pend << "\n";
+        return 1;
+      }
+      auto fires = probe_schedule(d, vm["probe-every-min"].as<int>(), pend);
+      if (fires.empty())
+      {
+        cerr << "Error: could not build a probe schedule for date " << d << "\n";
+        return 1;
+      }
+      // BOUNDARIES, not fires. N boundaries close N-1 windows: the first opens
+      // the first window and each later one closes a window and opens the next.
+      cerr << "probe schedule: " << fires.size() << " boundaries ("
+           << (fires.size() - 1) << " windows) on " << d
+           << " ET, first=" << fires.front() << " last=" << fires.back() << "\n";
+      probe_days.push_back(std::move(fires));
+    }
   }
 
   sim::SimKaspr* mgr = nullptr;
@@ -284,7 +350,7 @@ int main(int argc, char* argv[])
                             vm["nlights-per-side"].as<int>(),
                             probe_size,
                             vm["probe-out"].as<string>(),
-                            probe_fires);
+                            probe_days);
   } catch (const std::exception& e) {
     cerr << "ERROR constructing SimKaspr: " << e.what() << "\n";
     return 1;

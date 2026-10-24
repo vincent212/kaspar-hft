@@ -933,7 +933,10 @@ namespace light::act
       int possible_order_sz = std::min(std::min(lev_orders_max.get() - sz_at_px, ord_sz.get()), diff_from_target);
       possible_order_sz = std::min(payload_sz, possible_order_sz);
 
-      if ((sz_at_px > std::max(1, std::abs(diff_from_target/2))) || sz_at_px >= diff_from_target)
+      // A price may hold up to what is left to fill, no more. (It used to be
+      // half of that, max(1, remaining/2), which forced every leg across at
+      // least two prices; with max_dist 2 there are only three.)
+      if (sz_at_px >= diff_from_target)
       {
         possible_order_sz = 0;
       }

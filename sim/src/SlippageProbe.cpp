@@ -370,6 +370,19 @@ void SlippageProbe::alarm_handler(const frame::mtim::msg::Alarm *m) noexcept
 
 void SlippageProbe::on_clock(uint64_t now) noexcept
 {
+  // Several trading days in one replay: once the current day is over and its
+  // last window has closed, move on to the next day. A window still open past
+  // 16:00 (a leg that has not filled) is left to finish first, as on a single
+  // day; the next day then starts at its own first boundary.
+  while (!window_open && now >= cfg.session_end && session_idx + 1 < cfg.sessions.size())
+  {
+    ++session_idx;
+    cfg.session_start = cfg.sessions[session_idx].first;
+    cfg.session_end   = cfg.sessions[session_idx].second;
+    log_opr("probe: day %zu of %zu, session %llu..%llu", session_idx + 1, cfg.sessions.size(),
+            (unsigned long long)cfg.session_start, (unsigned long long)cfg.session_end);
+  }
+
   if (now < cfg.session_start) return;          // before the session we measure
   if (last_bid <= 0 || last_ask <= 0) return;   // need a touch to anchor the row
 
