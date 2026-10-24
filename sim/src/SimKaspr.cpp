@@ -92,9 +92,11 @@ SimKaspr::SimKaspr(std::string data_file,
   create_som();
   create_lights();
   if (probe_ && !lights_.empty())
+  {
     // The probe drives the two position books directly; it sends no targets.
     probe_->set_lights(buy_lights_, sel_lights_);
     probe_->set_coords(probe_pcoord_buy_, probe_pcoord_sel_);
+  }
   create_position_manager();
   create_bfa();
 
@@ -218,17 +220,16 @@ void SimKaspr::create_order_books()
 
   // Assets come from add_future_asset(), which allocates ids from its own
   // counter — they are NOT a dense 1..num_assets() range seeded by the CSV, so
-  // scanning by id finds nothing. Resolve by name instead: the contract when
-  // one is named, otherwise every future we registered.
+  // scanning by id finds nothing. Resolve by name instead.
+  //
+  // One book, for --contract only. Building a book for every future in the
+  // universe (~460 on channel 344) is disabled: main() requires --contract.
+  ASSERTF(!contract_.empty(), boost::format("SimKaspr: --contract is required"));
   std::vector<const frame::ref::Asset*> wanted;
-  if (!contract_.empty()) {
+  {
     auto a = frame::ref::RefData::get_asset(contract_);
     ASSERTF(a, boost::format("contract %s is not in %s") % contract_ % universe_json_);
     wanted.push_back(a);
-  } else {
-    for (const auto& sym : registered_) {
-      if (auto a = frame::ref::RefData::get_asset(sym)) wanted.push_back(a);
-    }
   }
 
   for (auto a : wanted) {

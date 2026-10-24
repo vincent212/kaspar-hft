@@ -134,8 +134,9 @@ int main(int argc, char* argv[])
       ("datafile",  po::value<string>(), "gzip'd L3 .bin to replay (required)")
       ("universe",  po::value<string>(), "universe JSON for the session (required) -- "
                                          "see dbento_pcap_parse/scripts/build_universe_day.sh")
-      ("contract",  po::value<string>()->default_value(""),
-                    "single contract to trade, e.g. ESH5; empty = every contract in the universe")
+      ("contract",  po::value<string>(),
+                    "contract to trade, e.g. ESH5 (required). The sim builds one book, "
+                    "for this contract only.")
       // config_a, not config: sim/config/ was deleted when the arms were split
       // into config_a / config_b / config_close, but the default still named it.
       // SimKaspr reads the directory with read_info(config_dir_ + "/som.ini"),
@@ -231,6 +232,8 @@ int main(int argc, char* argv[])
   }
   if (!vm.count("datafile")) { cerr << "Error: --datafile required\n"; return 1; }
   if (!vm.count("universe")) { cerr << "Error: --universe required\n"; return 1; }
+  if (!vm.count("contract") || vm["contract"].as<string>().empty())
+  { cerr << "Error: --contract required\n"; return 1; }
 
   const auto venue_str = vm["venue"].as<string>();
   const en::x venue = (venue_str == "CMEMDFUT") ? en::x::CMEMDFUT : en::x::CMEMD;
