@@ -63,9 +63,10 @@ Kaspar's market-data and order-entry stacks are complete session implementations
 
 ## Run a simulation from scratch
 
-Replay a recorded week of CME data and run the shadow algorithm on it. The
-full walkthrough, with every option and how to read the output, is in
-[sim/README.md](sim/README.md).
+Replay a recorded week of CME data and run the shadow algorithm on it (described
+in *Model-Free Passive Execution via Order-Level Shadowing*,
+[arXiv:2609.18019](https://arxiv.org/abs/2609.18019)). The full walkthrough, with
+every option and how to read the output, is in [sim/README.md](sim/README.md).
 
 ```bash
 # 1. Build the libraries, the simulator and the universe extractor
