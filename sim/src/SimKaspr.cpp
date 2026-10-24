@@ -360,8 +360,8 @@ void SimKaspr::create_lights()
   // set to, and the "market comes to us" effect that multiple resting prices
   // buy you is simply absent.
   const int nlights = pt_light.get<int>("nlights_per_side", 4);
-  ASSERTF(nlights > 0 && nlights <= 64,
-          boost::format("nlights_per_side must be 1..64, got %d") % nlights);
+  ASSERTF(nlights > 0 && nlights <= light::QCoord::kMaxMmid,
+          boost::format("nlights_per_side must be 1..%d, got %d") % light::QCoord::kMaxMmid % nlights);
   std::cerr << "SimKaspr: lights place_rate_bp=" << pt_light.get<int>("place_rate_bp", 300)
             << " ord_sz=" << pt_light.get<int>("ord_sz", 1)
             << " rng_seed=" << pt_light.get<uint32_t>("rng_seed", 1)

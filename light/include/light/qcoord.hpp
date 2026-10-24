@@ -1,5 +1,7 @@
 #pragma once
 
+#include <bitset>
+
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
  * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
@@ -222,7 +224,11 @@ namespace light
     // garbage bit either bypasses remove_order's guard into an ASSERT that
     // aborts in -O3, or silently no-ops a real remove and leaves a stale entry
     // inflating sz_at_px for the whole bank at that price.
-    uint64_t mmid_orders = 0;
+    //
+    // One bit per light (mmid). A bitset rather than a uint64_t so a side can
+    // run more than 64 lights; kMaxMmid is the cap.
+    static constexpr int kMaxMmid = 256;
+    std::bitset<kMaxMmid> mmid_orders;   // default-constructed: all bits 0
 
     int tot_sz_cache=0;
 
@@ -259,7 +265,8 @@ namespace light
       }
       else
         px_mmid_ord[px][mmid] = ord(id, sz);
-      mmid_orders |= 1ULL << mmid;
+      ASSERT(mmid >= 0 && mmid < kMaxMmid, "mmid out of range");
+      mmid_orders.set(mmid);
       last_in_at_px.insert(px, mmid, true);
       if (sz_at_px(px) > mxsz)
       {
@@ -284,10 +291,10 @@ namespace light
         px, sz, mmid, id, all);
       if (!all) ASSERT(sz > 0, "bad sz");
 #ifdef QCOORDMULTIREMOVE
-      if (!(mmid_orders & (1ULL << mmid)))
+      if (mmid < 0 || mmid >= kMaxMmid || !mmid_orders.test(mmid))
         return 0;
 #else
-      ASSERT((mmid_orders & (1ULL << mmid)), "this mm id has no order");
+      ASSERT(mmid_orders.test(mmid), "this mm id has no order");
 #endif
       auto p = px_mmid_ord.find(px);
       ASSERT(p != px_mmid_ord.end(), "no such price");
@@ -301,7 +308,7 @@ namespace light
         tot_sz_cache-=p2->second.sz;
         tot_sz_cache-=sz;
         p->second.erase(p2);
-        mmid_orders &= ~(1ULL << mmid);
+        mmid_orders.reset(mmid);
         cache_sz_at_px.clear();
         chache_cum_sz.clear();
         return 0;

@@ -62,6 +62,12 @@ namespace light::act
     // zero (the default) = cancel immediately, which is the usual case.
     int delayed_cancel_events = 0;
     int delayed_cancel_ms = 0;
+    // How much the side may have WORKING, as a multiple of what is left to fill
+    // (diff_from_target). Summed over every light sharing this side's QCoord and
+    // every price. 1.0 (the default) never works more than is left, so a fill
+    // can never overshoot the target; above 1.0 more orders queue at once, which
+    // fills faster in deep books (ZN) at the cost of occasional overfills.
+    double work_multiple = 1.0;
     std::mt19937 rng{1};            // per-light, deterministically seeded
     uint64_t place_rate_thresh = 0;  // place_rate_bp * 2^32 / 10000
     int aggr_ttl_ms = 1;             // aggressive order time-to-live, ms; 0 = off
@@ -202,6 +208,13 @@ namespace light::act
       delayed_cancel_events = this->pt.template get<int>("delayed_cancel_events", 0);
       ASSERT(!(delayed_cancel_ms && delayed_cancel_events),
              "delayed_cancel_ms and delayed_cancel_events are alternatives; set at most one");
+      work_multiple = this->pt.template get<double>("work_multiple", 1.0);
+      ASSERTF(work_multiple >= 1.0,
+              boost::format("work_multiple %g < 1: the side could never work what is left to fill")
+                % work_multiple);
+      // std::cerr, not log_opr: constructor, the Logger is not started yet.
+      std::cerr << get_name() << " work_multiple=" << work_multiple
+                << " delayed_cancel_events=" << delayed_cancel_events << std::endl;
 
       // Per-light deterministic RNG. std::rand() is process-global, unseeded and
       // shared with every other caller, so two runs of the same session placed
@@ -464,10 +477,11 @@ namespace light::act
 
       int sz_at_px = this->qcoord->sz_at_px(bestpx);
 
-      if (work_ords >= diff_from_target)
+      if (work_ords >= work_multiple * diff_from_target)
       {
-        log_inf("work_ords >= diff_from_target, not placing order work_ords: %d, diff_from_target: %d",
-                work_ords, diff_from_target);
+        log_inf("work_ords >= work_multiple * diff_from_target, not placing order work_ords: %d, "
+                "diff_from_target: %d, work_multiple: %g",
+                work_ords, diff_from_target, work_multiple);
         return;
       }
 
@@ -504,7 +518,10 @@ namespace light::act
       // while impact is unmodelled.
       possible_order_sz = std::min(payload->sz, possible_order_sz);
 
-      if ((sz_at_px > std::max(1, std::abs(diff_from_target / 2))) || sz_at_px >= diff_from_target)
+      // A price may hold up to what is left to fill, no more. (It used to be
+      // half of that, max(1, remaining/2), which forced every leg across at
+      // least two prices; with max_dist 2 there are only three.)
+      if (sz_at_px >= diff_from_target)
       {
         log_inf("not placing at this level as we have too much at this level px: %d, sz_at_px: %d, diff_from_target: %d",
                 bestpx, sz_at_px, diff_from_target);
