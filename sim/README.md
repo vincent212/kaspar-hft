@@ -203,19 +203,98 @@ grep "TOT PNL" out.txt | tail -1
 wc -l probe.csv
 ```
 
-**Files in the run directory**
+### Where the output is saved
 
-| file | what it is |
+Everything a run writes goes into **the directory you start `sim` from**: the run
+directory you made in step 4, e.g. `~/recdata/344/runs/20261019-20261023/`.
+Nothing is written anywhere else. After a run it holds:
+
+```
+~/recdata/344/runs/20261019-20261023/
+├── universe.json                 the universe you unzipped (input)
+├── out.txt                       console output; the SOM summary line is at the end
+├── err.txt                       setup messages: books, lights, probe schedule per day
+├── probe.csv                     the measurement: one row per probe window (--probe-out)
+├── sim_log.<date>.<ts>.<pid>.log the Logger's log: errors, warnings, trading-status changes
+├── sim_log.<...>.audit.csv       the Logger's audit trail
+├── som<pid>.out                  SOM order log
+├── volume_<pid>.csv              volume per instrument
+├── sim_universe_seed.csv         empty seed the sim writes for RefData (ignore)
+└── slippage_report.csv           only after step 6
+```
+
+After a failure there is also `assertion__<...>.args` or `sig__<...>.args`: the
+assertion or signal, with a call stack.
+
+`probe.csv` columns that matter most (prices in ticks of the contract):
+
+| column | meaning |
 |---|---|
-| `out.txt`, `err.txt` | console output; the SOM summary is in `out.txt` |
-| `sim_log.<date>.<ts>.<pid>.log` | the Logger's log: errors, warnings, operator lines (trading-status changes, ...) |
-| `probe.csv` | per-window results: VWAP of each leg against the mid, the touch and the interval VWAP |
-| `som<pid>.out`, `volume_<pid>.csv` | SOM order log, volume per instrument |
-| `assertion__*.args`, `sig__*.args` | only after a failure: the assertion or signal, with a call stack |
+| `fire_ts` | window start, epoch ns |
+| `mid_fire` | mid at the window's start (in ticks) |
+| `buy_vwap`, `sel_vwap` | VWAP of our buy and sell fills in the window |
+| `buy_filled`, `sel_filled` | contracts filled per leg (= `--probe-size` when complete) |
+| `slip_buy_ticks`, `slip_sel_ticks`, `slip_paired_ticks` | slippage, positive = cost (see step 6) |
+| `outcome` | `ok`, or `buy_short` / `sel_short` / `both_short` for a window cut off by the end of the data |
 
 ---
 
-## 6. When it goes wrong
+## 6. Slippage report
+
+`sim/scripts/slippage_report.py` turns one or more `probe.csv` into a table: one
+row per trading day, plus the total. It uses the same rules as the grid
+aggregator (`aggregate_grid.py`): only completed (`ok`) windows are costed, and
+participation is ours / (ours + market).
+
+```bash
+cd ~/recdata/344/runs/20261019-20261023
+~/kaspar-hft/sim/scripts/slippage_report.py probe.csv --csv slippage_report.csv
+```
+
+Several runs at once (e.g. both weeks):
+
+```bash
+~/kaspar-hft/sim/scripts/slippage_report.py \
+    ~/recdata/344/runs/20261012-20261016/probe.csv \
+    ~/recdata/344/runs/20261019-20261023/probe.csv
+```
+
+Output for the week of 2026-10-19 (ZNZ6, 10 lots per leg, `config_a`):
+
+```
+slippage report: ZNZ6, parent 10 lots per leg, ticks (positive = cost)
+
+day               ok/all     slip_paired  slip_buy  slip_sel    drift  vs_vwap  vs_touch  part_med  part_agg  leg_s  fills
+--------------------------------------------------------------------------------------------------------------------------
+2026-10-19 Mon    6/6     +0.217±1.161     -0.683    +1.117   -3.000   -0.754    -0.283    0.013%    0.009% 2510.7    8.0
+2026-10-20 Tue    6/6     -0.343±2.309     -0.585    -0.100   -0.833   -0.944    -0.843    0.016%    0.007% 9790.4    6.3
+2026-10-21 Wed    6/6     -0.225±0.887     -0.617    +0.167   -2.500   -0.308    -0.725    1.117%    0.007% 3072.6    7.2
+2026-10-22 Thu   10/10    +0.160±0.813     +1.140    -0.820   +3.400   -0.155    -0.340    0.144%    0.009% 1380.0    6.5
+2026-10-23 Fri    1/2     -0.200±-         -0.900    +0.500   -1.000   -0.298    -0.700    0.047%    0.047%  180.7   10.0
+--------------------------------------------------------------------------------------------------------------------------
+TOTAL            29/30    -0.024±0.597     -0.028    -0.021   -0.172   -0.479    -0.524    0.019%    0.008% 3662.9    7.0
+
+not costed (leg did not fill before the data ended): sel_short=1
+```
+
+| column | meaning |
+|---|---|
+| `ok/all` | completed windows / all windows that day |
+| `slip_paired` | (buy VWAP − sell VWAP) / 2, with a 95% confidence interval: the cost of the round trip per side. **Negative = we earned spread** |
+| `slip_buy`, `slip_sel` | each leg against the mid at the window's start |
+| `drift` | how far the mid moved over the window |
+| `vs_vwap` | against the market's own VWAP over the leg |
+| `vs_touch` | against crossing the spread at the start. Negative = waiting beat crossing |
+| `part_med`, `part_agg` | participation: median per window, and total ours / (ours + market) |
+| `leg_s` | mean seconds for the buy leg to fill its size |
+| `fills` | mean number of child fills per leg |
+
+All slippage numbers are in **ticks** of the contract (ZN: 1/64 of a point).
+With `--csv FILE` the same table is also written as CSV.
+
+---
+
+## 7. When it goes wrong
 
 | symptom | cause and fix |
 |---|---|
@@ -235,6 +314,8 @@ wc -l probe.csv
   the **current directory**. Do not use `/tmp`.
 - Steps are idempotent: rebuilding the universe overwrites the same files; a run
   directory can be reused (old logs stay, new ones get a new pid).
+- The slippage report (step 6) needs only Python 3.9+ (standard library); run it
+  after the run's exit code is 0.
 - Treat a run as passed only if all three checks in step 5 hold. A run can exit 0
   with no orders (`ORD: 0`): that is a failed test, not a pass.
 - One recording per run directory. Each recording is a week; pass its Monday to
