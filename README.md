@@ -61,6 +61,40 @@ Kaspar's market-data and order-entry stacks are complete session implementations
 ./build.sh -C actors/cpp # build just one component
 ```
 
+## Run a simulation from scratch
+
+Replay a recorded week of CME data and run the shadow algorithm on it. The
+full walkthrough, with every option and how to read the output, is in
+[sim/README.md](sim/README.md).
+
+```bash
+# 1. Build the libraries, the simulator and the universe extractor
+./build.sh schema && ./build.sh
+./build.sh -C sim/src
+./build.sh -C dbento_pcap_parse/build_universe/src
+
+# 2. Download a recording (SFTP, user data, password data, read-only)
+mkdir -p ~/recdata/344 && cd ~/recdata/344
+sftp data@m2te.ch            # then: get 344.20261018.1792363121000041934.22.38.1.bin
+
+# 3. Extract the instruments from it
+~/kaspar-hft/dbento_pcap_parse/build_universe/src/build_universe 344.20261018.1792363121000041934.22.38.1.bin
+
+# 4. Run the week (ZN, tuned config) in its own directory
+mkdir -p runs/week1 && cd runs/week1
+gunzip -c ../../universe.344.20261018.1792363121000041934.json.gz > universe.json
+~/kaspar-hft/sim/src/sim --datafile ../../344.20261018.1792363121000041934.22.38.1.bin \
+    --universe universe.json --contract ZNZ6 --config ~/kaspar-hft/sim/config_zn \
+    --probe-size 100 --probe-date 20261019-20261023 --probe-end 1200 \
+    --probe-out probe.csv --quiet > out.txt 2> err.txt
+
+# 5. Slippage and participation per day
+~/kaspar-hft/sim/scripts/slippage_report.py probe.csv
+```
+
+A week takes about 7 minutes with `config_zn`. It passes if it exits 0, `out.txt` ends
+with `=== sim complete ===`, and the `TOT PNL` line shows `ORD` and `FIL` above 0.
+
 ## Operating Modes
 
 | Mode | Data Source | Execution | Order Book | Use Case |
