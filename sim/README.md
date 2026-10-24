@@ -139,7 +139,7 @@ One directory per run. The simulator writes its logs into the directory it is
 started from.
 
 ```bash
-RUN=~/recdata/344/runs/20261019
+RUN=~/recdata/344/runs/20261019-20261023
 mkdir -p $RUN && cd $RUN
 gunzip -c ~/recdata/344/universe.344.20261018.1792363121000041934.json.gz > universe.json
 
@@ -149,43 +149,25 @@ gunzip -c ~/recdata/344/universe.344.20261018.1792363121000041934.json.gz > univ
     --contract ZNZ6 \
     --config ~/kaspar-hft/sim/config_a \
     --probe-size 10 \
-    --probe-date 20261019 \
+    --probe-date 20261019-20261023 \
     --probe-out probe.csv \
     --quiet > out.txt 2> err.txt
 echo "exit $?"
 ```
 
-Takes about 2–3 minutes. The simulator always replays the **whole week**, but
-the probe (and so the shadow algorithm's trading) runs on **one day**, the
-`--probe-date`. To test every day of the week, run once per day (step 4b).
+Takes about 2–3 minutes for the whole week: one replay of the file, with the
+shadow algorithm trading 09:29–16:00 ET on every day in the `--probe-date` range.
 
 Tested 2026-10-24 on both October recordings with exactly this command:
 
-| trading day | orders | fills | cancels | probe windows |
-|---|---:|---:|---:|---:|
-| 20261012 | 41 | 16 | 32 | 1 |
-| 20261019 | 982 | 93 | 929 | 6 |
+| `--probe-date` | orders | fills | cancels | probe windows (Mon, Tue, Wed, Thu, Fri) |
+|---|---:|---:|---:|---|
+| 20261012-20261016 | 4,483 | 551 | 4,217 | 38 (1, 6, 8, 9, 14) |
+| 20261019-20261023 | 3,179 | 399 | 2,999 | 30 (6, 6, 6, 10, 2) |
 
-### 4b. Every day of the week
-
-One run directory per day, same recording:
-
-```bash
-BIN=~/recdata/344/344.20261018.1792363121000041934.22.38.1.bin
-UNI=~/recdata/344/universe.344.20261018.1792363121000041934.json.gz
-for DAY in 20261019 20261020 20261021 20261022 20261023; do
-  RUN=~/recdata/344/runs/$DAY
-  mkdir -p $RUN && cd $RUN
-  gunzip -c $UNI > universe.json
-  ~/kaspar-hft/sim/src/sim --datafile $BIN --universe universe.json \
-      --contract ZNZ6 --config ~/kaspar-hft/sim/config_a \
-      --probe-size 10 --probe-date $DAY --probe-out probe.csv \
-      --quiet > out.txt 2> err.txt
-  echo "$DAY exit $?  $(grep 'TOT PNL' out.txt | tail -1)"
-done
-```
-
-The days are independent, so they can also run in parallel (one per core).
+The number of windows per day varies: a window closes only when its minimum
+(10 min) has passed **and** both legs have filled, so a thin day gives fewer,
+longer windows. 2026-10-12 was Columbus Day (cash bond market closed).
 
 | argument | meaning |
 |---|---|
@@ -194,7 +176,7 @@ The days are independent, so they can also run in parallel (one per core).
 | `--contract` | **required**: the one contract to build a book for and trade, e.g. `ZNZ6` (ZN front month). Must be in the universe file |
 | `--config` | directory with `lights.ini` (shadow algorithm settings) and `som.ini` (position and size limits). `config_a` is the standard one |
 | `--probe-size` | contracts per leg for the SlippageProbe. **Without it the lights have no position to work and place no orders** |
-| `--probe-date` | the **trading day**, `YYYYMMDD`, ET. The probe trades 09:29–16:00 ET on that day. Default: the date in the file name, which is the day the recording *started*, so for a Sunday-evening recording pass Monday's date |
+| `--probe-date` | the **trading days**, ET: `YYYYMMDD` for one day, or `YYYYMMDD-YYYYMMDD` for every weekday (Mon–Fri) in the range. The probe trades 09:29–16:00 ET on each. For a week-long recording pass its Monday to Friday. Default: the date in the file name, which is the Sunday the recording *started*, so always pass it for these files |
 | `--probe-out` | CSV, one row per probe window |
 | `--quiet` | keep the log small (otherwise ~600 MB per session) |
 
@@ -240,7 +222,7 @@ wc -l probe.csv
 | `Error: --contract required` | pass `--contract`. The simulator builds exactly one book |
 | `contract X is not in universe.json` | wrong symbol for that session; list the futures: `python3 -c "import json;print(sorted(i['symbol'] for i in json.load(open('universe.json'))['instruments'] if i['type']=='FDF'))"` |
 | `ASSERT a->maxpx > 1 ... has no usable daily price limit` | the universe file has no `high_limit_px` for the contract. Rebuild it with the current `build_universe` (step 3); an old file predates the default |
-| `ORD: 0; FIL: 0` | no `--probe-size`, or `--probe-date` is a day the recording does not contain (e.g. the Sunday in the file name) |
+| `ORD: 0; FIL: 0` | no `--probe-size`, or `--probe-date` names days the recording does not contain (e.g. the Sunday in the file name) |
 | `ASSERT best_bid <= best_ask ... CROSSED book` | the rebuilt book disagrees with the exchange while the market is matching. Keep the `assertion__*.args` file and the log; this is a bug to report, not a setting. (Crosses in pre-open are expected and allowed: a recording whose first record falls in CME's 17:00–18:00 ET break starts with the check off until CME changes the trading status) |
 | `version 'GLIBCXX_3.4.3x' not found` | the binary was built with a newer GCC than the system `libstdc++`. Point the loader at the compiler's own: `export LD_LIBRARY_PATH=$(dirname $(g++ -print-file-name=libstdc++.so.6))` |
 | `cannot read universe ...` | the universe path is wrong, or it is still `.json.gz`; unzip it (step 4) |
@@ -255,10 +237,10 @@ wc -l probe.csv
   directory can be reused (old logs stay, new ones get a new pid).
 - Treat a run as passed only if all three checks in step 5 hold. A run can exit 0
   with no orders (`ORD: 0`): that is a failed test, not a pass.
-- One trading day per run directory. Each recording is a week; the trading days
-  (`--probe-date`) are the Monday to Friday after the date in the file name:
+- One recording per run directory. Each recording is a week; pass its Monday to
+  Friday as `--probe-date`:
 
-  | recording | trading days |
+  | recording | `--probe-date` |
   |---|---|
-  | `344.20261011.1791754458012253470.21.34.1.bin` | 20261012 – 20261016 |
-  | `344.20261018.1792363121000041934.22.38.1.bin` | 20261019 – 20261023 |
+  | `344.20261011.1791754458012253470.21.34.1.bin` | `20261012-20261016` |
+  | `344.20261018.1792363121000041934.22.38.1.bin` | `20261019-20261023` |

@@ -183,6 +183,12 @@ namespace sim
       // and nothing is recorded.
       uint64_t    session_start = 0;    // 09:29 ET
       uint64_t    session_end   = 0;    // 16:00 ET
+      // Every trading day to measure, in order, as (09:29, 16:00) ET pairs. A
+      // live recording runs Sunday evening to Friday's close, so one replay
+      // holds five sessions. session_start/session_end above are the CURRENT
+      // day: on_clock moves them to the next pair once the day is over and its
+      // last window has closed. Empty = the single session above.
+      std::vector<std::pair<uint64_t, uint64_t>> sessions;
       // How often the probe looks at the clock. This is a POLL, not the window:
       // a window ends when its minimum has elapsed AND both legs have filled
       // their size, so the probe has to check more often than the minimum.
@@ -456,6 +462,7 @@ namespace sim
 
     // Windows where both legs filled their size, and where one did not.
     int  fires_done = 0, fires_partial = 0;
+    size_t session_idx = 0;       // index into cfg.sessions of the current day
     uint64_t n_eob = 0, n_ticks = 0;
     FILE *out = nullptr;
   };

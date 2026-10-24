@@ -45,7 +45,7 @@ SimKaspr::SimKaspr(std::string data_file,
                    int nlights_per_side,
                    int probe_size,
                    std::string probe_out,
-                   std::vector<uint64_t> probe_fires)
+                   std::vector<std::vector<uint64_t>> probe_days)
     : Manager("sim_manager")
     , data_file_(std::move(data_file))
     , universe_json_(std::move(universe_json))
@@ -63,9 +63,9 @@ SimKaspr::SimKaspr(std::string data_file,
     , max_dist_(max_dist), nlights_per_side_(nlights_per_side)
     , probe_size_(probe_size)
     , probe_out_(std::move(probe_out))
-    , probe_fires_(std::move(probe_fires))
-    , probe_window_s_(probe_fires_.size() > 1
-                          ? int((probe_fires_[1] - probe_fires_[0]) / 1000000000ull)
+    , probe_days_(std::move(probe_days))
+    , probe_window_s_(!probe_days_.empty() && probe_days_[0].size() > 1
+                          ? int((probe_days_[0][1] - probe_days_[0][0]) / 1000000000ull)
                           : 15 * 60)
 {
   std::cerr << "SimKaspr: data=" << data_file_ << "\n"
@@ -290,7 +290,7 @@ void SimKaspr::create_timer()
 
 void SimKaspr::create_probe()
 {
-  if (probe_size_ <= 0 || probe_fires_.empty())
+  if (probe_size_ <= 0 || probe_days_.empty())
     return;
 
   // The probe measures one instrument against one mid. With more than one book
@@ -310,11 +310,14 @@ void SimKaspr::create_probe()
   cfg.sym_name  = a->name;
   cfg.sym       = book_syms_[0];
   cfg.parent_sz = probe_size_;
-  // The schedule collapses to its bounds: the repeating timer supplies every
-  // boundary in between, so the probe needs only where the session starts and
-  // where it ends.
-  cfg.session_start = probe_fires_.front();
-  cfg.session_end   = probe_fires_.back();
+  // Each day's schedule collapses to its bounds: the repeating timer supplies
+  // every boundary in between, so the probe needs only where each session
+  // starts and where it ends.
+  for (const auto &day : probe_days_)
+    if (!day.empty()) cfg.sessions.emplace_back(day.front(), day.back());
+  ASSERT(!cfg.sessions.empty(), "probe: empty schedule");
+  cfg.session_start = cfg.sessions.front().first;
+  cfg.session_end   = cfg.sessions.front().second;
   cfg.tick_s        = 1;               // poll the clock every second of market time
   cfg.min_window_ns = uint64_t(probe_window_s_) * 1000000000ull;
   cfg.out_path  = probe_out_;
