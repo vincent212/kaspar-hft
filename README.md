@@ -43,7 +43,8 @@ The same strategy code, the same execution algorithm and the same book run in PC
 
 Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) — *"a peak of a long crest in the Western Tatras, one of Poland's main winter ski areas."*
 
-**Author:** [Vincent Mayeski](https://www.linkedin.com/in/vmayeski/) (published as Vincent Maciejewski) — [mayeski@gmail.com](mailto:mayeski@gmail.com)
+**Contact Vincent Mayeski:** 
+[LinkedIn](https://www.linkedin.com/in/vmayeski/) — [Email](mailto:mayeski@gmail.com) - [Substack](https://vincentmayeski.substack.com/)
 
 ## Production-grade session handling — CME-certified
 
