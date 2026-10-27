@@ -48,6 +48,7 @@ struct Done : kfpga::Message<303>
 constexpr ActorId kTestbench = 0;
 constexpr ActorId kPing = 1;
 constexpr ActorId kPong = 2;
+constexpr ActorId kSyncPing = 3;
 constexpr ActorId kCpuPing = 8;
 constexpr ActorId kCpuPong = 9;
 constexpr ActorId kCpuDriver = 10;

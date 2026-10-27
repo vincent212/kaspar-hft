@@ -27,9 +27,10 @@ RPATH = -Wl,-rpath,$(dir $(realpath $(shell $(CXX) -print-file-name=libstdc++.so
 
 KFPGA = $(wildcard include/kfpga/*.hpp) $(wildcard examples/ping_pong/*.hpp)
 
-.PHONY: run check14 clean
-run: check14 fpga_to_fpga cpu_fpga
+.PHONY: run check14 check_group_fast_send clean
+run: check14 check_group_fast_send fpga_to_fpga group cpu_fpga
 	./fpga_to_fpga
+	./group
 	./cpu_fpga
 
 # actors/cpp does not track header dependencies: rebuild it whole (-B) when
@@ -40,6 +41,16 @@ $(ACTORS_CPP)/libactors.a: $(wildcard $(ACTORS_CPP)/include/actors/*.hpp) $(wild
 fpga_to_fpga: examples/ping_pong/fpga_to_fpga.cpp $(KFPGA)
 	$(CXX) $(CXXFLAGS) $< -o $@ -lpthread $(RPATH)
 
+group: examples/ping_pong/group.cpp $(KFPGA)
+	$(CXX) $(CXXFLAGS) $< -o $@ -lpthread $(RPATH)
+
+# fast_send only within a group: moving Pong out of SyncPing's group must not compile.
+check_group_fast_send:
+	@if $(CXX) $(CXXFLAGS) -DPONG_IN_OTHER_GROUP -fsyntax-only examples/ping_pong/group.cpp 2>check_group_fast_send.log; then \
+	  echo "FAILED: fast_send to another group compiled"; exit 1; fi
+	@grep -q "fast_send only within a group" check_group_fast_send.log && rm -f check_group_fast_send.log && \
+	  echo "OK: fast_send to an actor in another group does not compile"
+
 cpu_fpga: examples/cpu_fpga/cpu_fpga.cpp examples/cpu_fpga/*.hpp host/kfpga/*.hpp $(KFPGA) $(ACTORS_CPP)/libactors.a
 	$(CXX) $(HOST_FLAGS) -Iexamples/cpu_fpga $< -o $@ $(HOST_LIBS)
 
@@ -47,4 +58,4 @@ check14:
 	echo '#include "fpga_actors.hpp"' | $(CXX) -std=c++14 $(WARN) -Iinclude -Iexamples/ping_pong -fsyntax-only -x c++ -
 
 clean:
-	rm -f fpga_to_fpga cpu_fpga
+	rm -f fpga_to_fpga group cpu_fpga check_group_fast_send.log
