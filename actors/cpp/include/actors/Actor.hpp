@@ -25,6 +25,7 @@
 #include "actors/BQueueBatched.hpp"
 #include "actors/ShardedBQueue.hpp"
 #include "actors/LockFreeMPSC.hpp"
+#include "actors/FpgaLanes.hpp"
 
 // Mailbox ring slots. Past this depth BQueue::push() falls back to
 // overflow_.push_back(), a heap allocation on the PRODUCER thread while the
@@ -118,7 +119,9 @@ namespace actors
     // mailbox, in its constructor, before its thread starts).
     // LockFreeMPSCSpin is LockFreeMPSC with a consumer that never sleeps: the
     // actor's thread busy-polls its mailbox and burns its core.
-    enum class MailboxKind { BQueue, BQueueBatched, ShardedBQueue, LockFreeMPSC, LockFreeMPSCSpin };
+    // FpgaLanes is LockFreeMPSCSpin plus lanes the FPGA card writes into (see
+    // FpgaLanes.hpp and add_lane).
+    enum class MailboxKind { BQueue, BQueueBatched, ShardedBQueue, LockFreeMPSC, LockFreeMPSCSpin, FpgaLanes };
 
     /**
      * Send a message asynchronously (fire-and-forget)
@@ -142,6 +145,21 @@ namespace actors
      * Works for both async (send) and sync (fast_send) messages
      */
     void reply(const Message *m) noexcept;
+
+    /**
+     * Add a lane the card writes into. Needs MailboxKind::FpgaLanes; call
+     * before the actor's thread starts. For a Group, add the lanes to the
+     * group: its thread owns the mailbox.
+     */
+    void add_lane(ExternalLane *lane) noexcept;
+
+    /**
+     * Run the handler for a message that arrived on a lane. Called by a lane's
+     * poll(), on the thread that owns the mailbox, never from anywhere else.
+     * `sender` is the stand-in for the FPGA actor, so reply() goes back to it.
+     * The message is not deleted: lanes decode onto the stack.
+     */
+    void deliver_external(const Message *m, Actor *sender) noexcept;
 
     virtual const char* get_name() const { return name; }
     std::size_t queue_length() const noexcept;
@@ -202,7 +220,8 @@ namespace actors
         BQueue<MailboxMsg>,
         BQueueBatched<MailboxMsg>,
         ShardedBQueue<MailboxMsg>,
-        LockFreeMPSC<MailboxMsg>>;
+        LockFreeMPSC<MailboxMsg>,
+        FpgaLanes<MailboxMsg>>;
     Mailbox msgq;
 
     // Replace the mailbox with `kind`. Select BEFORE the actor thread starts
@@ -211,7 +230,8 @@ namespace actors
     // `cap` is a sizing hint that means different things per kind:
     //   BQueue / BQueueBatched : ring/overflow size
     //   ShardedBQueue          : LANE count
-    //   LockFreeMPSC           : ring capacity (rounded up to a power of two)
+    //   LockFreeMPSC(Spin)     : ring capacity (rounded up to a power of two)
+    //   FpgaLanes              : capacity of the CPU queue
     // Pass cap = 0 (the default) to use each kind's own sensible default rather
     // than forcing one number across kinds — ACTOR_BQUEUE_SIZE for BQueue(Batched),
     // 8 lanes for ShardedBQueue, 1024 slots for LockFreeMPSC.
@@ -223,6 +243,7 @@ namespace actors
         case MailboxKind::ShardedBQueue: msgq.emplace<ShardedBQueue<MailboxMsg>>(cap ? cap : 8); break;
         case MailboxKind::LockFreeMPSC:  msgq.emplace<LockFreeMPSC<MailboxMsg>>(cap ? cap : 1024); break;
         case MailboxKind::LockFreeMPSCSpin: msgq.emplace<LockFreeMPSC<MailboxMsg>>(cap ? cap : 1024, true); break;
+        case MailboxKind::FpgaLanes:     msgq.emplace<FpgaLanes<MailboxMsg>>(cap ? cap : 1024); break;
       }
     }
 
