@@ -55,7 +55,7 @@ Kaspar's market-data and order-entry stacks are complete session implementations
 **Quick start** with `./build.sh`:
 
 ```bash
-./build.sh schema        # generate the CME SBE codecs (pinned versions)
+./build.sh schema        # generate the CME SBE codecs (latest CME templates)
 ./build.sh               # libraries (== make all)
 ./build.sh -C kaspr/src  # the kaspr binary
 ./build.sh debug         # debug build

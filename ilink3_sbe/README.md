@@ -10,8 +10,8 @@ iLink 3 SBE order-entry codecs, produced by the real-logic SBE tool from CME's
 iLink 3 `ilinkbinary.xml` schema (MSGW). They are git-ignored; regenerate with:
 
 ```bash
-make schema                 # from the repo root — both schemas, pinned versions
-# or just this one, a specific version (default is the pinned v8):
+make schema                 # from the repo root — both schemas, latest CME templates
+# or just this one, a specific version (default is the latest):
 python3 genschema/genschema.py --schema ilink --version <VER>
 ```
 

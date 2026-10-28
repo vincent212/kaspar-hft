@@ -131,3 +131,6 @@ kaspr/src/md_perf_meter
 kaspr/genconfig
 kaspr/assertion__*.args
 kaspr/perf/__pycache__/
+
+# Header-only deps fetched by build.sh
+/.deps/
