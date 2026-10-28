@@ -12,32 +12,29 @@ fetches CME's `templates_FixBinary.xml` and runs the [real-logic SBE
 tool](https://github.com/real-logic/simple-binary-encoding) to emit the C++
 headers. The `*.h` are git-ignored (each dir keeps only its `README.md`).
 
-## Pinned versions
+## Versions
 
-The checked-in codecs were built and tested against **MDP3 schema v12**
-(`mdp3_sbe/`) and **iLink 3 schema v8** (`ilink3_sbe/`) — the
-`sbeSchemaVersion()` in the generated headers. The rest of the code depends on
-those exact struct/wire layouts, so **`make schema` regenerates those versions
-by default and refuses to emit a different one**: if CME's current template has
-moved to a newer version, generation stops with instructions rather than
-silently changing layouts under the code. Move deliberately with `--latest` or
-`--version`.
+**`make schema` fetches CME's latest published templates** for both schemas
+(`templates_FixBinary.xml` for MDP3, `ilinkbinary.xml` for iLink 3) and logs the
+schema version it got. Use `--version N` to generate a specific archived
+version instead.
 
 ## Usage
 
 ```bash
-# from the repo root — regenerate the pinned versions (MDP3 v12, iLink v8)
+# from the repo root — generate both from CME's latest templates
 make schema
 
-# deliberately move a schema to a different / the newest CME version:
-python3 genschema/genschema.py --schema mdp3 --version 13
-python3 genschema/genschema.py --schema mdp3 --latest
+# a specific CME schema version instead of the latest:
+python3 genschema/genschema.py --schema mdp3 --version 12
 
 # one schema only:
 python3 genschema/genschema.py --schema mdp3
 python3 genschema/genschema.py --schema ilink
 
-# no CME access — generate from a template XML you already have:
+# no CME access — generate from a template XML you already have
+# (./build.sh does this automatically for templates_FixBinary.xml /
+#  ilinkbinary.xml placed in genschema/ — see "No CME access" in CLAUDE.md):
 python3 genschema/genschema.py --schema mdp3 --template-file path/to/templates_FixBinary.xml
 ```
 
@@ -60,19 +57,18 @@ python3 genschema/genschema.py --schema mdp3 --template-file path/to/templates_F
 |---|---|---|
 | `--schema mdp3\|ilink\|all` | which codec(s) to generate | `all` |
 | `--env prod\|nrcert\|cert` | CME environment | `prod` |
-| `--version VER` | fetch a specific CME schema version | pinned (MDP3 v12 / iLink v8) |
-| `--latest` | fetch the newest template on CME | — |
+| `--version VER` | fetch a specific CME schema version | latest |
 | `--sbe-version X` | real-logic `sbe-all` jar version | `1.30.0` |
 | `--template-file PATH` | use a local XML, skip SFTP (single `--schema`) | — |
 
 ## How it works
 
 1. Ensure `sbe-all-<ver>.jar` (download + cache).
-2. Fetch the template from CME SFTP for the chosen schema/env/version — MDP3 from
-   `SBEFix/<Env>/Templates` (archived versions under `Archive/`), iLink 3 from
-   `MSGW/<Env>/Templates` (or use `--template-file`).
-3. Verify the fetched template's `sbeSchemaVersion` matches the requested/pinned
-   version and abort if not.
+2. Fetch the template from CME SFTP for the chosen schema/env — the latest from
+   `SBEFix/<Env>/Templates` (MDP3) and `MSGW/<Env>/Templates` (iLink 3), or with
+   `--version` the archived one (MDP3 under `Archive/`). Or use `--template-file`.
+3. With `--version`, verify the fetched template's `sbeSchemaVersion` matches
+   and abort if not.
 4. Rewrite the schema's `package` attribute to `sbe` (the namespace the code
    uses: `sbe::NewOrderSingle514`, …).
 5. Run `java -Dsbe.target.language=CPP -jar sbe-all.jar <template.xml>` into a
@@ -81,16 +77,9 @@ python3 genschema/genschema.py --schema mdp3 --template-file path/to/templates_F
 
 ## Status / caveats
 
-- **Verified end-to-end against CME production SFTP:** both schemas fetched at
-  their pinned versions (`SBEFix/.../Archive/templates_FixBinary_v12.xml`,
-  `MSGW/.../ilinkbinary_v8.xml`), regenerated, and the full library build
-  compiles against them (0 errors) — types in `namespace sbe`, `_SBE_*_H_`
-  guards, one file per type.
 - **Not byte-identical to the headers previously committed to git.** Those were
   produced by a different real-logic SBE version (different include ordering /
   `wrapForEncode` style) and carried a hand-added license header. The struct
   layout, namespace, guards and API are the same, so the code is unaffected; the
   generated output is now the source of truth. Pass `--sbe-version` to match a
   specific prior generation if you need a closer diff.
-- **CME's current templates have moved past the pins** (MDP3 v13, iLink v9), so
-  `make schema` regenerates the pinned v12/v8 by default; use `--latest` to move.

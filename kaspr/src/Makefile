@@ -12,7 +12,7 @@ ifdef USE_TACHBOOK
 DEFINES_COMMON += -DUSE_TACHBOOK
 endif
 
-# Uses default LIBSO/LIBSG from glob_begin.mk (includes -lstdc++exp -lbacktrace for stacktrace)
+# Uses default LIBSO/LIBSG from glob_begin.mk (includes the std::stacktrace libs)
 # Add pcap library for PCAP file reading
 LIBSO += -lpcap
 LIBSG += -lpcap

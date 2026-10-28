@@ -11,7 +11,7 @@
 # credentials as genconfig/), then runs the real-logic SBE tool's C++ generator.
 #
 #   python3 genschema.py [--schema mdp3|ilink|all] [--env prod|nrcert|cert]
-#                        [--version VER | --latest] [--sbe-version 1.30.0]
+#                        [--version VER] [--sbe-version 1.30.0]
 #                        [--template-file PATH]   # skip SFTP, use a local XML
 #
 # Prerequisites: Java (for the SBE jar), Python `paramiko` (for SFTP), network
@@ -19,10 +19,8 @@
 # SFTP (for the templates). `--template-file` bypasses SFTP if you already have
 # the XML.
 #
-# Verified end-to-end against CME's production SFTP: MDP3 v12 and iLink 3 v8 were
-# regenerated from CME and the full library build compiles against them (0
-# errors). The SFTP paths, the version pinning, and the `package`->`sbe` rewrite
-# all work. NOTE: output is functionally equivalent but NOT byte-identical to the
+# By default it fetches CME's LATEST published template for each schema; pass
+# --version N to fetch a specific archived version instead. NOTE: output is functionally equivalent but NOT byte-identical to the
 # headers previously committed to git — those were produced by a different
 # real-logic SBE version (different include ordering / wrapForEncode style) and
 # carried a hand-added license header. The struct layout, `sbe` namespace, guard
@@ -60,11 +58,8 @@ ENV_DIR = {"prod": "Production", "nrcert": "NRCert", "cert": "Cert"}
 # `out_pkg` is the repo subdir the headers land in — we rewrite the template's
 # `package` attribute to this so the SBE tool emits into <repo>/<out_pkg>/.
 #
-# `pinned_version` is the SBE schema version the checked-in codecs were built and
-# tested against (the `sbeSchemaVersion()` in the generated headers). The code
-# depends on those struct/wire layouts, so by DEFAULT we regenerate that exact
-# version (CME's current templates have already moved past it: MDP3 v13, iLink
-# v9). Use --latest to pull CME's current template, or --version N for another.
+# By DEFAULT we fetch `latest_*` (CME's current template). --version N fetches a
+# specific version from `version_dir` instead.
 SCHEMAS = {
     "mdp3": {
         "latest_dir": "SBEFix/{env}/Templates",
@@ -72,7 +67,6 @@ SCHEMAS = {
         "version_dir": "SBEFix/{env}/Templates/Archive",
         "version_file": "templates_FixBinary_v{ver}.xml",
         "out_pkg": "mdp3_sbe",
-        "pinned_version": 12,          # mdp3_sbe: sbeSchemaId 1, sbeSchemaVersion 12
     },
     "ilink": {
         "latest_dir": "MSGW/{env}/Templates",
@@ -80,7 +74,6 @@ SCHEMAS = {
         "version_dir": "MSGW/{env}/Templates",
         "version_file": "ilinkbinary_v{ver}.xml",
         "out_pkg": "ilink3_sbe",
-        "pinned_version": 8,           # ilink3_sbe: sbeSchemaId 8, sbeSchemaVersion 8
     },
 }
 
@@ -146,13 +139,12 @@ def sftp_open(tries=4):
 _SCHEMA_TAG = r'<(?:[\w.-]+:)?messageSchema\b'
 
 
-def remote_template_path(schema, env, version, latest):
-    """Deterministic CME SFTP path for the requested schema/version/latest."""
+def remote_template_path(schema, env, version):
+    """CME SFTP path for the requested schema: latest unless a version is given."""
     s = SCHEMAS[schema]
-    if latest:
+    if version is None:
         return s["latest_dir"].format(env=env) + "/" + s["latest_file"]
-    ver = s["pinned_version"] if version is None else version
-    return s["version_dir"].format(env=env) + "/" + s["version_file"].format(ver=ver)
+    return s["version_dir"].format(env=env) + "/" + s["version_file"].format(ver=version)
 
 
 def schema_version_of(xml_path):
@@ -206,9 +198,9 @@ def main():
     ap = argparse.ArgumentParser(description="Generate CME SBE codecs from CME templates")
     ap.add_argument("--schema", choices=["mdp3", "ilink", "all"], default="all")
     ap.add_argument("--env", choices=list(ENV_DIR), default="prod")
-    g = ap.add_mutually_exclusive_group()
-    g.add_argument("--version", help="CME schema version to fetch")
-    g.add_argument("--latest", action="store_true", help="fetch the newest template on CME")
+    ap.add_argument("--version", help="CME schema version to fetch (default: latest)")
+    # Latest is the default; the flag is kept so existing invocations still work.
+    ap.add_argument("--latest", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--sbe-version", default=DEFAULT_SBE_VERSION, help="real-logic sbe-all jar version")
     ap.add_argument("--template-file", help="use a local template XML instead of SFTP "
                                             "(only valid with a single --schema)")
@@ -225,11 +217,7 @@ def main():
             s = SCHEMAS[targets[0]]
             local = os.path.join(tmp, "template.xml")
             shutil.copyfile(args.template_file, local)
-            got = schema_version_of(local)
-            if got is not None and got != s["pinned_version"]:
-                log(f"WARNING: {args.template_file} is schema version {got}, but "
-                    f"{s['out_pkg']} is pinned to v{s['pinned_version']}; the code may "
-                    f"not match the regenerated layout.")
+            log(f"{args.template_file} is schema version {schema_version_of(local)}")
             set_package(local, SBE_PACKAGE)
             generate(jar, local, s["out_pkg"])
             return
@@ -239,21 +227,20 @@ def main():
         try:
             for name in targets:
                 s = SCHEMAS[name]
-                remote = remote_template_path(name, env, args.version, args.latest)
+                remote = remote_template_path(name, env, args.version)
                 local = os.path.join(tmp, f"{name}.xml")
                 log(f"downloading {remote}")
                 try:
                     sftp.get(remote, local)
                 except IOError:
                     sys.exit(f"[genschema] {name}: template not found on CME: {remote} "
-                             f"(check --env/--version, or --latest for the current template)")
-                # Sanity-check we got the version we asked for. Default and
-                # --version have a definite expected version; --latest does not.
-                expect = None if args.latest else (args.version or s["pinned_version"])
+                             f"(check --env/--version)")
                 got = schema_version_of(local)
-                if expect is not None and got is not None and str(got) != str(expect):
+                # Sanity-check we got the version we asked for (latest has none).
+                if args.version is not None and got is not None and str(got) != str(args.version):
                     sys.exit(f"[genschema] {name}: fetched schema version {got}, expected "
-                             f"{expect} ({remote}) — CME may have changed its layout.")
+                             f"{args.version} ({remote}) — CME may have changed its layout.")
+                log(f"{name}: schema version {got}")
                 set_package(local, SBE_PACKAGE)
                 generate(jar, local, s["out_pkg"])
         finally:

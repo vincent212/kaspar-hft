@@ -21,12 +21,10 @@ check-schema:
 	      echo "       They are generated from CME, not committed. Run: make schema"; \
 	      echo "       (see genschema/README.md for prerequisites)"; exit 1; }
 
-# Generate both SBE codecs from CME. By default genschema.py regenerates the
-# pinned schema versions the code is built against (MDP3 v12, iLink v8) and
-# refuses to emit a different version; it does NOT pull "latest". Pass args
+# Generate both SBE codecs from CME's latest published templates. Pass args
 # through GENSCHEMA_ARGS to override, e.g.
-#   make schema GENSCHEMA_ARGS='--env cert'          # different CME environment
-#   make schema GENSCHEMA_ARGS='--schema mdp3 --latest'  # deliberately move up
+#   make schema GENSCHEMA_ARGS='--env cert'                  # different CME environment
+#   make schema GENSCHEMA_ARGS='--schema mdp3 --version 12'  # a specific version
 schema:
 	python3 $(KSPRPROJ)/genschema/genschema.py $(GENSCHEMA_ARGS)
 

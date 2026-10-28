@@ -211,6 +211,11 @@ ifeq ($(UNAME_S),Darwin)
     LIBSO = $(LIBS_COMMON_OPT) -lboost_program_options -lz
     LIBSG = $(LIBS_COMMON_DBG) -lboost_program_options -lz
 else
-    LIBSO = $(LIBS_COMMON_OPT) -lboost_program_options -lz -lbacktrace
-    LIBSG = $(LIBS_COMMON_DBG) -lboost_program_options -lz -lbacktrace
+    # std::stacktrace support: GCC 14+ ships it in libstdc++exp (with libbacktrace
+    # bundled inside); older setups need a standalone libbacktrace. Link whichever
+    # the toolchain actually has.
+    STACKTRACE_LIBS := $(shell for l in -lstdc++exp -lbacktrace; do \
+        echo 'int main(){}' | $(CXX) -x c++ - $$l -o /dev/null 2>/dev/null && printf '%s ' $$l; done)
+    LIBSO = $(LIBS_COMMON_OPT) -lboost_program_options -lz $(STACKTRACE_LIBS)
+    LIBSG = $(LIBS_COMMON_DBG) -lboost_program_options -lz $(STACKTRACE_LIBS)
 endif
