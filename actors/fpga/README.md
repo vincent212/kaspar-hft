@@ -4,6 +4,15 @@ Actors on an FPGA card, and CPU actors talking to them, with the same `send`.
 Research prototype: everything runs in software (no Vitis, no card), and
 nothing has been synthesized yet.
 
+> **Testing the FPGA design is done in AMD's simulator, not here.** The
+> software runs below use `SoftCard`, a test harness only. It checks that the
+> actors' logic gives the right answers and nothing more: it models no clock
+> cycles, timing, throughput or FPGA resources, and passing it says nothing
+> about whether the design synthesizes or keeps up in hardware. Verification is
+> Vitis HLS C simulation, then synthesis for the target part (Alveo X3522PV),
+> then RTL co-simulation in xsim. That flow is not set up yet. `SoftCard` may be
+> removed once it is.
+
 - **On the card:** an actor is a process, `send` is one write into a FIFO with
   one writer and one reader, and a process reads its input FIFOs round-robin.
   Two actors that talk are joined by a `Link` (a FIFO each way); `reply()`
@@ -32,7 +41,7 @@ nothing has been synthesized yet.
 | `include/kfpga/envelope.hpp` | the 64-byte envelope, `kfpga::Message<id>`, `KFPGA_FIELDS` |
 | `include/kfpga/ring.hpp` | the software FIFO / window / lane: sequence number last, batched reader position |
 | `include/kfpga/actor.hpp` | `kfpga::Actor<Self>`, `ActorRef`, `GroupRef`, `Link`, `Group`, `Process`, `KFPGA_HANDLERS` |
-| `include/kfpga/soft_card.hpp` | runs a design stepped (deterministic) or one thread per process |
+| `include/kfpga/soft_card.hpp` | test harness only, not a simulator: runs a design stepped (deterministic) or one thread per process |
 | `host/kfpga/cpu_link.hpp` | the CPU end of a link: `CpuMsg<F>`, `Codec`, `CpuEnd` |
 | `examples/ping_pong/` | shared messages and FPGA actors; FPGA <-> FPGA and group examples |
 | `examples/cpu_fpga/` | CPU <-> FPGA example, both directions |

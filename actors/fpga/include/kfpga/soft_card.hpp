@@ -8,10 +8,14 @@
  */
 
 /*
- * SoftCard - runs an FPGA design in software until there is a card.
+ * SoftCard - runs an FPGA design in software. A test harness only, NOT a
+ * simulator: it checks the actors' logic and models no clock cycles, timing,
+ * throughput or FPGA resources. Testing the FPGA design is done in AMD's
+ * simulator (Vitis HLS C simulation, then RTL co-simulation in xsim); see
+ * README.md. May be removed once that flow is set up.
  *
- *   start()/stop()  one thread per process, each spinning on its inputs, as
- *                   every process on the chip advances every cycle;
+ *   start()/stop()  one thread per process, each spinning on its inputs (the
+ *                   threads run freely; nothing here matches the chip's cycles);
  *   run()           single-threaded: one step of every process in turn until
  *                   nothing moves; deterministic, for tests.
  *
