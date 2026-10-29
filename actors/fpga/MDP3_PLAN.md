@@ -138,12 +138,20 @@ recorders on our NY4 box capture CME packets.
 
 | phase | work | done when |
 |---|---|---|
-| **0. Card facts** (1-2 weeks) | Get the X3522PV FDK. Find out: how packets reach the FPGA (AXI-Stream from the MACs?), how the FPGA writes to host memory (DMA? through the X3 NIC's path?), the clocks, the FDK license. Build the FDK reference design. | the reference design runs on a card; loopback latency measured |
+| **0. Card facts** (1-2 weeks, no card) | Get the X3522PV FDK and its license. From its documents: how packets reach the FPGA (AXI-Stream from the MACs?), how the FPGA writes to host memory (DMA? through the X3 NIC's path?), the clocks. | the interfaces of FeedRx and the lanes are known |
 | **1. SbeDecoder** | generated HLS decoder for 46 (MBP), trades, 30, 4; testbench fed from recorded packets | the same MBP entries and trades as `msg_decoder` over a full day |
 | **2. One book** | BookBank with one instrument (ES front month), end-of-packet snapshots, events, trades, SeqCheck and the gap flag | identical to a software MBP book over a full day; top 10 agrees with TachBook as above |
 | **3. The chain in simulation** | Router, N books, lanes, CPU `FpgaFeed`; SoftCard and HLS co-simulation | `light22` gets identical messages from either path |
-| **4. On the card, shadow** | bitstream for the XCUX35 through the FDK, timing closure, run next to the software handler on the live feed | days of live data with no differences |
+| **4. On the card, shadow** | first the FDK reference design on the card (loopback latency measured); then our bitstream for the XCUX35 through the FDK, timing closure, run next to the software handler on the live feed | days of live data with no differences |
 | **5. Cut over** | the strategy reads the card's books | wire-to-book latency measured; fallback to software tested |
+
+**Phases 0 to 3 need no card.** They run in simulation on recorded packets:
+Vitis HLS C simulation and RTL co-simulation, on the KU5P stand-in under the
+free license (or the XCUX35 while the Enterprise evaluation lasts), and
+SoftCard for the CPU side. Until phase 0 gives the card's interfaces, they use
+an assumed AXI-Stream packet input and the lanes already simulated, and adapt
+the boundary afterwards; the decoder and the books do not depend on the card.
+The card is needed from phase 4.
 
 ## Risks and open questions
 
