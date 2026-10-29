@@ -4,7 +4,9 @@ Actors on an FPGA card, and CPU actors talking to them, with the same `send`.
 Research prototype. The FPGA examples pass Vitis HLS C simulation, synthesis
 and RTL co-simulation on a stand-in part (Kintex UltraScale+ KU5P); nothing has
 been built for the target card yet. **How the design maps onto hardware, and
-why it is built this way: [HLS.md](HLS.md).**
+why it is built this way: [HLS.md](HLS.md).** In RTL co-simulation at 250 MHz
+an FPGA <-> FPGA round trip takes 5 cycles (20 ns) and a pipelined process
+takes a new message every cycle ([HLS.md](HLS.md) section 6).
 
 > **Testing the FPGA design is done in AMD's simulator: `make hls`.** That
 > runs Vitis HLS C simulation, synthesis and RTL co-simulation in xsim (see
