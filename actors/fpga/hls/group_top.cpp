@@ -17,6 +17,10 @@ using namespace pingpong;
 using namespace pingpong::grp;
 using kfpga::Fifo;
 
+// Not pipelined: SyncPing's Start handler is a loop of up to 1024 fast_sends,
+// and PIPELINE would unroll it into 1024 copies of Pong's handler. A process
+// is pipelined only when its handlers are loop-free (or have small fixed
+// loops); see HLS.md.
 static void group_task(Fifo &tb_in, Fifo &tb_out)
 {
   static Grp grp;
