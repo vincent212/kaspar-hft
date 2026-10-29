@@ -55,7 +55,7 @@ takes a new message every cycle ([HLS.md](HLS.md) section 6).
 | `examples/ping_pong/` | shared messages and FPGA actors; FPGA <-> FPGA and group examples, each with a `*_design.hpp` (processes and wiring) shared by the software run and the HLS top |
 | `hls/` | Vitis HLS tops (one `hls::task` per process), testbenches and configs for the examples |
 | `HLS.md` | how the design maps onto hardware; running the Vitis flow; results |
-| `MDP3_PLAN.md` | plan: the MDP3 handler on the X3522PV (channel A, end-of-packet books and trades out) |
+| `MDP3_PLAN.md` | plan: the MDP3 handler on the X3522PV (channel A, MBP books, no recovery; end-of-packet books, events and trades out) |
 | `examples/cpu_fpga/` | CPU <-> FPGA example, both directions |
 
 ## Running
