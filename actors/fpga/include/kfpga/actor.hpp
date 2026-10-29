@@ -95,6 +95,7 @@ T &instance()
 #define KFPGA_HANDLERS(...)                                                     \
   bool kfpga_dispatch(const ::kfpga::Envelope &kfpga_e)                         \
   {                                                                             \
+    _Pragma("HLS INLINE")                                                       \
     switch (kfpga_e.msg)                                                        \
     {                                                                           \
       __VA_ARGS__                                                               \
@@ -132,6 +133,7 @@ public:
   template <class M, class S>
   void send(const M &m, const S *from) const
   {
+#pragma HLS INLINE
     const_cast<S *>(from)->kfpga_emit(encode(m, S::kId, id_), port_);
   }
 
@@ -147,7 +149,7 @@ class Actor
 
   Envelope out_[kOutbox];        // this handler's sends, in order
   uint8_t out_port_[kOutbox] = {};
-  uint8_t n_out_ = 0;
+  int n_out_ = 0;
   uint8_t in_port_ = 0;          // the port of the message being handled
   ActorId reply_id_ = 0;         // its sender
   bool in_fast_send_ = false;    // serving a fast_send: reply() goes to the caller
@@ -158,12 +160,17 @@ public:
   // Used by ActorRef::send. Overflow is a design error: raise kOutbox.
   void kfpga_emit(const Envelope &e, uint8_t port)
   {
+#pragma HLS INLINE
+    // Registers, not RAM: the outbox is written and read in one cycle.
+#pragma HLS ARRAY_PARTITION variable=out_ type=complete
+#pragma HLS ARRAY_PARTITION variable=out_port_ type=complete
     assert(n_out_ < kOutbox && "more sends in one handler than kOutbox");
-    if (n_out_ < kOutbox)
+    const int n = n_out_;
+    if (n < kOutbox)
     {
-      out_[n_out_] = e;
-      out_port_[n_out_] = port;
-      ++n_out_;
+      out_[n] = e;
+      out_port_[n] = port;
+      n_out_ = n + 1;
     }
   }
 
@@ -173,6 +180,7 @@ protected:
   template <class M>
   void reply(const M &m)
   {
+#pragma HLS INLINE
     const Envelope e = encode(m, Self::kId, reply_id_);
     if (in_fast_send_)
     {
@@ -199,6 +207,7 @@ public:
   template <class M, class S, class R>
   bool fast_send(const M &m, const S * /*from*/, R &out) const
   {
+#pragma HLS INLINE
     assert(bound_ && "GroupRef not bound by its group");
     T &t = instance<T>();
     t.reply_id_ = S::kId;
@@ -378,20 +387,40 @@ public:
     Envelope e;
     bool got = own_.read_nb(e);
     uint8_t from = kOwnQueue;
-    // Round-robin from next_. Two passes with fixed indices, so each port is
-    // a fixed FIFO in hardware, never one picked by a variable.
+    // Round-robin from next_: look at which ports have a message (empty()
+    // takes nothing), pick the first from next_ on, then read that one port.
+    // Each port is read in one place only, so a pipelined process can read
+    // a port every cycle; and each is a fixed FIFO, never one picked by a
+    // variable index.
+    bool ready[N];
+#pragma HLS ARRAY_PARTITION variable=ready type=complete
+    for (int k = 0; k < N; ++k)
+    {
+#pragma HLS UNROLL
+      ready[k] = !p[k].in.empty();
+    }
+    int pick = -1;
     for (int pass = 0; pass < 2; ++pass)
+    {
+#pragma HLS UNROLL
+      for (int k = 0; k < N; ++k)
+      {
+#pragma HLS UNROLL
+        if (pick < 0 && ready[k] && (pass == 0 ? k >= next_ : k < next_))
+          pick = k;
+      }
+    }
+    if (!got && pick >= 0)
     {
       for (int k = 0; k < N; ++k)
       {
 #pragma HLS UNROLL
-        if (!got && (pass == 0 ? k >= next_ : k < next_) && p[k].in.read_nb(e))
-        {
-          got = true;
-          from = k;
-          next_ = (k + 1) % N;
-        }
+        if (k == pick)
+          e = p[k].in.read();
       }
+      got = true;
+      from = static_cast<uint8_t>(pick);
+      next_ = static_cast<uint8_t>((pick + 1) % N);
     }
     if (!got)
       return false;

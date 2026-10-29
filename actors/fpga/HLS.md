@@ -148,6 +148,7 @@ streams per link, and a boundary that moves envelopes in and out.
 ```cpp
 static void ping_task(Fifo &tb_in, Fifo &tb_out, Fifo &pp_in, Fifo &pp_out)
 {
+#pragma HLS PIPELINE II=1        // a new message every cycle (section 6)
   static PingProc proc;          // static: the state survives between steps
   wire();
   kfpga::Port ports[2] = {{tb_in, tb_out}, {pp_in, pp_out}};
@@ -202,6 +203,9 @@ Each of these passed C simulation and failed later. They are the rules now.
 | co-simulation hangs (`COSIM 212-382`) | non-blocking reads on a top-level port of a free-running design | the actors poll only internal streams; the boundary uses blocking reads |
 | co-simulation scrambles the order on a link | a top of tasks only returns at once; the testbench touched top-level streams while tasks were still using them | the counted boundary: the top returns when its work is done |
 | co-simulation post-check fails although the RTL output is right | the testbench reacted to outputs (wrote the next Ping after reading a Pong); co-simulation replays recorded inputs instead | queue every input before calling the top, check every output after |
+| co-simulation hangs after a speed-up | envelopes left uninitialized to save cycles are X (unknown) in RTL simulation | every envelope starts at zero, by an unrolled loop (no cycles) |
+| `Final II = 2` on a process | the round-robin read the same FIFO from two places in the code | read each port from exactly one place |
+| synthesis runs for ever | `PIPELINE` fully unrolls every loop in the process, here a 1024-round handler loop | pipeline only processes whose handlers are loop-free or have small fixed loops |
 
 ## 5. The CPU <-> FPGA example
 
@@ -241,7 +245,77 @@ link C  PingActor (client) -> CpuPong   (server)   PingProc port 1
   the sender's CPU actor id), and `dma_out` writes each link's envelopes into
   its lane (named by the destination's CPU actor id).
 
-## 6. Running it
+## 6. Speed: latency and pipelining
+
+Two different things, often both called "pipelining":
+
+- **Latency of a step**: cycles from a message waiting in a process's FIFO to
+  the handler's output being in the next FIFO. A ping-pong round trip is a
+  chain of steps, since Pong cannot answer before Ping asks, so round-trip
+  time is bounded by step latency.
+- **Initiation interval (II)**: how often a process can *start* a new
+  message. II = 1 means one message every clock, several in flight at once,
+  overlapped like an assembly line. That is pipelining proper, and it is what
+  keeps a burst (a market-data feed, say) from queueing up.
+
+For HFT both matter: latency per message, and II so bursts do not queue.
+
+### Where the 33 cycles of a step went
+
+The first working version took 33 to 64 cycles per step, for handlers that
+do almost nothing (`++pings; reply(...)`). The synthesis report showed none
+of it was the handler:
+
+| piece | cycles | what it was |
+|---|---|---|
+| zero-filling a new envelope | 13 | `payload[12] = {}` became a loop, one word a cycle |
+| `reply` | 21 | another zero-fill in `encode`, then copying the envelope into the outbox, which HLS had put in RAM: one word a cycle |
+| flushing the outbox | 4 | four slots, checked one a cycle |
+
+### What was changed
+
+1. **An envelope is one value, not sixteen words.** The payload is zeroed by
+   an explicitly unrolled loop in an HLS-only constructor: constant wires, no
+   cycles. (Not zeroing at all was tried; see the X row in section 4.)
+2. **The outbox is registers, not RAM** (`ARRAY_PARTITION complete` on the
+   outbox arrays): an envelope goes in or out in one cycle.
+3. **Everything on the message path is inlined** (`send`, `reply`,
+   `encode`/`decode`, the handler table, `fast_send`), so HLS builds one
+   circuit instead of a chain of sub-blocks run one after another.
+4. **The round-robin loop is fully unrolled**: both passes over the ports,
+   not only the inner one.
+5. **Each port is read in one place.** The process looks at which ports have
+   a message (`empty()`, which takes nothing), picks one, and reads only that
+   one. Reading a FIFO from two places stops a process reaching II = 1.
+6. **Each process's task is pipelined**: `#pragma HLS PIPELINE II=1` in the
+   task function. HLS then starts a new step every cycle. A pipelined process
+   must have handlers without long loops: `PIPELINE` unrolls them. The
+   `group` example's SyncPing runs a loop of up to 1024 `fast_send`s in one
+   handler, so that process is not pipelined.
+
+### The result
+
+KU5P, 250 MHz clock, from RTL co-simulation:
+
+| | first version | now |
+|---|---|---|
+| one step, Pong | 33 to 64 cycles | **1 cycle** |
+| one step, Ping | 33 to 59 cycles | **2 cycles** |
+| new message every (II) | 33+ cycles | **1 cycle** (Ping and Pong) |
+| FPGA <-> FPGA round trip | 92 cycles, ≈ 370 ns | **5 cycles, 20 ns** |
+| `cpu_fpga`: 2001 envelopes in, 2001 out | 56,996 cycles | **2,008 cycles: one message a cycle, both directions at once** |
+| `group` run (1000 `send` + 1000 `fast_send` round trips) | 139,124 cycles | 32,033 cycles |
+| `fpga_to_fpga` size | 4885 FF, 7793 LUT | 1785 FF, 1462 LUT |
+
+The group process is not pipelined (see 6 above), so its `send` round trip,
+through its own queue, is still about 30 cycles; `fast_send` is about 2
+cycles a call.
+
+These are synthesis estimates and RTL simulation on the KU5P stand-in, not
+measurements on the card. None of it includes PCIe: a CPU <-> card round trip
+on the real card will be dominated by PCIe (around a microsecond each way).
+
+## 7. Running it
 
 Needs Vitis 2026.1 and a license (below).
 
@@ -262,7 +336,7 @@ Each design's part and clock are in `hls/<design>.cfg`; logs go to
 | synthesis | `v++ -c --mode hls` | it becomes hardware: cycles, clock speed, resources |
 | co-simulation | `vitis-run --mode hls --cosim` | the generated Verilog, run in xsim with the same testbench, gives the same answers |
 
-## 7. Part and license
+## 8. Part and license
 
 The target card is the Alveo X3522PV (`xcux35-vsva1365-2-e`, Virtex
 UltraScale+), which no free license covers. For testing we use the **Kintex
@@ -277,24 +351,25 @@ Product Licensing site, generate a node-locked license with the no-charge
 Ethernet MAC, and put `Xilinx.lic` in `~/.Xilinx/`. The installer must
 include the device family (Kintex UltraScale+ here).
 
-## 8. Results
+## 9. Results
 
 KU5P, 4 ns clock (250 MHz), 1000 round trips each way:
 
 | design | C sim | synthesis | co-simulation | resources |
 |---|---|---|---|---|
-| `fpga_to_fpga` (Ping and Pong as two tasks) | PASS | Fmax ≈ 342 MHz | PASS, 369 µs simulated | 4885 FF, 7793 LUT, no BRAM |
-| `group` (three actors, one task; `send` and `fast_send`) | PASS | Fmax ≈ 344 MHz | PASS, 557 µs simulated | 4272 FF, 7683 LUT, 33 BRAM_18K |
-| `cpu_fpga` (FPGA half; testbench as the CPU) | PASS | Fmax ≈ 342 MHz | PASS, 228 µs simulated | 6697 FF, 7977 LUT, no BRAM |
+| `fpga_to_fpga` (Ping and Pong as two tasks) | PASS | Fmax ≈ 344 MHz | PASS, 5,006 cycles (20 µs) | 1785 FF, 1462 LUT, no BRAM |
+| `group` (three actors, one task; `send` and `fast_send`) | PASS | Fmax ≈ 344 MHz | PASS, 32,033 cycles (128 µs) | 3188 FF, 4037 LUT, 29 BRAM_18K |
+| `cpu_fpga` (FPGA half; testbench as the CPU) | PASS | Fmax ≈ 342 MHz | PASS, 2,008 cycles (8 µs) | 3566 FF, 1641 LUT, no BRAM |
 
-Every design uses about 1-3% of the KU5P.
+Every design uses about 1% of the KU5P. Section 6 has the speed work.
 
-## 9. Not done yet
+## 10. Not done yet
 
-- **Speed.** A process step takes about 33 to 60 cycles, so a round trip
-  between two processes is about 88 cycles. Nothing is pipelined: each step
-  copies whole 64-byte envelopes through the outbox, and the read, dispatch
-  and write phases run one after another. Correct first; tuning is next.
+- **Speed of groups.** A group whose handlers loop (SyncPing) is not
+  pipelined, so `send` inside it costs about 30 cycles a round trip. Moving
+  long loops out of handlers, or a group-specific pipeline, is next.
+- **Timing closure.** Fmax is the synthesis estimate; nothing has been placed
+  and routed.
 - **The real part.** Nothing has been built for the X3522PV.
 - **The real PCIe side.** In `cpu_fpga` the CPU half and the FPGA half are
   tested separately: real CPU actors against a software card, and the FPGA

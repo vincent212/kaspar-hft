@@ -42,8 +42,28 @@ struct alignas(64) Envelope
   MsgId msg = 0;      // header
   ActorId src = 0;
   ActorId dst = 0;
+#ifdef KFPGA_HLS
+  uint32_t payload[kPayloadWords];
+#else
   uint32_t payload[kPayloadWords] = {};
+#endif
   uint32_t seq = 0;   // written last
+
+#ifdef KFPGA_HLS
+  // On the chip, zero the payload with an unrolled loop: constant wires, no
+  // cycles. The plain `= {}` becomes a loop, one word a cycle (13 cycles on
+  // every envelope made). Leaving it unset is not an option either: an
+  // uninitialized envelope is X in RTL simulation, and that hung
+  // co-simulation.
+  Envelope()
+  {
+    for (int i = 0; i < kPayloadWords; ++i)
+    {
+#pragma HLS UNROLL
+      payload[i] = 0;
+    }
+  }
+#endif
 };
 static_assert(sizeof(Envelope) == 64, "an envelope is one cache line");
 
@@ -82,6 +102,7 @@ inline void put(uint32_t *, int) {}
 template <class T, class... R>
 void put(uint32_t *p, int w, const T &v, const R &...rest)
 {
+#pragma HLS INLINE
   const uint64_t u = static_cast<uint64_t>(v);
   p[w] = static_cast<uint32_t>(u);
   if (words<T>() == 2)
@@ -93,6 +114,7 @@ inline void get(const uint32_t *, int) {}
 template <class T, class... R>
 void get(const uint32_t *p, int w, T &v, R &...rest)
 {
+#pragma HLS INLINE
   uint64_t u = p[w];
   if (words<T>() == 2)
     u |= static_cast<uint64_t>(p[w + 1]) << 32;
@@ -106,6 +128,7 @@ void get(const uint32_t *p, int w, T &v, R &...rest)
 template <class M>
 void put_fields(const M &m, Envelope &e)
 {
+#pragma HLS INLINE
   m.kfpga_fields([&e](const auto &...v) {
     static_assert(detail::total_words<std::decay_t<decltype(v)>...>::value <= kPayloadWords,
                   "message does not fit the 48-byte payload");
@@ -116,12 +139,14 @@ void put_fields(const M &m, Envelope &e)
 template <class M>
 void get_fields(const Envelope &e, M &m)
 {
+#pragma HLS INLINE
   m.kfpga_fields([&e](auto &...v) { detail::get(e.payload, 0, v...); });
 }
 
 template <class M>
 Envelope encode(const M &m, ActorId src, ActorId dst)
 {
+#pragma HLS INLINE
   Envelope e;
   e.msg = M::id;
   e.src = src;
@@ -133,6 +158,7 @@ Envelope encode(const M &m, ActorId src, ActorId dst)
 template <class M>
 M decode(const Envelope &e)
 {
+#pragma HLS INLINE
   M m;
   get_fields(e, m);
   return m;

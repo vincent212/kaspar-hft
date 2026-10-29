@@ -25,6 +25,7 @@ using kfpga::Fifo;
 
 static void ping_task(Fifo &b_in, Fifo &b_out, Fifo &c_in, Fifo &c_out)
 {
+#pragma HLS PIPELINE II=1
   static PingProc proc;
   wire();
   kfpga::Port ports[2] = {{b_in, b_out}, {c_in, c_out}};
@@ -33,6 +34,7 @@ static void ping_task(Fifo &b_in, Fifo &b_out, Fifo &c_in, Fifo &c_out)
 
 static void pong_task(Fifo &a_in, Fifo &a_out)
 {
+#pragma HLS PIPELINE II=1
   static PongProc proc;
   kfpga::Port ports[1] = {{a_in, a_out}};
   proc.step(ports);
