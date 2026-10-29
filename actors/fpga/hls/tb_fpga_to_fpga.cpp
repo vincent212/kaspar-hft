@@ -15,7 +15,8 @@
 
 using namespace pingpong;
 
-void fpga_to_fpga_top(hls::stream<kfpga::Envelope> &in, hls::stream<kfpga::Envelope> &out);
+void fpga_to_fpga_top(hls::stream<kfpga::Envelope> &in, hls::stream<kfpga::Envelope> &out, uint32_t n_in,
+                      uint32_t n_out);
 
 int main()
 {
@@ -24,7 +25,7 @@ int main()
   Start s;
   s.rounds = kRounds;
   in.write(kfpga::encode(s, kTestbench, kPing));
-  fpga_to_fpga_top(in, out);
+  fpga_to_fpga_top(in, out, 1, 1);
   const kfpga::Envelope e = out.read();
   const Done d = kfpga::decode<Done>(e);
   std::printf("Done: %u round trips, last Pong(%u)\n", d.rounds, d.final_count);

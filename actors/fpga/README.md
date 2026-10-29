@@ -65,7 +65,10 @@ cd actors/fpga
 make hls
 ```
 
-In software only (a C++17 compiler; `cpu_fpga` also needs `actors/cpp`):
+In software only (a C++17 compiler; `cpu_fpga` also builds `actors/cpp`,
+which needs Boost, ZeroMQ, cppzmq and nlohmann/json; point `BOOST_PATH`,
+`ZMQ_PATH`, `CPPZMQ_PATH` and `JSON_PATH` at them if they are not under
+`/usr/local`, e.g. at the `.deps/` that the top-level `./build.sh` fetches):
 
 ```
 cd actors/fpga
@@ -78,4 +81,6 @@ card, stepped and then threaded. `group` puts `PingActor`, `PongActor` and
 SyncPing with inline `fast_send`. `make check_group_fast_send` checks that moving
 Pong to another group makes SyncPing's `fast_send` fail to compile. `cpu_fpga` uses the same two FPGA actors: a CPU
 `CpuPing` plays against the FPGA `PongActor`, and the FPGA `PingActor` plays
-against a CPU `CpuPong`.
+against a CPU `CpuPong`. `make hls` puts all three FPGA designs through Vitis;
+for `cpu_fpga` that is the FPGA half, with the testbench standing in for the
+CPU actors ([HLS.md](HLS.md) section 5).

@@ -15,7 +15,8 @@
 
 using namespace pingpong;
 
-void group_top(hls::stream<kfpga::Envelope> &in, hls::stream<kfpga::Envelope> &out);
+void group_top(hls::stream<kfpga::Envelope> &in, hls::stream<kfpga::Envelope> &out, uint32_t n_in,
+               uint32_t n_out);
 
 int main()
 {
@@ -25,7 +26,7 @@ int main()
   s.rounds = kRounds;
   in.write(kfpga::encode(s, kTestbench, kPing));
   in.write(kfpga::encode(s, kTestbench, kSyncPing));
-  group_top(in, out);
+  group_top(in, out, 2, 2);
   bool ok = true;
   bool seen_ping = false, seen_sync = false;
   for (int k = 0; k < 2; ++k)
