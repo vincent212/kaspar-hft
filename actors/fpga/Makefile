@@ -2,9 +2,11 @@
 #
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# FPGA actors. No Vitis and no card needed: the FPGA design runs in software.
-#   make run       build and run both examples
+# FPGA actors.
+#   make run       build and run the examples in software (SoftCard; no Vitis)
 #   make check14   compile the FPGA side as C++14, the dialect Vitis HLS accepts
+#   make hls       each example through Vitis HLS: C simulation, synthesis and
+#                  RTL co-simulation (needs Vitis: source <Vitis>/settings64.sh)
 
 CXX = g++
 UNAME_S := $(shell uname -s)
@@ -27,7 +29,7 @@ RPATH = -Wl,-rpath,$(dir $(realpath $(shell $(CXX) -print-file-name=libstdc++.so
 
 KFPGA = $(wildcard include/kfpga/*.hpp) $(wildcard examples/ping_pong/*.hpp)
 
-.PHONY: run check14 check_group_fast_send clean
+.PHONY: run check14 check_group_fast_send hls hls_csim hls_synth hls_cosim clean
 run: check14 check_group_fast_send fpga_to_fpga group cpu_fpga
 	./fpga_to_fpga
 	./group
@@ -57,5 +59,29 @@ cpu_fpga: examples/cpu_fpga/cpu_fpga.cpp examples/cpu_fpga/*.hpp host/kfpga/*.hp
 check14:
 	echo '#include "fpga_actors.hpp"' | $(CXX) -std=c++14 $(WARN) -Iinclude -Iexamples/ping_pong -fsyntax-only -x c++ -
 
+# Vitis HLS. The part and clock are in hls/<design>.cfg; work goes to
+# hls/w_<design>/, logs to hls/<design>.<step>.log. Kept off cores 0 and 15
+# and at low priority: this box also runs the market-data recorders.
+HLS_DESIGNS = fpga_to_fpga group
+HLS_RUN = nice -n 19 taskset -c 1-12
+
+define hls_step
+	@for d in $(HLS_DESIGNS); do \
+	  echo "== $$d: $(1)"; \
+	  (cd hls && $(HLS_RUN) $(2) --config $$d.cfg --work_dir w_$$d > $$d.$(1).log 2>&1) || \
+	    { echo "FAILED: see hls/$$d.$(1).log"; exit 1; }; \
+	  grep -hE 'PASS|FAIL|Estimated Fmax|co-simulation finished' hls/$$d.$(1).log | sort -u; \
+	done
+endef
+
+hls: hls_csim hls_synth hls_cosim
+hls_csim:
+	$(call hls_step,csim,vitis-run --mode hls --csim)
+hls_synth:
+	$(call hls_step,synth,v++ -c --mode hls)
+hls_cosim: hls_synth
+	$(call hls_step,cosim,vitis-run --mode hls --cosim)
+
 clean:
 	rm -f fpga_to_fpga group cpu_fpga check_group_fast_send.log
+	rm -rf hls/w_* hls/*.log hls/.Xil

@@ -28,7 +28,7 @@
 #include <thread>
 #include <vector>
 
-#include "kfpga/ring.hpp"
+#include "kfpga/actor.hpp"
 
 namespace kfpga {
 
@@ -41,10 +41,11 @@ class SoftCard
 public:
   ~SoftCard() { stop(); }
 
-  template <class P>
-  void add(P &process)
+  // A process and its ports, as the top plugs them in.
+  template <class G, int N>
+  void add(G &process, Port (&ports)[N])
   {
-    steps_.push_back([&process] { return process.step(); });
+    steps_.push_back([&process, &ports] { return process.step(ports); });
   }
 
   void start()

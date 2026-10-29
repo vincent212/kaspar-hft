@@ -13,47 +13,34 @@
 //
 // PingActor is the same code as in fpga_to_fpga.cpp, where Pong is another
 // process: only the wiring below differs. A testbench sends Start to Ping and
-// to SyncPing on one link and collects the two Dones.
-//
-// Build with -DPONG_IN_OTHER_GROUP to see the build-time check: Pong moves to
-// a group of its own, and binding SyncPing's fast_send reference to it fails
-// to compile (make check_group_fast_send).
+// to SyncPing on one link and collects the two Dones. The wiring is in
+// group_design.hpp, shared with the HLS top.
 
 #include <cstdio>
 
-#include "fpga_actors.hpp"
+#include "group_design.hpp"
 #include "kfpga/soft_card.hpp"
 
 using namespace pingpong;
+using namespace pingpong::grp;
 
 struct Design
 {
   kfpga::Link tb;   // testbench <-> the group
-  PingActor ping;
-  PongActor pong;
-  SyncPing sync;
-#ifndef PONG_IN_OTHER_GROUP
-  kfpga::Group<1, PingActor, PongActor, SyncPing> grp{{tb.server_input()}, ping, pong, sync};
-#else
-  kfpga::Group<1, PingActor, SyncPing> grp{{tb.server_input()}, ping, sync};
-  kfpga::Link pp;
-  kfpga::Group<1, PongActor> pong_grp{{pp.server_input()}, pong};
+  Grp grp;
+  kfpga::Port ports[1] = {tb.server()};
+#ifdef PONG_IN_OTHER_GROUP
+  PongGrp pong_grp;
 #endif
 
-  Design()
-  {
-    ping.pong = grp.ref<PongActor>();
-    ping.starter = tb.back_ref(kTestbench);
-    sync.starter = tb.back_ref(kTestbench);
-    grp.bind(sync.pong);
-  }
+  Design() { wire(); }
 };
 
 static bool run(const char *mode, bool threaded, uint32_t rounds)
 {
   Design d;
   kfpga::SoftCard card;
-  card.add(d.grp);
+  card.add(d.grp, d.ports);
   Start s;
   s.rounds = rounds;
   if (threaded)
@@ -74,8 +61,9 @@ static bool run(const char *mode, bool threaded, uint32_t rounds)
   }
   if (threaded)
     card.stop();
-  std::printf("%-8s Pong saw %u pings\n", mode, d.pong.pings);
-  return ok && d.pong.pings == 2 * rounds && d.grp.unhandled() == 0;
+  const uint32_t pings = kfpga::instance<PongActor>().pings;
+  std::printf("%-8s Pong saw %u pings\n", mode, pings);
+  return ok && pings == 2 * rounds && d.grp.unhandled() == 0;
 }
 
 int main()

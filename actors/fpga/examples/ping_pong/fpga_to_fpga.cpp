@@ -13,36 +13,35 @@
 //   testbench <--tb.back-- Ping  <--pp.back-- Pong
 //
 // The design runs twice: stepped on one thread (deterministic), then with one
-// thread per process, as on the chip.
+// thread per process. The wiring is in fpga_to_fpga_design.hpp, shared with
+// the HLS top.
 
 #include <cstdio>
 
-#include "fpga_actors.hpp"
+#include "fpga_to_fpga_design.hpp"
 #include "kfpga/soft_card.hpp"
 
 using namespace pingpong;
+using namespace pingpong::f2f;
 
 struct Design
 {
   kfpga::Link tb;   // testbench <-> Ping
   kfpga::Link pp;   // Ping <-> Pong
-  PingActor ping;
-  PongActor pong;
-  kfpga::Process<PingActor, 2> ping_proc{ping, {tb.server_input(), pp.client_input()}};
-  kfpga::Process<PongActor, 1> pong_proc{pong, {pp.server_input()}};
+  PingProc ping_proc;
+  PongProc pong_proc;
+  kfpga::Port ping_ports[2] = {tb.server(), pp.client()};
+  kfpga::Port pong_ports[1] = {pp.server()};
 
-  Design()
-  {
-    ping.pong = pp.ref(kPong);
-    ping.starter = tb.back_ref(kTestbench);
-  }
+  Design() { wire(); }
+  uint32_t pings() const { return PongProc::member<PongActor>().pings; }
 };
 
 static bool check(const char *mode, const Design &d, const Done &done, uint32_t rounds)
 {
   std::printf("%-8s Done: %u round trips, last Pong(%u); Pong saw %u pings\n", mode, done.rounds,
-              done.final_count, d.pong.pings);
-  return done.rounds == rounds && done.final_count == rounds && d.pong.pings == rounds &&
+              done.final_count, d.pings());
+  return done.rounds == rounds && done.final_count == rounds && d.pings() == rounds &&
          d.ping_proc.unhandled() == 0 && d.pong_proc.unhandled() == 0;
 }
 
@@ -56,8 +55,8 @@ int main()
   {
     Design d;
     kfpga::SoftCard card;
-    card.add(d.ping_proc);
-    card.add(d.pong_proc);
+    card.add(d.ping_proc, d.ping_ports);
+    card.add(d.pong_proc, d.pong_ports);
     d.tb.fwd.write(kfpga::encode(start, kTestbench, kPing));
     card.run();
     kfpga::Envelope e;
@@ -68,8 +67,8 @@ int main()
   {
     Design d;
     kfpga::SoftCard card;
-    card.add(d.ping_proc);
-    card.add(d.pong_proc);
+    card.add(d.ping_proc, d.ping_ports);
+    card.add(d.pong_proc, d.pong_ports);
     card.start();
     d.tb.fwd.write(kfpga::encode(start, kTestbench, kPing));
     const kfpga::Envelope e = d.tb.back.read();
