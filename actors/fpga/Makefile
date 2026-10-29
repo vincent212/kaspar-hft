@@ -12,8 +12,10 @@ CXX = g++
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
   ZMQ_PATH ?= /opt/homebrew/opt/zeromq
+  BOOST_PATH ?= /opt/homebrew/opt/boost
 else
   ZMQ_PATH ?= /usr/local
+  BOOST_PATH ?= /usr/local
 endif
 
 WARN = -Wall -Wextra -Werror -Wno-unknown-pragmas
@@ -21,7 +23,7 @@ CXXFLAGS = -std=c++17 -O2 -g $(WARN) -Iinclude -Iexamples/ping_pong
 
 # The CPU side uses the actors/cpp runtime (the FpgaLanes mailbox).
 ACTORS_CPP = ../cpp
-HOST_FLAGS = $(CXXFLAGS) -Ihost -I$(ACTORS_CPP)/include
+HOST_FLAGS = $(CXXFLAGS) -Ihost -I$(ACTORS_CPP)/include -I$(BOOST_PATH)/include
 HOST_LIBS = -L$(ACTORS_CPP) -lactors -L$(ZMQ_PATH)/lib -lzmq -lpthread $(RPATH)
 
 # Run against the compiler's own libstdc++, not an older system one.
@@ -62,7 +64,7 @@ check14:
 # Vitis HLS. The part and clock are in hls/<design>.cfg; work goes to
 # hls/w_<design>/, logs to hls/<design>.<step>.log. Kept off cores 0 and 15
 # and at low priority: this box also runs the market-data recorders.
-HLS_DESIGNS = fpga_to_fpga group
+HLS_DESIGNS = fpga_to_fpga group cpu_fpga
 HLS_RUN = nice -n 19 taskset -c 1-12
 
 define hls_step

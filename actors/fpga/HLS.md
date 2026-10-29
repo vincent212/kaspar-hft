@@ -143,7 +143,7 @@ inline void wire()
 ```
 
 **The HLS top** (`hls/fpga_to_fpga_top.cpp`): one task per process, two
-streams per link.
+streams per link, and a boundary that moves envelopes in and out.
 
 ```cpp
 static void ping_task(Fifo &tb_in, Fifo &tb_out, Fifo &pp_in, Fifo &pp_out)
@@ -154,39 +154,103 @@ static void ping_task(Fifo &tb_in, Fifo &tb_out, Fifo &pp_in, Fifo &pp_out)
   proc.step(ports);
 }
 
-void fpga_to_fpga_top(Fifo &in, Fifo &out)
+static void copy(Fifo &from, Fifo &to, uint32_t n)
 {
+  for (uint32_t i = 0; i < n; ++i)
+    to.write(from.read());
+}
+
+void fpga_to_fpga_top(Fifo &in, Fifo &out, uint32_t n_in, uint32_t n_out)
+{
+#pragma HLS DATAFLOW
   hls_thread_local Fifo tb_fwd, tb_back, pp_fwd, pp_back;
-  hls_thread_local hls::task relay_in(relay, in, tb_fwd);
-  hls_thread_local hls::task relay_out(relay, tb_back, out);
   hls_thread_local hls::task ping(ping_task, tb_fwd, tb_back, pp_back, pp_fwd);
   hls_thread_local hls::task pong(pong_task, pp_fwd, pp_back);
+  copy(in, tb_fwd, n_in);
+  copy(tb_back, out, n_out);
 }
 ```
 
-An `hls::task` repeats its function forever as its own circuit. The relays are
-there for co-simulation: a process polls its FIFOs with non-blocking reads, and
-RTL co-simulation hangs when those are on a top-level port of a free-running
-design (`COSIM 212-382`). The relays touch the top-level ports with plain
-blocking reads and writes, and the processes only poll internal streams.
+An `hls::task` repeats its function forever as its own circuit: those are the
+actors. The two `copy` calls are ordinary dataflow processes that move a given
+number of envelopes between the top-level ports and the design. HLS lets the
+two kinds share one dataflow region. The boundary is there for testing, for
+two reasons found the hard way (section 4): a process polls its FIFOs with
+non-blocking reads, which co-simulation cannot drive on a top-level port; and
+a top made only of tasks returns at once, so the testbench would read the
+outputs while the tasks are still writing them. With the counted boundary the
+top returns when the work is done. On a card the boundary is the DMA engine,
+which runs without counts.
 
 **The testbench** (`hls/tb_fpga_to_fpga.cpp`): writes Start into `in`, calls
-the top once, reads Done from `out`. The same file drives C simulation and RTL
-co-simulation.
+the top once (1 envelope in, 1 out), reads Done from `out`. The same file
+drives C simulation and RTL co-simulation.
 
 **The software run** (`examples/ping_pong/fpga_to_fpga.cpp`) uses the same
 design header with `kfpga::Link` and `SoftCard`. That is a quick check of the
 actors' logic only; it models no cycles or timing.
 
-## 4. Running it
+## 4. What co-simulation taught us
+
+Each of these passed C simulation and failed later. They are the rules now.
+
+| symptom | cause | rule |
+|---|---|---|
+| synthesis: `HLS 214-134 Pointer to pointer is not supported` | a pointer stored in an object and followed later | no stored pointers: port numbers, outboxes, actors by type (section 2) |
+| synthesis: same error, on an array of stream references | the function using it was not inlined | `#pragma HLS INLINE` on everything that takes the port table |
+| synthesis: `XFORM 203-123 the stream channel does not have data producer` | a one-actor process had a group queue nothing writes | a group queue only for two or more members |
+| co-simulation hangs (`COSIM 212-382`) | non-blocking reads on a top-level port of a free-running design | the actors poll only internal streams; the boundary uses blocking reads |
+| co-simulation scrambles the order on a link | a top of tasks only returns at once; the testbench touched top-level streams while tasks were still using them | the counted boundary: the top returns when its work is done |
+| co-simulation post-check fails although the RTL output is right | the testbench reacted to outputs (wrote the next Ping after reading a Pong); co-simulation replays recorded inputs instead | queue every input before calling the top, check every output after |
+
+## 5. The CPU <-> FPGA example
+
+`examples/cpu_fpga/` runs the same `PingActor` and `PongActor` against CPU
+actors, both ways:
+
+- **CPU -> FPGA:** `CpuPing`, an ordinary Kaspar actor (`actors/cpp`), plays
+  1000 round trips against the FPGA `PongActor`.
+- **FPGA -> CPU:** `CpuDriver` sends Start to the FPGA `PingActor`, which plays
+  1000 round trips against the CPU `CpuPong` and sends Done back.
+
+The messages are declared once (`messages.hpp`); the CPU side wraps each in
+`kfpga::CpuMsg`, an ordinary Kaspar message with the same fields. A
+`kfpga::CpuEnd` (`host/kfpga/cpu_link.hpp`) is the CPU end of one link: the CPU
+actor's own thread encodes and writes envelopes into its window to the card,
+and the card writes into a lane in host memory that the CPU actor's
+`FpgaLanes` mailbox polls. No routing thread. The CPU actors use plain
+`send()` and `reply()` and do not know their peer is on a card.
+
+Three links cross PCIe:
+
+```
+link A  CpuPing   (client) -> PongActor (server)   PongProc port 0
+link B  CpuDriver (client) -> PingActor (server)   PingProc port 0
+link C  PingActor (client) -> CpuPong   (server)   PingProc port 1
+```
+
+**Two ways to run it:**
+
+- `make run` (`cpu_fpga`): real CPU actors on their own threads, the FPGA half
+  on a `SoftCard`. This is the only place the CPU side really reacts to the
+  card.
+- `make hls` (`hls/cpu_fpga_top.cpp`): the FPGA half in Vitis. The testbench
+  stands in for the three CPU actors, envelope by envelope. The card's PCIe
+  side is one stream each way, as one DMA engine serves every window and lane:
+  `dma_in` puts each window's envelopes on its link (the window is named by
+  the sender's CPU actor id), and `dma_out` writes each link's envelopes into
+  its lane (named by the destination's CPU actor id).
+
+## 6. Running it
 
 Needs Vitis 2026.1 and a license (below).
 
 ```
 source ~/tools/Xilinx/2026.1/Vitis/settings64.sh
 cd actors/fpga
-make hls          # csim, synthesis and co-simulation for both examples
-make hls_csim     # or one step
+make hls                          # csim, synthesis, co-simulation: all three examples
+make hls_csim                     # or one step
+make hls HLS_DESIGNS=cpu_fpga     # or one design
 ```
 
 Each design's part and clock are in `hls/<design>.cfg`; logs go to
@@ -198,7 +262,7 @@ Each design's part and clock are in `hls/<design>.cfg`; logs go to
 | synthesis | `v++ -c --mode hls` | it becomes hardware: cycles, clock speed, resources |
 | co-simulation | `vitis-run --mode hls --cosim` | the generated Verilog, run in xsim with the same testbench, gives the same answers |
 
-## 5. Part and license
+## 7. Part and license
 
 The target card is the Alveo X3522PV (`xcux35-vsva1365-2-e`, Virtex
 UltraScale+), which no free license covers. For testing we use the **Kintex
@@ -213,22 +277,27 @@ Product Licensing site, generate a node-locked license with the no-charge
 Ethernet MAC, and put `Xilinx.lic` in `~/.Xilinx/`. The installer must
 include the device family (Kintex UltraScale+ here).
 
-## 6. Results
+## 8. Results
 
-KU5P, 4 ns clock (250 MHz), 1000 round trips each:
+KU5P, 4 ns clock (250 MHz), 1000 round trips each way:
 
 | design | C sim | synthesis | co-simulation | resources |
 |---|---|---|---|---|
-| `fpga_to_fpga` (Ping and Pong as two tasks) | PASS | Fmax ≈ 342 MHz | PASS, 352 µs simulated | 4678 FF, 7435 LUT, no BRAM |
-| `group` (three actors, one task; `send` and `fast_send`) | PASS | Fmax ≈ 369 MHz | PASS, 557 µs simulated | 4065 FF, 7325 LUT, 33 BRAM_18K |
+| `fpga_to_fpga` (Ping and Pong as two tasks) | PASS | Fmax ≈ 342 MHz | PASS, 369 µs simulated | 4885 FF, 7793 LUT, no BRAM |
+| `group` (three actors, one task; `send` and `fast_send`) | PASS | Fmax ≈ 344 MHz | PASS, 557 µs simulated | 4272 FF, 7683 LUT, 33 BRAM_18K |
+| `cpu_fpga` (FPGA half; testbench as the CPU) | PASS | Fmax ≈ 342 MHz | PASS, 228 µs simulated | 6697 FF, 7977 LUT, no BRAM |
 
-## 7. Not done yet
+Every design uses about 1-3% of the KU5P.
+
+## 9. Not done yet
 
 - **Speed.** A process step takes about 33 to 60 cycles, so a round trip
   between two processes is about 88 cycles. Nothing is pipelined: each step
   copies whole 64-byte envelopes through the outbox, and the read, dispatch
   and write phases run one after another. Correct first; tuning is next.
 - **The real part.** Nothing has been built for the X3522PV.
-- **The CPU <-> FPGA link** (`host/kfpga/cpu_link.hpp`) runs in software only,
-  and the `cpu_fpga` example is not on this branch.
+- **The real PCIe side.** In `cpu_fpga` the CPU half and the FPGA half are
+  tested separately: real CPU actors against a software card, and the FPGA
+  half in Vitis against a testbench. Windows, lanes and the DMA engine of a
+  real card are not modelled.
 - **Several actors of one type** in a design (see section 2).

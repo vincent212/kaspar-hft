@@ -1,4 +1,4 @@
-fpga_to_fpga
-group
-cpu_fpga
+/fpga_to_fpga
+/group
+/cpu_fpga
 check_group_fast_send.log
