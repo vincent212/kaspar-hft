@@ -67,8 +67,8 @@ CPU: security id -> book table, at start -> window ------+
 Through the card's lanes in host memory, per packet:
 
 - **BookSnapshot**, once per touched book: book id, packet sequence number,
-  the exchange's transact time, the card's receive time, the gap flag, and the
-  10 levels per side (price in ticks, quantity, order count). More than one
+  the exchange's transact time, the card's receive time, the two latency
+  stamps (below), the gap flag, and the 10 levels per side (price in ticks, quantity, order count). More than one
   48-byte payload, so a snapshot is a short run of envelopes, numbered, the
   last one flagged; the CPU acts on the last.
 - **BookEvent**, one per MBP entry in the packet: book id, side, level, action
@@ -101,6 +101,23 @@ Through the card's lanes in host memory, per packet:
   of the card's books (or, later, the snapshot feed if we ever add recovery).
 - **ChannelReset** clears the books, which then refill as levels update, as at
   start-up.
+
+## Measuring latency
+
+A free-running cycle counter on the card stamps every packet twice: **in**,
+when its first byte reaches FeedRx, and **out**, when the last envelope of
+its output leaves for the lanes. Both stamps travel in every BookSnapshot and
+Trade, so every packet reports its own latency on the card, in cycles.
+
+| level | what is measured | how | covers |
+|---|---|---|---|
+| **simulation** (phases 1-3) | the design's latency per packet | RTL co-simulation of recorded packets: the stamps give exact cycles, times the clock period (about 3.1 ns at 322 MHz) | decode and book only; not the MAC/PHY, not PCIe. A distribution over minutes of real data, bursts included, not one best case. |
+| **on the card** (phase 4) | the same, on live traffic | the same stamps | on-card time per packet |
+| **wire to CPU** (phase 4) | packet on the wire to `FpgaFeed` handling it | the MAC's hardware receive timestamp against the CPU clock, synced by PTP (what the FDK exposes is confirmed in phase 0) | adds PCIe, the largest part |
+| **card against software** (phase 4) | the same packets through both paths | in shadow mode, the existing software measurement (`kaspr/perf/`: NIC hardware timestamp to book updated, `run_probe.sh`, `kh_*.py`) side by side with the card's | the comparison that matters |
+
+Not covered: wire to wire (packet in, order out). That needs the order path
+on the card and an external tap or capture box with hardware timestamps.
 
 ## Framework changes needed first
 
@@ -139,7 +156,7 @@ recorders on our NY4 box capture CME packets.
 | phase | work | done when |
 |---|---|---|
 | **0. Card facts** (1-2 weeks, no card) | Get the X3522PV FDK and its license. From its documents: how packets reach the FPGA (AXI-Stream from the MACs?), how the FPGA writes to host memory (DMA? through the X3 NIC's path?), the clocks. | the interfaces of FeedRx and the lanes are known |
-| **1. SbeDecoder** | generated HLS decoder for 46 (MBP), trades, 30, 4; testbench fed from recorded packets | the same MBP entries and trades as `msg_decoder` over a full day |
+| **1. SbeDecoder** | generated HLS decoder for 46 (MBP), trades, 30, 4; testbench fed from recorded packets; the in/out cycle stamps | the same MBP entries and trades as `msg_decoder` over a full day; cycles per packet from co-simulation |
 | **2. One book** | BookBank with one instrument (ES front month), end-of-packet snapshots, events, trades, SeqCheck and the gap flag | identical to a software MBP book over a full day; top 10 agrees with TachBook as above |
 | **3. The chain in simulation** | Router, N books, lanes, CPU `FpgaFeed`; SoftCard and HLS co-simulation | `light22` gets identical messages from either path |
 | **4. On the card, shadow** | first the FDK reference design on the card (loopback latency measured); then our bitstream for the XCUX35 through the FDK, timing closure, run next to the software handler on the live feed | days of live data with no differences |
