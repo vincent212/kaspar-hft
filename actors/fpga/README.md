@@ -56,6 +56,7 @@ takes a new message every cycle ([HLS.md](HLS.md) section 6).
 | `hls/` | Vitis HLS tops (one `hls::task` per process), testbenches and configs for the examples |
 | `HLS.md` | how the design maps onto hardware; running the Vitis flow; results |
 | `MDP3_PLAN.md` | plan: the MDP3 handler on the X3522PV (channel A, MBP books, no recovery; end-of-packet books, events and trades out) |
+| `mdp3/` | phase 1 of the plan: the MDP3 decoder, generated from CME's template, checked against CME's codec |
 | `examples/cpu_fpga/` | CPU <-> FPGA example, both directions |
 
 ## Running

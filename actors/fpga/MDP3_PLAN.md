@@ -170,6 +170,13 @@ an assumed AXI-Stream packet input and the lanes already simulated, and adapt
 the boundary afterwards; the decoder and the books do not depend on the card.
 The card is needed from phase 4.
 
+## Status
+
+- **Phase 1 started** (`mdp3/`, see its README): the decoder is generated from
+  CME's template and matches CME's own codec exactly on 5000 test packets (C
+  simulation) and 300 (RTL co-simulation). Open: recorded packets, the clock
+  (95 MHz estimated, against 250), the latency stamps.
+
 ## Risks and open questions
 
 - **The card's interfaces are assumptions until phase 0**: where the MACs
