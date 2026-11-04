@@ -95,11 +95,99 @@ struct EndOfPacket : kfpga::Message<324>
   uint32_t events = 0;         // events sent for this packet
   uint32_t messages = 0;       // SBE messages in the packet, all templates
   uint32_t bytes = 0;          // packet length
-  KFPGA_FIELDS(seq, sending_time, events, messages, bytes)
+  uint32_t cycle_in = 0;       // the decoder's cycle count at the packet's first word
+  uint32_t cycle_out = 0;      // and at this EndOfPacket
+  uint32_t cycle_last = 0;     // and at the packet's last word
+  KFPGA_FIELDS(seq, sending_time, events, messages, bytes, cycle_in, cycle_out, cycle_last)
+};
+
+// What BookBank publishes, per packet that touched its book: the packet's events
+// (the messages above, implied entries dropped), then the book, then BatchEnd.
+
+constexpr int kLevels = 10;          // per side
+constexpr int kLevelsPerPart = 2;    // what one envelope's payload holds
+constexpr int kBookParts = 2 * kLevels / kLevelsPerPart;
+
+// Two levels of the book. Part 0 to 4 are the bids from the best, 5 to 9 the offers.
+struct BookPart : kfpga::Message<325>
+{
+  uint32_t seq = 0;
+  uint32_t part = 0;
+  int64_t price0 = 0;
+  int32_t size0 = 0;
+  int32_t orders0 = 0;
+  int64_t price1 = 0;
+  int32_t size1 = 0;
+  int32_t orders1 = 0;
+  KFPGA_FIELDS(seq, part, price0, size0, orders0, price1, size1, orders1)
+};
+
+// The last envelope of a packet's batch: the strategy acts on this one.
+struct BatchEnd : kfpga::Message<326>
+{
+  uint32_t seq = 0;
+  int32_t security_id = 0;
+  uint32_t events = 0;         // events in the batch
+  uint32_t gap = 0;            // 1 once a sequence gap has been seen: the book is suspect
+  uint32_t cycle_in = 0;       // the packet's first word
+  uint32_t cycle_last = 0;     // its last word
+  uint32_t cycle_out = 0;      // this envelope
+  KFPGA_FIELDS(seq, security_id, events, gap, cycle_in, cycle_last, cycle_out)
+};
+
+// What the card sends the CPU: events packed to 16 bytes, three to a 64-byte line.
+//
+//   bits  63..0    price mantissa
+//         95..64   size
+//        111..96   order count
+//        119..112  index of the contract in the filter's table
+//        123..120  level, or the kind of an action 7 event
+//        126..124  action: MDUpdateAction 0 to 5, 6 trade, 7 other
+//        127       1 for an offer; for a trade, set if the aggressor is the seller
+constexpr int kEventsPerLine = 3;
+constexpr uint8_t kActionTrade = 6;
+constexpr uint8_t kActionOther = 7;
+constexpr uint8_t kOtherStatus = 0;
+constexpr uint8_t kOtherChannelReset = 1;
+constexpr uint8_t kOtherBookReset = 2;
+
+// One packed event, Filter to Batcher.
+struct PackedEvent : kfpga::Message<330>
+{
+  uint64_t lo = 0;
+  uint64_t hi = 0;
+  KFPGA_FIELDS(lo, hi)
+
+  uint8_t action() const { return (hi >> 60) & 7; }
+  uint8_t level() const { return (hi >> 56) & 15; }
+  uint8_t contract() const { return (hi >> 48) & 0xff; }
+};
+
+// A line of N events, 1 to 3.
+template <int N>
+struct EventLine : kfpga::Message<330 + N>
+{
+  uint64_t lo0 = 0, hi0 = 0, lo1 = 0, hi1 = 0, lo2 = 0, hi2 = 0;
+  KFPGA_FIELDS(lo0, hi0, lo1, hi1, lo2, hi2)
+};
+
+// The end of a packet that had events: the CPU acts on this one.
+struct PacketEnd : kfpga::Message<334>
+{
+  uint32_t seq = 0;
+  uint32_t events = 0;         // events of this packet
+  uint32_t gap = 0;            // 1 once a sequence gap has been seen
+  uint32_t cycle_in = 0;       // the packet's first word
+  uint32_t cycle_last = 0;     // its last word
+  uint32_t cycle_out = 0;      // this envelope
+  KFPGA_FIELDS(seq, events, gap, cycle_in, cycle_last, cycle_out)
 };
 
 // Actor ids on the card.
 constexpr kfpga::ActorId kDecoder = 20;
 constexpr kfpga::ActorId kBooks = 21;
+constexpr kfpga::ActorId kFeed = 22;       // the CPU actor that takes the batches
+constexpr kfpga::ActorId kFilter = 23;
+constexpr kfpga::ActorId kBatcher = 24;
 
 } // namespace mdp3fpga

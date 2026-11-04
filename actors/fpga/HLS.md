@@ -121,6 +121,23 @@ inside the process. A process of one actor has no other member to send to, and
 HLS rejects a stream that nothing writes (`XFORM 203-123`), so a one-actor
 process has no queue.
 
+### Handlers go through step
+
+An actor that takes messages runs them through `Group::step`, never through a
+step of its own. We first wrote two actors with their own `on_step`, which read
+the stream and called `kfpga_dispatch` itself, and HLS threw the handlers away,
+with everything they wrote. It reported that as a stream with no producer (XFORM
+203-731, then HLS 200-819), or as a write to a constant (SYNCHK 200-51), both a
+long way from the cause. Six changes to the actor's storage did nothing, because
+storage was never the problem. We have the rule, not an explanation of why HLS
+does this.
+
+Keep to one handler, one step. The Batcher of the MDP3 handler is the example:
+each packed event goes in a register, and the handler that completes a 64-byte
+line sends it. It needs no sending stage of its own and no large buffer. A raw
+stream is the exception: `step_stream` is for an actor whose input is not
+messages at all, like the decoder's packet words.
+
 ## 3. Writing a design
 
 A design is three small files. The examples in `examples/ping_pong/` and
@@ -197,6 +214,8 @@ Each of these passed C simulation and failed later. They are the rules now.
 
 | symptom | cause | rule |
 |---|---|---|
+| co-simulation: a flood of all-zero envelopes, 0 real results | a stream kept inside an actor object of an `hls::task`: HLS builds no FIFO and ties its ports to "not empty, data zero" | every FIFO is declared at the top and plugged in |
+| synthesis: `XFORM 203-731` no data producer, then `HLS 200-819`; or `SYNCHK 200-51` a constant variable is modified | an actor calling its own `kfpga_dispatch` from a raw-stream `on_step`: HLS drops the handlers | handlers go through `Group::step`: one handler, one step |
 | synthesis: `HLS 214-134 Pointer to pointer is not supported` | a pointer stored in an object and followed later | no stored pointers: port numbers, outboxes, actors by type (section 2) |
 | synthesis: same error, on an array of stream references | the function using it was not inlined | `#pragma HLS INLINE` on everything that takes the port table |
 | synthesis: `XFORM 203-123 the stream channel does not have data producer` | a one-actor process had a group queue nothing writes | a group queue only for two or more members |
