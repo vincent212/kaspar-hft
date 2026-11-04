@@ -34,6 +34,54 @@ into the processes. `SbeDecoder` and `FeedRx` run on `Group::step_stream` and
 The top-level FIFOs between decoder and filter and between filter and batcher are 64
 envelopes deep.
 
+## Actors, messages and handlers
+
+Packets reach the card through the network port, which is wired to the FPGA. No CPU,
+socket or kernel is involved. The MAC turns the wire into 64-bit words for FeedRx.
+
+`FeedRx` and `SbeDecoder` have no handlers, their input being raw words. `SbeDecoder`
+sends these to `Filter`:
+
+| message | when |
+|---|---|
+| `BookEntry` | each MBP book entry (template 46) |
+| `Trade` | each trade entry (template 48) |
+| `SecurityStatus` | template 30 |
+| `ChannelReset` | template 4 |
+| `SeqGap` | a sequence number was skipped |
+| `EndOfPacket` | the packet is finished |
+
+`Filter` handlers:
+
+| handler | what it does |
+|---|---|
+| `on_book` | drops implied entries and unwanted contracts, packs the rest, sends `PackedEvent` |
+| `on_trade`, `on_status` | sends `PackedEvent` if the contract is wanted |
+| `on_reset` | always sends `PackedEvent`: a reset affects every contract |
+| `on_end` | forwards `EndOfPacket` only if the packet had an event for us |
+| `on_gap` | always forwards `SeqGap` |
+| `on_want` | stores a contract in the table, replies `WantAck` to the host |
+
+`Batcher` handlers:
+
+| handler | what it does |
+|---|---|
+| `on_event` | holds up to 3 events; a 4th sends the full line and starts the next |
+| `on_end` | sends the held events as a line marked End |
+| `on_gap` | forwards `SeqGap` to the host |
+
+`FpgaFeed` handlers, on the host:
+
+| handler | what it does |
+|---|---|
+| `on_start` | sends `WantContract` for each contract, to load the filter table |
+| `on_ack` | counts acks until the table is loaded |
+| `on_line` | copies the line's events to a buffer |
+| `on_line`, End line | applies the packet's events to the books, then calls the strategy once |
+| `on_gap` | sets the gap flag, which stays set and goes to the strategy with each packet |
+
+The strategy gets one call per packet: `on_packet(books, events, n, gap)`.
+
 ## FeedRx
 
 The MAC delivers frames as 64-bit words with the FCS removed.
