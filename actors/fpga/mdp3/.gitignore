@@ -7,3 +7,5 @@ hls/w/
 hls/*.log
 hls/.Xil/
 test/ref_book
+hls/w_*/
+hls/*.zip
