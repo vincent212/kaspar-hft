@@ -12,11 +12,12 @@
  *
  *   Filter    drops implied entries and every contract not in its table, and
  *             packs what is left to 16 bytes (events.hpp).
- *   Batcher   sends a 64-byte line as soon as it holds three events, or at the
- *             end of the packet with what it has, then a PacketEnd. Nothing
- *             waits for a later packet.
+ *   Batcher   sends a 64-byte line when a fourth event shows the line is not the
+ *             packet's last, or at the end of the packet with what it has, marked
+ *             End. Nothing waits for a later packet. One send a step, so II = 1.
  *
- * Packets with no event for us end here: the CPU never hears of them.
+ * Packets with no event for us end here: the CPU never hears of them, but a
+ * SeqGap always goes through.
  *
  * The contract table is a parallel compare, one comparator per entry, kContracts
  * of them. Filled from the build for now (MDP3_CONTRACTS); the CPU loads it at
@@ -28,6 +29,10 @@
 
 #include "kfpga/actor.hpp"
 #include "mdp3fpga/events.hpp"
+
+#ifdef MDP3_SW
+#include <deque>
+#endif
 
 namespace mdp3fpga {
 
@@ -73,12 +78,29 @@ inline PackedEvent pack_event(int64_t price, int32_t size, int32_t orders, int c
   return m;
 }
 
+#ifdef MDP3_SW
+// Test only, plain g++: a packet's stamps, for the testbench to take when its End
+// line comes out. Latency is not carried on the wire.
+struct EndStamp
+{
+  uint32_t seq, events, cycle_in, cycle_last, cycle_out;
+};
+inline std::deque<EndStamp> &end_stamps()
+{
+  static std::deque<EndStamp> q;
+  return q;
+}
+#endif
+
 class Filter : public kfpga::Actor<Filter>
 {
+  bool any_ = false;   // this packet had an event for us
+
   void pass(const PackedEvent &m)
   {
 #pragma HLS INLINE
     batcher.send(m, this);
+    any_ = true;
   }
 
   void on_book(const BookEntry &m)
@@ -120,7 +142,14 @@ class Filter : public kfpga::Actor<Filter>
   void on_end(const EndOfPacket &m)
   {
 #pragma HLS INLINE
-    // Every packet's sequence number goes on, for the gap flag.
+    if (any_)
+      batcher.send(m, this);
+    any_ = false;
+  }
+
+  void on_gap(const SeqGap &m)
+  {
+#pragma HLS INLINE
     batcher.send(m, this);
   }
 
@@ -129,82 +158,84 @@ public:
   kfpga::ActorRef batcher;
 
   KFPGA_HANDLERS(KFPGA_ON(BookEntry, on_book) KFPGA_ON(Trade, on_trade) KFPGA_ON(SecurityStatus, on_status)
-                     KFPGA_ON(ChannelReset, on_reset) KFPGA_ON(EndOfPacket, on_end))
+                     KFPGA_ON(ChannelReset, on_reset) KFPGA_ON(EndOfPacket, on_end) KFPGA_ON(SeqGap, on_gap))
 };
 
 class Batcher : public kfpga::Actor<Batcher>
 {
-  uint64_t lo_[2] = {}, hi_[2] = {};   // events waiting for their line
+  uint64_t lo_[kEventsPerLine] = {}, hi_[kEventsPerLine] = {};   // the line being filled
   ap_uint<2> held_ = 0;
+#ifdef MDP3_SW
+  uint32_t events_ = 0;
+#endif
 
-  uint32_t events_ = 0;                // of this packet
-  bool gap_ = false, seen_ = false;
-  uint32_t last_seq_ = 0;
-
-  template <int N>
-  void line(uint64_t lo2, uint64_t hi2)
+  template <class L>
+  void send_line()
   {
 #pragma HLS INLINE
-    EventLine<N> m;
+    L m;
     m.lo0 = lo_[0];
     m.hi0 = hi_[0];
     m.lo1 = lo_[1];
     m.hi1 = hi_[1];
-    m.lo2 = lo2;
-    m.hi2 = hi2;
+    m.lo2 = lo_[2];
+    m.hi2 = hi_[2];
     feed.send(m, this);
   }
 
+  // The line is full only when a fourth event shows more is coming, so that the
+  // last line of a packet is always here for on_end to mark.
   void on_event(const PackedEvent &m)
   {
 #pragma HLS INLINE
 #pragma HLS ARRAY_PARTITION variable=lo_ type=complete
 #pragma HLS ARRAY_PARTITION variable=hi_ type=complete
-    events_ = events_ + 1;
-    if (held_ == 2)
+    ap_uint<2> at = held_;
+    if (held_ == kEventsPerLine)
     {
-      line<3>(m.lo, m.hi);
-      held_ = 0;
+      send_line<EventLine<3, false>>();
+      at = 0;
     }
-    else
-    {
-      lo_[held_[0]] = m.lo;
-      hi_[held_[0]] = m.hi;
-      held_ = held_ + 1;
-    }
+    lo_[at] = m.lo;
+    hi_[at] = m.hi;
+    held_ = at + 1;
+#ifdef MDP3_SW
+    ++events_;
+#endif
   }
 
   void on_end(const EndOfPacket &m)
   {
 #pragma HLS INLINE
-    if (seen_ && m.seq != last_seq_ + 1)
-      gap_ = true;
-    seen_ = true;
-    last_seq_ = m.seq;
-    if (events_ == 0)
-      return;
     if (held_ == 1)
-      line<1>(0, 0);
+      send_line<EventLine<1, true>>();
     else if (held_ == 2)
-      line<2>(0, 0);
+      send_line<EventLine<2, true>>();
+    else
+      send_line<EventLine<3, true>>();
     held_ = 0;
-    PacketEnd e;
-    e.seq = m.seq;
-    e.events = events_;
-    e.gap = gap_ ? 1 : 0;
-    e.cycle_in = m.cycle_in;
-    e.cycle_last = m.cycle_last;
-    e.cycle_out = now;
-    feed.send(e, this);
+#ifdef MDP3_SW
+    end_stamps().push_back({m.seq, events_, m.cycle_in, m.cycle_last, now});
     events_ = 0;
+#else
+    (void)m;
+#endif
+  }
+
+  void on_gap(const SeqGap &m)
+  {
+#pragma HLS INLINE
+    feed.send(m, this);
   }
 
 public:
   static constexpr kfpga::ActorId kId = kBatcher;
   kfpga::ActorRef feed;
-  uint32_t now = 0;                    // the clock, from the process
+#ifdef MDP3_SW
+  uint32_t now = 0;                    // the clock, for the stamps
+#endif
 
-  KFPGA_HANDLERS(KFPGA_ON(PackedEvent, on_event) KFPGA_ON(EndOfPacket, on_end))
+  KFPGA_HANDLERS(KFPGA_ON(PackedEvent, on_event) KFPGA_ON(EndOfPacket, on_end) KFPGA_ON(SeqGap, on_gap))
 };
 
 } // namespace mdp3fpga

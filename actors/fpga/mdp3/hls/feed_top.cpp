@@ -44,10 +44,12 @@ static void batcher_task(Fifo &in, Fifo &out)
 {
 #pragma HLS PIPELINE II=1
   static BatcherProc proc;
-  static uint32_t clock = 0;
   Batcher &b = BatcherProc::member<Batcher>();
   b.feed = kfpga::ActorRef(0, kFeed);
+#ifdef MDP3_SW
+  static uint32_t clock = 0;
   b.now = ++clock;
+#endif
   kfpga::Port ports[1] = {{in, out}};
   proc.step(ports);
 }

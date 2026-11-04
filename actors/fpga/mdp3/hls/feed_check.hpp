@@ -82,35 +82,38 @@ class FeedCheck
 
 public:
   uint64_t events = 0, trades = 0, lines = 0;
-  uint32_t packet_events = 0;
+  bool ended = false;     // the last take() was a packet's End line
+  bool gap = false;       // a SeqGap has come
 
-  bool ended = false;     // the last take() was a PacketEnd
-
-  // Returns true at a PacketEnd of a packet that touched contract 0, with the
-  // line in `text`.
-  bool take(const kfpga::Envelope &e, PacketEnd &end, char *text, size_t size)
+  // Returns true at the End line of a packet that touched contract 0, with the
+  // line ref_book prints in `text`. The card sends no sequence number, so that
+  // field is 0: see normalise().
+  bool take(const kfpga::Envelope &e, char *text, size_t size)
   {
-    ++lines;
     ended = false;
-    if (e.msg >= EventLine<1>::id && e.msg <= EventLine<3>::id)
+    if (e.msg == SeqGap::id)
     {
-      const int n = e.msg - EventLine<1>::id + 1;
-      const EventLine<3> m = kfpga::decode<EventLine<3>>(e);
-      const uint64_t lo[3] = {m.lo0, m.lo1, m.lo2}, hi[3] = {m.hi0, m.hi1, m.hi2};
-      for (int i = 0; i < n; ++i)
-        apply(lo[i], hi[i]);
+      gap = true;
+      ++lines;
       return false;
     }
-    if (e.msg != PacketEnd::id)
+    ++lines;
+    if (e.msg < kFirstLine || e.msg > kLastEndLine)
     {
       std::snprintf(text, size, "? msg %u\n", e.msg);
       return true;
     }
-    end = kfpga::decode<PacketEnd>(e);
+    const int n = (e.msg - kFirstLine) % 3 + 1;
+    const EventLine<3, false> m = kfpga::decode<EventLine<3, false>>(e);
+    const uint64_t lo[3] = {m.lo0, m.lo1, m.lo2}, hi[3] = {m.hi0, m.hi1, m.hi2};
+    for (int i = 0; i < n; ++i)
+      apply(lo[i], hi[i]);
+    if (e.msg < kFirstEndLine)
+      return false;
     ended = true;
     if (contract0_ == 0)
       return false;
-    int at = std::snprintf(text, size, "Z %u %u %u b", end.seq, end.gap, contract0_);
+    int at = std::snprintf(text, size, "Z 0 %u %u b", gap ? 1 : 0, contract0_);
     contract0_ = 0;
     for (int i = 0; i < 10; ++i)
       at += std::snprintf(text + at, size - at, " %lld %d %d", bid_[i].px, bid_[i].sz, bid_[i].ord);
@@ -121,5 +124,21 @@ public:
     return true;
   }
 };
+
+} // namespace mdp3fpga
+
+namespace mdp3fpga {
+
+// A ref_book line with its sequence number zeroed, as FeedCheck prints it.
+inline void normalise(char *line)
+{
+  char *a = std::strchr(line, ' ');
+  char *b = a ? std::strchr(a + 1, ' ') : nullptr;
+  if (b)
+  {
+    a[1] = '0';
+    std::memmove(a + 2, b, std::strlen(b) + 1);
+  }
+}
 
 } // namespace mdp3fpga

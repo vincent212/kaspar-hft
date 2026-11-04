@@ -53,6 +53,8 @@ inline void print_event(FILE *f, const kfpga::Envelope &e)
     mdp3test::end_of_packet(f, m.seq, m.sending_time, m.messages, m.events, m.bytes);
     break;
   }
+  case SeqGap::id:   // not in the reference
+    break;
   default:
     std::fprintf(f, "? msg %u\n", e.msg);
   }

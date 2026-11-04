@@ -163,24 +163,23 @@ struct PackedEvent : kfpga::Message<330>
   uint8_t contract() const { return (hi >> 48) & 0xff; }
 };
 
-// A line of N events, 1 to 3.
-template <int N>
-struct EventLine : kfpga::Message<330 + N>
+// A line of N events, 1 to 3. End marks the last line of a packet, so the end of
+// a packet costs no line of its own: the CPU acts on this one.
+template <int N, bool End>
+struct EventLine : kfpga::Message<330 + N + (End ? 3 : 0)>
 {
   uint64_t lo0 = 0, hi0 = 0, lo1 = 0, hi1 = 0, lo2 = 0, hi2 = 0;
   KFPGA_FIELDS(lo0, hi0, lo1, hi1, lo2, hi2)
 };
+constexpr kfpga::MsgId kFirstLine = 331, kFirstEndLine = 334, kLastEndLine = 336;
 
-// The end of a packet that had events: the CPU acts on this one.
-struct PacketEnd : kfpga::Message<334>
+// A sequence gap: packets before `got` were missed. Rare, so it is its own
+// message, sent ahead of the packet's events. The books are suspect from here on.
+struct SeqGap : kfpga::Message<337>
 {
-  uint32_t seq = 0;
-  uint32_t events = 0;         // events of this packet
-  uint32_t gap = 0;            // 1 once a sequence gap has been seen
-  uint32_t cycle_in = 0;       // the packet's first word
-  uint32_t cycle_last = 0;     // its last word
-  uint32_t cycle_out = 0;      // this envelope
-  KFPGA_FIELDS(seq, events, gap, cycle_in, cycle_last, cycle_out)
+  uint32_t expected = 0;
+  uint32_t got = 0;
+  KFPGA_FIELDS(expected, got)
 };
 
 // Actor ids on the card.

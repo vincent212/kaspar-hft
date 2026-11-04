@@ -32,6 +32,8 @@
  * of that packet, and a truncated message may already have sent events; the
  * EndOfPacket still goes out.
  *
+ * A sequence gap goes out as a SeqGap ahead of the packet's EndOfPacket.
+ *
  * Latency: a cycle counter stamps each packet at its first word and at its
  * EndOfPacket. Both travel in the EndOfPacket.
  */
@@ -120,7 +122,8 @@ class SbeDecoder : public kfpga::Actor<SbeDecoder>
   bool fits_ = false;           // this entry fits in the message
   ap_uint<8> remaining_ = 0;    // group entries left
 
-  uint32_t seq_ = 0;
+  uint32_t seq_ = 0, next_seq_ = 0;
+  bool seen_ = false, gap_sent_ = false;
   uint64_t sending_ = 0, transact_ = 0;
   uint8_t match_ = 0;
   uint32_t events_ = 0, messages_ = 0, bytes_ = 0;
@@ -281,6 +284,19 @@ public:
 
     if (state_ == kDone)
     {
+      // A gap takes a step of its own: one send a step.
+      if (seen_ && seq_ != next_seq_ && !gap_sent_)
+      {
+        SeqGap g;
+        g.expected = next_seq_;
+        g.got = seq_;
+        books.send(g, this);
+        gap_sent_ = true;
+        return;
+      }
+      seen_ = true;
+      next_seq_ = seq_ + 1;
+      gap_sent_ = false;
       EndOfPacket m;
       m.seq = seq_;
       m.sending_time = sending_;
