@@ -6,3 +6,4 @@ test/pcap_to_packets
 hls/w/
 hls/*.log
 hls/.Xil/
+test/ref_book

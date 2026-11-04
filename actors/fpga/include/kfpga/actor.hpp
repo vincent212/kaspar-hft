@@ -49,6 +49,12 @@
  * of a GroupRef is in the group, so a fast_send to another process does not
  * compile.
  *
+ * An actor can also take a raw stream instead of messages: bytes off the wire,
+ * where a 64-byte envelope per 8-byte word would waste the link. It has
+ * on_step(stream), run once per step of its process (Group::step_stream), reads
+ * at most one word from the stream, and sends through ActorRefs as any actor
+ * does. Its process writes through OutPorts: nothing sends to it.
+ *
  * Kept to C++14, the dialect Vitis HLS accepts. Built with -DKFPGA_HLS, a FIFO
  * is an hls::stream; otherwise it is a Ring (ring.hpp), and SoftCard
  * (soft_card.hpp) runs the processes in software.
@@ -113,6 +119,13 @@ T &instance()
 struct Port
 {
   Fifo &in;
+  Fifo &out;
+};
+
+// The link end of a process that only sends: the top plugs in one FIFO, since
+// HLS rejects a stream that nothing writes.
+struct OutPort
+{
   Fifo &out;
 };
 
@@ -306,8 +319,8 @@ class Group
     return true;
   }
 
-  template <int N>
-  void route(const Envelope &e, uint8_t port, Port (&p)[N])
+  template <class P, int N>
+  void route(const Envelope &e, uint8_t port, P (&p)[N])
   {
 #pragma HLS INLINE
     if (port == kOwnQueue)
@@ -325,8 +338,8 @@ class Group
     }
   }
 
-  template <class M, int N>
-  int flush(Port (&p)[N])
+  template <class M, class P, int N>
+  int flush(P (&p)[N])
   {
 #pragma HLS INLINE
     M &m = instance<M>();
@@ -434,6 +447,18 @@ public:
     int flushed[] = {0, flush<A>(p)...};
     (void)flushed;
     return true;
+  }
+
+  // One step of member T, an actor on raw streams: T reads at most one word
+  // from each and handles it, then the process writes out what T sent.
+  // Inlined, as step.
+  template <class T, class P, int N, class... S>
+  void step_stream(P (&p)[N], S &...in)
+  {
+#pragma HLS INLINE
+    static_assert(detail::contains<T, A...>::value, "not a member of this group");
+    instance<T>().on_step(in...);
+    flush<T>(p);
   }
 
   // Messages with no member or no handler for them.
