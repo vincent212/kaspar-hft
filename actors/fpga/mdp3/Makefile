@@ -32,7 +32,7 @@ CXXFLAGS = -O2 -Wall -Wextra
 TOOLS = test/make_packets test/ref_dump test/pcap_to_packets test/ref_book
 DEC = generated/mdp3_messages.hpp include/mdp3fpga/decoder.hpp include/mdp3fpga/events.hpp
 
-.PHONY: test book feed book_synth book_cosim book_impl hls hls_csim hls_synth hls_cosim clean
+.PHONY: test book feed hls hls_csim hls_synth hls_cosim clean
 # Capped: the test holds one packet at a time, and this box runs the recorders.
 test: $(WORK)/tb_gxx $(REF)
 	ulimit -v 4000000; MDP3_PACKETS=$(PACKETS) MDP3_REF=$(REF) $(WORK)/tb_gxx
@@ -96,19 +96,6 @@ hls_synth: $(DEC)
 hls_cosim: hls_synth $(COSIM_PACKETS:.bin=.ref)
 	cd hls && $(COSIM_ENV) $(HLS_RUN) vitis-run --mode hls --cosim --config decoder.cfg --work_dir w > cosim.log 2>&1 || { echo "FAILED: hls/cosim.log"; exit 1; }
 	@grep -hE 'differ|co-simulation finished' hls/cosim.log | sort -u
-
-# Decoder and book as hardware, on BOOK_PACKETS.
-BOOK_PACKETS ?= $(COSIM_PACKETS)
-BOOK_ENV = MDP3_PACKETS=$(abspath $(BOOK_PACKETS)) MDP3_BOOK=$(abspath $(BOOK_PACKETS:.bin=.$(SECURITY).book))
-book_synth: $(DEC) include/mdp3fpga/book.hpp
-	cd hls && $(HLS_RUN) v++ -c --mode hls --config book.cfg --work_dir w_book > book_synth.log 2>&1 || { echo "FAILED: hls/book_synth.log"; exit 1; }
-	@grep -hE 'Estimated Fmax' hls/book_synth.log
-book_cosim: book_synth
-	cd hls && $(BOOK_ENV) $(HLS_RUN) vitis-run --mode hls --cosim --config book.cfg --work_dir w_book > book_cosim.log 2>&1 || { echo "FAILED: hls/book_cosim.log"; exit 1; }
-	@grep -hE 'differ|last word|co-simulation finished' hls/book_cosim.log | sort -u
-book_impl: book_synth
-	cd hls && $(HLS_RUN) sh -c 'ulimit -v 24000000; vitis-run --mode hls --impl --config book.cfg --work_dir w_book' > book_impl.log 2>&1 || { echo "FAILED: hls/book_impl.log"; exit 1; }
-	@grep -E '^LUT|^FF|^BRAM|Timing was|^\| (Target|Post-)' hls/w_book/reports/hls_impl_pnr.rpt
 
 clean:
 	rm -rf $(WORK) generated $(TOOLS) hls/w hls/*.log hls/.Xil

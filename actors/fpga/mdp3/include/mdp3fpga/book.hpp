@@ -8,6 +8,12 @@
  */
 
 /*
+ * Not in the design: the card filters and packs, and the CPU builds the books
+ * (MDP3_PLAN.md). Kept for when the trigger moves to the card. It runs in plain
+ * g++ (`make book`) against test/ref_book but does not synthesize: its on_step
+ * calls dispatch itself, against the rule in HLS.md section 2, and needs moving
+ * to one handler, one step first.
+ *
  * The book on the card, an actor: events in from the decoder, and per packet
  * that touched the book, one batch out: the packet's events, the book, then
  * BatchEnd. Nothing leaves mid-packet.
