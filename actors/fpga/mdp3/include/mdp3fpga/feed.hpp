@@ -20,8 +20,8 @@
  * SeqGap always goes through.
  *
  * The contract table is a parallel compare, one comparator per entry, kContracts
- * of them. Filled from the build for now (MDP3_CONTRACTS); the CPU loads it at
- * start once the instrument definitions reach it.
+ * of them. The CPU fills it at start over its own link, WantContract answered by
+ * WantAck, and sends no packets until every entry is acked.
  */
 
 #include <ap_int.h>
@@ -36,8 +36,6 @@
 
 namespace mdp3fpga {
 
-constexpr int kContracts = 64;
-
 constexpr uint8_t kFeedBid = '0';
 constexpr uint8_t kFeedOffer = '1';
 constexpr uint8_t kFeedBookReset = 'J';
@@ -45,26 +43,6 @@ constexpr uint8_t kFeedBookReset = 'J';
 
 
 
-
-#ifndef MDP3_CONTRACTS
-#define MDP3_CONTRACTS 203686713
-#endif
-
-// Contract -> index in the table, or -1.
-inline int contract_index(int32_t id)
-{
-#pragma HLS INLINE
-  static const int32_t kTable[kContracts] = {MDP3_CONTRACTS};
-#pragma HLS ARRAY_PARTITION variable=kTable type=complete
-  int found = -1;
-  for (int i = 0; i < kContracts; ++i)
-  {
-#pragma HLS UNROLL
-    if (id != 0 && kTable[i] == id)
-      found = i;
-  }
-  return found;
-}
 
 inline PackedEvent pack_event(int64_t price, int32_t size, int32_t orders, int contract, uint8_t level,
                               uint8_t action, bool side)
@@ -94,7 +72,22 @@ inline std::deque<EndStamp> &end_stamps()
 
 class Filter : public kfpga::Actor<Filter>
 {
+  int32_t table_[kContracts] = {};
   bool any_ = false;   // this packet had an event for us
+
+  // Contract -> index in the table, or -1.
+  int contract_index(int32_t id) const
+  {
+#pragma HLS INLINE
+    int found = -1;
+    for (int i = 0; i < kContracts; ++i)
+    {
+#pragma HLS UNROLL
+      if (id != 0 && table_[i] == id)
+        found = i;
+    }
+    return found;
+  }
 
   void pass(const PackedEvent &m)
   {
@@ -153,12 +146,24 @@ class Filter : public kfpga::Actor<Filter>
     batcher.send(m, this);
   }
 
+  void on_want(const WantContract &m)
+  {
+#pragma HLS INLINE
+#pragma HLS ARRAY_PARTITION variable=table_ type=complete
+    if (m.index < kContracts)
+      table_[m.index] = m.security_id;
+    WantAck a;
+    a.index = m.index;
+    reply(a);
+  }
+
 public:
   static constexpr kfpga::ActorId kId = kFilter;
   kfpga::ActorRef batcher;
 
   KFPGA_HANDLERS(KFPGA_ON(BookEntry, on_book) KFPGA_ON(Trade, on_trade) KFPGA_ON(SecurityStatus, on_status)
-                     KFPGA_ON(ChannelReset, on_reset) KFPGA_ON(EndOfPacket, on_end) KFPGA_ON(SeqGap, on_gap))
+                     KFPGA_ON(ChannelReset, on_reset) KFPGA_ON(EndOfPacket, on_end) KFPGA_ON(SeqGap, on_gap)
+                     KFPGA_ON(WantContract, on_want))
 };
 
 class Batcher : public kfpga::Actor<Batcher>

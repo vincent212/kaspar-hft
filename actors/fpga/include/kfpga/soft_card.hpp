@@ -48,6 +48,9 @@ public:
     steps_.push_back([&process, &ports] { return process.step(ports); });
   }
 
+  // A process stepped some other way: an actor on raw streams.
+  void add_step(std::function<bool()> step) { steps_.push_back(std::move(step)); }
+
   void start()
   {
     stop_ = false;
