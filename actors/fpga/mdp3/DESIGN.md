@@ -7,16 +7,7 @@ lines. It keeps no order book: the host builds the books. Every stage is an FPGA
 
 ## System
 
-```
-              Card (XCUX35)                                                 Host
- +-----------------------------------------------------------------+
- |                 words        words          messages            |
- | MAC --> FeedRx -------> SbeDecoder --------> Filter --> Batcher ---- lines ---> ring --> FpgaFeed --> strategy
- |                                                ^  |             |                        |
- |                                                |  +-- WantAck ------------------------> |
- |                                                +----- WantContract <-------------------+
- +-----------------------------------------------------------------+
-```
+![The MDP3 handler on the card and the host](figures/system.png)
 
 | actor | input | output | state |
 |---|---|---|---|
@@ -108,6 +99,8 @@ The decoder stores nothing. A two-word window yields up to 8 bytes per clock fro
 byte offset, so misalignment costs no throughput, and a state machine tracks the position
 in the packet:
 
+![The states of SbeDecoder](figures/decoder_states.png)
+
 | state | reads |
 |---|---|
 | `kPacket0`, `kPacket1` | packet header |
@@ -186,6 +179,8 @@ From the host, `WantContract` (338): table index and security id.
 ### Event format
 
 Each event is 16 bytes:
+
+![The packed event format](figures/event_format.png)
 
 | bits | field |
 |---|---|
