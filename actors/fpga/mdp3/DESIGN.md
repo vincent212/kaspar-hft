@@ -2,7 +2,7 @@
 
 The system on the Alveo X3522PV takes CME's MDP3 incremental feed from the wire,
 decodes it, keeps what the strategy trades, and delivers it to the host in 64-byte
-lines. It keeps no order book: the host builds the books. Every stage is an FPGA actor
+lines. It keeps no order book: the host builds the MBP books from the events the card sends. Every stage is an FPGA actor
 (`kfpga`, see [../HLS.md](../HLS.md)), running as its own `hls::task`.
 
 ## System
@@ -12,9 +12,9 @@ lines. It keeps no order book: the host builds the books. Every stage is an FPGA
 | actor | input | output | state |
 |---|---|---|---|
 | **FeedRx** | Ethernet frames, 64-bit words | UDP payloads of one group and port, realigned | header words, offset, payload bytes left |
-| **SbeDecoder** | UDP payload words | one message per entry, EndOfPacket, SeqGap | window, parser state, entry register |
-| **Filter** | decoder messages; WantContract from the host | PackedEvent, EndOfPacket, SeqGap; WantAck to the host | contract table, packet flag |
-| **Batcher** | PackedEvent, EndOfPacket, SeqGap | EventLine, SeqGap | the line being filled |
+| **SbeDecoder** | UDP payload words | one message per entry, EndOfPacket | window, parser state, entry register |
+| **Filter** | decoder messages; WantContract from the host | PackedEvent, EndOfPacket; WantAck to the host | contract table |
+| **Batcher** | PackedEvent, EndOfPacket | EventLine | the line being filled |
 | **FpgaFeed** (host) | lines | packets to the strategy | line buffer, books |
 
 Each actor takes one step per clock. FIFOs are declared at the top level and plugged
@@ -39,27 +39,25 @@ sends these to `Filter`:
 | `Trade` | each trade entry (template 48) |
 | `SecurityStatus` | template 30 |
 | `ChannelReset` | template 4 |
-| `SeqGap` | a sequence number was skipped |
-| `EndOfPacket` | the packet is finished |
+| `EndOfPacket` | the packet is finished, with its sequence number |
 
 `Filter` handlers:
 
 | handler | what it does |
 |---|---|
 | `on_book` | drops implied entries and unwanted contracts, packs the rest, sends `PackedEvent` |
-| `on_trade`, `on_status` | sends `PackedEvent` if the contract is wanted |
+| `on_trade` | sends `PackedEvent` if the contract is wanted |
+| `on_status` | always sends `PackedEvent`: CME sends status for the group, with a null security id |
 | `on_reset` | always sends `PackedEvent`: a reset affects every contract |
-| `on_end` | forwards `EndOfPacket` only if the packet had an event for us |
-| `on_gap` | always forwards `SeqGap` |
+| `on_end` | always forwards `EndOfPacket` |
 | `on_want` | stores a contract in the table, replies `WantAck` to the host |
 
 `Batcher` handlers:
 
 | handler | what it does |
 |---|---|
-| `on_event` | holds up to 3 events; a 4th sends the full line and starts the next |
-| `on_end` | sends the held events as a line marked End |
-| `on_gap` | forwards `SeqGap` to the host |
+| `on_event` | holds events; sends a full line when more follow, and starts the next |
+| `on_end` | sends the End line: the packet's sequence number and up to 2 events |
 
 `FpgaFeed` handlers, on the host:
 
@@ -68,8 +66,7 @@ sends these to `Filter`:
 | `on_start` | sends `WantContract` for each contract, to load the filter table |
 | `on_ack` | counts acks until the table is loaded |
 | `on_line` | copies the line's events to a buffer |
-| `on_line`, End line | applies the packet's events to the books, then calls the strategy once |
-| `on_gap` | sets the gap flag, which stays set and goes to the strategy with each packet |
+| `on_line`, End line | checks the sequence number, sets the gap flag on a skip, applies the packet's events to the books, and calls the strategy once if there were events |
 
 The strategy gets one call per packet: `on_packet(books, events, n, gap)`.
 
@@ -116,9 +113,23 @@ Root blocks and entries are collected in a 32-byte register. When complete, gene
 decoders (`gen_decoder.py`, from CME's XML template) read it at fixed offsets. Blocks are
 stepped by the lengths on the wire, so a later schema with longer blocks still decodes.
 
-Templates 46 (book), 48 (trades), 30 (security status) and 4 (channel reset) are decoded;
-all others are skipped by MsgSize, as is the order group of 46 and 48. At most one message
-is sent per step.
+At most one message is sent per step. Each template is treated as follows, against what
+`handler_if.hpp` does with it on the CPU today:
+
+| template | on the CPU today | on the card |
+|---|---|---|
+| 46 MBP book | books | decoded |
+| 48 trades | books | decoded |
+| 30 security status | every book, for halt state | decoded |
+| 4 channel reset | every book | decoded |
+| 47 MBO book | `TachBook` | skipped: the host's book is built from MBP |
+| 37 volume | binrec only | skipped |
+| 50 limits and banding | binrec only | skipped |
+| 51 session statistics, 49 daily statistics | empty handlers | skipped |
+| 54, 55, 56 instrument definitions | security id to asset map, RefData | skipped: the host gets them from the instrument feed |
+| 12 admin heartbeat | none | skipped |
+
+Skipped templates are passed over by MsgSize, as is the order group of 46 and 48.
 
 The packet length is known only at the last word, so nothing can be checked against it
 in advance. A corrupt MsgSize ends the walk of that packet. A truncated message may
@@ -129,9 +140,9 @@ timing-critical path of the design. It is made from the state and from flags hel
 registers (`msg_ge8_`, `rest_ge8_` and their `gt8` pairs), not from comparisons in the
 step, and a truncated packet changes the state only.
 
-**Sequence check.** The decoder compares each packet's sequence number with the expected
-one and sends a SeqGap ahead of that packet's EndOfPacket. The card repairs nothing: there
-is no recovery from the snapshot feed, and the host decides what a gap means for its books.
+**Sequence numbers.** The decoder repairs nothing and checks nothing: every EndOfPacket
+carries the packet's sequence number on to the host, which detects gaps. There is no
+recovery from the snapshot feed.
 
 ## Filter
 
@@ -141,10 +152,9 @@ takes one step. It:
 - drops implied entries, keeping outright bids, offers and book resets
 - drops contracts outside the table
 - packs each surviving event to 16 bytes
-- passes channel resets always, since they apply to every contract
-- passes EndOfPacket only for a packet that had an event, so quiet packets never reach
-  the host
-- passes SeqGap always
+- passes channel resets and security status always. CME sends status for the group, with
+  a null security id, and the host's books use it for halt state
+- passes EndOfPacket always, so the host sees every packet's sequence number
 
 The host fills the table at start through its own link: one WantContract per contract, each
 answered by a WantAck. It sends no market data until every entry is acknowledged, and the
@@ -152,26 +162,28 @@ index it assigns is the contract's number in every later event.
 
 ## Batcher
 
-`Batcher` holds up to three events in registers. A fourth event shows the line is not the
-last of its packet, so the full line goes out unmarked and the new event starts the next.
-At EndOfPacket the line held goes out marked End. Hence every packet with events ends in
-exactly one End line, nothing waits for a later packet, and there is one send per step, so
-the actor runs at II = 1.
+`Batcher` holds events in registers and sends a 64-byte line when it is full and more
+follow. At EndOfPacket it sends the End line, which carries the packet's sequence number
+and up to 2 events. If more events are held than fit, a full line goes first. A packet with
+no event for us is an End line with no events. Hence every packet produces exactly one End
+line, nothing waits for a later packet, and there is one send per step, so the actor runs at
+II = 1.
 
 ## Host interface
 
 Lines are written into a ring in host memory, one writer and one reader, and consumed
 through the framework's `CpuEnd` and `FpgaLanes` mailbox, which polls. `FpgaFeed` copies a
-packet's lines to a buffer and, at the End line, applies the packet to its books and hands it
-to the strategy in one call on that thread. Nothing sleeps and nothing is woken, and the
-kernel is not on the receive path.
+packet's lines to a buffer. At the End line it checks the sequence number, setting a gap flag
+that stays set if a packet was skipped, and if the packet had events it applies them to its
+MBP books and hands the books and events to the strategy in one call on that thread. Nothing
+sleeps and nothing is woken, and the kernel is not on the receive path.
 
 ### Messages to the host
 
 | message | id | contents |
 |---|---|---|
-| `EventLine<N, End>` | 331-336 | N events, 1 to 3, unused slots zero; the id gives N and End |
-| `SeqGap` | 337 | sequence expected, sequence received |
+| `EventLine` | 331-333 | 1 to 3 events; the id gives the number |
+| End line | 334-336 | the packet's sequence number and 0 to 2 events; the id gives the number |
 | `WantAck` | 339 | table index |
 
 From the host, `WantContract` (338): table index and security id.
@@ -193,6 +205,7 @@ Each event is 16 bytes:
 | 127 | 1 for an offer; for a trade, set if the aggressor is the seller |
 
 For action 7 the level field gives the kind: 0 security status, 1 channel reset, 2 book reset.
+A security status event also carries trading status, halt reason and trading event.
 
 ## Clocks and timing
 
