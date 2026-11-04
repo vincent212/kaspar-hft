@@ -145,6 +145,18 @@ namespace {
   // type drains one message at a time.
   template <class Q> struct mailbox_batched : std::false_type {};
   template <class T> struct mailbox_batched<actors::BQueueBatched<T>> : std::true_type {};
+
+  // FpgaLanes polls its lanes as well as its CPU queue.
+  template <class Q> struct mailbox_lanes : std::false_type {};
+  template <class T> struct mailbox_lanes<actors::FpgaLanes<T>> : std::true_type {};
+
+  inline void cpu_relax() noexcept {
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#elif defined(__aarch64__) || defined(__arm__)
+    __asm__ __volatile__("yield");
+#endif
+  }
 }
 
 template <class Q>
@@ -180,6 +192,30 @@ void Actor::run_loop(Q& q) noexcept
         }
       }
       if (stop) break;
+    }
+  } else if constexpr (mailbox_lanes<Q>::value) {
+    // Lanes first, then the CPU queue, one message from each per pass. Lane
+    // messages run inside poll() (deliver_external). Never sleeps: the card
+    // cannot signal the queue's condition variable.
+    while (true) {
+      bool got = false;
+      for (ExternalLane *lane : q.lanes())
+        got |= lane->poll();
+      if (terminated)
+        break;
+
+      const Message *m;
+      if (q.try_pop(m)) {
+        got = true;
+        m->last = q.is_empty();
+        reply_to = m->sender;
+        bool is_shutdown = m->get_message_id() == msg::Shutdown::id;
+        process_message_internal(m);
+        if (is_shutdown || terminated)
+          break;
+      }
+      if (!got)
+        cpu_relax();
     }
   } else {
     // Single-message drain (unchanged semantics from the pointer-based loop).
@@ -231,6 +267,23 @@ void Actor::reply(const Message *m) noexcept
     assert(reply_to != nullptr && "no return address");
     reply_to->send(m, this);
   }
+}
+
+void Actor::add_lane(ExternalLane *lane) noexcept
+{
+  auto *q = std::get_if<FpgaLanes<MailboxMsg>>(&msgq);
+  assert(q != nullptr && "add_lane needs MailboxKind::FpgaLanes");
+  q->add_lane(lane);
+}
+
+void Actor::deliver_external(const Message *m, Actor *sender) noexcept
+{
+  m->is_fast = false;
+  m->last = false;
+  m->sender = sender;
+  m->destination = this;
+  reply_to = sender;
+  process_message_internal(m, true);
 }
 
 void Actor::terminate() noexcept

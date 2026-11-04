@@ -88,6 +88,27 @@ public:
 };
 
 /**
+ * ExternalActorRef - Reference to an actor on an FPGA card
+ *
+ * Holds the card actor's stand-in on the CPU, whose send() encodes the message
+ * and writes it to the card from the caller's own thread. send only: a
+ * fast_send would run a handler on the card, so it would be a send plus a
+ * blocking wait. A request and its reply are two messages.
+ */
+class ExternalActorRef {
+    Actor* stand_in_;
+
+public:
+    explicit ExternalActorRef(Actor* stand_in) : stand_in_(stand_in) {}
+
+    void send(const Message* m, Actor* sender = nullptr) {
+        stand_in_->send(m, sender);
+    }
+
+    const char* name() const { return stand_in_->get_name(); }
+};
+
+/**
  * ActorRef - Unified reference to local or remote actor
  *
  * Uses std::variant for zero-overhead polymorphism.
@@ -101,7 +122,7 @@ public:
  *   remote_ref.send(new Ping{1}, this);  // remote - same syntax!
  */
 class ActorRef {
-    std::variant<LocalActorRef, RemoteActorRef, RustActorRef> ref_;
+    std::variant<LocalActorRef, RemoteActorRef, RustActorRef, ExternalActorRef> ref_;
 
 public:
     // Default constructor - creates an empty/invalid ref
@@ -116,6 +137,9 @@ public:
 
     // Construct from Rust actor
     explicit ActorRef(RustActorRef rust_ref) : ref_(std::move(rust_ref)) {}
+
+    // Construct from an actor on an FPGA card
+    explicit ActorRef(ExternalActorRef ext_ref) : ref_(std::move(ext_ref)) {}
 
     // Copy/move constructors
     ActorRef(const ActorRef&) = default;
@@ -145,6 +169,7 @@ public:
     bool is_local() const { return std::holds_alternative<LocalActorRef>(ref_); }
     bool is_remote() const { return std::holds_alternative<RemoteActorRef>(ref_); }
     bool is_rust() const { return std::holds_alternative<RustActorRef>(ref_); }
+    bool is_external() const { return std::holds_alternative<ExternalActorRef>(ref_); }
 
     // Check if this is a valid (non-null) reference
     bool is_valid() const {
