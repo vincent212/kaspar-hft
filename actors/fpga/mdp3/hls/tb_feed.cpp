@@ -45,8 +45,24 @@ int main()
     {
       unsigned seq, gap, events;
       std::sscanf(line, "Z %u %u %u", &seq, &gap, &events);
+      normalise(line);
       ref.push_back(line);
-      n_out += (events + kEventsPerLine - 1) / kEventsPerLine + 1;   // the lines, then PacketEnd
+      n_out += (events + kEventsPerLine - 1) / kEventsPerLine;
+    }
+  }
+  // Each sequence gap in the file is one more envelope.
+  {
+    bool seen = false;
+    uint32_t next = 0;
+    for (const auto &p : packets)
+    {
+      if (p.size() < 12)
+        continue;
+      const uint32_t seq = p[0] | (p[1] << 8) | (p[2] << 16) | (uint32_t(p[3]) << 24);
+      if (seen && seq != next)
+        ++n_out;
+      seen = true;
+      next = seq + 1;
     }
   }
   InStream in;
@@ -76,22 +92,16 @@ int main()
 
   FeedCheck feed;
   size_t ends = 0, diffs = 0;
-  uint64_t sum = 0;
-  uint32_t worst = 0;
   char got[1024];
   while (!out.empty())
   {
-    PacketEnd end;
-    if (!feed.take(out.read(), end, got, sizeof(got)))
+    if (!feed.take(out.read(), got, sizeof(got)))
       continue;
     if (ends >= ref.size() || ref[ends] != got)
     {
       if (++diffs <= 3)
         std::printf("end %zu\n  card: %s", ends + 1, got);
     }
-    const uint32_t after = end.cycle_out - end.cycle_last;
-    sum += after;
-    worst = after > worst ? after : worst;
     ++ends;
   }
   std::printf("%zu packets, %zu packet ends of %zu, %zu differ, %llu events, %llu lines\n", packets.size(), ends,

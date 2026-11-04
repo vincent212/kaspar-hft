@@ -32,7 +32,7 @@ CXXFLAGS = -O2 -Wall -Wextra
 TOOLS = test/make_packets test/ref_dump test/pcap_to_packets test/ref_book
 DEC = generated/mdp3_messages.hpp include/mdp3fpga/decoder.hpp include/mdp3fpga/events.hpp
 
-.PHONY: test book feed hls hls_csim hls_synth hls_cosim clean
+.PHONY: test book feed feed_cosim hls hls_csim hls_synth hls_cosim clean
 # Capped: the test holds one packet at a time, and this box runs the recorders.
 test: $(WORK)/tb_gxx $(REF)
 	ulimit -v 4000000; MDP3_PACKETS=$(PACKETS) MDP3_REF=$(REF) $(WORK)/tb_gxx
@@ -96,6 +96,15 @@ hls_synth: $(DEC)
 hls_cosim: hls_synth $(COSIM_PACKETS:.bin=.ref)
 	cd hls && $(COSIM_ENV) $(HLS_RUN) vitis-run --mode hls --cosim --config decoder.cfg --work_dir w > cosim.log 2>&1 || { echo "FAILED: hls/cosim.log"; exit 1; }
 	@grep -hE 'differ|co-simulation finished' hls/cosim.log | sort -u
+
+# Decoder, filter and batcher as hardware on the XCUX35, on FEED_PACKETS.
+FEED_PACKETS ?= $(COSIM_PACKETS)
+FEED_ENV = MDP3_PACKETS=$(abspath $(FEED_PACKETS)) MDP3_BOOK=$(abspath $(FEED_PACKETS:.bin=.$(SECURITY).book))
+feed_cosim:
+	cd hls && $(HLS_RUN) v++ -c --mode hls --config feed_ux35.cfg --work_dir w_feed_ux35 > feed_synth_ux35.log 2>&1 || { echo "FAILED: hls/feed_synth_ux35.log"; exit 1; }
+	@grep -hE 'Estimated Fmax|Final II = .*_task' hls/feed_synth_ux35.log | cut -c1-100
+	cd hls && $(FEED_ENV) $(HLS_RUN) vitis-run --mode hls --cosim --config feed_ux35.cfg --work_dir w_feed_ux35 > feed_cosim_ux35.log 2>&1 || { echo "FAILED: hls/feed_cosim_ux35.log"; exit 1; }
+	@grep -hE 'differ|co-simulation finished' hls/feed_cosim_ux35.log | sort -u
 
 clean:
 	rm -rf $(WORK) generated $(TOOLS) hls/w hls/*.log hls/.Xil

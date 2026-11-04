@@ -60,18 +60,20 @@ int main()
   auto drain = [&]() {
     while (!out.empty())
     {
-      PacketEnd end;
-      const bool compare = feed.take(out.read(), end, got, sizeof(got));
+      const bool compare = feed.take(out.read(), got, sizeof(got));
       if (compare)
       {
         if (!std::fgets(want, sizeof(want), ref))
           std::strcpy(want, "(missing)\n");
+        normalise(want);
         if (std::strcmp(got, want) != 0 && ++diffs <= 3)
           std::printf("end %llu\n  card: %s  ref:  %s", (unsigned long long)n_ends + 1, got, want);
         ++n_compared;
       }
       if (!feed.ended)
         continue;
+      const EndStamp end = end_stamps().front();
+      end_stamps().pop_front();
       const uint32_t after = end.cycle_out - end.cycle_last;
       sum_after += after;
       max_after = after > max_after ? after : max_after;
@@ -136,7 +138,7 @@ int main()
       if (!p99 && c * 100 >= n_ends * 99)
         p99 = i;
     }
-    std::printf("last word to PacketEnd: mean %.1f, p50 %u, p99 %u, max %u cycles\n", double(sum_after) / n_ends, p50,
+    std::printf("last word to End line: mean %.1f, p50 %u, p99 %u, max %u cycles\n", double(sum_after) / n_ends, p50,
                 p99, max_after);
   }
   const bool ok = diffs == 0 && !extra && n_ends != 0;
