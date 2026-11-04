@@ -10,6 +10,7 @@
 //
 //   MDP3_PACKETS  the packet file
 //   MDP3_BOOK     the reference from ref_book, for contract 0
+//   MDP3_CONTRACTS  the filter's table, a comma list of security ids
 
 #include <cstdio>
 #include <cstdlib>
@@ -24,7 +25,8 @@
 
 using namespace mdp3fpga;
 
-void mdp3_feed_top(InStream &in, kfpga::Fifo &out, uint32_t n_words, uint32_t n_out);
+void mdp3_feed_top(InStream &in, kfpga::Fifo &window, kfpga::Fifo &out, uint32_t n_words, uint32_t n_want,
+                   uint32_t n_out);
 
 int main()
 {
@@ -88,7 +90,11 @@ int main()
         break;
     }
   }
-  mdp3_feed_top(in, out, n_words, n_out);
+  kfpga::Fifo window;
+  const auto table = table_from_env();
+  for (const auto &e : table)
+    window.write(e);
+  mdp3_feed_top(in, window, out, n_words, static_cast<uint32_t>(table.size()), n_out);
 
   FeedCheck feed;
   size_t ends = 0, diffs = 0;

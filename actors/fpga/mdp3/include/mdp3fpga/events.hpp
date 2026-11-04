@@ -145,6 +145,7 @@ struct BatchEnd : kfpga::Message<326>
 //        126..124  action: MDUpdateAction 0 to 5, 6 trade, 7 other
 //        127       1 for an offer; for a trade, set if the aggressor is the seller
 constexpr int kEventsPerLine = 3;
+constexpr int kContracts = 64;       // entries in the filter's table
 constexpr uint8_t kActionTrade = 6;
 constexpr uint8_t kActionOther = 7;
 constexpr uint8_t kOtherStatus = 0;
@@ -182,11 +183,26 @@ struct SeqGap : kfpga::Message<337>
   KFPGA_FIELDS(expected, got)
 };
 
+// The CPU fills the filter's table at start, one entry at a time.
+struct WantContract : kfpga::Message<338>
+{
+  uint32_t index = 0;          // the contract's number in every event
+  int32_t security_id = 0;
+  KFPGA_FIELDS(index, security_id)
+};
+
+struct WantAck : kfpga::Message<339>
+{
+  uint32_t index = 0;
+  KFPGA_FIELDS(index)
+};
+
 // Actor ids on the card.
 constexpr kfpga::ActorId kDecoder = 20;
 constexpr kfpga::ActorId kBooks = 21;
 constexpr kfpga::ActorId kFeed = 22;       // the CPU actor that takes the batches
 constexpr kfpga::ActorId kFilter = 23;
 constexpr kfpga::ActorId kBatcher = 24;
+constexpr kfpga::ActorId kFeedRx = 25;
 
 } // namespace mdp3fpga

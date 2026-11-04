@@ -13,71 +13,29 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <vector>
 
+#include "mdp3fpga/books.hpp"
 #include "mdp3fpga/events.hpp"
 
 namespace mdp3fpga {
 
 class FeedCheck
 {
-  struct L
-  {
-    long long px;
-    int sz, ord;
-  };
-  L bid_[10] = {}, ask_[10] = {};
+  Books books_{kContracts};
   uint32_t contract0_ = 0;   // events of contract 0 in this packet
-
-  static void clear(L *s) { std::memset(s, 0, 10 * sizeof(L)); }
 
   void apply(uint64_t lo, uint64_t hi)
   {
-    const unsigned action = (hi >> 60) & 7, level = (hi >> 56) & 15, contract = (hi >> 48) & 0xff;
-    const bool offer = hi >> 63;
+    const Event e{lo, hi};
     ++events;
-    if (contract == 0 || (action == kActionOther && level == kOtherChannelReset))
+    if (e.contract() == 0 || (e.action() == kActionOther && e.level() == kOtherChannelReset))
       ++contract0_;
-    if (action == kActionTrade)
-    {
+    if (e.action() == kActionTrade)
       ++trades;
-      return;
-    }
-    if (action == kActionOther)
-    {
-      if (level == kOtherChannelReset || (level == kOtherBookReset && contract == 0))
-      {
-        clear(bid_);
-        clear(ask_);
-      }
-      return;
-    }
-    if (contract != 0 || level < 1 || level > 10)
-      return;
-    L *s = offer ? ask_ : bid_;
-    const int i = level - 1;
-    const L l{static_cast<long long>(lo), static_cast<int32_t>(hi), static_cast<uint16_t>(hi >> 32)};
-    switch (action)
-    {
-    case 0:
-      std::memmove(s + i + 1, s + i, (9 - i) * sizeof(L));
-      s[i] = l;
-      break;
-    case 2:
-      std::memmove(s + i, s + i + 1, (9 - i) * sizeof(L));
-      s[9] = L{0, 0, 0};
-      break;
-    case 3:
-      clear(s);
-      break;
-    case 4:
-      std::memmove(s, s + i + 1, (9 - i) * sizeof(L));
-      std::memset(s + 9 - i, 0, (i + 1) * sizeof(L));
-      break;
-    default:
-      s[i] = l;
-      break;
-    }
+    books_.apply(e);
   }
 
 public:
@@ -91,6 +49,8 @@ public:
   bool take(const kfpga::Envelope &e, char *text, size_t size)
   {
     ended = false;
+    if (e.msg == WantAck::id)
+      return false;
     if (e.msg == SeqGap::id)
     {
       gap = true;
@@ -115,11 +75,12 @@ public:
       return false;
     int at = std::snprintf(text, size, "Z 0 %u %u b", gap ? 1 : 0, contract0_);
     contract0_ = 0;
-    for (int i = 0; i < 10; ++i)
-      at += std::snprintf(text + at, size - at, " %lld %d %d", bid_[i].px, bid_[i].sz, bid_[i].ord);
+    const Book &b = books_.book(0);
+    for (int i = 0; i < kLevels; ++i)
+      at += std::snprintf(text + at, size - at, " %lld %d %d", b.bid[i].price, b.bid[i].size, b.bid[i].orders);
     at += std::snprintf(text + at, size - at, " a");
-    for (int i = 0; i < 10; ++i)
-      at += std::snprintf(text + at, size - at, " %lld %d %d", ask_[i].px, ask_[i].sz, ask_[i].ord);
+    for (int i = 0; i < kLevels; ++i)
+      at += std::snprintf(text + at, size - at, " %lld %d %d", b.ask[i].price, b.ask[i].size, b.ask[i].orders);
     std::snprintf(text + at, size - at, "\n");
     return true;
   }
@@ -128,6 +89,24 @@ public:
 } // namespace mdp3fpga
 
 namespace mdp3fpga {
+
+// The table from MDP3_CONTRACTS, a comma list of security ids, as envelopes from
+// the CPU. Contract 0 is the first.
+inline std::vector<kfpga::Envelope> table_from_env()
+{
+  std::vector<kfpga::Envelope> out;
+  const char *list = std::getenv("MDP3_CONTRACTS");
+  for (uint32_t i = 0; list && *list; ++i)
+  {
+    WantContract m;
+    m.index = i;
+    m.security_id = std::atoi(list);
+    out.push_back(kfpga::encode(m, kFeed, kFilter));
+    list = std::strchr(list, ',');
+    list = list ? list + 1 : nullptr;
+  }
+  return out;
+}
 
 // A ref_book line with its sequence number zeroed, as FeedCheck prints it.
 inline void normalise(char *line)

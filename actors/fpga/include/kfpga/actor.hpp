@@ -461,6 +461,16 @@ public:
     flush<T>(p);
   }
 
+  // One step of member T, an actor with raw streams on both sides, which sends
+  // no messages. Inlined, as step.
+  template <class T, class... S>
+  void step_raw(S &...streams)
+  {
+#pragma HLS INLINE
+    static_assert(detail::contains<T, A...>::value, "not a member of this group");
+    instance<T>().on_step(streams...);
+  }
+
   // Messages with no member or no handler for them.
   uint32_t unhandled() const { return unhandled_; }
 };

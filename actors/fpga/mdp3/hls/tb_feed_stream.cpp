@@ -11,6 +11,7 @@
 //
 //   MDP3_PACKETS  the packet file
 //   MDP3_BOOK     the reference from ref_book, for contract 0
+//   MDP3_CONTRACTS  the filter's table, a comma list of security ids
 
 #include <cstdio>
 #include <cstdlib>
@@ -24,7 +25,8 @@
 
 using namespace mdp3fpga;
 
-void mdp3_feed_tick(WordStream &words, kfpga::Fifo &decoded, kfpga::Fifo &kept, kfpga::Fifo &out);
+void mdp3_feed_tick(WordStream &words, kfpga::Fifo &decoded, kfpga::Fifo &kept, kfpga::Fifo &window, kfpga::Fifo &acks,
+                    kfpga::Fifo &out);
 
 static bool read_packet(FILE *f, std::vector<uint8_t> &p)
 {
@@ -48,7 +50,7 @@ int main()
     return 1;
   }
   WordStream words;
-  kfpga::Fifo decoded, kept, out;
+  kfpga::Fifo decoded, kept, window, acks, out;
   FeedCheck feed;
   std::vector<uint8_t> p;
   std::deque<Word> wire;
@@ -83,9 +85,23 @@ int main()
     }
   };
   auto tick = [&]() {
-    mdp3_feed_tick(words, decoded, kept, out);
+    mdp3_feed_tick(words, decoded, kept, window, acks, out);
     drain();
   };
+
+  // Load the table, as FpgaFeed does: no packets until every entry is acked.
+  const auto table = table_from_env();
+  for (const auto &e : table)
+    window.write(e);
+  for (size_t got_acks = 0; got_acks < table.size();)
+  {
+    tick();
+    while (!acks.empty())
+    {
+      acks.read();
+      ++got_acks;
+    }
+  }
 
   while (read_packet(packets, p))
   {
