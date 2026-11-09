@@ -81,6 +81,7 @@ All on channel 344 feed A, the Nov 1 session. Details in MDP3_PLAN.md, "Status".
 | lines to the CPU | 30,612,938 for 26,375,349 events |
 | RTL co-simulation on the XCUX35, busiest 2,000 packets | **pass**, all actors II = 1 |
 | real FpgaFeed, first 3,000,000 packets | **0 differ** |
+| place and route, four actors, KU5P | 250 MHz met, about 296 MHz |
 
 ## Not done yet
 

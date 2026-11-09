@@ -180,7 +180,7 @@ the Nov 1 session (30,044,560 packets). Not yet on a card.
 | lines to the CPU (same run) | **30,612,938**: one End line per packet, plus 568,378 full lines, for 26,375,349 events |
 | RTL co-simulation, XCUX35, the busiest 2,000 consecutive packets of 344 | **pass, 0 differ**; 292,746 cycles; all four actors at II = 1; estimated 212.8 MHz |
 | end to end: real FpgaFeed actor on its FpgaLanes mailbox, card on a SoftCard | first 3,000,000 packets of 344, six security ids: **0 differ**, 0 codec errors |
-| place and route, KU5P stand-in | @@PNR@@ |
+| place and route, all four actors, KU5P stand-in | **250 MHz met; 3.37 ns, about 296 MHz**; 6,066 LUTs, 13,413 flip-flops, 23 block RAM. Not the XCUX35: its device files are not installed |
 
 **Crossed books on security 42001080** (676 of 5,880,919 packet ends; 591 before
 SecurityStatus reached the book, which adds batches): two runs, neither an error in
