@@ -73,23 +73,7 @@ int main()
         break;
     }
   }
-  // The reference has no SeqGaps: each gap in the file is one more envelope.
-  uint32_t gaps = 0;
-  {
-    bool seen = false;
-    uint32_t next = 0;
-    for (const auto &p : packets)
-    {
-      if (p.size() < 12)
-        continue;
-      const uint32_t seq = p[0] | (p[1] << 8) | (p[2] << 16) | (uint32_t(p[3]) << 24);
-      if (seen && seq != next)
-        ++gaps;
-      seen = true;
-      next = seq + 1;
-    }
-  }
-  mdp3_decoder_top(in, out, n_words, static_cast<uint32_t>(ref.size()) + gaps);
+  mdp3_decoder_top(in, out, n_words, static_cast<uint32_t>(ref.size()));
 
   // Print every event, as the reference does.
   char *text = nullptr;

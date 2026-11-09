@@ -48,12 +48,12 @@ $(WORK)/tb_book: hls/book_top.cpp hls/tb_book_stream.cpp include/mdp3fpga/book.h
 	mkdir -p $(WORK)
 	g++ -std=c++14 -O2 -w -DKFPGA_HLS -DMDP3_SW -DMDP3_SECURITY=$(SECURITY) -I$(VITIS_INCLUDE) -I. -Iinclude -I../include hls/book_top.cpp hls/tb_book_stream.cpp -o $@
 
-# Decoder, filter and batcher against the software book, CONTRACTS listing the
+# Decoder, filter and batcher against the software book, SECURITIES listing the
 # filter's table: the first is the one compared. Capped as above.
-CONTRACTS ?= $(SECURITY)
+SECURITIES ?= $(SECURITY)
 feed: $(WORK)/tb_feed $(BOOKS)
-	ulimit -v 4000000; MDP3_PACKETS=$(PACKETS) MDP3_BOOK=$(BOOKS) MDP3_CONTRACTS=$(CONTRACTS) $(WORK)/tb_feed
-$(WORK)/tb_feed: hls/feed_top.cpp hls/tb_feed_stream.cpp hls/feed_check.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/books.hpp $(DEC)
+	ulimit -v 4000000; MDP3_PACKETS=$(PACKETS) MDP3_BOOK=$(BOOKS) MDP3_SECURITIES=$(SECURITIES) $(WORK)/tb_feed
+$(WORK)/tb_feed: hls/feed_top.cpp hls/tb_feed_stream.cpp hls/feed_check.hpp hls/frames.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/books.hpp $(DEC)
 	mkdir -p $(WORK)
 	g++ -std=c++14 -O2 -w -DKFPGA_HLS -DMDP3_SW -I$(VITIS_INCLUDE) -I. -Iinclude -I../include hls/feed_top.cpp hls/tb_feed_stream.cpp -o $@
 
@@ -61,11 +61,11 @@ $(WORK)/tb_feed: hls/feed_top.cpp hls/tb_feed_stream.cpp hls/feed_check.hpp incl
 ACTORS_CPP = ../../cpp
 BOOST_PATH ?= /usr/local
 ZMQ_PATH ?= /usr/local
-$(WORK)/feed_run: host/feed_run.cpp host/fpga_feed.hpp include/mdp3fpga/books.hpp include/mdp3fpga/feed.hpp ../host/kfpga/cpu_link.hpp $(DEC) $(ACTORS_CPP)/libactors.a
+$(WORK)/feed_run: host/feed_run.cpp host/fpga_feed.hpp hls/frames.hpp include/mdp3fpga/books.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/feed_rx.hpp ../host/kfpga/cpu_link.hpp $(DEC) $(ACTORS_CPP)/libactors.a
 	mkdir -p $(WORK)
-	g++ -std=c++17 -O2 -w -pthread -DHLS_STREAM_THREAD_SAFE -I. -Iinclude -Ihost -I../include -I../host -I$(ACTORS_CPP)/include -I$(BOOST_PATH)/include -isystem $(VITIS_INCLUDE) $< -o $@ -L$(ACTORS_CPP) -lactors -L$(ZMQ_PATH)/lib -lzmq -lpthread
+	g++ -std=c++17 -O2 -w -pthread -DHLS_STREAM_THREAD_SAFE -I. -Iinclude -Ihost -Ihls -I../include -I../host -I$(ACTORS_CPP)/include -I$(BOOST_PATH)/include -isystem $(VITIS_INCLUDE) $< -o $@ -L$(ACTORS_CPP) -lactors -L$(ZMQ_PATH)/lib -lzmq -lpthread
 feed_e2e: $(WORK)/feed_run $(BOOKS)
-	ulimit -v 4000000; $(WORK)/feed_run $(PACKETS) $(BOOKS) $(CONTRACTS) $(MAX_PACKETS)
+	ulimit -v 4000000; $(WORK)/feed_run $(PACKETS) $(BOOKS) $(SECURITIES) $(MAX_PACKETS)
 
 # FeedRx against frames rebuilt from a recording. Capped as above.
 rx: $(WORK)/tb_rx
@@ -115,7 +115,7 @@ hls_cosim: hls_synth $(COSIM_PACKETS:.bin=.ref)
 
 # Decoder, filter and batcher as hardware on the XCUX35, on FEED_PACKETS.
 FEED_PACKETS ?= $(COSIM_PACKETS)
-FEED_ENV = MDP3_PACKETS=$(abspath $(FEED_PACKETS)) MDP3_BOOK=$(abspath $(FEED_PACKETS:.bin=.$(SECURITY).book)) MDP3_CONTRACTS=$(CONTRACTS)
+FEED_ENV = MDP3_PACKETS=$(abspath $(FEED_PACKETS)) MDP3_BOOK=$(abspath $(FEED_PACKETS:.bin=.$(SECURITY).book)) MDP3_SECURITIES=$(SECURITIES)
 feed_cosim:
 	cd hls && $(HLS_RUN) v++ -c --mode hls --config feed_ux35.cfg --work_dir w_feed_ux35 > feed_synth_ux35.log 2>&1 || { echo "FAILED: hls/feed_synth_ux35.log"; exit 1; }
 	@grep -hE 'Estimated Fmax|Final II = .*_task' hls/feed_synth_ux35.log | cut -c1-100

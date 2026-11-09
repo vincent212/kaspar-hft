@@ -206,14 +206,12 @@ class BookBank : public kfpga::Actor<BookBank>
     }
   }
 
+  // CME sends a status for a security group, with no security id.
   void on_status(const SecurityStatus &m)
   {
 #pragma HLS INLINE
-    if (m.security_id == security)
-    {
-      hold(m);
-      touched_ = true;
-    }
+    hold(m);
+    touched_ = true;
   }
 
   void on_reset(const ChannelReset &m)

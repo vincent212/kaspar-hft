@@ -1,19 +1,29 @@
-# The MDP3 decoder on the card
+# The MDP3 handler on the card
 
-Phase 1 of [MDP3_PLAN.md](../MDP3_PLAN.md): CME MDP3 packets (UDP payloads)
-in, decoded events out, in Vitis HLS for the Alveo X3522PV. Checked against
-CME's own codec. No card needed.
+[MDP3_PLAN.md](../MDP3_PLAN.md): CME MDP3 frames in, decoded and filtered events
+out to a CPU actor that builds the books, all as actors, in Vitis HLS for the Alveo
+X3522PV. Checked against CME's own codec and a separate software book. No card
+needed.
 
 ## What it does
 
-`include/mdp3fpga/decoder.hpp` walks a packet the way `DataDecoder::mbo_data`
-does on the CPU (packet header, then each message: size, SBE header, root
-block, groups) and sends one envelope per event (`events.hpp`):
+```
+frames -> FeedRx -> SbeDecoder -> Filter -> Batcher -> FpgaFeed (CPU) -> strategy
+```
+
+`include/mdp3fpga/`: `feed_rx.hpp` keeps one group and port of Ethernet frames and
+strips them to payload words; `decoder.hpp` decodes as the packet arrives; `feed.hpp`
+holds Filter (drops implied entries and security ids not in its table, packs what is
+left) and Batcher (three events to a 64-byte line, and an End line for every packet,
+carrying its sequence number). `host/fpga_feed.hpp` is the CPU end, an ordinary Kaspar actor, and `books.hpp`
+its books. `book.hpp` is BookBank, a book on the card, not in this design.
+
+Inside the card the decoder sends one envelope per event (`events.hpp`):
 
 | event | from | fields |
 |---|---|---|
-| `BookEntry` | template 46, MBP entries (MBO order entries skipped) | price, size, security id, RptSeq, orders, level, action, entry type, match event, tradeable size |
-| `Trade` | template 48 (per-order fills skipped) | price, size, security id, RptSeq, orders, aggressor, action, match event, trade id |
+| `BookEntry` | template 46, MBP entries (MBO order entries skipped) | price, size, security id, RptSeq, orders, level, action, type, tradeable size |
+| `Trade` | template 48 (per-order fills skipped) | price, size, security id, RptSeq, orders, aggressor, trade id |
 | `SecurityStatus` | template 30 | security id, trade date, status, halt reason, event |
 | `ChannelReset` | template 4 | appl id |
 | `EndOfPacket` | every packet | sequence number, sending time, message and event counts, length |
@@ -30,46 +40,53 @@ template version is regenerated, not rewritten.
 
 ## How it is checked
 
-The reference is CME's real-logic codec (`mdp3_sbe/`, what `msg_decoder`
-uses). `test/ref_dump` decodes a packet file with it; the HLS testbench feeds
-the same packets to the decoder; both print the same text lines
-(`test/dump.hpp`), compared line for line.
+The reference for events is CME's real-logic codec (`mdp3_sbe/`, what `msg_decoder`
+uses): `test/ref_dump` decodes a packet file with it, and `make test` compares the
+decoder's output line for line (`test/dump.hpp`). The reference for books is
+`test/ref_book`, a software MBP book written apart from the design, for one
+security, fed from that dump.
 
-Test packets: until we have recordings, `test/make_packets` encodes random but
-valid packets with CME's codec: the four decoded templates, templates to skip
-(47 MBO, 49 statistics), MBO entries inside 46 and 48, null prices and sizes,
-empty packets. Recorded packets: `test/pcap_to_packets` takes the UDP payloads
-of one group and port from a pcap (Ethernet, 802.1Q, IPv4, UDP).
+Test packets: `test/make_packets` encodes random but valid packets with CME's codec,
+including templates to skip, MBO entries inside 46 and 48, null values and empty
+packets. Recorded packets: `test/pcap_to_packets` takes the UDP payloads of one
+group and port from a pcap.
 
 ```
-make test                    # decoder vs reference with g++, 5000 packets (seconds)
+make test                          # decoder vs CME's codec, 5000 packets (seconds)
+make PACKETS=f.bin test            # the same on a recording
+make PACKETS=f.bin rx              # FeedRx: frames rebuilt from it, with frames to drop
+make PACKETS=f.bin SECURITY=id SECURITIES=id,id feed
+                                   # frames to the CPU's book, against ref_book, the
+                                   # first security compared, at 10 GbE wire pacing
+make PACKETS=f.bin SECURITY=id SECURITIES=id,id feed_e2e
+                                   # the same with a real FpgaFeed on a SoftCard
+
 source ~/tools/Xilinx/2026.1/Vitis/settings64.sh
-make hls                     # Vitis: C simulation, synthesis, RTL co-simulation
-
-test/pcap_to_packets rec.pcap rec.bin 224.0.31.1 14310   # recorded packets, one feed
-make PACKETS=rec.bin test
+make FEED_PACKETS=f.bin SECURITY=id SECURITIES=id feed_cosim   # Vitis, on the XCUX35
 ```
+
+Every g++ test holds one packet at a time and is capped at 4 GB: this box runs the
+recorders.
 
 ## Results so far
 
-KU5P stand-in, 4 ns clock target:
+All on channel 344 feed A, the Nov 1 session. Details in MDP3_PLAN.md, "Status".
 
 | check | result |
 |---|---|
-| g++ and Vitis C simulation, 5000 test packets | 48,708 events, **identical** to CME's codec |
-| RTL co-simulation, 300 test packets | 2,894 events, **identical**; 38,625 cycles (about 129 a packet) |
-| inner loops (store, book entries, trades) | one word or one entry a cycle (II = 1) |
-| estimated clock | **95 MHz, short of the 250 MHz target** |
-| size | 3969 FF, 19232 LUT, 128 BRAM_18K (8% of the KU5P's LUTs) |
+| decoder against CME's codec, all of `CME344_A` and `CME490_A` | **0 differ** in 371 million lines |
+| FeedRx, rebuilt frames with frames to drop | **0 differ** |
+| frames to the CPU's book, all 30,044,560 packets, six security ids, 10 GbE pacing | **0 differ** in 5,880,919 compared |
+| last byte in to End line | mean 5.2, max 8 clocks: 21 to 32 ns at 250 MHz |
+| lines to the CPU | 30,612,938 for 26,375,349 events |
+| RTL co-simulation on the XCUX35, busiest 2,000 packets | **pass**, all actors II = 1 |
+| real FpgaFeed, first 3,000,000 packets | **0 differ** |
 
 ## Not done yet
 
-- **Recorded data.** Only CME-codec test packets so far; recordings of the
-  real feed are the next check.
-- **Timing.** The design stores the packet, then reads fields at any byte
-  offset: each read is a wide multiplexer over the buffer, which is what
-  holds the clock to 95 MHz. Next: parse as the words stream in, at fixed
-  positions within a word, instead of store-then-walk. That also cuts the
-  latency, since decoding starts with the first word.
-- **Latency stamps** (MDP3_PLAN.md, "Measuring latency"): cycles per packet
-  from co-simulation once the streaming parse is in.
+- The comparison with `msg_decoder`, the software path.
+- The adapter from `PacketSink` to the messages `light22` takes.
+- The ring's overflow flag, and sizing the ring.
+- FeedRx's group and port loaded by the CPU; they come from the build.
+- Place and route on the real chip.
+- A MAC and PCIe DMA, and the real card.

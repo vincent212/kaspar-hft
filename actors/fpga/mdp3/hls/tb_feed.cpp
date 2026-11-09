@@ -6,11 +6,11 @@
  */
 
 // Testbench for mdp3_feed_top, for co-simulation: queues every packet of a
-// packet file, then checks each PacketEnd against the software book (ref_book).
+// packet file, then checks each End line against the software book (ref_book).
 //
 //   MDP3_PACKETS  the packet file
-//   MDP3_BOOK     the reference from ref_book, for contract 0
-//   MDP3_CONTRACTS  the filter's table, a comma list of security ids
+//   MDP3_BOOK     the reference from ref_book, for security index 0
+//   MDP3_SECURITIES  the filter's table, a comma list of security ids
 
 #include <cstdio>
 #include <cstdlib>
@@ -20,6 +20,7 @@
 
 #include "../test/dump.hpp"
 #include "feed_check.hpp"
+#include "frames.hpp"
 #include "mdp3fpga/decoder.hpp"
 #include "mdp3fpga/feed.hpp"
 
@@ -47,49 +48,20 @@ int main()
     {
       unsigned seq, gap, events;
       std::sscanf(line, "Z %u %u %u", &seq, &gap, &events);
-      normalise(line);
       ref.push_back(line);
-      n_out += (events + kEventsPerLine - 1) / kEventsPerLine;
+      n_out += events / kEventsPerLine;   // the full lines; every packet's End line is added below
     }
   }
-  // Each sequence gap in the file is one more envelope.
-  {
-    bool seen = false;
-    uint32_t next = 0;
-    for (const auto &p : packets)
-    {
-      if (p.size() < 12)
-        continue;
-      const uint32_t seq = p[0] | (p[1] << 8) | (p[2] << 16) | (uint32_t(p[3]) << 24);
-      if (seen && seq != next)
-        ++n_out;
-      seen = true;
-      next = seq + 1;
-    }
-  }
+  n_out += static_cast<uint32_t>(packets.size());
   InStream in;
   kfpga::Fifo out;
   uint32_t n_words = 0;
   for (const auto &p : packets)
-  {
-    const size_t n = p.size();
-    for (size_t at = 0; at < n || at == 0; at += 8)
-    {
-      InWord w;
-      w.data = 0;
-      w.keep = 0;
-      for (int i = 0; i < 8 && at + i < n; ++i)
-      {
-        w.data.range(8 * i + 7, 8 * i) = p[at + i];
-        w.keep[i] = 1;
-      }
-      w.last = at + 8 >= n;
-      in.write(w);
-      ++n_words;
-      if (n == 0)
-        break;
-    }
-  }
+    mdp3test::frame_words<InWord>(mdp3test::make_frame(p.data(), p.size(), mdp3test::kGroup344A, mdp3test::kPort344A, false),
+                                  [&](const InWord &w) {
+                                    in.write(w);
+                                    ++n_words;
+                                  });
   kfpga::Fifo window;
   const auto table = table_from_env();
   for (const auto &e : table)

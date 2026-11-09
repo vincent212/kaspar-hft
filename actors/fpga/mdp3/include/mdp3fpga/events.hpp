@@ -136,16 +136,22 @@ struct BatchEnd : kfpga::Message<326>
 };
 
 // What the card sends the CPU: events packed to 16 bytes, three to a 64-byte line.
+// The last line of every packet is an End line, even for a packet with no event
+// for us: two events at most, and the packet's sequence number in the third slot.
+// The CPU checks the sequence itself.
 //
-//   bits  63..0    price mantissa
+//   bits  63..0    price mantissa; for a status, trading status | halt reason << 8
+//                  | trading event << 16 | match event << 24
 //         95..64   size
 //        111..96   order count
-//        119..112  index of the contract in the filter's table
+//        119..112  index of the security in the filter's table; kAllSecurities for
+//                  a status, which CME sends for a security group
 //        123..120  level, or the kind of an action 7 event
 //        126..124  action: MDUpdateAction 0 to 5, 6 trade, 7 other
 //        127       1 for an offer; for a trade, set if the aggressor is the seller
 constexpr int kEventsPerLine = 3;
-constexpr int kContracts = 64;       // entries in the filter's table
+constexpr int kSecurities = 64;       // entries in the filter's table
+constexpr uint8_t kAllSecurities = 0xff;
 constexpr uint8_t kActionTrade = 6;
 constexpr uint8_t kActionOther = 7;
 constexpr uint8_t kOtherStatus = 0;
@@ -161,32 +167,31 @@ struct PackedEvent : kfpga::Message<330>
 
   uint8_t action() const { return (hi >> 60) & 7; }
   uint8_t level() const { return (hi >> 56) & 15; }
-  uint8_t contract() const { return (hi >> 48) & 0xff; }
+  uint8_t security_index() const { return (hi >> 48) & 0xff; }
 };
 
-// A line of N events, 1 to 3. End marks the last line of a packet, so the end of
-// a packet costs no line of its own: the CPU acts on this one.
-template <int N, bool End>
-struct EventLine : kfpga::Message<330 + N + (End ? 3 : 0)>
+// A full line of events, in the middle of a packet.
+struct EventLine : kfpga::Message<331>
 {
   uint64_t lo0 = 0, hi0 = 0, lo1 = 0, hi1 = 0, lo2 = 0, hi2 = 0;
   KFPGA_FIELDS(lo0, hi0, lo1, hi1, lo2, hi2)
 };
-constexpr kfpga::MsgId kFirstLine = 331, kFirstEndLine = 334, kLastEndLine = 336;
 
-// A sequence gap: packets before `got` were missed. Rare, so it is its own
-// message, sent ahead of the packet's events. The books are suspect from here on.
-struct SeqGap : kfpga::Message<337>
+// The last line of a packet: N events, 0 to 2, and its sequence number. The CPU
+// acts on this one.
+template <int N>
+struct EndLine : kfpga::Message<332 + N>
 {
-  uint32_t expected = 0;
-  uint32_t got = 0;
-  KFPGA_FIELDS(expected, got)
+  uint64_t lo0 = 0, hi0 = 0, lo1 = 0, hi1 = 0;
+  uint32_t seq = 0;
+  KFPGA_FIELDS(lo0, hi0, lo1, hi1, seq)
 };
+constexpr kfpga::MsgId kFirstEndLine = 332, kLastEndLine = 334;
 
 // The CPU fills the filter's table at start, one entry at a time.
-struct WantContract : kfpga::Message<338>
+struct WantSecurity : kfpga::Message<338>
 {
-  uint32_t index = 0;          // the contract's number in every event
+  uint32_t index = 0;          // the security index in every event
   int32_t security_id = 0;
   KFPGA_FIELDS(index, security_id)
 };

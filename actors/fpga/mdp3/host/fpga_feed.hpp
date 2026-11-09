@@ -10,10 +10,12 @@
 /*
  * FpgaFeed, the CPU end of the MDP3 handler: an ordinary Kaspar actor on an
  * FpgaLanes mailbox (see host/kfpga/cpu_link.hpp). At start it loads the card's
- * filter table, one WantContract a contract, each answered by a WantAck. Then it
- * takes the card's lines: each is copied to a buffer, and at the line marked End
- * the whole packet is applied to the books and handed to the strategy, in one
- * call on this thread. Nothing sleeps and nothing is woken: the mailbox spins.
+ * filter table, one WantSecurity a security, each answered by a WantAck. Then it
+ * takes the card's lines: each is copied to a buffer, and at the End line the whole
+ * packet is applied to the books and handed to the strategy, in one call on this
+ * thread. A packet with no events only advances the sequence check, which is here:
+ * every packet's End line carries its number. Nothing sleeps and nothing is woken:
+ * the mailbox spins.
  *
  * The strategy here is the PacketSink interface. Turning a packet into the
  * messages light22 takes today is the next piece, on this interface.
@@ -33,25 +35,25 @@
 namespace mdp3fpga {
 
 // Who gets a packet. `events` are the packet's events, in order, for every
-// contract; `books` already has them applied. `gap` stays set after a SeqGap.
+// security; `books` already has them applied. `gap` stays set from the first
+// sequence gap.
 struct PacketSink
 {
   virtual ~PacketSink() = default;
-  virtual void on_packet(const Books &books, const Event *events, size_t n, bool gap) = 0;
+  virtual void on_packet(const Books &books, const Event *events, size_t n, uint32_t seq, bool gap) = 0;
 };
 
 namespace cpu {
 
-template <int N, bool End>
-using Line = kfpga::CpuMsg<EventLine<N, End>>;
-using Gap = kfpga::CpuMsg<SeqGap>;
-using Want = kfpga::CpuMsg<WantContract>;
+using Line = kfpga::CpuMsg<EventLine>;
+template <int N>
+using End = kfpga::CpuMsg<EndLine<N>>;
+using Want = kfpga::CpuMsg<WantSecurity>;
 using Ack = kfpga::CpuMsg<WantAck>;
 
 inline void add_messages(kfpga::Codec &codec)
 {
-  codec.add<EventLine<1, false>, EventLine<2, false>, EventLine<3, false>, EventLine<1, true>, EventLine<2, true>,
-            EventLine<3, true>, SeqGap, WantContract, WantAck>();
+  codec.add<EventLine, EndLine<0>, EndLine<1>, EndLine<2>, WantSecurity, WantAck>();
 }
 
 } // namespace cpu
@@ -61,7 +63,7 @@ class FpgaFeed : public actors::Actor
   // A packet holds about 44 entries at most; the table of the design below.
   static constexpr size_t kMaxEvents = 128;
 
-  std::vector<int32_t> contracts_;
+  std::vector<int32_t> securities_;
   Books books_;
   PacketSink &sink_;
   std::function<void()> on_ready_;
@@ -69,80 +71,91 @@ class FpgaFeed : public actors::Actor
   std::array<Event, kMaxEvents> events_;
   size_t n_ = 0;
   uint32_t acks_ = 0;
-  bool gap_ = false;
+  bool gap_ = false, seen_ = false;
+  uint32_t next_seq_ = 0;
 
-  template <int N, bool End>
-  void on_line(const cpu::Line<N, End> *m)
+  void hold(uint64_t lo, uint64_t hi)
   {
-    const uint64_t lo[3] = {m->lo0, m->lo1, m->lo2}, hi[3] = {m->hi0, m->hi1, m->hi2};
-    for (int i = 0; i < N; ++i)
+    if (n_ == kMaxEvents)
     {
-      if (n_ == kMaxEvents)
-      {
-        ++overflows;
-        break;
-      }
-      events_[n_++] = Event{lo[i], hi[i]};
+      ++overflows;
+      return;
     }
-    ++lines;
-    if (End)
-    {
-      for (size_t i = 0; i < n_; ++i)
-        books_.apply(events_[i]);
-      sink_.on_packet(books_, events_.data(), n_, gap_);
-      n_ = 0;
-    }
+    events_[n_++] = Event{lo, hi};
   }
 
-  using L1 = cpu::Line<1, false>;
-  using L2 = cpu::Line<2, false>;
-  using L3 = cpu::Line<3, false>;
-  using E1 = cpu::Line<1, true>;
-  using E2 = cpu::Line<2, true>;
-  using E3 = cpu::Line<3, true>;
-  void on_l1(const L1 *m) { on_line(m); }
-  void on_l2(const L2 *m) { on_line(m); }
-  void on_l3(const L3 *m) { on_line(m); }
-  void on_e1(const E1 *m) { on_line(m); }
-  void on_e2(const E2 *m) { on_line(m); }
-  void on_e3(const E3 *m) { on_line(m); }
-
-  void on_gap(const cpu::Gap *)
+  void on_line(const cpu::Line *m)
   {
-    gap_ = true;
-    ++gaps;
+    ++lines;
+    hold(m->lo0, m->hi0);
+    hold(m->lo1, m->hi1);
+    hold(m->lo2, m->hi2);
+  }
+
+  void packet_end(uint32_t seq)
+  {
+    ++lines;
+    if (seen_ && seq != next_seq_)
+    {
+      gap_ = true;
+      ++gaps;
+      missing += seq - next_seq_;
+    }
+    seen_ = true;
+    next_seq_ = seq + 1;
+    if (n_ == 0)
+      return;
+    for (size_t i = 0; i < n_; ++i)
+      books_.apply(events_[i]);
+    sink_.on_packet(books_, events_.data(), n_, seq, gap_);
+    n_ = 0;
+  }
+
+  void on_end0(const cpu::End<0> *m) { packet_end(m->seq); }
+
+  void on_end1(const cpu::End<1> *m)
+  {
+    hold(m->lo0, m->hi0);
+    packet_end(m->seq);
+  }
+
+  void on_end2(const cpu::End<2> *m)
+  {
+    hold(m->lo0, m->hi0);
+    hold(m->lo1, m->hi1);
+    packet_end(m->seq);
   }
 
   void on_start(const actors::msg::Start *)
   {
-    for (uint32_t i = 0; i < contracts_.size(); ++i)
-      filter_.send(new cpu::Want(i, contracts_[i]), this);
+    for (uint32_t i = 0; i < securities_.size(); ++i)
+      filter_.send(new cpu::Want(i, securities_[i]), this);
   }
 
   void on_ack(const cpu::Ack *)
   {
-    if (++acks_ == contracts_.size() && on_ready_)
+    if (++acks_ == securities_.size() && on_ready_)
       on_ready_();
   }
 
 public:
-  uint64_t lines = 0, gaps = 0, overflows = 0;
+  uint64_t lines = 0, gaps = 0, missing = 0, overflows = 0;
 
   // `on_ready` runs on this thread once the card has acked the whole table.
-  FpgaFeed(std::vector<int32_t> contracts, PacketSink &sink, std::function<void()> on_ready)
-    : contracts_(std::move(contracts)), books_(contracts_.size()), sink_(sink), on_ready_(std::move(on_ready))
+  FpgaFeed(std::vector<int32_t> securities, PacketSink &sink, std::function<void()> on_ready)
+    : securities_(std::move(securities)), books_(securities_.size()), sink_(sink), on_ready_(std::move(on_ready))
   {
     std::strncpy(name, "FpgaFeed", sizeof(name) - 1);
     set_mailbox(MailboxKind::FpgaLanes);
     MESSAGE_HANDLER(actors::msg::Start, on_start);
     MESSAGE_HANDLER(cpu::Ack, on_ack);
-    MESSAGE_HANDLER(cpu::Gap, on_gap);
-    MESSAGE_HANDLER(L1, on_l1);
-    MESSAGE_HANDLER(L2, on_l2);
-    MESSAGE_HANDLER(L3, on_l3);
-    MESSAGE_HANDLER(E1, on_e1);
-    MESSAGE_HANDLER(E2, on_e2);
-    MESSAGE_HANDLER(E3, on_e3);
+    MESSAGE_HANDLER(cpu::Line, on_line);
+    using E0 = cpu::End<0>;
+    using E1 = cpu::End<1>;
+    using E2 = cpu::End<2>;
+    MESSAGE_HANDLER(E0, on_end0);
+    MESSAGE_HANDLER(E1, on_end1);
+    MESSAGE_HANDLER(E2, on_end2);
   }
 
   void set_filter(actors::ActorRef filter) { filter_ = filter; }

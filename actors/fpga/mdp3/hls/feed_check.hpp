@@ -8,8 +8,8 @@
  */
 
 // The CPU end for the testbenches: what FpgaFeed will do, in a few lines. Takes
-// the card's lines, applies the events to a book of contract 0, and at each
-// PacketEnd prints the line ref_book prints, for comparing.
+// the card's lines, applies the events to a book of security index 0, and at each
+// End line prints the line ref_book prints, for comparing.
 
 #include <cstdint>
 #include <cstdio>
@@ -24,15 +24,15 @@ namespace mdp3fpga {
 
 class FeedCheck
 {
-  Books books_{kContracts};
-  uint32_t contract0_ = 0;   // events of contract 0 in this packet
+  Books books_{kSecurities};
+  uint32_t security0_ = 0;   // events of security index 0 in this packet
 
   void apply(uint64_t lo, uint64_t hi)
   {
     const Event e{lo, hi};
     ++events;
-    if (e.contract() == 0 || (e.action() == kActionOther && e.level() == kOtherChannelReset))
-      ++contract0_;
+    if (e.security_index() == 0 || e.is_status() || (e.action() == kActionOther && e.level() == kOtherChannelReset))
+      ++security0_;
     if (e.action() == kActionTrade)
       ++trades;
     books_.apply(e);
@@ -40,41 +40,49 @@ class FeedCheck
 
 public:
   uint64_t events = 0, trades = 0, lines = 0;
-  bool ended = false;     // the last take() was a packet's End line
-  bool gap = false;       // a SeqGap has come
+  bool ended = false;     // the last take() was an End line
+  bool gap = false;       // the sequence check has seen a gap
+  uint32_t seq = 0;       // the last End line's sequence number
+  bool seen_ = false;
+  uint32_t next_ = 0;
 
-  // Returns true at the End line of a packet that touched contract 0, with the
-  // line ref_book prints in `text`. The card sends no sequence number, so that
-  // field is 0: see normalise().
+  // Returns true at the End line of a packet that touched security index 0, with the
+  // line ref_book prints in `text`.
   bool take(const kfpga::Envelope &e, char *text, size_t size)
   {
     ended = false;
     if (e.msg == WantAck::id)
       return false;
-    if (e.msg == SeqGap::id)
+    ++lines;
+    if (e.msg == EventLine::id)
     {
-      gap = true;
-      ++lines;
+      const EventLine m = kfpga::decode<EventLine>(e);
+      apply(m.lo0, m.hi0);
+      apply(m.lo1, m.hi1);
+      apply(m.lo2, m.hi2);
       return false;
     }
-    ++lines;
-    if (e.msg < kFirstLine || e.msg > kLastEndLine)
+    if (e.msg < kFirstEndLine || e.msg > kLastEndLine)
     {
       std::snprintf(text, size, "? msg %u\n", e.msg);
       return true;
     }
-    const int n = (e.msg - kFirstLine) % 3 + 1;
-    const EventLine<3, false> m = kfpga::decode<EventLine<3, false>>(e);
-    const uint64_t lo[3] = {m.lo0, m.lo1, m.lo2}, hi[3] = {m.hi0, m.hi1, m.hi2};
-    for (int i = 0; i < n; ++i)
-      apply(lo[i], hi[i]);
-    if (e.msg < kFirstEndLine)
-      return false;
+    const int n = e.msg - kFirstEndLine;
+    const EndLine<2> m = kfpga::decode<EndLine<2>>(e);
+    if (n > 0)
+      apply(m.lo0, m.hi0);
+    if (n > 1)
+      apply(m.lo1, m.hi1);
     ended = true;
-    if (contract0_ == 0)
+    seq = m.seq;
+    if (seen_ && m.seq != next_)
+      gap = true;
+    seen_ = true;
+    next_ = m.seq + 1;
+    if (security0_ == 0)
       return false;
-    int at = std::snprintf(text, size, "Z 0 %u %u b", gap ? 1 : 0, contract0_);
-    contract0_ = 0;
+    int at = std::snprintf(text, size, "Z %u %u %u b", m.seq, gap ? 1 : 0, security0_);
+    security0_ = 0;
     const Book &b = books_.book(0);
     for (int i = 0; i < kLevels; ++i)
       at += std::snprintf(text + at, size - at, " %lld %d %d", b.bid[i].price, b.bid[i].size, b.bid[i].orders);
@@ -90,15 +98,15 @@ public:
 
 namespace mdp3fpga {
 
-// The table from MDP3_CONTRACTS, a comma list of security ids, as envelopes from
-// the CPU. Contract 0 is the first.
+// The table from MDP3_SECURITIES, a comma list of security ids, as envelopes from
+// the CPU. Security 0 is the first.
 inline std::vector<kfpga::Envelope> table_from_env()
 {
   std::vector<kfpga::Envelope> out;
-  const char *list = std::getenv("MDP3_CONTRACTS");
+  const char *list = std::getenv("MDP3_SECURITIES");
   for (uint32_t i = 0; list && *list; ++i)
   {
-    WantContract m;
+    WantSecurity m;
     m.index = i;
     m.security_id = std::atoi(list);
     out.push_back(kfpga::encode(m, kFeed, kFilter));
@@ -106,18 +114,6 @@ inline std::vector<kfpga::Envelope> table_from_env()
     list = list ? list + 1 : nullptr;
   }
   return out;
-}
-
-// A ref_book line with its sequence number zeroed, as FeedCheck prints it.
-inline void normalise(char *line)
-{
-  char *a = std::strchr(line, ' ');
-  char *b = a ? std::strchr(a + 1, ' ') : nullptr;
-  if (b)
-  {
-    a[1] = '0';
-    std::memmove(a + 2, b, std::strlen(b) + 1);
-  }
 }
 
 } // namespace mdp3fpga

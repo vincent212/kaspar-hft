@@ -121,22 +121,28 @@ inside the process. A process of one actor has no other member to send to, and
 HLS rejects a stream that nothing writes (`XFORM 203-123`), so a one-actor
 process has no queue.
 
-### Handlers go through step
+### When HLS takes an actor for a constant
 
-An actor that takes messages runs them through `Group::step`, never through a
-step of its own. We first wrote two actors with their own `on_step`, which read
-the stream and called `kfpga_dispatch` itself, and HLS threw the handlers away,
-with everything they wrote. It reported that as a stream with no producer (XFORM
-203-731, then HLS 200-819), or as a write to a constant (SYNCHK 200-51), both a
-long way from the cause. Six changes to the actor's storage did nothing, because
-storage was never the problem. We have the rule, not an explanation of why HLS
-does this.
+Three actors failed the same way: BookBank, an early Batcher, and FeedRx. HLS removed
+their output, with everything that depended on their state, and said so a long way
+from the cause: a stream with no producer (XFORM 203-731, then HLS 200-819), or a
+write to a constant (SYNCHK 200-51). It had decided the object from
+`kfpga::instance<T>()` never changes, so every member read as its initial value.
+Cutting FeedRx down showed how little it takes: a single flag, read to decide
+whether to write, was enough, and storage changes made no difference.
 
-Keep to one handler, one step. The Batcher of the MDP3 handler is the example:
-each packed event goes in a register, and the handler that completes a 64-byte
-line sends it. It needs no sending stage of its own and no large buffer. A raw
-stream is the exception: `step_stream` is for an actor whose input is not
-messages at all, like the decoder's packet words.
+Two things cured it, and we have no explanation of why HLS does this, or of why
+SbeDecoder, which also takes a raw stream, was never affected:
+
+- **Handlers go through `Group::step`.** The actors that called `kfpga_dispatch`
+  from a step of their own failed; moved to `step`, they worked. Keep to one
+  handler, one step. The Batcher of the MDP3 handler is the example: each packed
+  event goes in a register, and the handler that completes a 64-byte line sends it.
+- **An actor with raw streams on both sides lives in its task.** FeedRx sends no
+  messages, so it needs no Group: the task holds it as `static FeedRx rx`, and calls
+  `rx.on_step(frames, words)`. Same actor, one process, one object.
+
+`step_stream` is for an actor on a raw input that sends messages, like SbeDecoder.
 
 ## 3. Writing a design
 
@@ -387,9 +393,8 @@ Every design uses about 1% of the KU5P. Section 6 has the speed work.
 - **Speed of groups.** A group whose handlers loop (SyncPing) is not
   pipelined, so `send` inside it costs about 30 cycles a round trip. Moving
   long loops out of handlers, or a group-specific pipeline, is next.
-- **Timing closure.** Fmax is the synthesis estimate; nothing has been placed
-  and routed.
-- **The real part.** Nothing has been built for the X3522PV.
+- **The real part.** The MDP3 design builds and co-simulates for the XCUX35;
+  place and route has only run on the KU5P stand-in.
 - **The real PCIe side.** In `cpu_fpga` the CPU half and the FPGA half are
   tested separately: real CPU actors against a software card, and the FPGA
   half in Vitis against a testbench. Windows, lanes and the DMA engine of a

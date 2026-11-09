@@ -81,8 +81,6 @@ int main()
       while (!out.empty())
       {
         const kfpga::Envelope e = out.read();
-        if (e.msg == SeqGap::id)
-          continue;
         FILE *f = fmemopen(got, sizeof(got), "w");
         print_event(f, e);
         std::fclose(f);

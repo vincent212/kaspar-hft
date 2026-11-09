@@ -1,85 +1,61 @@
 # Plan: the MDP3 handler on the Alveo X3522PV, with FPGA actors
 
-The CME MDP3 market-data path (packets in, order books and trades out) moved
-onto the FPGA of an Alveo X3522PV, built from the FPGA actor framework in this
-directory (see [HLS.md](HLS.md)). A plan, not built yet.
+The CME MDP3 market-data path, moved onto the FPGA of an Alveo X3522PV as FPGA
+actors (see [HLS.md](HLS.md)): frames in, decoded and filtered events out to a CPU
+actor that builds the books. Built and proven in simulation on recorded CME data;
+not yet on a card. See "Status".
 
 ## Decisions
 
-**Revised design: the card decodes, filters and packs; the CPU builds the
-books.** The card keeps no book for now. One contract per book means many books
-(each product has front and back contracts, SOFR and CL many more), and the
-strategy reads across PCIe either way, so a book on the card pays only once the
-trigger is on the card too. BookBank (`mdp3/include/mdp3fpga/book.hpp`) stays as
-the design for then. Where this section and later sections disagree about the
-book, this paragraph and the design below win.
-
 ```
-MAC (channel A) -> FeedRx -> SbeDecoder -> Filter -> Batcher -> CPU: FpgaFeed -> light22
-                                                                 (builds the books)
+MAC (channel A) -> FeedRx -> SbeDecoder -> Filter -> Batcher -> CPU: FpgaFeed -> strategy
+                                             ^                        |
+                                             +---- table, at start ---+
 ```
 
+- **The card decodes, filters and packs; the CPU builds the books.** One book per
+  security id means many books (each product has a front and a back month, SOFR
+  and CL many more), and the strategy reads across PCIe either way, so a book on the
+  card pays only once the trigger is on the card too. BookBank
+  (`mdp3/include/mdp3fpga/book.hpp`) stays as the design for then.
+- **Everything on the card is an actor.**
 - **Only the card decodes.** Raw SBE never reaches the CPU.
-- **Filter** drops implied entries and every contract the strategy does not
-  trade, so the CPU sees only what it needs.
-- **Batcher** packs events to 16 bytes and sends a 64-byte line as soon as it
-  holds three, or at the end of the packet with what it has. Nothing waits for a
-  later packet. A packet of 44 events is 15 lines, not 44 messages.
-- **FpgaFeed** reads the lines, applies them to its books in a tight loop, and
-  wakes the strategy once, at the PacketEnd, with the updated book and all the
-  packet's events.
-- **The host ring is the buffer.** The card DMA-writes lines into host memory.
-  FpgaFeed copies nothing: it notes where a packet's lines start and, at the
-  PacketEnd, processes that range. A batch is the lines between two PacketEnds.
-- **No kernel on the receive path.** No socket and no Onload for market data;
-  the kernel only maps the memory at start. FpgaFeed and the strategy run on a
-  pinned core and spin on the ring, so nothing sleeps and nothing is woken.
-- **The ring cannot fall behind silently.** It is sized for the worst burst
-  recorded, and the card sets a flag if it overflows.
-- **Orders are open.** The PV's ports belong to the FPGA, so orders go out either
-  through the existing Solarflare NIC with Onload, or from the card. The aim is
-  iLink on the card, a separate project ([ILINK_PLAN.md](ILINK_PLAN.md)).
-- **No queues of single messages at the CPU actor.** Whether lines queue at
-  peak is measured, not assumed.
-
-
 - **Channel A only.** No A/B arbitration.
-- **The book is built from MBP**, CME's market-by-price entries (template 46,
-  the book entries), not from MBO. Outright prices only, matching today's live
-  book (TachBook, built from MBO, has no implied liquidity).
-- **Implied entries are ignored**, in the book and in the events. They are most
-  of the message traffic (81% of channel 490's book entries, levels 1 and 2
-  only), so dropping them also lightens the batch. An implied book can be added
-  later as an option.
-- **The card gives the book and the events, nothing more.** A strategy that
-  wants a book of its own builds it from the events, and that is its own
-  concern. The events are MBP level updates: the card does not pass on MBO
-  order entries.
-- **No recovery.** No snapshot feed, no reseeding. The card checks sequence
-  numbers only to flag a gap in its output (see "Known limitations").
-- **The card's output, per packet:** the order book at the end of the packet,
-  for every book the packet touched; the packet's book events (the MBP level
-  updates); and the trades. CME applies a packet as one event, so the book at
-  the end of a packet is consistent; mid-packet states are not published.
-- **Everything leaves at the end of the packet.** Nothing goes to the CPU
-  mid-packet, trades included. Inside the card the decoder streams events to
-  BookBank as they decode; BookBank holds the packet's events and trades until
-  its end-of-packet marker, then publishes them with the snapshots.
-- **One update per packet.** The strategy gets the updated book and every
-  event and trade of the packet together, as one batch. The last envelope of
-  the batch is flagged; FpgaFeed holds the batch until it arrives, so the
-  strategy never sees a book without its events or the reverse.
-- **Latency target: under 1 microsecond from the packet's last byte to the
-  batch's last envelope.** Measured from the first byte it cannot be met at 10 GbE: a
-  1,420-byte packet takes 1.14 microseconds on the wire alone.
-- **The strategy does not change.** A CPU actor turns the card's output into
-  the messages `light22` gets today.
+- **Books are built from MBP**, CME's market-by-price entries (template 46), not
+  from MBO: outright prices, 10 levels a side.
+- **Implied entries are ignored**, in the books and in the events. They are most
+  of the message traffic (81% of channel 490's book entries, levels 1 and 2 only),
+  so dropping them lightens everything downstream.
+- **No recovery.** No snapshot feed, no reseeding. Every packet's End line carries
+  its sequence number, and FpgaFeed checks it and keeps a gap flag (see "Known
+  limitations").
+- **One update per packet.** The strategy gets the updated book and every event
+  and trade of the packet together, in one call. CME applies a packet as one
+  event, so the book at the end of a packet is consistent; mid-packet states are
+  not shown. Lines may cross PCIe as they fill: FpgaFeed holds them until the End
+  line.
+- **The line is the minimum unit.** Batcher packs events to 16 bytes, three to a
+  64-byte line. **The CPU gets the end of every packet**, even one with no event for
+  it: an End line holds 0 to 2 events and the sequence number. A packet with no
+  events only advances the sequence check.
+- **The host ring is the buffer.** The card DMA-writes lines into host memory and
+  FpgaFeed spins on it (the FpgaLanes mailbox).
+- **No kernel on the receive path.** No socket and no Onload for market data; the
+  kernel only maps the memory at start. Nothing sleeps and nothing is woken.
+- **The ring cannot fall behind silently.** It is sized for the worst burst
+  recorded, and the card sets a flag if it overflows. Not built yet.
+- **Orders are a separate project**, [ILINK_PLAN.md](ILINK_PLAN.md).
+- **Latency target: under 1 microsecond from the packet's last byte to its End
+  line.** Measured from the first byte it cannot be met at 10 GbE: a 1,420-byte
+  packet takes 1.14 microseconds on the wire alone.
+- **The strategy does not change.** It gets the messages it gets today, from
+  FpgaFeed's PacketSink. That adapter is not written yet.
 
 ### Why MBP and not MBO
 
 | | MBP | MBO |
 |---|---|---|
-| book state on the card | 10 levels per side, in registers | every live order, a hash table in UltraRAM |
+| book state | 10 levels per side, small and fixed | every live order, a hash table in UltraRAM |
 | an update | "level *i*: price, quantity, order count; new / change / delete", applied as a shift and a write | an order add / modify / delete, an order-id lookup, then a level update |
 | best price | level 1 | a bitmap and a priority encoder |
 | capacity risk | none | live orders at peak must fit |
@@ -103,148 +79,142 @@ SocketReader -> MessageProcessor -> DataDecoder / msg_decoder -> handler_if -> T
 
 ## The design on the card
 
-```
-MAC (channel A) -> FeedRx -> SeqCheck -> SbeDecoder -> Router -> BookBank -> lanes -> CPU: FpgaFeed -> light22
-                                                         ^
-CPU: security id -> book table, at start -> window ------+
-```
+| stage | what it does |
+|---|---|
+| **FeedRx** | Ethernet frames in; the UDP payloads of one group and port out, realigned, padding dropped. 802.1Q tags handled. Raw streams on both sides. |
+| **SbeDecoder** | decodes as the packet arrives, nothing stored. Each clock takes up to 8 bytes from a two-word window at any byte offset. One event per entry: 46 (MBP), 48 (trades), 30 (SecurityStatus), 4 (ChannelReset); the rest skipped by length. Generated from CME's template (`gen_decoder.py`). |
+| **Filter** | a table of up to 64 security ids, a parallel compare, loaded by the CPU. Drops implied entries and other security ids, numbers the rest, packs each to 16 bytes. SecurityStatus always passes: CME sends it for a security group, with no security id. |
+| **Batcher** | three events to a line; at the end of every packet an End line with what is left and the sequence number. One send a step, so II = 1. |
 
-| stage | kind | what it does |
+All at II = 1. On the CPU, **FpgaFeed** (`mdp3/host/fpga_feed.hpp`) is an ordinary
+Kaspar actor on an FpgaLanes mailbox: it loads the table (WantSecurity, answered
+by WantAck) and sends the card nothing else; it copies each line to a buffer, and
+at the End line applies the packet to its books and calls the strategy, on its own
+thread.
+
+### What crosses to the CPU
+
+| message | size | when |
 |---|---|---|
-| **FeedRx** | streaming stage | filters the channel's incremental multicast UDP from the MAC, strips Ethernet/IP/UDP, stamps the MAC's hardware receive time. Packets are variable length (up to about 1.4 KB), so this streams wide data words, not 64-byte envelopes. |
-| **SeqCheck** | actor | checks the packet sequence number and, on a gap, sets the gap flag on every book (see "Known limitations"). Repairs nothing. |
-| **SbeDecoder** | streaming stage | parses the message header, template id and repeating groups, and emits **one fixed-size event per entry**, plus an **end-of-packet** marker. Templates: 46 (MBP book entries), the trade summary, 30 (SecurityStatus), 4 (ChannelReset); MBO entries are skipped. Generated from the CME XML templates, as `genschema` does for the C++ codecs, so a new template version is regenerated rather than rewritten. |
-| **Router** | actor | security id -> book index, from a small table the CPU loads at start from the instrument definitions; trades to the trade output. |
-| **BookBank** | actor | **one process holding N books**, 10 levels per side each, indexed by book id (see "Framework changes"). Applies each MBP entry: *new* inserts at level *i* and shifts deeper levels down, *delete* removes level *i* and shifts up, *change* overwrites level *i*. A ChannelReset clears the books. Marks the books a packet touched and queues the packet's events and trades; at the end-of-packet marker, publishes all of it. A packet holds at most about 43 entries (1,400 bytes / 32), so the queue is small. |
+| `EventLine` | one line, 3 events | as lines fill |
+| `EndLine<N>` | one line, N events (0 to 2) and the sequence number | once for every packet |
+| `WantAck` | one line | at start, one per table entry |
 
-### Output
-
-Through the card's lanes in host memory, per packet, all of it after the packet's last byte:
-
-- **BookSnapshot**, once per touched book: book id, packet sequence number,
-  the exchange's transact time, the card's receive time, the two latency
-  stamps (below), the gap flag, and the 10 levels per side (price in ticks, quantity, order count). More than one
-  48-byte payload, so a snapshot is a short run of envelopes, numbered, the
-  last one flagged; the CPU acts on the last.
-- **BookEvent**, one per MBP entry in the packet: book id, side, level, action
-  (new / change / delete), price, quantity, order count. Each fits one
-  envelope.
-- **Trade**, one per trade entry: book id, price, quantity, aggressor side,
-  packet sequence number, transact time.
-
-### The CPU side
-
-- **FpgaFeed**, a CPU actor on an `FpgaLanes` mailbox (`CpuEnd`, see
-  `host/kfpga/cpu_link.hpp`): reads each packet's batch of snapshots, events and
-  trades and, at its last envelope, hands all of it to `light22` as the
-  messages it gets today. The strategy does not know the books
-  are on the card.
-- At start, loads the security id -> book table into the card from the
-  instrument definitions.
-- The software handler stays: for PCAP replay and simulation, and as a shadow
-  to check the card against.
+A packed event is price, size, order count, security number, level, action and
+side (`mdp3/include/mdp3fpga/events.hpp`). A status carries trading status, halt
+reason and trading event. A packet of 44 events is 15 lines.
 
 ## Known limitations (no recovery)
 
-- **Start-up.** The books start empty. Incremental MBP sends only the levels
-  that change, so a level that has not moved since the card started is
-  missing until it does. In an active market (ES, NQ) the top levels fill
-  within moments; deeper, quiet levels can take longer.
-- **A gap.** MBP updates are by level number: a missed *new* or *delete*
-  leaves the deeper levels shifted. Later *change* entries overwrite the
-  quantity of their own level, but nothing guarantees the layout heals. The
-  gap flag on every snapshot after a gap says so; clearing it means a restart
-  of the card's books (or, later, the snapshot feed if we ever add recovery).
-- **ChannelReset** clears the books, which then refill as levels update, as at
-  start-up.
+- **Start-up.** Books start empty, and incremental MBP sends only the levels that
+  change, so some levels are missing and some are stale until updates reach them.
+- **Crossed books are not always an error.** CME holds a crossed book in pre-open.
+  See "Status" for the case in the recording.
+- **A gap.** MBP updates are by level number: a missed *new* or *delete* leaves the
+  deeper levels shifted. Later entries overwrite their own level, so layouts heal
+  as the market moves, but nothing guarantees when. FpgaFeed's gap flag stays set
+  from the first gap: the CPU decides what to do.
+- **ChannelReset** clears the books, which then refill as at start-up.
+- **The recordings have gaps.** Whether they are feed A drops or capture drops is
+  not known: feed B or binrec could tell.
 
 ## Measuring latency
 
-A free-running cycle counter on the card stamps every packet twice: **in**,
-when its first byte reaches FeedRx, and **out**, when the last envelope of
-its output leaves for the lanes. Both stamps travel in every BookSnapshot and
-Trade, so every packet reports its own latency on the card, in cycles.
+The g++ test paces frames as 10 GbE delivers them to a 250 MHz design and reports
+the clocks from a frame's last word reaching the card to its End line leaving,
+queues included. Co-simulation confirms the cycle counts on the Verilog. Latency is
+no longer carried in the messages.
 
-| level | what is measured | how | covers |
-|---|---|---|---|
-| **simulation** (phases 1-3) | the design's latency per packet | RTL co-simulation of recorded packets: the stamps give exact cycles, times the clock period (about 3.1 ns at 322 MHz) | decode and book only; not the MAC/PHY, not PCIe. A distribution over minutes of real data, bursts included, not one best case. |
-| **on the card** (phase 4) | the same, on live traffic | the same stamps | on-card time per packet |
-| **wire to CPU** (phase 4) | packet on the wire to `FpgaFeed` handling it | the MAC's hardware receive timestamp against the CPU clock, synced by PTP (what our MAC exposes is decided in phase 0) | adds PCIe, the largest part |
-| **card against software** (phase 4) | the same packets through both paths | in shadow mode, the existing software measurement (`kaspr/perf/`: NIC hardware timestamp to book updated, `run_probe.sh`, `kh_*.py`) side by side with the card's | the comparison that matters |
+| level | what is measured | status |
+|---|---|---|
+| **simulation** | last byte in to End line, on recorded data at wire pacing | done, see "Status". Not the MAC, not PCIe |
+| **on the card** | the same, on live traffic | needs the card |
+| **wire to CPU** | packet on the wire to FpgaFeed handling it: the MAC's receive stamp against the CPU clock, synced by PTP | needs the card; adds PCIe, the largest part |
+| **card against software** | the same packets through both paths, with `kaspr/perf/` | needs the card |
 
-Not covered: wire to wire (packet in, order out). That needs the order path
-on the card and an external tap or capture box with hardware timestamps.
+Not covered: wire to wire (packet in, order out). That needs the order path and an
+external tap or capture box.
 
-## Framework changes needed first
+## Framework changes
 
-- **Streaming stages alongside actors**, for packet bytes. Actors carry
-  messages; raw packets are a stream of data words.
-- **Many books of one type.** The framework allows one actor of each type
-  today (HLS.md section 2). BookBank holds N books in one process, indexed by
-  book id, which avoids N actor types.
-- **Many events per packet.** One packet carries many entries, more than an
-  outbox of 4. The decoder streams its events; applying one MBP entry is
-  loop-free (a fixed 10-level shift), so BookBank pipelines at II = 1.
-  Publishing at the end of a packet is a short fixed loop over the touched
-  books.
-- **The MAC's clock.** Design for the network side's clock (about 322 MHz for
-  25 GbE), not the 250 MHz used in the examples.
+Done: raw streams (`Group::step_stream`, and an actor held by its own task), `OutPort` for a
+process that only sends, `SoftCard::add_step`. See HLS.md section 2.
+
+Still to come: more than one actor of a type, which BookBank's `Book<N>` would need.
 
 ## Verification
 
-The reference is the existing C++ path, and the test data is real: the
-recorders on our NY4 box capture CME packets.
-
-- **C simulation:** a full day of recorded packets through the HLS design;
-  every end-of-packet book compared with TachBook's top 10 after the same
-  packet (they should agree except where a level involves implied prices, and
-  until the card's books have filled after start), every trade with the
-  software path's trades. The software side also builds an MBP book from the
-  same entries, which must agree with the card exactly.
-- **Co-simulation:** minutes of data, including recorded gaps and channel
-  resets, to check the gap flag and the reset.
-- **On the card, shadow mode:** the card and the software handler side by side
-  on the live feed, outputs diffed, before anything trades on the card's
-  books.
+- **Reference:** CME's own codec for the events (`test/ref_dump`), and a software
+  MBP book written apart from the design (`test/ref_book`).
+- **g++:** whole recordings, in constant memory.
+- **Co-simulation:** the busiest 2,000 consecutive packets of channel 344.
+- **End to end:** the card's actors on a SoftCard, a real FpgaFeed on its mailbox.
+- **Not yet:** against `msg_decoder`, the software path, and against TachBook.
+- **On the card, shadow mode:** the card and the software handler side by side on
+  the live feed, outputs diffed, before anything trades on it.
 
 ## Phases
 
-| phase | work | done when |
+| phase | work | status |
 |---|---|---|
-| **0. Card facts** (1-2 weeks, no card) | Read UG1607 and the XDC (`X3522PV_1.0.xdc`, AMD's public X3522PV download page). The PV has no fixed shell found so far: DSFP28 cages to GTY lanes and PCIe to the XCUX35, built in the plain Vivado RTL flow, so we supply the Ethernet MAC and the PCIe DMA. Decide those IPs (AMD XXV/QDMA or Corundum), line rate (UG1607 says 10 GbE currently), clocks. | the interfaces of FeedRx and the lanes are known |
-| **1. SbeDecoder** | generated HLS decoder for 46 (MBP), trades, 30, 4; testbench fed from recorded packets; the in/out cycle stamps | the same MBP entries and trades as `msg_decoder` over a full day; cycles per packet from co-simulation |
-| **2. One book** | BookBank with one instrument (ES front month), end-of-packet snapshots, events, trades, SeqCheck and the gap flag | identical to a software MBP book over a full day; top 10 agrees with TachBook as above |
-| **3. The chain in simulation** | Router, N books, lanes, CPU `FpgaFeed`; SoftCard and HLS co-simulation | `light22` gets identical messages from either path |
-| **4. On the card, shadow** | first a loopback design on the card (MAC, PCIe DMA, latency measured); then our bitstream for the XCUX35 through Vivado, timing closure, run next to the software handler on the live feed | days of live data with no differences |
-| **5. Cut over** | the strategy reads the card's books | wire-to-book latency measured; fallback to software tested |
+| **0. Card facts** | what the card gives us: UG1607, the XDC. The PV has no fixed shell that we found: Vivado RTL flow, cages and PCIe wired to the XCUX35, so we supply the MAC and PCIe DMA. Choose them (AMD IP or Corundum), line rate (UG1607: 10 GbE currently), clocks. | XDC downloaded; choices open |
+| **1. SbeDecoder** | generated decoder | done, except the comparison with `msg_decoder` |
+| **2. Filter, Batcher, FeedRx** | the rest of the card's receive path | done in simulation |
+| **3. FpgaFeed** | the CPU end, on the framework's existing link | done against a test sink; adapter to `light22` and the overflow flag not written |
+| **4. On the card, shadow** | a loopback design first (MAC, PCIe DMA, latency measured); then our bitstream through Vivado, timing closure, next to the software handler on the live feed | needs the card |
+| **5. Cut over** | the strategy reads the card's output | fallback to software tested |
 
-**Phases 0 to 3 need no card.** They run in simulation on recorded packets:
-Vitis HLS C simulation and RTL co-simulation, on the KU5P stand-in under the
-free license (or the XCUX35 while the Enterprise evaluation lasts), and
-SoftCard for the CPU side. Until phase 0 gives the card's interfaces, they use
-an assumed AXI-Stream packet input and the lanes already simulated, and adapt
-the boundary afterwards; the decoder and the books do not depend on the card.
-The card is needed from phase 4.
+Phases 0 to 3 need no card.
 
 ## Status
 
-- **Phase 1 started** (`mdp3/`, see its README): the decoder is generated from
-  CME's template and matches CME's own codec exactly on 5000 test packets (C
-  simulation) and 300 (RTL co-simulation). Open: recorded packets, the clock
-  (95 MHz estimated, against 250), the latency stamps.
+Built and proven in simulation, all on recorded CME data: channel 344 feed A,
+the Nov 1 session (30,044,560 packets). Not yet on a card.
+
+| check | result |
+|---|---|
+| decoder against CME's codec, g++ | `CME344_A` 331,183,779 lines and `CME490_A` 40,136,700, **0 differ** |
+| FeedRx, frames rebuilt from 2,000 packets, 1 in 7 tagged, frames to drop mixed in | payloads byte for byte, **0 differ**; all 120 frames to drop dropped |
+| frames to the CPU's book, g++, all of `CME344_A`, six security ids, 10 GbE pacing for a 250 MHz clock | **5,880,919 packet ends of security 42001080 compared, 0 differ**; 30,044,560 End lines |
+| last byte of a frame in to its End line out (same run) | **mean 5.2, p99 7, max 8 clocks**: 21 to 32 ns at 250 MHz. At most one word ever queued |
+| lines to the CPU (same run) | **30,612,938**: one End line per packet, plus 568,378 full lines, for 26,375,349 events |
+| RTL co-simulation, XCUX35, the busiest 2,000 consecutive packets of 344 | **pass, 0 differ**; 292,746 cycles; all four actors at II = 1; estimated 212.8 MHz |
+| end to end: real FpgaFeed actor on its FpgaLanes mailbox, card on a SoftCard | first 3,000,000 packets of 344, six security ids: **0 differ**, 0 codec errors |
+| place and route, KU5P stand-in | @@PNR@@ |
+
+**Crossed books on security 42001080** (676 of 5,880,919 packet ends; 591 before
+SecurityStatus reached the book, which adds batches): two runs, neither an error in
+the decoder or the book.
+
+- 633 in one run from seq 12,206 to 19,153, 17:47:52 to 18:00:00.079 ET: the
+  pre-open before Sunday's open. The recording starts at 17:30, during pre-open; the
+  channel's PreOpen status comes at 18,678, NewPriceIndication at 19,104,
+  ReadyToTrade at 19,163, and the book uncrosses at 19,157, at the open. CME holds a
+  crossed book in pre-open. Of the 633: 481 before the first status message, 110 in
+  PreOpen, 42 in NewPriceIndication.
+- 43 in one run from seq 21,942,850 to 21,942,979, 12:44 ET in open trading, 1.6 ms:
+  17 packets after a gap of 70 missing packets. No status change near it, and no
+  halt in the session. A no-recovery effect, healed by the market.
+
+**A bug found and fixed:** CME sends SecurityStatus for a security group with no
+security id (all 483 in this recording), and Filter dropped them, as did the book
+reference, so the test could not see it. Filter now always passes a status, with
+its trading status, halt reason and trading event.
+
+**The recording has 221 sequence gaps, 5,576 packets missing.** Whether feed A
+dropped them or the capture did is not known.
 
 ## Risks and open questions
 
-- **The card's interfaces are assumptions until phase 0**: where the MACs
-  connect and how the FPGA reaches host memory decide FeedRx and the lanes.
-- **License.** The XCUX35 is not in AMD's free tier. The 60-day Enterprise
-  evaluation in our license file runs to Dec 28, 2026; the real part
-  needs that or the Vivado for Alveo package in our license (to Oct 29, 2027), not yet tested on it.
-- **No recovery** (see "Known limitations"): a gap leaves a book suspect until
-  the card's books are restarted. How often channel A gaps on our line in NY4
-  can be measured from the recordings in phase 2.
-- **Where the time goes.** Decode and an MBP book update should take a few to
-  tens of cycles: roughly 50-150 ns from packet to updated book, plus the MAC
-  and PHY. The hop to the CPU is PCIe, around a microsecond. The large gain
-  comes when the strategy's trigger also runs on the card; this plan puts the
-  books there first.
+- **The card's interfaces are assumptions until phase 0**: the MAC and DMA we
+  choose decide the two ends of the design.
+- **Is the PV reachable through Onload?** AMD's documents are clear for the plain
+  X3522 and not for the PV. It does not change the actors.
+- **License.** The XCUX35 is not in AMD's free tier. The Enterprise evaluation in
+  our license file runs to Dec 28, 2026; the Vivado for Alveo package (to Oct 29,
+  2027) is untested on it.
+- **Place and route on the real chip** has not run: the XCUX35's device files are
+  not in Vivado yet, and the installer's AMD token has expired.
+- **Where the time goes.** The card's own part is tens of nanoseconds; the hop to
+  the CPU is PCIe, about a microsecond by estimate. The large gain comes when the
+  trigger runs on the card too.

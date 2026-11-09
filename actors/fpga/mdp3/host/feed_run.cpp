@@ -5,12 +5,12 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-// The MDP3 handler end to end, the cpu_fpga setup: the card's actors on a SoftCard
-// (a test harness, no timing), a real FpgaFeed actor on its FpgaLanes mailbox, and
+// The MDP3 handler end to end, the cpu_fpga setup: frames through the card's actors
+// on a SoftCard (a test harness, no timing), a real FpgaFeed actor on its FpgaLanes mailbox, and
 // a sink standing for the strategy that checks every packet's book against the
 // software book. The card side in hardware is hls/feed_top.cpp.
 //
-//   feed_run packets.bin ref.book <contracts, comma list; the first is compared> [max packets]
+//   feed_run packets.bin ref.book <securities, comma list; the first is compared> [max packets]
 
 #include <atomic>
 #include <chrono>
@@ -23,9 +23,11 @@
 
 #include "actors/act/Manager.hpp"
 #include "fpga_feed.hpp"
+#include "frames.hpp"
 #include "kfpga/soft_card.hpp"
 #include "mdp3fpga/decoder.hpp"
 #include "mdp3fpga/feed.hpp"
+#include "mdp3fpga/feed_rx.hpp"
 
 using namespace mdp3fpga;
 using kfpga::Fifo;
@@ -38,10 +40,11 @@ namespace {
 class Card
 {
 public:
-  WordStream words;
+  WordStream frames, words;
   Fifo decoded{4096}, kept{4096};
   kfpga::Link table{256};     // CPU -> Filter, the table
   kfpga::Link lines{65536};   // Batcher -> CPU, the lane
+  FeedRx rx;
   DecoderProc decoder;
   FilterProc filter;
   BatcherProc batcher;
@@ -51,6 +54,8 @@ public:
 
   Card()
   {
+    rx.group = mdp3test::kGroup344A;
+    rx.port = mdp3test::kPort344A;
     DecoderProc::member<SbeDecoder>().books = kfpga::ActorRef(0, kFilter);
     FilterProc::member<Filter>().batcher = kfpga::ActorRef(0, kBatcher);
     BatcherProc::member<Batcher>().feed = kfpga::ActorRef(0, kFeed);
@@ -69,18 +74,19 @@ public:
 
   explicit Check(FILE *ref) : ref_(ref) {}
 
-  void on_packet(const Books &books, const Event *ev, size_t n, bool gap) override
+  void on_packet(const Books &books, const Event *ev, size_t n, uint32_t seq, bool gap) override
   {
     uint32_t mine = 0;
     for (size_t i = 0; i < n; ++i)
-      if (ev[i].contract() == 0 || (ev[i].action() == kActionOther && ev[i].level() == kOtherChannelReset))
+      if (ev[i].security_index() == 0 || ev[i].is_status() ||
+          (ev[i].action() == kActionOther && ev[i].level() == kOtherChannelReset))
         ++mine;
     events += n;
     most = n > most ? n : most;
     if (mine != 0)
     {
       const Book &b = books.book(0);
-      int at = std::snprintf(got_, sizeof(got_), "Z 0 %u %u b", gap ? 1 : 0, mine);
+      int at = std::snprintf(got_, sizeof(got_), "Z %u %u %u b", seq, gap ? 1 : 0, mine);
       for (int i = 0; i < kLevels; ++i)
         at += std::snprintf(got_ + at, sizeof(got_) - at, " %lld %d %d", b.bid[i].price, b.bid[i].size, b.bid[i].orders);
       at += std::snprintf(got_ + at, sizeof(got_) - at, " a");
@@ -91,13 +97,6 @@ public:
         ++missing;
       else
       {
-        char *a = std::strchr(want_, ' ');
-        char *c = a ? std::strchr(a + 1, ' ') : nullptr;
-        if (c)
-        {
-          a[1] = '0';
-          std::memmove(a + 2, c, std::strlen(c) + 1);
-        }
         if (std::strcmp(got_, want_) != 0 && ++differ <= 3)
           std::printf("packet end %llu\n  card: %s  ref:  %s", (unsigned long long)compared + 1, got_, want_);
       }
@@ -123,7 +122,7 @@ int main(int argc, char **argv)
 {
   if (argc < 4)
   {
-    std::fprintf(stderr, "usage: feed_run packets.bin ref.book contracts [max packets]\n");
+    std::fprintf(stderr, "usage: feed_run packets.bin ref.book securities [max packets]\n");
     return 2;
   }
   FILE *packets = std::fopen(argv[1], "rb");
@@ -133,10 +132,10 @@ int main(int argc, char **argv)
     std::perror("open");
     return 1;
   }
-  std::vector<int32_t> contracts;
+  std::vector<int32_t> securities;
   for (const char *s = argv[3]; s && *s;)
   {
-    contracts.push_back(std::atoi(s));
+    securities.push_back(std::atoi(s));
     s = std::strchr(s, ',');
     s = s ? s + 1 : nullptr;
   }
@@ -144,6 +143,10 @@ int main(int argc, char **argv)
 
   Card card;
   kfpga::SoftCard soft;
+  soft.add_step([&card] {
+    card.rx.on_step(card.frames, card.words);
+    return true;
+  });
   soft.add_step([&card] {
     card.decoder.step_stream<SbeDecoder>(card.decoder_ports, card.words);
     return true;
@@ -156,7 +159,7 @@ int main(int argc, char **argv)
 
   Check check(ref);
   std::atomic<bool> ready{false};
-  auto *feed = new FpgaFeed(contracts, check, [&ready] { ready.store(true, std::memory_order_release); });
+  auto *feed = new FpgaFeed(securities, check, [&ready] { ready.store(true, std::memory_order_release); });
   kfpga::CpuEnd *table = kfpga::CpuEnd::client(card.table, feed, kFeed, kFilter, codec);
   kfpga::CpuEnd *lane = kfpga::CpuEnd::server(card.lines, feed, kFeed, kBatcher, codec);
   feed->set_filter(table->ref());
@@ -173,22 +176,12 @@ int main(int argc, char **argv)
   uint64_t sent = 0;
   while (sent < max_packets && read_packet(packets, p))
   {
-    const size_t n = p.size();
-    for (size_t at = 0; at < n || at == 0; at += 8)
-    {
-      Word w;
-      w.data = 0;
-      w.keep = 0;
-      for (int i = 0; i < 8 && at + i < n; ++i)
-      {
-        w.data.range(8 * i + 7, 8 * i) = p[at + i];
-        w.keep[i] = 1;
-      }
-      w.last = at + 8 >= n;
-      while (card.words.size() > 4096)
-        std::this_thread::yield();
-      card.words.write(w);
-    }
+    mdp3test::frame_words<Word>(mdp3test::make_frame(p.data(), p.size(), mdp3test::kGroup344A, mdp3test::kPort344A, false),
+                                [&card](const Word &w) {
+                                  while (card.frames.size() > 4096)
+                                    std::this_thread::yield();
+                                  card.frames.write(w);
+                                });
     ++sent;
   }
 
@@ -198,7 +191,7 @@ int main(int argc, char **argv)
   {
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     const uint64_t now = check.packets.load(std::memory_order_acquire);
-    if (now == last && card.words.empty())
+    if (now == last && card.frames.empty() && card.words.empty())
       break;
     last = now;
   }
@@ -208,11 +201,11 @@ int main(int argc, char **argv)
   // With every packet sent, the reference must be used up too.
   char line[1024];
   const bool extra = max_packets == ~0ull && std::fgets(line, sizeof(line), ref) != nullptr;
-  std::printf("%llu packets sent, %llu reached the strategy, %llu compared, %llu differ, %llu missing\n",
+  std::printf("%llu packets sent, %llu with events reached the strategy, %llu compared, %llu differ, %llu missing\n",
               (unsigned long long)sent, (unsigned long long)check.packets.load(), (unsigned long long)check.compared,
               (unsigned long long)check.differ, (unsigned long long)check.missing);
-  std::printf("%llu events, %llu lines, %llu gaps, %llu buffer overflows, most events in a packet %llu, codec errors %u\n",
-              (unsigned long long)check.events, (unsigned long long)feed->lines, (unsigned long long)feed->gaps,
+  std::printf("%llu events, %llu lines, %llu gaps (%llu packets missing), %llu buffer overflows, most events in a packet %llu, codec errors %u\n",
+              (unsigned long long)check.events, (unsigned long long)feed->lines, (unsigned long long)feed->gaps, (unsigned long long)feed->missing,
               (unsigned long long)feed->overflows, (unsigned long long)check.most, table->errors() + lane->errors());
   const bool ok = check.differ == 0 && check.missing == 0 && !extra && check.compared != 0 && feed->overflows == 0 &&
                   table->errors() + lane->errors() == 0;

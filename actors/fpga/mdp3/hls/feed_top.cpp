@@ -5,8 +5,8 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-// The MDP3 handler as hardware: decoder, filter and batcher, three actors in
-// three processes. The top moves n_words words and n_out envelopes around the
+// The MDP3 handler as hardware: FeedRx, decoder, filter and batcher, four actors
+// in four processes. The top moves n_words words and n_out envelopes around the
 // free-running tasks: the counted boundary of HLS.md section 3.
 
 #include <hls_stream.h>
@@ -14,6 +14,7 @@
 
 #include "mdp3fpga/decoder.hpp"
 #include "mdp3fpga/feed.hpp"
+#include "mdp3fpga/feed_rx.hpp"
 
 using namespace mdp3fpga;
 using kfpga::Fifo;
@@ -21,6 +22,20 @@ using kfpga::Fifo;
 using DecoderProc = kfpga::Process<SbeDecoder>;
 using FilterProc = kfpga::Process<Filter>;
 using BatcherProc = kfpga::Process<Batcher>;
+
+#ifndef MDP3_GROUP
+#define MDP3_GROUP 0xE0001F44u   // 224.0.31.68, channel 344 feed A
+#define MDP3_PORT 14344
+#endif
+
+static void rx_task(WordStream &frames, WordStream &words)
+{
+#pragma HLS PIPELINE II=1
+  static FeedRx rx;   // here, not in kfpga::instance: see HLS.md section 2
+  rx.group = MDP3_GROUP;
+  rx.port = MDP3_PORT;
+  rx.on_step(frames, words);
+}
 
 static void decoder_task(WordStream &in, Fifo &out)
 {
@@ -47,18 +62,16 @@ static void batcher_task(Fifo &in, Fifo &out)
   static BatcherProc proc;
   Batcher &b = BatcherProc::member<Batcher>();
   b.feed = kfpga::ActorRef(0, kFeed);
-#ifdef MDP3_SW
-  static uint32_t clock = 0;
-  b.now = ++clock;
-#endif
   kfpga::Port ports[1] = {{in, out}};
   proc.step(ports);
 }
 
 #ifdef MDP3_SW
 // Plain g++, for whole recordings: one clock of the three processes.
-void mdp3_feed_tick(WordStream &words, Fifo &decoded, Fifo &kept, Fifo &window, Fifo &acks, Fifo &out)
+void mdp3_feed_tick(WordStream &frames, WordStream &words, Fifo &decoded, Fifo &kept, Fifo &window, Fifo &acks,
+                    Fifo &out)
 {
+  rx_task(frames, words);
   decoder_task(words, decoded);
   filter_task(decoded, kept, window, acks);
   batcher_task(kept, out);
@@ -97,13 +110,15 @@ static void lines_out(Fifo &acked, Fifo &from, Fifo &to, uint32_t n_acks, uint32
   }
 }
 
-// `window` the CPU's table entries, n_want of them; `out` their acks, then n_out lines.
+// `in` Ethernet frames, n_words words; `window` the CPU's table entries, n_want of
+// them; `out` their acks, then n_out lines.
 void mdp3_feed_top(InStream &in, Fifo &window, Fifo &out, uint32_t n_words, uint32_t n_want, uint32_t n_out)
 {
 #pragma HLS INTERFACE mode=axis port=in
 #pragma HLS INTERFACE mode=axis port=window
 #pragma HLS INTERFACE mode=axis port=out
 #pragma HLS DATAFLOW
+  hls_thread_local WordStream frames("frames");
   hls_thread_local WordStream words("words");
   hls_thread_local Fifo decoded("decoded");
 #pragma HLS STREAM variable=decoded depth=64
@@ -112,6 +127,7 @@ void mdp3_feed_top(InStream &in, Fifo &window, Fifo &out, uint32_t n_words, uint
   hls_thread_local Fifo lines("lines");
   hls_thread_local Fifo to_filter("to_filter");
   hls_thread_local Fifo acks("acks");
+  hls_thread_local hls::task rx(rx_task, frames, words);
   hls_thread_local hls::task decoder(decoder_task, words, decoded);
   hls_thread_local hls::task filter(filter_task, decoded, kept, to_filter, acks);
   hls_thread_local hls::task batcher(batcher_task, kept, lines);
@@ -119,7 +135,7 @@ void mdp3_feed_top(InStream &in, Fifo &window, Fifo &out, uint32_t n_words, uint
 #pragma HLS STREAM variable=acked depth=64
   hls::stream<bool> go("go");
   load(window, to_filter, acks, acked, go, n_want);
-  words_in(in, words, go, n_words);
+  words_in(in, frames, go, n_words);
   lines_out(acked, lines, out, n_want, n_out);
 }
 #endif

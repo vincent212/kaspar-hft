@@ -115,23 +115,25 @@ int main(int argc, char **argv)
       if (s.size() > 10)
         s.resize(10);
     }
-    else if (line[0] == 'T' || line[0] == 'S')
+    else if (line[0] == 'T')
     {
       unsigned long long seq, time;
       long id;
       long long px;
       int sz;
-      if (line[0] == 'T')
-      {
-        std::sscanf(line, "T %llu %llu %lld %d %ld", &seq, &time, &px, &sz, &id);
-      }
-      else
-        std::sscanf(line, "S %llu %llu %ld", &seq, &time, &id);
+      std::sscanf(line, "T %llu %llu %lld %d %ld", &seq, &time, &px, &sz, &id);
       if (id == sec)
       {
         ++events;
         touched = true;
       }
+    }
+    else if (line[0] == 'S')
+    {
+      // CME sends a status for a security group, with no security id, so every
+      // book gets it.
+      ++events;
+      touched = true;
     }
     else if (line[0] == 'R')
     {
