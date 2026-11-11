@@ -57,7 +57,13 @@ libd: loop
 libc: TARGET=clean
 libc: loop
 
-loop: lib1 lib2 lib3 lib4 lib5 lib6 lib7 lib8 lib9 lib10 lib11 lib14
+# ttom (TT FIX order routing) needs QuickFIX, so it is built only on request:
+#   make USE_TTOM=y
+ifeq ($(USE_TTOM),y)
+TTOM_LIB = lib15
+endif
+
+loop: lib1 lib2 lib3 lib4 lib5 lib6 lib7 lib8 lib9 lib10 lib11 lib14 $(TTOM_LIB)
 
 lib1:
 	@$(MAKE) -C $(KSPRPROJ)/actors/cpp $(MKFLAGS) $(TARGET)
@@ -100,6 +106,9 @@ lib13:
 
 lib14:
 	@$(MAKE) -C $(KSPRPROJ)/positionman/src $(MKFLAGS) $(TARGET)
+
+lib15:
+	@$(MAKE) -C $(KSPRPROJ)/ttom/src $(MKFLAGS) $(TARGET)
 
 
 # Every target that compiles or generates dependencies needs the SBE codecs, so

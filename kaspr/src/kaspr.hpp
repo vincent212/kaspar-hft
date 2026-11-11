@@ -166,6 +166,7 @@ struct Kaspr : public actors::Manager
     cfsmp mq0 = nullptr;
     cfsmp db = nullptr;
     cfsmp mtd = nullptr;
+    cfsmp tt_om = nullptr;  // TT FIX order manager (USE_TTOM builds, kaspr.tt.enabled)
 
     //
     // SOM - Simulated Order Manager
@@ -290,6 +291,14 @@ private:
      * Create MTD for monitoring
      */
     void create_mtd();
+
+    /**
+     * Create the Trading Technologies FIX order manager (TTFIXOM) and register
+     * it with the SOM as the order manager for venue en::x::TT.
+     * Enabled by kaspr.tt.enabled (default false); the session config is the
+     * QuickFIX file named by kaspr.tt.cfg. Compiled in only with USE_TTOM=y.
+     */
+    void create_tt();
 
     /**
      * Start MDP3 market data for enabled channels

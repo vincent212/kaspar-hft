@@ -25,6 +25,7 @@ These actors are instantiated by `kaspr.cpp` during startup.
 | MTD | `mtd/include/mtd/act/MTD.hpp` | libmtd | Monitoring (console commands, BBBO display) |
 | MQ0_server | `mq0/include/mq0/act/MQ0_server.hpp` | libmq0 | ZMQ server for external monitoring |
 | PositionManager | `positionman/include/positionman/act/PositionManager.hpp` | libpositionman | Position tracking per instrument |
+| TTFIXOM | `ttom/include/ttom/act/TTFIXOM.hpp` | libttom | Trading Technologies FIX order routing (USE_TTOM) |
 | Logger | `logger/include/logger/act/Logger.hpp` | liblogger | Logging actor |
 | ILinkHandler | `ilink/include/ilink/act/ILinkHandler.hpp` | libilink | iLink CME session handler |
 | ILinkReceiver | `ilink/include/ilink/act/ILinkRec.hpp` | libilink | iLink message receiver |

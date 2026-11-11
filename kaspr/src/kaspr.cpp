@@ -47,6 +47,10 @@
 // MQ0 implementation
 #include "mq0/act/MQ0_server.hpp"
 
+#ifdef USE_TTOM
+#include "ttom/if/TTFIXOM.hpp"
+#endif
+
 
 namespace kaspr {
 
@@ -130,6 +134,7 @@ Kaspr::Kaspr(const std::string& config_file, bool reset_positions)
     create_support_modules();
     create_som();           // Create SOM before DB so DB can subscribe to it
     create_db();            // DB subscribes to SOM for fills
+    create_tt();            // TT FIX order manager (USE_TTOM builds, kaspr.tt.enabled)
     create_lights();
     create_positionman();
     create_mtd();
@@ -360,6 +365,33 @@ void Kaspr::create_som()
     som[en::x::CMEMDFUT] = s_fut;
 
     std::cerr << "Kaspr: SOM created for CMEMDFUT (DB subscribed to fills)" << std::endl;
+}
+
+void Kaspr::create_tt()
+{
+#ifdef USE_TTOM
+    if (!pt_general.get<bool>("kaspr.tt.enabled", false))
+    {
+        std::cerr << "Kaspr: TT order routing disabled (kaspr.tt.enabled=false)" << std::endl;
+        return;
+    }
+    auto cfg = pt_general.get_optional<std::string>("kaspr.tt.cfg");
+    if (!cfg)
+    {
+        std::cerr << "Kaspr: ERROR - kaspr.tt.enabled=true but kaspr.tt.cfg is missing" << std::endl;
+        return;
+    }
+    auto som_actor = som[en::x::CMEMDFUT];
+    if (!som_actor)
+    {
+        std::cerr << "Kaspr: ERROR - cannot create TT order manager: no SOM" << std::endl;
+        return;
+    }
+    auto resolved = resolve_path(config_dir_, *cfg);
+    std::cerr << "Kaspr: Creating TT order manager with cfg: " << resolved << std::endl;
+    tt_om = create_TTOM(som_actor, resolved, en::x::TT);
+    add_to_manage_q(tt_om);
+#endif
 }
 
 void Kaspr::create_lights()
