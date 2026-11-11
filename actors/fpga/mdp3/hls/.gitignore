@@ -1,0 +1,4 @@
+w_*/
+*.log
+.Xil/
+vitis_*.log
