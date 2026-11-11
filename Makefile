@@ -57,7 +57,13 @@ libd: loop
 libc: TARGET=clean
 libc: loop
 
-loop: lib1 lib2 lib3 lib4 lib5 lib6 lib7 lib8 lib9 lib10 lib11 lib14
+# ttom (TT FIX order routing) needs QuickFIX, so it is built only on request:
+#   make USE_TTOM=y
+ifeq ($(USE_TTOM),y)
+TTOM_LIB = lib15
+endif
+
+loop: lib1 lib2 lib3 lib4 lib5 lib6 lib7 lib8 lib9 lib10 lib11 lib14 $(TTOM_LIB)
 
 lib1:
 	@$(MAKE) -C $(KSPRPROJ)/actors/cpp $(MKFLAGS) $(TARGET)
@@ -101,6 +107,9 @@ lib13:
 lib14:
 	@$(MAKE) -C $(KSPRPROJ)/positionman/src $(MKFLAGS) $(TARGET)
 
+lib15:
+	@$(MAKE) -C $(KSPRPROJ)/ttom/src $(MKFLAGS) $(TARGET)
+
 
 # Every target that compiles or generates dependencies needs the SBE codecs, so
 # guard them all (not just `all`) — `make install`, `make debug`, and the
@@ -115,6 +124,9 @@ debug: check-schema check-msgids libd
 clean: libc
 	@find . -name '*.P' -exec rm {} \;
 	@$(MAKE) -C $(KSPRPROJ)/unit_test/src $(MKFLAGS) clean
+ifeq ($(USE_TTOM),y)
+	@$(MAKE) -C $(KSPRPROJ)/ttom/test/unit $(MKFLAGS) clean
+endif
 
 .PHONY: test
 # Google Test suite. Not part of `install` — it needs gtest, which is an extra
@@ -123,3 +135,7 @@ clean: libc
 test: libo
 	@$(MAKE) -C $(KSPRPROJ)/unit_test/src $(MKFLAGS)
 	@$(KSPRPROJ)/unit_test/src/run_tests
+ifeq ($(USE_TTOM),y)
+	@$(MAKE) -C $(KSPRPROJ)/ttom/test/unit $(MKFLAGS)
+	@cd $(KSPRPROJ)/ttom/test/unit && ./run_ttom_tests
+endif

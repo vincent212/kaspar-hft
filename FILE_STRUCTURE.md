@@ -20,6 +20,7 @@ m2_kaspar is the standalone build tree for the Kaspr CME futures trading system.
 | frame_kaspr | 11,642 | Trading framework (OB, SOM, BFA, Timer, Console) |
 | chutil | 11,584 | Core utilities (time, CSV, sockets, enums) |
 | ilink | 5,225 | iLink session management (handler, receiver, arbiter) |
+| ttom | 2,012 | Trading Technologies FIX order routing (QuickFIX; built with USE_TTOM=y) |
 | mdp3 | 5,130 | MDP3 market data processing and recovery |
 | light | 3,440 | Execution lights (shadow algorithm, TachBook) |
 | frame_ref | 2,263 | Reference data (assets, prices, market data types) |
@@ -370,6 +371,28 @@ CME iLink 3 session management for live order execution.
 | `include/ilink/sign.hpp` | HMAC signing for iLink authentication |
 | `include/ilink/sock_help.hpp` | Socket helpers for iLink connections |
 | `include/ilink/msg/` | iLink message types (30 messages: Negotiate, Establish, ExecutionReport, etc.) |
+
+---
+
+### `ttom/` — Trading Technologies FIX Order Routing
+
+Order routing to Trading Technologies over FIX 4.4, using the QuickFIX engine. Built only with `make USE_TTOM=y`; see `ttom/README.md`.
+
+| File | Description |
+|------|-------------|
+| `include/ttom/act/TTFIXOM.hpp` | TT order manager actor — takes SOM orders and cancels, answers with acks, fills and rejects |
+| `include/ttom/TTFixClient.hpp` | QuickFIX application — logon, new order, cancel, cancel/replace, execution reports |
+| `include/ttom/CallBackIF.hpp` | Callback interface from the FIX client |
+| `include/ttom/CallBackImp.hpp` | Callback implementation that posts messages to TTFIXOM |
+| `include/ttom/ExecType.hpp` | FIX ExecType (tag 150) |
+| `include/ttom/OrdStatus.hpp` | FIX OrdStatus (tag 39) |
+| `include/ttom/msg/` | ExecutionReport and OrderCancelReject messages |
+| `src/TTFixClient.cpp` | FIX client implementation |
+| `src/ttfixom.cpp` | Factory functions (`create_TTOM`, `create_TTFIXOM`) |
+| `test/tt_logon.cpp` | Standalone session check: logon, one order and its cancel, logout |
+| `run_tt_test.sh` | Runs tt_logon from `ttom/config` |
+| `config/tt_example.cfg` | QuickFIX session template (credentials are placeholders) |
+| `config/stunnel.conf` | TT's stunnel template for TLS |
 | `src/ilink_handler.cpp` | ILinkHandler factory |
 | `src/ilink_rec.cpp` | ILinkReceiver factory |
 | `src/ilink_arbiter.cpp` | ILinkArbiter factory |

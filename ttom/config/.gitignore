@@ -1,0 +1,9 @@
+# Real session configs hold credentials: keep them out of git.
+*.cfg
+!tt_example.cfg
+# Downloaded from Trading Technologies (see ttom/README.md)
+TT-FIX44.xml
+TTFIX.crt
+# QuickFIX runtime state
+log/
+filestore/

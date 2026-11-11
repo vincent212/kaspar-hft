@@ -47,7 +47,8 @@ struct x {
         DWAS4,
         FENICSFILTERED,
         STATS,
-        FENICSDVRV
+        FENICSDVRV,
+        TT
     };
 
     // Implicit conversion to uint for backward compatibility
@@ -59,7 +60,7 @@ struct x {
 };
 
 // Constexpr lookup tables for x
-inline constexpr std::array<const char*, 25> x_names = {{
+inline constexpr std::array<const char*, 26> x_names = {{
     "UNI",
     "CMEMD",
     "CMEILINK1",
@@ -85,9 +86,10 @@ inline constexpr std::array<const char*, 25> x_names = {{
     "FENICSFILTERED",
     "STATS",
     "FENICSDVRV",
+    "TT",
 }};
 
-inline constexpr std::array<std::uint32_t, 25> x_values = {{
+inline constexpr std::array<std::uint32_t, 26> x_values = {{
     x::UNI,
     x::CMEMD,
     x::CMEILINK1,
@@ -113,11 +115,12 @@ inline constexpr std::array<std::uint32_t, 25> x_values = {{
     x::FENICSFILTERED,
     x::STATS,
     x::FENICSDVRV,
+    x::TT,
 }};
 
 using x_pair = std::pair<x, const char*>;
 
-inline constexpr std::array<x_pair, 25> x_name_hash = {{
+inline constexpr std::array<x_pair, 26> x_name_hash = {{
     x_pair{x::UNI, "UNI"},
     x_pair{x::CMEMD, "CMEMD"},
     x_pair{x::CMEILINK1, "CMEILINK1"},
@@ -143,12 +146,13 @@ inline constexpr std::array<x_pair, 25> x_name_hash = {{
     x_pair{x::FENICSFILTERED, "FENICSFILTERED"},
     x_pair{x::STATS, "STATS"},
     x_pair{x::FENICSDVRV, "FENICSDVRV"},
+    x_pair{x::TT, "TT"},
 }};
 
 // Type-safe array indexed by x
 template<typename T>
 struct x_array {
-    std::array<T, 25> data;
+    std::array<T, 26> data;
 
     // Access operators
     constexpr T& operator[](x idx) { return data[idx.value]; }
@@ -190,7 +194,7 @@ INLINE constexpr const char* to_string(x n) {
 }
 
 INLINE constexpr std::size_t x_num_syms() {
-    return 25;
+    return 26;
 }
 
 INLINE constexpr bool is_valid(x n) {
