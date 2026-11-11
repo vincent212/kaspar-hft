@@ -141,7 +141,7 @@ target->send(new PingMessage(42), this);  // this = sender
 **Sync fast_send** (executes handler in CALLER's thread, blocks):
 ```cpp
 RequestMessage req;                       // the caller owns the request
-auto reply = target->fast_send(&req, this);
+auto reply = target->fast_send(req, this);
 if (reply) {
     auto* resp = dynamic_cast<const ResponseMessage*>(reply.get());
     // process response
@@ -205,7 +205,7 @@ std::unique_ptr<const Message> Actor::fast_send(const Message *m, Actor *sender)
 - Messages are `new`-allocated by sender
 - After async `send()`, the framework owns the pointer
 - After handler returns, message is deleted by the processing loop
-- For `fast_send()`, the caller owns both messages: the request (pass a stack object; `fast_send` never deletes it, so `fast_send(new X(...))` leaks) and the reply, returned as a `unique_ptr`
+- For `fast_send()`, the caller owns both messages: the request (pass a stack object; `fast_send` never deletes it, and `fast_send(new X(...))` does not compile) and the reply, returned as a `unique_ptr`
 - `MemoryPool` available for high-frequency message allocation
 
 ### Actor Main Loop
@@ -276,7 +276,7 @@ TEST(ActorTest, HandlesPingMessage) {
 
     // fast_send for synchronous testing
     PingMessage ping(42);
-    auto reply = pong.fast_send(&ping, nullptr);
+    auto reply = pong.fast_send(ping, nullptr);
     ASSERT_NE(reply, nullptr);
 
     auto* pong_msg = dynamic_cast<const PongMessage*>(reply.get());
@@ -314,7 +314,7 @@ TEST(SerializationTest, RoundTrip) {
 1. Always `new` messages for `send()` — framework deletes them
 2. Don't access message pointer after `send()` — ownership transferred
 3. `fast_send` reply is `unique_ptr` — no manual delete needed
-4. `fast_send` does not take ownership of the request — pass a stack object, never `new`
+4. `fast_send` does not take ownership of the request — pass a stack object (`fast_send(x, this)`); a non-const pointer such as `new X(...)` is rejected at compile time
 
 ## Common Pitfalls
 

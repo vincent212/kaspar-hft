@@ -259,11 +259,11 @@ int main(int argc, char **argv)
       // OB takes these in process_message (no registered handler), reached
       // through the framework's synchronous fast_send. OB's Start only looks
       // up the simulated order manager; not needed here.
-      frame::mda::msg::Subscribe osub;   // fast_send does not take ownership: stack object
+      frame::mda::msg::Subscribe osub;
       osub.prio = frame::mda::msg::Subscribe::HI;
-      ob->fast_send(&osub, &ob_sink);
-      frame::ob::msg::BBBOSub sub;   // fast_send does not take ownership: stack object
-      ob->fast_send(&sub, &ob_sink);
+      ob->fast_send(osub, &ob_sink);
+      frame::ob::msg::BBBOSub sub;
+      ob->fast_send(sub, &ob_sink);
       fprintf(stderr, "books created for %s secid %d tick %.10g asset id %d\n",
               sym.c_str(), want, g_tick, (int)a->id);
       continue;

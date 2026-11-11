@@ -251,8 +251,8 @@ void act::OB::clear()
   }
   for (const auto &s : hiprio_datasubs)
   {
-    msg::Clear clear(sym);   // fast_send does not take ownership: stack object
-    s->fast_send(&clear, this);
+    msg::Clear clear_msg(sym);
+    s->fast_send(clear_msg, this);
   }
   for (std::size_t i = 0; i < bidqs.size(); i++)
   {
@@ -3192,8 +3192,8 @@ void act::OB::process_add_or_mod(
         // add 40 micros
         if (payload->sendtim_epoch > 0)
         {
-          som::msg::UnStash unstash(payload->sendtim_epoch + 40000);   // stack object: fast_send does not take ownership
-          som.fast_send(&unstash, this);
+          som::msg::UnStash unstash(payload->sendtim_epoch + 40000);
+          som.fast_send(unstash, this);
         }
       }
 
@@ -3315,8 +3315,8 @@ void act::OB::process_add_or_mod(
     OBFILE << "OBX: got GAP" << sym << std::endl;
     for (const auto &s : hiprio_datasubs)
     {
-      msg::GapDetected gap(sym);   // fast_send does not take ownership: stack object
-      s->fast_send(&gap, this);
+      msg::GapDetected gap(sym);
+      s->fast_send(gap, this);
     }
     for (const auto &s : lowprio_datasubs)
     {

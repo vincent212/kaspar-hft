@@ -248,7 +248,7 @@ std::string ConsoleActor::route_to_actor(const std::string& actor_name,
         }
 
         msg::Get get_msg(what, kv);
-        auto reply_ptr = actor_ref.fast_send(&get_msg, this);
+        auto reply_ptr = actor_ref.fast_send(get_msg, this);
 
         if (!reply_ptr) {
             return "ERROR: Actor '" + actor_name + "' did not reply";

@@ -28,7 +28,7 @@
 
 #define BOOKSEND(msgptr) do { \
   if constexpr (UseFastSend) { \
-    book->fast_send(msgptr, nullptr); \
+    book->fast_send(*msgptr, nullptr); \
   } else { \
     using _MsgT = std::remove_pointer_t<decltype(msgptr)>; \
     auto heap_msg = new _MsgT(*msgptr); \

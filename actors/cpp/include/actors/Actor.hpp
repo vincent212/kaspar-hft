@@ -17,6 +17,7 @@
 #include "actors/Message.hpp"
 #include <mutex>
 #include <typeindex>
+#include <type_traits>
 #include <atomic>
 #include <cstring>
 #include <cassert>
@@ -131,11 +132,34 @@ namespace actors
     /**
      * Send a message synchronously and wait for reply
      * Handler runs immediately in caller's thread
-     * @param m Message to send (can be stack-allocated)
+     *
+     * The caller keeps ownership of m: fast_send never deletes it (unlike
+     * send(), which takes ownership). Pass a stack object:
+     *   PingMessage ping(42);
+     *   auto reply = target->fast_send(ping, this);
+     *
+     * @param m Message to send
      * @param sender The sending actor
-     * @return Reply message, or nullptr if no reply
+     * @return Reply message, owned by the caller, or nullptr if no reply
+     */
+    std::unique_ptr<const Message> fast_send(const Message &m, Actor *sender) noexcept
+    {
+      return fast_send(&m, sender);
+    }
+
+    /**
+     * Pointer form, for passing on a message this actor is handling
+     * (a const Message* it received). Ownership is as above: the caller keeps it.
      */
     std::unique_ptr<const Message> fast_send(const Message *m, Actor *sender) noexcept;
+
+    /**
+     * A non-const pointer is rejected at compile time: fast_send(new X(...))
+     * would leak, because fast_send never deletes its argument. Pass the object
+     * itself, fast_send(x, sender).
+     */
+    template <class T, class = std::enable_if_t<!std::is_const_v<T>>>
+    std::unique_ptr<const Message> fast_send(T *m, Actor *sender) = delete;
 
     /**
      * Reply to the current message

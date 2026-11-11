@@ -99,7 +99,7 @@ namespace frame
             fenics_visibility_groups
             );
           o.ts=ts;
-          auto m = som->fast_send(&o, sender);
+          auto m = som->fast_send(o, sender);
           auto ack = static_cast<const frame::som::msg::Ack*>(m.get());
           auto id = ack->id;
           return id;

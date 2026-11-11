@@ -356,8 +356,6 @@ namespace frame::mtd::act
             return;
           }
           venue = en::x_index_of(x_it->second);
-
-          // fast_send does not take ownership: stack object
           som::msg::Order m(
             "RFQ",
               venue,
@@ -366,7 +364,7 @@ namespace frame::mtd::act
               en::trader::BYHAND,
               visibility_group);
 
-          auto future = som.at(venue)->fast_send(&m, this);
+          auto future = som.at(venue)->fast_send(m, this);
           auto rep = future.get();
           auto ack = dynamic_cast<const som::msg::Ack *>(rep);
           auto id = ack->id;

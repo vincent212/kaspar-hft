@@ -176,7 +176,7 @@ protected:
     bfa = std::make_unique<frame::mda::act::BFA<>>(da, bin, nullptr);
     for (size_t i = 0; i < recs.size(); ++i) {   // never past EOF: that calls manager
       actors::msg::Continue c;
-      bfa->fast_send(&c, nullptr);
+      bfa->fast_send(c, nullptr);
     }
   }
   void TearDown() override { bfa.reset(); std::remove(bin.c_str()); }

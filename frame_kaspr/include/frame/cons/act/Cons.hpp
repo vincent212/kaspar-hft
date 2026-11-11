@@ -94,7 +94,7 @@ namespace frame::cons::act
         for (unsigned i = 2; i < tks.size(); i += 2)
           kv[tks[i]] = tks[i + 1];
         frame::cons::msg::Get get_msg(what, kv);
-        auto ptr = actor.fast_send(&get_msg, this);
+        auto ptr = actor.fast_send(get_msg, this);
         if (!ptr.get())
         {
           reply(new frame::cons::msg::CmdR("Error: actor did not reply: " + std::string(m->buf) + "\n"));

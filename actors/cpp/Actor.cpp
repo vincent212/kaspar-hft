@@ -243,8 +243,8 @@ void Actor::terminate() noexcept
 void Actor::fast_terminate() noexcept
 {
   terminate_called = true;
-  msg::Shutdown shutdown;   // fast_send does not take ownership: stack object
-  this->fast_send(&shutdown, nullptr);
+  msg::Shutdown shutdown;
+  this->fast_send(shutdown, nullptr);
 }
 
 void Actor::add_message_to_queue(const Message *m)

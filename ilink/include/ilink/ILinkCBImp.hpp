@@ -46,7 +46,7 @@ namespace ilink
                 NextSeqNo,
                 FaultToleranceIndicator,
                 KeepAliveLapsed);
-            ilink->fast_send(&seq_msg, nullptr);
+            ilink->fast_send(seq_msg, nullptr);
         }
 
         void negotiationResponse(
@@ -62,7 +62,7 @@ namespace ilink
                 FTI,
                 PreviousSeqNo,
                 PreviousUUID);
-            ilink->fast_send(&neg_resp_msg, nullptr);
+            ilink->fast_send(neg_resp_msg, nullptr);
         }
 
         void negotiationReject(
@@ -78,7 +78,7 @@ namespace ilink
                 FTI,
                 errorCodes,
                 Reason);
-            ilink->fast_send(&neg_rej_msg, nullptr);
+            ilink->fast_send(neg_rej_msg, nullptr);
         }
 
         void establishementAck(
@@ -98,7 +98,7 @@ namespace ilink
                 PreviousUUID,
                 NextSeqNo,
                 KeepAliveInterval);
-            ilink->fast_send(&est_ack_msg, nullptr);
+            ilink->fast_send(est_ack_msg, nullptr);
         }
 
         void establishmentReject(
@@ -116,7 +116,7 @@ namespace ilink
                 NextSeqNo,
                 errorCodes,
                 Reason);
-            ilink->fast_send(&est_rej_msg, nullptr);
+            ilink->fast_send(est_rej_msg, nullptr);
         }
 
         void notApplied(
@@ -128,7 +128,7 @@ namespace ilink
                 UUID,
                 FromSeqNo,
                 MsgCount);
-            ilink->fast_send(&not_applied_msg, nullptr);
+            ilink->fast_send(not_applied_msg, nullptr);
         }
 
         void retransmission(
@@ -144,7 +144,7 @@ namespace ilink
                 LastUUID,
                 FromSeqNo,
                 MsgCount);
-            ilink->fast_send(&retrans_msg, nullptr);
+            ilink->fast_send(retrans_msg, nullptr);
         }
 
         void
@@ -161,7 +161,7 @@ namespace ilink
                 RequestTimestamp,
                 ErrorCodes,
                 Reason);
-            ilink->fast_send(&retrans_rej_msg, nullptr);
+            ilink->fast_send(retrans_rej_msg, nullptr);
         }
 
         void businessReject(
@@ -187,21 +187,21 @@ namespace ilink
                 BusinessRejectReason,
                 RefMsgType,
                 PossRetransFlag);
-            ilink->fast_send(&biz_rej_msg, nullptr);
+            ilink->fast_send(biz_rej_msg, nullptr);
         }
 
         void executionReport(
             const exec_report_param_t &param) override
         {
             ilink::msg::ExecutionReport exec_rep_msg(param);
-            ilink->fast_send(&exec_rep_msg, nullptr);
+            ilink->fast_send(exec_rep_msg, nullptr);
         }
 
         void cancelReject(
             const canc_rej_param_t &param) override
         {
             ilink::msg::CancelReject canc_rej_msg(param);
-            ilink->fast_send(&canc_rej_msg, nullptr);
+            ilink->fast_send(canc_rej_msg, nullptr);
         }
 
         void partyDetailAck(
@@ -226,7 +226,7 @@ namespace ilink
                 partyDetailID,
                 partyDetailSource,
                 partyDetailRole);
-            ilink->fast_send(&party_ack_msg, nullptr);
+            ilink->fast_send(party_ack_msg, nullptr);
         }
 
         void partyDetailReport(
@@ -245,7 +245,7 @@ namespace ilink
             const std::string &Reason) override
         {
             ilink::msg::Terminate term_msg(UUID, ErrorCodes, Reason);
-            ilink->fast_send(&term_msg, nullptr);
+            ilink->fast_send(term_msg, nullptr);
         }
     };
 

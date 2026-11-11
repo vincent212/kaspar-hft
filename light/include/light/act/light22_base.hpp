@@ -357,7 +357,7 @@ namespace light::act
           // market time first; the reject paths use the last EOB, the freshest
           // market time this light has.
           frame::som::msg::Cancel cancel_msg(ord_info.get_oid(), curr_tx_time);
-          som->fast_send(&cancel_msg, this);
+          som->fast_send(cancel_msg, this);
         }
         ord_info.set_canc();
         auto stbf_ = qcoord->remove_order(ord_info.get_px(), 0, mmid, ord_info.get_oid(), true);

@@ -328,7 +328,7 @@ namespace mq0::act
             log_dbg("sending command to console: %s", pcm->buf);
           }
 
-          auto ret = console->fast_send((pcm), this);
+          auto ret = console->fast_send(*pcm, this);
           delete pcm;
           auto ptr = dynamic_cast<const frame::cons::msg::CmdR *>(ret.get());
           std::string res;

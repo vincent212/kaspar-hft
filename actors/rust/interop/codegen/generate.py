@@ -456,7 +456,7 @@ def generate_cpp_bridge(messages: List[Message], cpp_dir: str) -> None:
                 # fast_send returns the reply unique_ptr; dropped (no reply across
                 # FFI). ActorRef::fast_send throws for non-local targets — the
                 # surrounding try/catch turns that into -1.
-                w('                target.fast_send(&m, nullptr);')
+                w('                target.fast_send(m, nullptr);')
             w('                return 0;')
             w('            }')
         w('            default: return -2;')
