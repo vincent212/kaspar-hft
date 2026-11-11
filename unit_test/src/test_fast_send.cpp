@@ -49,9 +49,18 @@ namespace
     ~Rep() override { --alive; }
   };
 
-  // Sent to an actor that has no handler for it and does not reply.
+  // Has a registered handler, which does not reply.
   struct Silent : public actors::MessageT<Silent>
   {
+  };
+
+  // Has no registered handler: fast_send falls back to process_message, the
+  // way OB takes Subscribe and BBBOSub.
+  struct Unhandled : public actors::MessageT<Unhandled>
+  {
+    static inline int alive = 0;
+    Unhandled() { ++alive; }
+    ~Unhandled() override { --alive; }
   };
 
   class Echo : public actors::Actor
@@ -61,6 +70,8 @@ namespace
     const actors::Actor *seen_sender = nullptr;
     bool seen_last = false;
     int calls = 0;
+    const actors::Message *fallback_seen = nullptr;
+    const actors::Actor *fallback_sender = nullptr;
 
     Echo()
     {
@@ -69,6 +80,15 @@ namespace
       MESSAGE_HANDLER(Silent, on_silent);
     }
     const char *get_name() const override { return "Echo"; }
+
+  protected:
+    void process_message(const actors::Message *m) override
+    {
+      fallback_seen = m;
+      fallback_sender = m->sender;
+      if (dynamic_cast<const Unhandled *>(m))
+        reply(new Rep(-1));
+    }
 
   private:
     void on_req(const Req *m) noexcept
@@ -120,6 +140,7 @@ namespace
     {
       Req::alive = 0;
       Rep::alive = 0;
+      Unhandled::alive = 0;
     }
     Echo echo;
     Caller caller;
@@ -229,4 +250,23 @@ TEST_F(FastSendTest, ActorRefForwardsReference)
   ASSERT_NE(reply, nullptr);
   EXPECT_EQ(static_cast<const Rep *>(reply.get())->v, 8);
   EXPECT_EQ(Req::alive, 1);
+}
+
+// No registered handler: fast_send hands the caller's object to
+// process_message (same address, sender stamped), does not free it, and
+// returns what process_message replied.
+TEST_F(FastSendTest, UnhandledTypeFallsBackToProcessMessage)
+{
+  {
+    Unhandled u;
+    auto reply = echo.fast_send(u, &caller);
+    EXPECT_EQ(echo.calls, 0);
+    EXPECT_EQ(echo.fallback_seen, &u);
+    EXPECT_EQ(echo.fallback_sender, &caller);
+    EXPECT_EQ(Unhandled::alive, 1);
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(static_cast<const Rep *>(reply.get())->v, -1);
+  }
+  EXPECT_EQ(Unhandled::alive, 0);
+  EXPECT_EQ(Rep::alive, 0);
 }

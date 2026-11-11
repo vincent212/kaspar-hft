@@ -144,7 +144,10 @@ namespace mq0::act
     void continue_handler(const actors::msg::Continue *)
     {
       log_dbg("continue_handler");
-      auto pcm = new frame::cons::msg::Cmd;
+      // On the stack: most paths below return early, and a heap Cmd (5 KB)
+      // leaked on every one of them, including each idle recv timeout.
+      frame::cons::msg::Cmd cmd;
+      auto pcm = &cmd;
       auto msg = recv_message();
       if (msg)
       {
@@ -328,8 +331,7 @@ namespace mq0::act
             log_dbg("sending command to console: %s", pcm->buf);
           }
 
-          auto ret = console->fast_send(*pcm, this);
-          delete pcm;
+          auto ret = console->fast_send(cmd, this);
           auto ptr = dynamic_cast<const frame::cons::msg::CmdR *>(ret.get());
           std::string res;
           if (ptr)
