@@ -35,7 +35,8 @@ SRC = test_cache_array.cpp \
       test_processq_qlen.cpp \
       test_msgbuf_qlen.cpp \
       test_eop.cpp \
-      test_fast_send.cpp
+      test_fast_send.cpp \
+      test_order_fields.cpp
 
 APPNAM = run_tests
 

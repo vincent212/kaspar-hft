@@ -46,6 +46,21 @@ namespace frame
         std::string prefix;
         std::string cusip;
 
+        // Optional order instructions, used by equities order managers. The
+        // defaults are what every venue assumed before these existed (a long
+        // limit order for the day, routed however the order manager routes),
+        // so code that never sets them behaves exactly as before.
+        enum class OrdType : uint8_t { LIMIT, MARKET, STOP, STOP_LIMIT };
+        enum class TimeInForce : uint8_t { DAY, IOC, FOK, GTC, AT_OPEN, AT_CLOSE, EXTENDED_DAY };
+        enum class ShortSale : uint8_t { NONE, SHORT, SHORT_EXEMPT };
+        OrdType ord_type = OrdType::LIMIT;
+        TimeInForce tif = TimeInForce::DAY;
+        ShortSale short_sale = ShortSale::NONE; // only meaningful on a sell
+        int stop_px = 0;          // trigger price in ticks, for STOP and STOP_LIMIT
+        std::string route;        // broker route or exchange destination; empty = order manager's default
+        std::string strategy;     // broker algorithm, e.g. "VWAP"; empty = none
+        std::string locate_id;    // locate for a short sale; empty = none
+
         // hack for SOM status
         bool filled = false, canced = false, rejed = false, acked = false, unacked_slated_for_canc = false;
 
@@ -122,6 +137,13 @@ namespace frame
           // pt.put("dealerweb_trading_account", dealerweb_trading_account);
           // pt.put("prefix", prefix);
           pt.put("cusip", cusip); // <-- add cusip
+          pt.put("ord_type", static_cast<int>(ord_type));
+          pt.put("tif", static_cast<int>(tif));
+          pt.put("short_sale", static_cast<int>(short_sale));
+          pt.put("stop_px", stop_px);
+          pt.put("route", route);
+          pt.put("strategy", strategy);
+          pt.put("locate_id", locate_id);
           // pt.put("filled", filled);
           // pt.put("canced", canced);
           // pt.put("rejed", rejed);
@@ -148,6 +170,14 @@ namespace frame
           // o.dealerweb_trading_account = pt.get<std::string>("dealerweb_trading_account", "");
           // o.prefix = pt.get<std::string>("prefix", "");
           o.cusip = pt.get<std::string>("cusip", ""); // <-- add cusip
+          // Optional: JSON written before these fields existed reads as defaults.
+          o.ord_type = static_cast<OrdType>(pt.get<int>("ord_type", static_cast<int>(OrdType::LIMIT)));
+          o.tif = static_cast<TimeInForce>(pt.get<int>("tif", static_cast<int>(TimeInForce::DAY)));
+          o.short_sale = static_cast<ShortSale>(pt.get<int>("short_sale", static_cast<int>(ShortSale::NONE)));
+          o.stop_px = pt.get<int>("stop_px", 0);
+          o.route = pt.get<std::string>("route", "");
+          o.strategy = pt.get<std::string>("strategy", "");
+          o.locate_id = pt.get<std::string>("locate_id", "");
           // o.filled = pt.get<bool>("filled", false);
           // o.canced = pt.get<bool>("canced", false);
           // o.rejed = pt.get<bool>("rejed", false);
