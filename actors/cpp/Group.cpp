@@ -69,7 +69,8 @@ void Group::add_and_start(actor_ptr a)
 
   // Then initialize and start it (same as start_handler does for initial members)
   a->init();
-  a->fast_send(new msg::Start(), this);
+  msg::Start start;   // fast_send does not take ownership: stack object
+  a->fast_send(&start, this);
 
   std::cout << get_name() << " Dynamically added and started actor " << a->get_name() << std::endl;
 }
@@ -130,7 +131,8 @@ void Group::start_handler(const actors::msg::Start *m)
                 << a->get_name() << std::endl;
 #endif
       a->init();
-      a->fast_send(new msg::Start(), this);
+      msg::Start start;   // fast_send does not take ownership: stack object
+      a->fast_send(&start, this);
     }
   }
   else
@@ -145,7 +147,8 @@ void Group::shutdown_handler(const actors::msg::Shutdown *m)
   {
     for (auto a : members)
     {
-      a->fast_send(new msg::Shutdown(), this);
+      msg::Shutdown shutdown;   // fast_send does not take ownership: stack object
+      a->fast_send(&shutdown, this);
       a->end();
     }
   }

@@ -357,7 +357,8 @@ namespace frame::mtd::act
           }
           venue = en::x_index_of(x_it->second);
 
-          auto m = new som::msg::Order(
+          // fast_send does not take ownership: stack object
+          som::msg::Order m(
             "RFQ",
               venue,
               a->id,
@@ -365,11 +366,11 @@ namespace frame::mtd::act
               en::trader::BYHAND,
               visibility_group);
 
-          auto future = som.at(venue)->fast_send(m, this);
+          auto future = som.at(venue)->fast_send(&m, this);
           auto rep = future.get();
           auto ack = dynamic_cast<const som::msg::Ack *>(rep);
           auto id = ack->id;
-          orders[id] = *m;
+          orders[id] = m;
           reply(new cons::msg::Page((boost::format("got order id: %d\n") % id).str()));
         }
         else if (m->what == "cancel")

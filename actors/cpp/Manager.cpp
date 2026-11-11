@@ -131,9 +131,9 @@ void Manager::init()
 {
   for (auto actor : actor_list)
   {
-    auto initmsg = new actors::msg::Start();
+    actors::msg::Start initmsg;   // fast_send does not take ownership: stack object
     cout << "Manager::init sending start to " << actor->get_name() << endl;
-    actor->fast_send(initmsg, nullptr);
+    actor->fast_send(&initmsg, nullptr);
   }
 
   for (auto actor : actor_list)
@@ -428,9 +428,9 @@ void Manager::manage_and_start(actor_ptr actor, set<int> affinity, int priority,
   add_to_manage_q(actor, affinity, priority, priority_type);
 
   // Then immediately start it
-  auto initmsg = new actors::msg::Start();
+  actors::msg::Start initmsg;   // fast_send does not take ownership: stack object
   cout << "Manager::manage_and_start sending start to " << actor->get_name() << endl;
-  actor->fast_send(initmsg, nullptr);
+  actor->fast_send(&initmsg, nullptr);
 
   // Launch its thread
   auto t = new std::thread([actor]() { (*actor)(); });

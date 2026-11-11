@@ -270,9 +270,9 @@ protected:
     secid = next_secid++;
     auto a = make_asset("ZNOB" + std::to_string(secid), secid);
     ob = std::make_unique<ob::act::OB>(nullptr, false, nullptr, a->id, pt);
-    auto sub = new mda::msg::Subscribe();
-    sub->prio = mda::msg::Subscribe::HI;
-    ob->fast_send(sub, &sink);   // OB takes Subscribe in process_message
+    mda::msg::Subscribe sub;   // fast_send does not take ownership: stack object
+    sub.prio = mda::msg::Subscribe::HI;
+    ob->fast_send(&sub, &sink);   // OB takes Subscribe in process_message
     f = std::make_unique<Feeder>(ob.get(), secid);
   }
 };
