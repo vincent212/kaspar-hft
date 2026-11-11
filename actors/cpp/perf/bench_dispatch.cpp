@@ -343,7 +343,7 @@ int main(int argc, char** argv)
 #pragma GCC diagnostic pop
     arms[9].runs.push_back(amort_ns(measured, warmup, [&](size_t i) {
       Dis m(i);
-      auto reply = sink.fast_send(&m, &sender);
+      auto reply = sink.fast_send(m, &sender);
       (void)reply;
     }));
   }

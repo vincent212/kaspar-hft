@@ -176,7 +176,7 @@ namespace polonaise
           if (Logger::synchrolog) [[unlikely]]
           {
             msg::Log log_msg(level, name, message, val_arr, file, line);
-            Logger::theLogger->fast_send(&log_msg, nullptr);
+            Logger::theLogger->fast_send(log_msg, nullptr);
           }
           else
           {
@@ -210,7 +210,7 @@ namespace polonaise
           if (Logger::synchrolog) [[unlikely]]
           {
             msg::Log log_msg(level, name, fmt, val_arr, file, line, 1);
-            Logger::theLogger->fast_send(&log_msg, nullptr);
+            Logger::theLogger->fast_send(log_msg, nullptr);
           }
           else
           {
@@ -242,7 +242,7 @@ namespace polonaise
           if (Logger::synchrolog) [[unlikely]]
           {
             msg::Log log_msg(level, name, fmt, val_arr, file, line, 1);
-            Logger::theLogger->fast_send(&log_msg, nullptr);
+            Logger::theLogger->fast_send(log_msg, nullptr);
           }
           else
           {
@@ -274,7 +274,7 @@ namespace polonaise
           if (Logger::synchrolog) [[unlikely]]
           {
             msg::Log log_msg(level, name, fmt, val_arr, file, line, 1);
-            Logger::theLogger->fast_send(&log_msg, nullptr);
+            Logger::theLogger->fast_send(log_msg, nullptr);
           }
           else
           {
@@ -307,7 +307,7 @@ namespace polonaise
           if (Logger::synchrolog) [[unlikely]]
           {
             msg::Log log_msg(level, name, fmt, val_arr, file, line, arg_count);
-            Logger::theLogger->fast_send(&log_msg, nullptr);
+            Logger::theLogger->fast_send(log_msg, nullptr);
           }
           else
           {

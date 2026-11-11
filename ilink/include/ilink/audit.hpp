@@ -143,7 +143,7 @@ namespace m2::ilink
         if (polonaise::logger::act::Logger::synchrolog)
         {
             polonaise::logger::msg::CMEAudit audit_msg(val_arr);
-            polonaise::logger::act::Logger::theLogger->fast_send(&audit_msg, nullptr);
+            polonaise::logger::act::Logger::theLogger->fast_send(audit_msg, nullptr);
         }
         else
         {

@@ -308,7 +308,7 @@ namespace mdp3
                     // copy is needed here; the reply carries rc + is_channel_reset.
                     msg::DecodePacket dp(&p->second.message[0], p->second.len, ts,
                                          p->second.qlen);
-                    auto decode_reply = decoder->fast_send(&dp, this);
+                    auto decode_reply = decoder->fast_send(dp, this);
                     const auto *dr = static_cast<const msg::DecodeResult *>(decode_reply.get());
                     auto rc = dr->rc;
                     is_channel_reset = dr->is_channel_reset;
@@ -317,7 +317,7 @@ namespace mdp3
                         log_err("could not decode critical data message initiating recovery");
                         {
                             msg::DecoderCmd c(msg::DecoderCmd::GAP);
-                            decoder->fast_send(&c, this);
+                            decoder->fast_send(c, this);
                         }
                         do_data_recovery();
                         return;
@@ -379,7 +379,7 @@ namespace mdp3
             if (last)
                 {
                     msg::DecoderCmd c(msg::DecoderCmd::BURSTEND, 1);
-                    decoder->fast_send(&c, this);
+                    decoder->fast_send(c, this);
                 }
 #endif
         }
@@ -409,7 +409,7 @@ namespace mdp3
 
             {
                 msg::DecoderCmd c(msg::DecoderCmd::PRINTSTATS);
-                decoder->fast_send(&c, this);
+                decoder->fast_send(c, this);
             }
         }
     };

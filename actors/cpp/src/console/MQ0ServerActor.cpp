@@ -118,7 +118,7 @@ void MQ0ServerActor::handle_command(const std::string& command) {
         // Forward to Console using fast_send for synchronous response
         try {
             msg::Cmd cmd_msg(cmd);
-            auto reply_msg = console_ref_.fast_send(new msg::Cmd(cmd), this);
+            auto reply_msg = console_ref_.fast_send(cmd_msg, this);
 
             if (reply_msg) {
                 auto* cmdr = dynamic_cast<const msg::CmdR*>(reply_msg.get());

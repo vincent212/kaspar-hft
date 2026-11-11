@@ -251,7 +251,8 @@ void act::OB::clear()
   }
   for (const auto &s : hiprio_datasubs)
   {
-    s->fast_send(new msg::Clear(sym), this);
+    msg::Clear clear_msg(sym);
+    s->fast_send(clear_msg, this);
   }
   for (std::size_t i = 0; i < bidqs.size(); i++)
   {
@@ -3190,7 +3191,10 @@ void act::OB::process_add_or_mod(
       {
         // add 40 micros
         if (payload->sendtim_epoch > 0)
-          som.fast_send(new som::msg::UnStash(payload->sendtim_epoch + 40000), this);
+        {
+          som::msg::UnStash unstash(payload->sendtim_epoch + 40000);
+          som.fast_send(unstash, this);
+        }
       }
 
       for (const auto &s : lowprio_datasubs)
@@ -3311,7 +3315,8 @@ void act::OB::process_add_or_mod(
     OBFILE << "OBX: got GAP" << sym << std::endl;
     for (const auto &s : hiprio_datasubs)
     {
-      s->fast_send(new msg::GapDetected(sym), this);
+      msg::GapDetected gap(sym);
+      s->fast_send(gap, this);
     }
     for (const auto &s : lowprio_datasubs)
     {

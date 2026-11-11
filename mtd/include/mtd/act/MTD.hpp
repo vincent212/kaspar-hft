@@ -356,8 +356,7 @@ namespace frame::mtd::act
             return;
           }
           venue = en::x_index_of(x_it->second);
-
-          auto m = new som::msg::Order(
+          som::msg::Order m(
             "RFQ",
               venue,
               a->id,
@@ -369,7 +368,7 @@ namespace frame::mtd::act
           auto rep = future.get();
           auto ack = dynamic_cast<const som::msg::Ack *>(rep);
           auto id = ack->id;
-          orders[id] = *m;
+          orders[id] = m;
           reply(new cons::msg::Page((boost::format("got order id: %d\n") % id).str()));
         }
         else if (m->what == "cancel")

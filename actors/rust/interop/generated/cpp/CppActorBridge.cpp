@@ -62,22 +62,22 @@ int32_t cpp_actor_fast_send(const char* actor, const char* sender, int32_t id, c
         switch (id) {
             case 400: {
                 msg::Ping m = msg::Ping::from_c(*static_cast<const ::Ping*>(data));
-                target.fast_send(&m, nullptr);
+                target.fast_send(m, nullptr);
                 return 0;
             }
             case 401: {
                 msg::Pong m = msg::Pong::from_c(*static_cast<const ::Pong*>(data));
-                target.fast_send(&m, nullptr);
+                target.fast_send(m, nullptr);
                 return 0;
             }
             case 402: {
                 msg::DataRequest m = msg::DataRequest::from_c(*static_cast<const ::DataRequest*>(data));
-                target.fast_send(&m, nullptr);
+                target.fast_send(m, nullptr);
                 return 0;
             }
             case 403: {
                 msg::DataResponse m = msg::DataResponse::from_c(*static_cast<const ::DataResponse*>(data));
-                target.fast_send(&m, nullptr);
+                target.fast_send(m, nullptr);
                 return 0;
             }
             default: return -2;

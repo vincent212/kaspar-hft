@@ -131,7 +131,7 @@ void Manager::init()
 {
   for (auto actor : actor_list)
   {
-    auto initmsg = new actors::msg::Start();
+    actors::msg::Start initmsg;
     cout << "Manager::init sending start to " << actor->get_name() << endl;
     actor->fast_send(initmsg, nullptr);
   }
@@ -428,7 +428,7 @@ void Manager::manage_and_start(actor_ptr actor, set<int> affinity, int priority,
   add_to_manage_q(actor, affinity, priority, priority_type);
 
   // Then immediately start it
-  auto initmsg = new actors::msg::Start();
+  actors::msg::Start initmsg;
   cout << "Manager::manage_and_start sending start to " << actor->get_name() << endl;
   actor->fast_send(initmsg, nullptr);
 

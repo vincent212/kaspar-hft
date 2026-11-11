@@ -64,7 +64,7 @@ TEST(MessageQLen, FastSendLeavesQlenZero)
 {
   Sink sink;
   QProbe m(0);
-  auto reply = sink.fast_send(&m, nullptr);
+  auto reply = sink.fast_send(m, nullptr);
   EXPECT_EQ(m.qlen, 0u);
   EXPECT_TRUE(m.last);
 }

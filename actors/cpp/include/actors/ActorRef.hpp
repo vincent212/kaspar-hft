@@ -36,6 +36,12 @@ public:
     std::unique_ptr<const Message> fast_send(const Message* m, Actor* sender) {
         return actor_->fast_send(m, sender);
     }
+    std::unique_ptr<const Message> fast_send(const Message& m, Actor* sender) {
+        return actor_->fast_send(m, sender);
+    }
+    // fast_send never deletes its argument: see Actor::fast_send
+    template <class T, class = std::enable_if_t<!std::is_const_v<T>>>
+    std::unique_ptr<const Message> fast_send(T* m, Actor* sender) = delete;
 
     const char* name() const { return actor_->get_name(); }
     Actor* actor() const { return actor_; }
@@ -141,6 +147,12 @@ public:
         }
         throw std::runtime_error("fast_send not supported for remote actors");
     }
+    std::unique_ptr<const Message> fast_send(const Message& m, Actor* sender) {
+        return fast_send(&m, sender);
+    }
+    // fast_send never deletes its argument: see Actor::fast_send
+    template <class T, class = std::enable_if_t<!std::is_const_v<T>>>
+    std::unique_ptr<const Message> fast_send(T* m, Actor* sender) = delete;
 
     bool is_local() const { return std::holds_alternative<LocalActorRef>(ref_); }
     bool is_remote() const { return std::holds_alternative<RemoteActorRef>(ref_); }

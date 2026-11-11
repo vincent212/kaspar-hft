@@ -512,7 +512,7 @@ perf::LatencyStats run_fastsend_stack(const std::string& label, size_t measured,
       win_start = perf::now_ns();
     Ping ping(i); // on the stack: no heap allocation for the input
     const uint64_t t0 = perf::now_ns();
-    auto reply = pong.fast_send(&ping, &sender);
+    auto reply = pong.fast_send(ping, &sender);
     const uint64_t t1 = perf::now_ns();
     if (i >= warmup)
       samples.push_back(t1 - t0);
@@ -590,7 +590,7 @@ perf::LatencyStats run_fastsend_stack_noreply(const std::string& label, size_t m
       win_start = perf::now_ns();
     Ping ping(i);
     const uint64_t t0 = perf::now_ns();
-    auto reply = sink.fast_send(&ping, &sender); // returns null (no reply)
+    auto reply = sink.fast_send(ping, &sender); // returns null (no reply)
     const uint64_t t1 = perf::now_ns();
     if (i >= warmup)
       samples.push_back(t1 - t0);
@@ -783,7 +783,7 @@ int main(int argc, char** argv)
       if (i == warmup)
         f0 = perf::now_ns();
       Ping ping(i);
-      auto reply = sink.fast_send(&ping, &sender);
+      auto reply = sink.fast_send(ping, &sender);
     }
     const double fs_ns = static_cast<double>(perf::now_ns() - f0) / measured;
 

@@ -42,9 +42,9 @@ static double ns_per(long n, clk::time_point t0) {
 extern "C" void run_cpp_bench(long n, double* cpp_cpp_ns, double* cpp_rust_ns) {
     // C++ -> C++ : fast_send to the local C++ actor.
     {
-        for (long i = 0; i < 200000; i++) { msg::Ping p; p.count = (int)i; auto r = g_pong->fast_send(&p, nullptr); (void)r; }
+        for (long i = 0; i < 200000; i++) { msg::Ping p; p.count = (int)i; auto r = g_pong->fast_send(p, nullptr); (void)r; }
         auto t0 = clk::now();
-        for (long i = 0; i < n; i++) { msg::Ping p; p.count = (int)i; auto r = g_pong->fast_send(&p, nullptr); (void)r; }
+        for (long i = 0; i < n; i++) { msg::Ping p; p.count = (int)i; auto r = g_pong->fast_send(p, nullptr); (void)r; }
         *cpp_cpp_ns = ns_per(n, t0);
     }
     // C++ -> Rust : marshal a POD and call into the Rust actor over the FFI.
