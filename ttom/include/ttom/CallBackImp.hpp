@@ -79,7 +79,8 @@ namespace ttfixom
               TTreceiveTime,
               sendingTime,
               text);
-      auto m = new ttfixom::msg::ExecutionReport(
+      // fast_send does not take ownership of the request: pass a stack object.
+      ttfixom::msg::ExecutionReport m(
           s,
           x,
           clOrdId,
@@ -94,7 +95,7 @@ namespace ttfixom
           TTreceiveTime,
           sendingTime,
           text);
-      fixom->fast_send(m, nullptr);
+      fixom->fast_send(&m, nullptr);
     }
 
     virtual void onOrderCancelReject(
@@ -122,7 +123,8 @@ namespace ttfixom
               tranactionTime,
               TTreceiveTime,
               text);
-      auto m = new ttfixom::msg::OrderCancelReject(
+      // fast_send does not take ownership of the request: pass a stack object.
+      ttfixom::msg::OrderCancelReject m(
           s,
           clOrdId,
           origClOrdId,
@@ -134,7 +136,7 @@ namespace ttfixom
           tranactionTime,
           TTreceiveTime,
           text);
-      fixom->fast_send(m, nullptr);
+      fixom->fast_send(&m, nullptr);
     }
   };
 }
