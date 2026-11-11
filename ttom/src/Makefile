@@ -8,6 +8,10 @@ include $(KSPRPROJ)/mk_kaspr/glob_begin.mk
 # include a bare "config.h", so its own include directory is added as well.
 QUICKFIX_PREFIX ?= /usr/local
 EXTRA_INCL += -I$(KSPRPROJ)/ttom/include -I$(QUICKFIX_PREFIX)/include -I$(QUICKFIX_PREFIX)/include/quickfix
+# OpenSSL outside the default paths (e.g. Homebrew): OPENSSL_PREFIX=<dir>
+ifdef OPENSSL_PREFIX
+EXTRA_INCL += -I$(OPENSSL_PREFIX)/include
+endif
 
 # TLS inside QuickFIX instead of through stunnel (make USE_TTOM=y TTOM_SSL=y):
 # needs QuickFIX built with OpenSSL.

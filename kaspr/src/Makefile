@@ -23,10 +23,14 @@ LIBSG += -lpcap
 ifeq ($(USE_TTOM),y)
 QUICKFIX_PREFIX ?= /usr/local
 EXTRA_INCL += -I$(KSPRPROJ)/ttom/include -I$(QUICKFIX_PREFIX)/include -I$(QUICKFIX_PREFIX)/include/quickfix
+# OpenSSL outside the default paths (e.g. Homebrew): OPENSSL_PREFIX=<dir>
+ifdef OPENSSL_PREFIX
+EXTRA_INCL += -I$(OPENSSL_PREFIX)/include
+endif
 DEFINES_COMMON += -DUSE_TTOM
 # libttom goes first: it uses frame, logger and actors, which follow it.
-LIBSO := -lttom $(LIBSO) -L$(QUICKFIX_PREFIX)/lib -lquickfix -lssl -lcrypto
-LIBSG := -lttomg $(LIBSG) -L$(QUICKFIX_PREFIX)/lib -lquickfix -lssl -lcrypto
+LIBSO := -lttom $(LIBSO) -L$(QUICKFIX_PREFIX)/lib -lquickfix $(if $(OPENSSL_PREFIX),-L$(OPENSSL_PREFIX)/lib) -lssl -lcrypto
+LIBSG := -lttomg $(LIBSG) -L$(QUICKFIX_PREFIX)/lib -lquickfix $(if $(OPENSSL_PREFIX),-L$(OPENSSL_PREFIX)/lib) -lssl -lcrypto
 endif
 
 include $(KSPRPROJ)/mk_kaspr/app_template.mk

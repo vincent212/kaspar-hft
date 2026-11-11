@@ -16,7 +16,7 @@ On `Start`, `TTFIXOM` starts the FIX session and registers with the SOM as the o
 
 `ttom` needs the QuickFIX FIX engine, so it is built only on request.
 
-1. Install QuickFIX from the official repository, [quickfix/quickfix](https://github.com/quickfix/quickfix). Build it with OpenSSL if TLS is to be handled by QuickFIX rather than by stunnel (below). It installs under `/usr/local` by default; pass `QUICKFIX_PREFIX=<dir>` to the builds below if it is elsewhere.
+1. Install QuickFIX from the official repository, [quickfix/quickfix](https://github.com/quickfix/quickfix). Build it with OpenSSL if TLS is to be handled by QuickFIX rather than by stunnel (below). It installs under `/usr/local` by default; pass `QUICKFIX_PREFIX=<dir>` to the builds below if it is elsewhere. If OpenSSL is outside the default paths (on macOS, Homebrew's `/opt/homebrew/opt/openssl@3`), also pass `OPENSSL_PREFIX=<dir>`.
 
    For a working TT client on QuickFIX to compare against, see [vincent212/FIX-Order-Routing-Client](https://github.com/vincent212/FIX-Order-Routing-Client).
 
