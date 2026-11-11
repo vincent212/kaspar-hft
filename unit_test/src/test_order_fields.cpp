@@ -234,3 +234,17 @@ TEST_F(LiveSOMForwardTest, PlainOrderArrivesWithDefaults)
   EXPECT_EQ(fwd->short_sale, Order::ShortSale::NONE);
   EXPECT_TRUE(fwd->route.empty());
 }
+
+// Venue codes for the equities brokers' order managers. Appended after TT, so
+// every existing code keeps its value.
+TEST(OrderFields, BrokerVenueCodes)
+{
+  EXPECT_STREQ(en::to_string(en::x(en::x::LIME)), "LIME");
+  EXPECT_STREQ(en::to_string(en::x(en::x::CLEARSTREET)), "CLEARSTREET");
+  EXPECT_TRUE(en::x_is_valid("LIME"));
+  EXPECT_TRUE(en::x_is_valid("CLEARSTREET"));
+  EXPECT_EQ(en::x_index_of("LIME"), en::x(en::x::LIME));
+  EXPECT_EQ(int(en::x::LIME), int(en::x::TT) + 1);
+  EXPECT_EQ(int(en::x::CLEARSTREET), int(en::x::TT) + 2);
+  EXPECT_EQ(en::x_num_syms(), size_t(en::x::CLEARSTREET) + 1);
+}
