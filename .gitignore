@@ -28,6 +28,8 @@ actors/cpp/src/coordination/group_manager_main
 actors/cpp/src/registry/global_registry_main
 ttom/test/tt_logon
 ttom/test/tt_logong
+ttom/test/unit/run_ttom_tests
+ttom/test/unit/run_ttom_testsg
 
 # Data files
 *.bin

@@ -124,6 +124,9 @@ debug: check-schema check-msgids libd
 clean: libc
 	@find . -name '*.P' -exec rm {} \;
 	@$(MAKE) -C $(KSPRPROJ)/unit_test/src $(MKFLAGS) clean
+ifeq ($(USE_TTOM),y)
+	@$(MAKE) -C $(KSPRPROJ)/ttom/test/unit $(MKFLAGS) clean
+endif
 
 .PHONY: test
 # Google Test suite. Not part of `install` — it needs gtest, which is an extra
@@ -132,3 +135,7 @@ clean: libc
 test: libo
 	@$(MAKE) -C $(KSPRPROJ)/unit_test/src $(MKFLAGS)
 	@$(KSPRPROJ)/unit_test/src/run_tests
+ifeq ($(USE_TTOM),y)
+	@$(MAKE) -C $(KSPRPROJ)/ttom/test/unit $(MKFLAGS)
+	@cd $(KSPRPROJ)/ttom/test/unit && ./run_ttom_tests
+endif
