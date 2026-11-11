@@ -59,6 +59,7 @@ class ZmqReceiver;
   {
     std::list<actor_ptr> actor_list;
     std::list<std::thread*> thread_list;
+    std::map<actor_ptr, std::thread*> actor_thread;  // which thread runs which actor (unmanage)
     std::map<std::string, actor_ptr> managed_name_map;
     std::map<std::string, actor_ptr> expanded_name_map;
 
