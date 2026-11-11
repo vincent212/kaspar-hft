@@ -95,7 +95,7 @@ namespace ttfixom
           TTreceiveTime,
           sendingTime,
           text);
-      fixom->fast_send(&m, nullptr);
+      fixom->fast_send(m, nullptr);
     }
 
     virtual void onOrderCancelReject(
@@ -136,7 +136,7 @@ namespace ttfixom
           tranactionTime,
           TTreceiveTime,
           text);
-      fixom->fast_send(&m, nullptr);
+      fixom->fast_send(m, nullptr);
     }
   };
 }
