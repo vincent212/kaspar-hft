@@ -140,6 +140,7 @@ void Manager::init()
   {
     auto t = new std::thread([actor]() { (*actor)(); });
     thread_list.push_back(t);
+    actor_thread[actor] = t;
 
     if (!actor->affinity.empty())
     {
@@ -435,6 +436,7 @@ void Manager::manage_and_start(actor_ptr actor, set<int> affinity, int priority,
   // Launch its thread
   auto t = new std::thread([actor]() { (*actor)(); });
   thread_list.push_back(t);
+  actor_thread[actor] = t;
 
   // Set affinity if specified
   if (!actor->affinity.empty())
@@ -468,35 +470,35 @@ void Manager::manage_and_start(actor_ptr actor, set<int> affinity, int priority,
 
 void Manager::unmanage(actor_ptr actor)
 {
-  cout << "Manager::unmanage " << actor->get_name() << endl;
+  // Copy the name: the actor is deleted below, and get_name() is virtual.
+  const std::string name = actor->get_name();
+  cout << "Manager::unmanage " << name << endl;
 
   // Send Shutdown message
   actor->send(new msg::Shutdown());
 
-  // Find and join the actor's thread
-  for (auto it = thread_list.begin(); it != thread_list.end(); ++it)
+  // Join this actor's own thread. (Joining the first joinable thread in the
+  // list, as this once did, waited on whichever actor was started first.)
+  auto at = actor_thread.find(actor);
+  if (at != actor_thread.end())
   {
-    // We need to identify which thread belongs to this actor
-    // Since we don't store a mapping, we'll join all and remove after
-    // For now, just join the thread - this assumes unmanage is called in order
-    if ((*it)->joinable())
-    {
-      (*it)->join();
-      delete *it;
-      thread_list.erase(it);
-      break;  // Found and joined the thread
-    }
+    std::thread *t = at->second;
+    if (t->joinable())
+      t->join();
+    thread_list.remove(t);
+    delete t;
+    actor_thread.erase(at);
   }
 
   // Remove from actor_list
   actor_list.remove(actor);
 
   // Remove from name maps
-  managed_name_map.erase(actor->get_name());
-  expanded_name_map.erase(actor->get_name());
+  managed_name_map.erase(name);
+  expanded_name_map.erase(name);
 
   // Delete the actor
   delete actor;
 
-  cout << "Manager::unmanage complete for " << actor->get_name() << endl;
+  cout << "Manager::unmanage complete for " << name << endl;
 }
