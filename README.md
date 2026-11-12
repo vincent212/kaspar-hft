@@ -4,7 +4,7 @@
     <strong>Production Trading System and Position-Aware Order Book Simulator</strong>
   </p>
   <p align="center">
-    Venue-independent &bull; CME MDP3 and iLink 3 included &bull; PCAP Replay &bull; POV Execution &bull; C++20
+    Venue-independent &bull; CME MDP3 and iLink 3 included &bull; TT FIX order routing &bull; PCAP Replay &bull; POV Execution &bull; C++20
   </p>
 </p>
 
@@ -16,25 +16,25 @@
   <a href="tech_reports/kaspar_onepager.pdf">one-pager</a>
 </p>
 
-**Kaspar-hft** takes a strategy through three stages on one code path: simulation from packet captures, paper trading on live market data, and live execution. It is a production trading system *and* a queue-position-accurate order-book simulator, built on a C++20 actor framework. It is not tied to one market: the feed handler and the order-entry session are pluggable, and it ships with CME's MDP3 market data and iLink 3 order entry pre-built and CME-certified. Equities or other venues need their own handlers for those two pieces; the book, simulator, actor framework and strategy code are the same.
+**Kaspar-hft** takes a strategy through three stages on one code path: simulation from packet captures, paper trading on live market data, and live execution. It is a production trading system *and* a queue-position-accurate order-book simulator, built on a C++20 actor framework. It is not tied to one market: the feed handler and the order-entry session are pluggable, and it ships with CME's MDP3 market data and iLink 3 order entry pre-built and CME-certified, plus order routing through Trading Technologies (TT) over FIX 4.4, TT-certified. Equities or other venues need their own handlers for those two pieces; the book, simulator, actor framework and strategy code are the same.
 
 ## Kaspar-hft highlights
 
 - **Low-latency actor framework:** No data races, no locks in your code, and almost no framework overhead.
-- **Backtest == production:** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live iLink 3; switching is a config change, so a backtest exercises the exact code path that will trade.
+- **Backtest == production:** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live trading through iLink 3 or TT FIX; switching is a config change, so a backtest exercises the exact code path that will trade.
 - **Venue-independent, CME included:** Feed handler and order-entry session are pluggable. The included MDP3 market-data handler and iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
-- **Trading Technologies FIX order routing:** Orders can also go out through TT over FIX 4.4, using QuickFIX, as an optional build ([ttom/README.md](ttom/README.md)).
+- **Trading Technologies FIX order routing, TT-certified:** In addition to iLink 3, orders can go out through TT over FIX 4.4, using QuickFIX, as an optional build ([ttom/README.md](ttom/README.md)).
 - **Shadow execution algorithm:** A model-free percentage-of-volume execution algorithm, passive and aggressive, measured on a year of ES data.
 - **Strategy authoring in C++ or Rust:** Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop.
 - **Two papers to dive deeper, more in the works:** The C++ actor framework design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
-- **Formal semantics for fast_send:** `fast_send` added to the actor model as a second primitive, with an operational semantics and proofs of what it keeps (isolation, determinism relative to replies) and what it costs (liveness holds unless actors wait on each other in a circle) — [paper draft (PDF)](https://github.com/vincent212/kaspar-hft/blob/feature/fpga-runtime/tech_reports/extended_actor_model/extended_actor_model.pdf).
+- **Formal semantics for fast_send:** `fast_send` added to the actor model as a second primitive, with an operational semantics and proofs of what it keeps (isolation, determinism relative to replies) and what it costs (liveness holds unless actors wait on each other in a circle) — [paper draft (PDF)](tech_reports/extended_actor_model/extended_actor_model.pdf).
 - **Async and sync (`fast_send`) delivery are interchangeable:** A handler is the same code either way, so the mapping of actors to threads can be decided at deployment and tuned for tail latency ([arXiv:2609.32848](https://arxiv.org/abs/2609.32848v1)).
 
 ---
 
 **Kaspar** is two things sharing one codebase.
 
-It is a **production trading system**: market data in, full order books reconstructed order-by-order, an execution algorithm on top, and order-entry sessions out. The feed handler and the order-entry session are the venue-specific pieces; the included CME pair (MDP3 multicast in, iLink 3 out — SBE encoding, HMAC authentication, sequence management and primary/secondary failover) is certified. Another venue plugs in its own handler and session.
+It is a **production trading system**: market data in, full order books reconstructed order-by-order, an execution algorithm on top, and order-entry sessions out. The feed handler and the order-entry session are the venue-specific pieces; the included CME pair (MDP3 multicast in, iLink 3 out — SBE encoding, HMAC authentication, sequence management and primary/secondary failover) is CME-certified. Orders can also go out through Trading Technologies over FIX 4.4 (TT-certified) in addition to iLink 3. Another venue plugs in its own handler and session.
 
 It is also a **position-aware order book simulator**: order books rebuilt from packet capture files, with your orders placed in the price-time queue and filled only when the market actually trades through them. Fills are inferred from exact queue accounting.
 
@@ -47,9 +47,9 @@ Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) —
 **Contact Vincent Mayeski:** 
 [LinkedIn](https://www.linkedin.com/in/vmayeski/) — [Email](mailto:mayeski@gmail.com) - [Substack](https://vincentmayeski.substack.com/)
 
-## Production-grade session handling — CME-certified
+## Production-grade session handling — CME- and TT-certified
 
-Kaspar's market-data and order-entry stacks are complete session implementations and both have passed **CME autocertification**. They implement the full protocol lifecycle and its edge cases — the recovery, reconnection, and failover logic a commercial SDK is sold to cover — so you don't hand-roll any of it.
+Kaspar's market-data and order-entry stacks are complete session implementations. The MDP3 market-data handler and the iLink 3 order-entry session have both passed **CME autocertification**; the TT FIX 4.4 order router is **TT-certified**. They implement the full protocol lifecycle and its edge cases — the recovery, reconnection, and failover logic a commercial SDK is sold to cover — so you don't hand-roll any of it.
 
 ## Build
 
@@ -62,6 +62,15 @@ Kaspar's market-data and order-entry stacks are complete session implementations
 ./build.sh debug         # debug build
 ./build.sh -C actors/cpp # build just one component
 ```
+
+## Tests
+
+```bash
+make test                 # unit tests
+make test USE_TTOM=y      # also the TT FIX order router tests (needs QuickFIX)
+```
+
+The tests use Google Test; if it is not found, point `GTEST_PATH` at it (`mk_kaspr/detect_paths.sh --check` reports what it finds).
 
 ## Run a simulation from scratch
 
@@ -100,11 +109,12 @@ with `=== sim complete ===`, and the `TOT PNL` line shows `ORD` and `FIL` above 
 
 ## Operating Modes
 
-| Mode | Data Source | Execution | Order Book | Use Case |
-|------|-----------|-----------|------------|----------|
-| **PCAP Replay** | `.pcap` files | SOM (simulated) | OB (MBP) | Backtesting, strategy development |
-| **Paper Trading** | Live CME multicast | SOM (simulated) | OB (MBP) | Forward testing with real data |
-| **Live Trading** | Live CME multicast | iLink 3 to CME | TachBook (MBO L3) | Production execution |
+| Mode | Market data | Orders go to | Use |
+|------|-------------|--------------|-----|
+| **PCAP Replay** | Recorded CME packets | Simulated fills | Backtesting, strategy development |
+| **Paper Trading** | Live CME multicast | Simulated fills | Forward testing with real data |
+| **Live, CME direct** | Live CME multicast | CME iLink 3 | Production execution |
+| **Live, via TT** | Live CME multicast | TT FIX 4.4 | Production execution through a TT account |
 
 
 ## Actor Framework
@@ -242,7 +252,10 @@ kaspr {
 
 | Document | Description |
 |----------|-------------|
-| [STRATEGY_SIMULATOR_GUIDE.md](STRATEGY_SIMULATOR_GUIDE.md) | Complete guide to all three operating modes |
+| [STRATEGY_SIMULATOR_GUIDE.md](STRATEGY_SIMULATOR_GUIDE.md) | Complete guide to the operating modes |
+| [sim/README.md](sim/README.md) | Running a simulation from a recording, and reading the output |
+| [ttom/README.md](ttom/README.md) | TT FIX 4.4 order router: build, configuration, tests |
+| [kaspr/perf/README.md](kaspr/perf/README.md) | Measuring market-data latency end to end |
 | [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) | Shadow execution algorithm specification |
 | [ACTORS_INVENTORY.md](ACTORS_INVENTORY.md) | Every actor in the system |
 | [FILE_STRUCTURE.md](FILE_STRUCTURE.md) | Complete file and directory inventory |
