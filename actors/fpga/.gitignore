@@ -2,3 +2,4 @@
 /group
 /cpu_fpga
 check_group_fast_send.log
+/link_burst

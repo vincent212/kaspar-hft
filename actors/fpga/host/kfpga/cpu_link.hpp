@@ -24,11 +24,17 @@
  * lane, so reply() goes back out through the window, still on the CPU actor's
  * thread.
  *
+ * A send never waits for the card. If the window is full, the envelope waits in
+ * the CpuEnd, in order, and the mailbox's poll loop sends it on as room appears:
+ * the same thread drains the lane, and a send that blocked could leave both sides
+ * waiting on each other.
+ *
  * send only. fast_send across the link would be a send plus a blocking wait;
  * a request and its reply are two messages.
  */
 
 #include <atomic>
+#include <deque>
 #include <cassert>
 #include <cstdio>
 #include <vector>
@@ -140,6 +146,20 @@ class CpuEnd : public actors::ExternalLane
   Peer peer_;
   std::atomic<uint32_t> errors_{0};
 
+  // Envelopes the window had no room for, oldest first. The CPU actor's thread is
+  // the only one that drains the lane, so it must never wait for room in the
+  // window: if the card is itself waiting for room in the lane, neither side would
+  // move again. So a send that does not fit waits here, and poll() sends it on as
+  // the card makes room.
+  std::deque<Envelope> pending_;
+  size_t most_pending_ = 0;
+
+  void flush() noexcept
+  {
+    while (!pending_.empty() && window_.write_nb(pending_.front()))
+      pending_.pop_front();
+  }
+
   void write(const actors::Message *m) noexcept
   {
     Envelope e;
@@ -150,7 +170,12 @@ class CpuEnd : public actors::ExternalLane
     }
     e.src = cpu_id_;
     e.dst = fpga_id_;
-    window_.write(e);
+    // In order: nothing overtakes an envelope already waiting.
+    if (!pending_.empty() || !window_.write_nb(e))
+    {
+      pending_.push_back(e);
+      most_pending_ = pending_.size() > most_pending_ ? pending_.size() : most_pending_;
+    }
   }
 
   CpuEnd(Fifo &window, Fifo &lane, actors::Actor *cpu, ActorId cpu_id, ActorId fpga_id,
@@ -181,9 +206,11 @@ public:
   // The CPU actor's reference to the FPGA actor.
   actors::ActorRef ref() { return actors::ActorRef(actors::ExternalActorRef(&peer_)); }
 
-  // Runs on the CPU actor's thread, from its FpgaLanes mailbox.
+  // Runs on the CPU actor's thread, from its FpgaLanes mailbox: sends what is
+  // waiting for the window, then delivers at most one message from the lane.
   bool poll() noexcept override
   {
+    flush();
     Envelope e;
     if (!lane_.read_nb(e))
       return false;
@@ -194,6 +221,10 @@ public:
 
   // Messages with no codec entry, in either direction.
   uint32_t errors() const { return errors_.load(std::memory_order_relaxed); }
+
+  // Envelopes waiting for room in the window now, and the most there have been.
+  size_t pending() const noexcept { return pending_.size(); }
+  size_t most_pending() const noexcept { return most_pending_; }
 };
 
 } // namespace kfpga

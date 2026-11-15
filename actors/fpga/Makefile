@@ -32,7 +32,7 @@ RPATH = -Wl,-rpath,$(dir $(realpath $(shell $(CXX) -print-file-name=libstdc++.so
 KFPGA = $(wildcard include/kfpga/*.hpp) $(wildcard examples/ping_pong/*.hpp)
 
 .PHONY: run check14 check_group_fast_send hls hls_csim hls_synth hls_cosim clean
-run: check14 check_group_fast_send fpga_to_fpga group cpu_fpga
+run: check14 check_group_fast_send fpga_to_fpga group cpu_fpga link_burst
 	./fpga_to_fpga
 	./group
 	./cpu_fpga
@@ -54,6 +54,11 @@ check_group_fast_send:
 	  echo "FAILED: fast_send to another group compiled"; exit 1; fi
 	@grep -q "fast_send only within a group" check_group_fast_send.log && rm -f check_group_fast_send.log && \
 	  echo "OK: fast_send to an actor in another group does not compile"
+
+# More messages in one handler than the link holds: the link must not deadlock.
+link_burst: examples/cpu_fpga/link_burst.cpp examples/cpu_fpga/*.hpp host/kfpga/*.hpp $(KFPGA) $(ACTORS_CPP)/libactors.a
+	$(CXX) $(HOST_FLAGS) -Iexamples/cpu_fpga $< -o $@ $(HOST_LIBS)
+	./link_burst 200 16
 
 cpu_fpga: examples/cpu_fpga/cpu_fpga.cpp examples/cpu_fpga/*.hpp host/kfpga/*.hpp $(KFPGA) $(ACTORS_CPP)/libactors.a
 	$(CXX) $(HOST_FLAGS) -Iexamples/cpu_fpga $< -o $@ $(HOST_LIBS)
