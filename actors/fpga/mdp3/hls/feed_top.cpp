@@ -85,7 +85,7 @@ static void igmp_task(Fifo &join, Fifo &joined, Fifo &queries, Fifo &listen, Wor
 
 #ifdef MDP3_SW
 // Plain g++, for whole recordings: one clock of the five processes, each task
-// called once, in the order of the flow (ACTORS.md).
+// called once, in the order of the flow (DESIGN.md).
 void mdp3_feed_tick(WordStream &frames, WordStream &words, Fifo &decoded, Fifo &kept, Fifo &window, Fifo &acks,
                     Fifo &out, Fifo &join, Fifo &joined, Fifo &queries, Fifo &listen, WordStream &tx)
 {

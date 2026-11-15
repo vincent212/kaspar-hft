@@ -21,7 +21,7 @@ MAC (channel A) -> FeedRx -> SbeDecoder -> Filter -> Batcher -> CPU: FpgaFeed ->
 - **Everything on the card is an actor.**
 - **The card joins the multicast group itself.** The port belongs to the FPGA, so the
   kernel cannot send the IGMP report for it; the Igmp actor does (IGMPv2), at the
-  CPU's JoinGroup, and answers the switch's queries (`mdp3/ACTORS.md`).
+  CPU's JoinGroup, and answers the switch's queries (`mdp3/include/mdp3fpga/igmp.hpp`).
 - **Only the card decodes.** Raw SBE never reaches the CPU.
 - **Channel A only.** No A/B arbitration.
 - **Books are built from MBP**, CME's market-by-price entries (template 46), not
@@ -224,7 +224,7 @@ dropped them or the capture did is not known.
 
 ## Still to build
 
-`mdp3/ACTORS.md` describes the handler as a whole, as it will run. These parts of it
+`mdp3/DESIGN.md` describes the handler as a whole. These parts of it
 exist only as design so far; everything else is built and tested in simulation.
 
 **Network side**
@@ -278,5 +278,5 @@ exist only as design so far; everything else is built and tested in simulation.
   our license file runs to Dec 28, 2026; the Vivado for Alveo package (to Oct 29,
   2027) is untested on it.
 - **Where the time goes.** The card's own part is tens of nanoseconds; the hop to
-  the CPU is PCIe, about 300 to 400 ns by estimate (`mdp3/ACTORS.md`). The large gain comes when the
+  the CPU is PCIe, about 300 to 400 ns by estimate. The large gain comes when the
   trigger runs on the card too.

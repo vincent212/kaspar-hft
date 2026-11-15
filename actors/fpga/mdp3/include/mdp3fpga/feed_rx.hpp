@@ -98,7 +98,7 @@
  * (CME does not fragment this feed). The MAC checks the FCS, but only at a frame's
  * last word, while FeedRx passes words on as they arrive; carrying its verdict to the
  * End line, so that the host treats a damaged frame as a gap, is not built yet
- * (ACTORS.md, "The MAC").
+ * (MDP3_PLAN.md).
  *
  * What arrives on the port, and joining the multicast group
  *

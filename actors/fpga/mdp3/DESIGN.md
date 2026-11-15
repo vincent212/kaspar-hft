@@ -21,8 +21,8 @@ lines. It keeps no order book: the host builds the MBP books from the events the
 Each actor takes one step per clock. FIFOs are declared at the top level and plugged
 into the processes. `SbeDecoder` and `FeedRx` run on `Group::step_stream`, their input
 being words and not messages; `Filter`, `Batcher` and `Igmp` run on `Group::step`, and
-Igmp on `step_stream` too while it writes a frame. `ACTORS.md` has each actor in
-detail, the MAC, and why the handler is on the card at all.
+Igmp on `step_stream` too while it writes a frame. Each actor's header documents it in
+detail.
 
 The top-level FIFOs between decoder and filter and between filter and batcher are 64
 envelopes deep.
@@ -225,7 +225,7 @@ A security status event also carries trading status, halt reason and trading eve
 
 The HLS target is 4 ns, 250 MHz, on one clock. At 8 bytes per clock this exceeds 10 GbE line
 rate. The MAC's 10 GbE stream runs at 156.25 MHz and crosses into this clock through an
-asynchronous FIFO, not yet built (`ACTORS.md`, "The MAC"). The four receive
+asynchronous FIFO, not yet built (`MDP3_PLAN.md`). The four receive
 actors were placed and routed at 3.37 ns, about 296 MHz, on the KU5P stand-in: 6,066 LUTs,
 13,413 flip-flops and 23 block RAMs, and on the card's own device, the XCUX35 at speed grade
 -3, at 3.32 ns, about 301 MHz: 5,824 LUTs, 13,511 flip-flops, 23 block RAMs. With Igmp added, the five actors on the XCUX35
