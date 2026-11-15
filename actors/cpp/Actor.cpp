@@ -5,6 +5,8 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
+#include <cstdio>
+#include <cstdlib>
 #include <list>
 #include <string>
 #include <typeinfo>
@@ -269,10 +271,26 @@ void Actor::reply(const Message *m) noexcept
   }
 }
 
+// A lane is polled by the thread that runs the mailbox. A member of a Group runs on
+// the group's thread, from the group's mailbox, so its lanes go there. Checked in
+// every build: a lane on a mailbox no thread polls would lose the card's messages
+// without a sign.
 void Actor::add_lane(ExternalLane *lane) noexcept
 {
+  if (is_part_of_group && group != nullptr)
+  {
+    group->add_lane(lane);
+    return;
+  }
   auto *q = std::get_if<FpgaLanes<MailboxMsg>>(&msgq);
-  assert(q != nullptr && "add_lane needs MailboxKind::FpgaLanes");
+  if (q == nullptr)
+  {
+    std::fprintf(stderr, "actors: add_lane on %s: its mailbox is not MailboxKind::FpgaLanes, so no thread "
+                         "would poll the card's lane. Call set_mailbox(MailboxKind::FpgaLanes) in its "
+                         "constructor (or its group's, if it is in a Group).\n",
+                 name);
+    std::abort();
+  }
   q->add_lane(lane);
 }
 
@@ -343,6 +361,11 @@ void Actor::set_group(Actor *pgroup)
 {
   is_part_of_group = true;
   group = pgroup;
+  // Lanes added before the actor joined move to the group's mailbox, which is
+  // the one the group's thread polls.
+  if (auto *q = std::get_if<FpgaLanes<MailboxMsg>>(&msgq))
+    for (ExternalLane *lane : q->take_lanes())
+      group->add_lane(lane);
 }
 
 Actor* Actor::get_group() const

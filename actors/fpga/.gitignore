@@ -4,3 +4,4 @@
 check_group_fast_send.log
 /link_burst
 /own_queue_full
+/lane_mailbox

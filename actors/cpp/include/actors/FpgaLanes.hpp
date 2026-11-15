@@ -8,6 +8,7 @@
  */
 
 #include <cstddef>
+#include <utility>
 #include <vector>
 #include "actors/LockFreeMPSC.hpp"
 
@@ -52,5 +53,7 @@ namespace actors
     // Add lanes before the owning thread starts.
     void add_lane(ExternalLane *lane) { lanes_.push_back(lane); }
     const std::vector<ExternalLane *> &lanes() const noexcept { return lanes_; }
+    // Hand the lanes over, leaving none: for an actor that joins a Group.
+    std::vector<ExternalLane *> take_lanes() { return std::exchange(lanes_, {}); }
   };
 }

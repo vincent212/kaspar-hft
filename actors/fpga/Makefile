@@ -32,7 +32,7 @@ RPATH = -Wl,-rpath,$(dir $(realpath $(shell $(CXX) -print-file-name=libstdc++.so
 KFPGA = $(wildcard include/kfpga/*.hpp) $(wildcard examples/ping_pong/*.hpp)
 
 .PHONY: run check14 check_group_fast_send hls hls_csim hls_synth hls_cosim clean
-run: check14 check_group_fast_send own_queue_full fpga_to_fpga group cpu_fpga link_burst
+run: check14 check_group_fast_send own_queue_full fpga_to_fpga group cpu_fpga link_burst lane_mailbox
 	./fpga_to_fpga
 	./group
 	./cpu_fpga
@@ -60,6 +60,19 @@ check_group_fast_send:
 	  echo "FAILED: fast_send to an unnamed target compiled"; exit 1; fi
 	@grep -q "has not named" check_group_fast_send.log && rm -f check_group_fast_send.log && \
 	  echo "OK: fast_send to a target not named with KFPGA_FAST_SEND does not compile"
+
+# More messages in one handler than the link holds: the link must not deadlock.
+link_burst: examples/cpu_fpga/link_burst.cpp examples/cpu_fpga/*.hpp host/kfpga/*.hpp $(KFPGA) $(ACTORS_CPP)/libactors.a
+	$(CXX) $(HOST_FLAGS) -Iexamples/cpu_fpga $< -o $@ $(HOST_LIBS)
+	./link_burst 200 16
+
+# A card's lane on an actor with no FpgaLanes mailbox, and on members of a Group.
+lane_mailbox: tests/lane_mailbox.cpp examples/cpu_fpga/*.hpp host/kfpga/*.hpp $(KFPGA) $(ACTORS_CPP)/libactors.a
+	$(CXX) $(HOST_FLAGS) -DNDEBUG -Iexamples/cpu_fpga $< -o $@ $(HOST_LIBS)
+	./lane_mailbox
+
+cpu_fpga: examples/cpu_fpga/cpu_fpga.cpp examples/cpu_fpga/*.hpp host/kfpga/*.hpp $(KFPGA) $(ACTORS_CPP)/libactors.a
+	$(CXX) $(HOST_FLAGS) -Iexamples/cpu_fpga $< -o $@ $(HOST_LIBS)
 
 # A group's own queue overflowing must stop a software build, NDEBUG included.
 own_queue_full: tests/own_queue_full.cpp $(KFPGA)

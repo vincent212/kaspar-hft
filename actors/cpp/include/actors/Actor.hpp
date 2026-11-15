@@ -171,9 +171,11 @@ namespace actors
     void reply(const Message *m) noexcept;
 
     /**
-     * Add a lane the card writes into. Needs MailboxKind::FpgaLanes; call
-     * before the actor's thread starts. For a Group, add the lanes to the
-     * group: its thread owns the mailbox.
+     * Add a lane the card writes into, before the actor's thread starts. For a
+     * member of a Group the lane goes to the group's mailbox, the one its thread
+     * polls, whether the actor joins before or after; the group, or a lone
+     * actor, needs MailboxKind::FpgaLanes. Without it the program stops with a
+     * message, in every build.
      */
     void add_lane(ExternalLane *lane) noexcept;
 
