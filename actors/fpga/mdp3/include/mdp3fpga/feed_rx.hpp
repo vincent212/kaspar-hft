@@ -88,6 +88,38 @@
  *
  * Not checked: IP and UDP checksums (the MAC drops damaged frames), and IP
  * fragments (CME does not fragment this feed).
+ *
+ * What arrives on the port, and joining the multicast group
+ *
+ *   What reaches the card's port depends on the switch in front of it. A switch
+ *   with IGMP snooping forwards a multicast group only to the ports that have
+ *   joined it; one without floods every group on the VLAN. FeedRx is correct
+ *   either way, since it keeps one group and port and drops the rest, but flooding
+ *   spends the card's input on traffic it discards. This box takes CME on VLANs
+ *   (feed A on 3008 in pcap/record_310.sh), hence the 802.1Q handling.
+ *
+ *   Nothing on the card joins the group yet. On a normal NIC the kernel does it:
+ *   a socket joins, and the kernel sends an IGMP membership report out of that NIC.
+ *   Here the port belongs to the FPGA, so the kernel cannot send through it, and the
+ *   card only receives. With IGMP snooping on the switch, no CME traffic would
+ *   reach the card.
+ *
+ *   Joining from the CPU through another NIC does not work: the switch would
+ *   forward the group to that NIC's port, not the card's. The report has to leave
+ *   through the card's own port. The plan:
+ *
+ *     - the CPU keeps the IGMP logic: it builds the membership report (IGMPv2 or
+ *       v3, as the switch expects) and answers queries, on its own timers;
+ *     - the card sends what the CPU gives it: a small transmit path to the MAC,
+ *       taking a whole frame from the host and sending it unchanged;
+ *     - FeedRx passes IGMP queries (IPv4 protocol 2) up to the CPU instead of
+ *       dropping them, so it can answer.
+ *
+ *   The alternative needs no card logic: the switch is configured to send the
+ *   group to the card's port statically. That depends on whoever runs the switch,
+ *   and is lost silently if the configuration changes.
+ *
+ *   Not built yet: the transmit path, and passing queries up.
  */
 
 #include <ap_int.h>
