@@ -106,20 +106,43 @@
  *
  *   Joining from the CPU through another NIC does not work: the switch would
  *   forward the group to that NIC's port, not the card's. The report has to leave
- *   through the card's own port. The plan:
+ *   through the card's own port, so IGMP belongs on the card. The plan:
  *
- *     - the CPU keeps the IGMP logic: it builds the membership report (IGMPv2 or
- *       v3, as the switch expects) and answers queries, on its own timers;
- *     - the card sends what the CPU gives it: a small transmit path to the MAC,
- *       taking a whole frame from the host and sending it unchanged;
- *     - FeedRx passes IGMP queries (IPv4 protocol 2) up to the CPU instead of
- *       dropping them, so it can answer.
+ *     - an Igmp actor on the card sends the membership report for each configured
+ *       group at start, answers the switch's queries, and sends a leave when a
+ *       group is removed (IGMPv2 or v3, as the switch expects);
+ *     - FeedRx passes IGMP queries (IPv4 protocol 2) to Igmp instead of dropping
+ *       them;
+ *     - a small transmit path takes Igmp's frames to the MAC;
+ *     - the CPU only says which groups: a message per group and port over the same
+ *       link that loads the security table, answered by an ack. FeedRx and Igmp
+ *       take their group and port from it, in place of the build-time values.
  *
  *   The alternative needs no card logic: the switch is configured to send the
  *   group to the card's port statically. That depends on whoever runs the switch,
  *   and is lost silently if the configuration changes.
  *
- *   Not built yet: the transmit path, and passing queries up.
+ * One channel
+ *
+ *   FeedRx keeps one group and port: channel A of one CME channel. Several channels
+ *   need:
+ *
+ *     - FeedRx: a table of group and port pairs, compared in parallel as Filter
+ *       compares security ids, giving each kept frame a channel index;
+ *     - the channel index carried with the packet through SbeDecoder, Filter and
+ *       Batcher, and in the closing line, since the host checks sequence numbers
+ *       per channel and a channel reset applies to that channel's securities only;
+ *     - Igmp: one membership report per group;
+ *     - the host: a sequence check and gap flag per channel.
+ *
+ *   SbeDecoder needs no change of its own: it holds no state from one packet to the
+ *   next, so packets of different channels may interleave freely. Throughput is not
+ *   the limit: at 8 bytes a clock and 250 MHz the decoder takes 16 Gbit/s, more than
+ *   one 10 GbE port delivers. Channels arriving on different ports would need a
+ *   FeedRx per port and an actor that merges whole frames into the decoder.
+ *
+ *   Not built yet: Igmp, the transmit path, passing queries up, groups set by the
+ *   CPU, and more than one channel.
  */
 
 #include <ap_int.h>
