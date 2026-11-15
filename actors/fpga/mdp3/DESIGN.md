@@ -13,7 +13,7 @@ lines. It keeps no order book: the host builds the MBP books from the events the
 |---|---|---|---|
 | **FeedRx** | Ethernet frames, 64-bit words | UDP payloads of one group and port, realigned | header words, offset, payload bytes left |
 | **SbeDecoder** | UDP payload words | one message per entry, EndOfPacket | window, parser state, entry register |
-| **Filter** | decoder messages; WantContract from the host | PackedEvent, EndOfPacket; WantAck to the host | contract table |
+| **Filter** | decoder messages; WantSecurity from the host | PackedEvent, EndOfPacket; WantAck to the host | contract table |
 | **Batcher** | PackedEvent, EndOfPacket | EventLine | the line being filled |
 | **FpgaFeed** (host) | lines | packets to the strategy | line buffer, books |
 
@@ -45,12 +45,12 @@ sends these to `Filter`:
 
 | handler | what it does |
 |---|---|
-| `on_book` | drops implied entries and unwanted contracts, packs the rest, sends `PackedEvent` |
-| `on_trade` | sends `PackedEvent` if the contract is wanted |
+| `on_book` | drops implied entries and unwanted security ids, packs the rest, sends `PackedEvent` |
+| `on_trade` | sends `PackedEvent` if the security id is wanted |
 | `on_status` | always sends `PackedEvent`: CME sends status for the group, with a null security id |
-| `on_reset` | always sends `PackedEvent`: a reset affects every contract |
+| `on_reset` | always sends `PackedEvent`: a reset affects every security |
 | `on_end` | always forwards `EndOfPacket` |
-| `on_want` | stores a contract in the table, replies `WantAck` to the host |
+| `on_want` | stores a security id in the table, replies `WantAck` to the host |
 
 `Batcher` handlers:
 
@@ -63,7 +63,7 @@ sends these to `Filter`:
 
 | handler | what it does |
 |---|---|
-| `on_start` | sends `WantContract` for each contract, to load the filter table |
+| `on_start` | sends `WantSecurity` for each security id, to load the filter table |
 | `on_ack` | counts acks until the table is loaded |
 | `on_line` | copies the line's events to a buffer |
 | `on_line`, End line | checks the sequence number, sets the gap flag on a skip, applies the packet's events to the books, and calls the strategy once if there were events |
@@ -150,15 +150,15 @@ recovery from the snapshot feed.
 takes one step. It:
 
 - drops implied entries, keeping outright bids, offers and book resets
-- drops contracts outside the table
+- drops security ids outside the table
 - packs each surviving event to 16 bytes
 - passes channel resets and security status always. CME sends status for the group, with
   a null security id, and the host's books use it for halt state
 - passes EndOfPacket always, so the host sees every packet's sequence number
 
-The host fills the table at start through its own link: one WantContract per contract, each
+The host fills the table at start through its own link: one WantSecurity per security id, each
 answered by a WantAck. It sends no market data until every entry is acknowledged, and the
-index it assigns is the contract's number in every later event.
+index it assigns is the security's number in every later event.
 
 ## Batcher
 
@@ -186,7 +186,7 @@ sleeps and nothing is woken, and the kernel is not on the receive path.
 | End line | 334-336 | the packet's sequence number and 0 to 2 events; the id gives the number |
 | `WantAck` | 339 | table index |
 
-From the host, `WantContract` (338): table index and security id.
+From the host, `WantSecurity` (338): table index and security id.
 
 ### Event format
 
@@ -199,7 +199,7 @@ Each event is 16 bytes:
 | 63..0 | price mantissa, exponent -9 |
 | 95..64 | size |
 | 111..96 | order count |
-| 119..112 | contract, the index in the filter's table |
+| 119..112 | security index: the security's index in the filter's table |
 | 123..120 | level, or the kind of an action 7 event |
 | 126..124 | action: MDUpdateAction 0 to 5, 6 trade, 7 other |
 | 127 | 1 for an offer; for a trade, set if the aggressor is the seller |
@@ -210,9 +210,11 @@ A security status event also carries trading status, halt reason and trading eve
 ## Clocks and timing
 
 The HLS target is 4 ns, 250 MHz, on one clock. At 8 bytes per clock this exceeds 10 GbE line
-rate. Crossing from the MAC's clock domain, if it differs, is not yet designed. Decoder,
-filter and batcher were placed and routed at 3.37 ns on the KU5P stand-in, before the End
-flag, the table loading and FeedRx were added.
+rate. Crossing from the MAC's clock domain, if it differs, is not yet designed. The four
+actors were placed and routed at 3.37 ns, about 296 MHz, on the KU5P stand-in: 6,066 LUTs,
+13,413 flip-flops and 23 block RAMs, and on the card's own device, the XCUX35 at speed grade
+-3, at 3.32 ns, about 301 MHz: 5,824 LUTs, 13,511 flip-flops, 23 block RAMs. The channel A group and port in FeedRx are set at build
+time.
 
 ## Outside this design
 
