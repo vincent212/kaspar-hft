@@ -32,7 +32,7 @@ RPATH = -Wl,-rpath,$(dir $(realpath $(shell $(CXX) -print-file-name=libstdc++.so
 KFPGA = $(wildcard include/kfpga/*.hpp) $(wildcard examples/ping_pong/*.hpp)
 
 .PHONY: run check14 check_group_fast_send hls hls_csim hls_synth hls_cosim clean
-run: check14 check_group_fast_send own_queue_full fpga_to_fpga group cpu_fpga link_burst lane_mailbox
+run: check14 check_group_fast_send own_queue_full fpga_to_fpga group cpu_fpga link_burst lane_mailbox peer_thread
 	./fpga_to_fpga
 	./group
 	./cpu_fpga
@@ -70,6 +70,11 @@ link_burst: examples/cpu_fpga/link_burst.cpp examples/cpu_fpga/*.hpp host/kfpga/
 lane_mailbox: tests/lane_mailbox.cpp examples/cpu_fpga/*.hpp host/kfpga/*.hpp $(KFPGA) $(ACTORS_CPP)/libactors.a
 	$(CXX) $(HOST_FLAGS) -DNDEBUG -Iexamples/cpu_fpga $< -o $@ $(HOST_LIBS)
 	./lane_mailbox
+
+# A link's window has one writer thread.
+peer_thread: tests/peer_thread.cpp examples/cpu_fpga/*.hpp host/kfpga/*.hpp $(KFPGA) $(ACTORS_CPP)/libactors.a
+	$(CXX) $(HOST_FLAGS) -DNDEBUG -Iexamples/cpu_fpga $< -o $@ $(HOST_LIBS)
+	./peer_thread
 
 cpu_fpga: examples/cpu_fpga/cpu_fpga.cpp examples/cpu_fpga/*.hpp host/kfpga/*.hpp $(KFPGA) $(ACTORS_CPP)/libactors.a
 	$(CXX) $(HOST_FLAGS) -Iexamples/cpu_fpga $< -o $@ $(HOST_LIBS)

@@ -24,6 +24,10 @@
  * lane, so reply() goes back out through the window, still on the CPU actor's
  * thread.
  *
+ * Sends to the card may come from more than one thread: a CPU actor's handlers
+ * can run on the thread of a caller's fast_send, and its reference can be passed
+ * on. They are serialized in the CpuEnd, so the window keeps one writer at a time.
+ *
  * A send never waits for the card. If the window is full, the envelope waits in
  * the CpuEnd, in order, and the mailbox's poll loop sends it on as room appears:
  * the same thread drains the lane, and a send that blocked could leave both sides
@@ -34,7 +38,9 @@
  */
 
 #include <atomic>
+#include <cstdlib>
 #include <deque>
+#include <thread>
 #include <cassert>
 #include <cstdio>
 #include <vector>
@@ -160,6 +166,24 @@ class CpuEnd : public actors::ExternalLane
       pending_.pop_front();
   }
 
+  // The window is a ring with one writer, and pending_ is shared by write() and
+  // poll(). A CPU actor's handlers can run on more than one thread (a fast_send
+  // runs the handler on the caller's thread), and the actor reference can be
+  // passed on, so sends to the card are serialized here: a short spin lock,
+  // uncontended in the usual case of one sending thread.
+  std::atomic_flag busy_ = ATOMIC_FLAG_INIT;
+
+  struct Hold
+  {
+    std::atomic_flag &f;
+    explicit Hold(std::atomic_flag &flag) : f(flag)
+    {
+      while (f.test_and_set(std::memory_order_acquire))
+        cpu_relax();
+    }
+    ~Hold() { f.clear(std::memory_order_release); }
+  };
+
   void write(const actors::Message *m) noexcept
   {
     Envelope e;
@@ -170,6 +194,7 @@ class CpuEnd : public actors::ExternalLane
     }
     e.src = cpu_id_;
     e.dst = fpga_id_;
+    Hold hold(busy_);
     // In order: nothing overtakes an envelope already waiting.
     if (!pending_.empty() || !window_.write_nb(e))
     {
@@ -210,7 +235,11 @@ public:
   // waiting for the window, then delivers at most one message from the lane.
   bool poll() noexcept override
   {
-    flush();
+    if (!busy_.test_and_set(std::memory_order_acquire))   // a sender has it: flush next pass
+    {
+      flush();
+      busy_.clear(std::memory_order_release);
+    }
     Envelope e;
     if (!lane_.read_nb(e))
       return false;
