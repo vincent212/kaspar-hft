@@ -229,7 +229,7 @@ asynchronous FIFO, not yet built (`ACTORS.md`, "The MAC"). The four receive
 actors were placed and routed at 3.37 ns, about 296 MHz, on the KU5P stand-in: 6,066 LUTs,
 13,413 flip-flops and 23 block RAMs, and on the card's own device, the XCUX35 at speed grade
 -3, at 3.32 ns, about 301 MHz: 5,824 LUTs, 13,511 flip-flops, 23 block RAMs. With Igmp added, the five actors on the XCUX35
-met 250 MHz at 3.29 ns, about 304 MHz: 6,100 LUTs, 14,431 flip-flops, 23 block RAMs.
+met 250 MHz at 3.47 ns, about 288 MHz: 6,024 LUTs, 14,361 flip-flops, 23 block RAMs.
 
 ## Test harness
 

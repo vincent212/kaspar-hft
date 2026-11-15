@@ -133,8 +133,12 @@ reason and trading event. A packet of 44 events is 15 lines.
 
 The g++ test paces frames as 10 GbE delivers them to a 250 MHz design and reports
 the clocks from a frame's last word reaching the card to its End line leaving,
-queues included. Co-simulation confirms the cycle counts on the Verilog. Latency is
-no longer carried in the messages.
+queues included. That model runs each actor's step in turn within one clock, so its
+FIFOs cost nothing and the actors' pipeline depth is not counted. Co-simulation of the
+Verilog checks the output (the busiest 2,000 packets: 0 differ) but has not measured the
+latency; from the synthesis report, the pipelines add about 12 clocks and the FIFOs about
+4, so on the card the 8 clocks become about 25. Measuring it in co-simulation is still to
+do. Latency is no longer carried in the messages.
 
 | level | what is measured | status |
 |---|---|---|
@@ -193,7 +197,7 @@ the Nov 1 session (30,044,560 packets). Not yet on a card.
 | end to end: real FpgaFeed actor on its FpgaLanes mailbox, card on a SoftCard | first 3,000,000 packets of 344, six security ids: **0 differ**, 0 codec errors |
 | place and route, all four actors, KU5P stand-in | **250 MHz met; 3.37 ns, about 296 MHz**; 6,066 LUTs, 13,413 flip-flops, 23 block RAM |
 | place and route, all four actors, XCUX35 -3 | **250 MHz met; 3.32 ns, about 301 MHz**; 5,824 LUTs, 13,511 flip-flops, 23 block RAM |
-| place and route, five actors with Igmp, XCUX35 -3 | **250 MHz met; 3.29 ns, about 304 MHz**; 6,100 LUTs, 14,431 flip-flops, 23 block RAM; every task II = 1 |
+| place and route, five actors with Igmp, XCUX35 -3 | **250 MHz met; 3.47 ns, about 288 MHz**; 6,024 LUTs, 14,361 flip-flops, 23 block RAM; every task II = 1 |
 | Igmp, on the whole card in g++ | join, repeats, queries (with and without Router Alert and VLAN tag), leave: every frame byte for byte against frames built from the RFCs; tcpdump confirms the checksums |
 
 **Crossed books on security 42001080** (676 of 5,880,919 packet ends; 591 before

@@ -2,8 +2,8 @@
 
 *The MDP3 implementation*
 
-[Kaspar-HFT](https://github.com/vincent212/kaspar-hft) is an open-source trading system,
-with CME futures built in. It is a production system and an order-book simulator on one
+[Kaspar-HFT](https://github.com/vincent212/kaspar-hft) is an open-source 
+production system and an order-book simulator on one
 code path: the same strategy runs on recorded packets, paper trades on live data, and
 trades live, and its MDP3 market data handler and iLink 3 order entry have passed CME's
 certification. Everything in it is an actor: an object that owns its state and talks to others only
@@ -60,7 +60,7 @@ application's own thread does, polling the next descriptor until it fills.
   API, does the protocol processing the kernel would have done. Onload is a generic,
   shrink-wrapped way of not using the kernel's TCP/IP code. It is the same work, for the
   same protocols, offered to any application unchanged, moved out of the kernel into a
-  library so that it runs without system calls, copies or interrupts.
+  library so that it runs without system calls or interrupts.
 - **ef_vi** is the layer beneath Onload, Solarflare's interface to the NIC's *virtual
   interfaces*. An application opens one and gets its receive ring and buffers directly:
   raw frames, with no sockets and no protocol code. Everything above Ethernet is the
@@ -108,7 +108,8 @@ number.
 
 There are no locks and no atomic operations. A 64-byte read is not atomic and does not
 need to be: the reader only waits for the 4-byte sequence number, an ordinary aligned
-load, and the writer makes sure that number lands last. PCIe delivers writes in order,
+load, and the writer makes sure that number lands last. PCIe delivers writes in order
+(with relaxed ordering off for them, which the DMA engine is configured to do),
 so the card's DMA engine writes the sequence number as a separate write after the rest
 of the slot. Nothing else is on the receive path: no driver, no
 socket, no protocol library, no interrupt.
@@ -120,15 +121,15 @@ socket, no protocol library, no interrupt.
 | instruments not traded | decoded, then discarded, on the CPU | decoded, then discarded, on the CPU | discarded by Filter; never cross PCIe |
 | crosses PCIe | every frame | every frame | 64-byte lines of wanted events only |
 | CPU work for a packet | interrupt, protocol, copy, system call, decode, books | poll, protocol, decode, books | poll; after the last byte, at most two events |
-| multicast join (IGMP) | kernel | kernel, through the NIC's driver | the Igmp actor, on the card |
-| delay after a packet's last byte | grows with the packet and the queue | grows with the packet and the queue | fixed: at most 32 ns on the card, then one PCIe write |
+| multicast join (IGMP) | kernel | kernel (Onload, ef_vi), or the application itself (DPDK) | the Igmp actor, on the card |
+| delay after a packet's last byte | grows with the packet and the queue | grows with the packet and the queue | the same for every packet: about 100 ns on the card, then the PCIe transfer |
 
 The difference comes from four properties.
 
 - **Bounded by construction.** Every actor on the card takes one step per clock, in
   lockstep with the wire, so nothing queues. Over all 30,044,560 packets of a CME
-  session, the End line left the card at most 8 clocks (32 ns) after the packet's last
-  byte, with at most one word ever waiting.
+  session, the work left after a packet's last byte never grew with the packet (see
+  "Long packets" below).
 - **The work overlaps the arrival.** By the time a packet's last byte arrives, every
   entry before it has been decoded, filtered and packed, and its full lines are already
   in host memory. A software handler cannot start until the NIC has delivered the
@@ -139,9 +140,9 @@ The difference comes from four properties.
   written by the card and polled by one core. There is nothing generic left in it to
   tune or to bypass.
 
-What remains after the last byte is fixed: the card's few clocks, one PCIe posted write
-(about 300 to 400 ns), and at most two
-events applied on the CPU. Section "Long packets" below has the measurements.
+What remains after the last byte is the same for every packet: about 100 ns on the card,
+the PCIe transfer (about 300 to 400 ns, an estimate), and at most two events applied on
+the CPU. Section "Long packets" below has the numbers.
 
 ## The actors
 
@@ -174,18 +175,20 @@ and those are their only connection: a message sent is one write into a FIFO. Al
 run at the same time, so while Batcher handles one event, Filter handles the next,
 SbeDecoder reads the next 8 bytes and FeedRx the next part of a frame.
 
-FeedRx and SbeDecoder take raw 8-byte words rather than messages, since wrapping each
-word in a 64-byte message would waste the link; the other actors have message handlers,
-written the way a Kaspar-HFT actor on the CPU writes them.
+FeedRx and SbeDecoder take their data as raw 8-byte words rather than messages, since
+wrapping each word in a 64-byte message would waste the link; their few control messages,
+and everything the other actors take, go to message handlers written the way a
+Kaspar-HFT actor on the CPU writes them.
 
 The design takes one step per clock in every actor and was placed and routed on the
-card's chip, an AMD XCUX35, at 3.29 ns, about 300 MHz. It runs at 250 MHz, using about
-6,100 lookup tables, 14,400 flip-flops and 23 block RAMs, under 1% of the chip.
+card's chip, an AMD XCUX35, at 3.47 ns, about 288 MHz. It runs at 250 MHz, using about
+6,000 lookup tables, 14,400 flip-flops and 23 block RAMs, under 1% of the chip.
 
 **Testing it.** The same actor code also compiles as ordinary C++, with each actor's
 step called once per simulated clock. That runs a whole recorded session through the
-card, clock by clock, which is how every result in this article was checked
-before the generated hardware was simulated.
+card, clock by clock; the session results in this article come from that model. The
+generated hardware was then simulated on the busiest 2,000 consecutive packets of the
+session and produced the same output.
 
 ## From the fibre to FeedRx: the MAC
 
@@ -207,7 +210,8 @@ part of our design. Three layers turn light on a fibre into Ethernet frames.
 All three come from one block in AMD's Vivado IP catalogue, the 10G/25G Ethernet
 Subsystem, configured for low latency. It is built into the FPGA alongside the actors:
 the transceiver is a hard block of the chip, and the PCS and MAC are ordinary FPGA logic
-next to FeedRx. Out of it comes each frame as a stream of 8-byte words at 156.25 MHz. Sending
+next to FeedRx. Configured for 64-bit words, it delivers each frame as 8-byte words at
+156.25 MHz. Sending
 works the same way in reverse: the MAC takes a frame as words, adds the preamble, pads
 it to Ethernet's 60-byte minimum, appends the CRC, and the lower layers put it on the
 fibre. The only frames this card sends are Igmp's.
@@ -218,9 +222,9 @@ Two details join the MAC to the actors.
   and the MAC hands it over 64 bits at a time, so it needs 10 Gbit/s / 64 = 156.25 MHz.
   The actors run on a clock of their own, 250 MHz, chosen for them. At 8 bytes a clock
   that is 16 Gbit/s, more than the wire can deliver, so the actors always keep up, and
-  each clock is 4 ns instead of 6.4: the card's 8 clocks after a packet's last byte are
-  32 ns, where at the MAC's clock they would be 51. A small asynchronous FIFO carries the
-  words from one clock to the other, in each direction, for a few nanoseconds.
+  each clock is 4 ns instead of 6.4, so every clock of work after a packet's last byte
+  costs less. A small asynchronous FIFO carries the words from one clock to the other, in
+  each direction, at a cost of a few clocks.
 - **A bad frame is known only at its end.** FeedRx and SbeDecoder act on each word as it
   arrives; that is where the low latency comes from. So when the CRC turns out to be bad,
   the frame's entries have already been decoded. The MAC's verdict therefore rides along
@@ -365,9 +369,10 @@ that port, so the FPGA sends it. Igmp is the actor that does, speaking IGMP vers
 At start, FpgaFeed sends Igmp the group to join. Igmp tells FeedRx to accept it and sends
 the switch a membership report. From then on the switch asks every couple of minutes
 which groups are still wanted; FeedRx passes each query to Igmp, which answers with a
-fresh report. On shutdown, Igmp sends a leave and the data stops.
+fresh report. When the CPU leaves the group, Igmp sends a leave and the data stops.
 
-A report is a single 60-byte frame, the same one Linux sends when set to IGMP version 2,
+A report is a single 60-byte frame, built to RFC 2236; tcpdump reads every one as a valid
+IGMPv2 report,
 and Igmp is idle apart from a few frames at start and one every couple of minutes after.
 
 ## SbeDecoder
@@ -384,7 +389,7 @@ fixed length, because of repeating groups. Here is a book update message, templa
 | *n* entries | 32 each | price, size, security id, orders, price level, action, side, ... |
 | a second group | 24 per order | the order list (MBO): each order's id, queue priority and visible quantity |
 
-A repeating group is just that: a 3-byte header saying how big each entry is and how many
+A repeating group is just that: a header (3 bytes here) saying how big each entry is and how many
 follow, then the entries back to back. The first group is the price-level (MBP, market by
 price) book: each entry is one level's new price, total quantity and order count. The
 second lists the individual orders behind those changes, the order-by-order (MBO, market
@@ -392,11 +397,14 @@ by order) view, which CME also sends whole in a message of its own, template 47.
 
 This handler is MBP only, as an example: price-level books, the top ten levels a side,
 are what Kaspar-HFT's strategies trade on, so the decoder skips the order list and
-template 47 by their sizes. MBO is no harder. The card builds no book, so it does not
-need to track orders: it would decode the order entries the same way, keep those of
+template 47 by their sizes. MBO is not much harder. The card builds no book, so it does
+not need to track orders: it would decode the order entries the same way, keep those of
 wanted securities, and pass them to the CPU, where Kaspar-HFT's MBO book is built. The
-only differences are that an order entry is larger, so one goes in a line instead of
-three, and that there are many more of them. When one event changes ten price levels, CME sends
+differences are in the details. An order entry is larger (40 bytes in template 47), so
+the decoder's register grows and one entry goes in a line instead of three. The order
+list in template 46 carries no security id: each order points to a price entry of the
+same message, so Filter has to remember which price entries it kept. And there are many
+more order events than price-level ones. When one event changes ten price levels, CME sends
 one message with ten entries; a quiet update has one. A trade message has the same shape,
 with one entry per trade. A packet can hold several messages, one after another.
 
@@ -409,11 +417,12 @@ it is counted. Three counters, loaded from the wire, decide what comes next:
 - entries left in the group, loaded from the group header;
 - bytes left in the current entry, loaded from the entry size in the group header.
 
-Take a book update with ten entries:
+Take a book update with ten entries. The decoder takes one step per clock while bytes are
+waiting; on a 10 GbE wire it waits between steps for the bytes to arrive:
 
 ![The decoder walking through a book update](figures/decoder_walk.png)
 
-| clocks | bytes | what happens |
+| steps | bytes | what happens |
 |---|---|---|
 | 1 to 2 | 10 | message header: the template is 46, so the message is read; message counter loaded |
 | 3 to 4 | 11 | root block |
@@ -468,7 +477,8 @@ straight into the array, with no lookup on its side either.
 **What is kept.** Book entries and trades of securities in the table. Implied entries,
 the prices CME derives from spread orders, are dropped too, since the books here are
 the outright ones. A few things always pass, whatever the security: security status
-(CME sends it for a whole group of securities, without an id, and every book needs it
+(in the recordings CME sends it for a whole group of securities, without an id, and every
+book needs it
 for halts and the opening), channel resets, which clear every book, and the end of each
 packet, so the CPU sees every sequence number and can detect a gap even in a packet
 with nothing for it.
@@ -502,12 +512,12 @@ line:
 | a full packet, 44 updates, all ours | 44 | 15: fourteen full lines, then the End line with 2 |
 | a full packet, none of it ours | 0 | 1: End line, empty |
 
-A packet holds at most about 1,420 bytes, and a book entry is 32, so about 44 entries is
+A packet holds at most about 1,420 bytes, and a book entry is 32, so after the headers about 43 entries is
 the most any packet can carry.
 
 The wire, not the card, sets the pace. The decoder needs four clocks for an entry, so
 three events take at least twelve clocks, 48 ns; the same three entries take 77 ns to
-arrive on a 10 GbE link. On one full session of channel 344, with the six busiest
+arrive on a 10 GbE link. On one full session of channel 344, with six
 securities in the table:
 
 | | |
@@ -527,14 +537,17 @@ simulation of the card, fed at the 10 GbE wire rate:
 
 | | |
 |---|---|
-| last byte of a packet in, to its End line out | mean 5.2 clocks, **maximum 8 clocks, 32 ns** |
-| most words ever waiting inside the card | 1 |
+| last byte of a packet into FeedRx, to its End line out of Batcher | mean 5.2 clocks, maximum 8 clocks |
 
-The maximum holds for the longest packets as well as the shortest. A long packet takes
+That model runs each actor's step in turn within a clock. In the generated hardware each
+actor is a pipeline a few clocks deep (12 clocks across the four, from the synthesis
+report) and each FIFO between them adds about one more, so on the card the figure is
+about 25 clocks, some 100 ns: an estimate, and the same for every packet. The maximum
+holds for the longest packets as well as the shortest. A long packet takes
 longer to *arrive*, not longer to *process*: by its last byte everything before it has
 been decoded, filtered and packed, and its full lines have gone. Nothing queues.
 
-How long the long packets are, with the six busiest securities in the table:
+How long the long packets are, with six securities in the table:
 
 | events for us in one packet | packets |
 |---|---|
@@ -551,19 +564,21 @@ wire:
 | step | time | grows with the packet? |
 |---|---|---|
 | arriving on the 10 GbE wire | about 1.0 µs | yes: that is the wire |
-| the card, after the last byte | at most 32 ns | no |
-| PCIe, card to host memory, and the CPU seeing it | about 300 to 400 ns | no |
-| the CPU, after the End line: the last 0 to 2 events | about 35 ns measured on a 2014 Xeon; under 10 ns expected on a current server | no: the other 35 were applied as their lines arrived |
+| the card, after the last byte | about 100 ns | no |
+| PCIe, card to host memory, and the CPU seeing it | about 300 to 400 ns, an estimate | no |
+| the CPU, after the End line: the last event | about 17 ns measured on a 2014 Xeon; a few ns expected on a current server | no: the other 36 were applied as their lines arrived |
 
 The CPU's share stays small because its work overlaps the arrival too. The full lines of
 a long packet reach the CPU while the packet is still coming in, and FpgaFeed applies
 each one to the books as it lands, so when the End line arrives at most two events are
-left. Applying all 37 at the end instead took 644 ns on the 2014 Xeon it was measured
-on, and would take perhaps a quarter of that on a current server.
+left. Applying all 37 at the end instead took about 640 ns at the median on the 2014 Xeon it
+was measured on (`host/bench_books.cpp`), and would take perhaps a quarter of that on a
+current server.
 
-**In sum,** the strategy has the updated book about 400 ns after the packet's last byte
-arrives, however long the packet: at most 32 ns on the card, about 350 ns for PCIe, and a
-few nanoseconds for the last events on a current server's CPU.
+**In sum,** the strategy has the updated book under half a microsecond after the packet's
+last byte reaches the card, however long the packet: about 100 ns on the card, about
+350 ns for PCIe, and a few nanoseconds for the last events on a current server's CPU.
+The transceiver and MAC add their own fixed delay before the last byte reaches FeedRx.
 
 The PCIe figure comes from Orthogone, whose low-latency PCIe DMA controller is quoted at
 about 644 ns for a round trip on this card, the X3522PV (Gen4 x8, 32-byte payload, a Xeon
@@ -580,7 +595,8 @@ nothing is woken: the thread polls, on a core of its own.
 
 **At start** it sets up the card. It loads Filter's table, one message per security, and
 asks Igmp to join the group. Each is acknowledged, and when all are, FpgaFeed reports that
-it is ready; the switch is by then sending the group to the card, and market data starts
+it is ready; the report is on the wire, the switch starts sending the group to the card
+as soon as it has taken it in, and market data starts
 to flow.
 
 **The books are built as the packet arrives.** A full line is applied to the books the
@@ -605,17 +621,18 @@ packet and with whatever is queued behind it. That is the tail.
 On the card, the packet is decoded, filtered and packed as it arrives, and the books on
 the CPU are updated line by line while the rest of the packet is still on the wire. The
 longest packet in a full CME session takes about a microsecond to arrive; the strategy
-has the updated book about 400 ns after its last byte, and so does every other packet,
-long or short, busy session or quiet. Most of that is the single PCIe write. There is a
-fixed delay, and no tail.
+has the updated book under half a microsecond after its last byte, and so does every
+other packet, long or short, busy session or quiet. Most of that is the PCIe transfer,
+which does not depend on the packet either. The decode no longer has a tail.
 
-**Room for more.** The whole handler, five actors, uses well under 1% of the card's
+**Room for more.** The whole handler, five actors and a small test harness, uses well
+under 1% of the card's
 XCUX35:
 
 | resource | used | available | share |
 |---|---|---|---|
-| lookup tables | 6,100 | 1,029,600 | 0.6% |
-| flip-flops | 14,431 | 2,059,200 | 0.7% |
+| lookup tables | 6,024 | 1,029,600 | 0.6% |
+| flip-flops | 14,361 | 2,059,200 | 0.7% |
 | block RAMs | 23 | 4,224 | 0.5% |
 | UltraRAM, DSP slices | 0 | 352, 1,320 | 0% |
 
@@ -630,7 +647,7 @@ could use it:
 - **More channels,** each one more group in FeedRx and Igmp.
 - **MBO,** the order-by-order data, passed to the CPU's order book as MBP is now.
 - **The trigger itself.** With the book on the card as well, a simple signal could act
-  without crossing PCIe at all. That is the step that removes the remaining 400 ns.
+  without crossing PCIe at all. That is the step that removes the PCIe transfer from the path.
 
 ## See also
 
