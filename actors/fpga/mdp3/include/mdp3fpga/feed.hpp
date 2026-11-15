@@ -23,7 +23,11 @@
  * Filter
  *
  *   Keeps what the strategy trades and drops the rest, so that only those events
- *   cross PCIe. Its table holds up to kSecurities (64) security ids; each lookup
+ *   cross PCIe.
+ *
+ *   The security table (table_) is the list of securities the strategy wants: up to
+ *   kSecurities (64) security ids, loaded by the CPU at start with WantSecurity (below).
+ *   "In the table" below means the strategy asked for that security. Each lookup
  *   compares the id against every entry at once, one comparator per entry, so it
  *   takes one clock however full the table is. A security's position in the table,
  *   its index, travels in every event instead of the 4-byte id, and the CPU uses it to
@@ -32,11 +36,13 @@
  *   It packs what it keeps to 16 bytes (PackedEvent, layout in events.hpp): price,
  *   size, order count, index, level, action, side.
  *
- *     BookEntry       outright bid or offer of a security in the table: passed.
+ *     BookEntry       outright bid or offer of a security in the security table:
+ *                     passed.
  *                     A book reset entry ('J'): passed as a book reset of that
  *                     security. Implied entries, and securities not in the table:
  *                     dropped.
- *     Trade           passed if the security is in the table, with the aggressor side.
+ *     Trade           passed if the security is in the security table, with the
+ *                     aggressor side.
  *     SecurityStatus  always passed, as security kAllSecurities: CME sends status for a
  *                     whole security group with a null security id, and every book on
  *                     the CPU needs it for halt and pre-open state. The status fields
@@ -44,7 +50,8 @@
  *     ChannelReset    always passed: a reset clears every book of the channel.
  *     EndOfPacket     always passed, so the CPU sees every packet's sequence number and
  *                     checks for gaps itself, even for a packet with nothing for us.
- *     WantSecurity    from the CPU, not the decoder: stores a security id at an index
+ *     WantSecurity    from the CPU, not the decoder: stores a security id in the
+ *                     security table at an index
  *                     and replies WantAck. An index past the table is not stored and
  *                     the ack says so, so the CPU never believes it has a security the
  *                     filter would not pass.
