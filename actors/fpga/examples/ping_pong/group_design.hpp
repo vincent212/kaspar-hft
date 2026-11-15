@@ -38,10 +38,16 @@ inline void wire()
 {
   PingActor &ping = Grp::member<PingActor>();
   SyncPing &sync = Grp::member<SyncPing>();
+#ifndef PONG_IN_OTHER_GROUP
   ping.pong = Grp::ref<PongActor>();
+#else
+  ping.pong = kfpga::ActorRef(1, kPong);   // a send reaches it; a fast_send must not compile
+#endif
   ping.starter = kfpga::ActorRef(0, kTestbench);
   sync.starter = kfpga::ActorRef(0, kTestbench);
+#ifndef SKIP_BIND
   Grp::bind(sync.pong);
+#endif
 }
 
 } // namespace grp

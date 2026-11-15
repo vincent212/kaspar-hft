@@ -45,9 +45,9 @@
  *
  * Several actors can share one process, a Group: one handler at a time, send
  * between members through the group's own queue, and fast_send between
- * members as an inline call. Group::bind checks at build time that the target
- * of a GroupRef is in the group, so a fast_send to another process does not
- * compile.
+ * members as an inline call. each group checks at build time that the fast_send targets its members name
+ * with KFPGA_FAST_SEND are members too, so a fast_send to another process does
+ * not compile, whether or not anything is bound.
  *
  * An actor can also take a raw stream instead of messages: bytes off the wire,
  * where a 64-byte envelope per 8-byte word would waste the link. It has
@@ -88,6 +88,13 @@ using Fifo = Ring;
 constexpr int kOutbox = 4;               // sends + replies per handler, at most
 constexpr uint8_t kOwnQueue = 0xff;      // the port number of a group's own queue
 constexpr int kOwnQueueDepth = 64;       // size it for the largest burst between members: see Group::route
+
+namespace detail {
+template <class T, class... A> struct contains;
+template <class... T> struct list {};
+template <class T, class L> struct in_list;
+template <class T, class... L> struct in_list<T, list<L...>> : contains<T, L...> {};
+} // namespace detail
 
 template <class... A> class Group;
 template <class T> class GroupRef;
@@ -174,6 +181,9 @@ class Actor
   Envelope fast_reply_;
 
 public:
+  // The actors this one fast_sends to: none unless KFPGA_FAST_SEND says so.
+  using kfpga_fast_targets = detail::list<>;
+
   // Used by ActorRef::send. Overflow is a design error: raise kOutbox.
   void kfpga_emit(const Envelope &e, uint8_t port)
   {
@@ -209,15 +219,17 @@ protected:
   }
 };
 
-// A reference for fast_send, to the actor T in the caller's own group. Only a
-// group holding T can bind it (Group::bind), so a fast_send to an actor in
-// another process does not compile.
+// An actor names the actors it fast_sends to, once, in its class:
+//   KFPGA_FAST_SEND(PongActor)
+// Every group checks, when it is built, that each member's targets are members
+// too, so a fast_send to an actor in another process does not compile, bound or
+// not; and fast_send does not compile for a target the actor has not named.
+#define KFPGA_FAST_SEND(...) using kfpga_fast_targets = ::kfpga::detail::list<__VA_ARGS__>;
+
+// A reference for fast_send, to the actor T in the caller's own group.
 template <class T>
 class GroupRef
 {
-  template <class... A> friend class Group;
-  bool bound_ = false;
-
 public:
   // Runs T's handler now, inline: no FIFO, only the handler's own cycles.
   // Returns true and fills `out` if the handler replied with an R.
@@ -225,7 +237,8 @@ public:
   bool fast_send(const M &m, const S * /*from*/, R &out) const
   {
 #pragma HLS INLINE
-    assert(bound_ && "GroupRef not bound by its group");
+    static_assert(detail::in_list<T, typename S::kfpga_fast_targets>::value,
+                  "fast_send to an actor the sender has not named: add KFPGA_FAST_SEND(T) to its class");
     T &t = instance<T>();
     t.reply_id_ = S::kId;
     t.in_fast_send_ = true;
@@ -262,6 +275,21 @@ template <class T> struct contains<T> { static constexpr bool value = false; };
 template <class T, class H, class... R> struct contains<T, H, R...>
 {
   static constexpr bool value = std::is_same<T, H>::value || contains<T, R...>::value;
+};
+
+// Every target in a member's fast_send list is a member of the group.
+template <class L, class... A> struct targets_in;
+template <class... A> struct targets_in<list<>, A...> { static constexpr bool value = true; };
+template <class T, class... R, class... A> struct targets_in<list<T, R...>, A...>
+{
+  static constexpr bool value = contains<T, A...>::value && targets_in<list<R...>, A...>::value;
+};
+template <class M, class... A> struct member_targets_in : targets_in<typename M::kfpga_fast_targets, A...> {};
+template <class... A> struct all_targets_in;
+template <class... A> struct all_targets_in<list<>, A...> { static constexpr bool value = true; };
+template <class H, class... R, class... A> struct all_targets_in<list<H, R...>, A...>
+{
+  static constexpr bool value = member_targets_in<H, A...>::value && all_targets_in<list<R...>, A...>::value;
 };
 
 template <class... A> struct distinct;
@@ -304,6 +332,8 @@ template <class... A>
 class Group
 {
   static_assert(detail::distinct<A...>::value, "an actor type appears twice in the group");
+  static_assert(detail::all_targets_in<detail::list<A...>, A...>::value,
+                "fast_send only within a group: a member names a KFPGA_FAST_SEND target that is not a member of this group");
 
   detail::OwnQueue<(sizeof...(A) > 1)> own_;
   uint8_t next_ = 0;
@@ -396,14 +426,13 @@ public:
     return ActorRef(kOwnQueue, T::kId);
   }
 
-  // Bind a member's GroupRef, for fast_send. Fails to compile if T is not in
-  // this group.
+  // Kept for existing wiring: checks that T is a member. The group itself checks
+  // every member's KFPGA_FAST_SEND targets, so nothing depends on calling it.
   template <class T>
-  static void bind(GroupRef<T> &r)
+  static void bind(GroupRef<T> &)
   {
     static_assert(detail::contains<T, A...>::value,
                   "fast_send only within a group: the target is not a member of this group");
-    r.bound_ = true;
   }
 
   // One message: read, handle, write out what the handler sent. Returns true

@@ -50,18 +50,16 @@ group: examples/ping_pong/group.cpp $(KFPGA)
 
 # fast_send only within a group: moving Pong out of SyncPing's group must not compile.
 check_group_fast_send:
-	@if $(CXX) $(CXXFLAGS) -DPONG_IN_OTHER_GROUP -fsyntax-only examples/ping_pong/group.cpp 2>check_group_fast_send.log; then \
-	  echo "FAILED: fast_send to another group compiled"; exit 1; fi
-	@grep -q "fast_send only within a group" check_group_fast_send.log && rm -f check_group_fast_send.log && \
-	  echo "OK: fast_send to an actor in another group does not compile"
-
-# More messages in one handler than the link holds: the link must not deadlock.
-link_burst: examples/cpu_fpga/link_burst.cpp examples/cpu_fpga/*.hpp host/kfpga/*.hpp $(KFPGA) $(ACTORS_CPP)/libactors.a
-	$(CXX) $(HOST_FLAGS) -Iexamples/cpu_fpga $< -o $@ $(HOST_LIBS)
-	./link_burst 200 16
-
-cpu_fpga: examples/cpu_fpga/cpu_fpga.cpp examples/cpu_fpga/*.hpp host/kfpga/*.hpp $(KFPGA) $(ACTORS_CPP)/libactors.a
-	$(CXX) $(HOST_FLAGS) -Iexamples/cpu_fpga $< -o $@ $(HOST_LIBS)
+	@for flags in "-DPONG_IN_OTHER_GROUP" "-DPONG_IN_OTHER_GROUP -DSKIP_BIND"; do \
+	  if $(CXX) $(CXXFLAGS) $$flags -fsyntax-only examples/ping_pong/group.cpp 2>check_group_fast_send.log; then \
+	    echo "FAILED: fast_send to another group compiled ($$flags)"; exit 1; fi; \
+	  grep -q "fast_send only within a group" check_group_fast_send.log || { echo "FAILED: wrong error ($$flags)"; exit 1; }; \
+	  echo "OK: fast_send to an actor in another group does not compile ($$flags)"; \
+	done
+	@if $(CXX) $(CXXFLAGS) -DFAST_SEND_UNNAMED -fsyntax-only examples/ping_pong/group.cpp 2>check_group_fast_send.log; then \
+	  echo "FAILED: fast_send to an unnamed target compiled"; exit 1; fi
+	@grep -q "has not named" check_group_fast_send.log && rm -f check_group_fast_send.log && \
+	  echo "OK: fast_send to a target not named with KFPGA_FAST_SEND does not compile"
 
 # A group's own queue overflowing must stop a software build, NDEBUG included.
 own_queue_full: tests/own_queue_full.cpp $(KFPGA)

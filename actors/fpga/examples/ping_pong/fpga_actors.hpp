@@ -85,7 +85,10 @@ struct SyncPing : kfpga::Actor<SyncPing>
   static constexpr ActorId kId = kSyncPing;
   static constexpr uint32_t kMaxRounds = 1024;   // fixed loop bound, as HLS needs
 
-  kfpga::GroupRef<PongActor> pong;   // bound by its group: Pong must be a member
+#ifndef FAST_SEND_UNNAMED
+  KFPGA_FAST_SEND(PongActor)         // its group must hold PongActor too
+#endif
+  kfpga::GroupRef<PongActor> pong;
   kfpga::ActorRef starter;
 
   KFPGA_HANDLERS(KFPGA_ON(Start, on_start))

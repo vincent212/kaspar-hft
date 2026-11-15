@@ -90,13 +90,15 @@ id each; not built yet, since `kId` is per type today.
 ### fast_send: by type, checked at build time
 
 ```cpp
+KFPGA_FAST_SEND(PongActor)                  // in SyncPing: the actors it fast_sends to
 kfpga::GroupRef<PongActor> pong;            // in SyncPing
 pong.fast_send(p, this, r);                 // runs PongActor's handler now, inline
-Grp::bind(sync.pong);                       // in the wiring
 ```
 
-`bind` has a `static_assert` that the target is a member of the group, so a
-`fast_send` to an actor in another process does not compile
+Each group checks, when it is built, that every target its members name with
+`KFPGA_FAST_SEND` is a member too, and `fast_send` does not compile for a target
+its actor has not named. So a `fast_send` to an actor in another process does not
+compile, with or without `Grp::bind`, which is kept only as an extra check
 (`make check_group_fast_send`).
 
 ### Ports: references built on each step, inlined
