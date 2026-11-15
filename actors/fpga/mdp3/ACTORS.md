@@ -299,12 +299,15 @@ entries, about 1,250 bytes with headers:
 | arriving on the 10 GbE wire | about 1.0 µs | yes: the wire |
 | the card, after the last byte | at most 32 ns | **no** |
 | PCIe, card to host memory, and the CPU seeing it | about 300-400 ns, an estimate: no DMA engine yet | little |
-| FpgaFeed applying 37 events to the books | 644 ns p50, 775 ns p99 | yes: about 17 ns an event |
+| FpgaFeed applying 37 events to the books | 644 ns p50, 775 ns p99 on this box; roughly 4 times faster on a current server, so about 160 ns | yes: about 17 ns an event here |
 
 The card's part is the one that does not grow. What still grows on the CPU is applying
-the events to the books, about 17 ns per event on this machine's Xeon E5-2630L
-(measured in a micro-benchmark, pinned to one core); it is CPU code that can be made
-faster, and it is the next place a long packet costs time. Not measured yet: PCIe, and
+the events to the books, about 17 ns per event on this machine's Xeon E5-2630L v3
+(measured in a micro-benchmark, pinned to one core). That CPU is a 1.8 GHz Haswell from
+2014 and a poor benchmark: a current server CPU should run this about four times faster,
+some 4 ns per event and 160 ns for the 37-event packet, though that has not been measured.
+It is CPU code that can also be made faster, and it is the next place a long packet costs
+time. Not measured yet: PCIe, and
 the CPU's polling and decoding of the lines before they are applied.
 
 The PCIe estimate: Orthogone's low-latency PCIe DMA controller is quoted at a round trip
