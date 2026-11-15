@@ -67,7 +67,8 @@ static void batcher_task(Fifo &in, Fifo &out)
 }
 
 #ifdef MDP3_SW
-// Plain g++, for whole recordings: one clock of the three processes.
+// Plain g++, for whole recordings: one clock of the four processes, each task
+// called once, in the order of the flow (ACTORS.md).
 void mdp3_feed_tick(WordStream &frames, WordStream &words, Fifo &decoded, Fifo &kept, Fifo &window, Fifo &acks,
                     Fifo &out)
 {
