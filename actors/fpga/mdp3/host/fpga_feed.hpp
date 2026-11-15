@@ -24,6 +24,8 @@
 #include <array>
 #include <cstring>
 #include <functional>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "actors/Actor.hpp"
@@ -132,18 +134,33 @@ class FpgaFeed : public actors::Actor
       filter_.send(new cpu::Want(i, securities_[i]), this);
   }
 
-  void on_ack(const cpu::Ack *)
+  // Ready once every entry is acked as stored. An entry the card refused leaves the
+  // feed not ready, and is counted in `refused`.
+  void on_ack(const cpu::Ack *m)
   {
-    if (++acks_ == securities_.size() && on_ready_)
+    if (!m->ok)
+      ++refused;
+    if (++acks_ == securities_.size() && refused == 0 && on_ready_)
       on_ready_();
   }
 
+  static std::vector<int32_t> check_size(std::vector<int32_t> s)
+  {
+    if (s.size() > static_cast<size_t>(kSecurities))
+      throw std::length_error("FpgaFeed: " + std::to_string(s.size()) + " securities, but the card's filter table holds " +
+                              std::to_string(kSecurities));
+    return s;
+  }
+
 public:
-  uint64_t lines = 0, gaps = 0, missing = 0, overflows = 0;
+  uint64_t lines = 0, gaps = 0, missing = 0, overflows = 0, refused = 0;
 
   // `on_ready` runs on this thread once the card has acked the whole table.
+  // Throws std::length_error if there are more securities than the card's filter
+  // table holds (kSecurities): the card could not pass the rest.
   FpgaFeed(std::vector<int32_t> securities, PacketSink &sink, std::function<void()> on_ready)
-    : securities_(std::move(securities)), books_(securities_.size()), sink_(sink), on_ready_(std::move(on_ready))
+    : securities_(check_size(std::move(securities))), books_(securities_.size()), sink_(sink),
+      on_ready_(std::move(on_ready))
   {
     std::strncpy(name, "FpgaFeed", sizeof(name) - 1);
     set_mailbox(MailboxKind::FpgaLanes);

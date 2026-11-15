@@ -122,10 +122,14 @@ class Filter : public kfpga::Actor<Filter>
   {
 #pragma HLS INLINE
 #pragma HLS ARRAY_PARTITION variable=table_ type=complete
-    if (m.index < kSecurities)
+    // An index past the table is not stored, and the answer says so: the host must
+    // never believe it has a security the filter will not pass.
+    const bool ok = m.index < kSecurities;
+    if (ok)
       table_[m.index] = m.security_id;
     WantAck a;
     a.index = m.index;
+    a.ok = ok ? 1 : 0;
     reply(a);
   }
 

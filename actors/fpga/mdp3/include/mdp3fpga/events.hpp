@@ -199,7 +199,8 @@ struct WantSecurity : kfpga::Message<338>
 struct WantAck : kfpga::Message<339>
 {
   uint32_t index = 0;
-  KFPGA_FIELDS(index)
+  uint32_t ok = 0;             // 1 if stored; 0 if the index is past the table
+  KFPGA_FIELDS(index, ok)
 };
 
 // Actor ids on the card.

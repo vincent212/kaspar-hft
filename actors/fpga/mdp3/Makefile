@@ -32,7 +32,7 @@ CXXFLAGS = -O2 -Wall -Wextra
 TOOLS = test/make_packets test/ref_dump test/pcap_to_packets test/ref_book test/stretch_packets
 DEC = generated/mdp3_messages.hpp include/mdp3fpga/decoder.hpp include/mdp3fpga/events.hpp
 
-.PHONY: test stretch book feed feed_e2e rx feed_cosim hls hls_csim hls_synth hls_cosim clean
+.PHONY: test stretch table book feed feed_e2e rx feed_cosim hls hls_csim hls_synth hls_cosim clean
 # Capped: the test holds one packet at a time, and this box runs the recorders.
 test: $(WORK)/tb_gxx $(REF)
 	ulimit -v 4000000; MDP3_PACKETS=$(PACKETS) MDP3_REF=$(REF) $(WORK)/tb_gxx
@@ -75,6 +75,13 @@ $(WORK)/feed_run: host/feed_run.cpp host/fpga_feed.hpp hls/frames.hpp include/md
 	g++ -std=c++17 -O2 -w -pthread -DHLS_STREAM_THREAD_SAFE -I. -Iinclude -Ihost -Ihls -I../include -I../host -I$(ACTORS_CPP)/include -I$(BOOST_PATH)/include -isystem $(VITIS_INCLUDE) $< -o $@ -L$(ACTORS_CPP) -lactors -L$(ZMQ_PATH)/lib -lzmq -lpthread
 feed_e2e: $(WORK)/feed_run $(BOOKS)
 	ulimit -v 4000000; $(WORK)/feed_run $(PACKETS) $(BOOKS) $(SECURITIES) $(MAX_PACKETS)
+
+# The filter table's size limit, at Filter and at FpgaFeed.
+$(WORK)/table_test: host/table_test.cpp host/fpga_feed.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/events.hpp ../host/kfpga/cpu_link.hpp $(DEC) $(ACTORS_CPP)/libactors.a
+	mkdir -p $(WORK)
+	g++ -std=c++17 -O2 -w -pthread -DHLS_STREAM_THREAD_SAFE -I. -Iinclude -Ihost -Ihls -I../include -I../host -I$(ACTORS_CPP)/include -I$(BOOST_PATH)/include -isystem $(VITIS_INCLUDE) $< -o $@ -L$(ACTORS_CPP) -lactors -L$(ZMQ_PATH)/lib -lzmq -lpthread
+table: $(WORK)/table_test
+	$(WORK)/table_test
 
 # FeedRx against frames rebuilt from a recording. Capped as above.
 rx: $(WORK)/tb_rx
