@@ -298,7 +298,7 @@ entries, about 1,250 bytes with headers:
 |---|---|---|
 | arriving on the 10 GbE wire | about 1.0 µs | yes: the wire |
 | the card, after the last byte | at most 32 ns | **no** |
-| PCIe, card to host memory | about 1 µs, an estimate: no DMA engine yet | little |
+| PCIe, card to host memory, and the CPU seeing it | about 300-400 ns, an estimate: no DMA engine yet | little |
 | FpgaFeed applying 37 events to the books | 644 ns p50, 775 ns p99 | yes: about 17 ns an event |
 
 The card's part is the one that does not grow. What still grows on the CPU is applying
@@ -306,6 +306,14 @@ the events to the books, about 17 ns per event on this machine's Xeon E5-2630L
 (measured in a micro-benchmark, pinned to one core); it is CPU code that can be made
 faster, and it is the next place a long packet costs time. Not measured yet: PCIe, and
 the CPU's polling and decoding of the lines before they are applied.
+
+The PCIe estimate: Orthogone's low-latency PCIe DMA controller is quoted at a round trip
+of about 644 ns on this card, the X3522PV, at Gen4 x8 with a 32-byte payload and a
+250 MHz core clock, against a Xeon Gold 5315Y host (a vendor figure, from its product
+brief). A round trip crosses the link twice; this path crosses once, the card writing a
+line into host memory, a posted write it does not wait on, then the CPU polling it. Hence
+roughly half. A PCIe *read*, which stalls the reader for the whole round trip, would take
+0.5 to 1 µs; nothing on this path reads.
 
 
 ## From Batcher to the CPU
