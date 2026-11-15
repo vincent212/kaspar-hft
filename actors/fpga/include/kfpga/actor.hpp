@@ -61,6 +61,10 @@
  */
 
 #include <cassert>
+#ifndef KFPGA_HLS
+#include <cstdio>
+#include <cstdlib>
+#endif
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
@@ -83,7 +87,7 @@ using Fifo = Ring;
 
 constexpr int kOutbox = 4;               // sends + replies per handler, at most
 constexpr uint8_t kOwnQueue = 0xff;      // the port number of a group's own queue
-constexpr int kOwnQueueDepth = 64;       // size it for the largest burst between members
+constexpr int kOwnQueueDepth = 64;       // size it for the largest burst between members: see Group::route
 
 template <class... A> class Group;
 template <class T> class GroupRef;
@@ -304,6 +308,7 @@ class Group
   detail::OwnQueue<(sizeof...(A) > 1)> own_;
   uint8_t next_ = 0;
   uint32_t unhandled_ = 0;
+  uint32_t queue_full_ = 0;   // sends between members lost to a full own queue
 
   template <class M>
   bool deliver_to(const Envelope &e, uint8_t port)
@@ -325,9 +330,20 @@ class Group
 #pragma HLS INLINE
     if (port == kOwnQueue)
     {
-      const bool ok = own_.write_nb(e);   // a process cannot wait on its own queue
-      assert(ok && "group queue full");
-      (void)ok;
+      // A process cannot wait on its own queue: it is the only reader, so it would
+      // wait for ever. A message that does not fit is lost. It is counted in every
+      // build (queue_full()); a software build also stops, with a message, NDEBUG
+      // or not, so that a design that overflows is found before it is synthesized.
+      if (!own_.write_nb(e))
+      {
+        ++queue_full_;
+#ifndef KFPGA_HLS
+        std::fprintf(stderr, "kfpga: a group's own queue is full (%d messages): a send between members "
+                             "was lost. Raise kOwnQueueDepth, or send less in one burst.\n",
+                     kOwnQueueDepth);
+        std::abort();
+#endif
+      }
       return;
     }
     for (int k = 0; k < N; ++k)
@@ -463,6 +479,10 @@ public:
 
   // Messages with no member or no handler for them.
   uint32_t unhandled() const { return unhandled_; }
+
+  // Sends between members lost because the group's own queue was full. A
+  // software build stops at the first; on the chip this counts them.
+  uint32_t queue_full() const { return queue_full_; }
 };
 
 // One actor as a process: a group of one.

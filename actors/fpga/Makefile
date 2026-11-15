@@ -32,7 +32,7 @@ RPATH = -Wl,-rpath,$(dir $(realpath $(shell $(CXX) -print-file-name=libstdc++.so
 KFPGA = $(wildcard include/kfpga/*.hpp) $(wildcard examples/ping_pong/*.hpp)
 
 .PHONY: run check14 check_group_fast_send hls hls_csim hls_synth hls_cosim clean
-run: check14 check_group_fast_send fpga_to_fpga group cpu_fpga link_burst
+run: check14 check_group_fast_send own_queue_full fpga_to_fpga group cpu_fpga link_burst
 	./fpga_to_fpga
 	./group
 	./cpu_fpga
@@ -62,6 +62,11 @@ link_burst: examples/cpu_fpga/link_burst.cpp examples/cpu_fpga/*.hpp host/kfpga/
 
 cpu_fpga: examples/cpu_fpga/cpu_fpga.cpp examples/cpu_fpga/*.hpp host/kfpga/*.hpp $(KFPGA) $(ACTORS_CPP)/libactors.a
 	$(CXX) $(HOST_FLAGS) -Iexamples/cpu_fpga $< -o $@ $(HOST_LIBS)
+
+# A group's own queue overflowing must stop a software build, NDEBUG included.
+own_queue_full: tests/own_queue_full.cpp $(KFPGA)
+	$(CXX) $(CXXFLAGS) -DNDEBUG -Iinclude -Iexamples/ping_pong $< -o $@
+	./own_queue_full
 
 check14:
 	echo '#include "fpga_actors.hpp"' | $(CXX) -std=c++14 $(WARN) -Iinclude -Iexamples/ping_pong -fsyntax-only -x c++ -

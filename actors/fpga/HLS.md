@@ -121,6 +121,13 @@ inside the process. A process of one actor has no other member to send to, and
 HLS rejects a stream that nothing writes (`XFORM 203-123`), so a one-actor
 process has no queue.
 
+The process is the queue's only reader, so it cannot wait for room in it: a
+send that finds it full (`kOwnQueueDepth`, 64) is lost. Every build counts these
+in `Group::queue_full()`, and a software build stops at the first with a
+message, release builds included, so a design that overflows its queue is found
+in testing. Size the queue for the largest burst between members; each handler
+can add up to `kOutbox` (4) sends.
+
 ### When HLS takes an actor for a constant
 
 Three actors failed the same way: BookBank, an early Batcher, and FeedRx. HLS removed
