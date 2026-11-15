@@ -258,8 +258,55 @@ securities in the table:
 | of which full lines (`EventLine`) | 568,378 |
 | most events in one packet | 37 |
 
-Most packets carry one or two events for us, or none, so nearly every packet is a single
-End line, and only busy packets send more.
+## Long packets, and why the card has no tail
+
+The packets that matter are the long ones. On a CPU they make the tail: the decoder
+works through every message of the packet, queues the results, and the strategy waits
+behind all of it, so the time grows with the packet and with whatever else is queued.
+That is the reason for moving this work to the card.
+
+**On the card the time is bounded, whatever the packet holds.** Every actor takes one step
+per clock, in lockstep, so the card keeps up with the wire: by the time the last byte of
+a packet arrives, every entry before it has been decoded, filtered and packed, and its
+full lines have already gone. What remains after the last byte is a fixed few clocks.
+Measured over all 30,044,560 packets of channel 344, at wire rate:
+
+| | |
+|---|---|
+| last byte of a frame in, to its End line out | mean 5.2 clocks, **maximum 8 clocks, 32 ns** |
+| most words ever waiting inside the card | 1 |
+
+The maximum of 8 clocks holds for the longest packets too, the one with 37 events
+included: a long packet takes longer to *arrive*, not longer to *process*. Nothing queues
+on the card.
+
+**How long the long packets are.** With the six busiest securities in the table:
+
+| events for us in one packet | packets |
+|---|---|
+| 99% of packets | 3 or fewer |
+| 99.9% | 6 or fewer |
+| 99.99% | 10 or fewer |
+| 10 or more | 3,906 |
+| 20 or more | 18 |
+| the longest | 37 (one packet) |
+
+**The longest packet, end to end.** 37 events for us is at least 1,184 bytes of book
+entries, about 1,250 bytes with headers:
+
+| step | time | depends on the packet's length |
+|---|---|---|
+| arriving on the 10 GbE wire | about 1.0 µs | yes: the wire |
+| the card, after the last byte | at most 32 ns | **no** |
+| PCIe, card to host memory | about 1 µs, an estimate: no DMA engine yet | little |
+| FpgaFeed applying 37 events to the books | 644 ns p50, 775 ns p99 | yes: about 17 ns an event |
+
+The card's part is the one that does not grow. What still grows on the CPU is applying
+the events to the books, about 17 ns per event on this machine's Xeon E5-2630L
+(measured in a micro-benchmark, pinned to one core); it is CPU code that can be made
+faster, and it is the next place a long packet costs time. Not measured yet: PCIe, and
+the CPU's polling and decoding of the lines before they are applied.
+
 
 ## From Batcher to the CPU
 
