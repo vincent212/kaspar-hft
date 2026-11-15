@@ -309,7 +309,16 @@ class SbeDecoder : public kfpga::Actor<SbeDecoder>
       transact_ = r.TransactTime;
       match_ = r.MatchEventIndicator;
     }
-    else   // 46 and 48 share this layout; the generated decoders agree
+    else if (kind_ == kTrades)
+    {
+      // Each template through its own generated decoder: if CME ever changes one
+      // root block and not the other, this stays right. Where the layouts agree, as
+      // in version 13, the two reads are the same wires and cost nothing.
+      const MDIncrementalRefreshTradeSummary48::Root r = MDIncrementalRefreshTradeSummary48::root(reg_, 0, version_);
+      transact_ = r.TransactTime;
+      match_ = r.MatchEventIndicator;
+    }
+    else   // kBook
     {
       const MDIncrementalRefreshBook46::Root r = MDIncrementalRefreshBook46::root(reg_, 0, version_);
       transact_ = r.TransactTime;
@@ -526,8 +535,11 @@ public:
       }
       case kGroup:
       {
-        // 46, 48 and 4 use the same group header, groupSize.
-        const GroupHeader h = MDIncrementalRefreshBook46::NoMDEntries_header(a, 0);
+        // Each template's own group header decoder: the same wires while they agree
+        // (all groupSize in version 13), still right if one changes.
+        const GroupHeader h = kind_ == kTrades ? MDIncrementalRefreshTradeSummary48::NoMDEntries_header(a, 0)
+                              : kind_ == kReset ? ChannelReset4::NoMDEntries_header(a, 0)
+                                                : MDIncrementalRefreshBook46::NoMDEntries_header(a, 0);
         const ap_uint<16> size = h.block_length;
         const bool over = size > kEntryRegister;
         entry_ = h.block_length;
