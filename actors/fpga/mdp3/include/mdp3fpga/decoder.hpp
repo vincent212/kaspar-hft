@@ -8,32 +8,105 @@
  */
 
 /*
- * The MDP3 decoder on the card, an actor on a raw stream: UDP payload words
- * in, events (events.hpp) out to the actor that holds the books.
+ * SbeDecoder: the MDP3 decoder on the card. It takes one CME packet at a time from
+ * FeedRx, as 8-byte words, and turns it into messages for Filter: one message per
+ * book entry, trade, security status or channel reset, and an EndOfPacket.
  *
- *   packet  = MsgSeqNum (4) | SendingTime (8) | message ...
- *   message = MsgSize (2, counts itself) | SBE header (8: block length,
- *             template id, schema id, version) | root block | groups ...
+ * Where it runs
  *
- * It decodes as the packet arrives, nothing is stored. Each step of the
- * process (one clock) takes up to 8 bytes from a two-word window at any byte
- * offset, so a misaligned message costs nothing, and hands them to the state
- * machine, which sends at most one event a step. A root block or an entry is
- * collected in an entry register; when complete, the generated decoders
- * (generated/mdp3_messages.hpp) read it at fixed offsets, plain wires.
+ *   decoder_task() in hls/feed_top.cpp is its process, an hls::task. Each clock the
+ *   task calls
  *
- * Root blocks and group entries are stepped by the lengths on the wire, not
- * the schema's, so a newer CME version with longer blocks still decodes.
- * Templates other than 46, 48, 30 and 4 are skipped by MsgSize, as is the
- * order-entry group of 46 and 48: book entries come first.
+ *     proc.step_stream<SbeDecoder>(ports, in);
  *
- * Nothing can be checked against the packet's length before decoding, since
- * that length is known only at its last word. A corrupt MsgSize ends the walk
- * of that packet, and a truncated message may already have sent events; the
- * EndOfPacket still goes out.
+ *   which calls on_step(in) once and then writes out whatever on_step sent. on_step()
+ *   is the only entry point; every other function here is called from it. Its input
+ *   is a word stream, not messages, so it has no handlers (kfpga::Group::step_stream,
+ *   HLS.md). `books` is its reference to the next actor, Filter.
  *
- * Latency: a cycle counter stamps each packet at its first word and at its
- * EndOfPacket. Both travel in the EndOfPacket.
+ * What it reads
+ *
+ *   packet   = MsgSeqNum (4) | SendingTime (8) | message ...
+ *   message  = MsgSize (2, counts itself) | SBE header (8) | root block | groups ...
+ *   SBE header = block length (2) | template id (2) | schema id (2) | version (2)
+ *   group    = group header (block length, count) | entry ...
+ *
+ *   All little-endian. Nothing is aligned: messages start 4 bytes into a word after
+ *   the 12-byte packet header, and anywhere at all after a message of odd length.
+ *
+ * What it sends to Filter
+ *
+ *   BookEntry       each entry of template 46, MBP book (outright and implied: Filter
+ *                   drops implied)
+ *   Trade           each entry of template 48, trade summary
+ *   SecurityStatus  template 30
+ *   ChannelReset    each entry of template 4
+ *   EndOfPacket     after every packet: its sequence number, sending time, counts and
+ *                   cycle stamps. The host checks the sequence numbers.
+ *
+ *   Every other template (47 MBO, 37 volume, 49, 50, 51 statistics and limits, the
+ *   instrument definitions) is skipped by its MsgSize, as is the order group of 46
+ *   and 48: the book entries come first in the message, so it never reads past them.
+ *   At most one message is sent per clock.
+ *
+ * How it decodes: as the bytes arrive, storing nothing
+ *
+ *   The window. Two words, prev_ and cur_, and o_, the offset of the next unread byte
+ *   in prev_. Each clock it takes the 8 bytes starting at o_, wherever that is, so a
+ *   field that straddles two words costs nothing. When reading crosses into cur_,
+ *   cur_ becomes prev_ and the next word is read in.
+ *
+ *   The state machine. state_ says what those bytes are:
+ *
+ *     kPacket0, kPacket1   the packet header: sequence number, sending time
+ *     kMessage0            MsgSize, block length, template, schema
+ *     kMessage1            version; decides whether this template is ours
+ *     kRoot                the root block, into the entry register
+ *     kRootRest            any root block bytes beyond the register, skipped
+ *     kGroup               the group header: entry size and count
+ *     kEntry               one entry, into the entry register; sends its message
+ *     kEntryRest           any entry bytes beyond the register, skipped
+ *     kTail                the rest of the message, skipped
+ *     kDrain               the rest of a packet with a corrupt MsgSize, skipped
+ *     kDone                sends EndOfPacket, then starts over at kPacket0
+ *
+ *   Each clock: work out how many bytes this state takes (n, at most 8), take them,
+ *   act on them, move o_ on by n.
+ *
+ *   The entry register. reg_ holds up to 32 bytes, filled 8 a clock. When a root block
+ *   or entry is complete, the decoders generated from CME's XML (gen_decoder.py ->
+ *   generated/mdp3_messages.hpp) read its fields at fixed offsets: price at byte 0,
+ *   size at 8, security id at 12, and so on. Fixed offsets are plain wires. So all of
+ *   the misalignment is handled once, by the window, and none in the field reads.
+ *
+ *   Lengths come from the wire. Root blocks and entries are stepped by the block length
+ *   in the message, not the schema's, so a newer CME version with longer blocks still
+ *   decodes: the fields it knows are read, and the extra bytes skipped (kRootRest,
+ *   kEntryRest).
+ *
+ * Timing
+ *
+ *   One clock per step (II = 1). The parser costs about 8 clocks per packet beyond the
+ *   words themselves: the short headers take a clock each without using all 8 bytes.
+ *
+ *   The longest path in the design is the loop from "bytes taken this clock" to "where
+ *   the next clock reads". To keep it short, n is chosen from the state and from
+ *   flags already held in registers (msg_ge8_, rest_ge8_ and their _gt8 pairs), never
+ *   from a comparison made in the same clock, and a truncated packet changes the state
+ *   only, never n.
+ *
+ * Malformed packets
+ *
+ *   The packet's length is known only at its last word, so nothing can be checked
+ *   against it in advance. A MsgSize below 10 sends the rest of the packet to kDrain.
+ *   A packet that ends in the middle of a message ends the walk there (kDone); any
+ *   events of that message already sent stay sent. EndOfPacket goes out either way.
+ *
+ * Latency stamps
+ *
+ *   now_ counts clocks. Each packet is stamped at its first word (first_word_) and its
+ *   last (last_word_), and both travel in its EndOfPacket with the clock it was sent,
+ *   so the tests can measure the card's time per packet.
  */
 
 #include <ap_axi_sdata.h>
@@ -46,12 +119,14 @@
 
 namespace mdp3fpga {
 
-// The UDP payload, 8 bytes a word, little-endian, as the network side
-// delivers it: `keep` marks the valid bytes, `last` the packet's last word.
+// A word at the top level of the design: 8 bytes, byte 0 in the low bits, `keep` one
+// bit per valid byte, `last` set on a packet's last word. The AXI-Stream type HLS uses
+// for top-level ports.
 using InWord = ap_axiu<64, 0, 0, 0>;
 using InStream = hls::stream<InWord>;
 
-// The same word inside the design: HLS takes the AXI types on top-level ports only.
+// The same word inside the design. HLS accepts the AXI types on top-level ports only,
+// so words between actors are this plain struct.
 struct Word
 {
   ap_uint<64> data;
@@ -60,6 +135,7 @@ struct Word
 };
 using WordStream = hls::stream<Word>;
 
+// A top-level word as an internal one.
 inline Word to_word(const InWord &w)
 {
 #pragma HLS INLINE
@@ -85,6 +161,7 @@ class SbeDecoder : public kfpga::Actor<SbeDecoder>
     kDrain,                  // the rest of the packet, after a corrupt length
     kDone,                   // send EndOfPacket
   };
+  // Which of our four templates the current message is.
   enum Kind : uint8_t { kBook, kTrades, kStatus, kReset };
 
   // The window: two words, `prev` first. pf_, cf_: each holds a word; o_ the
@@ -126,6 +203,8 @@ class SbeDecoder : public kfpga::Actor<SbeDecoder>
   uint32_t events_ = 0, messages_ = 0, bytes_ = 0;
   uint32_t now_ = 0, first_word_ = 0, last_word_ = 0;   // the cycle counter, and this packet's stamps
 
+  // Copy this clock's 8 bytes into the next 8-byte slot of the entry register.
+  // chunk_ says which slot; the loop over slots becomes one write enable per slot.
   void store(const uint8_t a[8])
   {
 #pragma HLS INLINE
@@ -142,6 +221,7 @@ class SbeDecoder : public kfpga::Actor<SbeDecoder>
     chunk_ = chunk_ + 1;
   }
 
+  // Send a message to Filter and count it for the EndOfPacket.
   template <class M>
   void emit(const M &m)
   {
@@ -150,6 +230,10 @@ class SbeDecoder : public kfpga::Actor<SbeDecoder>
     ++events_;
   }
 
+  // Set the count of block bytes beyond the register, with its two ready flags:
+  // rest_ge8_ (at least 8 left: the next step takes 8) and rest_gt8_ (more than 8:
+  // the next step is not the last). Computing them here, when the count changes,
+  // keeps the comparison out of the clock that uses them.
   void set_rest(ap_uint<16> v)
   {
 #pragma HLS INLINE
@@ -158,6 +242,7 @@ class SbeDecoder : public kfpga::Actor<SbeDecoder>
     rest_gt8_ = v.range(15, 4) != 0 || (v[3] == 1 && v.range(2, 0) != 0);
   }
 
+  // The same for the bytes left in the current message.
   void set_msg_left(ap_uint<16> v)
   {
 #pragma HLS INLINE
@@ -166,6 +251,9 @@ class SbeDecoder : public kfpga::Actor<SbeDecoder>
     msg_gt8_ = v.range(15, 4) != 0 || (v[3] == 1 && v.range(2, 0) != 0);
   }
 
+  // Begin the next entry of the group: reload the register count and the bytes
+  // beyond it from the values the group header set (every entry of a group is the
+  // same length).
   void start_entry()
   {
 #pragma HLS INLINE
@@ -175,6 +263,10 @@ class SbeDecoder : public kfpga::Actor<SbeDecoder>
     state_ = kEntry;
   }
 
+  // The root block is complete in the register. For a security status (30) that is
+  // the whole message: send SecurityStatus and skip the rest. For the others keep
+  // what every entry needs, the transact time and the match event indicator, and go on
+  // to the group header, skipping any root bytes beyond the register first.
   void root_done()
   {
 #pragma HLS INLINE
@@ -208,6 +300,12 @@ class SbeDecoder : public kfpga::Actor<SbeDecoder>
     state_ = rest_ != 0 ? kRootRest : kGroup;
   }
 
+  // An entry is complete in the register. If it lies wholly inside the message
+  // (`fits`), decode it with the generated decoder for its template and send the
+  // message: BookEntry (46), Trade (48) or ChannelReset (4). Then skip any entry bytes
+  // beyond the register, start the next entry, or, after the last, skip the rest of
+  // the message. An entry that runs past the message's end means a corrupt length:
+  // nothing is sent and the message is skipped.
   void entry_done(bool fits)
   {
 #pragma HLS INLINE
@@ -271,7 +369,14 @@ public:
   static constexpr kfpga::ActorId kId = kDecoder;
   kfpga::ActorRef books;
 
-  // One clock: consume up to 8 bytes, take in the next word if there is room.
+  // One clock, the only entry point, called by decoder_task() through step_stream.
+  //
+  //   1. In kDone: send EndOfPacket, reset for the next packet, and stop.
+  //   2. Take the 8 bytes at o_ from the window (a[0..7]).
+  //   3. If enough bytes are there, choose n, the bytes this state takes, and act on
+  //      them: read header fields, fill the register, send a message, move state.
+  //   4. Count n off the message, and off the packet once its last word is in.
+  //   5. Move the window on by n and read the next word if there is room for it.
   void on_step(WordStream &in)
   {
 #pragma HLS INLINE
@@ -306,7 +411,8 @@ public:
       return;
     }
 
-    // The next 8 bytes.
+    // The next 8 bytes: byte i of a[] is byte o_ + i of the window, from prev_ or,
+    // past its end, from cur_.
     uint8_t a[8];
 #pragma HLS ARRAY_PARTITION variable=a type=complete
     for (int i = 0; i < 8; ++i)
@@ -317,6 +423,9 @@ public:
       const ap_uint<64> from = at[3] ? cur_ : prev_;
       a[i] = from.range(8 * byte + 7, 8 * byte);
     }
+    // Whether a[] holds 8 real bytes: prev_ is full and either cur_ is too or no bytes
+    // of it are needed (o_ == 0). Once the packet's last word is in, take what is
+    // there. Otherwise wait a clock for the next word.
     const bool can = (pf_ && (cf_ || o_ == 0 || ended_)) || (ended_ && !cf_);
 
     // The bytes this step takes, from the state and ready flags alone. A
@@ -448,11 +557,15 @@ public:
         break;
       }
 
+      // Count this step's bytes off the message. In kMessage0 the message has just
+      // begun: its MsgSize, less the 8 bytes this step took.
       if (was == kMessage0)
         set_msg_left(ap_uint<16>(le<uint16_t, 2>(a, 0)) - 8);
       else
         set_msg_left(msg_left_ - n);
 
+      // After the last word, rem_ counts the bytes left in the packet. Fewer than this
+      // state needs means the packet is truncated: end it.
       if (ended_)
       {
         if (rem_ < n)
@@ -461,7 +574,9 @@ public:
       }
     }
 
-    // Move the window, then take the next word if there is room for it.
+    // Move the window on by n. If that crosses the end of prev_, cur_ becomes prev_.
+    // Then read the next word into cur_ if it is empty and the packet is not over,
+    // counting its valid bytes and stamping the packet's first and last words.
     const ap_uint<4> next = ap_uint<4>(o_) + n;
     const bool shift = next[3] == 1 || !pf_;
     o_ = next.range(2, 0);
