@@ -326,6 +326,12 @@ buffer is not included. All figures in µs.
 | NQ trade | 21,093 | 0.4 | 0.6 | 0.9 | 3.3 | 17.8 | 31.5 |
 | ZN trade | 13,282 | 0.4 | 0.7 | 6.6 | 41.5 | 90.5 | 124.0 |
 
+The upcoming FPGA MDP3 adapter ([mdp3_fpga/](mdp3_fpga/)) should take about 1.5 µs
+from the wire to the order book, with no tail: the card decodes each packet as its
+bytes arrive, so long packets do not queue behind each other. That figure starts at
+the wire, not at the socket read as above, and is an estimate until the card's
+Ethernet MAC and PCIe DMA are built.
+
 ## Shadow Execution Algo
 
 Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow by following the orders other participants place.
