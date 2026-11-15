@@ -275,6 +275,12 @@ kaspr {
 | [CLAUDE_AGENT_GUIDE.md](actors/cpp/CLAUDE_AGENT_GUIDE.md) | Actor framework technical reference |
 | [actors/rust/README.md](actors/rust/README.md) | Rust actor-framework port — overview & quickstart |
 | [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) | Writing actors in the Rust port |
+| [actors/fpga/README.md](actors/fpga/README.md) | FPGA actors (upcoming): actors on the card and CPU actors talking to them with the same `send`; examples and how to run them |
+| [actors/fpga/HLS.md](actors/fpga/HLS.md) | How FPGA actors become circuits in Vitis HLS, and how to check a design with AMD's tools |
+| [mdp3_fpga/README.md](mdp3_fpga/README.md) | The MDP3 handler on the Alveo X3522PV: what it does, how it is checked, results so far |
+| [mdp3_fpga/DESIGN.md](mdp3_fpga/DESIGN.md) | The MDP3 handler on the card: actors, message and event formats, synthesis results |
+| [mdp3_fpga/MDP3_PLAN.md](mdp3_fpga/MDP3_PLAN.md) | Plan and status of the MDP3 handler on the card, and what is still to build |
+| [docs/ILINK_FPGA_PLAN.md](docs/ILINK_FPGA_PLAN.md) | Plan: iLink 3 order entry on the card |
 | [tech_reports/fast_send.pdf](tech_reports/fast_send.pdf) &middot; [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) | Technical report: `fast_send` synchronous message delivery |
 | [tech_reports/shadow_pov.pdf](tech_reports/shadow_pov.pdf) &middot; [arXiv:2609.18019](https://arxiv.org/abs/2609.18019) | Technical report: Shadow-POV passive execution |
 
