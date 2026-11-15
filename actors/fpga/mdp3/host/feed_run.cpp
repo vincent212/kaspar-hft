@@ -56,7 +56,7 @@ public:
   {
     rx.group = mdp3test::kGroup344A;
     rx.port = mdp3test::kPort344A;
-    DecoderProc::member<SbeDecoder>().books = kfpga::ActorRef(0, kFilter);
+    DecoderProc::member<SbeDecoder>().filter = kfpga::ActorRef(0, kFilter);
     FilterProc::member<Filter>().batcher = kfpga::ActorRef(0, kBatcher);
     BatcherProc::member<Batcher>().cpu_feed = kfpga::ActorRef(0, kCpuFeed);
   }
