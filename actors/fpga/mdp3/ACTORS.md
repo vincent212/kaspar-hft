@@ -654,7 +654,7 @@ could use it:
 - [Kaspar-HFT](https://github.com/vincent212/kaspar-hft), the trading system.
 - [From C++ actors to FPGA circuits](https://vincentmayeski.substack.com/p/from-c-actors-to-fpga-circuits): how an actor becomes hardware.
 - [CPU actors and FPGA actors talking](https://vincentmayeski.substack.com/p/cpu-actors-and-fpga-actors-talking): the link between the CPU and the card.
-- [The handler's design in full](https://github.com/vincent212/kaspar-hft/blob/feature/fpga-actors/actors/fpga/mdp3/DESIGN.md), with the message and event formats.
-- [How actors map onto an FPGA](https://github.com/vincent212/kaspar-hft/blob/feature/fpga-actors/actors/fpga/HLS.md), and what high-level synthesis taught us.
-- [The handler's source](https://github.com/vincent212/kaspar-hft/blob/feature/fpga-actors/actors/fpga/mdp3), where each actor's file documents it in detail.
+- [The handler's design in full](https://github.com/vincent212/kaspar-hft/blob/main/actors/fpga/mdp3/DESIGN.md), with the message and event formats.
+- [How actors map onto an FPGA](https://github.com/vincent212/kaspar-hft/blob/main/actors/fpga/HLS.md), and what high-level synthesis taught us.
+- [The handler's source](https://github.com/vincent212/kaspar-hft/tree/main/actors/fpga/mdp3), where each actor's file documents it in detail.
 - [The actor framework paper](https://arxiv.org/abs/2609.21173), arXiv:2609.21173.
