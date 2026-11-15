@@ -9,3 +9,4 @@ hls/.Xil/
 test/ref_book
 hls/w_*/
 hls/*.zip
+test/stretch_packets

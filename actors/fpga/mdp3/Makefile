@@ -29,13 +29,22 @@ REF = $(PACKETS:.bin=.ref)
 HLS_RUN = nice -n 19 taskset -c 1-12
 
 CXXFLAGS = -O2 -Wall -Wextra
-TOOLS = test/make_packets test/ref_dump test/pcap_to_packets test/ref_book
+TOOLS = test/make_packets test/ref_dump test/pcap_to_packets test/ref_book test/stretch_packets
 DEC = generated/mdp3_messages.hpp include/mdp3fpga/decoder.hpp include/mdp3fpga/events.hpp
 
-.PHONY: test book feed feed_e2e rx feed_cosim hls hls_csim hls_synth hls_cosim clean
+.PHONY: test stretch book feed feed_e2e rx feed_cosim hls hls_csim hls_synth hls_cosim clean
 # Capped: the test holds one packet at a time, and this box runs the recorders.
 test: $(WORK)/tb_gxx $(REF)
 	ulimit -v 4000000; MDP3_PACKETS=$(PACKETS) MDP3_REF=$(REF) $(WORK)/tb_gxx
+
+# Blocks longer than the decoder's 32-byte register by more than 8 bytes, as a
+# newer schema version could send: roots 31 bytes longer, entries 10 longer.
+test/stretch_packets: test/stretch_packets.cpp test/dump.hpp
+	g++ -std=c++17 $(CXXFLAGS) $< -o $@
+$(WORK)/stretched.bin: $(WORK)/packets.bin test/stretch_packets
+	test/stretch_packets $< $@ 31 10
+stretch: $(WORK)/tb_gxx $(WORK)/stretched.ref
+	ulimit -v 4000000; MDP3_PACKETS=$(WORK)/stretched.bin MDP3_REF=$(WORK)/stretched.ref $(WORK)/tb_gxx
 
 # Decoder and book against the software book, one instrument. Capped as above.
 SECURITY ?= 203686713

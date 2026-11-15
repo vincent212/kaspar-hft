@@ -388,10 +388,15 @@ public:
           root_done();
         break;
       case kRootRest:
+      {
+        // Read the flag before set_rest replaces it: it says whether this step takes
+        // the last of the block.
+        const bool done = !rest_gt8_;
         set_rest(rest_ - n);
-        if (!rest_gt8_)
+        if (done)
           state_ = kGroup;
         break;
+      }
       case kGroup:
       {
         // 46, 48 and 4 use the same group header, groupSize.
@@ -421,8 +426,10 @@ public:
         break;
       }
       case kEntryRest:
+      {
+        const bool done = !rest_gt8_;   // before set_rest, as in kRootRest
         set_rest(rest_ - n);
-        if (!rest_gt8_)
+        if (done)
         {
           if (remaining_ == 0)
             state_ = kTail;
@@ -430,6 +437,7 @@ public:
             start_entry();
         }
         break;
+      }
       case kTail:
         if (!msg_gt8_)
           state_ = kMessage0;
