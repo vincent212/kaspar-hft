@@ -18,7 +18,7 @@
  * that touched the book, one batch out: the packet's events, the book, then
  * BatchEnd. Nothing leaves mid-packet.
  *
- * Phase 2 of ../../../MDP3_PLAN.md: one instrument, outright prices. Implied
+ * Phase 2 of ../../MDP3_PLAN.md: one instrument, outright prices. Implied
  * entries are dropped, from the book and the events. The book is registers, 10
  * levels a side; one MBP entry is a fixed shift, one step of the process.
  *

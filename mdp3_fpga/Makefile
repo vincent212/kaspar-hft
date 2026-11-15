@@ -2,7 +2,7 @@
 #
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# The MDP3 decoder on the card (phase 1 of ../MDP3_PLAN.md).
+# The MDP3 decoder on the card (phase 1 of MDP3_PLAN.md).
 #
 #   make test          the decoder against the reference on test packets, with g++ (seconds)
 #   make hls           Vitis HLS C simulation, synthesis and co-simulation
@@ -13,7 +13,7 @@
 # Needs CME's template (genschema/templates_FixBinary.xml) and the C++ codecs
 # generated from it (mdp3_sbe/, `make schema` at the top), for the reference.
 
-ROOT ?= $(abspath ../../..)
+ROOT ?= $(abspath ..)
 TEMPLATES ?= $(ROOT)/genschema/templates_FixBinary.xml
 VITIS_INCLUDE ?= $(XILINX_HLS)/include
 ifeq ($(XILINX_HLS),)
@@ -55,7 +55,7 @@ $(BOOKS): $(REF) test/ref_book
 	test/ref_book $(REF) $@ $(SECURITY)
 $(WORK)/tb_book: hls/book_top.cpp hls/tb_book_stream.cpp include/mdp3fpga/book.hpp $(DEC)
 	mkdir -p $(WORK)
-	g++ -std=c++14 -O2 -w -DKFPGA_HLS -DMDP3_SW -DMDP3_SECURITY=$(SECURITY) -I$(VITIS_INCLUDE) -I. -Iinclude -I../include hls/book_top.cpp hls/tb_book_stream.cpp -o $@
+	g++ -std=c++14 -O2 -w -DKFPGA_HLS -DMDP3_SW -DMDP3_SECURITY=$(SECURITY) -I$(VITIS_INCLUDE) -I. -Iinclude -I$(KFPGA)/include hls/book_top.cpp hls/tb_book_stream.cpp -o $@
 
 # Decoder, filter and batcher against the software book, SECURITIES listing the
 # filter's table: the first is the one compared. Capped as above.
@@ -64,29 +64,30 @@ feed: $(WORK)/tb_feed $(BOOKS)
 	ulimit -v 4000000; MDP3_PACKETS=$(PACKETS) MDP3_BOOK=$(BOOKS) MDP3_SECURITIES=$(SECURITIES) $(WORK)/tb_feed
 $(WORK)/tb_feed: hls/feed_top.cpp hls/tb_feed_stream.cpp hls/feed_check.hpp hls/frames.hpp hls/igmp_frames.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/igmp.hpp include/mdp3fpga/books.hpp $(DEC)
 	mkdir -p $(WORK)
-	g++ -std=c++14 -O2 -w -DKFPGA_HLS -DMDP3_SW -I$(VITIS_INCLUDE) -I. -Iinclude -I../include hls/feed_top.cpp hls/tb_feed_stream.cpp -o $@
+	g++ -std=c++14 -O2 -w -DKFPGA_HLS -DMDP3_SW -I$(VITIS_INCLUDE) -I. -Iinclude -I$(KFPGA)/include hls/feed_top.cpp hls/tb_feed_stream.cpp -o $@
 
 # The whole path with a real FpgaFeed actor (host/). Needs actors/cpp built.
-ACTORS_CPP = ../../cpp
+ACTORS_CPP = ../actors/cpp
+KFPGA = ../actors/fpga
 BOOST_PATH ?= /usr/local
 ZMQ_PATH ?= /usr/local
-$(WORK)/feed_run: host/feed_run.cpp host/fpga_feed.hpp hls/frames.hpp hls/igmp_frames.hpp include/mdp3fpga/books.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/igmp.hpp ../host/kfpga/cpu_link.hpp $(DEC) $(ACTORS_CPP)/libactors.a
+$(WORK)/feed_run: host/feed_run.cpp host/fpga_feed.hpp hls/frames.hpp hls/igmp_frames.hpp include/mdp3fpga/books.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/igmp.hpp $(KFPGA)/host/kfpga/cpu_link.hpp $(DEC) $(ACTORS_CPP)/libactors.a
 	mkdir -p $(WORK)
-	g++ -std=c++17 -O2 -w -pthread -DHLS_STREAM_THREAD_SAFE -I. -Iinclude -Ihost -Ihls -I../include -I../host -I$(ACTORS_CPP)/include -I$(BOOST_PATH)/include -isystem $(VITIS_INCLUDE) $< -o $@ -L$(ACTORS_CPP) -lactors -L$(ZMQ_PATH)/lib -lzmq -lpthread
+	g++ -std=c++17 -O2 -w -pthread -DHLS_STREAM_THREAD_SAFE -I. -Iinclude -Ihost -Ihls -I$(KFPGA)/include -I$(KFPGA)/host -I$(ACTORS_CPP)/include -I$(BOOST_PATH)/include -isystem $(VITIS_INCLUDE) $< -o $@ -L$(ACTORS_CPP) -lactors -L$(ZMQ_PATH)/lib -lzmq -lpthread
 feed_e2e: $(WORK)/feed_run $(BOOKS)
 	ulimit -v 4000000; $(WORK)/feed_run $(PACKETS) $(BOOKS) $(SECURITIES) $(MAX_PACKETS)
 
 # The filter table's size limit, at Filter and at FpgaFeed.
-$(WORK)/table_test: host/table_test.cpp host/fpga_feed.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/events.hpp ../host/kfpga/cpu_link.hpp $(DEC) $(ACTORS_CPP)/libactors.a
+$(WORK)/table_test: host/table_test.cpp host/fpga_feed.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/events.hpp $(KFPGA)/host/kfpga/cpu_link.hpp $(DEC) $(ACTORS_CPP)/libactors.a
 	mkdir -p $(WORK)
-	g++ -std=c++17 -O2 -w -pthread -DHLS_STREAM_THREAD_SAFE -I. -Iinclude -Ihost -Ihls -I../include -I../host -I$(ACTORS_CPP)/include -I$(BOOST_PATH)/include -isystem $(VITIS_INCLUDE) $< -o $@ -L$(ACTORS_CPP) -lactors -L$(ZMQ_PATH)/lib -lzmq -lpthread
+	g++ -std=c++17 -O2 -w -pthread -DHLS_STREAM_THREAD_SAFE -I. -Iinclude -Ihost -Ihls -I$(KFPGA)/include -I$(KFPGA)/host -I$(ACTORS_CPP)/include -I$(BOOST_PATH)/include -isystem $(VITIS_INCLUDE) $< -o $@ -L$(ACTORS_CPP) -lactors -L$(ZMQ_PATH)/lib -lzmq -lpthread
 table: $(WORK)/table_test
 	$(WORK)/table_test
 
 # FpgaFeed's sequence check: duplicates, late packets, restarts, gaps.
-$(WORK)/seq_test: host/seq_test.cpp host/fpga_feed.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/events.hpp ../host/kfpga/cpu_link.hpp $(DEC) $(ACTORS_CPP)/libactors.a
+$(WORK)/seq_test: host/seq_test.cpp host/fpga_feed.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/events.hpp $(KFPGA)/host/kfpga/cpu_link.hpp $(DEC) $(ACTORS_CPP)/libactors.a
 	mkdir -p $(WORK)
-	g++ -std=c++17 -O2 -w -pthread -DHLS_STREAM_THREAD_SAFE -I. -Iinclude -Ihost -Ihls -I../include -I../host -I$(ACTORS_CPP)/include -I$(BOOST_PATH)/include -isystem $(VITIS_INCLUDE) $< -o $@ -L$(ACTORS_CPP) -lactors -L$(ZMQ_PATH)/lib -lzmq -lpthread
+	g++ -std=c++17 -O2 -w -pthread -DHLS_STREAM_THREAD_SAFE -I. -Iinclude -Ihost -Ihls -I$(KFPGA)/include -I$(KFPGA)/host -I$(ACTORS_CPP)/include -I$(BOOST_PATH)/include -isystem $(VITIS_INCLUDE) $< -o $@ -L$(ACTORS_CPP) -lactors -L$(ZMQ_PATH)/lib -lzmq -lpthread
 seq: $(WORK)/seq_test
 	$(WORK)/seq_test
 
@@ -95,7 +96,7 @@ bench: $(WORK)/bench_books
 	taskset -c 5 $(WORK)/bench_books
 $(WORK)/bench_books: host/bench_books.cpp include/mdp3fpga/books.hpp include/mdp3fpga/events.hpp
 	mkdir -p $(WORK)
-	g++ -std=c++17 -O2 -march=native -I. -Iinclude -I../include -isystem $(VITIS_INCLUDE) $< -o $@
+	g++ -std=c++17 -O2 -march=native -I. -Iinclude -I$(KFPGA)/include -isystem $(VITIS_INCLUDE) $< -o $@
 
 # Igmp on the whole card: joins, leaves, queries and repeats, every frame it sends
 # compared byte for byte, and checked again by tcpdump (checksums).
@@ -109,14 +110,14 @@ igmp: $(WORK)/tb_igmp
 	 else echo "tcpdump: $$ok of $$n frames read as IGMPv2, $$bad bad"; exit 1; fi
 $(WORK)/tb_igmp: hls/tb_igmp.cpp hls/feed_top.cpp hls/feed_check.hpp hls/frames.hpp hls/igmp_frames.hpp include/mdp3fpga/igmp.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/feed.hpp $(DEC)
 	mkdir -p $(WORK)
-	g++ -std=c++14 -O2 -w -DKFPGA_HLS -DMDP3_SW -I$(VITIS_INCLUDE) -I. -Iinclude -I../include hls/feed_top.cpp hls/tb_igmp.cpp -o $@
+	g++ -std=c++14 -O2 -w -DKFPGA_HLS -DMDP3_SW -I$(VITIS_INCLUDE) -I. -Iinclude -I$(KFPGA)/include hls/feed_top.cpp hls/tb_igmp.cpp -o $@
 
 # FeedRx against frames rebuilt from a recording. Capped as above.
 rx: $(WORK)/tb_rx
 	ulimit -v 4000000; MDP3_PACKETS=$(PACKETS) $(WORK)/tb_rx
 $(WORK)/tb_rx: hls/tb_rx.cpp hls/frames.hpp hls/igmp_frames.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/igmp.hpp include/mdp3fpga/decoder.hpp $(DEC)
 	mkdir -p $(WORK)
-	g++ -std=c++14 -O2 -w -DKFPGA_HLS -I$(VITIS_INCLUDE) -I. -Iinclude -I../include hls/tb_rx.cpp -o $@
+	g++ -std=c++14 -O2 -w -DKFPGA_HLS -I$(VITIS_INCLUDE) -I. -Iinclude -I$(KFPGA)/include hls/tb_rx.cpp -o $@
 
 generated/mdp3_messages.hpp: gen_decoder.py $(TEMPLATES)
 	mkdir -p generated
@@ -140,7 +141,7 @@ $(WORK)/cosim.bin: test/make_packets
 
 $(WORK)/tb_gxx: hls/decoder_top.cpp hls/tb_stream.cpp hls/print_event.hpp test/dump.hpp $(DEC)
 	mkdir -p $(WORK)
-	g++ -std=c++14 -O2 -w -DKFPGA_HLS -DMDP3_SW -I$(VITIS_INCLUDE) -I. -Iinclude -I../include hls/decoder_top.cpp hls/tb_stream.cpp -o $@
+	g++ -std=c++14 -O2 -w -DKFPGA_HLS -DMDP3_SW -I$(VITIS_INCLUDE) -I. -Iinclude -I$(KFPGA)/include hls/decoder_top.cpp hls/tb_stream.cpp -o $@
 
 # Vitis: C simulation on PACKETS; co-simulation on a smaller set (it simulates
 # the Verilog). Kept off cores 0 and 15: this box runs the recorders.

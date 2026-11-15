@@ -251,7 +251,7 @@ slots if one is available, then re-run `setclassid.py` to confirm uniqueness.
 
 ## CPU<->FPGA messages
 
-Messages declared as `struct X : kfpga::Message<N>` (`actors/fpga/`) are compiled
+Messages declared as `struct X : kfpga::Message<N>` (`actors/fpga/`, `mdp3_fpga/`) are compiled
 into both the FPGA card and the CPU, where `kfpga::CpuMsg<X>` makes them
 `Message_N<N>`. Their ids are pinned by the wire protocol, like the Rust interop
 ids, and the audit checks them against every other hand-assigned id. A template

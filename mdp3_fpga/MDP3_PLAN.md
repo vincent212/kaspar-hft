@@ -1,7 +1,7 @@
 # Plan: the MDP3 handler on the Alveo X3522PV, with FPGA actors
 
 The CME MDP3 market-data path, moved onto the FPGA of an Alveo X3522PV as FPGA
-actors (see [HLS.md](HLS.md)): frames in, decoded and filtered events out to a CPU
+actors (see [HLS.md](../actors/fpga/HLS.md)): frames in, decoded and filtered events out to a CPU
 actor that builds the books. Built and proven in simulation on recorded CME data;
 not yet on a card. See "Status".
 
@@ -17,11 +17,11 @@ MAC (channel A) -> FeedRx -> SbeDecoder -> Filter -> Batcher -> CPU: FpgaFeed ->
   security id means many books (each product has a front and a back month, SOFR
   and CL many more), and the strategy reads across PCIe either way, so a book on the
   card pays only once the trigger is on the card too. BookBank
-  (`mdp3/include/mdp3fpga/book.hpp`) stays as the design for then.
+  (`include/mdp3fpga/book.hpp`) stays as the design for then.
 - **Everything on the card is an actor.**
 - **The card joins the multicast group itself.** The port belongs to the FPGA, so the
   kernel cannot send the IGMP report for it; the Igmp actor does (IGMPv2), at the
-  CPU's JoinGroup, and answers the switch's queries (`mdp3/include/mdp3fpga/igmp.hpp`).
+  CPU's JoinGroup, and answers the switch's queries (`include/mdp3fpga/igmp.hpp`).
 - **Only the card decodes.** Raw SBE never reaches the CPU.
 - **Channel A only.** No A/B arbitration.
 - **Books are built from MBP**, CME's market-by-price entries (template 46), not
@@ -47,7 +47,7 @@ MAC (channel A) -> FeedRx -> SbeDecoder -> Filter -> Batcher -> CPU: FpgaFeed ->
   kernel only maps the memory at start. Nothing sleeps and nothing is woken.
 - **The ring cannot fall behind silently.** It is sized for the worst burst
   recorded, and the card sets a flag if it overflows. Not built yet.
-- **Orders are a separate project**, [ILINK_PLAN.md](ILINK_PLAN.md).
+- **Orders are a separate project**, [ILINK_FPGA_PLAN.md](../docs/ILINK_FPGA_PLAN.md).
 - **Latency target: under 1 microsecond from the packet's last byte to its End
   line.** Measured from the first byte it cannot be met at 10 GbE: a 1,420-byte
   packet takes 1.14 microseconds on the wire alone.
@@ -97,7 +97,7 @@ SocketReader -> MessageProcessor -> DataDecoder / msg_decoder -> handler_if -> T
 | **Filter** | a table of up to 64 security ids, a parallel compare, loaded by the CPU. Drops implied entries and other security ids, numbers the rest, packs each to 16 bytes. SecurityStatus always passes: CME sends it for a security group, with no security id. |
 | **Batcher** | three events to a line; at the end of every packet an End line with what is left and the sequence number. One send a step, so II = 1. |
 
-All at II = 1. On the CPU, **FpgaFeed** (`mdp3/host/fpga_feed.hpp`) is an ordinary
+All at II = 1. On the CPU, **FpgaFeed** (`host/fpga_feed.hpp`) is an ordinary
 Kaspar actor on an FpgaLanes mailbox: it loads the table (WantSecurity, answered
 by WantAck) and sends the card nothing else; it copies each line to a buffer, and
 at the End line applies the packet to its books and calls the strategy, on its own
@@ -112,7 +112,7 @@ thread.
 | `WantAck` | one line | at start, one per table entry |
 
 A packed event is price, size, order count, security number, level, action and
-side (`mdp3/include/mdp3fpga/events.hpp`). A status carries trading status, halt
+side (`include/mdp3fpga/events.hpp`). A status carries trading status, halt
 reason and trading event. A packet of 44 events is 15 lines.
 
 ## Known limitations (no recovery)
@@ -153,7 +153,7 @@ external tap or capture box.
 ## Framework changes
 
 Done: raw streams (`Group::step_stream`, and an actor held by its own task), `OutPort` for a
-process that only sends, `SoftCard::add_step`. See HLS.md section 2.
+process that only sends, `SoftCard::add_step`. See ../actors/fpga/HLS.md section 2.
 
 Still to come: more than one actor of a type, which BookBank's `Book<N>` would need.
 
@@ -224,7 +224,7 @@ dropped them or the capture did is not known.
 
 ## Still to build
 
-`mdp3/DESIGN.md` describes the handler as a whole. These parts of it
+`DESIGN.md` describes the handler as a whole. These parts of it
 exist only as design so far; everything else is built and tested in simulation.
 
 **Network side**

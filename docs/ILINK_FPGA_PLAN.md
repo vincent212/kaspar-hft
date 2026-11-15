@@ -1,6 +1,6 @@
 # Plan: iLink on the Alveo X3522PV, with FPGA actors
 
-A separate project from the MDP3 handler ([MDP3_PLAN.md](MDP3_PLAN.md)), with its own
+A separate project from the MDP3 handler ([MDP3_PLAN.md](../mdp3_fpga/MDP3_PLAN.md)), with its own
 article.
 
 The FPGA stays part of Kaspar. An actor on the card has handlers for place order

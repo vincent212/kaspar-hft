@@ -55,8 +55,6 @@ takes a new message every cycle ([HLS.md](HLS.md) section 6).
 | `examples/ping_pong/` | shared messages and FPGA actors; FPGA <-> FPGA and group examples, each with a `*_design.hpp` (processes and wiring) shared by the software run and the HLS top |
 | `hls/` | Vitis HLS tops (one `hls::task` per process), testbenches and configs for the examples |
 | `HLS.md` | how the design maps onto hardware; running the Vitis flow; results |
-| `MDP3_PLAN.md` | plan: the MDP3 handler on the X3522PV (channel A, MBP books, no recovery; end-of-packet books, events and trades out) |
-| `mdp3/` | phase 1 of the plan: the MDP3 decoder, generated from CME's template, checked against CME's codec |
 | `examples/cpu_fpga/` | CPU <-> FPGA example, both directions |
 
 ## Running
@@ -88,3 +86,6 @@ Pong to another group makes SyncPing's `fast_send` fail to compile. `cpu_fpga` u
 against a CPU `CpuPong`. `make hls` puts all three FPGA designs through Vitis;
 for `cpu_fpga` that is the FPGA half, with the testbench standing in for the
 CPU actors ([HLS.md](HLS.md) section 5).
+
+Applications built on kfpga live outside `actors/`: the CME MDP3 handler is in
+[`mdp3_fpga/`](../../mdp3_fpga/) (plan: [`MDP3_PLAN.md`](../../mdp3_fpga/MDP3_PLAN.md)).

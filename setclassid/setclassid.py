@@ -47,7 +47,7 @@ INTEROP_FILES = {"actors/rust/interop/generated/cpp/InteropMessages.hpp"}
 # kfpga::CpuMsg<X> makes it a Message_N<N>. Those declarations are the ids to audit;
 # CpuMsg's own `Message_N<F::id>` is the bridge, not an id. `Message<332 + N>` (a
 # template over N) needs `msgids A-B` on the same line, giving the ids it spans.
-KFPGA_PREFIX = "actors/fpga/"
+KFPGA_PREFIX = ("actors/fpga/", "mdp3_fpga/")
 KFPGA_MSG = re.compile(
     r'(?:struct|class)\s+(\w+)\b[^:]*:\s*(?:public\s+)?(?:::)?kfpga::Message\s*<\s*([^>]+?)\s*>')
 KFPGA_SPAN = re.compile(r'msgids\s+(\d+)\s*-\s*(\d+)')

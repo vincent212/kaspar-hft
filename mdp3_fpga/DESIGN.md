@@ -3,7 +3,7 @@
 The system on the Alveo X3522PV takes CME's MDP3 incremental feed from the wire,
 decodes it, keeps what the strategy trades, and delivers it to the host in 64-byte
 lines. It keeps no order book: the host builds the MBP books from the events the card sends. Every stage is an FPGA actor
-(`kfpga`, see [../HLS.md](../HLS.md)), running as its own `hls::task`.
+(`kfpga`, see [HLS.md](../actors/fpga/HLS.md)), running as its own `hls::task`.
 
 ## System
 
@@ -243,6 +243,6 @@ MAC and the DMA engine take their place.
 
 The MAC and PCIe DMA engine are not built, and their interfaces here are assumed: a 64-bit
 stream from the MAC and one back to it, and a stream of 64-byte lines toward the host. The order path is a
-separate project ([../ILINK_PLAN.md](../ILINK_PLAN.md)). `BookBank`
+separate project ([ILINK_FPGA_PLAN.md](../docs/ILINK_FPGA_PLAN.md)). `BookBank`
 (`include/mdp3fpga/book.hpp`) is retained as a design for a book on the card and is not
 part of this system; it does not synthesize as written.

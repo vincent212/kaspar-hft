@@ -1,6 +1,6 @@
 # The MDP3 handler on the card
 
-[MDP3_PLAN.md](../MDP3_PLAN.md): CME MDP3 frames in, decoded and filtered events
+[MDP3_PLAN.md](MDP3_PLAN.md): CME MDP3 frames in, decoded and filtered events
 out to a CPU actor that builds the books, all as actors, in Vitis HLS for the Alveo
 X3522PV. Checked against CME's own codec and a separate software book. No card
 needed.
