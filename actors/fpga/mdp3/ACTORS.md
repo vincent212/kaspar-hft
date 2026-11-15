@@ -43,6 +43,69 @@ There are two kinds of actor here.
 All four take one step per clock (II = 1). The design was placed and routed on the
 card's XCUX35 at 3.32 ns, about 300 MHz; it runs at 250 MHz.
 
+## Where the actors are wired together
+
+Everything is wired in `hls/feed_top.cpp`, in two forms of the same design: the
+hardware, where the actors run at the same time, and a plain C++ version, where they
+are called one after another.
+
+### On the card: four tasks joined by FIFOs
+
+The top function declares every FIFO and starts each actor's process as an `hls::task`:
+
+```cpp
+hls_thread_local WordStream frames("frames");   // MAC -> FeedRx
+hls_thread_local WordStream words("words");     // FeedRx -> SbeDecoder
+hls_thread_local Fifo decoded("decoded");       // SbeDecoder -> Filter
+hls_thread_local Fifo kept("kept");             // Filter -> Batcher
+hls_thread_local Fifo lines("lines");           // Batcher -> the CPU
+hls_thread_local Fifo to_filter("to_filter");   // the CPU -> Filter (WantSecurity)
+hls_thread_local Fifo acks("acks");             // Filter -> the CPU (WantAck)
+
+hls_thread_local hls::task rx(rx_task, frames, words);
+hls_thread_local hls::task decoder(decoder_task, words, decoded);
+hls_thread_local hls::task filter(filter_task, decoded, kept, to_filter, acks);
+hls_thread_local hls::task batcher(batcher_task, kept, lines);
+```
+
+Each `hls::task` is a circuit of its own. Nothing calls it: it starts at reset, and
+every clock it takes one step if it has input and room for output. All four run at
+once, so while Batcher handles one event, Filter handles the next, SbeDecoder reads
+the next word and FeedRx the next part of a frame. The FIFOs are the only connection
+between them; the order of a task's arguments is which FIFO it reads and which it
+writes.
+
+The rest of the top function (`load`, `words_in`, `lines_out`) is test harness for
+co-simulation, which counts words in and lines out; on the card the MAC feeds
+`frames` and the DMA engine drains `lines` instead.
+
+### In plain C++: one call per clock
+
+For tests over whole recordings, the same task functions are compiled with an
+ordinary compiler (`MDP3_SW`) and called one after another, each call standing for
+one clock of that actor:
+
+```cpp
+void mdp3_feed_tick(WordStream &frames, WordStream &words, Fifo &decoded, Fifo &kept, Fifo &window, Fifo &acks,
+                    Fifo &out)
+{
+  rx_task(frames, words);
+  decoder_task(words, decoded);
+  filter_task(decoded, kept, window, acks);
+  batcher_task(kept, out);
+}
+```
+
+One call of `mdp3_feed_tick` is one clock of the whole card: every actor takes one
+step, in the order of the flow. The FIFOs are the same, here software queues. The test
+(`hls/tb_feed_stream.cpp`) puts the frames of a recording into `frames` at line rate,
+calls `mdp3_feed_tick` once per clock, and reads `out`.
+
+The two forms run the same code: the task functions, the actors, and the FIFOs between
+them. What differs is only who advances the clock: the hardware, with all tasks at
+once, or this function, with one call each in turn. That is how every recording was
+checked before the Verilog was co-simulated.
+
 ## FeedRx
 
 The first actor on the wire. It takes Ethernet frames from the MAC and passes on only
