@@ -19,6 +19,9 @@ MAC (channel A) -> FeedRx -> SbeDecoder -> Filter -> Batcher -> CPU: FpgaFeed ->
   card pays only once the trigger is on the card too. BookBank
   (`mdp3/include/mdp3fpga/book.hpp`) stays as the design for then.
 - **Everything on the card is an actor.**
+- **The card joins the multicast group itself.** The port belongs to the FPGA, so the
+  kernel cannot send the IGMP report for it; the Igmp actor does (IGMPv2), at the
+  CPU's JoinGroup, and answers the switch's queries (`mdp3/ACTORS.md`).
 - **Only the card decodes.** Raw SBE never reaches the CPU.
 - **Channel A only.** No A/B arbitration.
 - **Books are built from MBP**, CME's market-by-price entries (template 46), not
@@ -62,6 +65,14 @@ MAC (channel A) -> FeedRx -> SbeDecoder -> Filter -> Batcher -> CPU: FpgaFeed ->
 | depth | 10 levels (CME's MBP depth for these futures) | full |
 | order detail | none | each order's priority (queue position), individual adds and cancels |
 | events | the MBP entries of a packet are the event list | per-order events |
+
+This table compares building each book **on the card**. The design does not: the card
+decodes, filters and packs, and the CPU builds the books. With the book on the CPU, MBO
+needs no hash table on the card. Passing MBO through means decoding template 47
+(40-byte entries) and the order list of template 46 (24-byte entries, which point to a
+price entry of the same message for their security), one event per line instead of
+three, and many more events; FpgaFeed would hand them to TachBook. It is listed under
+"Still to build".
 
 The output is the top 10 levels and the trades, and nothing in `light22` or
 the shadow algorithm uses MBO queue position (the simulator's queue-aware
@@ -159,7 +170,7 @@ Still to come: more than one actor of a type, which BookBank's `Book<N>` would n
 |---|---|---|
 | **0. Card facts** | what the card gives us: UG1607, the XDC. The PV has no fixed shell that we found: Vivado RTL flow, cages and PCIe wired to the XCUX35, so we supply the MAC and PCIe DMA. Choose them (AMD IP or Corundum), line rate (UG1607: 10 GbE currently), clocks. | XDC downloaded; choices open |
 | **1. SbeDecoder** | generated decoder | done, except the comparison with `msg_decoder` |
-| **2. Filter, Batcher, FeedRx** | the rest of the card's receive path | done in simulation |
+| **2. Filter, Batcher, FeedRx, Igmp** | the rest of the card's receive path, and joining the multicast group (IGMPv2) from the card | done in simulation |
 | **3. FpgaFeed** | the CPU end, on the framework's existing link | done against a test sink; adapter to `light22` and the overflow flag not written |
 | **4. On the card, shadow** | a loopback design first (MAC, PCIe DMA, latency measured); then our bitstream through Vivado, timing closure, next to the software handler on the live feed | needs the card |
 | **5. Cut over** | the strategy reads the card's output | fallback to software tested |
@@ -180,7 +191,10 @@ the Nov 1 session (30,044,560 packets). Not yet on a card.
 | lines to the CPU (same run) | **30,612,938**: one End line per packet, plus 568,378 full lines, for 26,375,349 events |
 | RTL co-simulation, XCUX35, the busiest 2,000 consecutive packets of 344 | **pass, 0 differ**; 292,746 cycles; all four actors at II = 1; estimated 212.8 MHz |
 | end to end: real FpgaFeed actor on its FpgaLanes mailbox, card on a SoftCard | first 3,000,000 packets of 344, six security ids: **0 differ**, 0 codec errors |
-| place and route, all four actors, KU5P stand-in | **250 MHz met; 3.37 ns, about 296 MHz**; 6,066 LUTs, 13,413 flip-flops, 23 block RAM. Not the XCUX35: its device files are not installed |
+| place and route, all four actors, KU5P stand-in | **250 MHz met; 3.37 ns, about 296 MHz**; 6,066 LUTs, 13,413 flip-flops, 23 block RAM |
+| place and route, all four actors, XCUX35 -3 | **250 MHz met; 3.32 ns, about 301 MHz**; 5,824 LUTs, 13,511 flip-flops, 23 block RAM |
+| place and route, five actors with Igmp, XCUX35 -3 | **250 MHz met; 3.29 ns, about 304 MHz**; 6,100 LUTs, 14,431 flip-flops, 23 block RAM; every task II = 1 |
+| Igmp, on the whole card in g++ | join, repeats, queries (with and without Router Alert and VLAN tag), leave: every frame byte for byte against frames built from the RFCs; tcpdump confirms the checksums |
 
 **Crossed books on security 42001080** (676 of 5,880,919 packet ends; 591 before
 SecurityStatus reached the book, which adds batches): two runs, neither an error in
@@ -204,6 +218,52 @@ its trading status, halt reason and trading event.
 **The recording has 221 sequence gaps, 5,576 packets missing.** Whether feed A
 dropped them or the capture did is not known.
 
+## Still to build
+
+`mdp3/ACTORS.md` describes the handler as a whole, as it will run. These parts of it
+exist only as design so far; everything else is built and tested in simulation.
+
+**Network side**
+
+- **MAC.** Transceiver, 10GBASE-R PCS and MAC on the port the feed arrives on: AMD's
+  10G/25G Ethernet Subsystem, low-latency configuration, or Corundum's.
+- **Clock-domain crossing.** Asynchronous FIFOs between the MAC's 156.25 MHz and the
+  actors' 250 MHz, into `frames` and out of `tx`.
+- **The FCS verdict.** The MAC flags a bad frame on its last word. Carry the flag
+  through FeedRx and SbeDecoder to the End line, and have FpgaFeed treat a bad frame as
+  a gap.
+
+**PCIe side**
+
+- **The PCIe endpoint.** AMD's QDMA or XDMA, or Corundum's, on the XCUX35's hard block.
+- **The lane writer.** For each line from `lines`: the host address of the ring, the next
+  slot and the sequence number. It issues a memory write of the first 60 bytes, then the
+  4-byte sequence number as a separate, later write.
+- **Flow control on the lane.** The card must not overwrite slots the CPU has not read.
+  Either the CPU writes its read position into the card's memory now and then (the card
+  never reads host memory, since a read costs a round trip), or the ring is sized so it
+  cannot fill and the card sets an overflow flag.
+- **The window.** A BAR region the CPU writes. Logic turns each slot written into a
+  message on `to_filter` or `join`.
+- **Host setup.** Pinned memory for the lane, whose address the card is given. The BAR
+  mapped into the program (VFIO). `cpu_link.hpp`'s CpuEnd on the real lane and window,
+  in place of the software rings.
+
+**MBO**
+
+- **Order-by-order data through the card.** Decode template 47 and the order list of
+  template 46, keep the wanted securities, pack one order event per line, and feed
+  TachBook on the CPU. The decoder's entry register grows from 32 to 40 bytes.
+
+**CPU side**
+
+- **The adapter to `light22`.** From FpgaFeed's books to the messages the lights take.
+
+**Later**
+
+- **More than one channel.** A group table in FeedRx and Igmp, and a channel index to
+  the End line (`feed_rx.hpp`, "One channel").
+
 ## Risks and open questions
 
 - **The card's interfaces are assumptions until phase 0**: the MAC and DMA we
@@ -213,8 +273,6 @@ dropped them or the capture did is not known.
 - **License.** The XCUX35 is not in AMD's free tier. The Enterprise evaluation in
   our license file runs to Dec 28, 2026; the Vivado for Alveo package (to Oct 29,
   2027) is untested on it.
-- **Place and route on the real chip** has not run: the XCUX35's device files are
-  not in Vivado yet, and the installer's AMD token has expired.
 - **Where the time goes.** The card's own part is tens of nanoseconds; the hop to
-  the CPU is PCIe, about a microsecond by estimate. The large gain comes when the
+  the CPU is PCIe, about 300 to 400 ns by estimate (`mdp3/ACTORS.md`). The large gain comes when the
   trigger runs on the card too.

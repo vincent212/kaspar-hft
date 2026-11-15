@@ -13,14 +13,16 @@ lines. It keeps no order book: the host builds the MBP books from the events the
 |---|---|---|---|
 | **FeedRx** | Ethernet frames, 64-bit words | UDP payloads of one group and port, realigned | header words, offset, payload bytes left |
 | **SbeDecoder** | UDP payload words | one message per entry, EndOfPacket | window, parser state, entry register |
-| **Filter** | decoder messages; WantSecurity from the host | PackedEvent, EndOfPacket; WantAck to the host | contract table |
-| **Batcher** | PackedEvent, EndOfPacket | EventLine | the line being filled |
-| **FpgaFeed** (host) | lines | packets to the strategy | line buffer, books |
+| **Filter** | decoder messages; WantSecurity from the host | PackedEvent, EndOfPacket; WantAck to the host | security table |
+| **Batcher** | PackedEvent, EndOfPacket | EventLine, EndLine | the events held for the next line |
+| **Igmp** | JoinGroup, LeaveGroup from the host; IgmpQuery from FeedRx | IGMP frames to the MAC; Listen to FeedRx; IgmpAck to the host | the group, the card's addresses, the frame being sent |
+| **FpgaFeed** (host) | lines; WantAck; IgmpAck | WantSecurity, JoinGroup; the books, to the strategy | books |
 
 Each actor takes one step per clock. FIFOs are declared at the top level and plugged
-into the processes. `SbeDecoder` and `FeedRx` run on `Group::step_stream` and
-`step_raw`, their input being words and not messages; `Filter` and `Batcher` run on
-`Group::step`.
+into the processes. `SbeDecoder` and `FeedRx` run on `Group::step_stream`, their input
+being words and not messages; `Filter`, `Batcher` and `Igmp` run on `Group::step`, and
+Igmp on `step_stream` too while it writes a frame. `ACTORS.md` has each actor in
+detail, the MAC, and why the handler is on the card at all.
 
 The top-level FIFOs between decoder and filter and between filter and batcher are 64
 envelopes deep.
@@ -30,7 +32,7 @@ envelopes deep.
 Packets reach the card through the network port, which is wired to the FPGA. No CPU,
 socket or kernel is involved. The MAC turns the wire into 64-bit words for FeedRx.
 
-`FeedRx` and `SbeDecoder` have no handlers, their input being raw words. `SbeDecoder`
+`SbeDecoder` has no handlers, its input being raw words; `FeedRx` has one, for `Listen`. `SbeDecoder`
 sends these to `Filter`:
 
 | message | when |
@@ -63,23 +65,20 @@ sends these to `Filter`:
 
 | handler | what it does |
 |---|---|
-| `on_start` | sends `WantSecurity` for each security id, to load the filter table |
-| `on_ack` | counts acks until the table is loaded |
+| `on_start` | sends `WantSecurity` for each security id, to load the filter table, and `JoinGroup` to Igmp |
+| `on_ack`, `on_joined` | count the acks; ready when the table is loaded and the group joined |
 | `on_line` | applies the line's three events to the books at once, and keeps them for the strategy |
-| End line | checks the sequence number, sets the gap flag on a skip, applies the last 0 to 2 events, and calls the strategy once if there were events |
-
-The strategy gets one call per packet: `on_packet(books, events, n, gap)`.
+| End line | checks the sequence number, sets the gap flag on a skip, and applies the last 0 to 2 events |
 
 ## FeedRx
 
 The MAC delivers frames as 64-bit words with the FCS removed.
 
-FeedRx is called from `rx_task()` in `hls/feed_top.cpp`, its process: each clock the task
-calls `rx.on_step(frames, words)`, which reads at most one frame word and writes at most one
-payload word. `on_step()` is the only entry point; `decide()` and `finish()` are called from
-it. The task holds the actor as `static FeedRx rx`, not in a `kfpga::Group`, because it takes
-and sends words rather than messages. The source, `include/mdp3fpga/feed_rx.hpp`, documents
-the states and the realignment in detail.
+FeedRx is called from `rx_task()` in `hls/feed_top.cpp`, its process, a `kfpga::Process<FeedRx>`:
+each clock the task calls `proc.step_stream<FeedRx>(ports, frames, words, listen)`, which
+calls `on_step`. That reads at most one frame word, writes at most one payload word, and
+handles at most one `Listen`; what FeedRx sent, an `IgmpQuery`, is then written to Igmp. The
+source, `include/mdp3fpga/feed_rx.hpp`, documents the states and the realignment in detail.
 
 ```
 frame = Ethernet (14, or 18 with an 802.1Q tag) | IPv4 (20) | UDP (8) | payload
@@ -89,8 +88,10 @@ The first six words hold every header, so the accept decision is taken in one st
 IPv4 frame without options, protocol UDP, addressed to the configured group and port.
 Anything else is dropped. The payload starts 2 bytes into word 5, or 6 with a tag, so each
 output word is the tail of one input word and the head of the next. The UDP length gives
-the end of the payload, which removes Ethernet padding. The group and port are set at
-build time.
+the end of the payload, which removes Ethernet padding. The group and port come from Igmp,
+in a `Listen`, when the host joins; until then nothing is accepted. An IGMP frame (protocol 2)
+takes one more word, since a query's Router Alert option pushes its fields past the sixth;
+a membership query goes to Igmp as an `IgmpQuery`.
 
 ## SbeDecoder
 
@@ -182,9 +183,8 @@ Lines are written into a ring in host memory, one writer and one reader, and con
 through the framework's `CpuEnd` and `FpgaLanes` mailbox, which polls. `FpgaFeed` copies a
 packet's events as they arrive and applies each full line to its MBP books at once, while
 the rest of the packet is still on the wire. At the End line it checks the sequence number,
-setting a gap flag that stays set if a packet was skipped, applies the last 0 to 2 events,
-and if the packet had events hands the books and events to the strategy in one call on that
-thread. A late or duplicate packet whose full lines were already applied also sets the gap
+setting a gap flag that stays set if a packet was skipped, and applies the last 0 to 2
+events. A late or duplicate packet whose full lines were already applied also sets the gap
 flag. Nothing
 sleeps and nothing is woken, and the kernel is not on the receive path.
 
@@ -192,11 +192,15 @@ sleeps and nothing is woken, and the kernel is not on the receive path.
 
 | message | id | contents |
 |---|---|---|
-| `EventLine` | 331-333 | 1 to 3 events; the id gives the number |
-| End line | 334-336 | the packet's sequence number and 0 to 2 events; the id gives the number |
-| `WantAck` | 339 | table index |
+| `EventLine` | 331 | 3 events |
+| End line | 332-334 | the packet's sequence number and 0 to 2 events; the id gives the number |
+| `WantAck` | 339 | table index, and whether it was stored |
+| `IgmpAck` | 342 | the group joined or left, and whether it was |
 
-From the host, `WantSecurity` (338): table index and security id.
+From the host: `WantSecurity` (338), table index and security id; `JoinGroup` (340), the
+group and port and the card's MAC address, IP address and VLAN; `LeaveGroup` (341).
+
+Between actors on the card, Igmp and FeedRx exchange `IgmpQuery` (343) and `Listen` (344).
 
 ### Event format
 
@@ -220,16 +224,17 @@ A security status event also carries trading status, halt reason and trading eve
 ## Clocks and timing
 
 The HLS target is 4 ns, 250 MHz, on one clock. At 8 bytes per clock this exceeds 10 GbE line
-rate. Crossing from the MAC's clock domain, if it differs, is not yet designed. The four
+rate. The MAC's 10 GbE stream runs at 156.25 MHz and crosses into this clock through an
+asynchronous FIFO, not yet built (`ACTORS.md`, "The MAC"). The four receive
 actors were placed and routed at 3.37 ns, about 296 MHz, on the KU5P stand-in: 6,066 LUTs,
 13,413 flip-flops and 23 block RAMs, and on the card's own device, the XCUX35 at speed grade
--3, at 3.32 ns, about 301 MHz: 5,824 LUTs, 13,511 flip-flops, 23 block RAMs. The channel A group and port in FeedRx are set at build
-time.
+-3, at 3.32 ns, about 301 MHz: 5,824 LUTs, 13,511 flip-flops, 23 block RAMs. With Igmp added, the five actors on the XCUX35
+met 250 MHz at 3.29 ns, about 304 MHz: 6,100 LUTs, 14,431 flip-flops, 23 block RAMs.
 
 ## Test harness
 
-`hls/feed_top.cpp` also holds three plain functions, `load`, `words_in` and
-`lines_out`. They are the counted boundary co-simulation needs (HLS.md section 3): they
+`hls/feed_top.cpp` also holds four plain functions, `load`, `words_in`, `lines_out`
+and `tx_out`. They are the counted boundary co-simulation needs (HLS.md section 3): they
 move a known number of words and envelopes between the top-level ports and the actor
 tasks so that the top returns. They are not stages of the handler, and on the card the
 MAC and the DMA engine take their place.
@@ -237,7 +242,7 @@ MAC and the DMA engine take their place.
 ## Outside this design
 
 The MAC and PCIe DMA engine are not built, and their interfaces here are assumed: a 64-bit
-stream from the MAC, and a stream of 64-byte lines toward the host. The order path is a
+stream from the MAC and one back to it, and a stream of 64-byte lines toward the host. The order path is a
 separate project ([../ILINK_PLAN.md](../ILINK_PLAN.md)). `BookBank`
 (`include/mdp3fpga/book.hpp`) is retained as a design for a book on the card and is not
 part of this system; it does not synthesize as written.
