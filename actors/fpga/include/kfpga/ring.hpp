@@ -31,6 +31,7 @@
  * Software only, kept to C++14 like the rest of the runtime.
  */
 
+#include "../../../cpp/include/actors/cpu_relax.hpp"
 #include <atomic>
 #include <cassert>
 #include <cstddef>
@@ -44,16 +45,8 @@
 
 namespace kfpga {
 
-inline void cpu_relax() noexcept
-{
-#if defined(__x86_64__) || defined(__i386__)
-  __builtin_ia32_pause();
-#elif defined(__aarch64__) || defined(__arm__)
-  __asm__ __volatile__("yield");
-#else
-  std::this_thread::yield();
-#endif
-}
+// The spin hint, shared with the actor framework: one copy, in actors/cpp.
+using actors::cpu_relax;
 
 class Ring
 {

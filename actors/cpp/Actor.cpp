@@ -151,14 +151,6 @@ namespace {
   // FpgaLanes polls its lanes as well as its CPU queue.
   template <class Q> struct mailbox_lanes : std::false_type {};
   template <class T> struct mailbox_lanes<actors::FpgaLanes<T>> : std::true_type {};
-
-  inline void cpu_relax() noexcept {
-#if defined(__x86_64__) || defined(__i386__)
-    __builtin_ia32_pause();
-#elif defined(__aarch64__) || defined(__arm__)
-    __asm__ __volatile__("yield");
-#endif
-  }
 }
 
 template <class Q>

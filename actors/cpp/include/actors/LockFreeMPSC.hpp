@@ -7,6 +7,7 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
+#include "actors/cpu_relax.hpp"
 #include <atomic>
 #include <vector>
 #include <mutex>
@@ -50,14 +51,6 @@ namespace actors
 
     static size_t round_up_pow2(size_t n) {
       size_t p = 1; while (p < n) p <<= 1; return p;
-    }
-
-    static inline void cpu_relax() noexcept {
-#if defined(__x86_64__) || defined(__i386__)
-      __builtin_ia32_pause();
-#elif defined(__aarch64__) || defined(__arm__)
-      __asm__ __volatile__("yield");
-#endif
     }
 
     // Cap on items drained per pop_batch call — guarantees the call RETURNS even
