@@ -76,13 +76,11 @@ static void igmp_task(Fifo &join, Fifo &joined, Fifo &queries, Fifo &listen, Wor
   igmp.cpu = kfpga::ActorRef(0, kCpuFeed);
   igmp.feed_rx = kfpga::ActorRef(1, kFeedRx);
   kfpga::Port ports[2] = {{join, joined}, {queries, listen}};
+  igmp.on_clock();
   if (igmp.busy())
-    proc.step_stream<Igmp>(ports, tx);
+    proc.step_stream<Igmp>(ports, tx, queries);
   else
-  {
-    igmp.on_idle();
     proc.step(ports);
-  }
 }
 
 #ifdef MDP3_SW
@@ -180,6 +178,7 @@ void mdp3_feed_top(InStream &in, Fifo &window, Fifo &join_in, Fifo &out, InStrea
   hls_thread_local Fifo join("join");
   hls_thread_local Fifo joined("joined");
   hls_thread_local Fifo queries("queries");
+#pragma HLS STREAM variable=queries depth=4
   hls_thread_local Fifo listen("listen");
   hls_thread_local WordStream tx("tx");
   hls_thread_local hls::task rx(rx_task, frames, words, listen, queries);

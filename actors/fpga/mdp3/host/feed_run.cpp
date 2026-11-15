@@ -166,13 +166,11 @@ int main(int argc, char **argv)
   std::atomic<uint32_t> tx_frames{0};
   soft.add_step([&card, &tx_frames] {
     Igmp &g = IgmpProc::member<Igmp>();
+    g.on_clock();
     if (g.busy())
-      card.igmp.step_stream<Igmp>(card.igmp_ports, card.tx);
+      card.igmp.step_stream<Igmp>(card.igmp_ports, card.tx, card.queries);
     else
-    {
-      g.on_idle();
       card.igmp.step(card.igmp_ports);
-    }
     while (!card.tx.empty())
       if (card.tx.read().last)
         tx_frames.fetch_add(1, std::memory_order_relaxed);

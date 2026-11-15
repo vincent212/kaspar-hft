@@ -173,6 +173,7 @@ class FeedRx : public kfpga::Actor<FeedRx>
   ap_uint<16> left_ = 0;      // payload bytes still to send, from the UDP length
   bool ended_ = false;        // the frame's last word has been read
   ap_uint<4> igmp_at_ = 0;    // an IGMP frame: where its IGMP part starts, from byte 32
+  bool listening_ = false;    // a group has been set by Listen: accept it
 
   // A header field: N bytes (1 to 4) at byte `at` of the frame, read from h_. Network
   // headers are big-endian, so the first byte is the most significant. `at` is a
@@ -218,13 +219,16 @@ class FeedRx : public kfpga::Actor<FeedRx>
     const ap_uint<32> dst = tag ? field<4>(34) : field<4>(30);
     const ap_uint<16> dport = tag ? field<2>(40) : field<2>(36);
     const ap_uint<16> ulen = tag ? field<2>(42) : field<2>(38);
-    const bool ours = type == 0x0800 && version == 0x45 && proto == 17 && dst == group && dport == port && ulen >= 8;
-    const bool is_igmp = type == 0x0800 && (version == 0x45 || version == 0x46) && proto == 2;
+    const bool ours = listening_ && type == 0x0800 && version == 0x45 && proto == 17 && dst == group &&
+                      dport == port && ulen >= 8;
+    // IGMP with no options, Router Alert (RFC 2236 requires it), or up to 8 bytes of
+    // options: its 8 bytes then still lie within header words 4 and 5 and the next.
+    const bool is_igmp = type == 0x0800 && version >= 0x45 && version <= 0x47 && proto == 2;
     n_ = 0;
     if (is_igmp && !ended_)
     {
-      // 14 + 20 bytes, + 4 for a tag, + 4 for an option: 34, 38 or 42, from byte 32.
-      igmp_at_ = 2 + (tag ? 4 : 0) + (version == 0x46 ? 4 : 0);
+      // 14 + 20 bytes, + 4 for a tag, + 4 per option word, counted from byte 32: 2 to 14.
+      igmp_at_ = ap_uint<4>(2 + (tag ? 4 : 0)) + (ap_uint<4>(version.range(3, 0) - 5) << 2);
       state_ = kIgmp;
     }
     else if (ours)
@@ -242,10 +246,15 @@ class FeedRx : public kfpga::Actor<FeedRx>
     }
   }
 
-  // The word after the headers of an IGMP frame. The IGMP part starts at byte 34, 38
-  // or 42 of the frame, so it lies in bytes 32 to 55: header words 4 and 5 and this
+  // The word after the headers of an IGMP frame. The IGMP part starts between byte 34
+  // and 46 of the frame, so it lies in bytes 32 to 55: header words 4 and 5 and this
   // one. A membership query goes to Igmp; anything else IGMP (another host's report,
   // a leave) is dropped.
+  //
+  // A query is control traffic, and must never hold up the data path. The send is a
+  // blocking write, but it cannot block: a query takes a whole frame, at least eight
+  // clocks, and Igmp takes one off its FIFO every clock or two whatever it is doing
+  // (igmp.hpp, "How it runs"), so the FIFO never fills.
   void on_igmp_word(const ap_uint<64> &w)
   {
 #pragma HLS INLINE
@@ -263,12 +272,14 @@ class FeedRx : public kfpga::Actor<FeedRx>
       ++dropped;
   }
 
-  // From Igmp: the group and port to accept from now on.
+  // From Igmp: the group and port to accept from now on. Group 0 means nothing: a
+  // separate flag, so that a frame to 0.0.0.0, port 0 is not taken for ours.
   void on_listen(const Listen &m)
   {
 #pragma HLS INLINE
     group = m.group;
     port = m.port;
+    listening_ = m.group != 0;
   }
 
 public:
@@ -277,13 +288,15 @@ public:
   ap_uint<32> group = 0;
   ap_uint<16> port = 0;
   uint32_t accepted = 0, dropped = 0, queries = 0;
+  uint32_t unhandled = 0;         // messages on `listen` not for FeedRx, or with no handler
 
   KFPGA_HANDLERS(KFPGA_ON(Listen, on_listen))
 
   // One clock: the only entry point, called by rx_task() every cycle.
   //
-  // A Listen from Igmp, if one is waiting, is handled first. Then, if a kept frame's remaining payload already sits in prev_, send it as the
-  // last word and finish, without reading. Otherwise read one word, if there is one,
+  // A Listen from Igmp, if one is waiting, is handled first. Then, if a kept frame's
+  // remaining payload already sits in prev_, send it as the last word and finish,
+  // without reading. Otherwise read one word, if there is one,
   // and act on it by state: store a header word (and decide at the sixth), send one
   // payload word, or discard a word of a dropped frame.
   void on_step(WordStream &in, WordStream &out, kfpga::Fifo &listen)
@@ -291,8 +304,8 @@ public:
 #pragma HLS INLINE
 #pragma HLS ARRAY_PARTITION variable=h_ type=complete
     kfpga::Envelope e;
-    if (listen.read_nb(e))
-      kfpga_dispatch(e);
+    if (listen.read_nb(e) && (e.dst != kId || !kfpga_dispatch(e)))
+      ++unhandled;
     Word w;
     const ap_uint<4> head = ap_uint<4>(8) - o_;    // payload bytes in prev_
     const bool from_prev = left_ <= head || ended_;

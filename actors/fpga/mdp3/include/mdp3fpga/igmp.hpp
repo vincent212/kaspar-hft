@@ -53,6 +53,8 @@
  *       is out, or start a repeat;
  *     - otherwise proc.step(ports) handles one message, as for any message actor.
  *
+ *   Before either, on_clock() counts down to the next repeated report.
+ *
  *   A frame takes ten clocks: one to build, eight words of 60 bytes, one for the ack.
  *   Messages wait in their FIFOs meanwhile. Every handler, and every clock of
  *   on_step, sends at most one message, so that each output FIFO has one write per
@@ -148,6 +150,11 @@ class Igmp : public kfpga::Actor<Igmp>
   ap_uint<12> vlan_ = 0;
   bool joined_ = false;
 
+  // Checksum parts that do not change while joined, summed at the join: the IP header's
+  // constant words and the card's address, and the group's two halves.
+  ap_uint<20> ip_sum_ = 0;
+  ap_uint<17> group_sum_ = 0;
+
   // The frame to build: its type and IP destination, and whether one is waiting.
   ap_uint<8> type_ = 0;
   ap_uint<32> dst_ = 0;
@@ -156,6 +163,9 @@ class Igmp : public kfpga::Actor<Igmp>
   // The frame being sent: frame_ holds the words not yet written, the next one low.
   ap_uint<64 * kIgmpFrameWords> frame_ = 0;
   ap_uint<4> left_ = 0;                // words still to write; 0 when idle
+
+  // A query to answer with a report, once the frame under way is out.
+  bool answer_ = false;
 
   // The ack of a join or leave, sent once its frame is out.
   bool ack_ = false;
@@ -204,8 +214,10 @@ class Igmp : public kfpga::Actor<Igmp>
     put<2>(f, O - 2, 0x0800);
 
     // IPv4, with the Router Alert option.
-    const ap_uint<32> ip_sum = 0x46c0 + 32 + 0x0000 + 0x4000 + 0x0102 + ip_.range(31, 16) + ip_.range(15, 0) +
-                               dst.range(31, 16) + dst.range(15, 0) + 0x9404 + 0x0000;
+    // Most of the checksum was summed at the join (ip_sum_, group_sum_), so that here it
+    // is one add: the destination is the group, or 224.0.0.2 for a leave.
+    const ap_uint<32> dst_sum = dst == kAllRouters ? ap_uint<32>(0xE000 + 0x0002) : ap_uint<32>(group_sum_);
+    const ap_uint<32> ip_sum = ap_uint<32>(ip_sum_) + dst_sum;
     put<2>(f, O + 0, 0x46c0);            // version 4, 6 words; TOS 0xc0
     put<2>(f, O + 2, 32);                // total length
     put<2>(f, O + 4, 0);                 // identification
@@ -217,7 +229,7 @@ class Igmp : public kfpga::Actor<Igmp>
     put<4>(f, O + 20, 0x94040000);       // Router Alert
 
     // IGMP.
-    const ap_uint<32> igmp_sum = (ap_uint<32>(type) << 8) + group.range(31, 16) + group.range(15, 0);
+    const ap_uint<32> igmp_sum = (ap_uint<32>(type) << 8) + ap_uint<32>(group_sum_);
     put<1>(f, O + 24, type);
     put<1>(f, O + 25, 0);                // max response time: 0 in what a host sends
     put<2>(f, O + 26, fold(igmp_sum));
@@ -260,6 +272,9 @@ class Igmp : public kfpga::Actor<Igmp>
     ip_ = m.ip;
     vlan_ = m.vlan;
     joined_ = true;
+    const ap_uint<32> ip = m.ip, group = m.group;
+    ip_sum_ = ap_uint<20>(0x46c0 + 32 + 0x4000 + 0x0102 + 0x9404) + ip.range(31, 16) + ip.range(15, 0);
+    group_sum_ = ap_uint<17>(group.range(31, 16)) + group.range(15, 0);
     Listen l;
     l.group = m.group;
     l.port = m.port;
@@ -278,7 +293,7 @@ class Igmp : public kfpga::Actor<Igmp>
 #pragma HLS INLINE
     if (!joined_)
     {
-      refuse(group_);
+      refuse(0);   // not joined: no group to name
       return;
     }
     Listen l;   // 0 and 0: accept nothing
@@ -288,6 +303,7 @@ class Igmp : public kfpga::Actor<Igmp>
     ack_group_ = group_;
     joined_ = false;
     repeats_ = 0;
+    answer_ = false;
   }
 
   // A query for all groups or for ours: report.
@@ -296,7 +312,7 @@ class Igmp : public kfpga::Actor<Igmp>
 #pragma HLS INLINE
     ++queries;
     if (joined_ && (m.group == 0 || m.group == group_))
-      start(kIgmpReport, group_);
+      answer_ = true;   // on_step sends the report; several queries make one
   }
 
   bool repeat_due() const { return joined_ && repeats_ != 0 && wait_ == 0; }
@@ -310,10 +326,11 @@ public:
 
   // Something to do besides messages: a frame to build or write, an ack to send, or a
   // repeat due. The task then calls on_step instead of handling a message.
-  bool busy() const { return build_ || left_ != 0 || ack_ || repeat_due(); }
+  bool busy() const { return build_ || left_ != 0 || ack_ || answer_ || repeat_due(); }
 
-  // A clock with nothing to do but messages: count down to the next repeat.
-  void on_idle()
+  // Every clock, busy or not: count down to the next repeat, so that its interval does
+  // not stretch while frames are being sent.
+  void on_clock()
   {
 #pragma HLS INLINE
     if (joined_ && repeats_ != 0 && wait_ != 0)
@@ -321,11 +338,20 @@ public:
   }
 
   // One clock of the work busy() says is waiting, in this order: build the frame; write
-  // its next word; send the ack of the join or leave whose frame is now out; start a
-  // repeat. Each clock sends at most one message.
-  void on_step(WordStream &tx)
+  // its next word; send the ack of the join or leave whose frame is now out; start the
+  // report that answers a query; start a repeat. Each clock sends at most one message.
+  //
+  // Two things keep FeedRx from ever waiting on Igmp. A query waiting on `queries` is
+  // taken every busy clock too, and only noted (answer_), so the FIFO from FeedRx is
+  // drained whatever Igmp is doing. And a word goes to the MAC with a non-blocking
+  // write: if the MAC is not ready, the same word is tried again next clock, so Igmp
+  // never stalls.
+  void on_step(WordStream &tx, kfpga::Fifo &queries_in)
   {
 #pragma HLS INLINE
+    kfpga::Envelope q;
+    if (queries_in.read_nb(q) && q.msg == IgmpQuery::id)
+      on_query(kfpga::decode<IgmpQuery>(q));
     if (build_)
     {
       // From registers only, so the checksums' adds have the clock to themselves.
@@ -344,7 +370,8 @@ public:
       w.data = frame_.range(63, 0);
       w.last = left_ == 1;
       w.keep = left_ == 1 ? ap_uint<8>(0x0f) : ap_uint<8>(0xff);   // 60 = 7 * 8 + 4
-      tx.write(w);
+      if (!tx.write_nb(w))
+        return;   // the MAC is not ready: the same word next clock
       frame_ = frame_ >> 64;
       left_ = left_ - 1;
       return;
@@ -358,7 +385,13 @@ public:
       ack_ = false;
       return;
     }
-    start(kIgmpReport, group_);   // a repeat
+    if (answer_)
+    {
+      start(kIgmpReport, group_);   // the answer to a query
+      answer_ = false;
+      return;
+    }
+    start(kIgmpReport, group_);     // a repeat
     repeats_ = repeats_ - 1;
     wait_ = repeat_clocks;
   }

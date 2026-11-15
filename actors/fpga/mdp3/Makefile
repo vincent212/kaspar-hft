@@ -32,7 +32,7 @@ CXXFLAGS = -O2 -Wall -Wextra
 TOOLS = test/make_packets test/ref_dump test/pcap_to_packets test/ref_book test/stretch_packets
 DEC = generated/mdp3_messages.hpp include/mdp3fpga/decoder.hpp include/mdp3fpga/events.hpp
 
-.PHONY: test stretch table seq book feed feed_e2e rx igmp feed_cosim hls hls_csim hls_synth hls_cosim clean
+.PHONY: test stretch table seq book feed feed_e2e rx igmp bench feed_cosim hls hls_csim hls_synth hls_cosim clean
 # Capped: the test holds one packet at a time, and this box runs the recorders.
 test: $(WORK)/tb_gxx $(REF)
 	ulimit -v 4000000; MDP3_PACKETS=$(PACKETS) MDP3_REF=$(REF) $(WORK)/tb_gxx
@@ -90,16 +90,28 @@ $(WORK)/seq_test: host/seq_test.cpp host/fpga_feed.hpp include/mdp3fpga/feed.hpp
 seq: $(WORK)/seq_test
 	$(WORK)/seq_test
 
-# FeedRx against frames rebuilt from a recording. Capped as above.
+# FpgaFeed's book work for the longest packet, 37 events, pinned to one core.
+bench: $(WORK)/bench_books
+	taskset -c 5 $(WORK)/bench_books
+$(WORK)/bench_books: host/bench_books.cpp include/mdp3fpga/books.hpp include/mdp3fpga/events.hpp
+	mkdir -p $(WORK)
+	g++ -std=c++17 -O2 -march=native -I. -Iinclude -I../include -isystem $(VITIS_INCLUDE) $< -o $@
+
 # Igmp on the whole card: joins, leaves, queries and repeats, every frame it sends
 # compared byte for byte, and checked again by tcpdump (checksums).
 igmp: $(WORK)/tb_igmp
-	ulimit -v 4000000; $(WORK)/tb_igmp $(WORK)/igmp.pcap
-	@tcpdump -nn -vv -e -r $(WORK)/igmp.pcap 2>/dev/null | grep -ci 'bad\|wrong' | grep -qx 0 && echo "tcpdump: every checksum correct" || { echo "tcpdump: bad checksums"; exit 1; }
+	ulimit -v 4000000; $(WORK)/tb_igmp $(WORK)/igmp.pcap $(WORK)/igmp.count
+	@command -v tcpdump >/dev/null || { echo "tcpdump not found: checksums not checked"; exit 1; }
+	@n=$$(cat $(WORK)/igmp.count); \
+	 ok=$$(tcpdump -nn -vv -r $(WORK)/igmp.pcap 2>/dev/null | grep -cE 'igmp v2 report|igmp leave'); \
+	 bad=$$(tcpdump -nn -vv -r $(WORK)/igmp.pcap 2>/dev/null | grep -ci 'bad\|wrong'); \
+	 if [ "$$ok" = "$$n" ] && [ "$$bad" = 0 ]; then echo "tcpdump: all $$n frames IGMPv2, every checksum correct"; \
+	 else echo "tcpdump: $$ok of $$n frames read as IGMPv2, $$bad bad"; exit 1; fi
 $(WORK)/tb_igmp: hls/tb_igmp.cpp hls/feed_top.cpp hls/feed_check.hpp hls/frames.hpp hls/igmp_frames.hpp include/mdp3fpga/igmp.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/feed.hpp $(DEC)
 	mkdir -p $(WORK)
 	g++ -std=c++14 -O2 -w -DKFPGA_HLS -DMDP3_SW -I$(VITIS_INCLUDE) -I. -Iinclude -I../include hls/feed_top.cpp hls/tb_igmp.cpp -o $@
 
+# FeedRx against frames rebuilt from a recording. Capped as above.
 rx: $(WORK)/tb_rx
 	ulimit -v 4000000; MDP3_PACKETS=$(PACKETS) $(WORK)/tb_rx
 $(WORK)/tb_rx: hls/tb_rx.cpp hls/frames.hpp hls/igmp_frames.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/igmp.hpp include/mdp3fpga/decoder.hpp $(DEC)

@@ -168,12 +168,30 @@ int main(int argc, char **argv)
   wire(query(kGroup344A, false, true));
   check(since(at) == std::vector<std::vector<uint8_t>>{expected_report(false)}, "query for our group: a report");
   at = sent.size();
+  wire(query(0, true, true, kVlan, 1));
+  check(since(at) == std::vector<std::vector<uint8_t>>{expected_report(false)}, "query with two option words, tagged: a report");
+  at = sent.size();
   wire(query(kGroup344A + 1, true, true));
   check(since(at).empty(), "query for another group: nothing");
   at = sent.size();
   wire(igmp_frame(0x16, 0, kGroup344A, kGroup344A, kSwitchMac, kSwitchIp, false, true));
   check(since(at).empty(), "another host's report: nothing");
   check(accepted(), "packets still accepted");
+  {
+    // Five queries back to back, while Igmp is busy with the first answer: every one is
+    // taken off FeedRx's FIFO, answered by one or more reports, and packets keep flowing.
+    at = sent.size();
+    for (int k = 0; k < 5; ++k)
+      frame_words<Word>(query(0, false, true), [](const Word &w) { frames.write(w); });
+    tick(400);
+    const size_t n = sent.size() - at;
+    bool all_reports = n >= 1;
+    for (size_t k = at; k < sent.size(); ++k)
+      all_reports = all_reports && sent[k] == expected_report(false);
+    check(all_reports && n <= 5, "five queries at once: answered, duplicates merged");
+    check(frames.empty() && words.empty(), "FeedRx never waited on Igmp");
+    check(accepted(), "packets accepted right after");
+  }
 
   std::printf("leave\n");
   at = sent.size();
@@ -186,7 +204,13 @@ int main(int argc, char **argv)
   wire(query(0, false, true));
   check(since(at).empty(), "general query after leaving: nothing");
   a = to_igmp(LeaveGroup{});
-  check(a.ok == 0, "leave again: refused");
+  check(a.ok == 0 && a.group == 0, "leave again: refused, naming no group");
+  {
+    const uint64_t before = ends;
+    std::vector<uint8_t> p(12, 0);
+    wire(make_frame(p.data(), p.size(), 0, 0, false));
+    check(ends == before, "a frame to 0.0.0.0, port 0, while not listening: dropped");
+  }
 
   std::printf("join on VLAN 3008\n");
   at = sent.size();
@@ -202,8 +226,28 @@ int main(int argc, char **argv)
   tick(20);
   check(since(at) == std::vector<std::vector<uint8_t>>{expected_leave(true)}, "leave: a tagged leave");
 
+  std::printf("join on VLAN 100\n");
+  at = sent.size();
+  a = to_igmp(join_344a(true, 100));
+  tick(20);
+  check(a.ok == 1, "IgmpAck ok");
+  check(since(at) == std::vector<std::vector<uint8_t>>{expected_report(true, 100)}, "one report tagged 100, byte for byte");
+  at = sent.size();
+  a = to_igmp(LeaveGroup{});
+  tick(20);
+  check(since(at) == std::vector<std::vector<uint8_t>>{expected_leave(true, 100)}, "leave: tagged 100");
+
   const Igmp &g = kfpga::instance<Igmp>();
   std::printf("%zu frames sent: %u reports, %u leaves; %u queries seen\n", sent.size(), g.reports, g.leaves, g.queries);
+  if (argc > 2)
+  {
+    FILE *f = std::fopen(argv[2], "w");
+    if (f)
+    {
+      std::fprintf(f, "%zu\n", sent.size());
+      std::fclose(f);
+    }
+  }
   if (argc > 1)
     write_pcap(argv[1]);
   std::printf("%s\n", failures == 0 ? "PASS" : "FAIL");
