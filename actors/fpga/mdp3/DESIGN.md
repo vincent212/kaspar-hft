@@ -74,6 +74,13 @@ The strategy gets one call per packet: `on_packet(books, events, n, gap)`.
 
 The MAC delivers frames as 64-bit words with the FCS removed.
 
+FeedRx is called from `rx_task()` in `hls/feed_top.cpp`, its process: each clock the task
+calls `rx.on_step(frames, words)`, which reads at most one frame word and writes at most one
+payload word. `on_step()` is the only entry point; `decide()` and `finish()` are called from
+it. The task holds the actor as `static FeedRx rx`, not in a `kfpga::Group`, because it takes
+and sends words rather than messages. The source, `include/mdp3fpga/feed_rx.hpp`, documents
+the states and the realignment in detail.
+
 ```
 frame = Ethernet (14, or 18 with an 802.1Q tag) | IPv4 (20) | UDP (8) | payload
 ```
