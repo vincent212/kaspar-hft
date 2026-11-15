@@ -64,6 +64,9 @@ class FpgaFeed : public actors::Actor
 {
   // A packet holds about 44 entries at most; the table of the design below.
   static constexpr size_t kMaxEvents = 128;
+  // How far behind the expected sequence number a packet counts as late rather
+  // than as the start of a restarted channel.
+  static constexpr uint32_t kLateWindow = 1024;
 
   std::vector<int32_t> securities_;
   Books books_;
@@ -94,14 +97,29 @@ class FpgaFeed : public actors::Actor
     hold(m->lo2, m->hi2);
   }
 
+  // The sequence check. Ahead of the expected number: a gap, latched. Behind it by
+  // up to kLateWindow: a duplicate or a late packet, counted and ignored with its
+  // events, since they were applied already or are out of order. Behind it by more:
+  // the channel has restarted its numbering, so follow it without a gap.
   void packet_end(uint32_t seq)
   {
     ++lines;
     if (seen_ && seq != next_seq_)
     {
-      gap_ = true;
-      ++gaps;
-      missing += seq - next_seq_;
+      if (seq > next_seq_)
+      {
+        gap_ = true;
+        ++gaps;
+        missing += seq - next_seq_;
+      }
+      else if (next_seq_ - seq <= kLateWindow)
+      {
+        ++stale;
+        n_ = 0;
+        return;
+      }
+      else
+        ++restarts;
     }
     seen_ = true;
     next_seq_ = seq + 1;
@@ -154,6 +172,8 @@ class FpgaFeed : public actors::Actor
 
 public:
   uint64_t lines = 0, gaps = 0, missing = 0, overflows = 0, refused = 0;
+  uint64_t stale = 0;      // duplicate or late packets, ignored
+  uint64_t restarts = 0;   // the channel's numbering started again
 
   // `on_ready` runs on this thread once the card has acked the whole table.
   // Throws std::length_error if there are more securities than the card's filter
