@@ -42,6 +42,16 @@ RESERVED = {0, 3}
 INTEROP_RANGE = range(400, 500)
 INTEROP_FILES = {"actors/rust/interop/generated/cpp/InteropMessages.hpp"}
 
+# The CPU<->FPGA wire protocol pins ids the same way: a message is declared once as
+# `struct X : kfpga::Message<N>` and compiled into both the card and the CPU, where
+# kfpga::CpuMsg<X> makes it a Message_N<N>. Those declarations are the ids to audit;
+# CpuMsg's own `Message_N<F::id>` is the bridge, not an id. `Message<332 + N>` (a
+# template over N) needs `msgids A-B` on the same line, giving the ids it spans.
+KFPGA_PREFIX = ("actors/fpga/", "mdp3_fpga/")
+KFPGA_MSG = re.compile(
+    r'(?:struct|class)\s+(\w+)\b[^:]*:\s*(?:public\s+)?(?:::)?kfpga::Message\s*<\s*([^>]+?)\s*>')
+KFPGA_SPAN = re.compile(r'msgids\s+(\d+)\s*-\s*(\d+)')
+
 # Directories with no hand-written message types (generated codecs, build
 # output, vendored toolchains). Skipping them keeps the scan fast and stops
 # generated SBE headers from muddying the report.
@@ -60,7 +70,10 @@ DEFINE_DEF = re.compile(r'#define\s+(\w+)\s+(\d+)')
 
 def source_files(root):
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        # Vitis HLS work directories (hls/w, hls/w_<design>) hold copies of sources.
+        in_hls = os.path.basename(dirpath) == "hls"
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS
+                       and not (in_hls and (d == "w" or d.startswith("w_")))]
         for fn in sorted(filenames):
             if fn.endswith((".hpp", ".h", ".cpp")):
                 yield os.path.join(dirpath, fn)
@@ -108,12 +121,29 @@ def main():
             stripped = line.strip()
             if stripped.startswith(("//", "*", "/*")):
                 continue
+            k = KFPGA_MSG.search(line)
+            if k:
+                tname, raw = k.group(1), k.group(2).strip()
+                try:
+                    vals = [int(raw)]
+                except ValueError:
+                    span = KFPGA_SPAN.search(line)
+                    if raw in constants:
+                        vals = [constants[raw]]
+                    elif span:
+                        vals = list(range(int(span.group(1)), int(span.group(2)) + 1))
+                    else:
+                        unresolved.append((rel, n, raw))
+                        continue
+                for val in vals:
+                    by_id[val].append((rel, n, raw, tname))
+                continue
             m = MSG_N.search(line)
             if not m:
                 continue
             tname = m.group(1) or "?"
             raw = m.group(2).strip()
-            if raw == "N":          # the template definition itself
+            if raw in ("N", "F::id"):   # the template definition, and kfpga::CpuMsg's bridge
                 continue
             try:
                 val = int(raw)
@@ -143,21 +173,25 @@ def main():
     free = [i for i in range(HAND_ASSIGNED_CAP) if i not in used and i not in RESERVED]
     def _interop(i):
         return any(rel in INTEROP_FILES for rel, *_ in by_id[i])
+    def _kfpga(i):
+        return any(rel.startswith(KFPGA_PREFIX) for rel, *_ in by_id[i])
     interop_used = sorted(i for i in used if _interop(i))
-    migratable = sorted(i for i in used if not _interop(i))
+    kfpga_used = sorted(i for i in used if _kfpga(i))
+    migratable = sorted(i for i in used if not _interop(i) and not _kfpga(i))
 
     if not args.quiet:
         print(f"root: {root}")
         print(f"scanned {len(files)} source files\n")
         for i in sorted(by_id):
-            tag = ("  [interop: pinned]"
-                   if any(rel in INTEROP_FILES for rel, *_ in by_id[i]) else "")
+            tag = ("  [interop: pinned]" if _interop(i)
+                   else "  [CPU<->FPGA wire: pinned]" if _kfpga(i) else "")
             for rel, n, raw, tname in by_id[i]:
                 shown = f"{raw} -> {i}" if raw != str(i) else str(i)
                 print(f"  {i:>3}  {tname:<28} {rel}:{n}  ({shown}){tag}")
         print("\n=== MESSAGE ID ALLOCATION ===")
         print(f"hand-assigned ids in use : {len(used)}/{HAND_ASSIGNED_CAP}")
         print(f"  interop-pinned (400-499): {len(interop_used)}  {interop_used}")
+        print(f"  CPU<->FPGA wire, pinned : {len(kfpga_used)}  {kfpga_used}")
         print(f"  migratable to MessageT  : {len(migratable)}")
         print(f"free slots               : {len(free)}")
         print(f"reserved (never issued)  : {sorted(RESERVED)}")
@@ -182,7 +216,7 @@ def main():
 
     if unresolved:
         status = 1
-        print("\n*** UNRESOLVED Message_N<> CONSTANT ***", file=sys.stderr)
+        print("\n*** UNRESOLVED Message_N<> / kfpga::Message<> CONSTANT ***", file=sys.stderr)
         print("  (this audit cannot prove these are unique)", file=sys.stderr)
         for rel, n, raw in unresolved:
             print(f"  {rel}:{n}  Message_N<{raw}>", file=sys.stderr)

@@ -4,7 +4,7 @@
     <strong>Production Trading System and Position-Aware Order Book Simulator</strong>
   </p>
   <p align="center">
-    Venue-independent &bull; CME MDP3 and iLink 3 included &bull; TT FIX order routing &bull; PCAP Replay &bull; POV Execution &bull; C++20
+    Venue-independent &bull; CME MDP3 and iLink 3 included &bull; TT FIX order routing &bull; PCAP Replay &bull; POV Execution &bull; C++20 &bull; FPGA actors (upcoming)
   </p>
 </p>
 
@@ -21,6 +21,7 @@
 ## Kaspar-hft highlights
 
 - **Low-latency actor framework:** No data races, no locks in your code, and almost no framework overhead.
+- **FPGA actors (upcoming):** The actor framework extended to FPGAs: actors on the card and actors on the CPU exchange the same messages. The first application, a CME MDP3 handler for the AMD Alveo X3522PV, decodes packets as they arrive and sends events to the CPU's books; it meets timing at 250 MHz on the card's FPGA, one step per clock ([mdp3_fpga/](mdp3_fpga/), and [below](#upcoming-fpga-actors)).
 - **Backtest == production:** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live trading through iLink 3 or TT FIX; switching is a config change, so a backtest exercises the exact code path that will trade.
 - **Venue-independent, CME included:** Feed handler and order-entry session are pluggable. The included MDP3 market-data handler and iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
 - **Trading Technologies FIX order routing, TT-certified:** In addition to iLink 3, orders can go out through TT over FIX 4.4, using QuickFIX, as an optional build ([ttom/README.md](ttom/README.md)).
@@ -50,6 +51,18 @@ Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) —
 ## Production-grade session handling — CME- and TT-certified
 
 Kaspar's market-data and order-entry stacks are complete session implementations. The MDP3 market-data handler and the iLink 3 order-entry session have both passed **CME autocertification**; the TT FIX 4.4 order router is **TT-certified**. They implement the full protocol lifecycle and its edge cases — the recovery, reconnection, and failover logic a commercial SDK is sold to cover — so you don't hand-roll any of it.
+
+## Upcoming: FPGA actors
+
+The actor framework has an FPGA side, `kfpga` ([actors/fpga/](actors/fpga/)): actors written in C++ and compiled to hardware with Vitis HLS, one `hls::task` each, exchanging the same messages as the CPU actors across PCIe.
+
+The first application is a CME MDP3 handler for the AMD Alveo X3522PV ([mdp3_fpga/](mdp3_fpga/)). On the card, FeedRx, Igmp, SbeDecoder, Filter and Batcher receive the UDP frames, join the multicast group, decode SBE as the bytes arrive, keep the securities the CPU asked for and pack the events into 64-byte lines; on the CPU, the FpgaFeed actor builds the books. It is built and tested in simulation against CME's codec on recorded data, and placed and routed on the card's XCUX35 at 250 MHz, using about 0.6% of the chip. The Ethernet MAC and the PCIe DMA to the host are not built yet ([mdp3_fpga/MDP3_PLAN.md](mdp3_fpga/MDP3_PLAN.md)).
+
+The series on Substack:
+
+1. [From C++ Actors to FPGA Circuits](https://vincentmayeski.substack.com/p/from-c-actors-to-fpga-circuits)
+2. [CPU Actors and FPGA Actors: Talking Across PCIe](https://vincentmayeski.substack.com/p/cpu-actors-and-fpga-actors-talking)
+3. [Removing latency tails in market data handlers using FPGAs](https://vincentmayeski.substack.com/p/removing-latency-tails-in-market)
 
 ## Build
 
@@ -262,6 +275,12 @@ kaspr {
 | [CLAUDE_AGENT_GUIDE.md](actors/cpp/CLAUDE_AGENT_GUIDE.md) | Actor framework technical reference |
 | [actors/rust/README.md](actors/rust/README.md) | Rust actor-framework port — overview & quickstart |
 | [actors/rust/DEVELOPER_GUIDE.md](actors/rust/DEVELOPER_GUIDE.md) | Writing actors in the Rust port |
+| [actors/fpga/README.md](actors/fpga/README.md) | FPGA actors (upcoming): actors on the card and CPU actors talking to them with the same `send`; examples and how to run them |
+| [actors/fpga/HLS.md](actors/fpga/HLS.md) | How FPGA actors become circuits in Vitis HLS, and how to check a design with AMD's tools |
+| [mdp3_fpga/README.md](mdp3_fpga/README.md) | The MDP3 handler on the Alveo X3522PV: what it does, how it is checked, results so far |
+| [mdp3_fpga/DESIGN.md](mdp3_fpga/DESIGN.md) | The MDP3 handler on the card: actors, message and event formats, synthesis results |
+| [mdp3_fpga/MDP3_PLAN.md](mdp3_fpga/MDP3_PLAN.md) | Plan and status of the MDP3 handler on the card, and what is still to build |
+| [docs/ILINK_FPGA_PLAN.md](docs/ILINK_FPGA_PLAN.md) | Plan: iLink 3 order entry on the card |
 | [tech_reports/fast_send.pdf](tech_reports/fast_send.pdf) &middot; [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) | Technical report: `fast_send` synchronous message delivery |
 | [tech_reports/shadow_pov.pdf](tech_reports/shadow_pov.pdf) &middot; [arXiv:2609.18019](https://arxiv.org/abs/2609.18019) | Technical report: Shadow-POV passive execution |
 
@@ -307,6 +326,12 @@ buffer is not included. All figures in µs.
 | NQ trade | 21,093 | 0.4 | 0.6 | 0.9 | 3.3 | 17.8 | 31.5 |
 | ZN trade | 13,282 | 0.4 | 0.7 | 6.6 | 41.5 | 90.5 | 124.0 |
 
+The upcoming FPGA MDP3 adapter ([mdp3_fpga/](mdp3_fpga/)) should take about 1.5 µs
+from the wire to the order book, with no tail: the card decodes each packet as its
+bytes arrive, so long packets do not queue behind each other. That figure starts at
+the wire, not at the socket read as above, and is an estimate until the card's
+Ethernet MAC and PCIe DMA are built.
+
 ## Shadow Execution Algo
 
 Most execution algorithms either cross the spread (expensive) or continuously quote (noisy, adverse selection). Kaspar takes a third path: **shadow execution** — a percentage-of-volume algorithm that participates in natural market flow by following the orders other participants place.
@@ -317,6 +342,9 @@ For more detail — *Model-Free Passive Execution via Order-Level Shadowing* —
 
 Deep-dives on the design behind Kaspar (author's Substack — [vincentmayeski.substack.com](https://vincentmayeski.substack.com)):
 
+- [**Removing latency tails in market data handlers using FPGAs**](https://vincentmayeski.substack.com/p/removing-latency-tails-in-market) — the CME MDP3 handler on the AMD Alveo X3522PV: a CPU handles a packet only after all of it has arrived, so long packets back to back queue; actors on the card decode as the bytes arrive ([mdp3_fpga/](mdp3_fpga/)).
+- [**CPU Actors and FPGA Actors: Talking Across PCIe**](https://vincentmayeski.substack.com/p/cpu-actors-and-fpga-actors-talking) — messages between CPU and FPGA actors in 64-byte slots: the CPU writes into windows on the card, the card DMA-writes into rings in host memory, and the reader checks the sequence number last to know a message is complete ([actors/fpga/](actors/fpga/)).
+- [**From C++ Actors to FPGA Circuits**](https://vincentmayeski.substack.com/p/from-c-actors-to-fpga-circuits) — how the actor model, `send` and `fast_send`, maps onto an FPGA: Vitis HLS turns C++ into circuits, and an actor, or a group of actors, becomes a hardware process, with FIFOs between them.
 - [**Low-Latency Actor Systems in C++ and Rust**](https://vincentmayeski.substack.com/p/low-latency-actor-systems-in-c-and) — building the same actor framework in both languages: this repo's C++ core and its Rust port (`actors/rust`), and what carries over vs. what the borrow checker changes.
 - [**Actors in C++ and Rust: The Benchmarks, and the Bridge Between Them**](https://vincentmayeski.substack.com/p/actors-in-c-and-rust-the-benchmarks) — the two ports benchmarked head to head (`fast_send`, `send`, allocation), and the in-process C++/Rust interop bridge, with numbers.
 - [**Lock-Free Isn't Free: Cache Pollution, Busy Cores, and Why Kaspar Blocks**](https://vincentmayeski.substack.com/p/lock-free-isnt-free-cache-pollution) — why lock-free can be the slower choice under load (spinning consumers, cache coherence, oversubscription), and why the `BQueue` blocks and `fast_send` minimizes thread hops instead.

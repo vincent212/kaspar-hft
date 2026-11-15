@@ -248,3 +248,12 @@ slots if one is available, then re-run `setclassid.py` to confirm uniqueness.
 - `actors/cpp/include/actors/Message.hpp` - base `Message` / `Message_N<ID>` definition
 - `actors/cpp/include/actors/Actor.hpp` - message dispatch (`handler_cache[msg_id]`)
 - Component-specific `msg/` directories for existing messages
+
+## CPU<->FPGA messages
+
+Messages declared as `struct X : kfpga::Message<N>` (`actors/fpga/`, `mdp3_fpga/`) are compiled
+into both the FPGA card and the CPU, where `kfpga::CpuMsg<X>` makes them
+`Message_N<N>`. Their ids are pinned by the wire protocol, like the Rust interop
+ids, and the audit checks them against every other hand-assigned id. A template
+such as `kfpga::Message<332 + N>` needs `msgids A-B` on the same line, naming the
+ids it spans.

@@ -5,6 +5,8 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
+#include <cstdio>
+#include <cstdlib>
 #include <list>
 #include <string>
 #include <typeinfo>
@@ -145,6 +147,10 @@ namespace {
   // type drains one message at a time.
   template <class Q> struct mailbox_batched : std::false_type {};
   template <class T> struct mailbox_batched<actors::BQueueBatched<T>> : std::true_type {};
+
+  // FpgaLanes polls its lanes as well as its CPU queue.
+  template <class Q> struct mailbox_lanes : std::false_type {};
+  template <class T> struct mailbox_lanes<actors::FpgaLanes<T>> : std::true_type {};
 }
 
 template <class Q>
@@ -180,6 +186,30 @@ void Actor::run_loop(Q& q) noexcept
         }
       }
       if (stop) break;
+    }
+  } else if constexpr (mailbox_lanes<Q>::value) {
+    // Lanes first, then the CPU queue, one message from each per pass. Lane
+    // messages run inside poll() (deliver_external). Never sleeps: the card
+    // cannot signal the queue's condition variable.
+    while (true) {
+      bool got = false;
+      for (ExternalLane *lane : q.lanes())
+        got |= lane->poll();
+      if (terminated)
+        break;
+
+      const Message *m;
+      if (q.try_pop(m)) {
+        got = true;
+        m->last = q.is_empty();
+        reply_to = m->sender;
+        bool is_shutdown = m->get_message_id() == msg::Shutdown::id;
+        process_message_internal(m);
+        if (is_shutdown || terminated)
+          break;
+      }
+      if (!got)
+        cpu_relax();
     }
   } else {
     // Single-message drain (unchanged semantics from the pointer-based loop).
@@ -231,6 +261,39 @@ void Actor::reply(const Message *m) noexcept
     assert(reply_to != nullptr && "no return address");
     reply_to->send(m, this);
   }
+}
+
+// A lane is polled by the thread that runs the mailbox. A member of a Group runs on
+// the group's thread, from the group's mailbox, so its lanes go there. Checked in
+// every build: a lane on a mailbox no thread polls would lose the card's messages
+// without a sign.
+void Actor::add_lane(ExternalLane *lane) noexcept
+{
+  if (is_part_of_group && group != nullptr)
+  {
+    group->add_lane(lane);
+    return;
+  }
+  auto *q = std::get_if<FpgaLanes<MailboxMsg>>(&msgq);
+  if (q == nullptr)
+  {
+    std::fprintf(stderr, "actors: add_lane on %s: its mailbox is not MailboxKind::FpgaLanes, so no thread "
+                         "would poll the card's lane. Call set_mailbox(MailboxKind::FpgaLanes) in its "
+                         "constructor (or its group's, if it is in a Group).\n",
+                 name);
+    std::abort();
+  }
+  q->add_lane(lane);
+}
+
+void Actor::deliver_external(const Message *m, Actor *sender) noexcept
+{
+  m->is_fast = false;
+  m->last = false;
+  m->sender = sender;
+  m->destination = this;
+  reply_to = sender;
+  process_message_internal(m, true);
 }
 
 void Actor::terminate() noexcept
@@ -290,6 +353,11 @@ void Actor::set_group(Actor *pgroup)
 {
   is_part_of_group = true;
   group = pgroup;
+  // Lanes added before the actor joined move to the group's mailbox, which is
+  // the one the group's thread polls.
+  if (auto *q = std::get_if<FpgaLanes<MailboxMsg>>(&msgq))
+    for (ExternalLane *lane : q->take_lanes())
+      group->add_lane(lane);
 }
 
 Actor* Actor::get_group() const
