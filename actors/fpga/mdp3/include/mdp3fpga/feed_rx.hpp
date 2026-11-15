@@ -25,18 +25,14 @@
  *   class is called from it. The task holds the object as `static FeedRx rx`, so
  *   its members are registers that keep their values from one clock to the next.
  *
- * An actor with no handlers and no messages
+ * A stream actor that also has messages
  *
- *   FeedRx is an actor (it derives from kfpga::Actor and has its own id, kFeedRx), but
- *   both its sides are raw word streams: frames in, packets out. It receives no
- *   messages, so it has no handlers, and it sends none, so it needs no ActorRef or
- *   outbox. With nothing to dispatch or flush it needs no kfpga::Group either: its task
- *   holds the object itself and calls on_step directly. (Held in kfpga::instance<T>(),
- *   as a group member would be, HLS took the object for a constant and removed its
- *   output: HLS.md section 2.)
- *
- *   SbeDecoder is the next step along: a raw stream in, but messages out, so it does
- *   run in a group of one.
+ *   Its main sides are raw word streams: frames in, packets out. Besides them it
+ *   talks to one actor, Igmp: it receives Listen, which says what to accept, and
+ *   sends IgmpQuery. So it runs as SbeDecoder does, in a group of one,
+ *   kfpga::Process<FeedRx>, whose step_stream calls on_step and then writes what it
+ *   sent. on_step reads the Listen FIFO itself, at most one message a clock, and
+ *   hands it to its handler through kfpga_dispatch.
  *
  * Input and output
  *
@@ -69,6 +65,9 @@
  *            rest of the previous word (prev_, from offset o_) joined to the
  *            start of the word just read. The UDP length (left_) says where the
  *            payload ends, so Ethernet padding after it is never sent.
+ *   kIgmp    the word after the headers of an IGMP frame: read the IGMP type, group
+ *            and maximum response time from it and the header words, send a query
+ *            to Igmp, then drain the rest.
  *   kDrain   read and discard the rest of a frame that is not ours, up to `last`.
  *
  *   Example, no VLAN tag (o_ = 2):
@@ -90,13 +89,16 @@
  *
  * Settings and counters
  *
- *   group, port  channel A's multicast address, set by rx_task every clock. They
- *                come from the build for now (MDP3_GROUP, MDP3_PORT).
+ *   group, port  the multicast group and UDP port accepted, set by Listen from Igmp;
+ *                0 and 0, nothing, until then.
  *   accepted,    frames kept and dropped.
  *   dropped
  *
- * Not checked: IP and UDP checksums (the MAC drops damaged frames), and IP
- * fragments (CME does not fragment this feed).
+ * Not checked: IP and UDP checksums, which the Ethernet FCS covers, and IP fragments
+ * (CME does not fragment this feed). The MAC checks the FCS, but only at a frame's
+ * last word, while FeedRx passes words on as they arrive; carrying its verdict to the
+ * End line, so that the host treats a damaged frame as a gap, is not built yet
+ * (ACTORS.md, "The MAC").
  *
  * What arrives on the port, and joining the multicast group
  *
@@ -107,25 +109,19 @@
  *   spends the card's input on traffic it discards. This box takes CME on VLANs
  *   (feed A on 3008 in pcap/record_310.sh), hence the 802.1Q handling.
  *
- *   Nothing on the card joins the group yet. On a normal NIC the kernel does it:
- *   a socket joins, and the kernel sends an IGMP membership report out of that NIC.
- *   Here the port belongs to the FPGA, so the kernel cannot send through it, and the
- *   card only receives. With IGMP snooping on the switch, no CME traffic would
- *   reach the card.
+ *   The card joins the group itself, through the Igmp actor (igmp.hpp): the port
+ *   belongs to the FPGA, so the kernel cannot send the membership report for it.
+ *   FeedRx has two parts in that:
  *
- *   Joining from the CPU through another NIC does not work: the switch would
- *   forward the group to that NIC's port, not the card's. The report has to leave
- *   through the card's own port, so IGMP belongs on the card. The plan:
- *
- *     - an Igmp actor on the card sends the membership report for each configured
- *       group at start, answers the switch's queries, and sends a leave when a
- *       group is removed (IGMPv2 or v3, as the switch expects);
- *     - FeedRx passes IGMP queries (IPv4 protocol 2) to Igmp instead of dropping
- *       them;
- *     - a small transmit path takes Igmp's frames to the MAC;
- *     - the CPU only says which groups: a message per group and port over the same
- *       link that loads the security table, answered by an ack. FeedRx and Igmp
- *       take their group and port from it, in place of the build-time values.
+ *     - Listen, from Igmp, sets the group and port it accepts. Igmp sends it when
+ *       the CPU joins a group, and 0 and 0, accept nothing, when it leaves. Until
+ *       the first Listen nothing is accepted.
+ *     - IGMP frames (IPv4 protocol 2) are not dropped: a membership query (type
+ *       0x11) goes to Igmp as an IgmpQuery, with its group (0 for a general query)
+ *       and maximum response time, so that Igmp can answer it. A query's IP
+ *       header carries the 4-byte Router Alert option, so its IGMP fields can end
+ *       at byte 49 with a VLAN tag, past the six header words: kIgmp reads one
+ *       word more.
  *
  *   The alternative needs no card logic: the switch is configured to send the
  *   group to the card's port statically. That depends on whoever runs the switch,
@@ -150,8 +146,7 @@
  *   one 10 GbE port delivers. Channels arriving on different ports would need a
  *   FeedRx per port and an actor that merges whole frames into the decoder.
  *
- *   Not built yet: Igmp, the transmit path, passing queries up, groups set by the
- *   CPU, and more than one channel.
+ *   Not built yet: more than one channel.
  */
 
 #include <ap_int.h>
@@ -160,6 +155,7 @@
 #include "kfpga/actor.hpp"
 #include "mdp3fpga/decoder.hpp"
 #include "mdp3fpga/events.hpp"
+#include "mdp3fpga/igmp.hpp"
 
 namespace mdp3fpga {
 
@@ -167,7 +163,7 @@ constexpr int kHeaderWords = 6;
 
 class FeedRx : public kfpga::Actor<FeedRx>
 {
-  enum State : uint8_t { kHeader, kBody, kDrain };
+  enum State : uint8_t { kHeader, kBody, kIgmp, kDrain };
 
   State state_ = kHeader;
   ap_uint<64> h_[kHeaderWords] = {};   // the first six words of the frame, every header
@@ -176,6 +172,7 @@ class FeedRx : public kfpga::Actor<FeedRx>
   ap_uint<3> o_ = 0;          // where in prev_ they start: 2, or 6 with a VLAN tag
   ap_uint<16> left_ = 0;      // payload bytes still to send, from the UDP length
   bool ended_ = false;        // the frame's last word has been read
+  ap_uint<4> igmp_at_ = 0;    // an IGMP frame: where its IGMP part starts, from byte 32
 
   // A header field: N bytes (1 to 4) at byte `at` of the frame, read from h_. Network
   // headers are big-endian, so the first byte is the most significant. `at` is a
@@ -207,7 +204,8 @@ class FeedRx : public kfpga::Actor<FeedRx>
   // Called once per frame, when the sixth header word arrives. Reads every field it
   // needs from h_ in this one step, and keeps the frame only if it is IPv4 with no
   // options (0x45), UDP (17), addressed to `group` and `port`, with a UDP length of at
-  // least its own 8 bytes. A VLAN tag (EtherType 0x8100 at byte 12) moves every later
+  // least its own 8 bytes. An IGMP frame (protocol 2, with or without the 4-byte
+  // Router Alert option) goes to kIgmp. A VLAN tag (EtherType 0x8100 at byte 12) moves every later
   // field 4 bytes on. For a kept frame it sets up kBody: the payload starts in the last
   // header word, at byte 2 (6 with a tag), and is UDP length - 8 bytes long.
   void decide()
@@ -221,8 +219,15 @@ class FeedRx : public kfpga::Actor<FeedRx>
     const ap_uint<16> dport = tag ? field<2>(40) : field<2>(36);
     const ap_uint<16> ulen = tag ? field<2>(42) : field<2>(38);
     const bool ours = type == 0x0800 && version == 0x45 && proto == 17 && dst == group && dport == port && ulen >= 8;
+    const bool is_igmp = type == 0x0800 && (version == 0x45 || version == 0x46) && proto == 2;
     n_ = 0;
-    if (ours)
+    if (is_igmp && !ended_)
+    {
+      // 14 + 20 bytes, + 4 for a tag, + 4 for an option: 34, 38 or 42, from byte 32.
+      igmp_at_ = 2 + (tag ? 4 : 0) + (version == 0x46 ? 4 : 0);
+      state_ = kIgmp;
+    }
+    else if (ours)
     {
       prev_ = h_[kHeaderWords - 1];
       o_ = tag ? 6 : 2;
@@ -237,22 +242,57 @@ class FeedRx : public kfpga::Actor<FeedRx>
     }
   }
 
+  // The word after the headers of an IGMP frame. The IGMP part starts at byte 34, 38
+  // or 42 of the frame, so it lies in bytes 32 to 55: header words 4 and 5 and this
+  // one. A membership query goes to Igmp; anything else IGMP (another host's report,
+  // a leave) is dropped.
+  void on_igmp_word(const ap_uint<64> &w)
+  {
+#pragma HLS INLINE
+    const ap_uint<192> b = (ap_uint<192>(w) << 128) | (ap_uint<192>(h_[5]) << 64) | ap_uint<192>(h_[4]);
+    const ap_uint<64> part = b >> (8 * igmp_at_);   // the 8 bytes of IGMP
+    if (part.range(7, 0) == kIgmpQuery)
+    {
+      IgmpQuery q;
+      q.max_resp = part.range(15, 8);
+      q.group = (part.range(39, 32), part.range(47, 40), part.range(55, 48), part.range(63, 56));
+      igmp.send(q, this);
+      ++queries;
+    }
+    else
+      ++dropped;
+  }
+
+  // From Igmp: the group and port to accept from now on.
+  void on_listen(const Listen &m)
+  {
+#pragma HLS INLINE
+    group = m.group;
+    port = m.port;
+  }
+
 public:
   static constexpr kfpga::ActorId kId = kFeedRx;
+  kfpga::ActorRef igmp;                 // Igmp, for the queries
   ap_uint<32> group = 0;
   ap_uint<16> port = 0;
-  uint32_t accepted = 0, dropped = 0;
+  uint32_t accepted = 0, dropped = 0, queries = 0;
+
+  KFPGA_HANDLERS(KFPGA_ON(Listen, on_listen))
 
   // One clock: the only entry point, called by rx_task() every cycle.
   //
-  // First, if a kept frame's remaining payload already sits in prev_, send it as the
+  // A Listen from Igmp, if one is waiting, is handled first. Then, if a kept frame's remaining payload already sits in prev_, send it as the
   // last word and finish, without reading. Otherwise read one word, if there is one,
   // and act on it by state: store a header word (and decide at the sixth), send one
   // payload word, or discard a word of a dropped frame.
-  void on_step(WordStream &in, WordStream &out)
+  void on_step(WordStream &in, WordStream &out, kfpga::Fifo &listen)
   {
 #pragma HLS INLINE
 #pragma HLS ARRAY_PARTITION variable=h_ type=complete
+    kfpga::Envelope e;
+    if (listen.read_nb(e))
+      kfpga_dispatch(e);
     Word w;
     const ap_uint<4> head = ap_uint<4>(8) - o_;    // payload bytes in prev_
     const bool from_prev = left_ <= head || ended_;
@@ -298,6 +338,10 @@ public:
         finish();
       break;
     }
+    case kIgmp:
+      on_igmp_word(w.data);
+      state_ = w.last ? kHeader : kDrain;
+      break;
     default:   // kDrain
       if (w.last)
         state_ = kHeader;

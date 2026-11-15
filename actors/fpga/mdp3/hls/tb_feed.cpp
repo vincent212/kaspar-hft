@@ -20,14 +20,15 @@
 
 #include "../test/dump.hpp"
 #include "feed_check.hpp"
+#include "igmp_frames.hpp"
 #include "frames.hpp"
 #include "mdp3fpga/decoder.hpp"
 #include "mdp3fpga/feed.hpp"
 
 using namespace mdp3fpga;
 
-void mdp3_feed_top(InStream &in, kfpga::Fifo &window, kfpga::Fifo &out, uint32_t n_words, uint32_t n_want,
-                   uint32_t n_out);
+void mdp3_feed_top(InStream &in, kfpga::Fifo &window, kfpga::Fifo &join_in, kfpga::Fifo &out, InStream &tx_port,
+                   uint32_t n_words, uint32_t n_want, uint32_t n_out, uint32_t n_tx);
 
 int main()
 {
@@ -66,7 +67,23 @@ int main()
   const auto table = table_from_env();
   for (const auto &e : table)
     window.write(e);
-  mdp3_feed_top(in, window, out, n_words, static_cast<uint32_t>(table.size()), n_out);
+  kfpga::Fifo join_in;
+  join_in.write(kfpga::encode(mdp3test::join_344a(false), kCpuFeed, kIgmp));
+  InStream tx_port;
+  mdp3_feed_top(in, window, join_in, out, tx_port, n_words, static_cast<uint32_t>(table.size()), n_out,
+                mdp3fpga::kIgmpFrameWords);
+
+  // The join's membership report, as the card sent it.
+  std::vector<uint8_t> report;
+  while (!tx_port.empty())
+  {
+    const InWord w = tx_port.read();
+    for (int i = 0; i < 8; ++i)
+      if (w.keep[i])
+        report.push_back(static_cast<uint8_t>(w.data.range(8 * i + 7, 8 * i)));
+  }
+  const bool report_ok = report == mdp3test::expected_report(false);
+  std::printf("membership report %s\n", report_ok ? "as expected" : "differs");
 
   FeedCheck feed;
   size_t ends = 0, diffs = 0;
@@ -84,7 +101,7 @@ int main()
   }
   std::printf("%zu packets, %zu packet ends of %zu, %zu differ, %llu events, %llu lines\n", packets.size(), ends,
               ref.size(), diffs, (unsigned long long)feed.events, (unsigned long long)feed.lines);
-  const bool ok = diffs == 0 && ends == ref.size() && ends != 0;
+  const bool ok = diffs == 0 && ends == ref.size() && ends != 0 && report_ok;
   std::printf("%s\n", ok ? "PASS" : "FAIL");
   return ok ? 0 : 1;
 }

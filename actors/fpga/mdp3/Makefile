@@ -32,7 +32,7 @@ CXXFLAGS = -O2 -Wall -Wextra
 TOOLS = test/make_packets test/ref_dump test/pcap_to_packets test/ref_book test/stretch_packets
 DEC = generated/mdp3_messages.hpp include/mdp3fpga/decoder.hpp include/mdp3fpga/events.hpp
 
-.PHONY: test stretch table seq book feed feed_e2e rx feed_cosim hls hls_csim hls_synth hls_cosim clean
+.PHONY: test stretch table seq book feed feed_e2e rx igmp feed_cosim hls hls_csim hls_synth hls_cosim clean
 # Capped: the test holds one packet at a time, and this box runs the recorders.
 test: $(WORK)/tb_gxx $(REF)
 	ulimit -v 4000000; MDP3_PACKETS=$(PACKETS) MDP3_REF=$(REF) $(WORK)/tb_gxx
@@ -62,7 +62,7 @@ $(WORK)/tb_book: hls/book_top.cpp hls/tb_book_stream.cpp include/mdp3fpga/book.h
 SECURITIES ?= $(SECURITY)
 feed: $(WORK)/tb_feed $(BOOKS)
 	ulimit -v 4000000; MDP3_PACKETS=$(PACKETS) MDP3_BOOK=$(BOOKS) MDP3_SECURITIES=$(SECURITIES) $(WORK)/tb_feed
-$(WORK)/tb_feed: hls/feed_top.cpp hls/tb_feed_stream.cpp hls/feed_check.hpp hls/frames.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/books.hpp $(DEC)
+$(WORK)/tb_feed: hls/feed_top.cpp hls/tb_feed_stream.cpp hls/feed_check.hpp hls/frames.hpp hls/igmp_frames.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/igmp.hpp include/mdp3fpga/books.hpp $(DEC)
 	mkdir -p $(WORK)
 	g++ -std=c++14 -O2 -w -DKFPGA_HLS -DMDP3_SW -I$(VITIS_INCLUDE) -I. -Iinclude -I../include hls/feed_top.cpp hls/tb_feed_stream.cpp -o $@
 
@@ -70,7 +70,7 @@ $(WORK)/tb_feed: hls/feed_top.cpp hls/tb_feed_stream.cpp hls/feed_check.hpp hls/
 ACTORS_CPP = ../../cpp
 BOOST_PATH ?= /usr/local
 ZMQ_PATH ?= /usr/local
-$(WORK)/feed_run: host/feed_run.cpp host/fpga_feed.hpp hls/frames.hpp include/mdp3fpga/books.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/feed_rx.hpp ../host/kfpga/cpu_link.hpp $(DEC) $(ACTORS_CPP)/libactors.a
+$(WORK)/feed_run: host/feed_run.cpp host/fpga_feed.hpp hls/frames.hpp hls/igmp_frames.hpp include/mdp3fpga/books.hpp include/mdp3fpga/feed.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/igmp.hpp ../host/kfpga/cpu_link.hpp $(DEC) $(ACTORS_CPP)/libactors.a
 	mkdir -p $(WORK)
 	g++ -std=c++17 -O2 -w -pthread -DHLS_STREAM_THREAD_SAFE -I. -Iinclude -Ihost -Ihls -I../include -I../host -I$(ACTORS_CPP)/include -I$(BOOST_PATH)/include -isystem $(VITIS_INCLUDE) $< -o $@ -L$(ACTORS_CPP) -lactors -L$(ZMQ_PATH)/lib -lzmq -lpthread
 feed_e2e: $(WORK)/feed_run $(BOOKS)
@@ -91,9 +91,18 @@ seq: $(WORK)/seq_test
 	$(WORK)/seq_test
 
 # FeedRx against frames rebuilt from a recording. Capped as above.
+# Igmp on the whole card: joins, leaves, queries and repeats, every frame it sends
+# compared byte for byte, and checked again by tcpdump (checksums).
+igmp: $(WORK)/tb_igmp
+	ulimit -v 4000000; $(WORK)/tb_igmp $(WORK)/igmp.pcap
+	@tcpdump -nn -vv -e -r $(WORK)/igmp.pcap 2>/dev/null | grep -ci 'bad\|wrong' | grep -qx 0 && echo "tcpdump: every checksum correct" || { echo "tcpdump: bad checksums"; exit 1; }
+$(WORK)/tb_igmp: hls/tb_igmp.cpp hls/feed_top.cpp hls/feed_check.hpp hls/frames.hpp hls/igmp_frames.hpp include/mdp3fpga/igmp.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/feed.hpp $(DEC)
+	mkdir -p $(WORK)
+	g++ -std=c++14 -O2 -w -DKFPGA_HLS -DMDP3_SW -I$(VITIS_INCLUDE) -I. -Iinclude -I../include hls/feed_top.cpp hls/tb_igmp.cpp -o $@
+
 rx: $(WORK)/tb_rx
 	ulimit -v 4000000; MDP3_PACKETS=$(PACKETS) $(WORK)/tb_rx
-$(WORK)/tb_rx: hls/tb_rx.cpp hls/frames.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/decoder.hpp $(DEC)
+$(WORK)/tb_rx: hls/tb_rx.cpp hls/frames.hpp hls/igmp_frames.hpp include/mdp3fpga/feed_rx.hpp include/mdp3fpga/igmp.hpp include/mdp3fpga/decoder.hpp $(DEC)
 	mkdir -p $(WORK)
 	g++ -std=c++14 -O2 -w -DKFPGA_HLS -I$(VITIS_INCLUDE) -I. -Iinclude -I../include hls/tb_rx.cpp -o $@
 

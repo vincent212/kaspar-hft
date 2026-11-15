@@ -25,13 +25,15 @@
 
 #include "feed_check.hpp"
 #include "frames.hpp"
+#include "igmp_frames.hpp"
 #include "mdp3fpga/decoder.hpp"
 #include "mdp3fpga/feed.hpp"
 
 using namespace mdp3fpga;
 
 void mdp3_feed_tick(WordStream &frames, WordStream &words, kfpga::Fifo &decoded, kfpga::Fifo &kept, kfpga::Fifo &window, kfpga::Fifo &acks,
-                    kfpga::Fifo &out);
+                    kfpga::Fifo &out, kfpga::Fifo &join, kfpga::Fifo &joined, kfpga::Fifo &queries, kfpga::Fifo &listen,
+                    WordStream &tx);
 
 static bool read_packet(FILE *f, std::vector<uint8_t> &p)
 {
@@ -55,7 +57,8 @@ int main()
     return 1;
   }
   WordStream frames, words;
-  kfpga::Fifo decoded, kept, window, acks, out;
+  kfpga::Fifo decoded, kept, window, acks, out, join, joined, queries, listen;
+  WordStream tx;
   FeedCheck feed;
   std::vector<uint8_t> p;
   std::deque<Word> wire;
@@ -93,7 +96,9 @@ int main()
   auto tick = [&]() {
     ++ticks;
     most_queued = words.size() > most_queued ? words.size() : most_queued;
-    mdp3_feed_tick(frames, words, decoded, kept, window, acks, out);
+    mdp3_feed_tick(frames, words, decoded, kept, window, acks, out, join, joined, queries, listen, tx);
+    while (!tx.empty())
+      tx.read();   // the IGMP reports, tested in tb_igmp
     drain();
   };
 
@@ -110,6 +115,11 @@ int main()
       ++got_acks;
     }
   }
+  // And join the group: FeedRx accepts nothing until then.
+  join.write(kfpga::encode(mdp3test::join_344a(false), kCpuFeed, kIgmp));
+  while (joined.empty())
+    tick();
+  joined.read();
 
   uint32_t credit = 0;
   while (read_packet(packets, p))

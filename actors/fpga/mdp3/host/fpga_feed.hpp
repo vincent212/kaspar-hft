@@ -10,7 +10,9 @@
 /*
  * FpgaFeed, the CPU end of the MDP3 handler: an ordinary Kaspar actor on an
  * FpgaLanes mailbox (see host/kfpga/cpu_link.hpp). At start it loads the card's
- * filter table, one WantSecurity a security, each answered by a WantAck. Then it
+ * filter table, one WantSecurity a security, each answered by a WantAck, and has
+ * the card join the multicast group: one JoinGroup to the card's Igmp actor,
+ * answered by an IgmpAck. When all are acked it is ready. Then it
  * takes the card's lines, and builds the books as the packet arrives: the events of a
  * full line are applied the moment the line comes in, while the rest of the packet is
  * still on the wire, and the End line brings the last 0 to 2. At the End line the
@@ -37,6 +39,7 @@
 #include "actors/msg/Start.hpp"
 #include "kfpga/cpu_link.hpp"
 #include "mdp3fpga/books.hpp"
+#include "mdp3fpga/igmp.hpp"
 
 namespace mdp3fpga {
 
@@ -56,10 +59,12 @@ template <int N>
 using End = kfpga::CpuMsg<EndLine<N>>;
 using Want = kfpga::CpuMsg<WantSecurity>;
 using Ack = kfpga::CpuMsg<WantAck>;
+using Join = kfpga::CpuMsg<JoinGroup>;
+using Joined = kfpga::CpuMsg<IgmpAck>;
 
 inline void add_messages(kfpga::Codec &codec)
 {
-  codec.add<EventLine, EndLine<0>, EndLine<1>, EndLine<2>, WantSecurity, WantAck>();
+  codec.add<EventLine, EndLine<0>, EndLine<1>, EndLine<2>, WantSecurity, WantAck, JoinGroup, IgmpAck>();
 }
 
 } // namespace cpu
@@ -77,6 +82,10 @@ class FpgaFeed : public actors::Actor
   PacketSink &sink_;
   std::function<void()> on_ready_;
   actors::ActorRef filter_;
+  actors::ActorRef igmp_;
+  bool has_igmp_ = false;
+  bool joined_ = false;
+  JoinGroup join_;
   std::array<Event, kMaxEvents> events_;
   size_t n_ = 0;
   bool applied_ = false;   // this packet's full lines are already in the books
@@ -175,16 +184,36 @@ class FpgaFeed : public actors::Actor
   {
     for (uint32_t i = 0; i < securities_.size(); ++i)
       filter_.send(new cpu::Want(i, securities_[i]), this);
+    if (has_igmp_)
+      igmp_.send(new cpu::Join(join_.group, join_.port, join_.mac, join_.ip, join_.vlan), this);
   }
 
-  // Ready once every entry is acked as stored. An entry the card refused leaves the
-  // feed not ready, and is counted in `refused`.
+  // Ready once every entry is acked as stored and the group is joined. An entry the
+  // card refused leaves the feed not ready, and is counted in `refused`, as is a
+  // refused join.
+  void ready_if_done()
+  {
+    if (acks_ == securities_.size() && (joined_ || !has_igmp_) && refused == 0 && on_ready_)
+      on_ready_();
+  }
+
   void on_ack(const cpu::Ack *m)
   {
     if (!m->ok)
       ++refused;
-    if (++acks_ == securities_.size() && refused == 0 && on_ready_)
-      on_ready_();
+    ++acks_;
+    ready_if_done();
+  }
+
+  void on_joined(const cpu::Joined *m)
+  {
+    if (!m->ok)
+    {
+      ++refused;
+      return;
+    }
+    joined_ = true;
+    ready_if_done();
   }
 
   static std::vector<int32_t> check_size(std::vector<int32_t> s)
@@ -212,6 +241,7 @@ public:
     set_mailbox(MailboxKind::FpgaLanes);
     MESSAGE_HANDLER(actors::msg::Start, on_start);
     MESSAGE_HANDLER(cpu::Ack, on_ack);
+    MESSAGE_HANDLER(cpu::Joined, on_joined);
     MESSAGE_HANDLER(cpu::Line, on_line);
     using E0 = cpu::End<0>;
     using E1 = cpu::End<1>;
@@ -222,6 +252,16 @@ public:
   }
 
   void set_filter(actors::ActorRef filter) { filter_ = filter; }
+
+  // The card's Igmp actor, and the group to join through it at start. Without this,
+  // the switch must already send the group to the card's port (a static entry), and
+  // the card's FeedRx must have been told the group some other way.
+  void set_igmp(actors::ActorRef igmp, const JoinGroup &join)
+  {
+    igmp_ = igmp;
+    join_ = join;
+    has_igmp_ = true;
+  }
 };
 
 } // namespace mdp3fpga

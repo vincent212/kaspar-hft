@@ -7,8 +7,9 @@
 
 // The g++ test of FeedRx: every packet of a recording rebuilt as a frame, every
 // seventh with an 802.1Q tag, mixed with frames it must drop (another group,
-// another port, not IPv4, not UDP, too short, padded), and each payload out
-// compared byte for byte. Holds one packet.
+// another port, not IPv4, not UDP, too short, padded, another host's IGMP report),
+// and each payload out compared byte for byte; and IGMP queries, tagged or not, with
+// or without Router Alert, each passed to Igmp with its group. Holds one packet.
 //
 //   MDP3_PACKETS  the packet file
 
@@ -18,6 +19,7 @@
 #include <vector>
 
 #include "frames.hpp"
+#include "igmp_frames.hpp"
 #include "kfpga/actor.hpp"
 #include "mdp3fpga/feed_rx.hpp"
 
@@ -32,10 +34,32 @@ int main()
     std::printf("set MDP3_PACKETS\nFAIL\n");
     return 1;
   }
-  static FeedRx rx;
-  rx.group = kGroup344A;
-  rx.port = kPort344A;
+  using RxProc = kfpga::Process<FeedRx>;
+  static RxProc proc;
+  FeedRx &rx = RxProc::member<FeedRx>();
+  rx.igmp = kfpga::ActorRef(0, kIgmp);
   WordStream in, out;
+  kfpga::Fifo listen, queries;
+  kfpga::OutPort ports[1] = {{queries}};
+  // The group and port, as Igmp sets them.
+  Listen lsn;
+  lsn.group = kGroup344A;
+  lsn.port = kPort344A;
+  listen.write(kfpga::encode(lsn, kIgmp, kFeedRx));
+  uint64_t query_errors = 0, sent_queries = 0;
+  std::deque<uint32_t> query_groups;
+  auto step = [&]() {
+    proc.step_stream<FeedRx>(ports, in, out, listen);
+    while (!queries.empty())
+    {
+      const kfpga::Envelope e = queries.read();
+      const IgmpQuery q = kfpga::decode<IgmpQuery>(e);
+      if (e.msg != IgmpQuery::id || query_groups.empty() || q.group != query_groups.front() || q.max_resp != 100)
+        ++query_errors;
+      if (!query_groups.empty())
+        query_groups.pop_front();
+    }
+  };
   std::deque<std::vector<uint8_t>> expected;
   uint64_t n_packets = 0, diffs = 0, sent_noise = 0, frames = 0;
   std::vector<uint8_t> got;
@@ -65,12 +89,12 @@ int main()
     ++frames;
     frame_words<Word>(f, [&](const Word &w) {
       in.write(w);
-      rx.on_step(in, out);
+      step();
       drain();
     });
     for (int i = 0; i < 3; ++i)
     {
-      rx.on_step(in, out);
+      step();
       drain();
     }
   };
@@ -100,17 +124,30 @@ int main()
       send(make_frame(small, 5, kGroup344A, kPort344A, false));                 // padded
       expected.push_back(std::vector<uint8_t>(small, small + 5));
       send(make_frame(small, 5, kGroup344A, kPort344A, true));                  // padded, tagged
+      // IGMP: another host's report is dropped; queries go to Igmp.
+      ++sent_noise;
+      send(igmp_frame(0x16, 0, kGroup344A, kGroup344A, kSwitchMac, kSwitchIp, true, true));
+      for (int k = 0; k < 6; ++k)
+      {
+        const uint32_t g = k % 3 == 0 ? 0 : kGroup344A + k;
+        query_groups.push_back(g);
+        ++sent_queries;
+        send(query(g, k & 1, k < 4));
+      }
     }
   }
   for (int i = 0; i < 64; ++i)
   {
-    rx.on_step(in, out);
+    step();
     drain();
   }
   std::printf("%llu packets in %llu frames, %u accepted, %u dropped, %llu differ, %zu not seen\n",
               (unsigned long long)n_packets, (unsigned long long)frames, rx.accepted, rx.dropped,
               (unsigned long long)diffs, expected.size());
-  const bool ok = diffs == 0 && expected.empty() && n_packets != 0 && rx.dropped == sent_noise;
+  std::printf("%llu IGMP queries sent, %u passed to Igmp, %llu wrong, %zu not passed\n", (unsigned long long)sent_queries,
+              rx.queries, (unsigned long long)query_errors, query_groups.size());
+  const bool ok = diffs == 0 && expected.empty() && n_packets != 0 && rx.dropped == sent_noise && query_errors == 0 &&
+                  query_groups.empty() && rx.queries == sent_queries && sent_queries != 0;
   std::printf("%s\n", ok ? "PASS" : "FAIL");
   return ok ? 0 : 1;
 }

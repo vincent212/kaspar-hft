@@ -19,6 +19,7 @@
 
 #include "mdp3fpga/books.hpp"
 #include "mdp3fpga/events.hpp"
+#include "mdp3fpga/igmp.hpp"
 
 namespace mdp3fpga {
 
@@ -51,7 +52,7 @@ public:
   bool take(const kfpga::Envelope &e, char *text, size_t size)
   {
     ended = false;
-    if (e.msg == WantAck::id)
+    if (e.msg == WantAck::id || e.msg == IgmpAck::id)
       return false;
     ++lines;
     if (e.msg == EventLine::id)

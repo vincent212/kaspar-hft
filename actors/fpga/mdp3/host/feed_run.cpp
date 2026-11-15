@@ -24,6 +24,7 @@
 #include "actors/act/Manager.hpp"
 #include "fpga_feed.hpp"
 #include "frames.hpp"
+#include "igmp_frames.hpp"
 #include "kfpga/soft_card.hpp"
 #include "mdp3fpga/decoder.hpp"
 #include "mdp3fpga/feed.hpp"
@@ -31,9 +32,11 @@
 
 using namespace mdp3fpga;
 using kfpga::Fifo;
+using RxProc = kfpga::Process<FeedRx>;
 using DecoderProc = kfpga::Process<SbeDecoder>;
 using FilterProc = kfpga::Process<Filter>;
 using BatcherProc = kfpga::Process<Batcher>;
+using IgmpProc = kfpga::Process<Igmp>;
 
 namespace {
 
@@ -42,20 +45,27 @@ class Card
 public:
   WordStream frames, words;
   Fifo decoded{4096}, kept{4096};
+  Fifo listen{4}, queries{4};       // between FeedRx and Igmp
+  WordStream tx;                    // Igmp's frames, to the MAC
   kfpga::Link table{256};     // CPU -> Filter, the table
   kfpga::Link lines{65536};   // Batcher -> CPU, the lane
-  FeedRx rx;
+  kfpga::Link join{16};       // CPU -> Igmp, the group
+  RxProc rx;
   DecoderProc decoder;
   FilterProc filter;
   BatcherProc batcher;
+  IgmpProc igmp;
+  kfpga::OutPort rx_ports[1] = {{queries}};
   kfpga::OutPort decoder_ports[1] = {{decoded}};
   kfpga::Port filter_ports[2] = {{decoded, kept}, table.server()};
   kfpga::Port batcher_ports[1] = {{kept, lines.fwd}};
+  kfpga::Port igmp_ports[2] = {join.server(), {queries, listen}};
 
   Card()
   {
-    rx.group = mdp3test::kGroup344A;
-    rx.port = mdp3test::kPort344A;
+    RxProc::member<FeedRx>().igmp = kfpga::ActorRef(0, kIgmp);
+    IgmpProc::member<Igmp>().cpu = kfpga::ActorRef(0, kCpuFeed);
+    IgmpProc::member<Igmp>().feed_rx = kfpga::ActorRef(1, kFeedRx);
     DecoderProc::member<SbeDecoder>().filter = kfpga::ActorRef(0, kFilter);
     FilterProc::member<Filter>().batcher = kfpga::ActorRef(0, kBatcher);
     BatcherProc::member<Batcher>().cpu_feed = kfpga::ActorRef(0, kCpuFeed);
@@ -144,7 +154,7 @@ int main(int argc, char **argv)
   Card card;
   kfpga::SoftCard soft;
   soft.add_step([&card] {
-    card.rx.on_step(card.frames, card.words);
+    card.rx.step_stream<FeedRx>(card.rx_ports, card.frames, card.words, card.listen);
     return true;
   });
   soft.add_step([&card] {
@@ -153,6 +163,21 @@ int main(int argc, char **argv)
   });
   soft.add(card.filter, card.filter_ports);
   soft.add(card.batcher, card.batcher_ports);
+  std::atomic<uint32_t> tx_frames{0};
+  soft.add_step([&card, &tx_frames] {
+    Igmp &g = IgmpProc::member<Igmp>();
+    if (g.busy())
+      card.igmp.step_stream<Igmp>(card.igmp_ports, card.tx);
+    else
+    {
+      g.on_idle();
+      card.igmp.step(card.igmp_ports);
+    }
+    while (!card.tx.empty())
+      if (card.tx.read().last)
+        tx_frames.fetch_add(1, std::memory_order_relaxed);
+    return true;
+  });
 
   kfpga::Codec codec;
   cpu::add_messages(codec);
@@ -162,7 +187,9 @@ int main(int argc, char **argv)
   auto *feed = new FpgaFeed(securities, check, [&ready] { ready.store(true, std::memory_order_release); });
   kfpga::CpuEnd *table = kfpga::CpuEnd::client(card.table, feed, kCpuFeed, kFilter, codec);
   kfpga::CpuEnd *lane = kfpga::CpuEnd::server(card.lines, feed, kCpuFeed, kBatcher, codec);
+  kfpga::CpuEnd *join = kfpga::CpuEnd::client(card.join, feed, kCpuFeed, kIgmp, codec);
   feed->set_filter(table->ref());
+  feed->set_igmp(join->ref(), mdp3test::join_344a(false));
 
   actors::Manager mgr;
   mgr.add_to_manage_q(feed);
@@ -207,8 +234,10 @@ int main(int argc, char **argv)
   std::printf("%llu events, %llu lines, %llu gaps (%llu packets missing), %llu buffer overflows, most events in a packet %llu, codec errors %u\n",
               (unsigned long long)check.events, (unsigned long long)feed->lines, (unsigned long long)feed->gaps, (unsigned long long)feed->missing,
               (unsigned long long)feed->overflows, (unsigned long long)check.most, table->errors() + lane->errors());
+  std::printf("IGMP: %u membership reports sent, join refused %llu, codec errors %u\n", tx_frames.load(),
+              (unsigned long long)feed->refused, join->errors());
   const bool ok = check.differ == 0 && check.missing == 0 && !extra && check.compared != 0 && feed->overflows == 0 &&
-                  table->errors() + lane->errors() == 0;
+                  table->errors() + lane->errors() + join->errors() == 0 && tx_frames.load() >= 1 && feed->refused == 0;
   std::printf("%s\n", ok ? "PASS" : "FAIL");
   return ok ? 0 : 1;
 }
