@@ -199,6 +199,68 @@ with exactly one End line. The last actor on the card.
 - **Timing:** nothing waits for a timer or a later packet; at most one line every 12
   clocks.
 
+## What the CPU receives, and how often
+
+**A line carries events, not MDP3 messages.** An MDP3 message can hold many entries: one
+template 46 message may update a dozen price levels. SbeDecoder turns each *entry* into a
+message for Filter, and Filter turns each kept entry into one 16-byte *event*. So a line
+of three events is three book updates or trades, which may have come from one MDP3
+message or from three.
+
+**Each send is one line, and a line is one message to the CPU actor.** A full line,
+`EventLine`, carries three events. Every packet also ends with exactly one `EndLine`,
+carrying the 0 to 2 events left over and the packet's sequence number. FpgaFeed waits for
+the End line, then handles the whole packet at once.
+
+**The clock.** The card runs at 250 MHz: one clock is 4 ns, and every actor takes one step
+per clock.
+
+**How often lines are sent.** Lines follow the data, not a timer:
+
+- one End line per packet, always;
+- one more line for every three events beyond the two the End line carries.
+
+So a packet with `n` events for us sends `floor(n / 3)` EventLines, one each time three
+events have built up, and then its End line with the `n mod 3` left over.
+
+**Packets of very different sizes.** Packets carry anything from no MDP3 message at all to
+dozens of entries. A packet is at most about 1,420 bytes, and a book entry is 32 bytes, so
+the most entries a packet can carry is about 44; a packet of 100 entries does not occur.
+
+| packet | events for us | lines to the CPU |
+|---|---|---|
+| heartbeat, no messages | 0 | 1: `EndLine<0>` |
+| one book update | 1 | 1: `EndLine<1>` |
+| two updates | 2 | 1: `EndLine<2>` |
+| five updates | 5 | 2: `EventLine` (1-3), `EndLine<2>` (4, 5) |
+| a full packet, 44 updates, all ours | 44 | 15: fourteen `EventLine`s, then `EndLine<2>` |
+| a full packet, none of it ours | 0 | 1: `EndLine<0>` |
+
+A big packet does not make the CPU wait for its end to start receiving: its EventLines
+leave while the packet is still arriving, one as each third event is decoded. The CPU
+still acts only at the End line, so the strategy sees the packet complete.
+
+**How fast lines can come.** An entry is 32 bytes, so it takes SbeDecoder four clocks, and
+three events take at least twelve: Batcher sends at most one line every 12 clocks, 48 ns.
+On a 10 GbE link the wire is slower than that: 32 bytes arrive every 25.6 ns, so three
+entries take 77 ns, and a line every 77 ns is the most a full packet of wanted entries
+can produce.
+
+**What it comes to on real traffic.** One session of channel 344, with the six busiest
+securities in the table:
+
+| | |
+|---|---|
+| packets | 30,044,560 |
+| events sent to the CPU | 26,375,349 |
+| lines sent to the CPU | 30,612,938 |
+| of which End lines | 30,044,560, one per packet |
+| of which full lines (`EventLine`) | 568,378 |
+| most events in one packet | 37 |
+
+Most packets carry one or two events for us, or none, so nearly every packet is a single
+End line, and only busy packets send more.
+
 ## From Batcher to the CPU
 
 1. `cpu_feed.send(line, this)` puts the line in Batcher's outbox.
