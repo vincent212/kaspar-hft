@@ -62,18 +62,48 @@
  *
  * Batcher
  *
- *   Packs the kept events into 64-byte lines, the unit the host reads, three events to
- *   a line, and ends every packet with exactly one End line.
+ *   Packs the events Filter keeps into 64-byte lines, the unit the CPU reads, and ends
+ *   every packet with exactly one End line. It is the last actor on the card: its
+ *   reference `feed` is the CPU actor FpgaFeed, and its lines go through the lane, a
+ *   ring in host memory written by the card over PCIe.
  *
- *     PackedEvent  if two are already held, send a full EventLine with them and this
- *                  one; otherwise hold it in a register.
- *     EndOfPacket  send the End line: the events still held, 0 to 2, and the packet's
- *                  sequence number. Every packet sends one, including packets with no
- *                  event for us; the CPU acts on it.
+ *   Why lines. The lane moves 64-byte envelopes, one cache line each, and the CPU pays
+ *   per line it reads, not per byte. A line has 48 bytes of payload, so three 16-byte
+ *   events fit in one. Sending each event alone would cost the CPU three times as many
+ *   lines on a busy packet.
  *
- *   So a line leaves as soon as it is full, and nothing waits for a later packet. The
- *   lines go to `feed`, the CPU actor FpgaFeed, through the lane in host memory. Each
- *   handler sends at most one line, so Batcher also runs at one message per clock.
+ *   The two lines (events.hpp):
+ *
+ *     EventLine   (id 331)      three events. Sent as soon as a third event arrives.
+ *     EndLine<N>  (ids 332-334) N events, 0 to 2, and the packet's sequence number.
+ *                               Sent at the end of every packet; the CPU acts on it.
+ *
+ *   Handlers:
+ *
+ *     PackedEvent  with two events already held, this one completes a line: send an
+ *                  EventLine with all three and hold nothing. Otherwise hold it in a
+ *                  register.
+ *     EndOfPacket  send EndLine<N> with the N events held and the sequence number,
+ *                  and hold nothing. Every packet sends one, including packets with no
+ *                  event for us, so the CPU sees every sequence number.
+ *
+ *   Examples, by events kept from one packet:
+ *
+ *     0 events   EndLine<0>
+ *     2 events   EndLine<2>
+ *     3 events   EventLine, then EndLine<0>
+ *     5 events   EventLine (events 1-3), then EndLine<2> (events 4, 5)
+ *
+ *   Nothing is held from one packet to the next and nothing waits for a timer: a line
+ *   leaves as soon as it is full, and a packet's End line as soon as its EndOfPacket
+ *   arrives. The CPU therefore gets one End line per packet, and one more line for every
+ *   three events beyond what the End line carries. Events arrive at most once every four
+ *   clocks (one 32-byte book entry), so Batcher sends at most a line every twelve clocks,
+ *   48 ns at 250 MHz.
+ *
+ *   Each handler sends at most one line, which the outbox writes in the same step, so
+ *   Batcher handles one message per clock (II = 1). The order of the CPU's lines is the
+ *   order of the events in the packet.
  */
 
 #include <ap_int.h>
@@ -209,8 +239,8 @@ class Batcher : public kfpga::Actor<Batcher>
   uint64_t lo_[2] = {}, hi_[2] = {};   // up to two events waiting for their line
   ap_uint<2> held_ = 0;                 // how many
 
-  // A kept event. With two already held, this one completes a line: send it. Otherwise
-  // hold it.
+  // A kept event. With two already held, this one completes a line: send an EventLine
+  // with all three and start empty. Otherwise hold it in the next register.
   void on_event(const PackedEvent &m)
   {
 #pragma HLS INLINE
@@ -236,7 +266,8 @@ class Batcher : public kfpga::Actor<Batcher>
     }
   }
 
-  // Send the End line with the N events held and the packet's sequence number.
+  // Send EndLine<N>: the N events held (the unused slot stays zero) and the packet's
+  // sequence number. N is a template argument because the message id carries it.
   template <int N>
   void send_end(uint32_t seq)
   {
@@ -250,7 +281,8 @@ class Batcher : public kfpga::Actor<Batcher>
     feed.send(l, this);
   }
 
-  // End of a packet: send its End line, whether or not it had events.
+  // End of a packet: send its End line, whether or not it had events, and start empty
+  // for the next packet.
   void on_end(const EndOfPacket &m)
   {
 #pragma HLS INLINE
