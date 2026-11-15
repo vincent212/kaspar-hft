@@ -299,15 +299,24 @@ entries, about 1,250 bytes with headers:
 | arriving on the 10 GbE wire | about 1.0 µs | yes: the wire |
 | the card, after the last byte | at most 32 ns | **no** |
 | PCIe, card to host memory, and the CPU seeing it | about 300-400 ns, an estimate: no DMA engine yet | little |
-| FpgaFeed applying 37 events to the books | 644 ns p50, 775 ns p99 on this box; roughly 4 times faster on a current server, so about 160 ns | yes: about 17 ns an event here |
+| FpgaFeed, after the End line arrives: the last 0 to 2 events, then the strategy's call | about 35 ns for two events on this box; under 10 ns on a current server | **no**: the other 35 events were applied as their lines arrived |
 
-The card's part is the one that does not grow. What still grows on the CPU is applying
-the events to the books, about 17 ns per event on this machine's Xeon E5-2630L v3
+Both the card's part and FpgaFeed's part are bounded. A long packet's full lines leave
+the card and reach the CPU while the packet is still arriving, and FpgaFeed applies each
+one as it comes, so when the End line arrives at most two events are left. Applying an
+event costs about 17 ns on this machine's Xeon E5-2630L v3
 (measured in a micro-benchmark, pinned to one core). That CPU is a 1.8 GHz Haswell from
 2014 and a poor benchmark: a current server CPU should run this about four times faster,
-some 4 ns per event and 160 ns for the 37-event packet, though that has not been measured.
-It is CPU code that can also be made faster, and it is the next place a long packet costs
-time. Not measured yet: PCIe, and
+some 4 ns per event, though that has not been measured. Applying all 37 events of the
+longest packet would take 644 ns here (p50; 775 ns p99) and about 160 ns on a current
+server, but that work now overlaps the packet's arrival instead of following it.
+
+**In sum:** the card decodes, filters and packs the packet as it arrives, and FpgaFeed
+builds the books from its lines as they arrive. After the packet's last byte there remain
+a bounded few steps: at most 32 ns on the card, the PCIe write, about 350 ns (estimated),
+and at most two events on the CPU. **The strategy has the updated book about 400 ns after
+the last byte arrives, however long the packet** (on a current server; the PCIe figure is
+an estimate until the DMA engine exists). Not measured yet: PCIe, and
 the CPU's polling and decoding of the lines before they are applied.
 
 The PCIe estimate: Orthogone's low-latency PCIe DMA controller is quoted at a round trip
@@ -342,8 +351,19 @@ so nothing sleeps and nothing is woken.
 |---|---|
 | `on_start` | sends a WantSecurity for each security, to load Filter's table |
 | `on_ack` | counts the acks; when all are in and none refused, calls `on_ready`, and market data starts |
-| a line handler | copies the line's events to a buffer |
-| an End line | checks the sequence number and sets the gap flag on a skip; if the packet had events, applies them to its MBP books and calls the strategy once with the books and the events |
+| a full line (`EventLine`) | applies its three events to the MBP books at once, while the rest of the packet is still arriving, and keeps them for the strategy |
+| an End line | checks the sequence number and sets the gap flag on a skip; applies the last 0 to 2 events; if the packet had events, calls the strategy once with the books and the events |
+
+**The books are built as the packet arrives.** A full line is applied the moment it comes
+in, so by the time a long packet's End line arrives, all but its last two events are
+already in the books. The strategy is still called only at the End line, so it never
+sees a book halfway through a packet; only FpgaFeed touches the books in between.
+
+One consequence: a full line is applied before its packet's sequence number is known,
+since the number comes in the End line. If that packet then turns out to be a duplicate
+or late, its events have already changed the books, so FpgaFeed sets the gap flag.
+Packets whose events fit in the End line, which is nearly all of them, are dropped
+cleanly as before.
 
 The strategy gets one call per packet that had events:
 `on_packet(books, events, n, gap)`. Turning that into the messages `light22` takes
@@ -368,8 +388,9 @@ A packet with seven book entries, five for securities in the table and two impli
    the `EndOfPacket`.
 4. **Batcher** sends an `EventLine` of events 1 to 3, then at the end an `EndLine<2>`
    with events 4 and 5 and the sequence number.
-5. **FpgaFeed** buffers the first line, and at the End line checks the sequence, applies
-   the five events to its books, and calls the strategy once.
+5. **FpgaFeed** applies events 1 to 3 to its books as soon as the first line arrives. At
+   the End line it checks the sequence, applies events 4 and 5, and calls the strategy
+   once.
 
 ## See also
 

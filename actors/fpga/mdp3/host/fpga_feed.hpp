@@ -11,9 +11,13 @@
  * FpgaFeed, the CPU end of the MDP3 handler: an ordinary Kaspar actor on an
  * FpgaLanes mailbox (see host/kfpga/cpu_link.hpp). At start it loads the card's
  * filter table, one WantSecurity a security, each answered by a WantAck. Then it
- * takes the card's lines: each is copied to a buffer, and at the End line the whole
- * packet is applied to the books and handed to the strategy, in one call on this
- * thread. A packet with no events only advances the sequence check, which is here:
+ * takes the card's lines, and builds the books as the packet arrives: the events of a
+ * full line are applied the moment the line comes in, while the rest of the packet is
+ * still on the wire, and the End line brings the last 0 to 2. At the End line the
+ * strategy gets the packet, books and events, in one call on this thread, so it never
+ * sees a book halfway through a packet. Only this actor touches the books in between.
+ * After a packet's last byte, then, the work left here is at most two events, however
+ * long the packet. A packet with no events only advances the sequence check, which is here:
  * every packet's End line carries its number. Nothing sleeps and nothing is woken:
  * the mailbox spins.
  *
@@ -75,6 +79,7 @@ class FpgaFeed : public actors::Actor
   actors::ActorRef filter_;
   std::array<Event, kMaxEvents> events_;
   size_t n_ = 0;
+  bool applied_ = false;   // this packet's full lines are already in the books
   uint32_t acks_ = 0;
   bool gap_ = false, seen_ = false;
   uint32_t next_seq_ = 0;
@@ -89,19 +94,30 @@ class FpgaFeed : public actors::Actor
     events_[n_++] = Event{lo, hi};
   }
 
+  // A full line: apply its three events now, while the packet is still arriving, and
+  // keep them for the strategy's call at the End line.
   void on_line(const cpu::Line *m)
   {
     ++lines;
-    hold(m->lo0, m->hi0);
-    hold(m->lo1, m->hi1);
-    hold(m->lo2, m->hi2);
+    const Event e[3] = {{m->lo0, m->hi0}, {m->lo1, m->hi1}, {m->lo2, m->hi2}};
+    for (const Event &ev : e)
+    {
+      books_.apply(ev);
+      hold(ev.lo, ev.hi);
+    }
+    applied_ = true;
   }
 
-  // The sequence check. Ahead of the expected number: a gap, latched. Behind it by
-  // up to kLateWindow: a duplicate or a late packet, counted and ignored with its
-  // events, since they were applied already or are out of order. Behind it by more:
-  // the channel has restarted its numbering, so follow it without a gap.
-  void packet_end(uint32_t seq)
+  // The End line: the sequence check, the packet's last 0 to 2 events (`tail`), and
+  // the strategy's call.
+  //
+  // Ahead of the expected number: a gap, latched. Behind it by more than kLateWindow:
+  // the channel has restarted its numbering, so follow it without a gap. Behind it by
+  // up to kLateWindow: a duplicate or a late packet, counted and ignored. Its End line
+  // events are dropped; but if it had full lines, their events were applied as they
+  // arrived, before its number was known, so the books may now be wrong, and the gap
+  // flag is set. Most packets fit in their End line, so this is rare.
+  void packet_end(uint32_t seq, const Event *tail, size_t k)
   {
     ++lines;
     if (seen_ && seq != next_seq_)
@@ -115,7 +131,13 @@ class FpgaFeed : public actors::Actor
       else if (next_seq_ - seq <= kLateWindow)
       {
         ++stale;
+        if (applied_)
+        {
+          gap_ = true;
+          ++stale_applied;
+        }
         n_ = 0;
+        applied_ = false;
         return;
       }
       else
@@ -123,27 +145,30 @@ class FpgaFeed : public actors::Actor
     }
     seen_ = true;
     next_seq_ = seq + 1;
+    for (size_t i = 0; i < k; ++i)
+    {
+      books_.apply(tail[i]);
+      hold(tail[i].lo, tail[i].hi);
+    }
+    applied_ = false;
     if (n_ == 0)
       return;
-    for (size_t i = 0; i < n_; ++i)
-      books_.apply(events_[i]);
     sink_.on_packet(books_, events_.data(), n_, seq, gap_);
     n_ = 0;
   }
 
-  void on_end0(const cpu::End<0> *m) { packet_end(m->seq); }
+  void on_end0(const cpu::End<0> *m) { packet_end(m->seq, nullptr, 0); }
 
   void on_end1(const cpu::End<1> *m)
   {
-    hold(m->lo0, m->hi0);
-    packet_end(m->seq);
+    const Event t[1] = {{m->lo0, m->hi0}};
+    packet_end(m->seq, t, 1);
   }
 
   void on_end2(const cpu::End<2> *m)
   {
-    hold(m->lo0, m->hi0);
-    hold(m->lo1, m->hi1);
-    packet_end(m->seq);
+    const Event t[2] = {{m->lo0, m->hi0}, {m->lo1, m->hi1}};
+    packet_end(m->seq, t, 2);
   }
 
   void on_start(const actors::msg::Start *)
@@ -173,6 +198,7 @@ class FpgaFeed : public actors::Actor
 public:
   uint64_t lines = 0, gaps = 0, missing = 0, overflows = 0, refused = 0;
   uint64_t stale = 0;      // duplicate or late packets, ignored
+  uint64_t stale_applied = 0;   // of those, ones whose full lines were already applied: gap set
   uint64_t restarts = 0;   // the channel's numbering started again
 
   // `on_ready` runs on this thread once the card has acked the whole table.

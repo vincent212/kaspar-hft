@@ -65,8 +65,8 @@ sends these to `Filter`:
 |---|---|
 | `on_start` | sends `WantSecurity` for each security id, to load the filter table |
 | `on_ack` | counts acks until the table is loaded |
-| `on_line` | copies the line's events to a buffer |
-| `on_line`, End line | checks the sequence number, sets the gap flag on a skip, applies the packet's events to the books, and calls the strategy once if there were events |
+| `on_line` | applies the line's three events to the books at once, and keeps them for the strategy |
+| End line | checks the sequence number, sets the gap flag on a skip, applies the last 0 to 2 events, and calls the strategy once if there were events |
 
 The strategy gets one call per packet: `on_packet(books, events, n, gap)`.
 
@@ -180,9 +180,12 @@ II = 1.
 
 Lines are written into a ring in host memory, one writer and one reader, and consumed
 through the framework's `CpuEnd` and `FpgaLanes` mailbox, which polls. `FpgaFeed` copies a
-packet's lines to a buffer. At the End line it checks the sequence number, setting a gap flag
-that stays set if a packet was skipped, and if the packet had events it applies them to its
-MBP books and hands the books and events to the strategy in one call on that thread. Nothing
+packet's events as they arrive and applies each full line to its MBP books at once, while
+the rest of the packet is still on the wire. At the End line it checks the sequence number,
+setting a gap flag that stays set if a packet was skipped, applies the last 0 to 2 events,
+and if the packet had events hands the books and events to the strategy in one call on that
+thread. A late or duplicate packet whose full lines were already applied also sets the gap
+flag. Nothing
 sleeps and nothing is woken, and the kernel is not on the receive path.
 
 ### Messages to the host
