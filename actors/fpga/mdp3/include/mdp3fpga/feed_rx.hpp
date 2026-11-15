@@ -25,9 +25,18 @@
  *   class is called from it. The task holds the object as `static FeedRx rx`, so
  *   its members are registers that keep their values from one clock to the next.
  *
- *   FeedRx takes and sends words, not messages, so it has no handlers and is in
- *   no kfpga::Group. (Held in kfpga::instance<T>() instead, HLS took the object
- *   for a constant and removed its output: HLS.md section 2.)
+ * An actor with no handlers and no messages
+ *
+ *   FeedRx is an actor (it derives from kfpga::Actor and has its own id, kFeedRx), but
+ *   both its sides are raw word streams: frames in, packets out. It receives no
+ *   messages, so it has no handlers, and it sends none, so it needs no ActorRef or
+ *   outbox. With nothing to dispatch or flush it needs no kfpga::Group either: its task
+ *   holds the object itself and calls on_step directly. (Held in kfpga::instance<T>(),
+ *   as a group member would be, HLS took the object for a constant and removed its
+ *   output: HLS.md section 2.)
+ *
+ *   SbeDecoder is the next step along: a raw stream in, but messages out, so it does
+ *   run in a group of one.
  *
  * Input and output
  *

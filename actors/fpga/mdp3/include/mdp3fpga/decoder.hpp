@@ -20,9 +20,27 @@
  *     proc.step_stream<SbeDecoder>(ports, in);
  *
  *   which calls on_step(in) once and then writes out whatever on_step sent. on_step()
- *   is the only entry point; every other function here is called from it. Its input
- *   is a word stream, not messages, so it has no handlers (kfpga::Group::step_stream,
- *   HLS.md). `books` is its reference to the next actor, Filter.
+ *   is the only entry point; every other function here is called from it. `books` is
+ *   its reference to the next actor, Filter.
+ *
+ * An actor with no handlers
+ *
+ *   SbeDecoder is an actor: it derives from kfpga::Actor, has its own id (kDecoder),
+ *   holds an ActorRef and sends through the outbox with books.send(m, this), runs as a
+ *   process of its own (kfpga::Process<SbeDecoder>, a group of one), and its state is
+ *   touched only by its own steps.
+ *
+ *   It has no message handlers because it receives no messages. Its input is the raw
+ *   word stream from FeedRx: wrapping every 8-byte word in a 64-byte envelope would
+ *   waste seven eighths of the link. So its process calls Group::step_stream, which
+ *   hands it one word stream per clock, instead of Group::step, which would read a
+ *   message and call a handler. It is a source actor: it turns outside data into
+ *   messages for the rest of the design, as a CPU actor reading a socket does.
+ *
+ *   Handlers could be added, for configuration from the CPU, say, but the step would
+ *   then have to serve both the stream and the messages, and HLS has removed actors'
+ *   state when they dispatched messages from a step of their own (HLS.md section 2).
+ *   The decoder needs no configuration, so it has none.
  *
  * What it reads
  *
