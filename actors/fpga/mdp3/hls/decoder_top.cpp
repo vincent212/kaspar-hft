@@ -26,7 +26,7 @@ static void decoder_task(WordStream &in, Fifo &out)
 #pragma HLS PIPELINE II=1
   static DecoderProc proc;
   SbeDecoder &d = DecoderProc::member<SbeDecoder>();
-  d.books = kfpga::ActorRef(0, kBooks);
+  d.filter = kfpga::ActorRef(0, kFilter);
   kfpga::OutPort ports[1] = {{out}};
   proc.step_stream<SbeDecoder>(ports, in);
 }

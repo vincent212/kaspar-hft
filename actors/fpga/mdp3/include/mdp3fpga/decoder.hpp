@@ -20,13 +20,13 @@
  *     proc.step_stream<SbeDecoder>(ports, in);
  *
  *   which calls on_step(in) once and then writes out whatever on_step sent. on_step()
- *   is the only entry point; every other function here is called from it. `books` is
+ *   is the only entry point; every other function here is called from it. `filter` is
  *   its reference to the next actor, Filter.
  *
  * An actor with no handlers
  *
  *   SbeDecoder is an actor: it derives from kfpga::Actor, has its own id (kDecoder),
- *   holds an ActorRef and sends through the outbox with books.send(m, this), runs as a
+ *   holds an ActorRef and sends through the outbox with filter.send(m, this), runs as a
  *   process of its own (kfpga::Process<SbeDecoder>, a group of one), and its state is
  *   touched only by its own steps.
  *
@@ -244,7 +244,7 @@ class SbeDecoder : public kfpga::Actor<SbeDecoder>
   void emit(const M &m)
   {
 #pragma HLS INLINE
-    books.send(m, this);
+    filter.send(m, this);
     ++events_;
   }
 
@@ -394,7 +394,7 @@ class SbeDecoder : public kfpga::Actor<SbeDecoder>
 
 public:
   static constexpr kfpga::ActorId kId = kDecoder;
-  kfpga::ActorRef books;
+  kfpga::ActorRef filter;     // the next actor: Filter
 
   // One clock, the only entry point, called by decoder_task() through step_stream.
   //
@@ -422,7 +422,7 @@ public:
       m.cycle_in = first_word_;
       m.cycle_out = now_;
       m.cycle_last = last_word_;
-      books.send(m, this);
+      filter.send(m, this);
       seq_ = 0;
       sending_ = 0;
       events_ = 0;
