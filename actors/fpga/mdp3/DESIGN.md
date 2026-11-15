@@ -223,6 +223,14 @@ actors were placed and routed at 3.37 ns, about 296 MHz, on the KU5P stand-in: 6
 -3, at 3.32 ns, about 301 MHz: 5,824 LUTs, 13,511 flip-flops, 23 block RAMs. The channel A group and port in FeedRx are set at build
 time.
 
+## Test harness
+
+`hls/feed_top.cpp` also holds three plain functions, `load`, `words_in` and
+`lines_out`. They are the counted boundary co-simulation needs (HLS.md section 3): they
+move a known number of words and envelopes between the top-level ports and the actor
+tasks so that the top returns. They are not stages of the handler, and on the card the
+MAC and the DMA engine take their place.
+
 ## Outside this design
 
 The MAC and PCIe DMA engine are not built, and their interfaces here are assumed: a 64-bit

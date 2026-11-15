@@ -77,8 +77,16 @@ void mdp3_feed_tick(WordStream &frames, WordStream &words, Fifo &decoded, Fifo &
   batcher_task(kept, out);
 }
 #else
-// The PCIe side, in counts as in HLS.md section 3. As the CPU does, load the table
-// first and let packets in only when every entry is acked.
+// Test harness, not part of the card. load, words_in and lines_out are the
+// counted boundary that co-simulation needs (HLS.md section 3): they move a known
+// number of words and envelopes between the top-level ports and the free-running
+// actor tasks, so that the top returns and the testbench can check the result. On
+// the card the MAC feeds `frames` and the DMA engine drains `lines` directly, and
+// these three functions do not exist. They are plain dataflow functions because
+// they only count; no stage of the handler is among them.
+//
+// As the CPU does, load the table first and let packets in only when every entry
+// is acked.
 static void load(Fifo &from, Fifo &window, Fifo &acks, Fifo &acked, hls::stream<bool> &go, uint32_t n)
 {
   for (uint32_t i = 0; i < n; ++i)
