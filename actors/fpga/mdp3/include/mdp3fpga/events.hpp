@@ -180,7 +180,7 @@ struct EventLine : kfpga::Message<331>
 // The last line of a packet: N events, 0 to 2, and its sequence number. The CPU
 // acts on this one.
 template <int N>
-struct EndLine : kfpga::Message<332 + N>
+struct EndLine : kfpga::Message<332 + N>   // msgids 332-334: N is 0 to 2
 {
   uint64_t lo0 = 0, hi0 = 0, lo1 = 0, hi1 = 0;
   uint32_t seq = 0;

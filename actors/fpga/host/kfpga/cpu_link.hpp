@@ -57,7 +57,7 @@ namespace kfpga {
 //   namespace cpu { using Ping = kfpga::CpuMsg<pingpong::Ping>; }
 //   ref.send(new cpu::Ping(7), this);
 template <class F>
-struct CpuMsg : actors::Message_N<F::id>, F
+struct CpuMsg : public actors::Message_N<F::id>, public F
 {
   static constexpr int id = F::id;
   // No arguments, or one per field, in KFPGA_FIELDS order.
