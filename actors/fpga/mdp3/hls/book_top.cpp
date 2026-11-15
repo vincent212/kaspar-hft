@@ -40,7 +40,7 @@ static void book_task(Fifo &in, Fifo &held_in, Fifo &held_out, Fifo &out)
 #pragma HLS PIPELINE II=1
   static BookProc proc;
   BookBank &b = BookProc::member<BookBank>();
-  b.feed = kfpga::ActorRef(0, kFeed);
+  b.cpu_feed = kfpga::ActorRef(0, kCpuFeed);
   b.security = MDP3_SECURITY;
   kfpga::OutPort ports[1] = {{out}};
   proc.step_stream<BookBank>(ports, in, held_in, held_out);

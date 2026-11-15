@@ -94,7 +94,7 @@ int main()
   kfpga::Codec codec;
   cpu::add_messages(codec);
   auto *probe = new Probe();
-  kfpga::CpuEnd *end = kfpga::CpuEnd::client(table, probe, kFeed, kFilter, codec);
+  kfpga::CpuEnd *end = kfpga::CpuEnd::client(table, probe, kCpuFeed, kFilter, codec);
   probe->set_filter(end->ref());
   actors::Manager mgr;
   mgr.add_to_manage_q(probe);

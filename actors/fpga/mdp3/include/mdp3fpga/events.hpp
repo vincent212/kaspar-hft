@@ -206,7 +206,7 @@ struct WantAck : kfpga::Message<339>
 // Actor ids on the card.
 constexpr kfpga::ActorId kDecoder = 20;
 constexpr kfpga::ActorId kBooks = 21;
-constexpr kfpga::ActorId kFeed = 22;       // the CPU actor that takes the batches
+constexpr kfpga::ActorId kCpuFeed = 22;       // the CPU actor that takes the batches
 constexpr kfpga::ActorId kFilter = 23;
 constexpr kfpga::ActorId kBatcher = 24;
 constexpr kfpga::ActorId kFeedRx = 25;

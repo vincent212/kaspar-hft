@@ -52,9 +52,9 @@ Run run(const std::vector<uint32_t> &seqs)
   kfpga::Codec codec;
   cpu::add_messages(codec);
   auto *feed = new FpgaFeed({42001080}, sink, [] {});
-  kfpga::CpuEnd *end = kfpga::CpuEnd::server(lane, feed, kFeed, kBatcher, codec);
+  kfpga::CpuEnd *end = kfpga::CpuEnd::server(lane, feed, kCpuFeed, kBatcher, codec);
   kfpga::Link table{16};   // the table load goes here, and no one answers it
-  kfpga::CpuEnd *to_filter = kfpga::CpuEnd::client(table, feed, kFeed, kFilter, codec);
+  kfpga::CpuEnd *to_filter = kfpga::CpuEnd::client(table, feed, kCpuFeed, kFilter, codec);
   feed->set_filter(to_filter->ref());
   actors::Manager mgr;
   mgr.add_to_manage_q(feed);
@@ -66,7 +66,7 @@ Run run(const std::vector<uint32_t> &seqs)
     m.lo0 = ev.lo;
     m.hi0 = ev.hi;
     m.seq = s;
-    lane.fwd.write(kfpga::encode(m, kBatcher, kFeed));
+    lane.fwd.write(kfpga::encode(m, kBatcher, kCpuFeed));
   }
   for (int i = 0; i < 400 && feed->lines < seqs.size(); ++i)
     std::this_thread::sleep_for(std::chrono::milliseconds(5));

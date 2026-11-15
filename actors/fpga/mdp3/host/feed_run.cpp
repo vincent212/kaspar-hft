@@ -58,7 +58,7 @@ public:
     rx.port = mdp3test::kPort344A;
     DecoderProc::member<SbeDecoder>().books = kfpga::ActorRef(0, kFilter);
     FilterProc::member<Filter>().batcher = kfpga::ActorRef(0, kBatcher);
-    BatcherProc::member<Batcher>().feed = kfpga::ActorRef(0, kFeed);
+    BatcherProc::member<Batcher>().cpu_feed = kfpga::ActorRef(0, kCpuFeed);
   }
 };
 
@@ -160,8 +160,8 @@ int main(int argc, char **argv)
   Check check(ref);
   std::atomic<bool> ready{false};
   auto *feed = new FpgaFeed(securities, check, [&ready] { ready.store(true, std::memory_order_release); });
-  kfpga::CpuEnd *table = kfpga::CpuEnd::client(card.table, feed, kFeed, kFilter, codec);
-  kfpga::CpuEnd *lane = kfpga::CpuEnd::server(card.lines, feed, kFeed, kBatcher, codec);
+  kfpga::CpuEnd *table = kfpga::CpuEnd::client(card.table, feed, kCpuFeed, kFilter, codec);
+  kfpga::CpuEnd *lane = kfpga::CpuEnd::server(card.lines, feed, kCpuFeed, kBatcher, codec);
   feed->set_filter(table->ref());
 
   actors::Manager mgr;

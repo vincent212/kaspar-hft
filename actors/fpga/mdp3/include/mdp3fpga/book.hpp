@@ -106,7 +106,7 @@ class BookBank : public kfpga::Actor<BookBank>
   void hold(const M &m)
   {
 #pragma HLS INLINE
-    pending_ = kfpga::encode(m, kId, kFeed);
+    pending_ = kfpga::encode(m, kId, kCpuFeed);
     have_pending_ = true;
     ++events_;
   }
@@ -238,7 +238,7 @@ class BookBank : public kfpga::Actor<BookBank>
 
 public:
   static constexpr kfpga::ActorId kId = kBooks;
-  kfpga::ActorRef feed;      // the batches go here
+  kfpga::ActorRef cpu_feed;      // the batches go here
   int32_t security = 0;      // the one instrument of phase 2
 
   KFPGA_HANDLERS(KFPGA_ON(BookEntry, on_book) KFPGA_ON(Trade, on_trade) KFPGA_ON(SecurityStatus, on_status)
@@ -270,7 +270,7 @@ public:
     case kEvents:
     {
       if (!held_in.empty())
-        kfpga_emit(held_in.read(), feed.port());
+        kfpga_emit(held_in.read(), cpu_feed.port());
       else
       {
         part_ = 0;
@@ -293,7 +293,7 @@ public:
       m.price1 = b.price;
       m.size1 = b.size;
       m.orders1 = b.orders;
-      feed.send(m, this);
+      cpu_feed.send(m, this);
       part_ = part_ + 1;
       if (part_ == kBookParts)
         stage_ = kEnd;
@@ -309,7 +309,7 @@ public:
       m.cycle_in = eop_.cycle_in;
       m.cycle_last = eop_.cycle_last;
       m.cycle_out = now_;
-      feed.send(m, this);
+      cpu_feed.send(m, this);
       events_ = 0;
       touched_ = false;
       stage_ = kTaking;

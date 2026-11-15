@@ -109,7 +109,7 @@ inline std::vector<kfpga::Envelope> table_from_env()
     WantSecurity m;
     m.index = i;
     m.security_id = std::atoi(list);
-    out.push_back(kfpga::encode(m, kFeed, kFilter));
+    out.push_back(kfpga::encode(m, kCpuFeed, kFilter));
     list = std::strchr(list, ',');
     list = list ? list + 1 : nullptr;
   }

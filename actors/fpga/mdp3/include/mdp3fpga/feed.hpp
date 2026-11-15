@@ -64,7 +64,7 @@
  *
  *   Packs the events Filter keeps into 64-byte lines, the unit the CPU reads, and ends
  *   every packet with exactly one End line. It is the last actor on the card: its
- *   reference `feed` is the CPU actor FpgaFeed, and its lines go through the lane, a
+ *   reference `cpu_feed` is the CPU actor FpgaFeed, and its lines go through the lane, a
  *   ring in host memory written by the card over PCIe.
  *
  *   Why lines. The lane moves 64-byte envelopes, one cache line each, and the CPU pays
@@ -255,7 +255,7 @@ class Batcher : public kfpga::Actor<Batcher>
       l.hi1 = hi_[1];
       l.lo2 = m.lo;
       l.hi2 = m.hi;
-      feed.send(l, this);
+      cpu_feed.send(l, this);
       held_ = 0;
     }
     else
@@ -278,7 +278,7 @@ class Batcher : public kfpga::Actor<Batcher>
     l.lo1 = lo_[1];
     l.hi1 = hi_[1];
     l.seq = seq;
-    feed.send(l, this);
+    cpu_feed.send(l, this);
   }
 
   // End of a packet: send its End line, whether or not it had events, and start empty
@@ -297,7 +297,7 @@ class Batcher : public kfpga::Actor<Batcher>
 
 public:
   static constexpr kfpga::ActorId kId = kBatcher;
-  kfpga::ActorRef feed;   // the CPU actor FpgaFeed, through the lane in host memory
+  kfpga::ActorRef cpu_feed;   // the CPU actor FpgaFeed, through the lane in host memory
 
   KFPGA_HANDLERS(KFPGA_ON(PackedEvent, on_event) KFPGA_ON(EndOfPacket, on_end))
 };
