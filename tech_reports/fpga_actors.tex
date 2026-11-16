@@ -20,6 +20,13 @@
 \captionsetup{font=small, labelfont=bf, labelsep=period}
 \usepackage{placeins}
 \usepackage{graphicx}
+\usepackage{listings}
+\lstset{language=C++, basicstyle=\ttfamily\footnotesize, columns=fullflexible,
+  keepspaces=true, frame=single, framerule=0.3pt, rulecolor=\color{gray!60},
+  xleftmargin=4pt, xrightmargin=4pt, aboveskip=6pt, belowskip=6pt,
+  keywordstyle=\bfseries, commentstyle=\itshape\color{gray!80!black},
+  showstringspaces=false, breaklines=true}
+\usepackage[text={DRAFT},color={[gray]{0.88}},scale=1.2,angle=45]{draftwatermark}
 \renewcommand{\topfraction}{0.9}
 \renewcommand{\bottomfraction}{0.8}
 \renewcommand{\textfraction}{0.07}
@@ -104,6 +111,10 @@ with the card.
 \noindent\textbf{Keywords:} actor model, FPGA, high-level synthesis,
 heterogeneous computing, PCIe, market data, low-latency systems,
 high-frequency trading.
+
+\clearpage
+\tableofcontents
+\clearpage
 
 % ---------------------------------------------------------------
 \section{Introduction}
@@ -226,10 +237,13 @@ working in parallel, not one processor taking turns.
 
 Two quantities describe a stage of such a circuit. Its \emph{latency} is the
 number of clocks from an input to the corresponding output. Its
-\emph{initiation interval} (II) is how often it can accept a new input: at
-II~$=1$ a stage takes a new input every clock while earlier ones are still in
-flight, overlapped as on an assembly line. Latency bounds a request--reply
-chain; II bounds throughput, and therefore whether a burst queues.
+\emph{initiation interval} (II) is the number of clocks between accepting one
+input and accepting the next. At II~$=1$ a stage takes a new input every clock,
+while earlier inputs are still being worked on, like an assembly line; at
+II~$=2$ it takes one every other clock, and so handles half as much data. A stage
+can take many clocks of latency and still have II~$=1$. Latency bounds a
+request--reply chain; II bounds throughput, and therefore whether a burst
+queues.
 
 High-level synthesis (HLS) compiles a C++ function into such a circuit. AMD's
 Vitis HLS \cite{ug1399} schedules the function's operations into clock cycles,
@@ -353,8 +367,10 @@ under a burst has moved the tail, not removed it.
 \paragraph{Keep up with the wire, every clock.} A 10~GbE link delivers 8 bytes
 every 6.4~ns. A stage that takes a new input every clock at 250~MHz (4~ns)
 processes 16~Gb/s and cannot fall behind; a stage with II~$=2$ at the same
-clock processes 8~Gb/s and queues on any sustained burst. The requirement for
-every process on the receive path is therefore II~$=1$.
+clock processes 8~Gb/s and queues on any sustained burst. The \emph{receive
+path} is the chain of processes a packet passes through from the network port
+to the order book. Every process on it must therefore have II~$=1$: take a new
+input every clock.
 
 \paragraph{Write across, read locally.} PCIe is asymmetric for this purpose. A
 write is posted: the writer sends it and continues. A read is a round trip: the
@@ -420,15 +436,96 @@ table is a \texttt{switch} on the message id, which HLS turns into a
 multiplexer. The process's state --- its actors' members --- is kept in
 registers that persist from one step to the next.
 
-The actor's author writes what a CPU actor's author writes:
+The actor's author writes what a CPU actor's author writes. The running example
+of this paper is a ping-pong pair, taken from the framework's examples
+(\texttt{actors/fpga/examples/ping\_pong}). The messages are plain structs with
+a fixed id; \texttt{KFPGA\_FIELDS} lists the fields that travel, which is all the
+encoder needs (Section~\ref{sec:envelope}). The same header is compiled into the
+FPGA design and into the CPU program, so the ids and the field lists exist in
+one place:
 
-\begin{quote}\small
-\texttt{struct PongActor : kfpga::Actor<PongActor> \{}\\
-\texttt{\ \ uint32\_t pings = 0;}\\
-\texttt{\ \ KFPGA\_HANDLERS(KFPGA\_ON(Ping, on\_ping))}\\
-\texttt{\ \ void on\_ping(const Ping \&m) \{ ++pings; Pong r; r.count = m.count; reply(r); \}}\\
-\texttt{\};}
-\end{quote}
+\begin{lstlisting}
+struct Start : kfpga::Message<300> { uint32_t rounds = 0; KFPGA_FIELDS(rounds) };
+struct Ping  : kfpga::Message<301> { uint32_t count = 0;  KFPGA_FIELDS(count) };
+struct Pong  : kfpga::Message<302> { uint32_t count = 0;  KFPGA_FIELDS(count) };
+struct Done  : kfpga::Message<303>
+{
+  uint32_t final_count = 0;   // count carried by the last Pong
+  uint32_t rounds = 0;        // round trips completed
+  KFPGA_FIELDS(final_count, rounds)
+};
+
+// Actor ids, shared by both sides
+constexpr ActorId kTestbench = 0;
+constexpr ActorId kPing = 1, kPong = 2, kSyncPing = 3;
+constexpr ActorId kCpuPing = 8, kCpuPong = 9, kCpuDriver = 10;
+\end{lstlisting}
+
+\noindent \texttt{PongActor} answers every \texttt{Ping} with a \texttt{Pong}
+carrying the same count. \texttt{PingActor}, given a \texttt{Start}, plays the
+requested number of round trips against whatever its \texttt{pong} reference is
+connected to, and reports \texttt{Done} to whoever its \texttt{starter}
+reference names:
+
+\begin{lstlisting}
+struct PongActor : kfpga::Actor<PongActor>
+{
+  static constexpr ActorId kId = kPong;
+  uint32_t pings = 0;
+
+  KFPGA_HANDLERS(KFPGA_ON(Ping, on_ping))
+
+  void on_ping(const Ping &m)
+  {
+    ++pings;
+    Pong r;
+    r.count = m.count;
+    reply(r);
+  }
+};
+
+struct PingActor : kfpga::Actor<PingActor>
+{
+  static constexpr ActorId kId = kPing;
+  kfpga::ActorRef pong;      // bound in the top
+  kfpga::ActorRef starter;   // gets Done
+  uint32_t rounds = 0;
+  uint32_t replies = 0;
+
+  KFPGA_HANDLERS(KFPGA_ON(Start, on_start) KFPGA_ON(Pong, on_pong))
+
+  void on_start(const Start &m)
+  {
+    rounds = m.rounds;
+    replies = 0;
+    Ping p;
+    p.count = 1;
+    pong.send(p, this);
+  }
+
+  void on_pong(const Pong &m)
+  {
+    ++replies;
+    if (replies < rounds)
+    {
+      Ping p;
+      p.count = replies + 1;
+      pong.send(p, this);
+      return;
+    }
+    Done d;
+    d.final_count = m.count;
+    d.rounds = replies;
+    starter.send(d, this);
+  }
+};
+\end{lstlisting}
+
+\noindent Neither actor says where the other runs. \texttt{pong} and
+\texttt{starter} are bound in the design header (Section~\ref{sec:nopointers}):
+the same two actors run as two processes on the card, in one group
+(Section~\ref{sec:fpgagroups}), or against CPU actors across PCIe
+(Section~\ref{sec:link}), with only that header changing.
 
 \noindent The base class uses the curiously recurring template pattern rather
 than virtual functions, since HLS synthesizes no virtual dispatch.
@@ -505,6 +602,62 @@ at a time. A \snd{} between members goes through the group's own queue, a FIFO
 inside the process that the next steps take before the ports; a \fs{} between
 members is an inline call of the target's handler, with no FIFO, and its reply
 returns as a value, as on the CPU.
+
+\texttt{SyncPing} plays the same round trips as \texttt{PingActor}, but with
+\fs{}, so it needs \texttt{PongActor} in its own group. It names that type with
+\texttt{KFPGA\_FAST\_SEND} and reaches it through a \texttt{GroupRef}; each
+call runs \texttt{PongActor::on\_ping} inline and returns the reply by value:
+
+\begin{lstlisting}
+struct SyncPing : kfpga::Actor<SyncPing>
+{
+  static constexpr ActorId kId = kSyncPing;
+  static constexpr uint32_t kMaxRounds = 1024;   // fixed loop bound, as HLS needs
+
+  KFPGA_FAST_SEND(PongActor)        // its group must hold PongActor too
+  kfpga::GroupRef<PongActor> pong;
+  kfpga::ActorRef starter;
+
+  KFPGA_HANDLERS(KFPGA_ON(Start, on_start))
+
+  void on_start(const Start &m)
+  {
+    Done d;
+    for (uint32_t i = 0; i < kMaxRounds; ++i)
+    {
+      if (i >= m.rounds)
+        break;
+      Ping p;
+      p.count = i + 1;
+      Pong r;
+      if (pong.fast_send(p, this, r))   // runs pong.on_ping now; the reply by value
+      {
+        d.final_count = r.count;
+        ++d.rounds;
+      }
+    }
+    starter.send(d, this);
+  }
+};
+\end{lstlisting}
+
+\noindent The design header declares the group and binds the references.
+\texttt{PingActor} reaches \texttt{PongActor} with a \snd{} through the group's
+own queue; \texttt{SyncPing} reaches it with \fs{}:
+
+\begin{lstlisting}
+using Grp = kfpga::Group<PingActor, PongActor, SyncPing>;   // one process
+
+inline void wire()
+{
+  PingActor &ping = Grp::member<PingActor>();
+  SyncPing &sync = Grp::member<SyncPing>();
+  ping.pong = Grp::ref<PongActor>();                   // send, inside the group
+  ping.starter = kfpga::ActorRef(0, kTestbench);       // port 0
+  sync.starter = kfpga::ActorRef(0, kTestbench);
+  Grp::bind(sync.pong);                                // fast_send, inside the group
+}
+\end{lstlisting}
 
 \paragraph{\fs{} cannot leave the group, by construction.} On the CPU, \fs{}
 works between any two co-located actors and takes the receiver's lock. On the
@@ -607,6 +760,114 @@ the card. This section describes how an actor on one side sends to an actor on
 the other: what joins them, how each names the other, what form a message takes
 on each side, how it crosses the bus, and on which thread it is handled.
 
+On the Alveo X3522PV the network ports go straight into the FPGA, so the card can
+hold the network side of a trading system: the Ethernet MACs, the MDP3 decoder
+and the actors that build the book, the iLink~3 session and an order manager.
+The host then deals only in actor messages: market data in, orders out, and
+acknowledgements and fills back; the packets stay on the card
+(Figure~\ref{fig:cardroles}).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{fig_card_roles.png}
+\caption{The card holds the NIC, the MDP3 decoder and iLink~3 order entry. The CPU actors exchange only actor messages with it: market data in, orders out, acknowledgements and fills back.}
+\label{fig:cardroles}
+\end{figure}
+
+\subsection{Moving data across PCIe}
+\label{sec:pcie}
+
+Everything between the card and the CPU travels as PCIe transactions, and for
+latency the question that matters is whether a transaction is a write or a read.
+A write is \emph{posted}: the sender puts it on the link and carries on. A read
+is a round trip: the reader sends a request and waits for the data to come back,
+typically 0.5 to 1~$\mu$s, with the reading core stalled the whole time. PCIe also
+keeps the writes of one sender in order. The design below follows from these two
+facts: each side writes into the other's memory and reads only its own.
+
+\paragraph{Three ways to move data.} The first is \emph{memory-mapped I/O}
+(MMIO). The card exposes register windows, its base address registers (BARs),
+which the CPU maps into its address space; a store to one of those addresses
+becomes a PCIe write to the card. If the window is mapped write-combining, the
+CPU gathers up to 64 bytes and normally sends them as one transaction, so a
+64-byte message is a single write; this is \emph{programmed I/O} (PIO), the
+CPU itself moving the data, and for a small message it is the fastest way onto
+the card. A store fence after it makes the CPU send it at once. The second is
+\emph{direct memory access} (DMA): the card reads or writes host memory itself.
+To send to the CPU, the card writes into a \emph{ring} in host memory, a fixed
+array of slots used as a queue (Figure~\ref{fig:ring}), and a CPU thread polls
+it. DMA also works the other way, with the CPU writing a descriptor into host
+memory and ringing a doorbell, an MMIO write that tells the card where to look;
+the card then fetches the data, a read on its side, which suits large or
+batched transfers better than single messages. The third is an
+\emph{interrupt}: the card sends an MSI-X message, the CPU takes an interrupt and
+the driver wakes a sleeping thread, which costs several microseconds plus the
+scheduler's jitter. Latency-sensitive receivers poll instead.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{fig1_ring.png}
+\caption{A ring: a fixed array of slots used as a queue. The writer fills the next slot and the reader takes them in the same order; both wrap from the last slot to the first. With one writer and one reader, no lock is needed.}
+\label{fig:ring}
+\end{figure}
+
+\paragraph{Where a DMA write lands.} If the platform places DMA writes directly
+in the CPU's cache (Intel calls this DDIO, Data Direct I/O), the polling thread's
+next read hits the cache. If the write goes to main memory instead, it
+invalidates the cached line, and the first poll after it costs a trip to memory,
+around 100~ns.
+
+\paragraph{Typical costs.} Table~\ref{tab:pciecost} gives typical figures for
+PCIe systems in general; they depend on the platform and the PCIe generation and
+are not measurements on the X3522PV. An interrupt and wake-up costs more than a
+round trip to the card, which is why the receiving side polls; and a synchronous
+round trip to the card costs thousands of CPU instructions, which is why a
+latency-sensitive loop stays on one side of the link.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Typical costs of crossing PCIe (not measured on this card).}
+\label{tab:pciecost}
+\begin{tabular}{ll}
+\toprule
+operation & typical cost \\
+\midrule
+first poll after a DMA write that went to DRAM & $\sim$100~ns \\
+PCIe read from the CPU, round trip & 0.5--1~$\mu$s \\
+synchronous CPU $\to$ card $\to$ CPU round trip & 1--2~$\mu$s \\
+interrupt and thread wake-up & several $\mu$s, plus jitter \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Staying out of the kernel.} A device normally belongs to a kernel
+driver, and a program reaches it through system calls, each of which costs far
+more than a memory access. VFIO (Virtual Function I/O), the Linux framework for
+handing a device to an ordinary program, removes them from the data path. The
+card is bound to the \texttt{vfio-pci} driver, and once, at start-up, the program
+makes two mappings: the card's register windows into the program, so a store
+through a pointer is a PCIe write to the card; and the program's ring memory to
+the card, so the card's DMA engine can write into it. After that, sending is a
+store into the card's window and receiving is a load from the program's own
+memory, with no system call per message.
+
+The rings are placed in huge pages (2~MB or 1~GB), so a ring needs one address
+translation entry rather than one per 4~KB page; the pages are locked in memory,
+since the card writes to fixed physical addresses; and the IOMMU, which
+translates the card's addresses into real memory addresses, admits the card
+only to the memory registered with it (Figure~\ref{fig:ringmem}). A thread that
+reads from the card spins on its ring, with a \texttt{pause} instruction on each
+empty pass, so it sees each message as soon as it lands.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{fig_ring_memory.png}
+\caption{The program reaches the ring through the CPU's page table, and the card's DMA engine through the IOMMU. With a huge page each needs one entry for the whole ring; the page is locked, and the IOMMU blocks the card from all other memory.}
+\label{fig:ringmem}
+\end{figure}
+
+
 \subsection{The link}
 \label{sec:hlink}
 
@@ -642,7 +903,74 @@ card. \texttt{CpuDriver} sends a start message to \texttt{PingActor} on the
 card, which then plays 1{,}000 round trips against \texttt{CpuPong} on the CPU
 and reports back to \texttt{CpuDriver}. \texttt{PingActor} and
 \texttt{PongActor} are the same source as in the card-only example; only the
-design header that plugs their ports in differs.
+design header that plugs their ports in differs:
+
+\begin{lstlisting}
+using PingProc = kfpga::Process<PingActor>;
+using PongProc = kfpga::Process<PongActor>;
+
+inline void wire()
+{
+  PingActor &ping = PingProc::member<PingActor>();
+  ping.starter = kfpga::ActorRef(0, kCpuDriver);   // port 0: link B, to the CPU
+  ping.pong = kfpga::ActorRef(1, kCpuPong);        // port 1: link C, to the CPU
+}
+\end{lstlisting}
+
+\noindent The CPU actors are ordinary kaspar-hft actors. On the CPU a message is
+the class \texttt{kfpga::CpuMsg<P>} built from the same struct; for example,
+\texttt{cpu::Ping} is \texttt{kfpga::CpuMsg<pingpong::Ping>}. \texttt{CpuPing} plays
+against the FPGA \texttt{PongActor}, and \texttt{CpuPong} answers the FPGA
+\texttt{PingActor}; both use the lane mailbox (Section~\ref{sec:lanes}):
+
+\begin{lstlisting}
+class CpuPing : public actors::Actor
+{
+  actors::ActorRef pong_;   // the FPGA PongActor
+  uint32_t rounds_;
+  uint32_t replies_ = 0;
+
+public:
+  explicit CpuPing(uint32_t rounds) : rounds_(rounds)
+  {
+    set_mailbox(MailboxKind::FpgaLanes);
+    MESSAGE_HANDLER(actors::msg::Start, on_start);
+    MESSAGE_HANDLER(cpu::Pong, on_pong);
+  }
+  void set_pong(actors::ActorRef pong) { pong_ = pong; }
+
+private:
+  void on_start(const actors::msg::Start *) { pong_.send(new cpu::Ping(1), this); }
+  void on_pong(const cpu::Pong *m)
+  {
+    if (++replies_ < rounds_)
+      pong_.send(new cpu::Ping(replies_ + 1), this);
+  }
+};
+
+class CpuPong : public actors::Actor
+{
+public:
+  uint32_t pings = 0;
+  CpuPong()
+  {
+    set_mailbox(MailboxKind::FpgaLanes);
+    MESSAGE_HANDLER(cpu::Ping, on_ping);
+  }
+
+private:
+  void on_ping(const cpu::Ping *m)
+  {
+    ++pings;
+    reply(new cpu::Pong(m->count));   // back out through the window, on this thread
+  }
+};
+\end{lstlisting}
+
+\noindent (\texttt{CpuPing} is shown without the reporting code of the example
+program.) The CPU actors' code is that of any kaspar-hft actor: they \snd{} to
+an \texttt{ActorRef} and \texttt{reply}, and do not know that their peer is on
+the card.
 
 \subsection{Naming the other side}
 \label{sec:naming}
@@ -716,9 +1044,22 @@ the CPU thread writes a slot with ordinary stores --- on hardware, one
 write-combined 64-byte burst and a fence --- which reach the card as posted
 writes. The card reads the window in its own memory.
 
-\paragraph{Sequence number last.} The writer copies the envelope's 60 bytes of
-header and payload, then stores its 4-byte sequence number with release
-ordering; the reader loads the sequence number with acquire ordering and takes
+Each CPU actor that talks to the card has its own window and its own lane
+(Figure~\ref{fig:lanes}), so every ring has exactly one writer and needs no
+lock.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.92\textwidth]{fig4_lanes.png}
+\caption{Each CPU actor stores into its own window on the card, and the card writes into each CPU actor's own lane in host memory.}
+\label{fig:lanes}
+\end{figure}
+
+\paragraph{Sequence number last.} A slot is one 64-byte cache line: the 60-byte
+envelope followed by a 32-bit sequence number (Figure~\ref{fig:slot}), so one
+message is one write going to the card and one cache line coming back. The
+writer copies the envelope's 60 bytes of header and payload, then stores its
+4-byte sequence number with release ordering; the reader loads the sequence number with acquire ordering and takes
 the slot once it sees the number it expects. The 64-byte copy need not be
 atomic: only the aligned 4-byte sequence number is waited on, and the writer
 guarantees it lands last. On the card side this relies on PCIe delivering posted
@@ -726,6 +1067,13 @@ writes in order, which holds with relaxed ordering disabled for the DMA
 engine's writes, and on the engine writing the sequence number after the rest
 of the slot. There are no locks and no atomic read-modify-write operations on
 the path.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{fig2_slot.png}
+\caption{One slot is one 64-byte cache line: a 60-byte envelope, in the same format the FPGA runtime uses in its FIFOs, followed by a 32-bit sequence number written last.}
+\label{fig:slot}
+\end{figure}
 
 \paragraph{Batched positions.} A writer must know when a ring is full, which
 requires the reader's position. The reader publishes its position every quarter
@@ -782,24 +1130,39 @@ In the companion paper's study, the path that handed each datagram to a second
 thread through a mailbox had a socket-to-book median of about $7~\mu$s against
 about $1~\mu$s on one thread, and part of its tail was mailbox backlog; the runs
 also differed in load and configuration, so not all of the difference is the
-hop \cite{fastsend}. There is no such thread here. Every crossing is written by
-the thread that has the message and read by the thread that will handle it.
+hop \cite{fastsend}. There is no such thread here (Figure~\ref{fig:bridge}
+shows the design that was rejected). Every crossing is written by the thread
+that has the message and read by the thread that will handle it.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{fig3_first_bridge.png}
+\caption{The rejected design: CPU actors write straight to the card, but everything from the card goes through one reader thread that polls, decodes and routes, so every message from the card changes threads.}
+\label{fig:bridge}
+\end{figure}
 
 On the CPU side this required a new mailbox kind in the actor framework,
 \texttt{FpgaLanes}. It is the framework's lock-free multi-producer queue, which
 CPU actors push into as before, plus a list of lanes. Its owner's loop checks
 each lane and then the CPU queue, one message from each per pass, so a CPU
 actor receives from CPU peers and from the card through one mailbox, in one
-loop, on one thread. The loop never sleeps: a thread can sleep on a condition
+loop, on one thread (Figure~\ref{fig:fpgalanes}). The loop never sleeps: a thread can sleep on a condition
 variable, which CPU senders signal, or on an interrupt, which the card raises,
-but not on both, so it spins and checks both. That costs a core per receiving
-thread; actors that receive from the card are put in one group to share one.
+but not on both, so it spins and checks both. Actors that receive from the card
+are put in one group, so they share one spinning thread.
 
 A lane belongs to the thread that polls the mailbox. A member of a group runs
 on the group's thread, so its lanes are moved to the group's mailbox, whether
 the actor joins the group before or after its lanes are added. An actor that is
 given a lane without a lane mailbox stops the program with a message in every
 build, since otherwise no thread would ever read the card's messages.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.92\textwidth]{fig5_fpgalanes.png}
+\caption{The FpgaLanes mailbox. CPU actors push into its CPU queue, the card writes into its lanes, and only the owning thread reads both, spinning. Actors that do not receive from the card keep an ordinary mailbox and can still send to it.}
+\label{fig:fpgalanes}
+\end{figure}
 
 \subsection{Receiver transparency across the link}
 \label{sec:transparency}
@@ -838,7 +1201,18 @@ arrives whole, once, and in each thread's order.
 \fs{} is not offered across the link. It would be a \snd{} followed by a
 blocking wait for the reply, a round trip across PCIe with the caller's thread
 stalled, which is the cost \fs{} exists to avoid. Across the link a request and
-its reply are two messages, as between processes on the card.
+its reply are two messages, as between processes on the card. An order from a
+CPU strategy to the order manager on the card is one store into the strategy's
+window, after which the strategy goes on handling other messages; the
+acknowledgement comes back later, written into the strategy's lane, and is
+handled when its next poll finds it (Figure~\ref{fig:reqreply}).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{fig6_request_reply.png}
+\caption{An order and its acknowledgement across the link are two messages. The strategy's send returns at once; the acknowledgement arrives in its lane and is handled on a later poll.}
+\label{fig:reqreply}
+\end{figure}
 
 \subsection{Where to put the boundary}
 \label{sec:boundary}
@@ -1287,9 +1661,14 @@ CPU.
 
 \subsection{The order path today}
 
-In kaspar-hft today, an order leaves the strategy as a message to SOM, the
-order manager that applies the risk checks, which passes it through an arbiter
-to the iLink handler. The handler keeps the iLink~3 session --- Negotiate,
+In kaspar-hft today, an order leaves the strategy as a message to SOM. SOM, the
+Simulated Order Manager, is kaspar-hft's order manager: every order from every
+strategy passes through it. It assigns the order its id, applies the risk checks
+(position and order-size limits per instrument), and keeps the working orders,
+the fills and the positions. In simulation and paper trading it fills orders
+against the reconstructed order book itself, hence its name; in live trading it
+passes each order to the order-entry session for its venue, here through an
+arbiter to the iLink handler. The handler keeps the iLink~3 session --- Negotiate,
 Establish, keepalives, sequence numbers, the order identifiers --- and encodes
 each order in SBE from CME's iLink schema \cite{cmeilink3}: a new order is a
 144-byte \texttt{NewOrderSingle514}, a cancel a 108-byte
@@ -1500,31 +1879,12 @@ Section~\ref{sec:verify}.
 \label{sec:disc}
 % ---------------------------------------------------------------
 
-\paragraph{Nothing has run on the card.} Every result here comes from C++
-models, HLS C simulation, synthesis, RTL co-simulation, or place and route.
-The MAC, the clock-domain crossings and the DMA engine remain to be built, and
-the card's latency remains to be measured.
-
 \paragraph{The model is narrower on the card.} One actor of each type per
 design; at most four sends per handler; message payloads of 48 bytes of
 integers; no \fs{} between processes or across PCIe; queues sized at build
 time, and a group's own queue that drops when full rather than stalling. Each is
 a consequence of fixed hardware and is checked, in software builds at least,
 rather than silently tolerated.
-
-\paragraph{HLS is part of the trusted base.} The framework's correctness on the
-card depends on HLS compiling it as written, and in one case it did not
-(Section~\ref{sec:verify}). The workaround is a rule we can state but not
-explain. Co-simulation is the safeguard, and every design must pass it.
-
-\paragraph{Polling costs a core.} A CPU thread that receives from the card
-spins. The cost is the same as a kernel-bypass receive thread's, and grouping
-the receiving actors bounds it at one core per group.
-
-\paragraph{The gain is the tail, and the bus remains.} Most of the remaining
-latency is the PCIe transfer, which does not depend on the packet. The handler
-removes the decode tail; it does not remove the bus. Removing the bus from the
-path requires the trading decision itself on the card.
 
 % ---------------------------------------------------------------
 \section{Future work}
