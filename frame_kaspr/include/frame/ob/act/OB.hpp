@@ -125,9 +125,11 @@ namespace frame
         //
         // N consecutive prices fall in N different slots, so nothing collides
         // while every order is inside its window. A new top flushes the levels
-        // that fall off the far end (ring_raise_bid_top / ring_lower_ask_bot);
-        // an ADD below the window is dropped. bid_top/ask_bot may be stale --
-        // above/below the true top after its level emptied -- and are settled
+        // that fall off the far end (ring_place); an ADD below the window is
+        // not placed. Either way a real order stays in ordermap, so a CHANGE
+        // that later moves it inside the window places it. bid_top/ask_bot may
+        // be stale -- above/below the true top after its level emptied -- and
+        // are settled
         // only when an ADD would otherwise fall outside the window. best_bid and
         // best_ask are computed exactly as without the ring, from real orders.
         //
@@ -139,11 +141,6 @@ namespace frame
         int bid_top = 0;                      // ring: 0 = no bid orders
         int ask_bot = std::numeric_limits<int>::max(); // ring: max = no ask orders
         OrderQ *empty_q = nullptr;
-        // Exchange ids of real orders flushed off the ring, erased from ordermap
-        // at the top of the next data_handler call. Not at flush time: a flush
-        // can run inside process_q while data_handler holds a pointer into the
-        // flat_map.
-        std::vector<uint64_t> ring_evicted;
         uint64_t num_ring_dropped = 0;        // ADDs below the window
         uint64_t num_ring_flushed = 0;        // orders flushed off the far end
 

@@ -116,6 +116,7 @@ protected:
     return oid;
   }
   uint64_t add(en::bs side, int px, uint32_t qty = 5) { return mbo(0, side, px, qty); }
+  void change(en::bs side, int px, uint64_t oid, uint32_t qty = 5) { mbo(1, side, px, qty, oid); }
   void del(en::bs side, int px, uint64_t oid, uint32_t qty = 5) { mbo(2, side, px, qty, oid); }
 
   // One of our orders, shaped as SOM sends it, then a market record far
@@ -220,6 +221,34 @@ TEST_F(OBRingTest, AnAddBelowTheWindowIsDropped) {
 
   del(en::bs::BUY, 84, oid);                 // never placed: a no-op
   EXPECT_EQ(bbo(), std::make_pair(100, 120));
+}
+
+// ESZ6 2026-10-12, order 6417740845517: added 400 ticks above the ask at
+// 09:29:58, repriced to the best ask before the open. A ring that forgot the
+// ADD lost the order for good.
+TEST_F(OBRingTest, AnOrderAddedBelowTheWindowIsPlacedWhenMovedIntoIt) {
+  add(en::bs::SEL, 120);
+  add(en::bs::BUY, 100);                     // window [85, 100]
+  const auto oid = add(en::bs::BUY, 70);     // not placed
+  ASSERT_EQ(level(en::bs::BUY, 70).sz, 0);
+
+  change(en::bs::BUY, 99, oid);
+
+  EXPECT_EQ(level(en::bs::BUY, 99).sz, 5);
+  EXPECT_EQ(level(en::bs::BUY, 99).cnt, 1);
+}
+
+TEST_F(OBRingTest, AFlushedOrderIsPlacedWhenMovedBackIntoTheWindow) {
+  add(en::bs::SEL, 120);
+  add(en::bs::BUY, 100);
+  const auto deep = add(en::bs::BUY, 86);
+  add(en::bs::BUY, 103);                     // 86 flushed
+  ASSERT_EQ(level(en::bs::BUY, 86).sz, 0);
+
+  change(en::bs::BUY, 101, deep);
+
+  EXPECT_EQ(level(en::bs::BUY, 101).sz, 5);
+  EXPECT_EQ(bbo(), std::make_pair(103, 120));
 }
 
 TEST_F(OBRingTest, AJumpOfNTicksOrMoreFlushesTheWholeSide) {

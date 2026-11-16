@@ -287,7 +287,6 @@ void act::OB::clear()
   best_ask = ref::RefData::inst().get_asset(sym)->maxpx - 1;
   bid_top = 0;
   ask_bot = std::numeric_limits<int>::max();
-  ring_evicted.clear();
   for (std::size_t i = 0; i < bidqs.size(); i++)
   {
     auto q = bidqs[i];
@@ -350,9 +349,11 @@ bool act::OB::ring_accepts(en::bs side, int px) noexcept
   return ask_bot == imax || px < ask_bot + ring_n;
 }
 
-// Ring only. Flush one level: real orders leave the book silently (their ids
-// are erased from ordermap at the next data_handler), ours are cancelled back
-// to SOM.
+// Ring only. Flush one level: real orders leave the book silently, ours are
+// cancelled back to SOM. Real orders stay in ordermap: a later CHANGE that
+// moves one back inside the window places it again (a CHANGE is a CANCD at
+// the old price, which finds nothing, then an ADD at the new one), and a
+// DELETE or EXEC for it takes the order-not-found path.
 void act::OB::ring_flush_slot(qvec_t &v, int px) noexcept
 {
   auto q = v[uint32_t(px) & ring_mask];
@@ -361,8 +362,6 @@ void act::OB::ring_flush_slot(qvec_t &v, int px) noexcept
   for (const frame::ob::OrderQNode *n = q->get_head(); n; n = n->next)
   {
     auto *o = static_cast<const frame::ob::Order *>(n);
-    if (!o->issim())
-      ring_evicted.push_back(o->get_exordid());
     ++num_ring_flushed;
   }
   q->canc_notify_all(&ret_path_);
@@ -1676,15 +1675,6 @@ static bool in_cme_daily_break(uint64_t epoch_ns)
 
 void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
 {
-  // Real orders flushed off the ring since the last record. Erased here, not
-  // at flush time: see ring_evicted in OB.hpp.
-  if (CHUNLIKELY(!ring_evicted.empty()))
-  {
-    for (auto x : ring_evicted)
-      ordermap.erase(x);
-    ring_evicted.clear();
-  }
-
   // See OB.hpp, `matching`: a recording that starts in the daily break is in
   // pre-open already, so do not enforce the no-cross invariant until CME
   // changes the status. A first record that IS a status message sets
@@ -1795,16 +1785,6 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
       //std::cerr << "OB " << get_name() << ": mbo.securityID=" << mbo.securityID << ", ex_sym_id=" << ex_sym_id << ", sym=" << sym << std::endl;
       log_trc("mbo.securityID: %d, expecting ex_sym_id: %d, or sym: %d",
               mbo.securityID, ex_sym_id, sym);
-      return;
-    }
-    // Ring: an ADD below the ladder's window is too deep to hold. Drop it
-    // here, before ordermap learns of it, so its later records find nothing.
-    if (ring_n && mbo.orderUpdateAction == 0 && !badpx_force_delete &&
-        (mbo.side == '0' || mbo.side == '1') &&
-        !ring_accepts(mbo.side == '0' ? en::bs::BUY : en::bs::SEL,
-                      ref::Price((long double)mbo.pxd, sym).to_int()))
-    {
-      ++num_ring_dropped;
       return;
     }
     // Assign directly, do not call from_epoch
