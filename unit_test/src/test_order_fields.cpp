@@ -246,5 +246,8 @@ TEST(OrderFields, BrokerVenueCodes)
   EXPECT_EQ(en::x_index_of("LIME"), en::x(en::x::LIME));
   EXPECT_EQ(int(en::x::LIME), int(en::x::TT) + 1);
   EXPECT_EQ(int(en::x::CLEARSTREET), int(en::x::TT) + 2);
-  EXPECT_EQ(en::x_num_syms(), size_t(en::x::CLEARSTREET) + 1);
+  EXPECT_EQ(int(en::x::BINANCE), int(en::x::CLEARSTREET) + 1);
+  EXPECT_EQ(int(en::x::BINANCEF), int(en::x::CLEARSTREET) + 2);
+  EXPECT_STREQ(en::to_string(en::x(en::x::BINANCEF)), "BINANCEF");
+  EXPECT_EQ(en::x_num_syms(), size_t(en::x::BINANCEF) + 1);
 }

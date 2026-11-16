@@ -125,7 +125,21 @@ act::OB::OB(
   incr = a->bo_spread;
   ASSERT(maxprice - 1 > 0, "max price too low");
   best_ask = uint(maxprice - 1);
-  for (int j = 0; j <= maxprice + 1; ++j)
+  // ladder_ticks turns the ladder into a ring of that many slots per side;
+  // see ring_mask in OB.hpp. Without it every price gets its own slot.
+  const int ladder_ticks = pt.get<int>("ladder_ticks", 0);
+  int nslots = maxprice + 2;
+  if (ladder_ticks > 0)
+  {
+    ASSERTF((ladder_ticks & (ladder_ticks - 1)) == 0,
+            boost::format("%s: ladder_ticks %d is not a power of two") % name % ladder_ticks);
+    ring_n = ladder_ticks;
+    ring_mask = uint32_t(ladder_ticks - 1);
+    nslots = ladder_ticks;
+    empty_q = new OrderQ();
+    std::cerr << name << ": price ladder is a ring of " << ladder_ticks << " slots per side" << std::endl;
+  }
+  for (int j = 0; j < nslots; ++j)
   {
     bidqs.push_back(new OrderQ());
     askqs.push_back(new OrderQ());
@@ -157,7 +171,7 @@ act::OB::OB(
   tx_sz_200.set_capacity(200);
   tx_sz_500.set_capacity(500);
 
-  if (pt.size())
+  if (pt.size() > (pt.count("ladder_ticks") ? 1u : 0u))
   {
     SNGH;
     // has_pred=true;
@@ -209,11 +223,12 @@ void act::OB::get_handler(const frame::cons::msg::Get *msg) noexcept
       const long px = std::strtol(pxit->second.c_str(), &end, 10);
       const bool parsed = end && *end == '\0' && end != pxit->second.c_str();
       const auto &qv = (sideit->second == "B") ? bidqs : askqs;
-      if (parsed && px > 0 && px < long(qv.size()) && qv[px])
+      if (parsed && px > 0 && px < long(maxprice + 2) && sq(qv, int(px)))
       {
-        sz    = qv[px]->get_orders_in_book();
-        cnt   = qv[px]->get_size_of_book_cnt();
-        simsz = qv[px]->get_sim_in_book();
+        const OrderQ *q = sq(qv, int(px));
+        sz    = q->get_orders_in_book();
+        cnt   = q->get_size_of_book_cnt();
+        simsz = q->get_sim_in_book();
       }
     }
     reply(new frame::cons::msg::Page(
@@ -270,6 +285,9 @@ void act::OB::clear()
   }
   best_bid = 0;
   best_ask = ref::RefData::inst().get_asset(sym)->maxpx - 1;
+  bid_top = 0;
+  ask_bot = std::numeric_limits<int>::max();
+  ring_evicted.clear();
   for (std::size_t i = 0; i < bidqs.size(); i++)
   {
     auto q = bidqs[i];
@@ -299,6 +317,104 @@ act::OB::~OB()
   delete p;
   FOR(auto p, askqs)
   delete p;
+  delete empty_q;
+}
+
+// Ring only. Whether `px` can go on `side`'s ladder: inside the window, or past
+// the top (the window then moves up to it). A stale top -- its level emptied
+// since -- is walked back first, so a side that has backed off can take the
+// deeper prices whose slots it freed.
+bool act::OB::ring_accepts(en::bs side, int px) noexcept
+{
+  const int imax = std::numeric_limits<int>::max();
+  if (side == en::bs::BUY)
+  {
+    int steps = 0;
+    while (bid_top != 0 && px <= bid_top - ring_n &&
+           bidqs[uint32_t(bid_top) & ring_mask]->isempty())
+    {
+      --bid_top;
+      if (++steps == ring_n || bid_top <= 0)
+        bid_top = 0;   // every slot empty: no bids at all
+    }
+    return bid_top == 0 || px > bid_top - ring_n;
+  }
+  int steps = 0;
+  while (ask_bot != imax && px >= ask_bot + ring_n &&
+         askqs[uint32_t(ask_bot) & ring_mask]->isempty())
+  {
+    ++ask_bot;
+    if (++steps == ring_n)
+      ask_bot = imax;  // no asks at all
+  }
+  return ask_bot == imax || px < ask_bot + ring_n;
+}
+
+// Ring only. Flush one level: real orders leave the book silently (their ids
+// are erased from ordermap at the next data_handler), ours are cancelled back
+// to SOM.
+void act::OB::ring_flush_slot(qvec_t &v, int px) noexcept
+{
+  auto q = v[uint32_t(px) & ring_mask];
+  if (q->isempty())
+    return;
+  for (const frame::ob::OrderQNode *n = q->get_head(); n; n = n->next)
+  {
+    auto *o = static_cast<const frame::ob::Order *>(n);
+    if (!o->issim())
+      ring_evicted.push_back(o->get_exordid());
+    ++num_ring_flushed;
+  }
+  q->canc_notify_all(&ret_path_);
+}
+
+// Ring only. `px` is about to be placed on `side`, and ring_accepts() said it
+// fits. If it is a new top, move the window to it, flushing the prices that
+// fall off the far end.
+void act::OB::ring_place(en::bs side, int px) noexcept
+{
+  const int imax = std::numeric_limits<int>::max();
+  if (side == en::bs::BUY)
+  {
+    if (bid_top == 0)
+    {
+      bid_top = px;
+      return;
+    }
+    if (px <= bid_top)
+      return;
+    // window [bid_top-N+1, bid_top] -> [px-N+1, px]: prices
+    // [bid_top-N+1, px-N] leave, at most N of them.
+    const int lo = bid_top - ring_n + 1;
+    const int n = std::min(px - bid_top, ring_n);
+    for (int i = 0; i < n; ++i)
+      ring_flush_slot(bidqs, lo + i);
+    if (px - bid_top >= ring_n)
+      log_err("%s ring: bid top jumped %d -> %d, %d+ ticks: every bid level flushed",
+              get_name(), bid_top, px, ring_n);
+    bid_top = px;
+    // Only on a jump of N or more can the real best bid itself be flushed.
+    if (best_bid > 0 && best_bid <= px - ring_n)
+      best_bid = 0;
+    return;
+  }
+  if (ask_bot == imax)
+  {
+    ask_bot = px;
+    return;
+  }
+  if (px >= ask_bot)
+    return;
+  const int hi = ask_bot + ring_n - 1;
+  const int n = std::min(ask_bot - px, ring_n);
+  for (int i = 0; i < n; ++i)
+    ring_flush_slot(askqs, hi - i);
+  if (ask_bot - px >= ring_n)
+    log_err("%s ring: ask bottom jumped %d -> %d, %d+ ticks: every ask level flushed",
+            get_name(), ask_bot, px, ring_n);
+  ask_bot = px;
+  if (best_ask < maxprice - 1 && best_ask >= px + ring_n)
+    best_ask = maxprice - 1;
 }
 
 void act::OB::add(
@@ -452,7 +568,7 @@ void act::OB::add(
           // generate a fill
           // *** ASSUMPTION ***
           // NOT ALLOWING TRADE THROUGH THE STACK ONLY ON THE FIRST LEVEL
-          [[maybe_unused]] auto q_i = askqs[best_ask];
+          [[maybe_unused]] auto q_i = aq(best_ask);
           [[maybe_unused]] auto short_id = frame::mda::OrderID::id(id);
 #ifdef ALLOWREJONARR
           auto rc = record_aggr_fills(q_i, sz);
@@ -484,7 +600,7 @@ void act::OB::add(
           // generate a fill
           // *** ASSUMPTION ***
           // NOT ALLOWING TRADE THROUGH THE STACK ONLY ON THE FIRST LEVEL
-          [[maybe_unused]] auto q_i = bidqs[best_bid];
+          [[maybe_unused]] auto q_i = bq(best_bid);
           [[maybe_unused]] auto short_id = frame::mda::OrderID::id(id);
 #ifdef ALLOWREJONARR
           auto rc = record_aggr_fills(q_i, sz);
@@ -572,6 +688,10 @@ void act::OB::add(
     if ((side == en::bs::BUY) * ((px > best_bid) + (repair * (px >= best_ask))))
     {
       int tmp_px = repair ? std::min(best_bid, best_ask) : best_bid;
+      // Ring: no ask, real or sim, rests below ask_bot, so start there.
+      if (ring_n)
+        tmp_px = ask_bot == std::numeric_limits<int>::max() ? px + 1
+                                                            : std::max(tmp_px, ask_bot);
       while (tmp_px <= px)
       {
         // Bounds-check BEFORE the read, as the SEL branch below does. The only
@@ -580,12 +700,12 @@ void act::OB::add(
         // RefData on every add while askqs was sized from the ctor snapshot, so
         // it is not the container's bound anyway. .at() throwing inside a
         // lambda declared noexcept is std::terminate, with no diagnostic.
-        if (uint(tmp_px) >= askqs.size())
+        if (!ring_n && uint(tmp_px) >= askqs.size())
         {
           std::cerr << name << " tmp_px: " << tmp_px << " askqs.size(): " << askqs.size() << std::endl;
           ERR("tmp_px out of range, check universe file and increase maxpx");
         }
-        auto q_i = askqs.at(tmp_px);
+        auto q_i = aq(tmp_px);
         ASSERT(q_i, "no q");
         auto stray_o = q_i->get_head();
         while (stray_o)
@@ -666,14 +786,17 @@ void act::OB::add(
     else if ((side == en::bs::SEL) * ((px < best_ask) + (repair * (px <= best_bid))))
     {
       int tmp_px = repair ? std::max(best_ask, best_bid) : best_ask;
+      // Ring: no bid, real or sim, rests above bid_top, so start there.
+      if (ring_n)
+        tmp_px = std::min(tmp_px, bid_top);
       while (tmp_px >= px)
       {
-        if (uint(tmp_px) >= bidqs.size())
+        if (!ring_n && uint(tmp_px) >= bidqs.size())
         {
           std::cerr << name << " tmp_px: " << tmp_px << " bidqs.size(): " << bidqs.size() << std::endl;
           ERR("tmp_px out of range, check universe file and increase maxpx");
         }
-        auto q_i = bidqs.at(tmp_px);
+        auto q_i = bq(tmp_px);
         ASSERT(q_i, "no q_i");
         auto stray_o = q_i->get_head();
         while (stray_o)
@@ -811,17 +934,17 @@ void act::OB::add(
       // condition cannot quietly change simulation behaviour.
       if (!do_cross_check && (uncrossed_here || best_bid >= best_ask))
       {
-        const int hi = int(askqs.size()) - 1;
+        const int hi = ring_n ? ask_ceil() : int(askqs.size()) - 1;
         // Bound BEFORE the first read: best_ask is re-seeded by clear() from
         // the RUNTIME maxpx, which BFA can raise past the size askqs was built
         // with, and a read there is a virtual call through garbage.
-        if (best_ask < 0 || best_ask > hi)
+        if (!ring_n && (best_ask < 0 || best_ask > hi))
           ERR("best_ask out of range for askqs, increase maxpx in the universe file");
-        auto q = askqs[best_ask];
+        auto q = aq(best_ask);
         while (q->isempty_or_allsim() && best_ask < hi)
         {
           best_ask++;
-          q = askqs[best_ask];
+          q = aq(best_ask);
           bochg = true;
         }
         // Walked the whole ladder without finding a real order: there is no ask
@@ -849,13 +972,14 @@ void act::OB::add(
       {
         // `> 1`, as mod() has it: stopping at 0 lets a bid price of 0 be
         // published as the inside.
-        if (best_bid < 0 || uint(best_bid) >= bidqs.size())
+        if (!ring_n && (best_bid < 0 || uint(best_bid) >= bidqs.size()))
           ERR("best_bid out of range for bidqs, increase maxpx in the universe file");
-        auto q = bidqs[best_bid];
-        while (q->isempty_or_allsim() && best_bid > 1)
+        const int lo = bid_floor();
+        auto q = bq(best_bid);
+        while (q->isempty_or_allsim() && best_bid > lo)
         {
           best_bid--;
-          q = bidqs[best_bid];
+          q = bq(best_bid);
           bbchg = true;
         }
         // Same as the ask side: stopping at 1 with nothing there is "no bid",
@@ -895,6 +1019,27 @@ void act::OB::add(
     }
   }
 
+  // Ring: an order below the window is not placed; one past the top moves the
+  // window up to it first. A sim order gets here only if it did not cross, so
+  // a sim bid above best_bid is below best_ask and is simply a new top.
+  if (CHUNLIKELY(ring_n))
+  {
+    if (!ring_accepts(side, px))
+    {
+      ++num_ring_dropped;
+      if (sim)
+      {
+        log_err("%s ring: sim %s at %d is outside the ladder window, cancelled",
+                get_name(), en::to_string(side), px);
+        auto o = new Order(txtim, id, exordid, sym, side, sz, sender, owner);
+        OrderQ::canc_notify_s(o, &ret_path_);
+        delete o;
+      }
+      return;
+    }
+    ring_place(side, px);
+  }
+
   // adjust bbbo unless it is a sim order
   if (!sim)
   {
@@ -907,8 +1052,8 @@ void act::OB::add(
   //
   // the following is good for sim and real orders
   //
-  auto q = (*qv)[px];
-  ASSERTF(q, boost::format("no q at px %d") % px);
+  auto q = sq(*qv, px);
+  ASSERTF(q && q != empty_q, boost::format("no q at px %d") % px);
   auto o = new Order(txtim, id, exordid, sym, side, sz, sender, owner);
   q->append(o);
 
@@ -1006,7 +1151,7 @@ void act::OB::mod(
   else
     SNGH;
 
-  auto q = (*qv)[px];
+  auto q = sq(*qv, px);
 
   Order *orderptr = 0;
   bool found_order = false;
@@ -1185,7 +1330,7 @@ void act::OB::mod(
       auto tmp_px = px + 1;
       while (tmp_px <= best_ask + 32)
       {
-        auto q_i = bidqs[tmp_px];
+        auto q_i = bq(tmp_px);
         auto stray_o = q_i->get_head();
         while (stray_o)
         {
@@ -1215,7 +1360,7 @@ void act::OB::mod(
       auto tmp_px = px - 1;
       while (tmp_px >= best_bid - 32)
       {
-        auto q_i = askqs[tmp_px];
+        auto q_i = aq(tmp_px);
         auto stray_o = q_i->get_head();
         while (stray_o)
         {
@@ -1272,26 +1417,34 @@ void act::OB::mod(
   // adjust bid and ask
   if ((side == en::bs::BUY) * (px <= best_bid))
   {
-    const OrderQ *q = (*qv)[best_bid];
-    while (q->isempty_or_allsim() * (best_bid > 1))
+    const int lo = bid_floor();
+    const OrderQ *q = bq(best_bid);
+    while (q->isempty_or_allsim() * (best_bid > lo))
     {
       ASSERT(best_bid > 0, "0");
       best_bid -= 1;
-      q = (*qv)[best_bid];
+      q = bq(best_bid);
       bbchg = true;
     }
+    // Ring: the walk stops at the bottom of the window, which is a real price,
+    // not the "no bid" 1 the full ladder stops at. Say there is no bid.
+    if (ring_n && q->isempty_or_allsim())
+      best_bid = 0;
   }
   else if ((side == en::bs::SEL) * (px >= best_ask))
   {
-    const OrderQ *q = (*qv)[best_ask];
+    const OrderQ *q = aq(best_ask);
     auto maxprice = ref::RefData::inst().get_asset(sym)->maxpx;
     ASSERT(maxprice - 1 > 0, "maxprice");
-    while (q->isempty_or_allsim() * (best_ask < maxprice - 1))
+    const int hi = ring_n ? ask_ceil() : maxprice - 1;
+    while (q->isempty_or_allsim() * (best_ask < hi))
     {
       best_ask += 1;
-      q = (*qv)[best_ask];
+      q = aq(best_ask);
       bochg = true;
     }
+    if (ring_n && q->isempty_or_allsim())
+      best_ask = maxprice - 1;
   }
 
   if ((bbchg + bochg) * (best_bid > 0) * (best_ask > 0))
@@ -1486,6 +1639,18 @@ static uint64_t record_tx_time(const bfile::l3_t &l3)
 // CME's daily break, 17:00-18:00 America/New_York (DST from the tz database).
 static bool in_cme_daily_break(uint64_t epoch_ns)
 {
+#ifdef __APPLE__
+  // Apple's libc++ has no time zone database (no locate_zone / zoned_time), so
+  // take the no-zone path below: matching stays on.
+  (void)epoch_ns;
+  static const bool said = [] {
+    std::cerr << "OB: no time zone database on this platform; "
+                 "the 17:00-18:00 ET pre-open rule is off" << std::endl;
+    return true;
+  }();
+  (void)said;
+  return false;
+#else
   namespace ch = std::chrono;
   // locate_zone throws when the host has no tz database, and data_handler is
   // noexcept, so an escaping exception would terminate the process -- live
@@ -1504,10 +1669,20 @@ static bool in_cme_daily_break(uint64_t epoch_ns)
   const ch::zoned_time zt{et, ch::sys_time<ch::nanoseconds>{ch::nanoseconds{epoch_ns}}};
   const auto lt = zt.get_local_time();
   return ch::hh_mm_ss{lt - ch::floor<ch::days>(lt)}.hours().count() == 17;
+#endif
 }
 
 void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
 {
+  // Real orders flushed off the ring since the last record. Erased here, not
+  // at flush time: see ring_evicted in OB.hpp.
+  if (CHUNLIKELY(!ring_evicted.empty()))
+  {
+    for (auto x : ring_evicted)
+      ordermap.erase(x);
+    ring_evicted.clear();
+  }
+
   // See OB.hpp, `matching`: a recording that starts in the daily break is in
   // pre-open already, so do not enforce the no-cross invariant until CME
   // changes the status. A first record that IS a status message sets
@@ -1618,6 +1793,16 @@ void act::OB::data_handler(const frame::mda::msg::Data *m) noexcept
       //std::cerr << "OB " << get_name() << ": mbo.securityID=" << mbo.securityID << ", ex_sym_id=" << ex_sym_id << ", sym=" << sym << std::endl;
       log_trc("mbo.securityID: %d, expecting ex_sym_id: %d, or sym: %d",
               mbo.securityID, ex_sym_id, sym);
+      return;
+    }
+    // Ring: an ADD below the ladder's window is too deep to hold. Drop it
+    // here, before ordermap learns of it, so its later records find nothing.
+    if (ring_n && mbo.orderUpdateAction == 0 && !badpx_force_delete &&
+        (mbo.side == '0' || mbo.side == '1') &&
+        !ring_accepts(mbo.side == '0' ? en::bs::BUY : en::bs::SEL,
+                      ref::Price((long double)mbo.pxd, sym).to_int()))
+    {
+      ++num_ring_dropped;
       return;
     }
     // Assign directly, do not call from_epoch
@@ -2678,7 +2863,7 @@ void act::OB::process_market_data(
       {
         for (int side = 0; side < 2; side++)
         {
-          const OrderQ *q = side ? bidqs[px] : askqs[px];
+          const OrderQ *q = side ? bq(px) : aq(px);
           if (!q || q->isempty()) continue;
           OBFILE << (side ? "  BID " : "  ASK ") << px
                  << " sz=" << q->get_orders_in_book()
@@ -2793,8 +2978,6 @@ void act::OB::process_market_data(
     auto ask_sz_ = &ask_sz[0];
     auto _bid_px = best_bid;
     auto _ask_px = best_ask;
-    auto bid_q_ = &bidqs[_bid_px];
-    auto ask_q_ = &askqs[_ask_px];
     for (std::size_t i = 0; i < bid_px.size(); i++)
     {
       // must have orders on both sides otherwise book is not calculated
@@ -2821,10 +3004,8 @@ void act::OB::process_market_data(
         continue;
       }
 
-      auto _bid_sz = (*bid_q_)->get_orders_in_book();
-      auto _ask_sz = (*ask_q_)->get_orders_in_book();
-      bid_q_ -= incr;
-      ask_q_ += incr;
+      auto _bid_sz = bq(_bid_px)->get_orders_in_book();
+      auto _ask_sz = aq(_ask_px)->get_orders_in_book();
 
       bsum += _bid_sz;
       asum += _ask_sz;
@@ -2995,22 +3176,24 @@ void act::OB::debug_print_book_(int nlevels)
     }
   };
 
-  for (int px = maxprice - 1; px >= ba; --px)
+  // Ring: the ladder holds no ask above ask_ceil() and no bid below
+  // bid_floor(); without the ring these are maxprice-1 and 1, as before.
+  for (int px = ring_n ? ask_ceil() : maxprice - 1; px >= ba; --px)
   {
     auto d = (px - ba) / incr;
     if (d >= nlevels)
       continue;
-    auto q = askqs[px];
+    auto q = aq(px);
     prt("A:", d, q, px);
   }
   OBFILE << "=====\n";
 
-  for (int px = bb; px > 0; --px)
+  for (int px = bb; px >= bid_floor(); --px)
   {
     auto d = (bb - px) / incr;
     if (d >= nlevels)
       continue;
-    auto q = bidqs[px];
+    auto q = bq(px);
     prt("B:", d, q, px);
   }
   OBFILE << endl;
@@ -3062,18 +3245,18 @@ void act::OB::check_bbbo()
     return;
 
   // check we don't have size of 0 on the inside
-  const OrderQ *aq = askqs[best_ask];
-  const OrderQ *bq = bidqs[best_bid];
+  const OrderQ *askq = aq(best_ask);
+  const OrderQ *bidq = bq(best_bid);
 
-  ASSERT(aq, "no askq");
-  ASSERT(bq, "no bidq");
+  ASSERT(askq, "no askq");
+  ASSERT(bidq, "no bidq");
 
   //  pair<int, int> bs = bq->size_of_book();
   //  pair<int, int> as = aq->size_of_book();
 
   if (best_bid > 10)
   {
-    ASSERT(!bq->isempty(), "bidq is empty");
+    ASSERT(!bidq->isempty(), "bidq is empty");
     // ASSERT(bs.second>0,"bid is zero");
   }
 
@@ -3081,7 +3264,7 @@ void act::OB::check_bbbo()
   ASSERT(maxprice - 10 > 0, "maxprice");
   if (best_ask < maxprice - 10)
   {
-    ASSERT(!aq->isempty(), "askq is empty");
+    ASSERT(!askq->isempty(), "askq is empty");
     ASSERT(best_ask < maxprice - 10, "ask is zero");
   }
 
@@ -3102,7 +3285,7 @@ void act::OB::check_bbbo()
   const uint bid_hi = std::min<uint>(best_bid + 1 + kCheckWindow, uint(maxprice - 1));
   for (uint i = best_bid + 1; i <= bid_hi; i++)
   {
-    ASSERTF(bidqs[i]->isempty_or_allsim(),
+    ASSERTF(bq(int(i))->isempty_or_allsim(),
             boost::format("bid above the inside: %s level %d (best_bid %d)")
               % get_name() % i % best_bid);
   }
@@ -3117,7 +3300,7 @@ void act::OB::check_bbbo()
   const uint ask_lo = (uint(best_ask) > kCheckWindow + 1) ? uint(best_ask) - kCheckWindow : 2;
   for (uint i = uint(best_ask) - 1; i >= ask_lo && i > 1; i--)
   {
-    ASSERTF(askqs[i]->isempty_or_allsim(),
+    ASSERTF(aq(int(i))->isempty_or_allsim(),
             boost::format("ask below the inside: %s level %d (best_ask %d)")
               % get_name() % i % best_ask);
   }
@@ -3259,7 +3442,7 @@ void act::OB::process_add_or_mod(
     }
     else
       SNGH;
-    auto q = (*qv)[px];
+    auto q = sq(*qv, px);
     ASSERT(!q->check_if_there(id), "duplicate add");
 #endif
     add(
@@ -3328,13 +3511,13 @@ void act::OB::process_add_or_mod(
 #ifdef TESTBOOK
     if (payload->side == en::bs::BUY)
     {
-      auto q = bidqs[payload->px.to_int()];
+      auto q = bq(payload->px.to_int());
       auto sz = q->get_orders_in_book();
       ASSERT(payload->sz == sz, "wrong size on buy book");
     }
     else if (payload->side == en::bs::SEL)
     {
-      auto q = askqs[payload->px.to_int()];
+      auto q = aq(payload->px.to_int());
       auto sz = q->get_orders_in_book();
       ASSERT(payload->sz == sz, "wrong szie on sell side")
     }
@@ -3457,12 +3640,12 @@ void act::OB::check_handler(const frame::ob::msg::CheckBook *m) noexcept
 
   if (m->side == en::bs::BUY)
   {
-    auto q = bidqs[m->px];
+    auto q = bq(m->px);
     check(q);
   }
   else if (m->side == en::bs::SEL)
   {
-    auto q = askqs[m->px];
+    auto q = aq(m->px);
     check(q);
   }
   else
@@ -3500,12 +3683,12 @@ void act::OB::check_sim_handler(const frame::ob::msg::CheckSim *m) noexcept
 
   if (m->side == en::bs::BUY)
   {
-    auto q = bidqs[m->px];
+    auto q = bq(m->px);
     check(q);
   }
   else if (m->side == en::bs::SEL)
   {
-    auto q = askqs[m->px];
+    auto q = aq(m->px);
     check(q);
   }
   else
@@ -3521,6 +3704,10 @@ void act::OB::shutdown_handler(const actors::msg::Shutdown *) noexcept
             << " numexec: " << num_exec
             << " badpx: " << num_bad_px
             << " crossuncross: " << num_cross_recover << std::endl;
+  if (ring_n)
+    std::cerr << get_name() << " ring " << ring_n << ": dropped " << num_ring_dropped
+              << " adds below the window, flushed " << num_ring_flushed
+              << " orders off the far end" << std::endl;
   // Say it twice when it is non-zero: the line above is one of many at
   // shutdown, and this one means real exchange orders were deleted to uncross
   // the book, so any fill priced in those windows is suspect.
@@ -3584,7 +3771,7 @@ void act::OB::cross_check(boost::intrusive_ptr<const mda::msg::data_pay_load> go
 
     if (got_payload->side == en::bs::BUY)
     {
-      const auto &q = askqs[best_ask];
+      const auto &q = aq(best_ask);
       auto head = q->get_head_no_sim();
       if (head)
       {
@@ -3596,7 +3783,7 @@ void act::OB::cross_check(boost::intrusive_ptr<const mda::msg::data_pay_load> go
     }
     else
     {
-      const auto &q = bidqs[best_bid];
+      const auto &q = bq(best_bid);
       auto head = q->get_head_no_sim();
       if (head)
       {
@@ -3643,7 +3830,7 @@ void act::OB::cross_check(boost::intrusive_ptr<const mda::msg::data_pay_load> go
 
     if (got_payload->side == en::bs::BUY)
     {
-      const auto &q = askqs[best_ask];
+      const auto &q = aq(best_ask);
       cerr << "LOCK BID order arriving id: "
            << got_payload->ex_order_id << " "
            << got_payload->px.to_int() << " "
@@ -3651,7 +3838,7 @@ void act::OB::cross_check(boost::intrusive_ptr<const mda::msg::data_pay_load> go
     }
     else
     {
-      const auto &q = bidqs[best_bid];
+      const auto &q = bq(best_bid);
       cerr << "LOCK ASK order arriving id: "
            << got_payload->ex_order_id << " "
            << got_payload->px.to_int() << " "

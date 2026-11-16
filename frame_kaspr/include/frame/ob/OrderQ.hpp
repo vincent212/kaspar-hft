@@ -399,6 +399,11 @@ namespace frame
         ASSERT(modtyp == en::mt::EXEC || modtyp == en::mt::EXECD, "invalid mod type");
         return o->fill_notify(sz, disp_sz, px, modtyp, tim, rp);
       }
+
+      static int // cancel an order that never reached a queue
+      canc_notify_s(Order *o, const Order::ret_path_t *rp = nullptr) noexcept {
+        return o->canc_notify(en::mt::CANCD, 0, o->sz, rp);
+      }
     };
 
   }
