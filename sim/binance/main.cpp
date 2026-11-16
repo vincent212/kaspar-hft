@@ -55,6 +55,8 @@ int main(int argc, char **argv)
       ("ob-delay-us", po::value<int>()->default_value(-1), "order latency to the exchange")
       ("ob-feed-delay-us", po::value<int>()->default_value(0), "feed latency from the exchange")
       ("rng-seed", po::value<uint32_t>()->default_value(0), "lights' RNG seed")
+      ("mqport", po::value<int>()->default_value(7777),
+       "zmq port for orders, BBO and fills (MTD; sim/binance/kaspar_client.py); 0 = none")
       ("quiet", "keep the log small");
   po::variables_map vm;
   try
@@ -87,6 +89,7 @@ int main(int argc, char **argv)
   opt.ob_delay_us = vm["ob-delay-us"].as<int>();
   opt.ob_feed_delay_us = vm["ob-feed-delay-us"].as<int>();
   opt.rng_seed = vm["rng-seed"].as<uint32_t>();
+  opt.mqport = vm["mqport"].as<int>();
 
   actors::Manager *mgr = nullptr;
   try

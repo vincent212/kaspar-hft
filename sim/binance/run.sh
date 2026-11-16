@@ -12,7 +12,8 @@
 # a crash, or a kill -- is started again after 5 s in a new directory; the
 # simulation state does not carry over. Stop with Ctrl-C (or kill this script).
 #
-# Probe size PROBE_SIZE chunks a leg (default 5); config sim/config_binance.
+# Probe size PROBE_SIZE chunks a leg (default 5); MTD's zmq port MQPORT (default
+# none -- give each process its own); config sim/config_binance.
 #
 set -u
 
@@ -34,7 +35,7 @@ while true; do
   mkdir -p "$DIR"
   echo "$(date -u +%FT%TZ) $NAME: starting in $DIR"
   (cd "$DIR" && exec "$BNSIM" --config "$CONFIG" --symbol "$SYMBOL" $FUT \
-       --probe-size "${PROBE_SIZE:-5}" --probe-out probe.csv --quiet "$@" > out.txt 2> err.txt) &
+       --probe-size "${PROBE_SIZE:-5}" --probe-out probe.csv --mqport "${MQPORT:-0}" --quiet "$@" > out.txt 2> err.txt) &
   PID=$!
   wait "$PID"
   echo "$(date -u +%FT%TZ) $NAME: exited with $?, restarting in 5 s"

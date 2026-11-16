@@ -18,7 +18,10 @@
 #include "frame/ob/act/OB.hpp"
 #include "frame/ob/if/OB.hpp"
 #include "frame/ref/RefData.hpp"
+#include "frame/cons/if/Cons.hpp"
 #include "light/if/light22.hpp"
+#include "mq0/if/MQ0_server.hpp"
+#include "mtd/if/MTD.hpp"
 #include "positionman/if/PositionManager.hpp"
 #include "sim/act/SlippageProbe.hpp"
 #include "som/if/SOM.hpp"
@@ -50,6 +53,8 @@ BnSimKaspr::BnSimKaspr(const Options &opt)
   auto pm = create_PositionManager("bnsim", pcoord_map_);
   group_->add(pm);
   add_to_manage_q(group_);
+  if (opt_.mqport > 0)
+    create_console();
   create_feed();   // its own thread, outside the group
 }
 
@@ -179,6 +184,18 @@ void BnSimKaspr::create_lights()
     sel_lights_.push_back(s);
   }
   std::cerr << "bnsim: " << 2 * n << " lights on " << name << std::endl;
+}
+
+// As kaspr: MQ0 takes zmq requests on mqport and hands them to CONS, which
+// routes "<actor>:<command>:<key>:<value>..." to the named actor -- here MTD,
+// which places orders with SOM and keeps the BBO and fills it subscribes to.
+void BnSimKaspr::create_console()
+{
+  auto cons = create_CONS(this, "CONS");
+  add_to_manage_q(cons);
+  add_to_manage_q(create_MQ0_server("ZMQ", opt_.mqport, cons));
+  add_to_manage_q(create_MTD("MTD", {{venue_, som_}}, order_books_));
+  std::cerr << "bnsim: MTD on zmq port " << opt_.mqport << std::endl;
 }
 
 void BnSimKaspr::create_feed()

@@ -72,6 +72,35 @@ it) with its probe CSV, logs, `out.txt` and `err.txt`. A process that exits is
 started again after 5 s in a new directory; nothing carries over. The probe
 size is `PROBE_SIZE` chunks a leg (default 5); other arguments go to `bnsim`.
 
+## Orders from Python
+
+`bnsim` takes orders and serves the book and fills over zmq on `--mqport`
+(default 7777; `run.sh` uses `MQPORT`, default none). `kaspar_client.py` in
+this directory is a client:
+
+```python
+from kaspar_client import Kaspar        # pip install pyzmq
+
+k = Kaspar("tcp://localhost:7777")
+bid, ask = k.bbo("BTCUSDT")             # ticks, from the book at the time of the request
+oid = k.order("BTCUSDT", "BUY", 1, bid, "BINANCE")   # 1 chunk at the bid
+k.cancel(oid, "BINANCE")
+mine = [f for f in k.fills() if int(f["ID"]) == oid]
+```
+
+`python3 kaspar_client.py [tcp://host:port] [SYMBOL] [VENUE]` runs a short
+demo: one order resting under the bid, one through the ask, a cancel, then the
+orders and fills.
+
+- Prices are in ticks (price / tick) and sizes in chunks. The symbol is
+  `BTCUSDT` or `BTCUSDT_F`, the venue `BINANCE` or `BINANCEF`.
+- Orders go through SOM and OB like the lights' own: OB's latency model,
+  queue position, SOM's limits. A marketable order fills at the best price on
+  the other side.
+- Requests are request/reply, one at a time: fills are polled, and
+  `fills()` returns every fill in the process, the lights' included; keep the
+  ids `order()` returned.
+
 ## Chunks
 
 OB fills our orders by queue position, which needs individual orders. Binance

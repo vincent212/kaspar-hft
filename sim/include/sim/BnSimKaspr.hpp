@@ -34,6 +34,10 @@ namespace sim
    *
    * One symbol per process. Market time is Binance's event time, so OB's
    * latency model and the probe's windows run on the exchange's clock.
+   *
+   * With mqport set, MTD takes orders and serves the BBO and fills over zmq
+   * (MQ0 -> CONS -> MTD), as in kaspr; sim/binance/kaspar_client.py is a
+   * Python client for it.
    */
   struct BnSimKaspr : public actors::Manager
   {
@@ -49,6 +53,7 @@ namespace sim
       int ob_delay_us = -1;        // -1 = OB's default
       int ob_feed_delay_us = 0;
       uint32_t rng_seed = 0;
+      int mqport = 7777;           // MQ0 (zmq) console port; 0 = none
     };
 
     explicit BnSimKaspr(const Options &opt);
@@ -79,5 +84,6 @@ namespace sim
     void create_som();
     void create_lights();
     void create_feed();
+    void create_console();
   };
 }
