@@ -40,6 +40,13 @@ namespace sim
    * already removed its chunks, and the update only brings the count to the
    * new target.
    *
+   * The other order can happen too -- trades and depth are separate streams
+   * (separate connections on futures). A trade stamped no later than the last
+   * depth update applied is already in that update, which took it off the back
+   * of the queue as if it were a cancel. Its chunks still execute from the
+   * front, and as many new chunks join the back, so the level keeps the size
+   * Binance gave it.
+   *
    * Trades are fractional: a trade of less than a chunk is accumulated per side
    * and a chunk executes each time the running total reaches the chunk size.
    *
@@ -100,6 +107,7 @@ namespace sim
     uint64_t next_oid_ = 1;
     uint64_t last_tx_ = 0;
     uint64_t event_tx_ = 0;              // transactTime of the open event
+    uint64_t last_depth_tx_ = 0;         // newest depth update applied, as sent
     std::vector<bfile::l3_t> pending_;
 
     uint64_t stamp(uint64_t tx);

@@ -157,6 +157,25 @@ TEST_F(Mbp2MboTest, ADepthUpdateAfterATradeDoesNotCountItTwice) {
   EXPECT_EQ(m.chunks(false, 10100), 1u);
 }
 
+// The depth update that reflects a trade can arrive before the trade (separate
+// streams). The update has already shrunk the level, from the back; the late
+// trade must still execute from the front without shrinking it again.
+TEST_F(Mbp2MboTest, ATradeAlreadyInTheDepthUpdateDoesNotShrinkTheLevelAgain) {
+  level(false, 101, 0.10, kT0);
+  const auto full = q(false, 101);
+  level(false, 101, 0.07, kT0 + 100);    // reflects a 3-chunk trade
+  out.clear();
+
+  m.trade(101, 0.03, false, kT0 + 90);    // that trade, arriving late
+  m.end_event();
+
+  EXPECT_EQ(m.chunks(false, 10100), 7u) << "Binance's size, not 4";
+  auto x = all<bfile::l3_mbo_trd_v2_t>();
+  ASSERT_EQ(x.size(), 3u);
+  EXPECT_EQ(x[0].orderID, full[0]) << "executions still come from the front";
+  EXPECT_EQ(x[2].orderID, full[2]);
+}
+
 TEST_F(Mbp2MboTest, FractionalTradesAccumulateToAChunk) {
   level(false, 101, 0.05);
   out.clear();

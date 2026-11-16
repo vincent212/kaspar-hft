@@ -70,13 +70,7 @@ void BnSimKaspr::load_config()
   auto s = pt.get_child_optional(opt_.symbol);
   ASSERTF(s, boost::format("no section %s in %s/binance.ini") % opt_.symbol % opt_.config_dir);
 
-  feed_cfg_.market = opt_.futures ? BinanceSync::Market::FUTURES : BinanceSync::Market::SPOT;
-  feed_cfg_.symbol = opt_.symbol;
-  feed_cfg_.depth_limit = s->get<int>("depth_limit", 1000);
-  feed_cfg_.chunks.tick = s->get<double>(opt_.futures ? "futures_tick" : "tick");
-  feed_cfg_.chunks.chunk = s->get<double>(opt_.futures ? "futures_chunk" : "chunk");
-  feed_cfg_.chunks.sec_id = s->get<int32_t>("sec_id");
-  feed_cfg_.chunks.venue = char(venue_.value);
+  feed_cfg_ = BinanceFeed::config_from_ini(*s, opt_.symbol, opt_.futures, char(venue_.value));
   ladder_ = s->get<int>("ladder", 1 << 19);
 
   // RefData must exist before assets are added; seed it empty, as SimKaspr does.

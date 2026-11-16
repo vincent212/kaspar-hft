@@ -79,6 +79,33 @@ namespace
     return ctx;
   }
 
+  // Run one asynchronous operation to completion. Every network step goes
+  // through here rather than the blocking calls, because only the async ones
+  // honour a deadline (tcp_stream::expires_after, the WebSocket idle timeout):
+  // a blocking read on a connection that died without a FIN or RST waits
+  // forever, and SO_RCVTIMEO does not help -- Asio retries the read with an
+  // untimed poll.
+  template <class Start>
+  void await(net::io_context &io, Start start)
+  {
+    beast::error_code ec;
+    bool done = false;
+    start([&ec, &done](beast::error_code e, auto &&...) { ec = e; done = true; });
+    // Until this operation completes, not until the context runs dry: the
+    // WebSocket keeps its idle timer armed between reads.
+    io.restart();
+    while (!done && io.run_one())
+      ;
+    if (ec)
+      throw beast::system_error(ec);
+  }
+
+  constexpr auto kConnectTimeout = std::chrono::seconds(10);
+  constexpr auto kRestTimeout = std::chrono::seconds(10);
+  // Binance sends a depth update every 100 ms, so this much silence is a dead
+  // connection. Beast pings at half of it.
+  constexpr auto kIdleTimeout = std::chrono::seconds(30);
+
   // TLS stream connected to host:port, SNI and certificate name checked.
   template <class Stream>
   void tls_connect(net::io_context &io, Stream &s, const std::string &host, const std::string &port)
@@ -88,9 +115,27 @@ namespace
     if (!SSL_set_tlsext_host_name(s.native_handle(), host.c_str()))
       throw beast::system_error(beast::error_code(int(::ERR_get_error()), net::error::get_ssl_category()));
     s.set_verify_callback(ssl::host_name_verification(host));
-    beast::get_lowest_layer(s).connect(results);
-    s.handshake(ssl::stream_base::client);
+    auto &tcp_layer = beast::get_lowest_layer(s);
+    tcp_layer.expires_after(kConnectTimeout);
+    await(io, [&](auto h) { tcp_layer.async_connect(results, std::move(h)); });
+    tcp_layer.expires_after(kConnectTimeout);
+    await(io, [&](auto h) { s.async_handshake(ssl::stream_base::client, std::move(h)); });
   }
+}
+
+BinanceFeed::Config BinanceFeed::config_from_ini(const boost::property_tree::ptree &section,
+                                                 const std::string &symbol, bool futures,
+                                                 char venue)
+{
+  Config c;
+  c.market = futures ? BinanceSync::Market::FUTURES : BinanceSync::Market::SPOT;
+  c.symbol = symbol;
+  c.depth_limit = section.get<int>("depth_limit", 1000);
+  c.chunks.tick = section.get<double>(futures ? "futures_tick" : "tick");
+  c.chunks.chunk = section.get<double>(futures ? "futures_chunk" : "chunk");
+  c.chunks.sec_id = section.get<int32_t>("sec_id");
+  c.chunks.venue = venue;
+  return c;
 }
 
 BinanceFeed::BinanceFeed(const Config &cfg, actors::Actor *ob)
@@ -176,12 +221,13 @@ std::string BinanceFeed::fetch_snapshot()
   http::request<http::string_body> req{http::verb::get, target, 11};
   req.set(http::field::host, ep.rest_host);
   req.set(http::field::user_agent, "kaspar-hft");
-  http::write(s, req);
+  beast::get_lowest_layer(s).expires_after(kRestTimeout);
+  await(io, [&](auto h) { http::async_write(s, req, std::move(h)); });
 
   beast::flat_buffer buf;
   http::response_parser<http::string_body> parser;
   parser.body_limit(64 * 1024 * 1024);
-  http::read(s, buf, parser);
+  await(io, [&](auto h) { http::async_read(s, buf, parser, std::move(h)); });
   auto res = parser.release();
   if (res.result() != http::status::ok)
     throw std::runtime_error("snapshot " + target + ": HTTP " +
@@ -200,7 +246,15 @@ void BinanceFeed::run_connection(const std::string &target, bool book)
   auto tls = make_tls();
   websocket::stream<beast::ssl_stream<beast::tcp_stream>> ws(io, tls);
   tls_connect(io, ws.next_layer(), ep.ws_host, ep.ws_port);
-  ws.handshake(std::string(ep.ws_host) + ":" + ep.ws_port, target);
+  // From here the WebSocket's own timeout governs, not the TCP layer's.
+  beast::get_lowest_layer(ws).expires_never();
+  auto to = websocket::stream_base::timeout::suggested(beast::role_type::client);
+  to.idle_timeout = kIdleTimeout;
+  to.keep_alive_pings = true;
+  ws.set_option(to);
+  await(io, [&](auto h) {
+    ws.async_handshake(std::string(ep.ws_host) + ":" + ep.ws_port, target, std::move(h));
+  });
   std::cerr << get_name() << ": connected wss://" << ep.ws_host << ":" << ep.ws_port << target
             << std::endl;
 
@@ -208,7 +262,9 @@ void BinanceFeed::run_connection(const std::string &target, bool book)
   while (!terminate_called)
   {
     buf.clear();
-    ws.read(buf);   // control frames (Binance's pings) are answered inside read
+    // Binance's pings are answered inside the read; silence past
+    // kIdleTimeout fails it, and the caller reconnects.
+    await(io, [&](auto h) { ws.async_read(buf, std::move(h)); });
     const auto msg = nlohmann::json::parse(beast::buffers_to_string(buf.data()));
     auto it = msg.find("data");
     if (it == msg.end())
@@ -220,8 +276,12 @@ void BinanceFeed::run_connection(const std::string &target, bool book)
 
     // Snapshot once there is something buffered to line it up with. Fetched
     // without the lock, so trades keep flowing to the (unsynced) book's buffer.
-    if (sync_.need_snapshot())
+    // At most one fetch a second: a snapshot that comes back too old leaves
+    // need_snapshot() set, and fetching on every message would run into
+    // Binance's request-weight limit (and then an IP ban).
+    if (sync_.need_snapshot() && now_ns() - last_snapshot_ns_ >= 1000000000ull)
     {
+      last_snapshot_ns_ = now_ns();
       lk.unlock();
       const auto body = nlohmann::json::parse(fetch_snapshot());
       lk.lock();
@@ -233,7 +293,8 @@ void BinanceFeed::run_connection(const std::string &target, bool book)
     if (!ob_)
       dump(now_ns());
   }
-  ws.close(websocket::close_code::normal);
+  beast::error_code ec;
+  ws.close(websocket::close_code::normal, ec);
 }
 
 void BinanceFeed::dump(uint64_t t)

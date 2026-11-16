@@ -359,11 +359,7 @@ void act::OB::ring_flush_slot(qvec_t &v, int px) noexcept
   auto q = v[uint32_t(px) & ring_mask];
   if (q->isempty())
     return;
-  for (const frame::ob::OrderQNode *n = q->get_head(); n; n = n->next)
-  {
-    auto *o = static_cast<const frame::ob::Order *>(n);
-    ++num_ring_flushed;
-  }
+  num_ring_flushed += q->qordermap.size();
   q->canc_notify_all(&ret_path_);
 }
 

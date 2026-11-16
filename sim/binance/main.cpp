@@ -16,6 +16,7 @@
 #include <string>
 
 #include "actors/act/Manager.hpp"
+#include "enum/e_names.hpp"
 #include "logger/act/Logger.hpp"
 #include "sim/BnSimKaspr.hpp"
 #include "sim/act/BinanceFeed.hpp"
@@ -94,14 +95,9 @@ int main(int argc, char **argv)
     {
       boost::property_tree::ptree pt;
       boost::property_tree::read_info(opt.config_dir + "/binance.ini", pt);
-      const auto &s = pt.get_child(opt.symbol);
-      sim::BinanceFeed::Config cfg;
-      cfg.market = opt.futures ? sim::BinanceSync::Market::FUTURES : sim::BinanceSync::Market::SPOT;
-      cfg.symbol = opt.symbol;
-      cfg.chunks.tick = s.get<double>(opt.futures ? "futures_tick" : "tick");
-      cfg.chunks.chunk = s.get<double>(opt.futures ? "futures_chunk" : "chunk");
-      cfg.chunks.sec_id = s.get<int32_t>("sec_id");
-      mgr = new DumpManager(cfg);
+      mgr = new DumpManager(sim::BinanceFeed::config_from_ini(
+          pt.get_child(opt.symbol), opt.symbol, opt.futures,
+          char((opt.futures ? en::x(en::x::BINANCEF) : en::x(en::x::BINANCE)).value)));
     }
     else
       mgr = new sim::BnSimKaspr(opt);

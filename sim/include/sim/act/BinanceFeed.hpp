@@ -11,6 +11,8 @@
 #include <mutex>
 #include <string>
 
+#include <boost/property_tree/ptree.hpp>
+
 #include "actors/Actor.hpp"
 #include "actors/msg/Continue.hpp"
 #include "actors/msg/Start.hpp"
@@ -52,6 +54,10 @@ namespace sim
 
     BinanceFeed(const Config &cfg, actors::Actor *ob);
 
+    // A symbol's section of binance.ini (sim/BINANCE.md).
+    static Config config_from_ini(const boost::property_tree::ptree &section,
+                                  const std::string &symbol, bool futures, char venue);
+
   private:
     Config cfg_;
     actors::Actor *ob_;
@@ -60,6 +66,7 @@ namespace sim
     std::mutex mtx_;   // sync_ and mbp2mbo_, when trades have their own connection
     uint64_t records_ = 0;
     uint64_t last_dump_ns_ = 0;
+    uint64_t last_snapshot_ns_ = 0;
 
     void start_handler(const actors::msg::Start *) noexcept;
     void continue_handler(const actors::msg::Continue *) noexcept;

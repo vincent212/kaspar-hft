@@ -123,6 +123,7 @@ void Mbp2Mbo::set_level(Book &book, bool bid, int64_t t, size_t n, uint64_t tx,
 
 void Mbp2Mbo::level(bool bid, double px, double qty, uint64_t tx)
 {
+  last_depth_tx_ = std::max(last_depth_tx_, tx);
   set_level(bid ? bids_ : asks_, bid, ticks(px), target(qty), stamp(tx));
 }
 
@@ -144,14 +145,23 @@ void Mbp2Mbo::trade(double px, double qty, bool buyer_is_maker, uint64_t tx)
   if (it == book.end())
     return;   // nothing of ours at the print: no chunk to execute
   auto &q = it->second;
+  const bool in_depth_already = tx <= last_depth_tx_;   // see the class comment
   const uint64_t t = stamp(tx);
-  for (size_t i = 0; i < size_t(whole) && !q.empty(); ++i)
+  size_t n = 0;
+  for (; n < size_t(whole) && !q.empty(); ++n)
   {
     const uint64_t oid = q.front();
     q.pop_front();
     push_exec(oid, t);
     push_mbo(2, bid, it->first, oid, t);
   }
+  if (in_depth_already)
+    for (size_t i = 0; i < n; ++i)
+    {
+      const uint64_t oid = next_oid_++;
+      push_mbo(0, bid, it->first, oid, t);
+      q.push_back(oid);
+    }
   if (q.empty())
     book.erase(it);
 }
@@ -162,6 +172,7 @@ void Mbp2Mbo::snapshot(const std::vector<std::pair<double, double>> &bids,
   bids_.clear();
   asks_.clear();
   acc_bid_ = acc_ask_ = 0;
+  last_depth_tx_ = tx;
   const uint64_t t = stamp(tx);
   for (const auto &[px, qty] : bids)
     set_level(bids_, true, ticks(px), target(qty), t, true);
