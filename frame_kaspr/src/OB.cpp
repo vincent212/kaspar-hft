@@ -1640,16 +1640,18 @@ static uint64_t record_tx_time(const bfile::l3_t &l3)
 static bool in_cme_daily_break(uint64_t epoch_ns)
 {
 #ifdef __APPLE__
-  // Apple's libc++ has no time zone database (no locate_zone / zoned_time), so
-  // take the no-zone path below: matching stays on.
-  (void)epoch_ns;
-  static const bool said = [] {
-    std::cerr << "OB: no time zone database on this platform; "
-                 "the 17:00-18:00 ET pre-open rule is off" << std::endl;
-    return true;
-  }();
-  (void)said;
-  return false;
+  // Apple's libc++ has no time zone database (no locate_zone / zoned_time).
+  // Use the US Eastern rule in force since 2007 instead: EDT (UTC-4) from
+  // 02:00 EST on the second Sunday of March to 02:00 EDT on the first Sunday
+  // of November, EST (UTC-5) otherwise. Same hour as the tz database for every
+  // date since 2007.
+  using namespace std::chrono;
+  const sys_seconds t{seconds{int64_t(epoch_ns / 1000000000ull)}};
+  const year y = year_month_day{floor<days>(t)}.year();
+  const sys_seconds on  = sys_days{y / March / Sunday[2]} + hours{7};
+  const sys_seconds off = sys_days{y / November / Sunday[1]} + hours{6};
+  const sys_seconds lt = t - hours{(t >= on && t < off) ? 4 : 5};
+  return hh_mm_ss{lt - floor<days>(lt)}.hours().count() == 17;
 #else
   namespace ch = std::chrono;
   // locate_zone throws when the host has no tz database, and data_handler is

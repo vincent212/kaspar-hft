@@ -321,12 +321,11 @@ namespace frame
 
         ~OB();
 
-        // 0 means no debug
+        // 0 means no debug. Otherwise tracing starts once a record's
+        // transactTime passes `_start_debug` (data_handler turns it on).
         void
         set_debug(uint64_t _start_debug = 0)
         {
-          if (_start_debug)
-            debug = true;
           start_debug = _start_debug;
         }
 
