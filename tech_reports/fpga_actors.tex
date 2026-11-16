@@ -276,7 +276,17 @@ dataflow actors explicit state and firing rules, and was designed from the
 start to target both software and hardware. StreamBlocks
 \cite{streamblocks2020,streamblocks2021} compiles CAL actor networks for
 heterogeneous CPU/FPGA platforms, partitioning one network between processors
-and Vitis HLS-generated hardware. The model of computation differs from ours.
+and Vitis HLS-generated hardware. Orcc \cite{orcc2013} translates the same
+RVC-CAL dataflow programs into both software and hardware descriptions, and
+Xronos \cite{xronos2013} synthesizes them to RTL, turning the MPEG reference
+code into working hardware. CAPH \cite{caph2011} describes stream-processing
+applications as networks of dataflow actors exchanging tokens over
+unidirectional channels, with each actor's behaviour written as pattern-matching
+rules, and compiles them to SystemC and synthesizable VHDL. In the actor-oriented
+design of Ptolemy~II \cite{lee2003actororiented}, models built from actors and
+models of computation describe both hardware and software, and a code generator
+produces synthesizable VHDL from them \cite{ptolemyvhdl2008}. The model of
+computation differs from ours.
 A dataflow actor fires on the availability of tokens on its input ports, and
 its network is a static graph of ports; an actor in the sense of Hewitt and
 Agha \cite{hewitt1973,agha1986}, and of kaspar-hft, has a mailbox, handles
@@ -284,15 +294,75 @@ typed messages one at a time, addresses other actors by reference, and replies
 to whoever sent. Our FPGA actors keep the second model on the card, so that a
 CPU actor and an FPGA actor are interchangeable to their peers.
 
+\paragraph{Message passing across CPUs and FPGAs.} The line of work closest in
+intent gives hardware and software components one message-passing interface.
+TMD-MPI \cite{tmdmpi2006} implements a subset of MPI for embedded processors
+spread over several FPGAs, joined by FIFO links within a chip and multi-gigabit
+links between chips; a message-passing engine lets hardware engines take part
+in the same protocol as the processors \cite{tmdmpi2006hw}, and the later
+version adds x86 processors to the same programs \cite{tmdmpi2010}. Galapagos
+\cite{galapagos2018} provides a hardware stack for clusters of FPGAs in the
+cloud; its communication layer, written in HLS, carries messages between
+streaming kernels on FPGAs and CPUs over the network, so that hardware kernels
+can be prototyped in software \cite{galapagos2019}. Shoal
+\cite{shoal2021} offers a partitioned global address space with one
+application programming interface for hardware and software. In these systems
+the unit is an MPI rank, a streaming kernel or a shared address space; here it
+is an actor, with a mailbox, references and \texttt{reply}, and the link is the
+PCIe bus between one card and its host rather than a network.
+
+\paragraph{One language for CPU and FPGA.} Several languages compile one
+program to both sides. Lime \cite{lime2010} is a Java-compatible language whose
+tasks, connected into stream graphs, compile to bytecode, C or Verilog, so one
+program can run on CPUs and FPGAs and co-execute across them. Kiwi
+\cite{kiwi2008} synthesizes C\# programs that use threads, monitors and
+channels into circuits; its library runs the same constructs on .NET threads in
+software. LegUp \cite{legup2013} synthesizes the parallel regions of Pthreads
+and OpenMP programs into hardware that runs in parallel, with mutexes and
+barriers, alongside a soft processor. These carry a general-purpose language or
+threading model onto the card; the work here carries one concurrency model, the
+actor framework the CPU side already uses, with its API unchanged.
+
 \paragraph{Threads in hardware.} ReconOS \cite{reconos2009} carries the
 multithreaded programming model into reconfigurable hardware: hardware threads
 synchronize and communicate with software threads through operating-system
-services such as semaphores, mailboxes and shared memory. Coyote
+services such as semaphores, mailboxes and shared memory. hthreads
+\cite{hthreads2008} takes the threads of one Pthreads program and runs each
+either on the CPU or synthesized on the FPGA, with standard thread communication
+and synchronization across the boundary through a hardware thread interface.
+BORPH \cite{borph2008} runs hardware designs as ordinary UNIX processes that
+communicate with software processes through UNIX inter-process communication
+and a file interface to the hardware's registers and FIFOs. Coyote
 \cite{coyote2020} asks which operating-system abstractions --- virtual memory,
 multiplexing, communication --- make sense on an FPGA in a hybrid system, and
-provides them as a shell. Both import a CPU programming model onto the card. The
+provides them as a shell. These import a CPU programming model --- threads,
+processes, operating-system services --- onto the card. The
 actor model needs less: no shared memory and no synchronization primitives,
 only message delivery, which on an FPGA is a FIFO.
+
+\paragraph{Elements and channels across PCIe.} ClickNP \cite{clicknp2016}
+programs network functions as elements, in the style of the Click modular
+router, joined by channels that are FIFOs. The same element compiles either for
+the FPGA, through Altera OpenCL or Vivado HLS, or to a CPU binary, where it runs
+as a worker thread, and each connection between a host element and an FPGA
+element is a slot of a PCIe channel. Its structure is close to the hybrid
+system of Section~\ref{sec:link}: components that run on either side and talk
+through FIFOs and PCIe channels. Its components are dataflow elements on a
+fixed graph of channels rather than actors addressing each other by reference.
+On the card, the framework here builds on the same mechanism as Vitis HLS's
+free-running tasks connected by streams \cite{ug1399}.
+
+\paragraph{Message-passing processes in hardware.} The closest work to mailbox
+actors on an FPGA synthesizes Erlang. Takebayashi et al.\ \cite{erlanghls2016}
+generate a controller from Erlang processes communicating by message passing,
+with message passing and garbage collection handled by routines taken from a
+reduced BEAM interpreter; Azuma et al.\ \cite{erlanghls2017} map each Erlang
+process to its own circuit with a private memory bank, and arbitrate send
+requests on a bus. These synthesize the processes of one embedded controller;
+they do not pair the hardware processes with actors running on a host CPU. On
+the software side, the C++ Actor Framework has been extended to OpenCL kernels on
+GPUs \cite{cafopencl2015}, so that actors can be backed by accelerator kernels;
+FPGA targets are not part of that work.
 
 \paragraph{FPGAs in trading.} FPGA market-data handling is established
 practice. Morris, Thomas and Luk \cite{morris2009} parsed, decompressed and
@@ -1979,6 +2049,93 @@ hardware.
 \bibitem{coyote2020} D.~Korolija, T.~Roscoe, and G.~Alonso.
   \emph{Do OS Abstractions Make Sense on FPGAs?} Proc.\ 14th USENIX Symposium
   on Operating Systems Design and Implementation (OSDI), 2020.
+\bibitem{orcc2013} H.~Yviquel, A.~Lorence, K.~Jerbi, G.~Cocherel, A.~Sanchez,
+  and M.~Raulet. \emph{Orcc: Multimedia Development Made Easy.} Proc.\ 21st ACM
+  International Conference on Multimedia, pp.~863--866, 2013.
+  \url{https://doi.org/10.1145/2502081.2502231}.
+\bibitem{xronos2013} E.~Bezati, M.~Mattavelli, and J.~W.~Janneck.
+  \emph{High-Level Synthesis of Dataflow Programs for Signal Processing
+  Systems.} Proc.\ 8th International Symposium on Image and Signal Processing
+  and Analysis (ISPA), pp.~750--754, 2013.
+  \url{https://doi.org/10.1109/ISPA.2013.6703837}.
+\bibitem{caph2011} J.~S\'erot, F.~Berry, and S.~Ahmed.
+  \emph{Implementing Stream-Processing Applications on FPGAs: A DSL-Based
+  Approach.} Proc.\ 21st International Conference on Field Programmable Logic
+  and Applications (FPL), pp.~130--137, 2011.
+  \url{https://doi.org/10.1109/FPL.2011.32}.
+\bibitem{lee2003actororiented} E.~A.~Lee, S.~Neuendorffer, and M.~J.~Wirthlin.
+  \emph{Actor-Oriented Design of Embedded Hardware and Software Systems.}
+  Journal of Circuits, Systems and Computers, 12(3):231--260, 2003.
+  \url{https://doi.org/10.1142/S0218126603000751}.
+\bibitem{ptolemyvhdl2008} M.-K.~Leung, T.~E.~Filiba, and V.~Nagpal.
+  \emph{VHDL Code Generation in the Ptolemy II Environment.} Technical Report
+  UCB/EECS-2008-140, University of California, Berkeley, 2008.
+\bibitem{tmdmpi2006} M.~Salda\~na and P.~Chow. \emph{TMD-MPI: An MPI
+  Implementation for Multiple Processors Across Multiple FPGAs.} Proc.\ 16th
+  International Conference on Field Programmable Logic and Applications (FPL),
+  2006. \url{https://doi.org/10.1109/FPL.2006.311233}.
+\bibitem{tmdmpi2006hw} M.~Salda\~na, D.~Nunes, E.~Ramalho, and P.~Chow.
+  \emph{Configuration and Programming of Heterogeneous Multiprocessors on a
+  Multi-FPGA System Using TMD-MPI.} Proc.\ IEEE International Conference on
+  Reconfigurable Computing and FPGAs (ReConFig), 2006.
+  \url{https://doi.org/10.1109/RECONF.2006.307779}.
+\bibitem{tmdmpi2010} M.~Salda\~na, A.~Patel, C.~Madill, D.~Nunes, D.~Wang,
+  P.~Chow, R.~Wittig, H.~Styles, and A.~Putnam. \emph{MPI as a Programming
+  Model for High-Performance Reconfigurable Computers.} ACM Transactions on
+  Reconfigurable Technology and Systems, 3(4), 2010.
+  \url{https://doi.org/10.1145/1862648.1862652}.
+\bibitem{galapagos2018} N.~Tarafdar, N.~Eskandari, V.~Sharma, C.~Lo, and
+  P.~Chow. \emph{Galapagos: A Full Stack Approach to FPGA Integration in the
+  Cloud.} IEEE Micro, 38(6):18--24, 2018.
+  \url{https://doi.org/10.1109/MM.2018.2877290}.
+\bibitem{galapagos2019} N.~Eskandari, N.~Tarafdar, D.~Ly-Ma, and P.~Chow.
+  \emph{A Modular Heterogeneous Stack for Deploying FPGAs and CPUs in the Data
+  Center.} Proc.\ ACM/SIGDA International Symposium on Field-Programmable Gate
+  Arrays (FPGA), pp.~262--271, 2019.
+  \url{https://doi.org/10.1145/3289602.3293909}.
+\bibitem{shoal2021} V.~Sharma and P.~Chow. \emph{Exploring PGAS Communication
+  for Heterogeneous Clusters with FPGAs.} Proc.\ ACM/SIGDA International
+  Symposium on Field-Programmable Gate Arrays (FPGA), 2021; extended version
+  arXiv:2104.12350. \url{https://doi.org/10.1145/3431920.3439469}.
+\bibitem{lime2010} J.~Auerbach, D.~F.~Bacon, P.~Cheng, and R.~Rabbah.
+  \emph{Lime: A Java-Compatible and Synthesizable Language for Heterogeneous
+  Architectures.} Proc.\ ACM International Conference on Object-Oriented
+  Programming Systems, Languages and Applications (OOPSLA), pp.~89--108, 2010.
+  \url{https://doi.org/10.1145/1869459.1869469}.
+\bibitem{kiwi2008} S.~Singh and D.~J.~Greaves. \emph{Kiwi: Synthesis of FPGA
+  Circuits from Parallel Programs.} Proc.\ 16th IEEE Symposium on
+  Field-Programmable Custom Computing Machines (FCCM), pp.~3--12, 2008.
+  \url{https://doi.org/10.1109/FCCM.2008.46}.
+\bibitem{legup2013} J.~Choi, S.~Brown, and J.~Anderson. \emph{From Software
+  Threads to Parallel Hardware in High-Level Synthesis for FPGAs.} Proc.\
+  International Conference on Field-Programmable Technology (FPT),
+  pp.~270--277, 2013. \url{https://doi.org/10.1109/FPT.2013.6718365}.
+\bibitem{hthreads2008} D.~Andrews, R.~Sass, E.~Anderson, J.~Agron, W.~Peck,
+  J.~Stevens, F.~Baijot, and E.~Komp. \emph{Achieving Programming Model
+  Abstractions for Reconfigurable Computing.} IEEE Transactions on Very Large
+  Scale Integration (VLSI) Systems, 16(1):34--44, 2008.
+  \url{https://doi.org/10.1109/TVLSI.2007.912106}.
+\bibitem{borph2008} H.~K.-H.~So and R.~Brodersen. \emph{A Unified
+  Hardware/Software Runtime Environment for FPGA-Based Reconfigurable Computers
+  Using BORPH.} ACM Transactions on Embedded Computing Systems, 7(2), 2008.
+  \url{https://doi.org/10.1145/1331331.1331338}.
+\bibitem{clicknp2016} B.~Li, K.~Tan, L.~Luo, Y.~Peng, R.~Luo, N.~Xu,
+  Y.~Xiong, P.~Cheng, and E.~Chen. \emph{ClickNP: Highly Flexible and High
+  Performance Network Processing with Reconfigurable Hardware.} Proc.\ ACM
+  SIGCOMM, pp.~1--14, 2016. \url{https://doi.org/10.1145/2934872.2934897}.
+\bibitem{erlanghls2016} H.~Takebayashi, N.~Ishiura, K.~Azuma, N.~Yoshida, and
+  H.~Kanbara. \emph{High-Level Synthesis of Embedded Systems Controller from
+  Erlang.} Proc.\ 20th Workshop on Synthesis And System Integration of Mixed
+  Information Technologies (SASIMI), 2016.
+\bibitem{erlanghls2017} K.~Azuma, N.~Ishiura, N.~Yoshida, and H.~Kanbara.
+  \emph{Distributed Memory Architecture for High-Level Synthesis of Embedded
+  Controllers from Erlang.} Proc.\ 16th ACM SIGPLAN International Workshop on
+  Erlang, pp.~13--19, 2017. \url{https://doi.org/10.1145/3123569.3123574}.
+\bibitem{cafopencl2015} R.~Hiesgen, D.~Charousset, and T.~C.~Schmidt.
+  \emph{Manyfold Actors: Extending the C++ Actor Framework to Heterogeneous
+  Many-Core Machines Using OpenCL.} Proc.\ 5th International Workshop on
+  Programming Based on Actors, Agents, and Decentralized Control (AGERE),
+  pp.~45--56, 2015. \url{https://doi.org/10.1145/2824815.2824820}.
 \bibitem{morris2009} G.~W.~Morris, D.~B.~Thomas, and W.~Luk.
   \emph{FPGA Accelerated Low-Latency Market Data Feed Processing.}
   Proc.\ 17th IEEE Symposium on High Performance Interconnects (HOTI), 2009.
