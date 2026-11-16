@@ -35,6 +35,9 @@ namespace sim
    * One symbol per process. Market time is Binance's event time, so OB's
    * latency model and the probe's windows run on the exchange's clock.
    *
+   * The lights and the PositionManager exist only with the probe, which is
+   * what gives the lights a position to work.
+   *
    * With mqport set, MTD takes orders and serves the BBO and fills over zmq
    * (MQ0 -> CONS -> MTD), as in kaspr; sim/binance/kaspar_client.py is a
    * Python client for it.

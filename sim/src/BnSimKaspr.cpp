@@ -44,14 +44,16 @@ BnSimKaspr::BnSimKaspr(const Options &opt)
   logger_->set_timer(timer_);
   create_probe();
   create_som();
-  create_lights();
+  // The lights trade only the position the probe hands them, so without the
+  // probe there is nothing for them to do: bnsim is then the book and SOM,
+  // and orders come over zmq (MTD).
   if (probe_)
   {
+    create_lights();
     probe_->set_lights(buy_lights_, sel_lights_);
     probe_->set_coords(pcoord_buy_, pcoord_sel_);
+    group_->add(create_PositionManager("bnsim", pcoord_map_));
   }
-  auto pm = create_PositionManager("bnsim", pcoord_map_);
-  group_->add(pm);
   add_to_manage_q(group_);
   if (opt_.mqport > 0)
     create_console();

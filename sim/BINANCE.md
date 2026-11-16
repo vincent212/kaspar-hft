@@ -44,7 +44,7 @@ mkdir -p ~/bnruns/btc && cd ~/bnruns/btc
 | `--config` | directory with `binance.ini`, `lights.ini`, `som.ini` (`sim/config_binance`) |
 | `--symbol` | a section of `binance.ini`: `BTCUSDT`, `ETHUSDT` |
 | `--futures` | USD-M perpetual instead of spot |
-| `--probe-size` | chunks per probe leg. Without it the lights have no position to work and place nothing |
+| `--probe-size` | chunks per probe leg. Without it there is no probe and no lights: the book and SOM only, with orders from `--mqport` |
 | `--probe-window-min` | minimum length of a probe window (default 10) |
 | `--probe-days` | how long the probe keeps opening windows (default 7) |
 | `--probe-out` | the probe CSV, one row per window (columns: `sim/README.md`) |

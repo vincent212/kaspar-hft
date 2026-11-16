@@ -48,7 +48,7 @@ int main(int argc, char **argv)
       ("futures", "USD-M futures (fstream/fapi) instead of spot")
       ("dump", "feed only: print the top of the synthetic book every second")
       ("probe-size", po::value<int>()->default_value(0),
-       "chunks per leg for the SlippageProbe; without it the lights place nothing")
+       "chunks per leg for the SlippageProbe; without it there are no lights, and orders come only over zmq")
       ("probe-window-min", po::value<int>()->default_value(10), "minimum probe window, minutes")
       ("probe-days", po::value<int>()->default_value(7), "how long the probe runs")
       ("probe-out", po::value<string>()->default_value("probe.csv"), "probe CSV")
