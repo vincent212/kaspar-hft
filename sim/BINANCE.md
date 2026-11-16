@@ -58,6 +58,20 @@ BinanceFeed_BTCUSDT synced bid 64199.09 x 357 chunks  ask 64199.10 x 114 chunks 
 Market time is Binance's event time, so the latency model and the probe's
 windows run on the exchange's clock.
 
+### Unattended: `run.sh`
+
+```bash
+~/kaspar-hft/sim/binance/run.sh BTCUSDT &
+~/kaspar-hft/sim/binance/run.sh BTCUSDT --futures &
+~/kaspar-hft/sim/binance/run.sh ETHUSDT &
+~/kaspar-hft/sim/binance/run.sh ETHUSDT --futures &
+```
+
+Each start runs in `~/bnruns/<SYMBOL>[_F]/<UTC start time>/` (`BNRUNS` moves
+it) with its probe CSV, logs, `out.txt` and `err.txt`. A process that exits is
+started again after 5 s in a new directory; nothing carries over. The probe
+size is `PROBE_SIZE` chunks a leg (default 5); other arguments go to `bnsim`.
+
 ## Chunks
 
 OB fills our orders by queue position, which needs individual orders. Binance
