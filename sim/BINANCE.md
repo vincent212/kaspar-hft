@@ -22,9 +22,11 @@ Binance WebSocket + REST snapshot
 
 ```bash
 cd ~/kaspar-hft
-./build.sh                     # libraries
-./build.sh -C sim/binance      # sim/binance/bnsim
+KSPRPROJ=$PWD make bnsim       # sim/binance/bnsim
 ```
+
+`make bnsim` builds only the libraries `bnsim` links. It needs neither the CME
+codecs (`make schema`) nor `mdp3` and `ilink`, so it works on a fresh checkout.
 
 Needs OpenSSL (`libssl-dev` on Ubuntu, `brew install openssl@3` on macOS).
 Boost.Beast comes with Boost.

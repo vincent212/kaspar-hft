@@ -21,6 +21,15 @@ check-schema:
 	      echo "       They are generated from CME, not committed. Run: make schema"; \
 	      echo "       (see genschema/README.md for prerequisites)"; exit 1; }
 
+# bnsim, the simulator on live Binance data (sim/BINANCE.md), alone: only the
+# libraries it links, so neither the CME codecs nor mdp3/ilink are needed.
+# `make bnsim` on a fresh checkout, no `make schema` first.
+BNSIM_LIBS = actors/cpp chutil/src mq0/src logger/src frame_kaspr/src light/src mtd/src positionman/src
+.PHONY: bnsim
+bnsim:
+	@for d in $(BNSIM_LIBS); do $(MAKE) -C $(KSPRPROJ)/$$d $(MKFLAGS) opt || exit 1; done
+	@$(MAKE) -C $(KSPRPROJ)/sim/binance $(MKFLAGS)
+
 # Generate both SBE codecs from CME's latest published templates. Pass args
 # through GENSCHEMA_ARGS to override, e.g.
 #   make schema GENSCHEMA_ARGS='--env cert'                  # different CME environment

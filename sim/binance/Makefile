@@ -19,6 +19,11 @@ SRC = main.cpp BnSimKaspr.cpp BinanceFeed.cpp BinanceSync.cpp Mbp2Mbo.cpp Slippa
 APPNAM = bnsim
 vpath %.cpp $(KSPRPROJ)/sim/src
 
+# Only what bnsim uses, so it builds without the CME codecs (`make bnsim` at
+# the top): no mdp3, ilink, db or mcast_recv.
+LIBS_COMMON_OPT = -lpositionman -lmtd -llight -lframe -lmq0 -llogger -lchutil $(ACTORS_LIB_PATH)/libactors.a -lgsl -lgslcblas
+LIBS_COMMON_DBG = -lpositionmang -lmtdg -llightg -lframeg -lmq0g -lloggerg -lchutilg $(ACTORS_LIB_PATH)/libactorsg.a -lgsl -lgslcblas
+
 LIBSO += -L$(OPENSSL_PATH)/lib -lssl -lcrypto
 LIBSG += -L$(OPENSSL_PATH)/lib -lssl -lcrypto
 
