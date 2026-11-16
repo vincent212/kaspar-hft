@@ -20,7 +20,8 @@
 # byte by cmp, which stops at the first difference. Nothing large is written.
 # SOM's fill lines are compared afterwards.
 #
-# Typical use: A = sim built from main, B = sim built from this branch.
+# Typical use: A = sim built from main, B = sim built from this branch;
+# STATES=1 when B runs the ring ladder (see books() below).
 #
 set -uo pipefail
 
@@ -37,9 +38,30 @@ mkfifo "$WORK/a.fifo" "$WORK/b.fifo"
 mkdir -p "$WORK/a" "$WORK/b"
 echo "work dir: $WORK"
 
+# STATES=1 compares the sequence of distinct book states instead of every
+# print: consecutive identical books collapse to one, record headers and OBX
+# lines are dropped, and real orders are identified by exchange order id.
+# This is the comparison for a ring ladder (sim --ob-ladder). The ring drops
+# ADDs below its window, so (1) OB numbers fewer orders and every later
+# internal id shifts, and (2) a later cancel of a dropped order finds nothing
+# and prints nothing, where the full ladder prints a record whose top levels
+# did not change. Neither changes a book state. Real orders print as
+# <id>:<exchange id>:<size>, ours as <id>S:<size>; ours keep the id SOM gives.
+STATES=${STATES:-0}
+
 books() {   # the book lines of an OB debug stream, levels cut at $LEVELS
   LC_ALL=C grep -a -E '^(sym=|OBX:|[AB]:[0-9]|=====)' |
-    LC_ALL=C awk -v L="$LEVELS" '/^[AB]:/ { split($1, a, ":"); if (a[2] + 0 >= L) next } { print }'
+    LC_ALL=C awk -v L="$LEVELS" -v X="$STATES" '
+      function flush() { if (rec != "" && rec != last) { printf "%s--\n", rec; last = rec } rec = "" }
+      /^[AB]:/ { split($1, a, ":"); if (a[2] + 0 >= L) next }
+      X != 1 { print; next }
+      /^OBX:/ { next }
+      /^sym=/ { flush(); next }
+      {
+        for (i = 2; i <= NF; i++) if ($i ~ /^[0-9]+:[0-9]+:[0-9]+$/) sub(/^[0-9]+:/, "", $i)
+        rec = rec $0 "\n"
+      }
+      END { flush() }'
 }
 
 run() {   # dir sim extra...
