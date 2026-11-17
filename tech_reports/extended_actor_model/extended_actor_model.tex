@@ -116,9 +116,10 @@ resource across scheduling units and returns its result as a value.
 
 \paragraph{\kh{} and \fs{}.} \kh{}\footnote{\kh{} is open source:
 \url{https://github.com/vincent212/kaspar-hft}.} \cite{mayeski2026fastsend} is an
-open-source C++20 actor framework designed for high-frequency trading and used to build a
-trading system for CME futures, in which market-data decoding, order-book
-reconstruction, execution algorithms and order routing are all actors. A \kh{} actor is a
+open-source C++20 actor framework for high-frequency and algorithmic trading. Its
+trading system is venue-independent: market-data decoding, order-book reconstruction,
+execution algorithms and order routing are all actors, and each exchange is connected by
+its own feed handler and order session. A \kh{} actor is a
 C++ object that registers one handler per message type and holds references to other
 actors. The framework provides two delivery primitives. \snd{} is the classic
 asynchronous send: the message is enqueued in the receiver's mailbox, the sender
