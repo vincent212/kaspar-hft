@@ -31,6 +31,10 @@ SRC = test_cache_array.cpp \
       test_binance_sync.cpp \
       test_mbp2mbo_ob.cpp \
       BinanceSync.cpp \
+      test_crypto_sync.cpp \
+      LevelWindow.cpp \
+      CoinbaseSync.cpp \
+      HyperliquidSync.cpp \
       test_position.cpp \
       test_position_manager.cpp \
       test_light22.cpp \

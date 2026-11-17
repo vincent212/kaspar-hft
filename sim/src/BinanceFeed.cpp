@@ -16,36 +16,16 @@
 #include <mutex>
 #include <thread>
 
-#include <boost/asio/connect.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/ssl.hpp>
-#include <boost/beast/core.hpp>
-#include <boost/beast/http.hpp>
-#include <boost/beast/ssl.hpp>
-#include <boost/beast/websocket.hpp>
-#include <boost/beast/websocket/ssl.hpp>
-
 #include "frame/mda/msg/Data.hpp"
-
-namespace beast = boost::beast;
-namespace http = beast::http;
-namespace websocket = beast::websocket;
-namespace net = boost::asio;
-namespace ssl = net::ssl;
-using tcp = net::ip::tcp;
+#include "sim/WsNet.hpp"
 
 namespace sim
 {
 
+using namespace wsnet;
+
 namespace
 {
-  uint64_t now_ns()
-  {
-    return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count());
-  }
-
   std::string lower(std::string s)
   {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
@@ -71,56 +51,9 @@ namespace
             "/market/stream?streams=" + sym + "@aggTrade"};
   }
 
-  ssl::context make_tls()
-  {
-    ssl::context ctx(ssl::context::tls_client);
-    ctx.set_default_verify_paths();
-    ctx.set_verify_mode(ssl::verify_peer);
-    return ctx;
-  }
-
-  // Run one asynchronous operation to completion. Every network step goes
-  // through here rather than the blocking calls, because only the async ones
-  // honour a deadline (tcp_stream::expires_after, the WebSocket idle timeout):
-  // a blocking read on a connection that died without a FIN or RST waits
-  // forever, and SO_RCVTIMEO does not help -- Asio retries the read with an
-  // untimed poll.
-  template <class Start>
-  void await(net::io_context &io, Start start)
-  {
-    beast::error_code ec;
-    bool done = false;
-    start([&ec, &done](beast::error_code e, auto &&...) { ec = e; done = true; });
-    // Until this operation completes, not until the context runs dry: the
-    // WebSocket keeps its idle timer armed between reads.
-    io.restart();
-    while (!done && io.run_one())
-      ;
-    if (ec)
-      throw beast::system_error(ec);
-  }
-
-  constexpr auto kConnectTimeout = std::chrono::seconds(10);
-  constexpr auto kRestTimeout = std::chrono::seconds(10);
   // Binance sends a depth update every 100 ms, so this much silence is a dead
-  // connection. Beast pings at half of it.
+  // connection.
   constexpr auto kIdleTimeout = std::chrono::seconds(30);
-
-  // TLS stream connected to host:port, SNI and certificate name checked.
-  template <class Stream>
-  void tls_connect(net::io_context &io, Stream &s, const std::string &host, const std::string &port)
-  {
-    tcp::resolver resolver(io);
-    auto results = resolver.resolve(host, port);
-    if (!SSL_set_tlsext_host_name(s.native_handle(), host.c_str()))
-      throw beast::system_error(beast::error_code(int(::ERR_get_error()), net::error::get_ssl_category()));
-    s.set_verify_callback(ssl::host_name_verification(host));
-    auto &tcp_layer = beast::get_lowest_layer(s);
-    tcp_layer.expires_after(kConnectTimeout);
-    await(io, [&](auto h) { tcp_layer.async_connect(results, std::move(h)); });
-    tcp_layer.expires_after(kConnectTimeout);
-    await(io, [&](auto h) { s.async_handshake(ssl::stream_base::client, std::move(h)); });
-  }
 }
 
 BinanceFeed::Config BinanceFeed::config_from_ini(const boost::property_tree::ptree &section,

@@ -249,5 +249,8 @@ TEST(OrderFields, BrokerVenueCodes)
   EXPECT_EQ(int(en::x::BINANCE), int(en::x::CLEARSTREET) + 1);
   EXPECT_EQ(int(en::x::BINANCEF), int(en::x::CLEARSTREET) + 2);
   EXPECT_STREQ(en::to_string(en::x(en::x::BINANCEF)), "BINANCEF");
-  EXPECT_EQ(en::x_num_syms(), size_t(en::x::BINANCEF) + 1);
+  EXPECT_EQ(int(en::x::COINBASE), int(en::x::BINANCEF) + 1);
+  EXPECT_EQ(int(en::x::HYPERLIQUID), int(en::x::BINANCEF) + 2);
+  EXPECT_STREQ(en::to_string(en::x(en::x::HYPERLIQUID)), "HYPERLIQUID");
+  EXPECT_EQ(en::x_num_syms(), size_t(en::x::HYPERLIQUID) + 1);
 }

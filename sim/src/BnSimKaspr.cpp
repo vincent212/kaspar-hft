@@ -29,9 +29,57 @@
 namespace sim
 {
 
+BnSimKaspr::FeedSpec BnSimKaspr::FeedSpec::from_config(const Options &opt)
+{
+  FeedSpec f;
+  f.exchange = opt.exchange;
+  ASSERTF(opt.exchange == "binance" || opt.exchange == "coinbase" || opt.exchange == "hyperliquid",
+          boost::format("unknown exchange %s (binance, coinbase, hyperliquid)") % opt.exchange);
+  ASSERTF(!opt.futures || opt.exchange == "binance",
+          boost::format("--futures is for binance only; %s is one market") % opt.exchange);
+
+  const std::string ini = opt.config_dir + "/" + opt.exchange + ".ini";
+  boost::property_tree::ptree pt;
+  boost::property_tree::read_info(ini, pt);
+  auto s = pt.get_child_optional(opt.symbol);
+  ASSERTF(s, boost::format("no section %s in %s") % opt.symbol % ini);
+  f.ladder = s->get<int>("ladder", 1 << 19);
+
+  if (opt.exchange == "binance")
+  {
+    f.venue = opt.futures ? en::x::BINANCEF : en::x::BINANCE;
+    f.asset_name = opt.symbol + (opt.futures ? "_F" : "");
+    f.binance = BinanceFeed::config_from_ini(*s, opt.symbol, opt.futures, char(f.venue.value));
+    f.chunks = f.binance.chunks;
+  }
+  else if (opt.exchange == "coinbase")
+  {
+    f.venue = en::x::COINBASE;
+    f.asset_name = opt.symbol;
+    f.coinbase = CoinbaseFeed::config_from_ini(*s, opt.symbol, char(f.venue.value));
+    f.chunks = f.coinbase.chunks;
+  }
+  else
+  {
+    f.venue = en::x::HYPERLIQUID;
+    f.asset_name = opt.symbol;
+    f.hyperliquid = HyperliquidFeed::config_from_ini(*s, opt.symbol, char(f.venue.value));
+    f.chunks = f.hyperliquid.chunks;
+  }
+  return f;
+}
+
+actors::Actor *BnSimKaspr::FeedSpec::make_feed(actors::Actor *ob) const
+{
+  if (exchange == "coinbase")
+    return new CoinbaseFeed(coinbase, ob);
+  if (exchange == "hyperliquid")
+    return new HyperliquidFeed(hyperliquid, ob);
+  return new BinanceFeed(binance, ob);
+}
+
 BnSimKaspr::BnSimKaspr(const Options &opt)
-    : Manager("bnsim_manager"), opt_(opt),
-      venue_(opt.futures ? en::x::BINANCEF : en::x::BINANCE)
+    : Manager("bnsim_manager"), opt_(opt), spec_(FeedSpec::from_config(opt)), venue_(spec_.venue)
 {
   logger_ = new polonaise::logger::act::Logger("bnsim_log", nullptr);
   add_to_manage_q(logger_);
@@ -61,7 +109,7 @@ BnSimKaspr::BnSimKaspr(const Options &opt)
 }
 
 /**
- * binance.ini holds one section per symbol:
+ * <exchange>.ini holds one section per symbol (sim/CRYPTO.md):
  *
  *   BTCUSDT { tick 0.01  chunk 0.001  ladder 524288  sec_id 1 }
  *
@@ -72,14 +120,6 @@ BnSimKaspr::BnSimKaspr(const Options &opt)
  */
 void BnSimKaspr::load_config()
 {
-  boost::property_tree::ptree pt;
-  boost::property_tree::read_info(opt_.config_dir + "/binance.ini", pt);
-  auto s = pt.get_child_optional(opt_.symbol);
-  ASSERTF(s, boost::format("no section %s in %s/binance.ini") % opt_.symbol % opt_.config_dir);
-
-  feed_cfg_ = BinanceFeed::config_from_ini(*s, opt_.symbol, opt_.futures, char(venue_.value));
-  ladder_ = s->get<int>("ladder", 1 << 19);
-
   // RefData must exist before assets are added; seed it empty, as SimKaspr does.
   {
     const std::string seed = "bnsim_universe_seed.csv";
@@ -89,16 +129,16 @@ void BnSimKaspr::load_config()
     frame::ref::RefData::set_universe(seed);
     frame::ref::RefData::inst();
   }
-  const std::string name = opt_.symbol + (opt_.futures ? "_F" : "");
-  auto a = frame::ref::RefData::add_future_asset(name, venue_, feed_cfg_.chunks.sec_id,
+  const std::string &name = spec_.asset_name;
+  auto a = frame::ref::RefData::add_future_asset(name, venue_, spec_.chunks.sec_id,
                                                  "", opt_.symbol, 1.0);
   ASSERT(a, "add_future_asset failed");
   a->maxpx = 1 << 30;
   asset_id_ = a->id;
 
   std::cerr << "bnsim: " << name << " on " << en::to_string(venue_) << " tick "
-            << feed_cfg_.chunks.tick << " chunk " << feed_cfg_.chunks.chunk << " ladder "
-            << ladder_ << std::endl;
+            << spec_.chunks.tick << " chunk " << spec_.chunks.chunk << " ladder "
+            << spec_.ladder << std::endl;
 }
 
 void BnSimKaspr::create_order_book()
@@ -108,7 +148,7 @@ void BnSimKaspr::create_order_book()
     row.resize(asset_id_ + 1, nullptr);
 
   boost::property_tree::ptree pt_model;
-  pt_model.put("ladder_ticks", ladder_);
+  pt_model.put("ladder_ticks", spec_.ladder);
   auto ob = new frame::ob::act::OB(nullptr, true /*cross_check*/, this, asset_id_, pt_model);
   group_->add(ob);
   if (opt_.ob_delay_us >= 0)
@@ -202,7 +242,7 @@ void BnSimKaspr::create_console()
 
 void BnSimKaspr::create_feed()
 {
-  feed_ = new BinanceFeed(feed_cfg_, ob_);
+  feed_ = spec_.make_feed(ob_);
   add_to_manage_q(feed_);
 }
 

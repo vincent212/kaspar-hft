@@ -92,6 +92,7 @@ namespace sim
 
     // Inspection, for tests and the --dump mode.
     int64_t ticks(double px) const;
+    size_t target(double qty) const;   // chunks for a level of quantity qty
     size_t chunks(bool bid, int64_t ticks) const;
     const std::deque<uint64_t> *queue(bool bid, int64_t ticks) const;
     int64_t best(bool bid) const;   // 0 when the side is empty
@@ -111,7 +112,6 @@ namespace sim
     std::vector<bfile::l3_t> pending_;
 
     uint64_t stamp(uint64_t tx);
-    size_t target(double qty) const;
     void push_mbo(uint8_t action, bool bid, int64_t t, uint64_t oid, uint64_t tx,
                   bool recovery = false);
     void push_exec(uint64_t oid, uint64_t tx);

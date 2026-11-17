@@ -65,7 +65,7 @@ struct TestableOB : public ob::act::OB {
 
 constexpr uint64_t kT0 = 1736960000000000000ULL;   // epoch ns
 
-class OBBookTest : public ::testing::Test {
+class OBBookTest : public ::testing::TestWithParam<int> {
 protected:
   MockActor probe{"probe"};
   boost::property_tree::ptree pt;
@@ -85,6 +85,7 @@ protected:
     auto asset = ref::RefData::get_asset("ESH6");
     ASSERT_NE(asset, nullptr);
     sym = asset->id;
+    if (GetParam()) pt.put("ladder_ticks", GetParam());
     ob = std::make_unique<TestableOB>(nullptr, true /*do_cross_check*/,
                                       nullptr /*manager*/, sym, pt);
     probe.clear();
@@ -186,7 +187,7 @@ protected:
 // Reconstruction
 // ---------------------------------------------------------------------------
 
-TEST_F(OBBookTest, AddsBuildBothSidesOfTheTouch) {
+TEST_P(OBBookTest, AddsBuildBothSidesOfTheTouch) {
   add(en::bs::BUY, 100, 7, kT0);
   add(en::bs::SEL, 104, 9, kT0 + 1);
 
@@ -195,7 +196,7 @@ TEST_F(OBBookTest, AddsBuildBothSidesOfTheTouch) {
   EXPECT_EQ(level(en::bs::SEL, 104).sz, 9);
 }
 
-TEST_F(OBBookTest, OrdersAtOnePriceAggregate) {
+TEST_P(OBBookTest, OrdersAtOnePriceAggregate) {
   add(en::bs::BUY, 100, 5, kT0);
   add(en::bs::BUY, 100, 3, kT0 + 1);
   add(en::bs::BUY, 100, 2, kT0 + 2);
@@ -205,7 +206,7 @@ TEST_F(OBBookTest, OrdersAtOnePriceAggregate) {
   EXPECT_EQ(l.cnt, 3) << "and the count is how many there are";
 }
 
-TEST_F(OBBookTest, ABetterBidMovesTheTouch) {
+TEST_P(OBBookTest, ABetterBidMovesTheTouch) {
   add(en::bs::BUY, 100, 5, kT0);
   add(en::bs::SEL, 104, 5, kT0 + 1);
   ASSERT_EQ(bbo().first, 100);
@@ -214,7 +215,7 @@ TEST_F(OBBookTest, ABetterBidMovesTheTouch) {
   EXPECT_EQ(bbo(), std::make_pair(102, 104));
 }
 
-TEST_F(OBBookTest, DeletingTheTouchFallsBackToTheNextLevel) {
+TEST_P(OBBookTest, DeletingTheTouchFallsBackToTheNextLevel) {
   add(en::bs::BUY, 100, 5, kT0);
   const auto top = add(en::bs::BUY, 102, 5, kT0 + 1);
   add(en::bs::SEL, 104, 5, kT0 + 2);
@@ -227,7 +228,7 @@ TEST_F(OBBookTest, DeletingTheTouchFallsBackToTheNextLevel) {
   EXPECT_EQ(level(en::bs::BUY, 100).sz, 5);
 }
 
-TEST_F(OBBookTest, DeletingOneOfSeveralLeavesTheRest) {
+TEST_P(OBBookTest, DeletingOneOfSeveralLeavesTheRest) {
   add(en::bs::BUY, 100, 5, kT0);
   const auto second = add(en::bs::BUY, 100, 3, kT0 + 1);
   ASSERT_EQ(level(en::bs::BUY, 100).cnt, 2);
@@ -245,7 +246,7 @@ TEST_F(OBBookTest, DeletingOneOfSeveralLeavesTheRest) {
 
 // Locked is legal. CME quotes locked markets in pre-open and around the open,
 // and an earlier version of this check aborted on them.
-TEST_F(OBBookTest, ALockedBookIsAllowed) {
+TEST_P(OBBookTest, ALockedBookIsAllowed) {
   add(en::bs::BUY, 100, 5, kT0);
   add(en::bs::SEL, 100, 5, kT0 + 1000);
   add(en::bs::SEL, 101, 5, kT0 + 2000);   // a later transaction: the check runs
@@ -257,7 +258,7 @@ TEST_F(OBBookTest, ALockedBookIsAllowed) {
 // A sweep: aggressor first, then the deletes of the liquidity it consumed, all
 // sharing one transactTime. The book is crossed in the middle of it and must
 // not abort -- this is the case that made per-record checking wrong.
-TEST_F(OBBookTest, AnIntraTransactionCrossDuringASweepIsAllowed) {
+TEST_P(OBBookTest, AnIntraTransactionCrossDuringASweepIsAllowed) {
   add(en::bs::BUY, 100, 5, kT0);
   const auto a1 = add(en::bs::SEL, 102, 5, kT0 + 1000);
   const auto a2 = add(en::bs::SEL, 103, 5, kT0 + 2000);
@@ -278,7 +279,7 @@ TEST_F(OBBookTest, AnIntraTransactionCrossDuringASweepIsAllowed) {
 // A genuine inversion that survives to end-of-transaction must kill the run.
 // An invariant that only logs is one that gets ignored, and this one exists to
 // stop a replay producing plausible fills against a corrupt ladder.
-TEST_F(OBBookTest, AGenuineCrossAbortsTheRun) {
+TEST_P(OBBookTest, AGenuineCrossAbortsTheRun) {
   EXPECT_DEATH(
       {
         add(en::bs::BUY, 100, 5, kT0);
@@ -294,7 +295,7 @@ TEST_F(OBBookTest, AGenuineCrossAbortsTheRun) {
 // The check is deferred to the next transaction, so a cross that is still open
 // when the data ends is simply never reported. Worth pinning so nobody
 // "fixes" it into a per-record check again.
-TEST_F(OBBookTest, ACrossIsNotReportedUntilTheNextTransactionArrives) {
+TEST_P(OBBookTest, ACrossIsNotReportedUntilTheNextTransactionArrives) {
   add(en::bs::BUY, 100, 5, kT0);
   add(en::bs::SEL, 102, 5, kT0 + 1000);
   add(en::bs::BUY, 104, 5, kT0 + 2000);   // crossed, and nothing follows
@@ -315,7 +316,7 @@ TEST_F(OBBookTest, ACrossIsNotReportedUntilTheNextTransactionArrives) {
 // reserve but do not match, so the crossed book was the exchange's own correct
 // state. The capture is complete across it: no sequence gaps, and every order
 // involved has exactly its NEW and its DELETE.
-TEST_F(OBBookTest, ACrossWhileHaltedIsAllowed) {
+TEST_P(OBBookTest, ACrossWhileHaltedIsAllowed) {
   status(21, 2);   // PreOpen on a market event
 
   add(en::bs::BUY, 100, 5, kT0);
@@ -327,7 +328,7 @@ TEST_F(OBBookTest, ACrossWhileHaltedIsAllowed) {
       << "a crossed book is legitimate while the instrument is not matching";
 }
 
-TEST_F(OBBookTest, ACrossAfterTheMarketReopensStillAborts) {
+TEST_P(OBBookTest, ACrossAfterTheMarketReopensStillAborts) {
   EXPECT_DEATH(
       {
         status(21, 2);                          // halted
@@ -343,7 +344,7 @@ TEST_F(OBBookTest, ACrossAfterTheMarketReopensStillAborts) {
 // Only ReadyToTrade means matching. Everything else -- halt, close, pre-open,
 // the price-indication phase of an open -- accepts orders without crossing
 // them off.
-TEST_F(OBBookTest, OnlyReadyToTradeCountsAsMatching) {
+TEST_P(OBBookTest, OnlyReadyToTradeCountsAsMatching) {
   for (uint8_t st : {uint8_t(2), uint8_t(4), uint8_t(15), uint8_t(18),
                      uint8_t(21), uint8_t(24), uint8_t(25), uint8_t(26)}) {
     SetUp();                     // a fresh book per status
@@ -359,7 +360,7 @@ TEST_F(OBBookTest, OnlyReadyToTradeCountsAsMatching) {
 // Silence is not permission: a session that never carries a status record has
 // to keep enforcing the invariant, because catching our own reconstruction
 // bugs is the entire point of it.
-TEST_F(OBBookTest, WithNoStatusMessageTheInvariantIsStillEnforced) {
+TEST_P(OBBookTest, WithNoStatusMessageTheInvariantIsStillEnforced) {
   EXPECT_DEATH(
       {
         add(en::bs::BUY, 100, 5, kT0);
@@ -378,7 +379,7 @@ TEST_F(OBBookTest, WithNoStatusMessageTheInvariantIsStillEnforced) {
 // 610608800 -- the two values run together, a decode fault in the source. That
 // indexes about 1000x past the end of the ladder and the process died on a
 // signal rather than an assert. One corrupt print must not cost a session.
-TEST_F(OBBookTest, AnImpossiblePriceIsDroppedAndTheSessionContinues) {
+TEST_P(OBBookTest, AnImpossiblePriceIsDroppedAndTheSessionContinues) {
   add(en::bs::BUY, 100, 5, kT0);
   add(en::bs::SEL, 104, 5, kT0 + 1000);
   ASSERT_EQ(bbo(), std::make_pair(100, 104));
@@ -404,7 +405,7 @@ TEST_F(OBBookTest, AnImpossiblePriceIsDroppedAndTheSessionContinues) {
 // kv comes straight from user-typed console tokens and get_handler is noexcept,
 // so a parse failure must return a value, not throw: a throw out of a noexcept
 // function terminates the process before the console's own catch can run.
-TEST_F(OBBookTest, AMalformedLevelQueryDoesNotKillTheProcess) {
+TEST_P(OBBookTest, AMalformedLevelQueryDoesNotKillTheProcess) {
   add(en::bs::BUY, 100, 5, kT0);
 
   for (const char* bad : {"x", "", "99999999999999999999", "-1", "12abc"})
@@ -419,7 +420,7 @@ TEST_F(OBBookTest, AMalformedLevelQueryDoesNotKillTheProcess) {
   }
 }
 
-TEST_F(OBBookTest, AnUnknownSideIsRejectedRatherThanGuessed) {
+TEST_P(OBBookTest, AnUnknownSideIsRejectedRatherThanGuessed) {
   add(en::bs::BUY, 100, 5, kT0);
   probe.clear();
   cons::msg::Get g("qat", {{"side", "X"}, {"px", "100"}});
@@ -431,3 +432,10 @@ TEST_F(OBBookTest, AnUnknownSideIsRejectedRatherThanGuessed) {
 }
 
 }  // namespace
+
+// Every case above runs twice: on the full price ladder (the default, what the
+// CME replays use) and on a ring ladder (ladder_ticks, what bnsim uses).
+INSTANTIATE_TEST_SUITE_P(Ladder, OBBookTest, ::testing::Values(0, 1024),
+                         [](const ::testing::TestParamInfo<int> &i) {
+                           return i.param ? "Ring" + std::to_string(i.param) : std::string("Full");
+                         });

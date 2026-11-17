@@ -257,7 +257,7 @@ TEST_F(TachBookFillTest, ShutdownFlushesHeldFills) {
 // ---------------------------------------------------------------------------
 namespace {
 
-class OBFillTest : public ::testing::Test {
+class OBFillTest : public ::testing::TestWithParam<int> {
 protected:
   static int32_t next_secid;
   int32_t secid = 0;
@@ -269,6 +269,7 @@ protected:
   void SetUp() override {
     secid = next_secid++;
     auto a = make_asset("ZNOB" + std::to_string(secid), secid);
+    if (GetParam()) pt.put("ladder_ticks", GetParam());
     ob = std::make_unique<ob::act::OB>(nullptr, false, nullptr, a->id, pt);
     mda::msg::Subscribe sub;
     sub.prio = mda::msg::Subscribe::HI;
@@ -282,7 +283,7 @@ int32_t OBFillTest::next_secid = 995001;
 
 // The modified aggressor of ModifiedAggressorIsNotPrinted, through OB: its
 // own EXEC is dropped; the four resting offers are processed and printed.
-TEST_F(OBFillTest, ModifiedAggressorIsNotPrinted) {
+TEST_P(OBFillTest, ModifiedAggressorIsNotPrinted) {
   f->mbo(1, NEW, 901, OFFER, 104.734375, 100);
   f->mbo(10, NEW, 1, BID, 104.6875, 127);
   f->mbo(11, NEW, 2, OFFER, 104.71875, 14);
@@ -312,7 +313,7 @@ TEST_F(OBFillTest, ModifiedAggressorIsNotPrinted) {
 // then re-sends it at 104.703125 (it moved; the capture missed the live
 // Change). Before the fix OB kept the OLD stored price and printed the later
 // fill at 104.6875.
-TEST_F(OBFillTest, SnapshotReAddUpdatesStoredPrice) {
+TEST_P(OBFillTest, SnapshotReAddUpdatesStoredPrice) {
   f->mbo(1000, NEW, 900, OFFER, 104.734375, 100);
   f->mbo(1001, NEW, 1, BID, 104.6875, 10);
   f->mbo(2000, NEW, 900, OFFER, 104.734375, 100, true);   // OB clears and rebuilds
@@ -327,3 +328,10 @@ TEST_F(OBFillTest, SnapshotReAddUpdatesStoredPrice) {
   EXPECT_TRUE(p[0].resting_buy);
   EXPECT_EQ(p[0].qty, 4);
 }
+
+// Every case above runs twice: on the full price ladder (the default, what the
+// CME replays use) and on a ring ladder (ladder_ticks, what bnsim uses).
+INSTANTIATE_TEST_SUITE_P(Ladder, OBFillTest, ::testing::Values(0, 1024),
+                         [](const ::testing::TestParamInfo<int> &i) {
+                           return i.param ? "Ring" + std::to_string(i.param) : std::string("Full");
+                         });

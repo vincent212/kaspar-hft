@@ -18,21 +18,24 @@
 #include "light/if/QCoord.hpp"
 #include "logger/act/Logger.hpp"
 #include "sim/act/BinanceFeed.hpp"
+#include "sim/act/CoinbaseFeed.hpp"
+#include "sim/act/HyperliquidFeed.hpp"
 
 namespace sim
 {
   struct SlippageProbe;
 
   /**
-   * Live Binance simulator: the replay simulator's books, lights and order
-   * manager, fed live from Binance instead of from a capture.
+   * Live crypto simulator: the replay simulator's books, lights and order
+   * manager, fed live from Binance, Coinbase or Hyperliquid instead of from a
+   * capture.
    *
-   *   BinanceFeed (own thread) -> OB -> light22 (shadow) -> SOM (sim fills)
+   *   <Exchange>Feed (own thread) -> OB -> light22 (shadow) -> SOM (sim fills)
    *                                ^                         |
    *                             Timer (market time)       PositionManager
    *                                                       SlippageProbe
    *
-   * One symbol per process. Market time is Binance's event time, so OB's
+   * One symbol per process. Market time is the exchange's event time, so OB's
    * latency model and the probe's windows run on the exchange's clock.
    *
    * The lights and the PositionManager exist only with the probe, which is
@@ -46,9 +49,10 @@ namespace sim
   {
     struct Options
     {
-      std::string config_dir;      // binance.ini, lights.ini, som.ini
-      std::string symbol;          // a section of binance.ini, e.g. BTCUSDT
-      bool futures = false;        // USD-M futures instead of spot
+      std::string exchange = "binance";   // binance, coinbase or hyperliquid
+      std::string config_dir;      // <exchange>.ini, lights.ini, som.ini
+      std::string symbol;          // a section of <exchange>.ini: BTCUSDT, BTC-USD, BTC
+      bool futures = false;        // Binance USD-M futures instead of spot
       int probe_size = 0;          // chunks per leg; 0 = no probe, so no orders
       int probe_window_min = 10;   // minimum window length
       int probe_days = 7;          // how long the probe runs from start
@@ -59,14 +63,33 @@ namespace sim
       int mqport = 7777;           // MQ0 (zmq) console port; 0 = none
     };
 
+    /**
+     * The exchange-specific part, read from <config_dir>/<exchange>.ini: the
+     * venue, the chunking, the OB ladder, and the feed actor to build.
+     */
+    struct FeedSpec
+    {
+      std::string exchange;
+      en::x venue = en::x::BINANCE;
+      std::string asset_name;   // BTCUSDT, BTCUSDT_F, BTC-USD, BTC
+      int ladder = 1 << 19;
+      Mbp2Mbo::Config chunks;
+      BinanceFeed::Config binance;
+      CoinbaseFeed::Config coinbase;
+      HyperliquidFeed::Config hyperliquid;
+
+      static FeedSpec from_config(const Options &opt);
+      // The feed actor, sending to `ob` (nullptr: the --dump monitor).
+      actors::Actor *make_feed(actors::Actor *ob) const;
+    };
+
     explicit BnSimKaspr(const Options &opt);
     ~BnSimKaspr() override = default;
 
   private:
     Options opt_;
+    FeedSpec spec_;
     en::x venue_;
-    BinanceFeed::Config feed_cfg_;
-    int ladder_ = 0;
     uint asset_id_ = 0;
 
     actors::Group *group_ = nullptr;

@@ -52,7 +52,9 @@ struct x {
         LIME,
         CLEARSTREET,
         BINANCE,
-        BINANCEF
+        BINANCEF,
+        COINBASE,
+        HYPERLIQUID
     };
 
     // Implicit conversion to uint for backward compatibility
@@ -64,7 +66,7 @@ struct x {
 };
 
 // Constexpr lookup tables for x
-inline constexpr std::array<const char*, 30> x_names = {{
+inline constexpr std::array<const char*, 32> x_names = {{
     "UNI",
     "CMEMD",
     "CMEILINK1",
@@ -95,9 +97,11 @@ inline constexpr std::array<const char*, 30> x_names = {{
     "CLEARSTREET",
     "BINANCE",
     "BINANCEF",
+    "COINBASE",
+    "HYPERLIQUID",
 }};
 
-inline constexpr std::array<std::uint32_t, 30> x_values = {{
+inline constexpr std::array<std::uint32_t, 32> x_values = {{
     x::UNI,
     x::CMEMD,
     x::CMEILINK1,
@@ -128,11 +132,13 @@ inline constexpr std::array<std::uint32_t, 30> x_values = {{
     x::CLEARSTREET,
     x::BINANCE,
     x::BINANCEF,
+    x::COINBASE,
+    x::HYPERLIQUID,
 }};
 
 using x_pair = std::pair<x, const char*>;
 
-inline constexpr std::array<x_pair, 30> x_name_hash = {{
+inline constexpr std::array<x_pair, 32> x_name_hash = {{
     x_pair{x::UNI, "UNI"},
     x_pair{x::CMEMD, "CMEMD"},
     x_pair{x::CMEILINK1, "CMEILINK1"},
@@ -163,12 +169,14 @@ inline constexpr std::array<x_pair, 30> x_name_hash = {{
     x_pair{x::CLEARSTREET, "CLEARSTREET"},
     x_pair{x::BINANCE, "BINANCE"},
     x_pair{x::BINANCEF, "BINANCEF"},
+    x_pair{x::COINBASE, "COINBASE"},
+    x_pair{x::HYPERLIQUID, "HYPERLIQUID"},
 }};
 
 // Type-safe array indexed by x
 template<typename T>
 struct x_array {
-    std::array<T, 30> data;
+    std::array<T, 32> data;
 
     // Access operators
     constexpr T& operator[](x idx) { return data[idx.value]; }
@@ -210,7 +218,7 @@ INLINE constexpr const char* to_string(x n) {
 }
 
 INLINE constexpr std::size_t x_num_syms() {
-    return 30;
+    return 32;
 }
 
 INLINE constexpr bool is_valid(x n) {

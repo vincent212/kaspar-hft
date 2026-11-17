@@ -5,7 +5,8 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-// bnsim -- the simulator on live Binance data. See sim/BINANCE.md.
+// bnsim -- the simulator on live Binance, Coinbase or Hyperliquid data. See
+// sim/BINANCE.md and sim/CRYPTO.md.
 
 #include <boost/program_options.hpp>
 #include <boost/property_tree/info_parser.hpp>
@@ -30,9 +31,9 @@ namespace
   // --dump: the feed alone, printing the top of the synthetic book each second.
   struct DumpManager : public actors::Manager
   {
-    explicit DumpManager(const sim::BinanceFeed::Config &cfg) : Manager("bnsim_dump")
+    explicit DumpManager(const sim::BnSimKaspr::FeedSpec &spec) : Manager("bnsim_dump")
     {
-      add_to_manage_q(new sim::BinanceFeed(cfg, nullptr));
+      add_to_manage_q(spec.make_feed(nullptr));
     }
   };
 }
@@ -42,10 +43,13 @@ int main(int argc, char **argv)
   po::options_description desc("bnsim options");
   desc.add_options()
       ("help", "this message")
+      ("exchange", po::value<string>()->default_value("binance"),
+       "binance, coinbase or hyperliquid")
       ("config", po::value<string>()->default_value("config_binance"),
-       "directory with binance.ini, lights.ini and som.ini")
-      ("symbol", po::value<string>()->default_value("BTCUSDT"), "a section of binance.ini")
-      ("futures", "USD-M futures (fstream/fapi) instead of spot")
+       "directory with <exchange>.ini, lights.ini and som.ini")
+      ("symbol", po::value<string>()->default_value("BTCUSDT"),
+       "a section of <exchange>.ini: BTCUSDT (binance), BTC-USD (coinbase), BTC (hyperliquid)")
+      ("futures", "binance: USD-M futures (fstream/fapi) instead of spot")
       ("dump", "feed only: print the top of the synthetic book every second")
       ("probe-size", po::value<int>()->default_value(0),
        "chunks per leg for the SlippageProbe; without it there are no lights, and orders come only over zmq")
@@ -79,6 +83,7 @@ int main(int argc, char **argv)
   polonaise::logger::act::Logger::quiet = vm.count("quiet") > 0;
 
   sim::BnSimKaspr::Options opt;
+  opt.exchange = vm["exchange"].as<string>();
   opt.config_dir = vm["config"].as<string>();
   opt.symbol = vm["symbol"].as<string>();
   opt.futures = vm.count("futures") > 0;
@@ -95,13 +100,7 @@ int main(int argc, char **argv)
   try
   {
     if (vm.count("dump"))
-    {
-      boost::property_tree::ptree pt;
-      boost::property_tree::read_info(opt.config_dir + "/binance.ini", pt);
-      mgr = new DumpManager(sim::BinanceFeed::config_from_ini(
-          pt.get_child(opt.symbol), opt.symbol, opt.futures,
-          char((opt.futures ? en::x(en::x::BINANCEF) : en::x(en::x::BINANCE)).value)));
-    }
+      mgr = new DumpManager(sim::BnSimKaspr::FeedSpec::from_config(opt));
     else
       mgr = new sim::BnSimKaspr(opt);
   }

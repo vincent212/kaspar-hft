@@ -5,9 +5,9 @@
 #
 # run.sh -- run bnsim for one symbol and market, restarting it if it exits.
 #
-#   run.sh <SYMBOL> [--futures] [bnsim args...]
+#   [EXCHANGE=coinbase|hyperliquid] run.sh <SYMBOL> [--futures] [bnsim args...]
 #
-# Each start gets its own directory, $BNRUNS/<SYMBOL>[_F]/<UTC start time>/,
+# Each start gets its own directory, $BNRUNS/[<exchange>_]<SYMBOL>[_F]/<UTC start time>/,
 # holding the probe CSV, the logs and stdout/stderr. A process that exits --
 # a crash, or a kill -- is started again after 5 s in a new directory; the
 # simulation state does not carry over. Stop with Ctrl-C (or kill this script).
@@ -26,7 +26,9 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 BNSIM=${BNSIM:-$HERE/bnsim}
 CONFIG=${CONFIG:-$HERE/../config_binance}
 BNRUNS=${BNRUNS:-$HOME/bnruns}
+EXCHANGE=${EXCHANGE:-binance}
 NAME=$SYMBOL${FUT:+_F}
+[ "$EXCHANGE" = binance ] || NAME=${EXCHANGE}_$NAME
 
 trap 'kill "$PID" 2>/dev/null; exit 0' INT TERM
 
@@ -34,7 +36,7 @@ while true; do
   DIR=$BNRUNS/$NAME/$(date -u +%Y%m%dT%H%M%SZ)
   mkdir -p "$DIR"
   echo "$(date -u +%FT%TZ) $NAME: starting in $DIR"
-  (cd "$DIR" && exec "$BNSIM" --config "$CONFIG" --symbol "$SYMBOL" $FUT \
+  (cd "$DIR" && exec "$BNSIM" --exchange "$EXCHANGE" --config "$CONFIG" --symbol "$SYMBOL" $FUT \
        --probe-size "${PROBE_SIZE:-5}" --probe-out probe.csv --mqport "${MQPORT:-0}" --quiet "$@" > out.txt 2> err.txt) &
   PID=$!
   wait "$PID"

@@ -21,7 +21,8 @@ check-schema:
 	      echo "       They are generated from CME, not committed. Run: make schema"; \
 	      echo "       (see genschema/README.md for prerequisites)"; exit 1; }
 
-# bnsim, the simulator on live Binance data (sim/BINANCE.md), alone: only the
+# bnsim, the simulator on live Binance, Coinbase or Hyperliquid data
+# (sim/BINANCE.md, sim/CRYPTO.md), alone: only the
 # libraries it links, so neither the CME codecs nor mdp3/ilink are needed.
 # `make bnsim` on a fresh checkout, no `make schema` first.
 BNSIM_LIBS = actors/cpp chutil/src mq0/src logger/src frame_kaspr/src light/src mtd/src positionman/src
