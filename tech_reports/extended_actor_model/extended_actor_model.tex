@@ -179,7 +179,9 @@ shared execution resource on which send-then-wait deadlocks.
   callee's mailbox (\cref{prop:order}); \fs{} is not send-then-wait when resources are shared
   (\cref{prop:notsendwait}); and the extended calculus exhibits unbounded nondeterminism
   under its own fairness assumption through \fs{}, and under an additional delivery
-  condition through \snd{} (\cref{prop:unbounded-send,prop:unbounded-fs}).
+  condition through \snd{} (\cref{prop:unbounded-send,prop:unbounded-fs}); and two
+  semantics for exceptions raised by a \fs{} callee, propagation and conversion to an
+  error reply, both of which preserve these results (Section~\ref{sec:exceptions}).
   \item Trace soundness of a single global queue as a simulator for debugging and
   deterministic replay, across languages and substrates (\cref{thm:gqsound}), its limits
   (\cref{prop:gqincomplete,prop:gqdet}), and an offline check for the deadlocks it cannot
@@ -1374,6 +1376,84 @@ also explains why a synchronous call within one scheduling unit, as in ABS cogs 
 vats, must execute on the caller's processor: within the unit, send-then-wait cannot
 complete.
 
+\subsection{Exceptions}
+\label{sec:exceptions}
+
+The calculus of Section~\ref{sec:calculus} has no exceptions: a turn reduces to a value
+or diverges. A handler in a practical runtime can also raise an exception, and with
+\fs{} the question arises of what the caller observes when the callee's handler raises
+one. Two semantics are natural. Under the first, the exception \emph{propagates}: it
+leaves the callee's turn and is raised again in the caller at the point of the call, as
+an exception raised by a called function is. Under the second, the exception is
+\emph{converted}: the callee's turn catches it and ends normally, returning a
+distinguished error value, for instance a null reply or an exception message, which the
+caller must test.
+
+\paragraph{Syntax and rules.} We extend expressions with $\mathsf{raise}(v)$ and
+$\mathsf{try}\ e\ \mathsf{catch}\ x \Rightarrow e'$, with the usual actor-local rules:
+$\mathsf{raise}(v)$ propagates outward through evaluation contexts until it reaches an
+enclosing $\mathsf{try}$, whose handler $e'$ then runs with $x$ bound to $v$. A frame
+whose expression is an uncaught $\mathsf{raise}(v)$ has \emph{raised}. Two thread rules
+handle raised frames.
+
+\begin{mathpar}
+\inferrule*[right=Turn-Raise]
+  {t = \Thr{\theta, S\cdot\Frm{\iota_a, \mathsf{raise}(v), \turn}}}
+  {K \red K[t \mapsto \Thr{\theta, S}]}
+
+\inferrule*[right=Fast-Raise]
+  {t' = \Thr{\theta', S'\cdot\Frm{\iota_b, \mathsf{raise}(v), \ret{\rho}}} \\
+   t = \Thr{\theta, S\cdot\Frm{\iota_a, \ctx{\wait{\rho}}, \kappa}\cdot S''} \\ v' = \pass(v)}
+  {K \red K[t' \mapsto \Thr{\theta', S'}][t \mapsto \Thr{\theta, S\cdot\Frm{\iota_a, \ctx{\mathsf{raise}(v')}, \kappa}\cdot S''}]}
+\end{mathpar}
+
+\textsc{Turn-Raise} ends a turn started from the mailbox whose exception was not caught;
+the exception has no caller to return to and is discarded, as the value of a completed
+turn is, or reported by the runtime. \textsc{Fast-Raise} is the propagating semantics: it
+mirrors \textsc{Fast-Return}, but the copied exception replaces $\wait{\rho}$ as a
+$\mathsf{raise}$, so the caller's own $\mathsf{try}$ blocks, if any, apply to it. The
+converting semantics needs no new thread rule: the runtime wraps every handler body $e$
+invoked by \fs{} as $\mathsf{try}\ e\ \mathsf{catch}\ x \Rightarrow \mathsf{err}(x)$, where
+$\mathsf{err}(x)$ is a value, so the callee's turn always ends by \textsc{Fast-Return},
+and an exception reaches the caller as an ordinary reply. For \snd{}, which has no
+reply, the converting semantics is an explicit \snd{} of an exception message to the
+sender, and the propagating semantics does not apply.
+
+\paragraph{Effect on the properties.} Both semantics preserve the results of this section,
+with the following adjustments.
+\begin{itemize}[leftmargin=1.4em]
+  \item \emph{Isolation} (\cref{thm:isolation}) is unaffected: an exception carries a
+  copied value, like a reply, and neither rule lets a frame access another actor's heap.
+  \item \emph{Determinism relative to replies} (\cref{thm:determinism}) holds once the
+  outcome of a call, either a value or a raised exception, counts as the reply. Under the
+  converting semantics this is the theorem as stated, since $\mathsf{err}(x)$ is a value.
+  \item \emph{Liveness} (\cref{thm:liveness}) holds with part~(a) of \cref{ass:fair}
+  read as ``terminates, normally or by raising''. \textsc{Turn-Raise} and
+  \textsc{Fast-Raise} remove a frame, as \textsc{Turn-End} and \textsc{Fast-Return} do,
+  and create no frame and no blocked call, so they add no edge to the wait-for graph, and
+  the deadlock results of Section~\ref{sec:detect} are unchanged.
+  \item \emph{Atomicity of a turn.} An exception ends a turn partway through its body, so
+  the actor's heap may be left in an intermediate state that the handler's invariants do
+  not allow. This holds for both semantics and for turns started by \snd{}; it is the
+  usual obligation of exception safety, now stated per turn. Under the propagating
+  semantics it extends to the caller: a caller that does not catch the exception also
+  ends its turn partway through.
+\end{itemize}
+
+\paragraph{Comparison.} Propagation makes \fs{} behave as a function call does. It is
+the natural semantics under \textsc{Fast-Local}, where the callee's handler already runs
+on the caller's stack and a runtime implements it by unwinding through the inline call;
+the callee's lock must then be released during unwinding. Under \textsc{Fast-Remote} the
+exception must be transferred to the caller's resource, as a reply is. Conversion keeps
+the interface of \fs{} unchanged, returns every failure as data, and places the
+obligation to check the reply on the caller; it is the only option where the substrate
+has no exceptions, as on the FPGA, where Vitis HLS does not synthesise them, and across
+a language boundary whose two sides represent exceptions differently. The two semantics
+can be combined: conversion at boundaries between runtimes and languages, propagation
+within one runtime. \kh{} declares its handlers \texttt{noexcept}, so an exception that
+escapes a handler terminates the process; the semantics above are the choices available
+to a runtime that admits exceptions in handlers.
+
 % ---------------------------------------------------------------
 \section{Simulation and debugging from a global queue}
 \label{sec:debug}
@@ -1845,7 +1925,8 @@ the message-passing actor model with both primitives.
 \begin{itemize}[leftmargin=1.4em]
   \item A mechanisation of the calculus and proofs, for instance by extending the PLT
   Redex models of \cite{dekoster2024}.
-  \item The calculus has no failures; a \fs{} to an actor on a failed resource waits
+  \item The calculus has no resource failures: exceptions raised by a handler are covered
+  (Section~\ref{sec:exceptions}), but a \fs{} to an actor whose resource has failed waits
   indefinitely. Timeouts and their interaction with isolation remain open.
   \item The mailboxes of the calculus are unbounded, so \snd{} never blocks and never
   loses a message. In hardware, the FIFOs between FPGA processes have a fixed depth, and a
