@@ -26,7 +26,6 @@
   xleftmargin=4pt, xrightmargin=4pt, aboveskip=6pt, belowskip=6pt,
   keywordstyle=\bfseries, commentstyle=\itshape\color{gray!80!black},
   showstringspaces=false, breaklines=true}
-\usepackage[text={DRAFT},color={[gray]{0.88}},scale=1.2,angle=45]{draftwatermark}
 \renewcommand{\topfraction}{0.9}
 \renewcommand{\bottomfraction}{0.8}
 \renewcommand{\textfraction}{0.07}
@@ -401,6 +400,19 @@ handlers depend on where their peers run.
 \section{Motivation for actors on the card}
 \label{sec:why}
 % ---------------------------------------------------------------
+
+The motivation for this work is high-frequency trading. A high-frequency trading
+system competes on the time between the arrival of a market-data packet and the
+departure of the order it triggers, and on the tail of that time as much as its
+median: an order sent late, even occasionally, is an order that misses the price
+it was meant for. The critical path of such a system runs from the network port
+through the feed handler, the order books, the signal and the risk checks to
+order entry, and every stage on it is a candidate for hardware. FPGAs attached to
+the network port are the established means of shortening this path, because they
+process bytes as they arrive and do not suffer the scheduling and memory effects
+that produce tails on a CPU. The question for a trading system built from actors
+is therefore how its latency-critical stages can be moved onto the card without
+abandoning the programming model in which the rest of the system is written.
 
 The case for actors on a CPU \cite{fastsend} rested on isolation: each actor
 owns its state and communicates only through messages, so there are no data
