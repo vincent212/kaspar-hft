@@ -265,7 +265,7 @@ pointers stored in objects and dereferenced later fall outside this subset. The
 CPU actor framework uses all four.
 
 % ---------------------------------------------------------------
-\section{Actors and dataflow in hardware: related work}
+\section{Related work}
 \label{sec:related}
 % ---------------------------------------------------------------
 
@@ -470,7 +470,7 @@ that reads across the bus incurs a round trip for every message; a link in
 which each side only writes across the bus and only reads its own memory incurs
 one posted write.
 
-\paragraph{No interrupts and no kernel on the receive path.} An interrupt adds
+\paragraph{Interrupt-free receive path with kernel bypass.} An interrupt adds
 a kernel entry and a scheduler wake-up to the delivery of every message. The
 receiving thread must therefore poll its own memory.
 
@@ -513,7 +513,7 @@ Memory & a pool & registers and FIFOs, sized at build time \\
 \end{tabular}
 \end{table}
 
-\subsection{Processes: an actor's thread becomes a circuit}
+\subsection{Processes as free-running HLS tasks}
 \label{sec:process}
 
 On the CPU, an actor or a group of actors is executed by a thread whose loop
@@ -630,7 +630,7 @@ same port, but because they form one circuit that executes one handler at a
 time, the FIFO still has a single writer. A process reads its ports in
 round-robin order; a step that finds no input performs no action.
 
-\subsection{Wiring fixed at build time: no stored pointers}
+\subsection{Static wiring without stored pointers}
 \label{sec:nopointers}
 
 On a chip every connection is a wire fixed when the design is built. HLS can
@@ -642,12 +642,12 @@ a group holds pointers to its actors, and an actor holds a pointer to the sender
 it replies to. On the card each of them is represented without a pointer, as
 described below, and the code an actor's author writes is unchanged.
 
-\paragraph{An actor reference is a port number and an actor id.} The top-level
+\paragraph{Actor references.} The top-level
 design determines what each port is connected to, so that, as on the CPU, an
 actor has no knowledge of where its peers are. A port number is a small
 constant that the compiler resolves into fixed wiring.
 
-\paragraph{Sends go to an outbox.} A handler cannot access the FIFOs, since
+\paragraph{Outbox for outgoing messages.} A handler cannot access the FIFOs, since
 doing so would again require a stored pointer. \snd{} and \texttt{reply}
 therefore write the envelope and its port into a small fixed outbox inside the
 actor; when the handler returns, the process writes each entry to the FIFO of
@@ -658,19 +658,19 @@ holds four envelopes, so a handler may send at most four messages; hardware
 requires a fixed bound, and exceeding it triggers an assertion in software and
 C simulation.
 
-\paragraph{Each actor type has a single instance in the design.} A group
+\paragraph{Single instance per actor type.} A group
 locates its members, and a \fs{} locates its target, by type rather than by
 pointer. A design may therefore contain at most one actor of each type;
 supporting several actors of one type requires an instance number in the
 type.
 
-\paragraph{Ports are rebuilt on every step.} A process function receives its
+\paragraph{Per-step port tables.} A process function receives its
 streams as arguments and constructs its port table on every call. This is
 possible because the step and all functions it calls are inlined: after
 inlining, the FIFO of each port is a fixed stream, and no port is selected by a
 variable index.
 
-\subsection{Delivery: one write into a FIFO}
+\subsection{Message delivery through FIFOs}
 \label{sec:delivery}
 
 On the CPU, an asynchronous \snd{} allocates a message, enqueues it under the
@@ -754,7 +754,7 @@ inline void wire()
 }
 \end{lstlisting}
 
-\paragraph{\fs{} is confined to the group by construction.} On the CPU, \fs{}
+\paragraph{Confinement of \fs{} to the group.} On the CPU, \fs{}
 operates between any two co-located actors and acquires the receiver's lock. On
 the card there is nothing to lock, and a call into another process would have
 to pass through that process's FIFOs and wait, and would therefore not be a
@@ -765,7 +765,7 @@ one of its members, so a \fs{} to an actor in another process fails to compile.
 Between processes and across PCIe, actors communicate only by \snd{}; a request
 and its reply are two messages.
 
-\paragraph{The group's own queue drops messages when full.} The process is the
+\paragraph{Overflow of the group queue.} The process is the
 only reader of its own queue and therefore cannot wait for space in it: a step
 that waited would prevent the step that drains the queue from executing. A
 \snd{} between members that finds the queue full (64 envelopes by default) is
@@ -788,7 +788,7 @@ ordinary handlers for control messages. The decoder of
 Section~\ref{sec:casestudy} is an actor of this kind: it consumes words and
 emits one message per decoded entry.
 
-\subsection{Pipelining: a step per clock}
+\subsection{Pipelining of the process step}
 \label{sec:pipeline}
 
 Without the optimizations described below, a step requires 33 to 64 cycles
@@ -831,7 +831,7 @@ because pipelining unrolls it. A group whose handler contains such a loop (in
 the examples, one that issues up to 1{,}024 \fs{} calls in one handler) is left
 unpipelined and incurs the corresponding cost (Section~\ref{sec:perf}).
 
-\subsection{One message format for both sides}
+\subsection{Common message format for CPU and FPGA}
 \label{sec:envelope}
 
 Every message in the card's FIFOs, across PCIe, and through the CPU bridge is a
@@ -851,7 +851,7 @@ messages, which are assigned automatically. The repository's id audit checks
 them against every other hand-assigned id.
 
 % ---------------------------------------------------------------
-\section{Hybrid systems: how CPU actors and FPGA actors communicate}
+\section{Communication between CPU and FPGA actors}
 \label{sec:link}
 % ---------------------------------------------------------------
 
@@ -973,7 +973,7 @@ as it arrives.
 \end{figure}
 
 
-\subsection{The link}
+\subsection{Links between CPU and FPGA actors}
 \label{sec:hlink}
 
 The unit of hybrid wiring is the \emph{link}, which joins one CPU actor to one
@@ -1078,7 +1078,7 @@ program.) The code of the CPU actors is that of any kaspar-hft actor: they
 \snd{} to an \texttt{ActorRef} and \texttt{reply}, and are unaware that their
 peer is on the card.
 
-\subsection{Naming the other side}
+\subsection{Addressing actors across the link}
 \label{sec:naming}
 
 \paragraph{From the CPU.} A CPU actor holds an ordinary kaspar-hft actor
@@ -1104,7 +1104,7 @@ from the CPU enters on the link's port, so the FPGA actor's \texttt{reply}
 leaves on that port and returns across the bus. Neither side requires
 knowledge that its peer is remote.
 
-\subsection{One message, two forms}
+\subsection{Message representation on CPU and FPGA}
 \label{sec:twoforms}
 
 A message type is declared once, as a struct with a hand-assigned id and a list
@@ -1124,7 +1124,7 @@ not delivered. No message is allocated on the receiving side: the decoded
 message resides on the stack for the duration of the handler, as a \fs{}
 request does in the CPU framework.
 
-\subsection{The transport: windows and lanes}
+\subsection{PCIe transport: windows and lanes}
 \label{sec:transport}
 
 Each ring of a link is placed so that its writer writes across the bus and its
@@ -1142,13 +1142,13 @@ the card's memory with ordinary stores. Each side reads only its own memory.}
 \label{fig:link}
 \end{figure}
 
-\paragraph{Card to CPU: the lane.} The lane is a ring in host memory owned by
+\paragraph{Card-to-CPU direction: lanes.} The lane is a ring in host memory owned by
 the thread that handles its messages. The card writes each envelope into the
 next slot with a PCIe DMA write; the thread monitors the sequence number of the
 next slot in its own cache, and a change of that number indicates that the
 slot is complete.
 
-\paragraph{CPU to card: the window.} The window is a ring in the card's memory,
+\paragraph{CPU-to-card direction: windows.} The window is a ring in the card's memory,
 exposed through a PCIe base address register and mapped into the program, so
 the CPU thread writes a slot with ordinary stores (on hardware, one
 write-combined 64-byte burst followed by a fence), which reach the card as
@@ -1165,7 +1165,7 @@ requires no lock.
 \label{fig:lanes}
 \end{figure}
 
-\paragraph{Sequence number last.} A slot is one 64-byte cache line: the 60-byte
+\paragraph{Slot layout and sequence numbers.} A slot is one 64-byte cache line: the 60-byte
 envelope followed by a 32-bit sequence number (Figure~\ref{fig:slot}), so a
 message is one write toward the card and one cache line in the reverse
 direction. The writer copies the 60 bytes of header and payload of the
@@ -1192,7 +1192,7 @@ every quarter of the ring, or when it finds the ring empty; the writer keeps a
 copy and refreshes it only when the ring appears full. Position updates
 therefore cross the bus a few times per ring rather than once per message.
 
-\paragraph{The card's side.} A single DMA engine serves all links. Inbound, the
+\paragraph{DMA engine on the card.} A single DMA engine serves all links. Inbound, the
 window of each link is a separate address range, so the engine determines from
 the address at which an envelope was written the link, and hence the process
 port, to which it belongs. Outbound, the envelope's destination actor id
@@ -1202,7 +1202,7 @@ dataflow functions that distribute the inbound envelopes to the ports of the
 links and collect the outbound ones; on a card, the DMA engine replaces them.
 The CPU side of the transport is tested against a software card.
 
-\subsection{A message's path, end to end}
+\subsection{End-to-end message path}
 \label{sec:path}
 
 One round trip on link~A, from \texttt{CpuPing} to \texttt{PongActor} and back,
@@ -1233,7 +1233,7 @@ read crosses the bus, and nothing is allocated on the receiving side. Each
 direction costs one posted write across PCIe and one step of the card's
 process; the reverse direction, link~C, is identical with the roles exchanged.
 
-\subsection{No routing thread: the lane mailbox}
+\subsection{Lane mailbox without a routing thread}
 \label{sec:lanes}
 
 An obvious design would assign the card to a single host thread, which would
@@ -1296,7 +1296,7 @@ CPU actor and the codec's list of messages) but neither the actor's handlers
 nor those of its peers. As in the companion paper, this is a property of the
 interface and is not enforced by the language.
 
-\subsection{No blocking across the link}
+\subsection{Non-blocking communication across the link}
 \label{sec:noblock}
 
 A CPU send to the card never waits for the card. If the window is full, the
@@ -1333,7 +1333,7 @@ strategy's lane and is handled when a subsequent poll finds it
 \label{fig:reqreply}
 \end{figure}
 
-\subsection{Where to put the boundary}
+\subsection{Placement of the CPU--FPGA boundary}
 \label{sec:boundary}
 
 Each crossing costs a posted write across the bus, several hundred nanoseconds
@@ -1352,7 +1352,7 @@ of the companion paper for the placement of actors on threads: a hop is cheap
 within a process and expensive across processes, so a pipeline is partitioned
 where little data crosses.
 
-\subsection{Testing a hybrid system}
+\subsection{Testing of hybrid systems}
 \label{sec:hybridtest}
 
 The two halves of a hybrid design are tested separately, both from the same
@@ -1369,7 +1369,7 @@ take 2{,}008 cycles, one message per cycle in each direction simultaneously
 (Section~\ref{sec:perf}).
 
 % ---------------------------------------------------------------
-\section{From software to hardware: verification}
+\section{Verification from C++ models to RTL}
 \label{sec:verify}
 % ---------------------------------------------------------------
 
@@ -1487,7 +1487,7 @@ few cycles.
 \label{sec:casestudy}
 % ---------------------------------------------------------------
 
-\subsection{The tail of a software handler}
+\subsection{Latency tail of the software handler}
 
 CME publishes market data as UDP multicast packets in MDP3, encoded in Simple
 Binary Encoding (SBE) \cite{fixsbe,cmemdp3}. A packet carries a sequence number
@@ -1512,7 +1512,7 @@ with the line rate, then by the time a packet's last byte arrives every
 preceding entry has been decoded, and only a fixed number of clocks of work
 remains, independent of the length of the packet.
 
-\subsection{The design split}
+\subsection{Partitioning between card and CPU}
 
 The target is an AMD Alveo X3522PV \cite{ug1523}, a network card whose
 10/25~GbE ports are connected to an XCUX35 FPGA. The handler is partitioned
@@ -1559,7 +1559,7 @@ FpgaFeed & CPU & lines, from the lane & the books, to the strategy \\
 \end{tabular}
 \end{table}
 
-\subsection{The actors}
+\subsection{Actors of the handler}
 
 \paragraph{FeedRx} receives frames from the MAC as 64-bit words. All headers of
 a frame lie within its first six words, so when the sixth word arrives FeedRx
@@ -1656,7 +1656,7 @@ the card's device, over 2{,}000 consecutive packets of the session, produced
 output identical to that of the C++ model. The design including Igmp is synthesized, placed and routed, and its tests
 pass in C++ and C simulation.
 
-\paragraph{Work after the last byte.} The same actor code compiles as plain
+\paragraph{Latency after the last byte of a packet.} The same actor code compiles as plain
 C++, with the step of each process called once per simulated clock. All
 30{,}044{,}560 packets of the session were run through this model at 10~GbE
 line rate, with six securities in the table. The interval from a packet's last
@@ -1719,7 +1719,7 @@ UltraRAM, DSP slices & 0 & 352, 1{,}320 & 0\% \\
 \end{tabular}
 \end{table}
 
-\subsection{The latency budget}
+\subsection{Latency budget}
 \label{sec:budget}
 
 The latency remaining after a packet's last byte is the same for every packet:
@@ -1762,7 +1762,7 @@ the packet's last byte reaches FeedRx, independent of the length of the packet.
 The transceiver, the MAC and the clock-domain crossing add a fixed delay before
 that point, which is not included here.
 
-\subsection{Limits of these results}
+\subsection{Scope of the results}
 \label{sec:limits}
 
 The correctness and session figures were obtained from the C++ model and from
@@ -1789,7 +1789,7 @@ other protocol endpoint of the trading system, and because it exercises the
 framework on a problem of a different structure: a stateful, bidirectional
 session in which every order originates on the CPU.
 
-\subsection{The order path today}
+\subsection{Current software order path}
 
 In the current kaspar-hft system, an order leaves the strategy as a message to
 SOM. SOM, the Simulated Order Manager, is kaspar-hft's order manager, through
@@ -1809,7 +1809,7 @@ execution reports, and converts them into the acknowledgement, fill and reject
 messages that SOM receives. Establishing a baseline figure for this path is the
 first step of the plan.
 
-\subsection{The split}
+\subsection{Partitioning of order entry}
 
 The partitioning follows that of the MDP3 handler: the card performs the work
 that is per message and proportional to its size in bytes, and the CPU retains
@@ -1837,7 +1837,7 @@ the state and all decisions.
 the CPU carrying the price, quantity, security and side, together with the
 identifiers the CPU assigned to it.
 
-\paragraph{Sequence numbers remain on the CPU.} Every message of the session
+\paragraph{Sequence numbering on the CPU.} Every message of the session
 carries a sequence number. Because every order originates on the CPU,
 FpgaILinkHandler maintains the counters and writes the numbers into the place
 and cancel messages, and keepalives use the same counter on the CPU. Orders and
@@ -1846,14 +1846,14 @@ in sequence-number order, and no state is shared between the two sides.
 Replies carry CME's sequence number to the CPU, so the gap check on the CPU is
 unchanged.
 
-\paragraph{Receiver transparency at the scale of a subsystem.} SOM cannot
+\paragraph{Receiver transparency for a subsystem.} SOM cannot
 distinguish between the two iLink handlers, since both accept and produce the
 same messages. The software handler is retained for operation without a card.
 This is the property of Section~\ref{sec:transparency} at the scale of a
 complete subsystem: replacing the protocol endpoint of the order path with
 actors on a card changes the wiring but not SOM, the arbiter or the strategy.
 
-\subsection{TCP: the boundary to non-actor hardware}
+\subsection{TCP engine as a non-actor component}
 
 TCP is not implemented as actors in this design. It is provided by an existing
 engine, which TcpSession wraps in the same way that FeedRx and Igmp interface
@@ -1870,7 +1870,7 @@ with two TCP engines \cite{npap}, about 3\% of the XCUX35. No latency figure is
 yet available for either engine, and latency will determine the choice between
 them.
 
-\subsection{The plan, and what it needs}
+\subsection{Implementation plan and requirements}
 
 The plan has six phases, the first four of which require no card: measure the
 current order path, from the decision to the return of \texttt{send()}; select
@@ -1894,7 +1894,7 @@ still crosses PCIe once, from the CPU to the card.
 \paragraph{Scope.} This case study combines the first two: its market-data half
 is Case study~I and its order half is Case study~II.
 
-\subsection{The system}
+\subsection{System architecture}
 
 In the current kaspar-hft system the entire trading path runs on the CPU: a
 socket reader receives the MDP3 packets, a message processor decodes them, the
@@ -1943,7 +1943,7 @@ one message per acknowledgement or fill from it. Both halves fit on the card's
 device with ample margin: the MDP3 handler uses 0.6\% of its LUTs, and the
 commercial TCP engine is quoted at about 3\%.
 
-\subsection{Threads on the CPU}
+\subsection{Assignment of CPU threads}
 
 Two CPU actors receive from the card, FpgaFeed and FpgaILinkHandler, and both
 therefore have lane mailboxes and spin. The CPU framework allows them to be
@@ -1954,7 +1954,7 @@ placement that had the lower latency in the companion paper's study of the
 software market-data path \cite{fastsend}; whether it is also the best
 placement here, with the decode moved off the CPU, remains to be measured.
 
-\subsection{The tick-to-trade path}
+\subsection{Tick-to-trade path}
 
 From a packet on the wire to an order on the wire, the path is as follows: the
 packet arrives and is decoded on the card; its last line crosses PCIe to host
@@ -1976,7 +1976,7 @@ requires moving the decision itself onto the card, with a book and a simple
 signal on the FPGA, which raises the question of how risk checks are enforced
 on a path that no longer passes through the CPU.
 
-\subsection{One system, three deployments}
+\subsection{Deployment in backtest, CPU-only and hybrid configurations}
 
 Because the card's actors and the software components they replace accept and
 produce the same messages, the hybrid system is a deployment of kaspar-hft
@@ -1989,7 +1989,7 @@ production/simulation duality of the companion paper \cite{fastsend} is
 preserved with the card: a strategy is still developed and tested without one.
 
 % ---------------------------------------------------------------
-\section{Software and hardware: a duality of the actor}
+\section{Correspondence between software and hardware actors}
 \label{sec:duality}
 % ---------------------------------------------------------------
 
