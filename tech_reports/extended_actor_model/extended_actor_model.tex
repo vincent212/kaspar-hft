@@ -69,15 +69,18 @@
 \maketitle
 
 \begin{abstract}
-The actor model admits a single communication primitive, asynchronous send; practical
-actor systems provide synchronous calls outside the model. We extend the model with a
+Classical actor semantics are based on asynchronous message passing. Practical actor
+and active-object systems also provide synchronous request/reply, whose interaction with
+actor isolation and with a finite set of execution resources requires a treatment of its
+own. We extend the model with a
 second, synchronous primitive, \fs{}, drawn from the open-source actor framework \kh{}:
 the caller blocks while the receiver handles the message, and the receiver's reply is the
 return value of the call. We give \fs{} a formal semantics by extending the active-object
 calculus of De Koster and De Meuter with explicit execution resources, and we prove three
 properties of the extended model. \emph{Isolation}: actors share no state, and each actor
-processes at most one message at a time. \emph{Determinism relative to replies}: the
-outcome of a handler is a function of its message and of the replies it receives.
+processes at most one message at a time. \emph{Determinism relative to replies}: given the actor's state, its message and the
+sequence of replies to its \fs{} calls, a handler's result, updated state and outgoing
+requests are uniquely determined.
 \emph{Conditional liveness}: under terminating handlers and fair scheduling, a handler
 blocks only on a cycle of \fs{} calls, and a system without \fs{} is deadlock-free, as in
 the original model. We further prove that \fs{} is not expressible as a send followed by
@@ -157,6 +160,15 @@ connection has no counterpart in the model.
 it reaches any actor across scheduling units in the model (\kh{} restricts it to one CPU
 process, and on the FPGA to one actor group); it returns a value; and it completes on a
 shared execution resource on which send-then-wait deadlocks.
+
+The subject of this paper is therefore the relation between a communication primitive
+and the allocation of execution resources: \fs{} is the concrete primitive through which
+we study it. What distinguishes \fs{} from the synchronous mechanisms surveyed in
+Section~\ref{sec:related-sync} is that the receiver's ordinary handler executes on the
+caller's execution resource \emph{across} scheduling units, subject only to the
+receiver being idle; a call within one scheduling unit (ABS, JCoBox, E) does not cross
+units, and a blocking request (ABCL/1, Erlang/OTP, ABS between cogs) does not use the
+caller's resource.
 
 \paragraph{Contributions.}
 \begin{enumerate}[leftmargin=1.6em]
@@ -716,7 +728,30 @@ because it does not use the callee's thread, but \textsc{Fast-Remote} does not. 
 condition of the chosen rule fails, the calling frame is \emph{blocked}. The callee's
 mailbox is never consulted. A system may use \textsc{Fast-Local} for some pairs of actors
 and \textsc{Fast-Remote} for others; every result below holds for any such mixture.
-\Cref{fig:sendfast} shows \snd{} and \textsc{Fast-Local} side by side.
+\Cref{fig:sendfast} shows \snd{} and \textsc{Fast-Local} side by side, and
+\cref{tab:fastrules} compares the two \fs{} rules.
+
+\begin{table}[t]
+\centering
+\caption{The two \fs{} rules compared.}
+\label{tab:fastrules}
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+& \textsc{Fast-Local} & \textsc{Fast-Remote} \\
+\midrule
+Caller waits for the reply & yes & yes \\
+Callee's handler runs on the caller's thread & yes & no \\
+Callee's handler runs on the callee's home thread & no & yes \\
+Callee must be idle (actor availability) & yes & yes \\
+Callee's home thread must be idle (resource availability) & no & yes \\
+Callee's mailbox consulted & no & no \\
+Reply transferred between resources & no & yes \\
+Deadlock possible through a wait-for cycle & yes & yes \\
+Implemented in \kh{} & CPU; within an FPGA group & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure}[t]
 \centering
@@ -1133,7 +1168,10 @@ following a chain of pointers rather than by searching a graph.
 
 \begin{proposition}[Exact detection by chain following]
 \label[proposition]{prop:detect}
-Suppose that (1) each actor records the thread that holds its frame, if any; (2) a
+Suppose that (1) each actor records the thread that holds its frame, if any, and its
+home thread, and a blocked \fs{} publishes as its target the holder of the callee's
+frame if the callee is busy, or, under \textsc{Fast-Remote} with the callee idle, the
+callee's home thread; (2) a
 thread publishes its outgoing wait-for edge before it blocks or waits, and withdraws it
 before it resumes; (3) these records carry a version number incremented on every write, and are
 written and read with sequentially consistent operations; and (4) a thread that
@@ -1652,6 +1690,18 @@ speed of threads, such as every other final value of the counter, are absent fro
 simulation even when no two turns overlap; \cref{prop:gqincomplete} does not cover them,
 and testing in simulation does not exclude them.
 
+The global queue and partial-order reduction address complementary problems. The global
+queue selects one interleaving, which makes a run reproducible. Partial-order reduction,
+as used in stateless model checking, explores a set of interleavings that contains a
+representative of every equivalence class of executions under the commutation of
+independent steps. In the calculus, two turns of different actors are independent unless
+one sends to the other or one makes a \fs{} to the other, by \cref{lem:oneframe}, so the
+dependency relation that such a reduction needs is available from the message and call
+structure of a run. A simulator that varies the order in which $\mathit{GQ}$ dequeues
+messages of independent actors, while keeping the actor-local semantics unchanged,
+would extend replay towards the exploration that \cref{prop:gqdet} shows a single queue
+cannot provide.
+
 \Cref{tab:gq} summarises the guarantees that the global queue does and does not
 provide. Replay can therefore confirm bugs but cannot exclude the two classes above. The
 first can be addressed offline.
@@ -1679,17 +1729,32 @@ Is a run reproducible from its inputs? & yes & single queue, single thread \\
 \begin{proposition}[Cycles in the call graph]
 \label[proposition]{prop:callgraph}
 Let $G$ be the directed graph on actors with an edge $\iota_a \to \iota_b$ whenever some
-turn of $\iota_a$ can evaluate a \fs{} to $\iota_b$. If $G$ is acyclic, no execution of
-$\mathit{P}$ reaches a wait-for cycle.
+turn of $\iota_a$ can evaluate a \fs{} to $\iota_b$. Under \cref{ass:dedicated}, on which
+$\mathit{P}$ is defined, if $G$ is acyclic, no execution of $\mathit{P}$ reaches a
+wait-for cycle.
 \end{proposition}
 \begin{proof}
 The frames on any thread, bottom to top, belong to a path in $G$, since each frame above
 the bottom one was pushed by a \fs{} from the frame below (\textsc{Fast-Local}); a
 \textsc{Fast-Remote} callee's frame extends the same path onto another thread. A wait-for
 edge $\theta \to \theta'$ adds the edge from the actor on top of $\theta$ to an actor
-already on the path held by $\theta'$. Following a wait-for cycle and concatenating these
-paths yields a cycle in $G$.
+already on the path held by $\theta'$: for an edge of kind (ii), the callee whose frame
+$\theta'$ holds; for an edge of kind (i) with a busy callee, the callee itself; and for
+an edge of kind (i) on an idle callee whose home thread $\theta'$ is not idle, the callee
+again, because by \cref{ass:dedicated} $\theta'$ is the home of that actor only and
+every frame on it lies on a path from the callee. Following a wait-for cycle and
+concatenating these paths yields a cycle in $G$.
 \end{proof}
+
+Without \cref{ass:dedicated} the proposition fails. Let $a$ on $\theta_1$ call $b$ by
+\textsc{Fast-Remote}, where $b$'s home thread is $\theta_2$, while $c$ on $\theta_2$
+calls $d$ by \textsc{Fast-Remote}, where $d$'s home thread is $\theta_1$. Both callees
+are idle, but each call is blocked because the callee's home thread is occupied by the
+other caller: $\theta_1 \to \theta_2 \to \theta_1$ is a wait-for cycle, whereas $G$ has
+only the edges $a \to b$ and $c \to d$. Deadlock prevention for shared remote resources
+requires a graph whose nodes include the execution resources, with an edge from an actor
+to the home thread of each actor it calls by \textsc{Fast-Remote} and from a thread to
+each actor it hosts.
 
 A $\mathit{GQ}$ run can record the \fs{} edges it executes. The recorded graph is the
 subgraph of $G$ containing only the calls exercised by the inputs, so a cycle in it is a
@@ -1726,6 +1791,88 @@ intended to avoid, so the runtime does not offer it: \fs{} is confined to one pr
 and this restriction is checked when the design is built. Each of the two connections
 offered by the hardware then corresponds to a primitive of the model: the FIFO to
 \snd{}, the fused pipeline to \fs{}.
+
+\paragraph{Execution structure under HLS.} The formal \fs{}, the C++ inline call and the
+synthesised circuit are three levels of the same construction, and it is worth stating
+how each maps to the next \cite{fpgaactors}. A hardware process is one
+\texttt{hls::task}: a circuit that executes one \emph{step} of a dequeue--dispatch loop
+per invocation and runs for as long as the device is powered. A step reads one message,
+from the group's own queue first and then from the ports in turn, selects the handler by
+the message identifier, runs it, and writes the messages it sends. Every function on
+this path, including \snd{}, \texttt{reply} and \fs{}, is inlined, so a \fs{} between
+members of a group places the callee's handler body directly in the caller's step: after
+inlining there is no call boundary, and HLS schedules the operations of both handlers
+together into the clock cycles of one step. The caller's state, and the actor state of
+every member of the group, are registers or block RAM of that one process. When no
+handler contains a long loop, the step is pipelined with an initiation interval of one,
+so a new step starts on every clock and the inlined callee occupies additional pipeline
+stages of the caller; measured in RTL co-simulation, a \fs{} within a group costs about
+two cycles. A \snd{} between processes is one write into a FIFO, which the receiving
+process reads on a later clock, adding about one cycle per hop; an actor-to-actor round
+trip between two processes takes five cycles at 250~MHz \cite{fpgaactors}.
+\Cref{fig:fpgamap} shows the two arrangements.
+
+The restriction of \fs{} to one group follows from this structure rather than from the
+programming model. A callee in the same group can be compiled into the caller's step; a
+callee in another process is an independently scheduled circuit, which the caller could
+reach only through its FIFOs and wait on, which is the send-then-wait that
+\cref{prop:notsendwait} distinguishes from \fs{}. In the market-data handler of
+\cite{fpgaactors}, for example, the decoding and filtering stages are separate processes
+connected by FIFOs, and each message between them is a \snd{}; an actor placed in the
+decoder's group, such as a lookup of the instruments the host has subscribed to, would
+instead be consulted by \fs{} inside the decoder's step, with no FIFO between them.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  proc/.style={draw, rounded corners=3pt, thick, minimum height=2.2cm, inner sep=4pt},
+  st/.style={draw, rounded corners=1.5pt, minimum width=1.35cm, minimum height=0.6cm,
+             font=\footnotesize, fill=black!4},
+  hd/.style={st, fill=black!22},
+  ff/.style={draw, minimum width=0.32cm, minimum height=0.42cm, fill=black!8},
+  ar/.style={-{Stealth[length=2.2mm]}, thick, black!75},
+  lab/.style={font=\small\bfseries, anchor=west},
+  nt/.style={font=\footnotesize\itshape}]
+  % ---------------- (a) two processes, FIFO
+  \node[lab] at (-0.3,2.15) {(a) \snd{}: two processes joined by a FIFO};
+  \node[st] (a1) at (0.7,0.5) {read};
+  \node[hd] (a2) at (2.4,0.5) {$A$.handler};
+  \node[st] (a3) at (4.1,0.5) {write};
+  \node[proc, fit=(a1)(a3), label={[nt]below:\texttt{hls::task} of $A$}] (pa) {};
+  \node[ff] (f1) at (5.95,0.5) {}; \node[ff, right=0pt of f1] (f2) {}; \node[ff, right=0pt of f2] (f3) {};
+  \node[nt, align=center] at (6.3,1.2) {FIFO: about\\one clock a hop};
+  \node[st] (b1) at (8.3,0.5) {read};
+  \node[hd] (b2) at (10.0,0.5) {$B$.handler};
+  \node[st] (b3) at (11.7,0.5) {write};
+  \node[proc, fit=(b1)(b3), label={[nt]below:\texttt{hls::task} of $B$}] (pb) {};
+  \draw[ar] (a1.east) -- (a2.west); \draw[ar] (a2.east) -- (a3.west);
+  \draw[ar] (a3.east) -- (f1.west); \draw[ar] (f3.east) -- (b1.west);
+  \draw[ar] (b1.east) -- (b2.west); \draw[ar] (b2.east) -- (b3.west);
+  % ---------------- (b) one group, inline fast_send
+  \begin{scope}[yshift=-3.6cm]
+  \node[lab] at (-0.3,2.3) {(b) \fs{}: one process, \texttt{kfpga::Group<A,B>}};
+  \node[st] (c1) at (0.7,0.3) {read};
+  \node[hd] (c2) at (3.0,0.3) {$A$.handler};
+  \node[hd, fill=black!35] (c3) at (6.0,0.3) {$B$.handler};
+  \node[hd] (c4) at (9.0,0.3) {$A$ resumes};
+  \node[st] (c5) at (11.5,0.3) {write};
+  \node[ff] (q1) at (0.45,1.35) {}; \node[ff, right=0pt of q1] (q2) {}; \node[ff, right=0pt of q2] (q3) {};
+  \node[nt, anchor=west] at (1.25,1.35) {group's own queue, for \snd{} between members};
+  \node[proc, fit=(c1)(c5)(q1), label={[nt]below:one \texttt{hls::task}: one step, pipelined at II~$=1$}] (pc) {};
+  \draw[ar] (c1.east) -- (c2.west);
+  \draw[ar] (c2.east) -- node[below=2pt, font=\footnotesize]{inline call} (c3.west);
+  \draw[ar] (c3.east) -- node[below=2pt, font=\footnotesize]{reply value} (c4.west);
+  \draw[ar] (c4.east) -- (c5.west);
+  \end{scope}
+\end{tikzpicture}
+\caption{The two primitives on an FPGA. (a) Each process is an \texttt{hls::task} that
+reads a message, runs the handler and writes what it sends; a \snd{} between processes is
+a write into a FIFO. (b) The members of a group share one process; a \fs{} between them
+is inlined, so the callee's handler becomes part of the caller's step, with no FIFO and
+no handshake, and its reply is a value. Drawn after the designs of \cite{fpgaactors}.}
+\label{fig:fpgamap}
+\end{figure}
 
 The calculus leaves open what a thread is and how a mailbox is implemented. Each
 substrate supplies both, together with a distinct mechanism for each primitive
@@ -1808,6 +1955,29 @@ GPU runtime & \cref{tab:mapping} & design & --- \\ \rowsep
 Global queue and sequencer & \S\ref{sec:debug} & design; single-runtime instance: actor groups & --- \\ \rowsep
 Per-thread call-chain check & \cref{prop:localcycles} & design & --- \\ \rowsep
 Cross-thread deadlock detection by chain following & \cref{prop:detect} & design & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The results of Sections~\ref{sec:properties} and~\ref{sec:debug} are properties of the
+calculus. \Cref{tab:modelimpl} states which of them the C++ runtime enforces and which
+depend on assumptions about the runtime or on the discipline of handler code.
+
+\begin{table}[t]
+\centering
+\caption{Properties of the calculus and their status in the C++ runtime of \kh{}.}
+\label{tab:modelimpl}
+\small
+\begin{tabular}{@{}P{4.0cm}P{4.4cm}P{6.0cm}@{}}
+\toprule
+Property & In the calculus & In the C++ runtime \\
+\midrule
+Isolation & \cref{thm:isolation} & enforced by the actor's lock: one turn at a time \\ \rowsep
+Determinism relative to replies & \cref{thm:determinism} & holds for handlers that access only their own actor's state \\ \rowsep
+Receiver transparency & \cref{rem:transparency} & holds for handlers that do not read the queue depth, the ``mailbox empty'' flag or the destination field \\ \rowsep
+Liveness & \cref{thm:liveness}, under \cref{ass:fair} & part (c) of \cref{ass:fair} is not provided: a plain \texttt{std::mutex} gives no ordering between a waiting \fs{} and the next mailbox turn \\ \rowsep
+Deadlock detection & \cref{prop:localcycles,prop:detect} & design \\ \rowsep
+Global-queue simulation & \cref{thm:gqsound,prop:gqdet} & actor groups execute CPU actors in this way \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1896,6 +2066,19 @@ following questions addressed here for \fs{} do not arise in it: behaviour when 
 callee's resource is shared (\cref{prop:notsendwait}) or occupied (\cref{ass:dedicated}),
 and single-queue simulation (Section~\ref{sec:debug}). Its aim is compositional model
 checking.
+JCoBox \cite{schafer2010jcobox} follows the same pattern as ABS: objects are grouped
+into coboxes that share a single thread of control, synchronous calls are permitted
+between objects of one cobox, and coboxes communicate asynchronously, a model its
+authors describe as globally asynchronous, locally synchronous. Multi-threaded actors
+\cite{azadbakht2016mta} take the opposite direction: an actor is a group of active objects
+sharing one message queue, so that several messages of one actor may be processed in
+parallel; the paper gives an operational semantics for this model and a Java
+implementation. Buhr et al.\ \cite{buhr2023extended} study the implementation of actors
+in $\mu$C++ for performance, including mailbox organisation, scheduling and work
+stealing, with request/reply through promises. Relative to these systems, \fs{} admits
+synchronous execution of an idle actor's ordinary handler on the caller's resource,
+independently of the actor's own scheduling unit, while keeping one turn per actor at a
+time.
 We therefore do not claim novelty for synchronous messages in actor languages; the
 contribution is the particular resource-sensitive primitive and its properties.
 
@@ -1981,6 +2164,10 @@ assignment. \emph{Journal of the ACM}, 33(4):724--767, 1986.
 \bibitem{armstrong2003} J.~Armstrong. \emph{Making reliable distributed systems in the
 presence of software errors}. PhD thesis, Royal Institute of Technology, Stockholm, 2003.
 
+\bibitem{azadbakht2016mta} K.~Azadbakht, F.~S. de Boer, and V.~Serbanescu. Multi-threaded
+actors. In \emph{Proc.\ 9th Interaction and Concurrency Experience (ICE 2016)}, EPTCS
+223, pages 51--66, 2016.
+
 \bibitem{bezati2021streamblocks} E.~Bezati, M.~Emami, J.~Janneck, and J.~Larus.
   StreamBlocks: A compiler for heterogeneous dataflow computing (technical report).
   arXiv:2107.09333, 2021.
@@ -1992,6 +2179,9 @@ presence of software errors}. PhD thesis, Royal Institute of Technology, Stockho
 E.~B. Johnsen, K.~I. Pun, S.~L. Tapia Tarifa, T.~Wrigstad, and A.~M. Yang. Parallel
 objects for multicores: A glimpse at the parallel language Encore. In \emph{Formal Methods
 for Multicore Programming (SFM 2015)}, LNCS 9104, pages 1--56. Springer, 2015.
+
+\bibitem{buhr2023extended} P.~A. Buhr, C.~A. Parsons, T.~Delisle, and H.~N. Li.
+High-performance extended actors. \emph{Software: Practice and Experience}, 2023.
 
 \bibitem{bykov2011orleans} S.~Bykov, A.~Geller, G.~Kliot, J.~R. Larus, R.~Pandya, and
 J.~Thelin. Orleans: Cloud computing for everyone. In \emph{Proc.\ 2nd ACM Symposium on
@@ -2015,7 +2205,9 @@ Massachusetts Institute of Technology, 1981. AI Technical Report 633.
   Yang. A survey of active object languages. \emph{ACM Computing Surveys}, 50(5), 2017.
 
 \bibitem{dekoster2024} J.~De Koster and W.~De Meuter. A formal specification for half a
-  century of actor systems. Manuscript, Vrije Universiteit Brussel, 2023.
+  century of actor systems. Technical Report VUB-TR-SOFT-24-01, Vrije Universiteit
+  Brussel, 2024. Also published by Springer,
+  \url{https://doi.org/10.1007/978-3-032-05291-9_1}.
 
 \bibitem{fpgaactors} V.~Maciejewski. Adapting the actor model of concurrency to hybrid
 CPU/FPGA architectures: FPGA actors, CPU--FPGA messaging over PCIe, and a market-data
@@ -2056,6 +2248,10 @@ Design and Implementation (OSDI)}, 2018.
 
 \bibitem{otpgenserver} Ericsson AB. Erlang/OTP documentation: \texttt{gen\_server}.
 \url{https://www.erlang.org/docs/26/man/gen_server.html}, 2023.
+
+\bibitem{schafer2010jcobox} J.~Sch\"afer and A.~Poetzsch-Heffter. JCoBox: Generalizing
+active objects to concurrent components. In \emph{ECOOP 2010}, LNCS 6183, pages
+275--299. Springer, 2010.
 
 \bibitem{sirjani2005extended} M.~Sirjani, A.~Movaghar, A.~Shali, and F.~S. de Boer.
   Extended Rebeca: a component-based actor language with synchronous message passing. In
