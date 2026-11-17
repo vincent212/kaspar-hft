@@ -82,7 +82,7 @@ constexpr int kBidPx = 23990;
 constexpr int kAskPx = 24010;
 constexpr int kOurPx = 24000;   // inside the spread, so it moves the BBO
 
-class OBDelayQueueTest : public ::testing::Test {
+class OBDelayQueueTest : public ::testing::TestWithParam<int> {
 protected:
   MockActor probe{"probe"};
   boost::property_tree::ptree pt;
@@ -103,6 +103,7 @@ protected:
     ASSERT_NE(asset, nullptr) << "fixture universe must contain ESH6";
     sym = asset->id;
 
+    if (GetParam()) pt.put("ladder_ticks", GetParam());
     ob = std::make_unique<TestableOB>(nullptr, true /*do_cross_check*/,
                                       nullptr /*manager*/, sym, pt);
     probe.clear();
@@ -216,7 +217,7 @@ protected:
   }
 };
 
-TEST_F(OBDelayQueueTest, SeededBookHasTheExpectedBbo) {
+TEST_P(OBDelayQueueTest, SeededBookHasTheExpectedBbo) {
   seed_book(kT0);
   EXPECT_EQ(bbo(), std::make_pair(kBidPx, kAskPx));
   EXPECT_EQ(our_size_at(kOurPx), 0) << "we have not placed anything yet";
@@ -224,7 +225,7 @@ TEST_F(OBDelayQueueTest, SeededBookHasTheExpectedBbo) {
 
 // Guards the observation channel itself: if our order ever started showing up
 // in the BBO, every timing test below would be measuring the wrong thing.
-TEST_F(OBDelayQueueTest, OurOwnOrderIsNotVisibleInTheMarketBbo) {
+TEST_P(OBDelayQueueTest, OurOwnOrderIsNotVisibleInTheMarketBbo) {
   seed_book(kT0);
   const uint64_t sent = kT0 + 10;
 
@@ -237,7 +238,7 @@ TEST_F(OBDelayQueueTest, OurOwnOrderIsNotVisibleInTheMarketBbo) {
 }
 
 // The core of the model: our order is NOT in the book the instant OB gets it.
-TEST_F(OBDelayQueueTest, OurOrderIsWithheldUntilTheDelayHasElapsed) {
+TEST_P(OBDelayQueueTest, OurOrderIsWithheldUntilTheDelayHasElapsed) {
   seed_book(kT0);
   const uint64_t sent = kT0 + 10;
 
@@ -259,7 +260,7 @@ TEST_F(OBDelayQueueTest, OurOrderIsWithheldUntilTheDelayHasElapsed) {
 // The regression test_som_cancel_latency.cpp pins at the SOM end, observed
 // here at the book end: a cancel stamped with the ORIGINAL order's ts0 has a
 // deadline that is already past, so it takes effect on the very next record.
-TEST_F(OBDelayQueueTest, OurCancelIsWithheldForTheSameDelay) {
+TEST_P(OBDelayQueueTest, OurCancelIsWithheldForTheSameDelay) {
   seed_book(kT0);
   const uint64_t sent = kT0 + 10;
 
@@ -283,7 +284,7 @@ TEST_F(OBDelayQueueTest, OurCancelIsWithheldForTheSameDelay) {
 }
 
 // The knob has to move the threshold, or it is decorative.
-TEST_F(OBDelayQueueTest, SetDelayChangesHowLongTheOrderIsHeld) {
+TEST_P(OBDelayQueueTest, SetDelayChangesHowLongTheOrderIsHeld) {
   constexpr int kSlowUs = 50000;              // 50 ms
   constexpr uint64_t kSlowNs = uint64_t(kSlowUs) * 1000;
 
@@ -304,7 +305,7 @@ TEST_F(OBDelayQueueTest, SetDelayChangesHowLongTheOrderIsHeld) {
 
 // 40 us is a hard floor: max(40, delay). A zero or silly-small delay must not
 // turn into "arrives instantly", which would quietly restore the old bug.
-TEST_F(OBDelayQueueTest, DelayHasAFortyMicrosecondFloor) {
+TEST_P(OBDelayQueueTest, DelayHasAFortyMicrosecondFloor) {
   ob->set_delay(0);
   seed_book(kT0);
   const uint64_t sent = kT0 + 10;
@@ -320,7 +321,7 @@ TEST_F(OBDelayQueueTest, DelayHasAFortyMicrosecondFloor) {
 // The cancel latency defaults to -1 (= the order latency) and may only be made
 // LONGER, which is the direction real venues go: the matching engine has to
 // locate the resting order before it can pull it.
-TEST_F(OBDelayQueueTest, CancelDelayCanBeMadeAsymmetric) {
+TEST_P(OBDelayQueueTest, CancelDelayCanBeMadeAsymmetric) {
   constexpr int kSlowCancelUs = 50000;
   constexpr uint64_t kSlowCancelNs = uint64_t(kSlowCancelUs) * 1000;
 
@@ -422,7 +423,7 @@ protected:
 // The subscription itself, asserted before anything depends on it. If this
 // fails, every withholding test below is measuring an empty fan-out rather
 // than a delay.
-TEST_F(FeedDelayTest, TheProbeIsActuallySubscribed) {
+TEST_P(FeedDelayTest, TheProbeIsActuallySubscribed) {
   seed_book(kT0);
   tick(kT0 + 100);
   EXPECT_GT(bursts(), 0u)
@@ -438,7 +439,7 @@ TEST_F(FeedDelayTest, TheProbeIsActuallySubscribed) {
 // `pub_q_size() == 0` held for ANY feed_delay. It passed with the fast path
 // deleted. Here the probe IS subscribed, so the zero and non-zero cases
 // genuinely differ, which is what the assertion claims to show.
-TEST_F(FeedDelayTest, ZeroFeedDelayPublishesInlineAndNonZeroDoesNot) {
+TEST_P(FeedDelayTest, ZeroFeedDelayPublishesInlineAndNonZeroDoesNot) {
   ob->set_feed_delay(0);
   seed_book(kT0);
   tick(kT0 + 1000);
@@ -460,7 +461,7 @@ TEST_F(FeedDelayTest, ZeroFeedDelayPublishesInlineAndNonZeroDoesNot) {
 // The claim, stated directly: with a feed delay set, a book update does not
 // reach the subscriber on the message that produced it. It sits on pub_q until
 // MARKET time has advanced past the stamp, and then it is released.
-TEST_F(FeedDelayTest, MarketDataIsWithheldThenReleased) {
+TEST_P(FeedDelayTest, MarketDataIsWithheldThenReleased) {
   constexpr int kFeedUs = 2000;
   constexpr uint64_t kFeedNs = uint64_t(kFeedUs) * 1000;
   ob->set_feed_delay(kFeedUs);
@@ -486,7 +487,7 @@ TEST_F(FeedDelayTest, MarketDataIsWithheldThenReleased) {
 // Everything queued must eventually come out. A release rule that strands
 // messages would starve the light rather than delay it -- and would look
 // identical to "withheld" in the test above.
-TEST_F(FeedDelayTest, EverythingQueuedIsEventuallyReleased) {
+TEST_P(FeedDelayTest, EverythingQueuedIsEventuallyReleased) {
   ob->set_feed_delay(2000);
 
   seed_book(kT0);
@@ -518,7 +519,7 @@ TEST_F(FeedDelayTest, EverythingQueuedIsEventuallyReleased) {
 // against chutil::Time::epoch(), which is system_clock::now() -- and in a
 // replay that runs a year of market data in an hour, a wall-clock rule
 // releases everything instantly and the delay is decorative.
-TEST_F(FeedDelayTest, ReleaseIsKeyedToMarketTimeNotWallClock) {
+TEST_P(FeedDelayTest, ReleaseIsKeyedToMarketTimeNotWallClock) {
   constexpr int kHugeFeedUs = 10 * 1000 * 1000;            // 10 s
   constexpr uint64_t kHugeFeedNs = uint64_t(kHugeFeedUs) * 1000;
   ob->set_feed_delay(kHugeFeedUs);
@@ -543,7 +544,7 @@ TEST_F(FeedDelayTest, ReleaseIsKeyedToMarketTimeNotWallClock) {
 
 // Feed delay holds data, it does not reorder it. A consumer that saw updates
 // out of order would reconstruct a book the market never had.
-TEST_F(FeedDelayTest, ReleaseOrderMatchesArrivalOrder) {
+TEST_P(FeedDelayTest, ReleaseOrderMatchesArrivalOrder) {
   ob->set_feed_delay(2000);
   seed_book(kT0);
   for (int i = 0; i < 5; i++)
@@ -568,7 +569,7 @@ TEST_F(FeedDelayTest, ReleaseOrderMatchesArrivalOrder) {
 // order -- so it pays the inbound hop like a book update does. Without this a
 // light learns its order is gone before it could possibly have seen it, which
 // is the other half of the asymmetry the feed delay exists to remove.
-TEST_F(FeedDelayTest, ACancelAckPaysTheFeedDelay) {
+TEST_P(FeedDelayTest, ACancelAckPaysTheFeedDelay) {
   constexpr int kFeedUs = 2000;
   constexpr uint64_t kFeedNs = uint64_t(kFeedUs) * 1000;
   ob->set_feed_delay(kFeedUs);
@@ -606,7 +607,7 @@ TEST_F(FeedDelayTest, ACancelAckPaysTheFeedDelay) {
 // new order in QCoord until an add at that price tripped "already have this mm
 // id" and killed the run. Every exchange event pays the same hop, or they
 // reorder.
-TEST_F(FeedDelayTest, AnExchangeRejectPaysTheSameDelayAsAFill) {
+TEST_P(FeedDelayTest, AnExchangeRejectPaysTheSameDelayAsAFill) {
   constexpr int kFeedUs = 2000;
   constexpr uint64_t kFeedNs = uint64_t(kFeedUs) * 1000;
   ob->set_feed_delay(kFeedUs);
@@ -656,7 +657,7 @@ TEST_F(FeedDelayTest, AnExchangeRejectPaysTheSameDelayAsAFill) {
 // they claimed to catch. With a 10 s second book the two worlds separate
 // cleanly: the correct one releases the ack on ob's 2 ms, the regression would
 // publish it through `other` and hold it for 10 s.
-TEST_F(FeedDelayTest, ASecondBookDoesNotStealTheFirstsReturnPath) {
+TEST_P(FeedDelayTest, ASecondBookDoesNotStealTheFirstsReturnPath) {
   constexpr int kFeedUs = 2000;
   constexpr uint64_t kFeedNs = uint64_t(kFeedUs) * 1000;
   constexpr uint64_t kOtherFeedNs = 10ULL * 1000 * 1000 * 1000;   // 10 s
@@ -671,6 +672,7 @@ TEST_F(FeedDelayTest, ASecondBookDoesNotStealTheFirstsReturnPath) {
 
   // A second book for the same instrument, an order of magnitude slower.
   boost::property_tree::ptree pt2;
+  if (GetParam()) pt2.put("ladder_ticks", GetParam());
   auto other = std::make_unique<TestableOB>(nullptr, true, nullptr, sym, pt2);
   other->set_feed_delay(10 * 1000 * 1000);
 
@@ -696,7 +698,7 @@ TEST_F(FeedDelayTest, ASecondBookDoesNotStealTheFirstsReturnPath) {
       << "a second copy of the ack arrived on the other book's clock";
 }
 
-TEST_F(OBDelayQueueTest, FeedDelayDefaultsToZero) {
+TEST_P(OBDelayQueueTest, FeedDelayDefaultsToZero) {
   // The whole point of the default: every run that predates this change must
   // behave identically. A non-zero default would silently reinterpret them.
   seed_book(kT0);
@@ -704,13 +706,13 @@ TEST_F(OBDelayQueueTest, FeedDelayDefaultsToZero) {
       << "a non-zero default would change every existing result";
 }
 
-TEST_F(OBDelayQueueTest, SetFeedDelayRejectsNegative) {
+TEST_P(OBDelayQueueTest, SetFeedDelayRejectsNegative) {
   EXPECT_DEATH(ob->set_feed_delay(-1), "feed latency");
 }
 
 
 
-TEST_F(OBDelayQueueTest, TheRoundTripIsFeedPlusOrder) {
+TEST_P(OBDelayQueueTest, TheRoundTripIsFeedPlusOrder) {
   // The decisive one. ts0 is the market time the light SAW, already feed_delay
   // old, so an order must arrive at ts0 + feed + order. Leaving del_q at
   // ts0 + order makes every order one feed hop too early -- which is the
@@ -735,11 +737,11 @@ TEST_F(OBDelayQueueTest, TheRoundTripIsFeedPlusOrder) {
       << "should be in the book once feed + order has elapsed";
 }
 
-TEST_F(OBDelayQueueTest, ACancelFasterThanAnOrderIsRejected) {
+TEST_P(OBDelayQueueTest, ACancelFasterThanAnOrderIsRejected) {
   EXPECT_DEATH(ob->set_delay(1000, 500), "cancel latency");
 }
 
-TEST_F(OBDelayQueueTest, EqualLatenciesAreAccepted) {
+TEST_P(OBDelayQueueTest, EqualLatenciesAreAccepted) {
   ob->set_delay(1000, 1000);
   seed_book(kT0);
   const uint64_t sent = kT0 + 10;
@@ -749,7 +751,7 @@ TEST_F(OBDelayQueueTest, EqualLatenciesAreAccepted) {
 }
 
 // -1 is "same as the order latency", the default.
-TEST_F(OBDelayQueueTest, NegativeCancelLatencyMeansSameAsTheOrder) {
+TEST_P(OBDelayQueueTest, NegativeCancelLatencyMeansSameAsTheOrder) {
   ob->set_delay(1000, -1);
   seed_book(kT0);
   const uint64_t sent = kT0 + 10;
@@ -772,7 +774,7 @@ TEST_F(OBDelayQueueTest, NegativeCancelLatencyMeansSameAsTheOrder) {
 // the measured experiment, and with no clock there is no latency to model. The
 // alternative, inventing a timestamp, either releases the message instantly
 // anyway or strands it on the queue forever.
-TEST_F(OBDelayQueueTest, AMessageWithNoTimestampIsNotDelayed) {
+TEST_P(OBDelayQueueTest, AMessageWithNoTimestampIsNotDelayed) {
   seed_book(kT0);
   const uint64_t sent = kT0 + 10;
 
@@ -787,7 +789,7 @@ TEST_F(OBDelayQueueTest, AMessageWithNoTimestampIsNotDelayed) {
       << "an untimed cancel must be applied at once, not queued";
 }
 
-TEST_F(OBDelayQueueTest, AnUntimedOrderIsNotDelayedEither) {
+TEST_P(OBDelayQueueTest, AnUntimedOrderIsNotDelayedEither) {
   seed_book(kT0);
   place_ours(kOurPx, 0);
   EXPECT_EQ(our_size_at(kOurPx), 1)
@@ -795,3 +797,17 @@ TEST_F(OBDelayQueueTest, AnUntimedOrderIsNotDelayedEither) {
 }
 
 }  // namespace
+
+// Every case above runs twice: on the full price ladder (the default, what the
+// CME replays use) and on a ring ladder (ladder_ticks, what bnsim uses).
+INSTANTIATE_TEST_SUITE_P(Ladder, OBDelayQueueTest, ::testing::Values(0, 1024),
+                         [](const ::testing::TestParamInfo<int> &i) {
+                           return i.param ? "Ring" + std::to_string(i.param) : std::string("Full");
+                         });
+
+// Every case above runs twice: on the full price ladder (the default, what the
+// CME replays use) and on a ring ladder (ladder_ticks, what bnsim uses).
+INSTANTIATE_TEST_SUITE_P(Ladder, FeedDelayTest, ::testing::Values(0, 1024),
+                         [](const ::testing::TestParamInfo<int> &i) {
+                           return i.param ? "Ring" + std::to_string(i.param) : std::string("Full");
+                         });
