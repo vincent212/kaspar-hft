@@ -23,8 +23,9 @@
 \usepackage{array}
 \newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,fit}
+\usetikzlibrary{arrows.meta,positioning,fit,patterns}
 \usepackage[capitalise,noabbrev]{cleveref}
+\crefname{assumption}{Assumption}{Assumptions}
 
 \hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black}
 
@@ -173,11 +174,13 @@ shared execution resource on which send-then-wait deadlocks.
   original liveness result is the special case without \fs{}
   (\cref{cor:asynclive}); a per-thread call-chain check detects exactly the cycles
   confined to one thread (\cref{prop:localcycles}); a \fs{} is never queued behind the
-  callee's mailbox (\cref{prop:order}); and \fs{} is not send-then-wait when resources are shared
-  (\cref{prop:notsendwait}).
+  callee's mailbox (\cref{prop:order}); \fs{} is not send-then-wait when resources are shared
+  (\cref{prop:notsendwait}); and the extended calculus exhibits unbounded nondeterminism
+  under its own fairness assumption through \fs{}, and under an additional delivery
+  condition through \snd{} (\cref{prop:unbounded-send,prop:unbounded-fs}).
   \item Trace soundness of a single global queue as a simulator for debugging and
   deterministic replay, across languages and substrates (\cref{thm:gqsound}), its limits
-  (\cref{prop:gqincomplete}), and an offline check for the deadlocks it cannot
+  (\cref{prop:gqincomplete,prop:gqdet}), and an offline check for the deadlocks it cannot
   exhibit (\cref{prop:callgraph}) (Section~\ref{sec:debug}).
   \item A mapping of both primitives onto CPU threads, a Rust runtime and an FPGA actor
   runtime, in which, on the FPGA, \snd{} is a FIFO, \fs{} is fused logic inside one
@@ -715,33 +718,46 @@ and \textsc{Fast-Remote} for others; every result below holds for any such mixtu
 \centering
 \begin{tikzpicture}[
   font=\small,
-  fr/.style={draw, minimum width=2.5cm, minimum height=0.55cm, inner sep=2pt},
-  q/.style={draw, minimum width=0.35cm, minimum height=0.45cm},
-  lab/.style={font=\small\bfseries},
-  >={Stealth[length=2mm]}]
-  % ---- (a) send
-  \node[lab] at (1.6,3.2) {(a) \snd{}};
-  \node[fr] (a1) at (0.2,1.2) {$A$: \snd{}$(B,m)$};
-  \node[below=0.05cm of a1] {thread 1};
-  \node[q] (q1) at (2.3,2.4) {$m$};
-  \node[q, right=0pt of q1] {};
-  \node[q, right=0pt of q1, xshift=0.35cm] {};
-  \node[above=0.02cm of q1, xshift=0.35cm] {$B$'s mailbox};
-  \node[fr] (b1) at (3.2,1.2) {$B$: handler$(m)$};
-  \node[below=0.05cm of b1] {thread 2, later};
-  \draw[->] (a1.north) |- (q1.west);
-  \draw[->] (q1.south) ++(0.35,0) -- (b1.north);
-  \node[align=center, font=\footnotesize] at (0.2,0.3) {returns at once};
-  % ---- (b) fast_send, Fast-Local
-  \node[lab] at (8.6,3.2) {(b) \fs{}, \textsc{Fast-Local}};
-  \node[fr] (s1) at (6.4,1.2) {$A$: \fs{}$(B,m)$};
-  \node[below=0.05cm of s1] {thread 1};
-  \node[fr] (s2) at (10.2,1.2) {$A$: $\mathsf{wait}(\rho)$};
-  \node[fr, above=0pt of s2] (s3) {$B$: handler$(m)$};
-  \node[below=0.05cm of s2] {thread 1};
-  \node[fr] (s4) at (10.2,-0.4) {$A$: continues with $v$};
-  \draw[->] (s1.east) -- node[above, font=\footnotesize]{push} (s2.west);
-  \draw[->] (s3.east) to[out=0,in=0,looseness=1.6] node[right, font=\footnotesize]{$v$} (s4.east);
+  frm/.style={draw, rounded corners=1.5pt, minimum width=2.9cm, minimum height=0.6cm,
+              inner sep=2pt, anchor=south},
+  wt/.style={frm, fill=black!8},
+  cl/.style={frm, fill=black!22},
+  q/.style={draw, minimum width=0.45cm, minimum height=0.5cm, anchor=south},
+  tl/.style={font=\footnotesize, anchor=north},
+  lab/.style={font=\small\bfseries, anchor=west},
+  st/.style={-{Stealth[length=2.4mm]}, very thick, black!75},
+  ek/.style={font=\footnotesize, fill=white, inner sep=1.5pt}]
+  \newcommand{\base}[3]{\draw[very thick, black!70] (#1-1.6,#2) -- (#1+1.6,#2);
+                        \node[tl] at (#1,#2-0.06) {#3};}
+  % ======== (a) send
+  \node[lab] at (-1.7,1.55) {(a) \snd{}};
+  \base{0}{0}{thread 1}
+  \node[frm] (a1) at (0,0) {$A$: $\snd(\iota_B, m)$};
+  % B's mailbox
+  \node[q, fill=black!4] (m1) at (4.9,0.05) {};
+  \node[q, fill=black!4, right=0pt of m1, anchor=west] (m2) {};
+  \node[q, fill=black!22, right=0pt of m2, anchor=west] (m3) {$m$};
+  \node[font=\footnotesize, anchor=south] at (m2.north) {$B$'s mailbox};
+  \draw[very thick, black!70] (10.4-1.75,0) -- (10.4+1.75,0); \node[tl] at (10.4,-0.06) {thread 2, a later turn};
+  \node[cl, minimum width=3.3cm] (b1) at (10.4,0) {$B$: handler$(m)$, $\turn$};
+  \draw[st] (1.5,0.3) -- node[ek, above]{enqueue} (m1.west |- 0,0.3);
+  \draw[st] (m3.east |- 0,0.3) -- node[ek, above]{\textsc{Receive}} (8.75,0.3);
+  \node[font=\footnotesize\itshape] at (0,-0.75) {$A$ continues at once};
+  % ======== (b) fast_send under Fast-Local
+  \begin{scope}[yshift=-3.1cm]
+  \node[lab] at (-1.7,1.75) {(b) \fs{}, \textsc{Fast-Local}};
+  \base{0}{0}{thread 1}
+  \node[frm] (s1) at (0,0) {$A$: $\fsend(\iota_B, m)$};
+  \draw[very thick, black!70] (5.0-1.9,0) -- (5.0+1.9,0); \node[tl] at (5.0,-0.06) {thread 1};
+  \node[wt, minimum width=3.6cm] (s2) at (5.0,0) {$A$: $\wait{\rho}$};
+  \node[cl, minimum width=3.6cm] (s3) at (5.0,0.6) {$B$: handler$(m)$, $\ret{\rho}$};
+  \base{10.4}{0}{thread 1}
+  \node[frm] (s4) at (10.4,0) {$A$: continues with $v$};
+  \draw[st] (1.5,0.3) -- node[ek, above]{push} (3.15,0.3);
+  \draw[st] (6.85,0.9) to[out=0, in=180] (8.9,0.3);
+  \node[ek, anchor=south] at (7.9,0.95) {pop, return $v$};
+  \node[font=\footnotesize\itshape, align=center] at (5.0,-0.95) {$B$'s mailbox is not consulted;\\$B$'s own thread is not involved};
+  \end{scope}
 \end{tikzpicture}
 \caption{(a) \snd{} enqueues the message and returns; the receiver's handler runs later
 on a thread that serves it. (b) \fs{} under \textsc{Fast-Local}: the caller's frame waits,
@@ -913,17 +929,39 @@ graph} $\mathit{WF}_K$ has the threads of $K$ as nodes and an edge $\theta \to \
 \centering
 \begin{tikzpicture}[
   font=\small,
-  fr/.style={draw, minimum width=2.6cm, minimum height=0.55cm, inner sep=2pt},
-  th/.style={draw, circle, inner sep=1.5pt, font=\small},
-  >={Stealth[length=2mm]}]
-  \node[fr] (c) at (0,0.6) {$C$: $\mathsf{wait}(\rho)$};
-  \node[below=0.05cm of c] {$\theta_3$};
-  \node[fr] (d0) at (5.2,0.6) {$D$: \fs{}$(B)$};
-  \node[below=0.05cm of d0] {$\theta_1$};
-  \node[fr] (b0) at (10.4,0.6) {$B$: handler};
-  \node[below=0.05cm of b0] {$\theta_2$};
-  \draw[->, thick] (c.east) -- node[above, font=\footnotesize]{(ii) callee on $\theta_1$} (d0.west);
-  \draw[->, thick] (d0.east) -- node[above, font=\footnotesize]{(i) blocked on $B$} (b0.west);
+  frm/.style={draw, rounded corners=1.5pt, minimum width=3.1cm, minimum height=0.6cm,
+              inner sep=2pt, anchor=south},
+  wt/.style={frm, fill=black!8},
+  cl/.style={frm, fill=black!22},
+  bl/.style={frm, pattern=north east lines, pattern color=black!30},
+  tl/.style={font=\small, anchor=north},
+  ek/.style={font=\footnotesize, fill=white, inner sep=1.5pt},
+  nt/.style={font=\footnotesize\itshape, align=center},
+  >={Stealth[length=2.4mm]}]
+  % thread stacks: base line, frames above, thread name below
+  \foreach \x/\t in {0/{\theta_3}, 5.0/{\theta_1}, 10.0/{\theta_2}} {
+    \draw[very thick, black!70] (\x-1.75,0) -- (\x+1.75,0);
+    \node[tl] at (\x,-0.08) {$\t$};
+  }
+  \node[wt] (c) at (0,0) {$C$: $\wait{\rho}$};
+  \node[bl] (d) at (5.0,0) {$D$: $\fsend(\iota_B,\ldots)$};
+  \node[font=\footnotesize, anchor=south] at (5.0,0.62) {frame tagged $\ret{\rho}$};
+  \node[frm, fill=white] (b) at (10.0,0) {$B$: handler, $\turn$};
+  \node[font=\footnotesize, anchor=west] at (11.65,0.3) {reducible};
+  % wait-for edges, drawn above the stacks
+  \draw[->, very thick, black!75] (c.north) to[out=60, in=120]
+     node[ek, above]{(ii)\ waits for its callee on $\theta_1$} (d.north west);
+  \draw[->, very thick, black!75] (d.north east) to[out=60, in=120]
+     node[ek, above]{(i)\ blocked: $B$ is busy} (b.north);
+  \node[nt] at (10.0,-1.05) {no outgoing edge:\\the path ends here};
+  % legend
+  \begin{scope}[yshift=-2.0cm, xshift=0.6cm, font=\footnotesize]
+    \node[draw, fill=black!8, minimum width=0.45cm, minimum height=0.3cm] at (0,0) {};
+    \node[anchor=west] at (0.35,0) {waiting for a \fs{} reply};
+    \node[draw, pattern=north east lines, pattern color=black!30,
+          minimum width=0.45cm, minimum height=0.3cm] at (5.0,0) {};
+    \node[anchor=west] at (5.35,0) {callee of $\rho$, blocked on a \fs{}};
+  \end{scope}
 \end{tikzpicture}
 \caption{Wait-for edges in one configuration. $C$ on $\theta_3$ made a \fs{} to $D$ under
 \textsc{Fast-Remote}, so $D$'s turn (a frame marked $\ret{\rho}$) runs on $\theta_1$ and $\theta_3$ waits for it: an
@@ -1059,6 +1097,98 @@ synchronous cycle currently deadlocks.} therefore converts same-thread cycles in
 and leaves cross-thread cycles as deadlocks. Detecting the latter requires shared state:
 a global wait-for graph, a global order on actors, or bounded waiting with a fallback to
 asynchronous delivery.
+
+\subsection{Unbounded nondeterminism}
+\label{sec:unbounded}
+
+A system has \emph{unbounded nondeterminism} if it is guaranteed to terminate and yet can
+terminate in any of infinitely many states. Dijkstra's guarded commands exclude it: a
+program that always terminates has only finitely many outcomes from a given state
+\cite{dijkstra1976}. Clinger showed that the actor model admits it, because message
+delivery is guaranteed while its delay is unbounded \cite{clinger1981}. The standard
+witness is a counter: an actor increments a counter and sends itself \texttt{go} until it
+receives \texttt{stop}; delivery of \texttt{stop} is guaranteed, so the counting
+terminates, but it may terminate with any value. We examine how this property relates to
+\cref{ass:fair}, to \fs{}, and, in Section~\ref{sec:gq-incomplete}, to the global-queue
+simulator.
+
+\paragraph{Fairness and delivery.} \Cref{ass:fair} constrains the reduction of frames that
+already exist and the application of blocked \fs{} calls; it contains no guarantee that a
+message in a mailbox is ever received. The original liveness half of the isolated turn
+principle concerns the completion of turns, not the delivery of messages, and
+\cref{thm:liveness} inherits that scope. Clinger's setting corresponds to the following
+additional condition.
+
+\begin{assumption}[Fair delivery]
+\label[assumption]{ass:delivery}
+If, in infinitely many configurations of an execution, actor $\iota_a$ has a non-empty
+mailbox and its home thread is idle, then \textsc{Receive} is eventually applied to
+$\iota_a$.
+\end{assumption}
+
+Consider the counter of the introduction to this subsection. Actor $c$, with fields $x =
+0$ and $s = \mathit{false}$, has a handler for \texttt{go} that does nothing if $s$ holds
+and otherwise increments $x$ and sends \texttt{go} to $c$, and a handler for
+\texttt{stop} that sets $s$. Actor $b$ has a handler for \texttt{start} that sends
+\texttt{stop} to $c$. The actors have distinct home threads; initially $c$'s mailbox
+holds \texttt{go} and $b$'s holds \texttt{start}.
+
+\begin{proposition}[Unbounded nondeterminism with \snd{}]
+\label[proposition]{prop:unbounded-send}
+Under \cref{ass:fair,ass:delivery}, every fair execution of the counter reaches a
+configuration in which all threads are idle and all mailboxes empty, and for every $n
+\geq 1$ some fair execution reaches such a configuration with $x = n$. Under
+\cref{ass:fair} alone, termination is not guaranteed.
+\end{proposition}
+\begin{proof}
+For $n \geq 1$, let $c$'s home thread run $n-1$ complete turns for \texttt{go} before
+$b$'s home thread takes any step; this finite prefix is extended to a fair execution.
+After it, $x = n-1$ and $c$'s mailbox holds one \texttt{go}. The turn of $b$ then appends
+\texttt{stop} behind that \texttt{go}, which, received next, sets $x = n$; \texttt{stop}
+then sets $s$, and every later \texttt{go} turn sends nothing. Termination of every fair
+execution: by \cref{ass:delivery} the turn of $b$ starts, and by \cref{cor:asynclive} it
+completes, appending \texttt{stop}. Each \texttt{go} turn appends at most one message, so
+finitely many messages precede \texttt{stop} in $c$'s FIFO mailbox, and by
+\cref{ass:delivery} all of them and \texttt{stop} are received; afterwards at most one
+\texttt{go} remains, which sends nothing. Without \cref{ass:delivery}, the execution in
+which no \textsc{Receive} is ever applied satisfies \cref{ass:fair} and does not
+terminate.
+\end{proof}
+
+\paragraph{The effect of \fs{}.} The counter uses only \snd{}, and the extended calculus
+contains the original, so unbounded nondeterminism under \cref{ass:delivery} is
+unaffected by the addition of \fs{}. Part~(c) of \cref{ass:fair} has a further
+consequence: it is a fairness guarantee for synchronous delivery, and it yields unbounded
+nondeterminism without \cref{ass:delivery}. Let $b$'s turn instead evaluate
+$\fsend(\iota_c, \mathtt{stop}, \epsilon)$, with \texttt{stop} as above, and let the
+initial configuration contain that turn on $b$'s home thread.
+
+\begin{proposition}[Unbounded nondeterminism with \fs{}]
+\label[proposition]{prop:unbounded-fs}
+Under \cref{ass:fair} alone, with \fs{} applied by \textsc{Fast-Local}, every fair
+execution of this variant reaches a configuration in which $s$ holds and $x$ no longer
+changes, and for every $n \geq 0$ some fair execution reaches such a configuration with
+$x = n$.
+\end{proposition}
+\begin{proof}
+\textsc{Fast-Local} for the call requires only that $c$ have no frame on any thread. If
+$c$'s home thread applies \textsc{Receive} infinitely often, $c$ is idle between any two
+of its turns; otherwise it is idle from some point on. In either case the rule is
+applicable infinitely often, so by part~(c) of \cref{ass:fair} it is applied, and by
+parts~(a) and~(b) the turn for \texttt{stop} completes on $b$'s thread, setting $s$
+while no turn of $c$ is in progress. Every later \texttt{go} turn sends nothing, so $x$
+no longer changes. For $n \geq 0$, apply the call after exactly $n$ complete \texttt{go}
+turns of $c$; each delay is finite, so the execution is fair, and $x = n$ when $s$ is set.
+\end{proof}
+
+\Cref{prop:unbounded-fs} shows that \fs{} introduces no new form of nondeterminism but
+makes the existing one observable within a single turn. By \cref{thm:determinism}, a turn
+is a function of the replies it receives, and a reply may range over an unbounded set:
+a turn that evaluates $\fsend(\iota_c, \mathtt{get}, \epsilon)$ on the counter receives
+some $x \in \mathbb{N}$ that the program does not determine. Determinism relative to
+replies therefore locates the nondeterminism precisely, in the replies, without bounding
+it. The global-queue simulator of Section~\ref{sec:debug}, by contrast, is deterministic
+and exhibits exactly one of these outcomes (\cref{prop:gqdet}).
 
 \subsection{Order}
 \label{sec:order}
@@ -1314,6 +1444,36 @@ $\mathit{GQ}$ execution $\iota_b$ starts the turn for the \fs{} before the turn 
 in the $\mathit{P}$ execution it starts them in the other order.
 \end{proof}
 
+The incompleteness extends beyond executions in which two turns overlap. The
+global-queue semantics has a single thread, a single FIFO queue and, at each point, at
+most one applicable rule up to the choice of fresh names, so it admits no scheduling
+choice at all.
+
+\begin{proposition}[The global queue is deterministic]
+\label[proposition]{prop:gqdet}
+From a given configuration, $\mathit{GQ}$ has exactly one maximal execution up to
+$\alpha$-equivalence. In particular, for the counter of
+\cref{prop:unbounded-send,prop:unbounded-fs}, $\mathit{GQ}$ yields one final value of
+$x$, whereas $\mathit{P}$ yields every value in an infinite set.
+\end{proposition}
+\begin{proof}
+Every rule of $\mathit{GQ}$ applies either to the top frame of $\theta_0$, where the
+actor-local rules, \textsc{Fast-Local}, \textsc{Fast-Return} and \textsc{Turn-End} are
+mutually exclusive and evaluation contexts fix the redex, or, when the stack of
+$\theta_0$ is empty, to the head of $Q$ by \textsc{Receive-GQ}. Hence at most one rule
+applies to any configuration, and its result is unique up to the fresh names chosen by
+\textsc{Spawn} and \fs{}. For the counter of \cref{prop:unbounded-send} with
+$Q = (c, \mathtt{go})\cdot(b, \mathtt{start})$, the unique execution receives \texttt{go},
+\texttt{start}, \texttt{go}, \texttt{stop} and a final \texttt{go}, which has no effect,
+in that order, and ends with $x = 2$.
+\end{proof}
+
+A replay therefore exhibits one interleaving of the concurrent system, the one fixed by
+the order in which messages enter $Q$. Behaviours that depend on a different relative
+speed of threads, such as every other final value of the counter, are absent from
+simulation even when no two turns overlap; \cref{prop:gqincomplete} does not cover them,
+and testing in simulation does not exclude them.
+
 \Cref{tab:gq} summarises the guarantees that the global queue does and does not
 provide. Replay can therefore confirm bugs but cannot exclude the two classes above. The
 first can be addressed offline.
@@ -1331,6 +1491,7 @@ Question & Answer & Result \\
 Can it produce an execution the concurrent system cannot? & no & \cref{thm:gqsound} \\ \rowsep
 Can it reproduce every execution of the concurrent system? & no & \cref{prop:gqincomplete} \\ \rowsep
 Can it exhibit a deadlock needing two mailbox turns at once? & no & \cref{prop:gqincomplete} \\ \rowsep
+Can it exhibit more than one interleaving? & no & \cref{prop:gqdet} \\ \rowsep
 Can it exhibit a same-thread \fs{} cycle? & yes & \cref{thm:gqsound} \\ \rowsep
 Is a run reproducible from its inputs? & yes & single queue, single thread \\
 \bottomrule
@@ -1674,6 +1835,12 @@ programming in C++. \emph{Computer Languages, Systems \& Structures}, 45:105--13
 \bibitem{clebsch2015pony} S.~Clebsch, S.~Drossopoulou, S.~Blessing, and A.~McNeil. Deny
 capabilities for safe, fast actors. In \emph{Proc.\ 5th International Workshop on
 Programming Based on Actors, Agents, and Decentralized Control (AGERE!)}, 2015.
+
+\bibitem{clinger1981} W.~D. Clinger. \emph{Foundations of Actor Semantics}. PhD thesis,
+Massachusetts Institute of Technology, 1981. AI Technical Report 633.
+
+\bibitem{dijkstra1976} E.~W. Dijkstra. \emph{A Discipline of Programming}. Prentice-Hall,
+1976.
 
 \bibitem{deboer2017survey} F.~de Boer, V.~Serbanescu, R.~H\"ahnle, L.~Henrio, J.~Rochas,
   C.~C. Din, E.~B. Johnsen, M.~Sirjani, E.~Khamespanah, K.~Fernandez-Reyes, and A.~M.
