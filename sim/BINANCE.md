@@ -10,6 +10,9 @@
 order manager against Binance's live market data instead of a CME recording.
 Spot and USD-M futures, one symbol per process.
 
+The same binary runs on Coinbase and Hyperliquid with `--exchange`; see
+[CRYPTO.md](CRYPTO.md).
+
 ```
 Binance WebSocket + REST snapshot
    -> BinanceFeed   (own thread; TLS via Boost.Beast and OpenSSL)

@@ -3,7 +3,8 @@
 #
 # Licensed under the MIT License. See LICENSE file in the project root.
 
-# bnsim: the simulator on live Binance data (sim/BINANCE.md).
+# bnsim: the simulator on live Binance, Coinbase or Hyperliquid data
+# (sim/BINANCE.md, sim/CRYPTO.md).
 
 include $(KSPRPROJ)/mk_kaspr/glob_begin.mk
 
@@ -15,7 +16,8 @@ endif
 
 EXTRA_INCL = -I$(KSPRPROJ)/sim/include -I$(OPENSSL_PATH)/include
 
-SRC = main.cpp BnSimKaspr.cpp BinanceFeed.cpp BinanceSync.cpp Mbp2Mbo.cpp SlippageProbe.cpp
+SRC = main.cpp BnSimKaspr.cpp BinanceFeed.cpp BinanceSync.cpp CoinbaseFeed.cpp CoinbaseSync.cpp \
+      HyperliquidFeed.cpp HyperliquidSync.cpp LevelWindow.cpp Mbp2Mbo.cpp SlippageProbe.cpp
 APPNAM = bnsim
 vpath %.cpp $(KSPRPROJ)/sim/src
 
