@@ -23,8 +23,14 @@ SRC = test_cache_array.cpp \
       test_fill_slate.cpp \
       test_tachbook_fill.cpp \
       test_ob_book.cpp \
+      test_ob_ring.cpp \
       test_slippage_probe.cpp \
       SlippageProbe.cpp \
+      test_mbp2mbo.cpp \
+      Mbp2Mbo.cpp \
+      test_binance_sync.cpp \
+      test_mbp2mbo_ob.cpp \
+      BinanceSync.cpp \
       test_position.cpp \
       test_position_manager.cpp \
       test_light22.cpp \

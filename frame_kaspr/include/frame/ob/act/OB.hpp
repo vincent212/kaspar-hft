@@ -7,7 +7,9 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
+#include <algorithm>
 #include <functional>
+#include <limits>
 #include <vector>
 #include <list>
 #include <set>
@@ -107,6 +109,81 @@ namespace frame
 
         int best_bid; // best of best bid
         int best_ask; // best of best ask
+
+        //
+        // Price ladder. The queue for price `px` is at slot `px & ring_mask`.
+        //
+        // By default ring_mask is all ones and the ladder holds maxpx+2 slots,
+        // so slot == price, as it always has been.
+        //
+        // With `ladder_ticks` N in the ctor's ptree the ladder is a ring of N
+        // slots per side (N a power of two). Each side holds a window of N
+        // prices hanging from its top -- the best price holding ANY order,
+        // real or sim:
+        //
+        //   bid: [bid_top - N + 1, bid_top]      ask: [ask_bot, ask_bot + N - 1]
+        //
+        // N consecutive prices fall in N different slots, so nothing collides
+        // while every order is inside its window. A new top flushes the levels
+        // that fall off the far end (ring_place); an ADD below the window is
+        // not placed. Either way a real order stays in ordermap, so a CHANGE
+        // that later moves it inside the window places it. bid_top/ask_bot may
+        // be stale -- above/below the true top after its level emptied -- and
+        // are settled
+        // only when an ADD would otherwise fall outside the window. best_bid and
+        // best_ask are computed exactly as without the ring, from real orders.
+        //
+        // Reads outside the window get empty_q, so walks that look past the
+        // touch (stray fills, the cross check) see an empty level there, which
+        // is what the full ladder held.
+        uint32_t ring_mask = ~0u;
+        int ring_n = 0;                       // 0 = ring off
+        int bid_top = 0;                      // ring: 0 = no bid orders
+        int ask_bot = std::numeric_limits<int>::max(); // ring: max = no ask orders
+        OrderQ *empty_q = nullptr;
+        uint64_t num_ring_dropped = 0;        // ADDs below the window
+        uint64_t num_ring_flushed = 0;        // orders flushed off the far end
+
+        bool in_bid_win(int px) const noexcept
+        {
+          return bid_top != 0 && px <= bid_top && px > bid_top - ring_n;
+        }
+        bool in_ask_win(int px) const noexcept
+        {
+          return ask_bot != std::numeric_limits<int>::max() &&
+                 px >= ask_bot && px < ask_bot + ring_n;
+        }
+        OrderQ *bq(int px) const noexcept
+        {
+          if (CHUNLIKELY(ring_n) && !in_bid_win(px))
+            return empty_q;
+          return bidqs[uint32_t(px) & ring_mask];
+        }
+        OrderQ *aq(int px) const noexcept
+        {
+          if (CHUNLIKELY(ring_n) && !in_ask_win(px))
+            return empty_q;
+          return askqs[uint32_t(px) & ring_mask];
+        }
+        OrderQ *sq(const qvec_t &v, int px) const noexcept
+        {
+          return &v == &bidqs ? bq(px) : aq(px);
+        }
+        // Lowest bid / highest ask price the ladder can hold right now. Bounds
+        // for walks that would otherwise run to 1 / maxprice-1.
+        int bid_floor() const noexcept
+        {
+          return ring_n ? std::max(1, bid_top - ring_n + 1) : 1;
+        }
+        int ask_ceil() const noexcept
+        {
+          return ring_n && ask_bot != std::numeric_limits<int>::max()
+                     ? std::min(maxprice - 1, ask_bot + ring_n - 1)
+                     : maxprice - 1;
+        }
+        bool ring_accepts(en::bs side, int px) noexcept;
+        void ring_place(en::bs side, int px) noexcept;
+        void ring_flush_slot(qvec_t &v, int px) noexcept;
 
         bfile::l3_mbo_v2_t current_mbo;
 
@@ -241,12 +318,11 @@ namespace frame
 
         ~OB();
 
-        // 0 means no debug
+        // 0 means no debug. Otherwise tracing starts once a record's
+        // transactTime passes `_start_debug` (data_handler turns it on).
         void
         set_debug(uint64_t _start_debug = 0)
         {
-          if (_start_debug)
-            debug = true;
           start_debug = _start_debug;
         }
 

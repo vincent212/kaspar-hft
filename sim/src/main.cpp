@@ -217,6 +217,10 @@ int main(int argc, char* argv[])
                     "case. Must be >= --ob-delay-us: a cancel is never faster "
                     "than a new order, since the matching engine has to locate "
                     "the resting order before it can pull it.")
+      ("ob-ladder", po::value<int>()->default_value(0),
+                    "price ladder as a ring of this many slots per side (a power "
+                    "of two); 0, the default, is the full ladder. See ring_mask "
+                    "in frame/ob/act/OB.hpp.")
       ("ob-feed-delay-us", po::value<int>()->default_value(0),
                     "modelled INBOUND feed latency, exchange -> us, in "
                     "microseconds. OB holds each market-data publish until "
@@ -350,7 +354,8 @@ int main(int argc, char* argv[])
                             vm["nlights-per-side"].as<int>(),
                             probe_size,
                             vm["probe-out"].as<string>(),
-                            probe_days);
+                            probe_days,
+                            vm["ob-ladder"].as<int>());
   } catch (const std::exception& e) {
     cerr << "ERROR constructing SimKaspr: " << e.what() << "\n";
     return 1;

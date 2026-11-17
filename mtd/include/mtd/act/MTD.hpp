@@ -7,6 +7,7 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
+#include <chrono>
 #include <vector>
 #include <map>
 #include <set>
@@ -108,6 +109,20 @@ namespace frame::mtd::act
         log_inf("sending fill sub to som %s", s->get_name());
         s->send(new som::msg::FillSub(), this);
       }
+    }
+
+    // When an order or cancel is decided, in market time: the last book update
+    // seen for the instrument, as the lights stamp theirs. A simulating OB
+    // delays what we send from this by its wire latency. Stamped 0, it skipped
+    // the delay -- and OB asserts on an untimed message while it holds others
+    // of ours in flight. Wall clock until a book update has arrived.
+    uint64_t market_now(en::x venue = en::x::UNI, uint sym = 0) const noexcept
+    {
+      if (sym && bbbo[venue][sym].tx_time)
+        return bbbo[venue][sym].tx_time;
+      return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count());
     }
 
     void bbbochg_handler(const frame::ob::msg::BBBOChg *m) noexcept
@@ -363,7 +378,7 @@ namespace frame::mtd::act
               sz, px, bs,
               en::trader::BYHAND,
               visibility_group);
-
+          m.ts = market_now(venue, a->id);
           auto future = som.at(venue)->fast_send(m, this);
           auto rep = future.get();
           auto ack = dynamic_cast<const som::msg::Ack *>(rep);
@@ -402,7 +417,10 @@ namespace frame::mtd::act
             return;
           }
           venue = en::x_index_of(x_it->second);
-          som.at(venue)->send(new som::msg::Cancel(id), this);
+          auto o = orders.find(id);
+          som.at(venue)->send(
+              new som::msg::Cancel(id, o != orders.end() ? market_now(venue, o->second.sym) : market_now()),
+              this);
           cancels.insert(id);
           reply(new cons::msg::Page("cancel sent\n"));
         }

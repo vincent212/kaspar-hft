@@ -225,20 +225,23 @@ See [light/SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) for the full algorith
 
 ## Console Commands
 
-Connect via ZMQ (`tools/console_client.py`) to the MQ0 port (default 7777):
+Connect with a zmq REQ socket to the MQ0 port (`mqport`, 7777 in `kaspr.ini`).
+A request is colon-separated tokens: the actor, the command, then key/value
+pairs. `sim/binance/kaspar_client.py` is a Python client.
 
-| Command | Description |
+| Request | Description |
 |---------|-------------|
-| `ping` | Health check |
-| `prices` | Show bid/ask for all instruments |
-| `bbbo` | Show best bid/offer (32nds format) |
-| `assets` | List configured instruments |
-| `fills` | Show recent fills |
-| `get_orders` | Show working orders |
-| `order sym=ESM6 sz=1 bs=BUY px=6000 x=CMEMDFUT` | Place order |
-| `cancel id=123 x=CMEMDFUT` | Cancel order |
-| `startom` | Enable order matching in SOM |
-| `stopom` | Disable order matching in SOM |
+| `MTD:ping` | Health check |
+| `MTD:prices` | Bid/ask per instrument, as OB last published them to MTD |
+| `OB_<SYM>:bbbo` | One book's own bid/ask, at the time of the request |
+| `MTD:assets` | List configured instruments |
+| `MTD:fills` | Every fill since start |
+| `MTD:get_orders` | Orders placed through MTD |
+| `MTD:order:sym:ESM6:sz:1:bs:BUY:px:6000:x:CMEMDFUT` | Place order (px in the book's integer price units) |
+| `MTD:cancel:id:123:x:CMEMDFUT` | Cancel order |
+| `MTD:startom` | Enable order matching in SOM |
+| `MTD:stopom` | Disable order matching in SOM |
+| `list` | Actors that can be addressed |
 
 ## Configuration
 

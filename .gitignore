@@ -108,6 +108,8 @@ genconfig/*.info
 # built binaries
 sim/src/sim
 sim/src/simg
+sim/binance/bnsim
+sim/binance/bnsimg
 unit_test/src/run_tests
 unit_test/src/run_testsg
 

@@ -1084,6 +1084,10 @@ void act::SOM::fill_handler(const msg::Fill *m) noexcept
   }
   for (auto s : subs)
   {
+    // The order's sender has its copy already. MTD is both: it places orders
+    // and subscribes to every fill, and listed each of its own fills twice.
+    if (s == ord->sender)
+      continue;
     auto f = new msg::Fill(
         m->id,
         ord->venue,

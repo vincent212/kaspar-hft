@@ -45,7 +45,8 @@ SimKaspr::SimKaspr(std::string data_file,
                    int nlights_per_side,
                    int probe_size,
                    std::string probe_out,
-                   std::vector<std::vector<uint64_t>> probe_days)
+                   std::vector<std::vector<uint64_t>> probe_days,
+                   int ob_ladder)
     : Manager("sim_manager")
     , data_file_(std::move(data_file))
     , universe_json_(std::move(universe_json))
@@ -60,6 +61,7 @@ SimKaspr::SimKaspr(std::string data_file,
     , ob_delay_us_(ob_delay_us)
     , ob_cancel_delay_us_(ob_cancel_delay_us)
     , ob_feed_delay_us_(ob_feed_delay_us)
+    , ob_ladder_(ob_ladder)
     , max_dist_(max_dist), nlights_per_side_(nlights_per_side)
     , probe_size_(probe_size)
     , probe_out_(std::move(probe_out))
@@ -217,6 +219,7 @@ void SimKaspr::create_order_books()
   for (auto& row : order_books_) row.resize(max_id + 1, nullptr);
 
   boost::property_tree::ptree pt_model;
+  if (ob_ladder_ > 0) pt_model.put("ladder_ticks", ob_ladder_);
 
   // Assets come from add_future_asset(), which allocates ids from its own
   // counter — they are NOT a dense 1..num_assets() range seeded by the CSV, so

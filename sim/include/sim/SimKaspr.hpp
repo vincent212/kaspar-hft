@@ -55,7 +55,8 @@ namespace sim
              int nlights_per_side = -1,
              int probe_size = 0,
              std::string probe_out = "",
-             std::vector<std::vector<uint64_t>> probe_days = {});
+             std::vector<std::vector<uint64_t>> probe_days = {},
+             int ob_ladder = 0);
     ~SimKaspr() override = default;
 
   private:
@@ -86,6 +87,8 @@ namespace sim
     // set by events it saw with no delay. 0 = publish immediately, which is
     // exactly the behaviour that existed before.
     int      ob_feed_delay_us_;
+    // Ring price ladder, slots per side; 0 = the full ladder (OB.hpp ring_mask).
+    int      ob_ladder_ = 0;
     // How deep the light will rest, in ticks from the touch. The binding
     // limit on working size: (max_dist + 1) levels x lev_orders_max.
     // -1 = leave lights.ini alone.
