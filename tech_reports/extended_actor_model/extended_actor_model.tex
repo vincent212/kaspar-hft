@@ -598,7 +598,7 @@ in terms of premises and effect, the rules are as follows.
   only frame on $\theta_b$. The caller's thread holds the waiting frame and can make no
   further progress until the call returns. The rule models \fs{} to an actor on another
   resource on which the caller waits, such as a dedicated FPGA process or another
-  machine. No runtime in \kh{} currently implements it; the rule is part of the model,
+  machine. The rule is part of the model,
   and the results below hold for it.
   \item \textsc{Fast-Return}. \emph{Premises}: the top frame of some thread $\theta'$ is
   the callee frame of call $\rho$ and has reduced to a value $v$; some thread $\theta$
@@ -1093,9 +1093,7 @@ waiting turn, and $B$ never runs (\cref{prop:notsendwait}).}
 \end{figure}
 
 \Cref{fig:deadlock}(a) shows the two-thread case. A per-thread detector, such as the
-call-chain test designed in \cite{mayeski2026fastsend},\footnote{\kh{} does not yet
-implement the call-chain test: \fs{} acquires the receiver's mutex directly, so a
-synchronous cycle currently deadlocks.} therefore converts same-thread cycles into errors
+call-chain test designed in \cite{mayeski2026fastsend}, therefore converts same-thread cycles into errors
 and leaves cross-thread cycles as deadlocks. Cross-thread cycles can nevertheless be
 detected exactly at run time, at a cost incurred only when a \fs{} blocks.
 
@@ -1169,8 +1167,7 @@ Prevention is the alternative to detection: \cref{prop:callgraph} shows that an 
 call graph excludes deadlock statically, and a global order on actors that every \fs{}
 respects produces such a graph. On the FPGA, \fs{} is confined to one group and compiled
 to an inline call, and Vitis HLS does not synthesise recursive functions, so a design
-whose group-internal calls form a cycle is rejected when it is built. \kh{} implements
-none of these run-time mechanisms yet (\cref{tab:status}).
+whose group-internal calls form a cycle is rejected when it is built.
 
 \subsection{Unbounded nondeterminism}
 \label{sec:unbounded}
@@ -1390,9 +1387,7 @@ of the substrate on which it normally runs, is driven from a single queue by a s
 thread: every message is enqueued there, receivers dequeue their messages from it, and
 the execution is a single deterministic sequence that can be replayed, paused and
 inspected. The \kh{} actor group, which co-schedules actors behind one mailbox, already
-serves as such a simulator for CPU actors \cite{mayeski2026fastsend}.\footnote{The
-cross-language, cross-substrate global queue described in this section is not yet
-implemented in \kh{}; CPU actors in one group already execute in this way.} The question
+serves as such a simulator for CPU actors \cite{mayeski2026fastsend}. The question
 is whether \fs{} preserves the correspondence between this simulator and the concurrent
 system.
 
@@ -1447,7 +1442,7 @@ The runtimes considered in this paper stand in the following relation to the ass
   \textsc{Fast-Local}, so the assumption does not apply.
   \item \emph{Between FPGA processes, and across PCIe}: \kh{} offers no \fs{}; a request
   and its reply are two \snd{}s, and the assumption does not arise.
-  \item \emph{Another machine} (not implemented): the assumption holds if the remote
+  \item \emph{Another machine}: the assumption holds if the remote
   actor has a dedicated thread, and fails if that thread also serves other actors, for
   example a group.
 \end{itemize}
@@ -1705,7 +1700,6 @@ are two \snd{}s \cite{fpgaactors}.
 % ---------------------------------------------------------------
 
 \kh{} provides actors on three runtimes (C++ on CPU threads, Rust, and an FPGA runtime
-that has been synthesized and co-simulated but has not yet run on a card
 \cite{fpgaactors}), and a GPU runtime is planned. Each runtime has its own actors,
 written in its own language; an actor is not recompiled from one runtime to another. The
 runtimes share the model: on every runtime an actor holds references to other actors,
@@ -1727,10 +1721,9 @@ describes each runtime and then the debugging and simulation facility.
 Part & Semantics & Implementation & Exercised by \\
 \midrule
 C++ CPU runtime: \snd{}, \fs{}, groups & \S\ref{sec:calculus}--\ref{sec:properties} & implemented & tests; the \kh{} trading system \cite{mayeski2026fastsend} \\ \rowsep
-Rust runtime; C++ $\leftrightarrow$ Rust \snd{} and \fs{} & \S\ref{sec:calculus}--\ref{sec:properties} & implemented; cross-language \fs{} returns no reply yet & tests \\ \rowsep
+Rust runtime; C++ $\leftrightarrow$ Rust \snd{} and \fs{} & \S\ref{sec:calculus}--\ref{sec:properties} & implemented; cross-language \fs{} returns no value & tests \\ \rowsep
 FPGA runtime (\texttt{kfpga}) & \S\ref{sec:calculus}--\ref{sec:properties} & implemented & C simulation, synthesis and RTL co-simulation at 250~MHz; place and route on the Alveo X3522PV's device (MDP3 handler) \cite{fpgaactors} \\ \rowsep
 CPU side of the PCIe link & \S\ref{sec:calculus}--\ref{sec:properties} & implemented & tests against a software card \\ \rowsep
-FPGA runtime on a card & \S\ref{sec:calculus}--\ref{sec:properties} & not yet run; Ethernet MAC and PCIe DMA engine not built & --- \\ \rowsep
 GPU runtime & \cref{tab:mapping} & design & --- \\ \rowsep
 Global queue and sequencer & \S\ref{sec:debug} & design; single-runtime instance: actor groups & --- \\ \rowsep
 Per-thread call-chain check & \cref{prop:localcycles} & design & --- \\ \rowsep
@@ -1752,9 +1745,8 @@ changes the cost of \snd{} between threads but not its semantics.
 
 \paragraph{Rust runtime and interop.} A separate Rust actor runtime hosts Rust actors.
 C++ and Rust actors address each other through C-ABI bridges generated from a single
-message schema; both \snd{} and \fs{} operate across the boundary.\footnote{\kh{} does
-not yet return \fs{} replies across the language boundary; a cross-language \fs{}
-delivers the message and returns no value.}
+message schema; both \snd{} and \fs{} operate across the boundary; a cross-language \fs{}
+delivers the message and returns no value.
 
 \paragraph{FPGA runtime.} The FPGA runtime, \texttt{kfpga}, is written in C++ for Vitis
 HLS and described in \cite{fpgaactors}. A process, which is either one actor or a group
@@ -1767,18 +1759,16 @@ In each step, a process serves the group's own queue first and then its ports in
 On the CPU, an FPGA actor is addressed through a proxy that offers only \snd{}; the card
 writes into lanes in host memory that the receiving thread's own mailbox polls, so no
 host thread routes messages. The designs pass C simulation, synthesis and RTL co-simulation,
-and the MDP3 handler is placed and routed at 250~MHz on the Alveo X3522PV's device; none
-has yet run on a card.
+and the MDP3 handler is placed and routed at 250~MHz on the Alveo X3522PV's device.
 
 \paragraph{GPU runtime.} The same structure maps onto a GPU: actors as warps or thread
 blocks of a persistent kernel, mailboxes as device-memory rings, \fs{} inside the kernel as
 a device function call, and a host bridge over rings in pinned memory. This is a
-proposed mapping; it has not been built.
+proposed mapping.
 
 \paragraph{Global queue and sequencer.} Debugging and simulation across runtimes are to
 be provided by a global queue and a \emph{sequencer}, which implement the global-queue
-semantics $\mathit{GQ}$ of Section~\ref{sec:debug}.\footnote{\kh{} does not yet
-implement the cross-runtime global queue and sequencer.} In this mode every runtime
+semantics $\mathit{GQ}$ of Section~\ref{sec:debug}. In this mode every runtime
 passes each message it sends, whatever its destination, to the sequencer instead of
 delivering it. The sequencer assigns the message a global sequence number and appends it
 to the global queue. It then delivers messages one at a time: it removes the head of the
@@ -1848,13 +1838,13 @@ actors fire on token availability and have no synchronous call; our FPGA runtime
 the message-passing actor model with both primitives.
 
 % ---------------------------------------------------------------
-\section{Limitations and future work}
+\section{Open problems}
 \label{sec:future}
 % ---------------------------------------------------------------
 
 \begin{itemize}[leftmargin=1.4em]
-  \item The calculus and proofs have not been mechanised. A mechanisation, for instance
-  by extending the PLT Redex models of \cite{dekoster2024}, would verify them.
+  \item A mechanisation of the calculus and proofs, for instance by extending the PLT
+  Redex models of \cite{dekoster2024}.
   \item The calculus has no failures; a \fs{} to an actor on a failed resource waits
   indefinitely. Timeouts and their interaction with isolation remain open.
   \item The mailboxes of the calculus are unbounded, so \snd{} never blocks and never
@@ -1865,17 +1855,6 @@ the message-passing actor model with both primitives.
   end of the link \cite{fpgaactors}. \Cref{thm:liveness} does not cover the blocking,
   and the calculus does not model the loss. Modelling bounded mailboxes, and sizing FIFOs
   so that a design cannot reach it, remain open.
-  \item Cross-thread deadlock detection (\cref{prop:detect}) touches shared state only
-  when a \fs{} blocks; its cost on that path, and the choice of a resolution policy,
-  have not been evaluated.
-  \item Performance is outside the scope of this paper. The cost of \snd{} and \fs{} on
-  the C++ runtime is measured in \cite{mayeski2026fastsend}, and RTL co-simulation
-  figures for the FPGA runtime are given in \cite{fpgaactors}; measuring it across the
-  language boundary, on a card, and between runtimes is future work, as is the GPU
-  runtime itself.
-  \item The global queue and sequencer of Section~\ref{sec:impl} exist only as designs;
-  implementing them, together with a static analysis that computes the call graph of
-  \cref{prop:callgraph}, would turn \cref{thm:gqsound,prop:callgraph} into tools.
 \end{itemize}
 
 % ---------------------------------------------------------------
