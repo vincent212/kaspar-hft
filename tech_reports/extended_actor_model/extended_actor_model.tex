@@ -69,28 +69,25 @@
 
 \begin{abstract}
 In the actor model, actors communicate only by asynchronous send; practical systems add
-synchronous calls outside the model.
-We propose adding a synchronous send to the model itself, as a second primitive: \fs{},
-from the open-source actor framework \kh{}, where the caller waits while the receiver
-handles the message and gets the reply back as the return value. We give \fs{} a formal
-semantics, extending the active-object calculus of De Koster and De Meuter with explicit
-execution resources, and prove what adding it keeps and what it costs. Isolation is kept:
-actors still share no state, and each still handles one message at a time. Determinism
-becomes relative to replies: a handler's outcome depends only on its message and the
-replies it receives. Liveness becomes conditional: with terminating handlers and fair
-scheduling, the system can get stuck only when actors wait on each other in a circle (A
-waits for B while B waits for A), and without \fs{} it never gets stuck, as in the
-original model. We prove that \fs{} is not shorthand for a send followed by a blocking
-wait: when actors share a thread, \fs{} completes where that pattern deadlocks. For
-debugging and deterministic replay, we prove that running every actor, in any language
-or on any substrate, from one global queue shows only behaviour the real concurrent
-system can produce, though not all of it, provided no actor called remotely shares its
-thread. Finally we show that the extended model maps
-naturally onto hardware. On an FPGA, \snd{} is a FIFO between hardware processes and \fs{}
-is logic fused into one process: an inline call between the actors of one group. Without
-\fs{}, actors fused into one process could not call each other: a send followed by a
-wait would deadlock. We also cover CPU threads and Rust, and propose a GPU
-mapping.
+synchronous calls outside the model. We add a synchronous send, \fs{}, to the model as a
+second primitive. It is taken from the open-source actor framework \kh{}: the caller
+blocks while the receiver handles the message, and the reply is the call's return value.
+We give \fs{} a formal semantics by extending the active-object calculus of De Koster and
+De Meuter with explicit execution resources, and prove three properties of the extended
+model. Isolation: no state is shared between actors, and each actor processes one message
+at a time. Determinism relative to replies: the outcome of a handler is a function of its
+message and of the replies it receives. Conditional liveness: under terminating handlers
+and fair scheduling, a handler can block only on a cycle of \fs{} calls, and a system
+without \fs{} is deadlock-free, as in the original model. We also prove that \fs{} cannot
+be expressed as a send followed by a blocking wait: on a shared thread the latter
+deadlocks and \fs{} does not. For debugging and deterministic replay, we prove that
+executing all actors, in any language and on any substrate, from a single global queue
+produces only behaviours of the concurrent system, though not all of them, provided no
+remotely called actor shares its thread. Finally, we map the extended model onto
+hardware. On an FPGA, \snd{} is a FIFO between hardware processes and \fs{} is logic fused
+into one process, an inline call between the actors of one group; without \fs{}, fused
+actors could not call each other, since a send followed by a wait would deadlock. We also
+give the mapping for CPU threads and Rust, and propose one for GPUs.
 \end{abstract}
 
 % ---------------------------------------------------------------
@@ -166,7 +163,7 @@ resource where send-then-wait deadlocks.
   the same method body as asynchronous delivery, which is receiver transparency stated
   in the calculus (\cref{rem:transparency}).
   \item Its properties, stated against the isolated turn principle
-  (Section~\ref{sec:properties}): isolation is kept (\cref{thm:isolation});
+  (Section~\ref{sec:properties}): isolation holds (\cref{thm:isolation});
   determinism holds relative to replies (\cref{thm:determinism}); under terminating
   handlers and fair scheduling, a turn can be stuck only if its thread can reach a
   wait-for cycle (\cref{thm:liveness}), and the
@@ -1451,11 +1448,10 @@ the message-passing actor model with both primitives.
 We proposed adding a synchronous send, \fs{}, to the actor model as a second primitive
 alongside asynchronous send: the caller waits while the receiver handles the message,
 and gets the reply back as the return value. We gave it a formal semantics with explicit
-execution resources and proved what adding it keeps and what it costs. Isolation is
-kept. Determinism holds once the replies a handler receives count as its input.
-Liveness becomes conditional: with terminating handlers and fair scheduling, a handler
-can be stuck only when actors wait on each other in a circle, and without \fs{} the
-original guarantee returns. When actors share a thread, \fs{} completes where a send
+execution resources and proved three properties of the extended model. Isolation
+holds. Determinism holds relative to the replies a handler receives. Liveness is
+conditional: under terminating handlers and fair scheduling, a handler can block only on
+a cycle of \fs{} calls, and without \fs{} the original guarantee holds. When actors share a thread, \fs{} completes where a send
 followed by a wait deadlocks, so it is a primitive of its own rather than a pattern
 built from \snd{}. A single global queue remains a sound simulator with \fs{}: replay or
 a debugger that runs every actor, in any language and on any substrate, from one queue
