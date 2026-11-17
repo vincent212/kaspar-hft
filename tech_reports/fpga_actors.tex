@@ -1932,8 +1932,8 @@ round trip of 644~ns for its low-latency PCIe DMA controller on this card, with
 a 32-byte payload over PCIe Gen4 x8 to a Xeon Gold 5315Y host
 \cite{orthogone2023}. The path considered here crosses the bus once (the card
 posts a write into host memory and the CPU finds it there), so we take roughly
-half of the round trip and treat the result as an estimate until the DMA engine
-has been built and measured. The CPU figure, about 17~ns per event, was
+half of the round trip and treat the result as an
+estimate. The CPU figure, about 17~ns per event, was
 measured on the development host, a 2014 Xeon E5-2630L~v3 at 1.8~GHz; applying
 all 37 events at the end of the packet instead of line by line took about
 640~ns at the median on the same host.
