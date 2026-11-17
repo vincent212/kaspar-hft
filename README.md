@@ -4,7 +4,7 @@
     <strong>Production Trading System and Position-Aware Order Book Simulator</strong>
   </p>
   <p align="center">
-    Venue-independent &bull; CME MDP3 and iLink 3 included &bull; TT FIX order routing &bull; PCAP Replay &bull; POV Execution &bull; C++20 &bull; FPGA actors (upcoming)
+    Venue-independent &bull; CME MDP3 and iLink 3 included &bull; TT FIX order routing &bull; Live crypto simulation (Binance, Coinbase, Hyperliquid) &bull; PCAP Replay &bull; POV Execution &bull; C++20 &bull; FPGA actors (upcoming)
   </p>
 </p>
 
@@ -24,6 +24,7 @@
 - **Low-latency actor framework:** No data races, no locks in your code, and almost no framework overhead.
 - **FPGA actors (upcoming):** The actor framework extended to FPGAs: actors on the card and actors on the CPU exchange the same messages. The first application, a CME MDP3 handler for the AMD Alveo X3522PV, decodes packets as they arrive and sends events to the CPU's books; it meets timing at 250 MHz on the card's FPGA, one step per clock ([mdp3_fpga/](mdp3_fpga/), the [paper draft (PDF)](tech_reports/fpga_actors.pdf), and [below](#upcoming-fpga-actors)).
 - **Backtest == production:** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live trading through iLink 3 or TT FIX; switching is a config change, so a backtest exercises the exact code path that will trade.
+- **Live crypto simulator:** The same book, shadow lights and simulated order manager on live Binance (spot and USD-M futures), Coinbase (spot) and Hyperliquid (perpetuals) market data, no API key needed. Price-level feeds are split into queues of synthetic orders so fills still go by queue position; orders, BBO and fills are available from Python over zmq ([sim/BINANCE.md](sim/BINANCE.md), [sim/CRYPTO.md](sim/CRYPTO.md)).
 - **Venue-independent, CME included:** Feed handler and order-entry session are pluggable. The included MDP3 market-data handler and iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
 - **Trading Technologies FIX order routing, TT-certified:** In addition to iLink 3, orders can go out through TT over FIX 4.4, using QuickFIX, as an optional build ([ttom/README.md](ttom/README.md)).
 - **Shadow execution algorithm:** A model-free percentage-of-volume execution algorithm, passive and aggressive, measured on a year of ES data.
@@ -127,6 +128,7 @@ with `=== sim complete ===`, and the `TOT PNL` line shows `ORD` and `FIL` above 
 |------|-------------|--------------|-----|
 | **PCAP Replay** | Recorded CME packets | Simulated fills | Backtesting, strategy development |
 | **Paper Trading** | Live CME multicast | Simulated fills | Forward testing with real data |
+| **Paper Trading, crypto** | Live Binance, Coinbase or Hyperliquid WebSocket | Simulated fills | Forward testing on crypto (`bnsim`) |
 | **Live, CME direct** | Live CME multicast | CME iLink 3 | Production execution |
 | **Live, via TT** | Live CME multicast | TT FIX 4.4 | Production execution through a TT account |
 
@@ -268,6 +270,8 @@ kaspr {
 |----------|-------------|
 | [STRATEGY_SIMULATOR_GUIDE.md](STRATEGY_SIMULATOR_GUIDE.md) | Complete guide to the operating modes |
 | [sim/README.md](sim/README.md) | Running a simulation from a recording, and reading the output |
+| [sim/BINANCE.md](sim/BINANCE.md) | `bnsim`: the simulator on live Binance data |
+| [sim/CRYPTO.md](sim/CRYPTO.md) | `bnsim` on live Coinbase and Hyperliquid data |
 | [ttom/README.md](ttom/README.md) | TT FIX 4.4 order router: build, configuration, tests |
 | [kaspr/perf/README.md](kaspr/perf/README.md) | Measuring market-data latency end to end |
 | [SHADOW_ALGORITHM.md](light/SHADOW_ALGORITHM.md) | Shadow execution algorithm specification |
