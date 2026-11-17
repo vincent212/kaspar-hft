@@ -2047,24 +2047,73 @@ silently tolerated.
 \label{sec:future}
 % ---------------------------------------------------------------
 
+This preprint reports the framework, the PCIe transport on the CPU side, and the
+market-data handler through C++ models, C simulation, synthesis, RTL
+co-simulation, and place and route. The final version will add the following
+implementation and measurements.
+
+\paragraph{Integration on the card.}
 \begin{enumerate}[leftmargin=1.6em]
-  \item \textbf{The card.} The MAC and clock-domain crossings, the frame check
-  verdict carried to the End line, and the PCIe DMA engine with its windows and
-  lanes; then a measurement of wire-to-book latency on hardware.
-  \item \textbf{Measured card latency in co-simulation}, replacing the
-  estimate of Section~\ref{sec:results}.
-  \item \textbf{Several actors of one type} in a design, and pipelined groups
-  whose handlers loop.
-  \item \textbf{Market-by-order data} through the card, passed to the CPU's
-  order-by-order book as market-by-price data is now; more channels; A/B feed
-  arbitration.
-  \item \textbf{Order entry on the card,} the phases of
-  Section~\ref{sec:ilink}, beginning with a measurement of today's order path;
-  then the full system of Section~\ref{sec:fullsystem}, and its tick-to-trade
-  latency on hardware.
-  \item \textbf{The trigger on the card,} with a book on the card, so that a
-  simple signal acts without crossing PCIe.
+  \item The Ethernet MAC with its clock-domain crossing, and the propagation of
+  the MAC's frame-check verdict to the End line, so that a corrupted frame
+  invalidates the lines already delivered for it and the host treats the
+  packet as a gap.
+  \item The PCIe DMA engine with its windows and lanes, and RTL co-simulation
+  of the handler including Igmp.
+  \item On the target platform, validation of the ordering assumptions of the
+  sequence-number protocol: relaxed ordering disabled for the DMA engine, the
+  payload and the sequence number of a slot reaching host memory in order,
+  cache visibility of DMA writes with and without DDIO, and write-combined
+  MMIO stores followed by a fence; and a stress test of the protocol under
+  sustained traffic.
 \end{enumerate}
+
+\paragraph{Measurements.}
+\begin{enumerate}[leftmargin=1.6em]
+  \item PCIe transport latency on the card: CPU-to-FPGA and FPGA-to-CPU one-way
+  latency and CPU--FPGA--CPU round trip, for single messages, sustained
+  traffic and several lanes, under different polling configurations, reported
+  as median, 99th and 99.9th percentiles and maximum.
+  \item The card's work after the last byte of a packet measured in RTL
+  co-simulation over a full session, replacing the estimate of
+  Section~\ref{sec:budget}, with its distribution as a function of packet
+  length.
+  \item Wire-to-book latency on hardware, decomposed into packet reception,
+  residual work on the card, PCIe delivery and book application on the CPU,
+  and a comparison with the software handler measured from the same reference
+  point on the wire.
+  \item A baseline of the present software order path, then order entry on the
+  card (Section~\ref{sec:ilink}) and the tick-to-trade latency of the full
+  system of Section~\ref{sec:fullsystem} on hardware.
+\end{enumerate}
+
+\paragraph{Framework.}
+\begin{enumerate}[leftmargin=1.6em]
+  \item Several actors of one type in a design, and pipelined groups whose
+  handlers loop.
+  \item For each design, a static bound on the occupancy of every group queue,
+  derived from the number of sends per handler and the arrival rate at the
+  group's ports, establishing that the queue cannot overflow; and delivery of
+  the overflow counter to the CPU, so that an overflow on the card is reported
+  rather than silent.
+\end{enumerate}
+
+\paragraph{Application.}
+\begin{enumerate}[leftmargin=1.6em]
+  \item Market-by-order data through the card, passed to the CPU's
+  order-by-order book as market-by-price data is now; more channels; A/B feed
+  arbitration; recovery of lost packets.
+  \item The trigger on the card, with a book on the card, so that a simple
+  signal acts without crossing PCIe, together with a mechanism for enforcing
+  risk limits on a path that does not pass through the CPU.
+\end{enumerate}
+
+\paragraph{Reproducibility.} A tagged release of the framework and the handler
+with the Vitis HLS and Vivado versions, the device part and board
+configuration, the synthesis and place-and-route settings, the scripts that
+reproduce the synthesis results, and a description of the session-replay
+methodology and of access to the input data within the exchange's licensing
+terms.
 
 % ---------------------------------------------------------------
 \section{Conclusion}
