@@ -105,6 +105,31 @@ TEST_F(CryptoSyncTest, WindowLevelLeavingIsRemoved) {
   EXPECT_EQ(m.chunks(false, 10001), 0u);
 }
 
+// A trade takes chunks off a level; the venue refills it to the size last
+// sent. The size did not change, but the chunks must come back.
+TEST_F(CryptoSyncTest, WindowRestoresALevelATradeDepletedAndTheVenueRefilled) {
+  sim::LevelWindow w(m, 10);
+  w.set(false, 100.01, 0.05);
+  w.resync(1);
+  m.end_event();
+  m.trade(100.01, 0.02, false, 2);   // the ask is hit: 2 chunks leave the front
+  m.end_event();
+  ASSERT_EQ(m.chunks(false, 10001), 3u);
+
+  w.set(false, 100.01, 0.05);        // the venue shows the level back at 0.05
+  w.flush(3);
+  m.end_event();
+  EXPECT_EQ(m.chunks(false, 10001), 5u);
+
+  m.trade(100.01, 0.05, false, 4);   // the whole level trades away
+  m.end_event();
+  ASSERT_EQ(m.chunks(false, 10001), 0u);
+  w.set(false, 100.01, 0.05);
+  w.flush(5);
+  m.end_event();
+  EXPECT_EQ(m.chunks(false, 10001), 5u) << "a level the trade emptied comes back";
+}
+
 // --------------------------------------------------------------- CoinbaseSync
 
 json cb_l2(int64_t seq, const std::string &type, json updates) {
@@ -229,7 +254,7 @@ json hl_lv(const std::string &px, const std::string &sz) {
 }
 json hl_trades(json trades) { return {{"channel", "trades"}, {"data", trades}}; }
 json hl_trade(uint64_t ms, const std::string &side, const std::string &px, const std::string &sz) {
-  return {{"coin", "BTC"}, {"side", side}, {"px", px}, {"sz", sz}, {"time", ms}, {"tid", 1}};
+  return {{"coin", "BTC"}, {"side", side}, {"px", px}, {"sz", sz}, {"time", ms}, {"tid", ms}};
 }
 
 class HyperliquidTest : public ::testing::Test {
@@ -282,6 +307,34 @@ TEST_F(HyperliquidTest, TradesReplayedOnSubscribeAreSkipped) {
   s.on_message(hl_trades(json::array({hl_trade(950, "A", "65094.0", "0.01")})));   // older than the book
   EXPECT_EQ(s.trades_applied(), 0u);
   EXPECT_EQ(m.chunks(true, 65094), 3u);
+}
+
+json hl_trade_id(uint64_t ms, uint64_t tid, const std::string &side, const std::string &px,
+                const std::string &sz) {
+  json t = hl_trade(ms, side, px, sz);
+  t["tid"] = tid;
+  return t;
+}
+
+// After a reconnect Hyperliquid replays recent trades, newer than the first
+// connection's book; none may be applied twice.
+TEST_F(HyperliquidTest, AReconnectDoesNotApplyReplayedTradesAgain) {
+  sim::HyperliquidSync s("BTC", m);
+  s.on_message(hl_book(1000, json::array({hl_lv("65094.0", "0.10")}), json::array()));
+  s.on_message(hl_trades(json::array({hl_trade_id(2000, 7, "A", "65094.0", "0.01"),
+                                      hl_trade_id(2100, 8, "A", "65094.0", "0.01")})));
+  ASSERT_EQ(s.trades_applied(), 2u);
+
+  s.reset();   // the connection drops
+  s.on_message(hl_book(3000, json::array({hl_lv("65094.0", "0.10")}), json::array()));
+  // The replay on the new connection: trades 7 and 8 again, older than the new book.
+  s.on_message(hl_trades(json::array({hl_trade_id(2000, 7, "A", "65094.0", "0.01"),
+                                      hl_trade_id(2100, 8, "A", "65094.0", "0.01")})));
+  EXPECT_EQ(s.trades_applied(), 2u);
+  // A trade the replay repeats with a time at the new book is caught by its id.
+  s.on_message(hl_trades(json::array({hl_trade_id(3000, 8, "A", "65094.0", "0.01"),
+                                      hl_trade_id(3000, 9, "A", "65094.0", "0.01")})));
+  EXPECT_EQ(s.trades_applied(), 3u) << "only trade 9 is new";
 }
 
 TEST_F(HyperliquidTest, OtherCoinsAreIgnored) {

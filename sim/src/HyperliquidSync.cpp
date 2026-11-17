@@ -50,8 +50,8 @@ void HyperliquidSync::on_book(const nlohmann::json &data)
     {
       out_.start(tx);
       started_ = true;
-      first_book_ns_ = tx;
     }
+    first_book_ns_ = tx;
     window_.resync(tx);
     synced_ = true;
   }
@@ -74,6 +74,18 @@ void HyperliquidSync::on_trades(const nlohmann::json &data)
     const uint64_t tx = ms_to_ns(t.at("time"));
     if (tx < first_book_ns_)
       continue;
+    if (t.contains("tid"))
+    {
+      const uint64_t tid = t.at("tid").get<uint64_t>();
+      if (!seen_tids_.insert(tid).second)
+        continue;
+      seen_order_.push_back(tid);
+      if (seen_order_.size() > kSeen)
+      {
+        seen_tids_.erase(seen_order_.front());
+        seen_order_.pop_front();
+      }
+    }
     out_.trade(num(t.at("px")), num(t.at("sz")), t.at("side").get<std::string>() == "A", tx);
     out_.end_event();
     ++trades_;

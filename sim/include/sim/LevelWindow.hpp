@@ -25,8 +25,11 @@ namespace sim
    * fresh snapshot each time. Either way the feed writes levels into the
    * window with set() (or clears it), and flush() works out what changed in
    * the best `depth` levels since the last flush and sends only that to
-   * Mbp2Mbo: a level that changed size, a level that entered the window, and a
-   * level that left it (as quantity 0). resync() sends the window as a
+   * Mbp2Mbo: a level that changed size, a level that entered the window, a
+   * level that left it (as quantity 0), and a level whose chunks in Mbp2Mbo no
+   * longer match its size -- a trade takes chunks off a level, and if the venue
+   * then shows the level at the size last sent (refilled), only this check
+   * puts the chunks back. resync() sends the window as a
    * Mbp2Mbo snapshot instead, for the start and after a reconnect.
    *
    * Levels are keyed by tick, so a price that arrives as "65049.01" one time

@@ -8,7 +8,9 @@
  */
 
 #include <cstdint>
+#include <deque>
 #include <string>
+#include <unordered_set>
 
 #include <nlohmann/json.hpp>
 
@@ -28,8 +30,10 @@ namespace sim
    *            the book; it comes back at the back of the queue if it
    *            re-enters.
    *   trades   `side` is the TAKER's side: "A" sold into the bid, "B" bought
-   *            from the ask. On subscribe Hyperliquid replays recent trades;
-   *            those older than the first book are skipped.
+   *            from the ask. On every subscribe Hyperliquid replays recent
+   *            trades: those older than the connection's first book are
+   *            skipped, and so is any trade id already applied, so a
+   *            reconnect cannot apply a trade twice.
    *
    * There is no sequence number: each book is complete, so a lost message
    * costs nothing but the levels it would have changed until the next one.
@@ -58,7 +62,10 @@ namespace sim
     LevelWindow window_;
     bool synced_ = false;
     bool started_ = false;
-    uint64_t first_book_ns_ = 0;   // trades before this are the subscribe replay
+    uint64_t first_book_ns_ = 0;   // this connection's first book; older trades are the replay
+    std::unordered_set<uint64_t> seen_tids_;   // trade ids applied, the last kSeen of them
+    std::deque<uint64_t> seen_order_;
+    static constexpr size_t kSeen = 4096;
     uint64_t applied_ = 0, trades_ = 0;
 
     void on_book(const nlohmann::json &data);

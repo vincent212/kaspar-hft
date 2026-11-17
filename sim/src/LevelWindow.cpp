@@ -49,7 +49,8 @@ void LevelWindow::flush_side(bool bid, uint64_t tx)
   for (const auto &[t, pq] : now)
   {
     auto it = sent.find(t);
-    if (it == sent.end() || it->second.second != pq.second)
+    if (it == sent.end() || it->second.second != pq.second ||
+        out_.chunks(bid, t) != out_.target(pq.second))
       out_.level(bid, pq.first, pq.second, tx);
   }
   sent.swap(now);
