@@ -1112,6 +1112,35 @@ terminates, but it may terminate with any value. We examine how this property re
 \cref{ass:fair}, to \fs{}, and, in Section~\ref{sec:gq-incomplete}, to the global-queue
 simulator.
 
+\paragraph{Bounded and unbounded nondeterminism.} A program has \emph{bounded}
+nondeterminism if, from every state, each step has finitely many possible successors and
+every execution terminates; by K\"onig's lemma its tree of executions is then finite, so
+from a given state it has finitely many outcomes, and all of them can be enumerated by a
+finite search. Dijkstra adopted this restriction deliberately: the weakest-precondition
+semantics of guarded commands is continuous only when nondeterminism is bounded, and he
+regarded unbounded nondeterminism as unimplementable \cite{dijkstra1976}. Semantics that
+admit unbounded (countable) nondeterminism lose this continuity and require
+fixed points beyond the first infinite ordinal \cite{aptplotkin1986}.
+
+The actor counter has finite branching at every step, so it does not escape K\"onig's
+lemma by branching; it escapes it through fairness. Its tree of executions contains an
+infinite path, the one on which $b$'s thread never takes a step and $c$ counts
+indefinitely, and fairness excludes exactly that path. Every remaining execution is
+finite, yet there are infinitely many of them, and so infinitely many outcomes. Fairness
+is a constraint on infinite executions as a whole, not on individual steps, which is why
+no step-wise bound can express it. Clinger and Hewitt regard this as an essential feature
+of the actor model rather than a defect: a server that is guaranteed to answer every
+request, after an arbitrary but finite delay, has unbounded nondeterminism, and a model
+restricted to bounded nondeterminism cannot express that guarantee
+\cite{clinger1981}.
+
+Two consequences matter here. First, any liveness result that relies on fairness, such as
+\cref{thm:liveness}, holds in a setting with unbounded nondeterminism, and its proof
+cannot proceed by finite enumeration of outcomes. Second, the outcomes of a program with
+unbounded nondeterminism cannot be covered by any finite set of test runs, in simulation
+or otherwise; \cref{prop:gqdet} makes this concrete for the global queue, which produces
+exactly one of them.
+
 \paragraph{Fairness and delivery.} \Cref{ass:fair} constrains the reduction of frames that
 already exist and the application of blocked \fs{} calls; it contains no guarantee that a
 message in a mailbox is ever received. The original liveness half of the isolated turn
@@ -1809,6 +1838,9 @@ would follow the same pattern.
 
 \bibitem{akkaask} Lightbend. Akka documentation: the ask pattern and futures.
 \url{https://doc.akka.io/docs/akka/2.5/futures.html}, 2017.
+
+\bibitem{aptplotkin1986} K.~R. Apt and G.~D. Plotkin. Countable nondeterminism and random
+assignment. \emph{Journal of the ACM}, 33(4):724--767, 1986.
 
 \bibitem{armstrong2003} J.~Armstrong. \emph{Making reliable distributed systems in the
 presence of software errors}. PhD thesis, Royal Institute of Technology, Stockholm, 2003.
