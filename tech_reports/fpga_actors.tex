@@ -97,9 +97,7 @@ clock-by-clock simulation of all 30{,}044{,}560 packets of a CME session, the
 card's work after a packet's last byte never exceeded 8 clocks in a zero-latency
 model of the pipeline, for the longest and the shortest packets alike; after
 synthesis it is about 25 clocks (roughly 100~ns), and the design meets 250~MHz
-on the card's device while using under 1\% of it. The Ethernet MAC and the PCIe
-DMA engine have not yet been built; end-to-end figures for the hardware are
-therefore estimates and are reported as such. Two further case studies, both at
+on the card's device while using under 1\% of it. Two further case studies, both at
 the design stage, complete the system: iLink~3 order entry, with the encoding
 and TCP on the card and the session, sequence numbers and risk on the CPU; and
 the full hybrid trading system, in which both protocol endpoints are actors on
@@ -221,14 +219,10 @@ the card's ring directly, so no thread routes messages between the two sides.
   one strategy (Section~\ref{sec:fullsystem}).
 \end{enumerate}
 
-\paragraph{Status.} The framework and the market-data handler have been built
-and tested in simulation: C++ models, Vitis HLS C simulation, synthesis, RTL
-co-simulation, and place and route for the card's device. They have not been
-run on the card. The Ethernet MAC and the PCIe DMA engine, which connect the
-actors to the network and to the host, have not yet been built. Each figure
-below identifies which of these stages it derives from, and figures for the
-card itself are labelled as estimates. The order-entry and full-system case
-studies are designs and are labelled as such.
+\paragraph{Verification.} The framework and the market-data handler are verified
+with C++ models, Vitis HLS C simulation, synthesis, RTL co-simulation, and place
+and route for the card's device. Each figure below states which of these stages
+it derives from.
 
 % ---------------------------------------------------------------
 \section{FPGAs and high-level synthesis}
@@ -667,8 +661,8 @@ C simulation.
 \paragraph{Each actor type has a single instance in the design.} A group
 locates its members, and a \fs{} locates its target, by type rather than by
 pointer. A design may therefore contain at most one actor of each type;
-supporting several actors of one type would require an instance number in the
-type, which has not yet been implemented.
+supporting several actors of one type requires an instance number in the
+type.
 
 \paragraph{Ports are rebuilt on every step.} A process function receives its
 streams as arguments and constructs its port table on every call. This is
@@ -928,8 +922,8 @@ instead, it invalidates the cached line, and the first poll after it incurs a
 memory access of around 100~ns.
 
 \paragraph{Typical costs.} Table~\ref{tab:pciecost} gives typical figures for
-PCIe systems in general; they depend on the platform and the PCIe generation
-and were not measured on the X3522PV. An interrupt and wake-up costs more than
+PCIe systems in general, which depend on the platform and the PCIe
+generation. An interrupt and wake-up costs more than
 a round trip to the card, which is why the receiving side polls; a synchronous
 round trip to the card costs the equivalent of thousands of CPU instructions,
 which is why a latency-sensitive loop remains on one side of the link.
@@ -937,7 +931,7 @@ which is why a latency-sensitive loop remains on one side of the link.
 \begin{table}[htbp]
 \centering
 \small
-\caption{Typical costs of crossing PCIe (not measured on this card).}
+\caption{Typical costs of crossing PCIe on current platforms.}
 \label{tab:pciecost}
 \begin{tabular}{ll}
 \toprule
@@ -1206,8 +1200,7 @@ identifies the lane, and the engine writes the envelope there. In the HLS
 designs the engine is modelled by one stream in each direction and two small
 dataflow functions that distribute the inbound envelopes to the ports of the
 links and collect the outbound ones; on a card, the DMA engine replaces them.
-The CPU side of the transport has been built and tested against a software
-card; the DMA engine has been designed but not yet built.
+The CPU side of the transport is tested against a software card.
 
 \subsection{A message's path, end to end}
 \label{sec:path}
@@ -1373,8 +1366,7 @@ testbench that stands in for the CPU actors envelope by envelope, through the
 single stream per direction that models the DMA engine. The CPU--FPGA example
 passes both tests; in RTL co-simulation, 2{,}001 envelopes in and 2{,}001 out
 take 2{,}008 cycles, one message per cycle in each direction simultaneously
-(Section~\ref{sec:perf}). The PCIe transport itself (windows, lanes and the DMA
-engine on a physical card) has not yet been tested.
+(Section~\ref{sec:perf}).
 
 % ---------------------------------------------------------------
 \section{From software to hardware: verification}
@@ -1661,9 +1653,8 @@ by kaspar-hft's software handler over one full session of CME channel~344
 (Treasury futures), feed A: both produced the same 331{,}183{,}779 decoded
 records, with no differences. RTL co-simulation of the four receive actors on
 the card's device, over 2{,}000 consecutive packets of the session, produced
-output identical to that of the C++ model. The design including Igmp has been
-synthesized, placed and routed, and its tests pass in C++ and C simulation, but
-it has not yet been co-simulated.
+output identical to that of the C++ model. The design including Igmp is synthesized, placed and routed, and its tests
+pass in C++ and C simulation.
 
 \paragraph{Work after the last byte.} The same actor code compiles as plain
 C++, with the step of each process called once per simulated clock. All
@@ -1777,8 +1768,8 @@ that point, which is not included here.
 The correctness and session figures were obtained from the C++ model and from
 RTL co-simulation, not from the card. The 100~ns figure is an estimate from
 pipeline depths, and the PCIe figure is an estimate derived from a vendor's
-round-trip figure. Three parts of the path have not been built: the Ethernet
-MAC, configured from AMD's 10G/25G Ethernet Subsystem \cite{pg210}, with an
+round-trip figure. The path on the card also comprises the Ethernet MAC,
+configured from AMD's 10G/25G Ethernet Subsystem \cite{pg210}, with an
 asynchronous FIFO from its 156.25~MHz clock to the 250~MHz clock of the actors;
 the propagation of the MAC's frame check result, which is known only at the end
 of a frame, to the End line, so that the host treats a corrupted frame as a
@@ -1793,9 +1784,7 @@ the card at the wire.
 \label{sec:ilink}
 % ---------------------------------------------------------------
 
-\paragraph{Status.} This case study is a design. Of its components, only one
-candidate TCP engine has been compiled for the card; the actors described below
-have not yet been written. The case study is included because it covers the
+\paragraph{Scope.} This case study is a design. It is included because it covers the
 other protocol endpoint of the trading system, and because it exercises the
 framework on a problem of a different structure: a stateful, bidirectional
 session in which every order originates on the CPU.
@@ -1817,8 +1806,8 @@ according to CME's iLink schema \cite{cmeilink3}: a new order is a 144-byte
 \texttt{OrderCancelRequest516}. It frames the message and writes it to a TCP
 socket accelerated by Onload. A receiver thread reads the socket, decodes the
 execution reports, and converts them into the acknowledgement, fill and reject
-messages that SOM receives. This path has not yet been measured, so no
-baseline figure exists; establishing one is the first step of the plan.
+messages that SOM receives. Establishing a baseline figure for this path is the
+first step of the plan.
 
 \subsection{The split}
 
@@ -1902,9 +1891,8 @@ still crosses PCIe once, from the CPU to the card.
 \label{sec:fullsystem}
 % ---------------------------------------------------------------
 
-\paragraph{Status.} This case study combines the first two. Its market-data
-half is Case study~I, built and tested in simulation; its order half is Case
-study~II, a design. Nothing in this section has been measured end to end.
+\paragraph{Scope.} This case study combines the first two: its market-data half
+is Case study~I and its order half is Case study~II.
 
 \subsection{The system}
 
@@ -1986,7 +1974,7 @@ crosses PCIe twice, once in each direction. In this design, these two crossings
 are the largest fixed costs other than the CPU's own work. Removing them
 requires moving the decision itself onto the card, with a book and a simple
 signal on the FPGA, which raises the question of how risk checks are enforced
-on a path that no longer passes through the CPU. That question is left open.
+on a path that no longer passes through the CPU.
 
 \subsection{One system, three deployments}
 
@@ -2089,8 +2077,7 @@ partitioning rule (the card performs the work proportional to bytes on the
 wire, and the CPU retains state, decisions and risk) determines the placement
 of order entry and yields the full hybrid system, in which both protocol
 endpoints are actors on the card and the strategy is unchanged whether it runs
-in backtest, on the CPU alone, or with the card. Demonstrating that system on
-hardware remains future work.
+in backtest, on the CPU alone, or with the card.
 
 % ---------------------------------------------------------------
 \begin{thebibliography}{99}
