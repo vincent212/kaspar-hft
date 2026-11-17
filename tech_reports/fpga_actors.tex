@@ -639,15 +639,14 @@ round-robin order; a step that finds no input performs no action.
 \subsection{Wiring fixed at build time: no stored pointers}
 \label{sec:nopointers}
 
-The first version of the framework was a direct translation of the CPU
-framework: an actor reference held a pointer to a FIFO, a group held a tuple of
-pointers to its actors, and each actor held a pointer to the sender to which it
-was replying. It ran in software and in C simulation but failed synthesis with
-the error \emph{pointer to pointer is not supported}. On a chip every
-connection is a wire fixed when the design is built; HLS can follow a pointer
-only if it can determine its target at compile time, which a pointer stored in
-an object and dereferenced later prevents. Each pointer was replaced as
-described below, without changing the code an actor's author writes.
+On a chip every connection is a wire fixed when the design is built. HLS can
+follow a pointer only if it can determine its target at compile time, which a
+pointer stored in an object and dereferenced later prevents; Vitis HLS rejects
+such a design with the error \emph{pointer to pointer is not supported}. The CPU
+framework stores exactly such pointers: an actor reference points to a mailbox,
+a group holds pointers to its actors, and an actor holds a pointer to the sender
+it replies to. On the card each of them is represented without a pointer, as
+described below, and the code an actor's author writes is unchanged.
 
 \paragraph{An actor reference is a port number and an actor id.} The top-level
 design determines what each port is connected to, so that, as on the CPU, an
@@ -798,15 +797,15 @@ emits one message per decoded entry.
 \subsection{Pipelining: a step per clock}
 \label{sec:pipeline}
 
-The first working version of the framework required 33 to 64 cycles per step
-for handlers that performed almost no work (\texttt{++pings; reply(r);}). The
-synthesis report showed that none of this time was spent in the handler
+Without the optimizations described below, a step requires 33 to 64 cycles
+even for a handler that performs almost no work (\texttt{++pings; reply(r);}),
+and the synthesis report attributes none of this time to the handler
 (Table~\ref{tab:cycles}).
 
 \begin{table}[h]
 \centering
-\caption{Breakdown of the 33 cycles of a step in the first version, from the
-synthesis report.}
+\caption{Breakdown of the 33 cycles of an unoptimized step, from the synthesis
+report.}
 \label{tab:cycles}
 \small
 \begin{tabular}{p{3.2cm} r p{8.4cm}}
@@ -820,10 +819,10 @@ Flushing the outbox & 4 & four slots, checked one a cycle \\
 \end{tabular}
 \end{table}
 
-Six changes eliminated this overhead. An envelope is zero-initialized by an
+Six optimizations remove this overhead. An envelope is zero-initialized by an
 explicitly unrolled loop in an HLS-only constructor, which synthesizes to
-constant wires; leaving it uninitialized was also tried and produced unknown
-values that caused RTL co-simulation to hang. The outbox is partitioned into
+constant wires; an uninitialized envelope is not an alternative, because its
+undefined values stall RTL co-simulation. The outbox is partitioned into
 registers, so an envelope is written or read in one cycle. Every function on
 the message path (\snd{}, \texttt{reply}, encoding, the handler table and
 \fs{}) is inlined, so HLS generates a single circuit rather than a chain of
@@ -1252,14 +1251,14 @@ socket-to-book median of about $7~\mu$s, against about $1~\mu$s on one thread,
 and part of its tail was due to mailbox backlog; the runs also differed in load
 and configuration, so not all of the difference is attributable to the hop
 \cite{fastsend}. The present design has no such thread
-(Figure~\ref{fig:bridge} shows the rejected alternative). Every crossing is
+(Figure~\ref{fig:bridge} shows the alternative with a routing thread). Every crossing is
 written by the thread that holds the message and read by the thread that will
 handle it.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.9\textwidth]{fig3_first_bridge.png}
-\caption{The rejected design: CPU actors write straight to the card, but everything from the card goes through one reader thread that polls, decodes and routes, so every message from the card changes threads.}
+\caption{An alternative design with a routing thread: CPU actors write straight to the card, but everything from the card goes through one reader thread that polls, decodes and routes, so every message from the card changes threads.}
 \label{fig:bridge}
 \end{figure}
 
@@ -1404,8 +1403,8 @@ four levels.
   C simulation.
 \end{enumerate}
 
-Each of the rules below was identified because a design passed C simulation and
-failed at a later level (Table~\ref{tab:rules}). Several of them concern the
+Each rule below addresses a class of design that passes C simulation and fails
+at a later level (Table~\ref{tab:rules}). Several of them concern the
 boundary of a free-running design: a design consisting only of tasks returns as
 soon as it starts, and polls its inputs with non-blocking reads that
 co-simulation cannot drive on a top-level port. The top levels therefore
@@ -1461,12 +1460,12 @@ free license, and run in RTL co-simulation (Table~\ref{tab:perf}).
 \begin{table}[h]
 \centering
 \caption{The framework on the card: RTL co-simulation on the KU5P at
-250~MHz, before and after the changes of Section~\ref{sec:pipeline}.}
+250~MHz, without and with the optimizations of Section~\ref{sec:pipeline}.}
 \label{tab:perf}
 \small
 \begin{tabular}{p{6.6cm} r r}
 \toprule
-& First version & Pipelined \\
+& Unoptimized & Pipelined \\
 \midrule
 One step, the replying actor & 33--64 cycles & 1 cycle \\
 One step, the initiating actor & 33--59 cycles & 2 cycles \\
