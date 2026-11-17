@@ -173,7 +173,9 @@ shared execution resource on which send-then-wait deadlocks.
   a wait-for cycle (\cref{thm:liveness}), and the
   original liveness result is the special case without \fs{}
   (\cref{cor:asynclive}); a per-thread call-chain check detects exactly the cycles
-  confined to one thread (\cref{prop:localcycles}); a \fs{} is never queued behind the
+  confined to one thread (\cref{prop:localcycles}), while following the functional
+  wait-for graph detects every cross-thread cycle exactly
+  (\cref{lem:outdeg,prop:detect}); a \fs{} is never queued behind the
   callee's mailbox (\cref{prop:order}); \fs{} is not send-then-wait when resources are shared
   (\cref{prop:notsendwait}); and the extended calculus exhibits unbounded nondeterminism
   under its own fairness assumption through \fs{}, and under an additional delivery
@@ -1094,9 +1096,81 @@ waiting turn, and $B$ never runs (\cref{prop:notsendwait}).}
 call-chain test designed in \cite{mayeski2026fastsend},\footnote{\kh{} does not yet
 implement the call-chain test: \fs{} acquires the receiver's mutex directly, so a
 synchronous cycle currently deadlocks.} therefore converts same-thread cycles into errors
-and leaves cross-thread cycles as deadlocks. Detecting the latter requires shared state:
-a global wait-for graph, a global order on actors, or bounded waiting with a fallback to
-asynchronous delivery.
+and leaves cross-thread cycles as deadlocks. Cross-thread cycles can nevertheless be
+detected exactly at run time, at a cost incurred only when a \fs{} blocks.
+
+\subsection{Deadlock detection}
+\label{sec:detect}
+
+Detection is simpler than in general lock-based systems because the wait-for graph of the
+calculus is functional: no thread waits for more than one other.
+
+\begin{lemma}[At most one wait-for edge per thread]
+\label[lemma]{lem:outdeg}
+In every reachable configuration, every frame of a thread other than its top frame is a
+waiting frame whose callee frame lies immediately above it, and every thread has at most
+one outgoing edge in the wait-for graph.
+\end{lemma}
+\begin{proof}
+By induction on reductions. \textsc{Receive} applies only to an idle thread and creates a
+single frame. \textsc{Fast-Local} turns the top frame into a waiting frame and pushes its
+callee directly above it. \textsc{Fast-Remote} leaves the waiting frame on top of the
+caller's thread and creates the callee frame as the only frame of an idle thread.
+\textsc{Fast-Return} and \textsc{Turn-End} remove a top frame, and actor-local rules
+change only a top frame. Hence only the top frame of a thread can be blocked, or waiting
+on a callee held by another thread. An edge of kind (i) leaves a blocked top frame and
+points to the unique thread that holds the callee's frame (\cref{lem:oneframe}) or, under
+\textsc{Fast-Remote}, to the callee's home thread; an edge of kind (ii) leaves a top
+frame waiting on a callee held elsewhere. The two cases exclude each other, so each
+thread has at most one outgoing edge.
+\end{proof}
+
+By \cref{lem:outdeg} the wait-for graph is a partial function on threads, and by the
+($\Leftarrow$) direction of \cref{thm:liveness} a cycle, once formed, is permanent: no
+thread on it takes another step. A thread is therefore deadlocked exactly when following
+the successor function from it revisits a thread, and a deadlock can be found by
+following a chain of pointers rather than by searching a graph.
+
+\begin{proposition}[Exact detection by chain following]
+\label[proposition]{prop:detect}
+Suppose that (1) each actor records the thread that holds its frame, if any; (2) a
+thread publishes its outgoing wait-for edge before it blocks or waits, and withdraws it
+before it resumes; (3) these records carry a version number incremented on every write, and are
+written and read with sequentially consistent operations; and (4) a thread that
+publishes an edge then follows the chain of published edges from itself twice, and
+accepts the chain only if every record on it has the same version in both traversals. Then a chain accepted as
+returning to its start is a cycle of the wait-for graph of a reachable configuration,
+hence a deadlock, and every cycle of the wait-for graph is accepted by at least one of
+the threads on it.
+\end{proposition}
+\begin{proof}
+\emph{Soundness.} If every record on the chain has the same version in both traversals,
+no record was written between its two reads, so all the edges read held simultaneously
+at the instant between the end of the first traversal and the start of the second; they
+therefore form a cycle of the wait-for graph of the configuration at that instant, which
+by \cref{thm:liveness} is a deadlock. \emph{Completeness.} Let a cycle be formed, and
+let $\theta$ be the thread on it whose edge was published last. By (3), when $\theta$
+follows the chain, every other edge of the cycle is visible to it, and by permanence of
+the cycle none of them changes during either read; the chain from $\theta$ therefore
+returns to $\theta$ and is accepted. If several threads close cycles concurrently, the
+sequentially consistent order of their publications identifies a last one for each
+cycle, and the argument applies to it.
+\end{proof}
+
+\paragraph{Implementation.} In the CPU runtime of \kh{}, the record of (1) is the owner of
+the callee's \fs{} lock, and an edge of kind (i) is published when an attempt to acquire
+that lock fails, before the thread waits for it. The uncontended \fs{} therefore costs
+nothing extra: the chain is followed only on the path that blocks, and its length is at
+most the number of threads. A detected cycle requires a resolution policy: the call
+that closes the cycle can fail with an error, as the per-thread check does for
+self-loops; it can fall back to asynchronous delivery, at the cost of the atomicity of
+the calling turn; or a victim turn can be aborted, as in database deadlock detection.
+Prevention is the alternative to detection: \cref{prop:callgraph} shows that an acyclic
+call graph excludes deadlock statically, and a global order on actors that every \fs{}
+respects produces such a graph. On the FPGA, \fs{} is confined to one group and compiled
+to an inline call, and Vitis HLS does not synthesise recursive functions, so a design
+whose group-internal calls form a cycle is rejected when it is built. \kh{} implements
+none of these run-time mechanisms yet (\cref{tab:status}).
 
 \subsection{Unbounded nondeterminism}
 \label{sec:unbounded}
@@ -1659,7 +1733,8 @@ CPU side of the PCIe link & \S\ref{sec:calculus}--\ref{sec:properties} & impleme
 FPGA runtime on a card & \S\ref{sec:calculus}--\ref{sec:properties} & not yet run; Ethernet MAC and PCIe DMA engine not built & --- \\ \rowsep
 GPU runtime & \cref{tab:mapping} & design & --- \\ \rowsep
 Global queue and sequencer & \S\ref{sec:debug} & design; single-runtime instance: actor groups & --- \\ \rowsep
-Per-thread call-chain check & \cref{prop:localcycles} & design & --- \\
+Per-thread call-chain check & \cref{prop:localcycles} & design & --- \\ \rowsep
+Cross-thread deadlock detection by chain following & \cref{prop:detect} & design & --- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1790,8 +1865,9 @@ the message-passing actor model with both primitives.
   end of the link \cite{fpgaactors}. \Cref{thm:liveness} does not cover the blocking,
   and the calculus does not model the loss. Modelling bounded mailboxes, and sizing FIFOs
   so that a design cannot reach it, remain open.
-  \item Detecting cross-thread cycles at run time requires shared state
-  (\cref{prop:localcycles}); its cost on the hot path has not been measured.
+  \item Cross-thread deadlock detection (\cref{prop:detect}) touches shared state only
+  when a \fs{} blocks; its cost on that path, and the choice of a resolution policy,
+  have not been evaluated.
   \item Performance is outside the scope of this paper. The cost of \snd{} and \fs{} on
   the C++ runtime is measured in \cite{mayeski2026fastsend}, and RTL co-simulation
   figures for the FPGA runtime are given in \cite{fpgaactors}; measuring it across the
