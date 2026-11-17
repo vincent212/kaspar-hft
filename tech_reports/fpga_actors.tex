@@ -87,9 +87,11 @@ directly, so no routing thread is required, and neither side's handlers can
 distinguish a peer on the card from a peer on the CPU.
 
 We apply the framework to the CME MDP3 market-data handler. In a CPU
-implementation, the latency tail of the handler is caused by long packets: a
-packet is decoded only after it has been received in full, and its messages are
-decoded sequentially, so long packets that arrive back to back queue. In the
+implementation, the latency tail of the handler is a queueing tail: during a
+burst at the matching engine, packets arrive about one publisher period
+(approximately $7.5~\mu$s) apart, and a handler whose time per packet exceeds
+that period accumulates a queue; a packet, moreover, is decoded only after it
+has been received in full, so its processing time grows with its length. In the
 proposed design, five actors on an AMD Alveo X3522PV decode, filter and pack
 each packet as its bytes arrive, and the CPU builds the books from 64-byte
 lines, most of which are applied while the packet is still on the wire. In a
@@ -130,13 +132,20 @@ that share one thread and one mailbox, per-actor selection of the mailbox
 queue, and a memory pool. The study measured book-update medians of
 $0.8$--$1.1~\mu$s from socket read to book publish on a single thread, and
 found that the tail of the distribution is determined less by the framework
-than by the market: events arrive in clustered bursts, the exchange coalesces
-each burst into a long packet, and a long packet is decoded one message at a
-time.
+than by the market. A measurement study of CME market data \cite{mdarrival}
+identifies the mechanism. Transactions at the matching engine arrive in
+near-critical self-exciting clusters, and the exchange's market-data publisher,
+which sends at most one packet per publisher period of about $7.5~\mu$s,
+transmits a burst as a train of packets one period apart, most of them one
+message long. A receiver that handles every packet within one publisher period
+does not queue, however bursty the market; above that period a queueing tail
+appears and grows much faster than the service time.
 
-This last observation motivates the present work. A software handler, however
+This observation motivates the present work. A software handler, however
 efficient its messaging, begins processing a packet only once the entire packet
-is in memory, and then spends time proportional to its length. Kernel bypass
+is in memory and then decodes its messages sequentially, so its time per packet
+includes the reception of the packet and grows with its length; during a burst,
+packets queue whenever that time exceeds the publisher period. Kernel bypass
 removes the operating system from the receive path but changes neither where
 the decode is performed nor when it can begin. The established approach in
 trading is to move this work onto an FPGA attached to the network port, where
@@ -1492,25 +1501,33 @@ few cycles.
 CME publishes market data as UDP multicast packets in MDP3, encoded in Simple
 Binary Encoding (SBE) \cite{fixsbe,cmemdp3}. A packet carries a sequence number
 and one or more messages; a book-update message carries a repeating group of
-entries, one per changed price level, and the exchange coalesces the events
-available at each transmission into one packet. When the market moves, packets
-are long and arrive back to back.
+entries, one per changed price level, so a transaction that changes many
+levels produces a long message. The matching engine's transactions arrive in
+self-exciting clusters, and during a burst the market-data publisher sends at
+most one packet per publisher period of about $7.5~\mu$s and drains its backlog
+with more packets rather than larger ones; a burst therefore reaches a receiver
+as a train of packets one period apart, most of them one message long
+\cite{mdarrival}.
 
 A software handler, with or without kernel bypass, processes a packet only
 after the NIC has delivered it in full, and then decodes its messages
-sequentially. Its processing time after the packet's last byte therefore grows
-with the packet, and when long packets arrive back to back, each waits for the
-decode of its predecessor. The companion paper's socket-to-book measurements on
-live CME futures show the consequence: on a single thread, book-update medians
-of $0.8$--$1.1~\mu$s, but 99.9th percentiles of $8.8$ to $69.3~\mu$s for book
-updates and up to $124~\mu$s for trades, which that paper relates to the
-clustered arrival process \cite{fastsend,mdarrival}.
+sequentially. Its processing time per packet therefore grows with the length
+of the packet, and during a burst each packet waits for the processing of its
+predecessors whenever that time exceeds the publisher period. The companion
+paper's socket-to-book measurements on live CME futures show the consequence:
+on a single thread, book-update medians of $0.8$--$1.1~\mu$s, but 99.9th
+percentiles of $8.8$ to $69.3~\mu$s for book updates and up to $124~\mu$s for
+trades, a tail that the measurement study attributes to queueing on the
+clustered arrival of transactions \cite{fastsend,mdarrival}.
 
 On a card whose network port is connected to the FPGA, the packet can instead
 be decoded as it arrives. If every stage takes one step per clock and keeps up
 with the line rate, then by the time a packet's last byte arrives every
 preceding entry has been decoded, and only a fixed number of clocks of work
-remains, independent of the length of the packet.
+remains, independent of the length of the packet. The card's work per packet
+after its last byte, about 100~ns after synthesis
+(Section~\ref{sec:budget}), is far below the publisher period, so the card does
+not queue on packet arrivals during a burst.
 
 \subsection{Partitioning between card and CPU}
 
