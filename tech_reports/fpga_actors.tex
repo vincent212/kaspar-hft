@@ -462,7 +462,7 @@ under a burst moves the tail without removing it.
 
 \paragraph{Line-rate throughput.} A 10~GbE link delivers 8 bytes every 6.4~ns.
 A stage that accepts a new input every cycle at 250~MHz (4~ns) processes
-16~Gb/s and cannot fall behind the link; a stage with II~$=2$ at the same clock
+16~Gb/s and cannot fall behind the link; a stage with II~$=2$ (a new input every second clock cycle) at the same clock
 processes 8~Gb/s and queues under any sustained burst. The \emph{receive path}
 is the chain of processes that a packet traverses from the network port to the
 order book. Every process on it must therefore achieve II~$=1$, accepting a new
@@ -691,7 +691,7 @@ implemented in registers or block RAM, depending on its depth.
 
 A full FIFO stalls its writer, as a full ring stalls a CPU writer. Between the
 actors of the handler of Section~\ref{sec:casestudy} this does not occur: every
-process runs at II~$=1$ and sends at most one message per step, so each process
+process runs at II~$=1$ (a new input every clock cycle) and sends at most one message per step, so each process
 consumes its input as fast as it can be produced.
 
 \subsection{Groups and \fs{} on the card}
@@ -830,7 +830,7 @@ the message path (\snd{}, \texttt{reply}, encoding, the handler table and
 sub-blocks executed in sequence. The round-robin read is fully unrolled. Each
 port is read at exactly one location in the code: the process tests which
 ports hold a message, selects one, and reads only that port, because reading
-one FIFO from two locations prevents II~$=1$. Finally, the task of each process
+one FIFO from two locations prevents II~$=1$ (a new input every clock cycle). Finally, the task of each process
 is pipelined at II~$=1$, so HLS starts a new step every cycle.
 
 Pipelining imposes one condition: a handler must not contain a long loop,
@@ -1430,7 +1430,7 @@ synthesis: a stream with no producer & a one-actor process with a group queue no
 co-simulation hangs & non-blocking reads on a top-level port of a free-running design & actors poll only internal streams; the boundary uses blocking reads \\
 co-simulation scrambles the order on a link & a top of tasks only returns at once & the counted boundary \\
 co-simulation hangs after a speed-up & uninitialized envelopes are unknown (X) in RTL & every envelope starts at zero, by an unrolled loop \\
-II~$=2$ on a process & one FIFO read from two places & read each port from exactly one place \\
+II~$=2$ (a new input every second cycle) on a process & one FIFO read from two places & read each port from exactly one place \\
 synthesis does not finish & pipelining unrolled a 1{,}024-round handler loop & pipeline only processes whose handlers have no long loops \\
 synthesis removes an actor's output & HLS treats the actor's object as constant & handlers run through the group's step \\
 \bottomrule
@@ -1640,7 +1640,7 @@ the wire. At the end of each packet it sends an End line carrying the sequence
 number and the 0--2 remaining events; every packet produces exactly one End
 line, so the host observes every sequence number and can detect a gap even in a
 packet that contains no events for it. No step waits for a timer or for the
-next packet, and each step performs one send, so Batcher runs at II~$=1$.
+next packet, and each step performs one send, so Batcher runs at II~$=1$ (a new input every clock cycle).
 
 \paragraph{FpgaFeed} is an ordinary kaspar-hft actor with a lane mailbox. At
 start-up it loads Filter's table and requests Igmp to join, and reports ready
@@ -1706,7 +1706,7 @@ does establish the property relevant to the tail: the work after the last byte
 does not grow with the packet.
 
 \paragraph{Implementation results.} Synthesized for the card's device, an
-XCUX35 at speed grade~$-3$, every process achieved II~$=1$. After place and
+XCUX35 at speed grade~$-3$, every process achieved II~$=1$ (a new input every clock cycle). After place and
 route, the five actors met the 250~MHz target with a critical path of 3.47~ns,
 corresponding to about 288~MHz (Table~\ref{tab:resources}). The four receive
 actors alone, before Igmp was added, routed at 3.32~ns.
@@ -1875,7 +1875,7 @@ actor's messages. Two engines are candidates. The open-source
 fpga-network-stack, derived from the 10~Gb/s TCP/IP stack of Sidler et al.
 written in HLS \cite{sidler2015,fpgastack}, compiled unmodified with Vitis
 2026.1 for the card's device (64-bit data path, 16 sessions), and all 66 of its
-pipelines achieved II~$=1$ at an estimated 221~MHz. This result is from C
+pipelines achieved II~$=1$ (a new input every clock cycle) at an estimated 221~MHz. This result is from C
 synthesis only, without simulation or place and route. A commercial engine for
 Alveo cards, Missing Link Electronics' NPAP, is quoted at about 30{,}000 LUTs
 with two TCP engines \cite{npap}, about 3\% of the XCUX35. No latency figure is
