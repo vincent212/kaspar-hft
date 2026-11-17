@@ -565,23 +565,140 @@ $S''$ is empty and the returned frame was directly above the waiting one.}
 \label{fig:rules}
 \end{figure}
 
+\Cref{fig:rulestacks} shows the effect of each rule on the thread stacks involved. Read
+in terms of premises and effect, the rules are as follows.
+
 \begin{itemize}[leftmargin=1.4em]
-  \item \textsc{Receive}: an idle thread starts a turn of one of its idle actors whose
-  mailbox is non-empty. When several actors share the thread, the choice among them is
+  \item \textsc{Receive}. \emph{Premises}: thread $\theta$ is idle (its stack is
+  $\epsilon$); actor $a$ has home thread $\theta$, the message $\Msg{msg,\overline{v}}$
+  at the head of its mailbox, and no frame on any thread. \emph{Effect}: the message is
+  removed from the mailbox and a frame for $a$, evaluating the handler
+  $\body(a,msg,\overline{v})$ and tagged $\turn$, becomes the only frame on $\theta$. When
+  several actors share $\theta$, the choice among those with non-empty mailboxes is
   unconstrained.
-  \item \textsc{Turn-End}: a turn started from the mailbox that has reduced to a value
-  is removed. Its value is discarded; a reply to a \snd{} is an explicit \snd{}.
-  \item \textsc{Fast-Local}: the caller's frame becomes waiting, and the callee's turn is
-  pushed on the \emph{caller's} stack. The rule models \fs{} on one CPU thread, or
+  \item \textsc{Turn-End}. \emph{Premise}: the top frame of a thread is a $\turn$ frame
+  whose expression has reduced to a value $v$. \emph{Effect}: the frame is popped and $v$
+  is discarded; a reply to a \snd{} is itself an explicit \snd{}.
+  \item \textsc{Fast-Local}. \emph{Premise} $\mathsf{Call}(t,\iota_b,\rho)$: the top frame
+  on thread $\theta$ belongs to actor $\iota_a$ and is about to evaluate
+  $\fsend(\iota_b,msg,\overline{v})$, the callee $\iota_b$ has no frame on any thread, and
+  $\rho$ is a fresh call identifier. \emph{Effect}: the caller's \fs{} expression is
+  replaced by $\wait{\rho}$ (frame $W_\rho$), and the callee's handler is pushed on the
+  \emph{same} thread above it as frame $C_\rho$, tagged $\ret{\rho}$. The callee's home
+  thread and mailbox are not involved. The rule models \fs{} on one CPU thread, or
   between the actors of one FPGA group.
-  \item \textsc{Fast-Remote}: the caller's frame becomes waiting, and the callee's turn
-  starts on the callee's own home thread, which must be idle. The rule models \fs{} to an
-  actor on another resource on which the caller waits, such as a dedicated FPGA process
-  or another machine. No runtime in \kh{} currently implements it; the rule is part of
-  the model, and the results below hold for it.
-  \item \textsc{Fast-Return}: a callee turn that has reduced to a value is removed and its
-  value, copied, replaces the $\wait{\rho}$ of its caller.
+  \item \textsc{Fast-Remote}. \emph{Premises}: $\mathsf{Call}(t,\iota_b,\rho)$, and in
+  addition the callee's home thread $\theta_b$ differs from $\theta$ and is idle.
+  \emph{Effect}: the caller's frame becomes $W_\rho$ on $\theta$, and $C_\rho$ becomes the
+  only frame on $\theta_b$. The caller's thread holds the waiting frame and can make no
+  further progress until the call returns. The rule models \fs{} to an actor on another
+  resource on which the caller waits, such as a dedicated FPGA process or another
+  machine. No runtime in \kh{} currently implements it; the rule is part of the model,
+  and the results below hold for it.
+  \item \textsc{Fast-Return}. \emph{Premises}: the top frame of some thread $\theta'$ is
+  the callee frame of call $\rho$ and has reduced to a value $v$; some thread $\theta$
+  holds the caller's frame waiting on $\rho$. \emph{Effect}: the callee frame is popped,
+  and the copy $v' = \pass(v)$ replaces $\wait{\rho}$ in the caller's expression, which
+  resumes. After \textsc{Fast-Local}, $\theta' = \theta$ and the two frames are
+  adjacent; after \textsc{Fast-Remote}, they are on different threads.
 \end{itemize}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\scriptsize,
+  frm/.style={draw, minimum width=2.7cm, minimum height=0.42cm, inner sep=1pt, anchor=south},
+  wt/.style={frm, fill=black!8},
+  cl/.style={frm, fill=black!20},
+  mb/.style={draw, minimum width=1.6cm, minimum height=0.38cm, anchor=south},
+  tl/.style={font=\scriptsize\itshape},
+  rn/.style={font=\small\scshape, anchor=south west},
+  nt/.style={font=\scriptsize, align=left, anchor=west},
+  ar/.style={-{Stealth[length=2mm]}, thick}]
+  \newcommand{\base}[3]{\draw[thick] (#1-1.45,#2) -- (#1+1.45,#2); \node[tl, anchor=north] at (#1,#2-0.03) {#3};}
+  \newcommand{\step}[1]{\draw[ar] (6.15,#1+0.3) -- (6.95,#1+0.3);}
+  % ---------- Receive
+  \node[rn] at (-0.2,1.0) {Receive};
+  \base{1.5}{0}{$\theta$ (idle)}
+  \node[mb] at (4.0,0) {$m\cdot\mu$}; \node[tl, anchor=north] at (4.0,-0.03) {mailbox of $a$};
+  \step{0}
+  \base{8.5}{0}{$\theta$}
+  \node[frm] at (8.5,0) {$a$: handler, $\turn$};
+  \node[mb] at (11.1,0) {$\mu$}; \node[tl, anchor=north] at (11.1,-0.03) {mailbox of $a$};
+  % ---------- Turn-End
+  \begin{scope}[yshift=-2.2cm]
+  \node[rn] at (-0.2,1.0) {Turn-End};
+  \base{1.5}{0}{$\theta$}
+  \node[frm] at (1.5,0) {$S$};
+  \node[frm] at (1.5,0.42) {$a$: value $v$, $\turn$};
+  \step{0}
+  \base{8.5}{0}{$\theta$}
+  \node[frm] at (8.5,0) {$S$};
+  \node[nt] at (10.0,0.3) {$v$ is discarded};
+  \end{scope}
+  % ---------- Fast-Local
+  \begin{scope}[yshift=-4.4cm]
+  \node[rn] at (-0.2,1.0) {Fast-Local};
+  \base{1.5}{0}{$\theta$}
+  \node[frm] at (1.5,0) {$a$: $\fsend(\iota_b,\ldots)$};
+  \step{0}
+  \base{8.5}{0}{$\theta$}
+  \node[wt] at (8.5,0) {$a$: $\wait{\rho}$};
+  \node[cl] at (8.5,0.42) {$b$: handler, $\ret{\rho}$};
+  \node[nt] at (10.0,0.42) {$b$ runs on the\\caller's thread};
+  \end{scope}
+  % ---------- Fast-Remote
+  \begin{scope}[yshift=-6.6cm]
+  \node[rn] at (-0.2,1.0) {Fast-Remote};
+  \base{1.5}{0}{$\theta$}
+  \node[frm] at (1.5,0) {$a$: $\fsend(\iota_b,\ldots)$};
+  \base{4.6}{0}{$\theta_b$ (idle)}
+  \step{0}
+  \base{8.5}{0}{$\theta$}
+  \node[wt] at (8.5,0) {$a$: $\wait{\rho}$};
+  \base{11.5}{0}{$\theta_b$}
+  \node[cl] at (11.5,0) {$b$: handler, $\ret{\rho}$};
+  \end{scope}
+  % ---------- Fast-Return (local case)
+  \begin{scope}[yshift=-8.8cm]
+  \node[rn] at (-0.2,1.0) {Fast-Return};
+  \base{1.5}{0}{$\theta$}
+  \node[wt] at (1.5,0) {$a$: $\wait{\rho}$};
+  \node[cl] at (1.5,0.42) {$b$: value $v$, $\ret{\rho}$};
+  \step{0}
+  \base{8.5}{0}{$\theta$}
+  \node[frm] at (8.5,0) {$a$: resumes with $v'$};
+  \node[nt] at (10.0,0.3) {$v'=\pass(v)$; after Fast-Remote\\the frame popped is on $\theta_b$};
+  \end{scope}
+\end{tikzpicture}
+\caption{The rules of \cref{fig:rules} as operations on thread stacks; the top of a stack
+is drawn uppermost. Light grey: a caller frame waiting on call $\rho$. Dark grey: the
+callee frame of call $\rho$. $S$ is the rest of the stack.}
+\label{fig:rulestacks}
+\end{figure}
+
+\paragraph{A worked reduction.} Let actors $a$ and $b$ have home threads $\theta_1$ and
+$\theta_2$, let $b$'s handler for $\mathit{get}$ return its field $x$, and let $a$'s
+handler for $\mathit{go}$ evaluate $\fsend(\iota_b, \mathit{get}, \epsilon) + 1$. Starting
+from idle threads and $\Msg{\mathit{go}}$ in $a$'s mailbox, the system reduces as
+follows.
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textsc{Receive} on $\theta_1$: $\theta_1 = \Thr{\theta_1,
+  \Frm{\iota_a, \fsend(\iota_b,\mathit{get},\epsilon)+1, \turn}}$, and $a$'s mailbox is
+  empty.
+  \item \textsc{Fast-Local}, since $b$ is idle: $\theta_1 = \Thr{\theta_1,
+  \Frm{\iota_a, \wait{\rho}+1, \turn}\cdot\Frm{\iota_b, \body(b,\mathit{get},\epsilon),
+  \ret{\rho}}}$. Thread $\theta_2$, $b$'s home thread, is not involved and may meanwhile
+  run turns of other actors; a message already in $b$'s mailbox is not consulted.
+  \item Actor-local steps reduce $b$'s frame to the value of $x$, say $4$.
+  \item \textsc{Fast-Return}: $b$'s frame is popped and $\theta_1 = \Thr{\theta_1,
+  \Frm{\iota_a, 4+1, \turn}}$.
+  \item Actor-local steps reduce $a$'s frame to $5$, and \textsc{Turn-End} leaves
+  $\theta_1$ idle.
+\end{enumerate}
+Had $b$ been in a turn at step~2, the premise $\neg\busy_K(\iota_b)$ would fail and $a$'s
+frame would be blocked until $b$'s turn ended; under \textsc{Fast-Remote}, step~2 would
+instead place $b$'s frame on $\theta_2$, provided $\theta_2$ were idle.
 
 Two distinct conditions govern a \fs{}, and the distinction is used throughout.
 \emph{Actor availability}: both rules require the callee actor to be idle, that is, to
