@@ -118,9 +118,13 @@ permitted only within one scheduling unit (ABS cogs, E vats); and a rendezvous (
 Extended Rebeca). None of them runs the receiver's ordinary handler on the caller's
 resource across scheduling units and returns its result as a value.
 
-\paragraph{\kh{} and \fs{}.} \kh{}\footnote{\kh{} is open source:
-\url{https://github.com/vincent212/kaspar-hft}.} \cite{mayeski2026fastsend} is an
-open-source C++20 actor framework for high-frequency and algorithmic trading. Its
+\paragraph{\kh{} and \fs{}.} This paper is a companion to \emph{Adapting the actor
+model of concurrency for high-frequency trading} \cite{mayeski2026fastsend}, which
+introduces \kh{} and in which \fs{} is one of the central extensions of the actor model
+needed to reduce latency in trading. That paper presents the framework and measures its
+latency; this one gives \fs{} a formal semantics and establishes its properties.
+\kh{}\footnote{\kh{} is open source: \url{https://github.com/vincent212/kaspar-hft}.}
+is an open-source C++20 actor framework for high-frequency and algorithmic trading. Its
 trading system is venue-independent: market-data decoding, order-book reconstruction,
 execution algorithms and order routing are all actors, and each exchange is connected by
 its own feed handler and order session. A \kh{} actor is a
