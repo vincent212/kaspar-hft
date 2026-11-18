@@ -183,7 +183,7 @@ provenance line from "Apple Silicon / macOS, no pinning" to this server's spec.
   Actor Framework `fast_send()` bullet (`~24 ns round trip`) — update the `~24 ns`
   there if the server number differs.
 
-### 5c. `tech_reports/fast_send.pdf` (compiled from `tech_reports/fast_send.tex`)
+### 5c. `tech_reports/fast_send.pdf` (compiled from `tech_reports/tex/fast_send/fast_send.tex`)
 
 The PDF is generated from the `.tex`. Edit the `.tex`, then recompile.
 
@@ -221,7 +221,7 @@ recompile elsewhere — do **not** hand-edit the binary PDF.
 ## 6. Open the PR
 
 ```bash
-git add actors/cpp/perf/README.md README.md tech_reports/fast_send.tex tech_reports/fast_send.pdf
+git add actors/cpp/perf/README.md README.md tech_reports/tex/fast_send/fast_send.tex tech_reports/fast_send.pdf
 git commit   # message: "perf: real HFT-server numbers (pinned x86-64 Linux)"
 git push -u origin perf/hft-server-numbers
 gh pr create --title "perf: real HFT-server benchmark numbers" --body "..."
@@ -244,6 +244,6 @@ Then run `/code-review` on the PR before merging.
 > Read `actors/cpp/perf/BENCH_ON_HFT_SERVER.md` and follow it end to end: prep the
 > machine, build fresh, run the pinned benchmarks, then update
 > `actors/cpp/perf/README.md`, the top-level `README.md`, and
-> `tech_reports/fast_send.tex` (recompile `fast_send.pdf`) with the real numbers,
+> `tech_reports/tex/fast_send/fast_send.tex` (recompile `fast_send.pdf`) with the real numbers,
 > on a branch, and open a PR with the raw run output pasted in. Do not commit to
 > `main`; do not invent numbers.

@@ -549,7 +549,7 @@ void Kaspr::start_channel(const std::string& config_name, en::x venue)
     // Parallel decode was removed: on the book series it was 2.0-2.2x slower at
     // p50 and 1.5-3.2x slower at p99, because CME packets carry 1.06-1.10
     // messages and a fan-out has almost nothing to divide; it was also not
-    // validated for correctness. See tech_reports/serial_vs_parallel_decode.md.
+    // validated for correctness. See tech_reports/articles/serial_vs_parallel_decode.md.
     //
     // cme_decode_workers used to select it. A config key nothing reads is
     // silent, so say so if an old cme.ini still sets it.

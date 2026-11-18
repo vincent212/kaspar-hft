@@ -240,7 +240,7 @@ namespace actors
     // (a closed set) rather than behind a Queue<T>* base pointer. std::visit
     // hands the producer/consumer a CONCRETE queue reference, so push/pop are
     // devirtualized and the consumer drain loop inlines — no per-message vtable
-    // indirection. See tech_reports/queue_dispatch_design.md (issue #54).
+    // indirection. See tech_reports/articles/queue_types/queue_dispatch_design.md (issue #54).
     using MailboxMsg = const Message *;
     using Mailbox = std::variant<
         BQueue<MailboxMsg>,
