@@ -35,7 +35,7 @@ standard form of test.
 | Coinbase (`CoinbaseFeed`, `CoinbaseSync`) | WebSocket with full-book snapshot and per-connection sequence numbers |
 | Hyperliquid (`HyperliquidFeed`, `HyperliquidSync`) | periodic whole-book snapshots, diffed |
 | TT order routing (`ttom/`) | FIX session over QuickFIX |
-| m2 Fenics and Dealerweb handlers (private repository) | fixed-offset binary messages generated from a hand-extracted field table (`*_def.txt` + `msg_gen.py`) |
+| m2 Fenics and Dealerweb handlers (private repository) | fixed-offset binary messages generated from a hand-extracted field table; the skill's `fieldgen.py` generalizes their per-venue `msg_gen.py` scripts |
 | m2 post-trade clients (private repository) | FIX 4.4 and FIX 5.0 SP2 `TradeCaptureReport` over QuickFIX |
 
 Each actor can be tested in isolation: a test sends it input and checks the
@@ -65,7 +65,7 @@ written to the user's private repository.
 |---|---|---|
 | 1. Extract the specification into a feed description | subagents, one per part of the specification | `feed.md`: transport, framing, message catalogue, sequencing and recovery, book or trade semantics, mapping to Kaspar messages, every entry citing its page and section |
 | 2. Review the feed description | **the user** | approved description; every item the agent marked *ambiguous* is resolved |
-| 3. Generate decoders | a deterministic generator where a schema exists (SBE XML, FIX dictionary, a field table); a subagent otherwise | message structs and decode functions |
+| 3. Generate decoders | a deterministic generator: `genschema/` for SBE XML, `fieldgen.py` for a field table, QuickFIX for a FIX dictionary; a subagent only for self-describing encodings such as JSON | message structs and decode functions |
 | 4. Write the handler actors | a subagent, starting from the nearest existing handler | feed actor, sync and recovery logic, instrument loader, configuration |
 | 5. Test | a subagent | unit tests from the specification's examples and from samples; replay with invariants; gap and reset injection; comparison with a reference where one exists |
 | 6. Check live connectivity | the main agent, once credentials are supplied | logon, subscription, first messages decoded, a `--dump` run |
@@ -103,6 +103,42 @@ and the later steps can be generated from it.
 9. **Ambiguities.** Every point where the specification is unclear or contradicts
    itself, with the agent's reading and its alternatives. Each must be resolved by
    the user or by sample data.
+
+## Decoders for fixed-offset binary protocols
+
+Venues whose specifications give each message as a table of fields at fixed offsets
+(ITCH, OUCH, Glimpse, SoupBinTCP and their variants) have no machine-readable schema.
+The agent writes one: a **field table**, one row per field (name, type, offset,
+length, description) with directives for venue, byte order, string padding, type
+mapping and length prefixes. `tools/fieldgen.py` checks the table (contiguous
+offsets, stated message sizes, integer widths, unique type codes per decoded section,
+identifiers) and generates one C++ header: packed structs with `static_assert`s on
+every size and offset, endian-converting integer types, `decode` into a
+`std::variant` with length checks, `encode` for sent messages, and printing. The
+table is rendered as markdown for the feed description, so the user reviews one
+artefact and the code follows from it.
+
+The generator replaces the per-venue `msg_gen.py` scripts of the m2 Fenics and
+Dealerweb handlers. Converted to the new format, the two m2 tables generate headers
+whose struct sizes and field offsets match the m2 headers in all 650 checks, apart
+from one message where the m2 header holds a variable-length payload as a pointer
+member. The check also found two errors in the m2 tables that the m2 scripts accept:
+a type code used by two layers in one section, and an undeclared type name.
+Details are in `.claude/skills/build-feed-handler/binary_codegen.md`.
+
+## Post-trade handlers
+
+A post-trade handler is a QuickFIX application inside a Kaspar actor, as in `ttom/`:
+it logs on (with a `UserRequest` where the venue requires one), sends a
+`TradeCaptureReportRequest`, handles the request acknowledgement, and turns each
+`TradeCaptureReport` into a normalized trade-capture message, acknowledging the
+report where the venue requires it. The venue's QuickFIX dictionary plays the role of
+the field table: the agent uses the venue's dictionary, or writes one from the
+specification for review. Processing is idempotent on the report's stable
+identifier, because reports are resent after reconnects and replayed at the daily
+reset. The m2 clients write reports to MySQL; the Kaspar handler emits an actor
+message and has no database dependency. Details are in
+`.claude/skills/build-feed-handler/post_trade.md`.
 
 ## Pitfalls the agent must check for
 
@@ -161,6 +197,10 @@ answer key.
   SKILL.md            the workflow, its stopping point and the rules
   pitfalls.md         the checklist
   feed_template.md    the feed description, with its fixed sections
+  binary_codegen.md   field tables and the generator, for fixed-offset protocols
+  post_trade.md       trade-capture and drop-copy handlers over FIX
+  tools/fieldgen.py   field-table checker and C++ generator
+  examples/itch50.tbl a field table for part of Nasdaq TotalView-ITCH 5.0
 ```
 
 The skill runs in Claude Code in the user's checkout. It uses subagents for

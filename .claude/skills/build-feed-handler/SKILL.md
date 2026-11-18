@@ -24,7 +24,8 @@ Start from the nearest existing handler, never from scratch:
 | WebSocket, full snapshot + sequenced updates | `CoinbaseFeed.cpp`, `CoinbaseSync.cpp` |
 | WebSocket, periodic whole books | `HyperliquidFeed.cpp`, `HyperliquidSync.cpp` |
 | FIX session | `ttom/` |
-| fixed-offset binary from a field table | the m2 Fenics/Dealerweb `*_def.txt` + `msg_gen.py` (private repo) |
+| fixed-offset binary (ITCH, OUCH, Glimpse, SoupBinTCP) | a field table + `tools/fieldgen.py`: read `binary_codegen.md` |
+| post-trade: trade capture or drop copy over FIX | `ttom/` for the actor, the m2 `postrade/` clients: read `post_trade.md` |
 
 Read `actors/cpp/CLAUDE_AGENT_GUIDE.md` before writing any actor.
 
@@ -33,7 +34,9 @@ Read `actors/cpp/CLAUDE_AGENT_GUIDE.md` before writing any actor.
 1. **Inventory the documents.** List every specification file with its version and
    date. Where several versions exist (e.g. two ITCH specs, two rules-of-engagement
    revisions), state which applies and why. Ask the user if it is not clear.
-2. **Extract into a feed description** using `feed_template.md`. For a long PDF, use
+2. **Extract into a feed description** using `feed_template.md`. For a fixed-offset
+   protocol, the message catalogue is a field table checked with
+   `fieldgen.py --check` and rendered with `--markdown`. For a long PDF, use
    one subagent per part (framing, each group of messages, recovery, semantics),
    each reading at most 20 pages per request. Cross-check every table against
    `pdftotext -layout` output. Every entry cites page and section.
@@ -42,8 +45,11 @@ Read `actors/cpp/CLAUDE_AGENT_GUIDE.md` before writing any actor.
    your reading and the alternatives.
 4. **Stop.** Present the feed description and the ambiguities to the user. Do not
    generate code until the user approves it.
-5. **Generate decoders** deterministically where a schema or field table exists;
-   write them by hand only where none does.
+5. **Generate decoders** deterministically: SBE XML through `genschema/`; a
+   fixed-offset protocol through a field table and `tools/fieldgen.py`
+   (`binary_codegen.md`); FIX through the venue's QuickFIX dictionary
+   (`post_trade.md`). Write a decoder by hand only for JSON and other self-describing
+   encodings. Never edit generated code; fix its source and regenerate.
 6. **Write the actors** from the template: feed actor, sync/recovery, instrument
    loader, configuration, Makefile entries.
 7. **Test:** unit tests from the specification's examples and from sample messages;

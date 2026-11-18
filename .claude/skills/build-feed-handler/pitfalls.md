@@ -16,6 +16,16 @@ problems in kaspar-hft or m2 handlers.
 - Enumerations defined in a separate section from the field that uses them.
 - Field names that differ between the message table and the prose.
 - Examples in the specification that contradict its tables: report both.
+- Two protocol layers in one table: session messages (login, heartbeat, the
+  sequenced-data envelope) and the application messages they carry reuse type codes.
+  **(seen: a venue's logout request and order entry both use type `O`)** Put each
+  layer in its own section.
+- Message names that repeat with different type codes (two variants of an add-order
+  message). **(seen)** Give each a distinct name from the specification's wording.
+- A variable-length field at the end of a message (a block of nested messages): it
+  has no fixed length and is not a struct member. **(seen: generated as a pointer
+  member, which made the struct 8 bytes too long)**
+- Integers whose width is not 1, 2, 4 or 8 bytes (ITCH timestamps are 6 bytes).
 
 ## 2. Framing and encoding
 
@@ -96,7 +106,12 @@ Probe a live or sample feed before asking the user:
 
 - FIX version and transport: FIX 4.4, or FIX 5.0 SP2 over FIXT 1.1.
 - Custom tags and repeating groups in the venue's dictionary; use the venue's
-  QuickFIX XML, not the standard dictionary.
+  QuickFIX XML, not the standard dictionary. If there is none, write it from the
+  specification and have it reviewed.
+- Credentials sent in the Logon or in a separate `UserRequest` after it. **(seen)**
+- A missing field in a report handler throws; QuickFIX turns the exception into a
+  `Reject` sent to the venue. **(seen: the m2 clients refuse to send Rejects in `toApp`)**
+- Requests sent before the venue's `TradingSessionStatus` says the session is open.
 - Subscription: `TradeCaptureReportRequest` type, replay from start of day, and the
   acknowledgement the venue expects (`TradeCaptureReportAck`).
 - Report lifecycle: new, amend, cancel, bust (`TradeReportTransType`,
