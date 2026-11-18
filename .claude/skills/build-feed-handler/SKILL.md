@@ -1,6 +1,6 @@
 ---
 name: build-feed-handler
-description: Build a kaspar-hft market-data or post-trade feed handler from an exchange's specification (PDF, SBE XML, FIX dictionary, JSON schema). Use when asked to connect Kaspar to a new venue, write a feed handler, a drop-copy or trade-capture client, or to extract a message spec from a PDF.
+description: Build a kaspar-hft market-data, order-entry or post-trade handler from an exchange's specification (PDF, SBE XML, FIX dictionary, JSON schema). Use when asked to connect Kaspar to a new venue or broker, write a feed handler, an order manager, a drop-copy or trade-capture client, or to extract a message spec from a PDF.
 ---
 
 # Build a Kaspar feed handler from a specification
@@ -14,6 +14,9 @@ actors with a fixed contract:
   venue sends more levels than are kept, or whole books).
 - **Post-trade:** normalized trade-capture messages (new, amend, cancel, bust) for
   position keeping and STP.
+- **Order entry:** an order manager registered with the SOM for its venue: `Order`
+  and `Cancel` in; `Ack`, `Fill`, `Reject`, `CancAck`, `CancReject` out; order state
+  in `frame::som::BrokerOrderBook`.
 
 Start from the nearest existing handler, never from scratch:
 
@@ -26,6 +29,7 @@ Start from the nearest existing handler, never from scratch:
 | FIX session | `ttom/` |
 | fixed-offset binary (ITCH, OUCH, Glimpse, SoupBinTCP) | a field table + `tools/fieldgen.py`: read `binary_codegen.md` |
 | post-trade: trade capture or drop copy over FIX | `ttom/` for the actor, the m2 `postrade/` clients: read `post_trade.md` |
+| order entry: broker or exchange order manager | `frame/som/BrokerOrderBook.hpp`, `ttom/`, kaspar-equities `csom/` (FIX) and `lime/` (SDK): read `order_entry.md` |
 
 Read `actors/cpp/CLAUDE_AGENT_GUIDE.md` before writing any actor.
 
@@ -67,6 +71,9 @@ Read `actors/cpp/CLAUDE_AGENT_GUIDE.md` before writing any actor.
   repository unless the user says otherwise.
 - Never resolve a book-semantics or recovery ambiguity silently: a wrong choice
   produces a plausible book that no invariant catches.
+- Never send an order to a production session. Order managers are tested against
+  fakes and simulators, and checked live only in the venue's UAT or certification
+  environment, when the user asks (`order_entry.md`).
 - Do not claim a handler works beyond what the tests and the live check showed.
 - Use the probing tools available (live public endpoints, sample files) to settle
   ambiguities before asking the user, and say which ones were settled that way.

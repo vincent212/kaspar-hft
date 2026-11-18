@@ -122,3 +122,22 @@ Probe a live or sample feed before asking the user:
 - Price versus yield, accrued interest, settlement date, counterparty and account
   fields for fixed income.
 - Sessions that reset sequence numbers daily; behaviour across the reset.
+
+## 8. Order entry
+
+The actor tests listed in `order_entry.md` cover each of these.
+
+- Client ids: uniqueness per day, per session or forever; a restart must not reuse
+  one.
+- Cancel and replace: a new client id (FIX) or the order's own id (some SDKs); which
+  id each report then carries. Map every id an order has used back to it.
+- Fill before ack, fill racing a cancel, fill after the cancel ack: each must count
+  exactly once.
+- Unsolicited cancels (cancel on disconnect, risk, end of day) must reach the SOM.
+- Busts and corrections are not fills.
+- Busy or throttled connections: what the API returns, and when it is available
+  again.
+- Reconnect: reports resent after a reconnect must not be applied twice.
+- Orders placed outside this OM (manually, by another session) appear in reports.
+- Short sales: locate requirements, sell short versus sell short exempt; refuse
+  locally what the OM cannot mark correctly.

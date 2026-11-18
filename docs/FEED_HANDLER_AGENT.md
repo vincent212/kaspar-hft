@@ -8,11 +8,12 @@ treacherous in detail. This design describes an agent, packaged as a Claude Code
 skill in this repository (`.claude/skills/build-feed-handler/`), that takes a
 venue's specification and produces the handler.
 
-Two kinds of handler are in scope:
+Three kinds of handler are in scope:
 
 | Kind | Input | Output |
 |---|---|---|
 | **Market data** | multicast (with A/B feeds), TCP, WebSocket or FIX market-data sessions; binary (SBE, ITCH, PITCH, fixed-offset), FIX tag-value or JSON encodings | normalized order-book records (`bfile::l3_t`: MBO, trades, end of packet, gap, channel reset) sent to OB; price-level feeds pass through `Mbp2Mbo` |
+| **Order entry** | broker and exchange order sessions: FIX, vendor SDKs, binary order entry (OUCH-style) | an order manager registered with the SOM for its venue: `Order` and `Cancel` in, `Ack`, `Fill`, `Reject`, `CancAck`, `CancReject` out, order state in `frame::som::BrokerOrderBook` |
 | **Post-trade** | FIX drop-copy and trade-capture sessions (`TradeCaptureReport`), proprietary post-trade feeds | normalized trade-capture messages for position keeping and STP publication |
 
 The agent delivers the handler actors, their tests, and a live connectivity check
@@ -37,6 +38,7 @@ standard form of test.
 | TT order routing (`ttom/`) | FIX session over QuickFIX |
 | m2 Fenics and Dealerweb handlers (private repository) | fixed-offset binary messages generated from a hand-extracted field table; the skill's `fieldgen.py` generalizes their per-venue `msg_gen.py` scripts |
 | m2 post-trade clients (private repository) | FIX 4.4 and FIX 5.0 SP2 `TradeCaptureReport` over QuickFIX |
+| kaspar-equities order managers (private repository) | `ClearStreetOM` (FIX 4.2) and `LimeOM` (vendor C++ SDK behind a session interface), each with a simulator, a test fake and actor tests, on `BrokerOrderBook` |
 
 Each actor can be tested in isolation: a test sends it input and checks the
 records it emits (`unit_test/src/test_crypto_sync.cpp`). The OB, the simulator,
@@ -146,6 +148,23 @@ reset. The m2 clients write reports to MySQL; the Kaspar handler emits an actor
 message and has no database dependency. Details are in
 `.claude/skills/build-feed-handler/post_trade.md`.
 
+## Order managers
+
+An order manager is a session (QuickFIX application, vendor SDK, or a TCP session
+over generated messages) whose thread only parses reports and sends them to an
+actor, and an actor that owns the session and a `frame::som::BrokerOrderBook`.
+`BrokerOrderBook` holds what every OM needs and nothing venue-specific: client ids
+unique for the trading day across restarts, a map from every id an order has used
+(new, cancel, replace) to its SOM order id, the order state machine with quantity,
+filled and leaves, and an `Outcome` for each event instead of an assertion, so late,
+duplicate and unknown reports are logged and the OM carries on. The agent writes the
+venue-specific parts: the mapping of SOM orders to the venue's requests, the mapping
+of the venue's reports to book calls and SOM messages, a simulator, and a fake for
+the actor tests, whose minimum list comes from the kaspar-equities OMs. The agent
+never sends an order to a production session; live checks run only in the venue's
+UAT or certification environment, with an order that cannot fill. Details are in
+`.claude/skills/build-feed-handler/order_entry.md`.
+
 ## Pitfalls the agent must check for
 
 The skill carries a checklist of the errors that have caused problems in practice,
@@ -204,6 +223,7 @@ answer key.
   pitfalls.md              the checklist
   feed_template.md         the feed description, with its fixed sections
   binary_codegen.md        field tables and the generator, for fixed-offset protocols
+  order_entry.md           order managers for brokers and exchanges
   post_trade.md            trade-capture and drop-copy handlers over FIX
   tools/fieldgen.py        field-table checker and C++ generator
   tools/test_fieldgen.sh   generator tests: the examples, and tables it must reject
@@ -235,7 +255,8 @@ build handlers for client firms without a Claude Code session.
 | 0 | The feed-handler contract written down as one interface for each kind; a normalized trade-capture message for post-trade; the shared test harness (invariants, replay, injection, comparison); the skill, the checklist and the template | one target per handler kind |
 | 1 | Extraction measured against the answer keys: Fenics UST market data and Dealerweb ITCH | field-level accuracy of extraction, and the checklist items the agent missed |
 | 2 | Crypto venues with public data and a REST reference: OKX, Bybit, Kraken, Deribit, one held out as a blind test | time to a working handler, discrepancies against snapshots, edits needed |
-| 3 | Post-trade FIX handlers from the venues' dictionaries: Dealerweb (FIX 4.4), Fenics (FIX 4.4), ICAP (FIX 5.0 SP2) | trade capture from three venues |
+| 3a | Order managers against simulators and fakes, measured against the kaspar-equities OMs as answer keys (Clear Street from its FIX specification, Lime from its SDK headers), then a broker without an existing OM, checked in its UAT environment | order managers whose actor tests match the existing ones |
+| 3b | Post-trade FIX handlers from the venues' dictionaries: Dealerweb (FIX 4.4), Fenics (FIX 4.4), ICAP (FIX 5.0 SP2) | trade capture from three venues |
 | 4 | Binary multicast with recovery on a venue without an existing handler (Nasdaq TotalView-ITCH, whose sample files are public; then the venue in the current client request) | the full workflow on a new venue |
 
 No specification documents for ICAP are in the m2 repository; only its handler code
