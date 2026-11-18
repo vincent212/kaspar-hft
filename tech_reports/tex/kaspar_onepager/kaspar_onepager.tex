@@ -73,7 +73,7 @@
 {\color{ink2}\sffamily\bfseries\fontsize{19}{19}\selectfont Open Source}
 
 \vspace{4pt}
-{\color{ink2}\sffamily\large A CME futures trading system and order book simulator.}
+{\color{ink2}\sffamily\large A venue-independent trading system and order book simulator.}
 
 \vspace{7pt}
 {\color{ink}\hrule height 1.6pt}
@@ -86,9 +86,9 @@
 {\color{ink3}\sffamily\bfseries\scriptsize ORDER ENTRY} &
 {\color{ink3}\sffamily\bfseries\scriptsize BOOK} &
 {\color{ink3}\sffamily\bfseries\scriptsize LICENCE} \\[-4pt]
-\sffamily\bfseries\small CME Globex &
-\sffamily\bfseries\small MDP3 SBE &
-\sffamily\bfseries\small iLink 3 &
+\sffamily\bfseries\small CME, TT, crypto &
+\sffamily\bfseries\small MDP3; WebSocket &
+\sffamily\bfseries\small iLink 3; TT FIX 4.4 &
 \sffamily\bfseries\small MBP \& MBO L3 &
 \sffamily\bfseries\small MIT, open source \\
 \end{tabularx}
@@ -115,11 +115,13 @@ exercises the code path that will trade.
 \noindent\begin{minipage}[t]{0.485\textwidth}
 
 \tile{Simulation}{Three modes in one binary: \textbf{PCAP replay}, live
-multicast paper trading and live iLink execution. Replay is deterministic: a
-session replayed twice gives identical fills.}
+paper trading and live execution. Replay is deterministic: a session replayed
+twice gives identical fills. A \textbf{live crypto simulator} runs the same
+book and execution on Binance, Coinbase and Hyperliquid data, with orders and
+fills available from Python over zmq.}
 
 \tile{Concurrency}{A \textbf{C++20 actor framework} with a formal
-concurrency model. The same code runs with actors on their own threads or
+semantics for its synchronous \code{fast\_send}. The same code runs with actors on their own threads or
 grouped onto one thread, so the hot path can be spread out or kept on a single
 thread without code changes.}
 
@@ -143,7 +145,13 @@ exact.}
 
 \tile{Order entry}{\textbf{iLink 3} session handler: SBE encoding, HMAC
 authentication, sequence management, negotiation and establishment,
-primary/secondary failover.}
+primary/secondary failover. MDP3 and iLink 3 are \textbf{CME-certified}; order
+routing through Trading Technologies over \textbf{FIX 4.4} is
+\textbf{TT-certified}.}
+
+\tile{FPGA actors}{Actors compiled to hardware with Vitis HLS exchange the same
+messages as CPU actors across PCIe. An MDP3 handler for the AMD Alveo X3522PV
+decodes packets as the bytes arrive and meets 250~MHz on the card's device.}
 
 \end{minipage}
 
@@ -179,6 +187,15 @@ Round trip with plain \code{new} (2 messages) & \code{\textasciitilde128 ns} \\
 \tnote{Median round-trip times (send, handle, reply) with one message in flight, from
 the microbenchmarks in \code{actors/cpp/perf}; the \code{fast\_send} figure is amortized, because its
 per-sample median is below the clock resolution.}
+
+% ===============================================================
+\section{Papers}
+\vspace{2pt}
+{\footnotesize
+\noindent\textbf{arXiv:2609.21173} Adapting the actor model of concurrency for high-frequency trading.\\
+\textbf{arXiv:2609.18019} Model-free passive execution via order-level shadowing.\\
+\textbf{arXiv:2609.32848} Packets, transactions and queues: a measurement study of CME market data.\\
+Adapting the actor model of concurrency to hybrid CPU/FPGA architectures; Extending the actor model with synchronous delivery.}
 
 
 % ===============================================================
