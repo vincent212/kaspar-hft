@@ -1185,6 +1185,12 @@ struct handler_if : public mdp3::feed_handler_if
       recmsg->l3 = l3;
       binrec->send(recmsg, 0);
     }
+
+    // The books are cleared, so the orderID -> securityID map is stale. New
+    // orders write it and trades read it, and nothing else clears it: without
+    // this, a trade after the reset for a recycled orderID resolves to the
+    // security the ID had before the reset. (#122)
+    orderid_to_securityid.clear();
   }
 
   virtual void MDIncrementalRefreshVolume(
