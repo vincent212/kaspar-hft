@@ -271,6 +271,31 @@ TEST(OrderFields, ExchangeFeedVenueCodes)
     EXPECT_STREQ(en::to_string(en::x(code)), n);
   }
   EXPECT_EQ(int(en::x::HKEX), code);
-  EXPECT_EQ(en::x_num_syms(), size_t(en::x::HKEX) + 1);
-  EXPECT_LT(int(en::x::HKEX), 128) << "venue is stored in a char in the L3 records";
+}
+
+// Crypto exchange venue codes, appended after HKEX: spot and derivatives
+// separately where the exchange runs both.
+TEST(OrderFields, CryptoVenueCodes)
+{
+  const char *names[] = {"BYBIT", "BYBITF", "OKX", "OKXF", "KRAKEN", "KRAKENF", "DERIBIT"};
+  int code = int(en::x::HKEX);
+  for (const char *n : names)
+  {
+    ++code;
+    EXPECT_TRUE(en::x_is_valid(n)) << n;
+    EXPECT_EQ(int(en::x_index_of(n)), code) << n;
+  }
+  EXPECT_EQ(int(en::x::DERIBIT), code);
+}
+
+// Coinbase Exchange (the institutional exchange API) is a separate venue from
+// Coinbase Advanced Trade (COINBASE): appended after DERIBIT.
+TEST(OrderFields, CoinbaseExchangeVenueCode)
+{
+  EXPECT_TRUE(en::x_is_valid("COINBASEX"));
+  EXPECT_EQ(int(en::x::COINBASEX), int(en::x::DERIBIT) + 1);
+  EXPECT_STREQ(en::to_string(en::x(en::x::COINBASEX)), "COINBASEX");
+  EXPECT_NE(int(en::x::COINBASEX), int(en::x::COINBASE));
+  EXPECT_EQ(en::x_num_syms(), size_t(en::x::COINBASEX) + 1);
+  EXPECT_LT(int(en::x::COINBASEX), 128) << "venue is stored in a char in the L3 records";
 }
