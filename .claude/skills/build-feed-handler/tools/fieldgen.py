@@ -72,6 +72,7 @@ class Section:
         self.line = line
         self.direction = "from" if "::from_" in ns else "to"
         self.prefix = None
+        self.code_bytes = 0           # 0: one-character codes; 1, 2, 4: unsigned integer codes
         self.messages = []
 
 
@@ -183,6 +184,15 @@ def parse(path):
                     sec.prefix = p
                 else:
                     err(ln, "@length_prefix outside a section")
+            elif d == "@type_code":
+                if sec is None or sec.messages:
+                    err(ln, "@type_code goes at the start of a section, before its first message")
+                if args == ["char"]:
+                    sec.code_bytes = 0
+                elif len(args) == 2 and args[0] == "uint" and args[1] in ("1", "2", "4"):
+                    sec.code_bytes = int(args[1])
+                else:
+                    err(ln, "@type_code char, or @type_code uint 1|2|4")
             elif d == "@size":
                 if msg is None:
                     err(ln, "@size outside a message")
@@ -206,14 +216,27 @@ def parse(path):
                 err(ln, "the description of MessageType must start with the message name")
             if code == "-" and length == 0:
                 code = None            # a header or bare datagram: a struct, not in decode
+            elif sec.code_bytes:
+                try:
+                    code = int(code, 0)
+                except ValueError:
+                    err(ln, "type code %r is not a number (the section has @type_code uint)" % code)
+                if length != sec.code_bytes:
+                    err(ln, "type code length %d, @type_code says %d" % (length, sec.code_bytes))
+                if not 0 <= code < 1 << (8 * length):
+                    err(ln, "type code %d does not fit in %d bytes" % (code, length))
             elif len(code) != 1 or length != 1:
-                err(ln, "a type code is one character of length 1, or '- 0 0' for none "
-                    "(code %r, length %d)" % (code, length))
+                err(ln, "a type code is one character of length 1, '- 0 0' for none, or a "
+                    "number in a section with @type_code uint (code %r, length %d)" % (code, length))
             if off != 0:
                 err(ln, "MessageType must be at offset 0 (offsets exclude any length prefix)")
             msg = Message(code, words[0], desc, ln)
             sec.messages.append(msg)
-            if code is not None:
+            if code is not None and sec.code_bytes:
+                msg.fields.append(Field("MessageType", "code", {"kind": "uint", "align": "left",
+                                                                "pad": "space"},
+                                        0, length, desc, ln))
+            elif code is not None:
                 msg.fields.append(Field("MessageType", "char",
                                         {"kind": "char", "align": "left", "pad": "space"},
                                         0, 1, desc, ln))
@@ -472,7 +495,9 @@ def emit_message(t, sec, m, w):
     p = prefix_of(sec, m)
     w("// %s\n" % comment(m.desc))
     w("struct [[gnu::packed]] %s\n{\n" % m.name)
-    if m.code is not None:
+    if m.code is not None and sec.code_bytes:
+        w("  static constexpr uint%d_t type = %d;\n" % (8 * sec.code_bytes, m.code))
+    elif m.code is not None:
         w("  static constexpr char type = %s;\n" % cchar(m.code))
     if p:
         w("  %s MessageLength; // %s length prefix, not in the venue's table\n"
@@ -563,16 +588,22 @@ struct decoded
 inline decoded decode(const char *buf, size_t len)
 {
 """)
-    w("  if (len < %d)\n    return {status::incomplete, {}};\n" % (off + 1))
+    cb = sec.code_bytes or 1
+    w("  if (len < %d)\n    return {status::incomplete, {}};\n" % (off + cb))
     skip = "0"
     if p:
         w("  %s prefix;\n  std::memcpy(&prefix, buf, sizeof(prefix));\n" % length_type(t, p[0]))
         w("  const size_t total = size_t(uint%d_t(prefix))%s;\n"
           % (8 * p[0], "" if p[1] == "inclusive" else " + %d" % p[0]))
-        w("  if (total < %d)\n    return {status::malformed, {}, total};\n" % (off + 1))
+        w("  if (total < %d)\n    return {status::malformed, {}, total};\n" % (off + cb))
         w("  if (total > len)\n    return {status::incomplete, {}};\n")
         skip = "total"
-    w("  switch (buf[%d])\n  {\n" % off)
+    if sec.code_bytes:
+        w("  %s code;\n  std::memcpy(&code, buf + %d, sizeof(code));\n"
+          % (length_type(t, sec.code_bytes), off))
+        w("  switch (uint%d_t(code))\n  {\n" % (8 * sec.code_bytes))
+    else:
+        w("  switch (buf[%d])\n  {\n" % off)
     for m in typed:
         tail = m.variable_tail is not None
         w("  case %s::type:\n  {\n" % m.name)
@@ -598,7 +629,8 @@ def markdown(t, out):
         for m in sec.messages:
             p = prefix_of(sec, m)
             w("#### %s (type %s, %d bytes%s)\n\n" % (
-                m.name, "`%s`" % m.code if m.code is not None else "none", size_of(m),
+                m.name, ("`%d` (0x%X)" % (m.code, m.code) if isinstance(m.code, int) else
+                         "`%s`" % m.code if m.code is not None else "none"), size_of(m),
                 ", %d-byte %s length prefix" % p if p else ""))
             w("| Field | Offset | Length | Type | Meaning |\n|---|---|---|---|---|\n")
             for f in m.fields:

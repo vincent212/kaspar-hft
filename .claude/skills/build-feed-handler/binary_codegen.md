@@ -67,6 +67,12 @@ StockLocate Integer 1 2 # ...
   struct (and an `encode` in a `to_` section) but is not part of `decode`, since
   nothing identifies it; the packet reader reads it at the position the framing
   gives.
+- Feeds that identify messages by a number rather than a character (NYSE Pillar
+  XDP, Cboe PITCH, Deutsche Börse T7 EOBI, HKEX OMD) declare it at the start of the
+  section with `@type_code uint 1|2|4`; the codes are then written as numbers,
+  decimal or `0x` hexadecimal (`MessageType 100 0 2`). The integer has the table's
+  byte order. Where the message size precedes the type and counts itself, as in
+  these feeds, it is an `@length_prefix ... inclusive`.
 - Alignment and padding of text belong to its type. Where the specification pads
   some fields of one type differently (SoupBinTCP's session id is left padded,
   its username right padded), declare a second type name for them.
@@ -117,6 +123,7 @@ and compiles a table with type codes that need escaping.
 | `@size` equals the sum of lengths | the same, against the total the spec states |
 | integer lengths | a numeric field mistyped as an integer |
 | repeated type code in a `from_` section (a warning in a `to_` section) | two layers mixed in one section |
+| a numeric type code that is not a number, does not fit its width, or comes in a section without `@type_code uint` | a misread type table |
 | messages framed differently in one `from_` section; a section-wide `@length_prefix` after the first message | two layers mixed in one section; a prefix meant for one message |
 | a variable-length field that is not last | a misread table |
 | non-numeric offsets, lengths and sizes; missing directive arguments | extraction debris |

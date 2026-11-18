@@ -173,6 +173,65 @@ int main()
 C
 ${CXX:-c++} -std=c++20 -Wall -Wextra -Werror -I"$out" "$out/odd.cpp" -o "$out/odd" && "$out/odd"
 
+reject "is not a number" <<T
+$head
+### x::from_v
+@type_code uint 2
+MessageType A 0 2 # M
+T
+reject "@type_code says" <<T
+$head
+### x::from_v
+@type_code uint 2
+MessageType 100 0 1 # M
+T
+reject "before its first message" <<T
+$head
+### x::from_v
+MessageType A 0 1 # M
+
+@type_code uint 2
+T
+reject "does not fit" <<T
+$head
+### x::from_v
+@type_code uint 1
+MessageType 300 0 1 # M
+T
+
+# Numeric type codes after an inclusive size, big-endian, as in a T7-style feed.
+cat > "$out/num.tbl" <<'T'
+@venue numv
+@endian big
+@type I uint
+### t7::from_numv
+@length_prefix 2 inclusive
+@type_code uint 2
+MessageType 13100 0 2 # OrderAdd
+@size 6
+Id I 2 4 # id
+
+MessageType 0x3334 0 2 # OrderDelete
+Id I 2 4 # id
+### end
+T
+python3 "$gen" "$out/num.tbl" -o "$out/num.hpp"
+cat > "$out/num.cpp" <<'C'
+#include "num.hpp"
+#include <cassert>
+int main()
+{
+  using namespace numv::t7::from_numv;
+  unsigned char a[] = {0, 8, 0x33, 0x2c, 0, 0, 0, 5, 0, 8, 0x33, 0x34, 0, 0, 0, 6};
+  auto d = decode((const char *)a, sizeof a);
+  assert(d && d.size == 8 && std::get<OrderAdd>(d.msg).Id == 5u);
+  auto e = decode((const char *)a + 8, 8);
+  assert(e && std::get<OrderDelete>(e.msg).Id == 6u);
+  return 0;
+}
+C
+${CXX:-c++} -std=c++20 -Wall -Wextra -Werror -I"$out" "$out/num.cpp" -o "$out/num" && "$out/num"
+
 # A comment line inside a message does not end it.
 cat > "$out/ok.tbl" <<T
 $head
