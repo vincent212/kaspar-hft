@@ -41,31 +41,59 @@ namespace frame::som
 {
   using ClientId = uint64_t;
 
-  // Client ids unique for a trading day: (milliseconds since midnight at
-  // creation) << 36 | counter; 2^36 orders per generator. A restart starts
-  // from a later millisecond, so it never reuses an id, and from_clock()
-  // never gives two generators in one process the same millisecond. Two
-  // processes sharing one broker session must not start in the same
-  // millisecond. The result fits in 63 bits, so it is also a valid positive
-  // decimal ClOrdID.
+  // Client ids, as 63-bit positive integers (also valid decimal ClOrdIDs):
+  //
+  //   bit  63      0
+  //   bits 62..23  milliseconds since EPOCH (2026-01-01 00:00:00 UTC):
+  //                40 bits, about 34.8 years, i.e. until late 2060
+  //   bits 22..0   counter: 2^23 - 1 (8,388,607) ids per millisecond slot
+  //
+  // A generator owns one millisecond slot and counts within it. Ids from one
+  // generator increase. The time is not reduced modulo a day, so a restart
+  // that crosses 00:00 UTC still issues larger ids than the run before it.
+  //
+  // from_clock() gives every generator in a process its own slot, and never a
+  // slot later than the wall clock: if the next free slot is still in the
+  // future it waits for it (at most about 1 ms per generator made in the same
+  // millisecond). So any generator a later process makes has a larger slot
+  // than every generator of an earlier process, as long as the restart takes
+  // at least 1 ms and the system clock does not step back. When a
+  // from_clock() generator uses up its counter it claims a new slot the same
+  // way, so its ids stay unique and increasing.
+  //
+  // A generator built from an explicit slot owns that slot and the ones after
+  // it: after 2^23 - 1 ids it continues in the next millisecond. The caller
+  // keeps such generators apart. Two processes sharing one broker session
+  // must not start in the same millisecond.
   class ClientIdGen
   {
   public:
-    static constexpr int COUNTER_BITS = 36;
+    static constexpr int COUNTER_BITS = 23;
+    static constexpr int MS_BITS = 40;
+    static constexpr uint64_t EPOCH_UNIX_MS = 1'767'225'600'000ULL; // 2026-01-01T00:00:00Z
     static constexpr uint64_t MS_PER_DAY = 86'400'000ULL;
+    static constexpr uint64_t COUNTER_MAX = (1ULL << COUNTER_BITS) - 1;
 
-    explicit ClientIdGen(uint64_t ms_since_midnight)
-        : base_((ms_since_midnight % MS_PER_DAY) << COUNTER_BITS) {}
+    // ms_since_epoch: the slot, in milliseconds since EPOCH_UNIX_MS.
+    explicit ClientIdGen(uint64_t ms_since_epoch) : ms_(ms_since_epoch & ((1ULL << MS_BITS) - 1)) {}
 
-    // Milliseconds since midnight UTC, now; later than any earlier
-    // from_clock() in this process.
+    // A slot of its own in this process, not later than the wall clock.
     static ClientIdGen from_clock();
 
-    ClientId next() { return base_ | (++n_ & ((1ULL << COUNTER_BITS) - 1)); }
+    ClientId next()
+    {
+      if (n_ == COUNTER_MAX)
+        next_slot();
+      return (ms_ << COUNTER_BITS) | ++n_;
+    }
 
   private:
-    uint64_t base_;
+    void next_slot();
+    static uint64_t claim_slot(uint64_t at_least);
+
+    uint64_t ms_;
     uint64_t n_ = 0;
+    bool from_clock_ = false;
   };
 
   enum class State
@@ -92,6 +120,11 @@ namespace frame::som
     frame::som::msg::Order order;    // as received
     ClientId cid = 0;                // id the order is live under at the broker
     ClientId pending_cid = 0;        // id of the cancel or replace in flight, 0 = none
+    // A replace that was still in flight when the order finished (Filled or
+    // Canceled), 0 = none; pending_qty/pending_px keep its target. A fill
+    // after a cancel may go up to the replace size, and a later confirmation
+    // of a replace below what was filled is reported Invalid.
+    ClientId done_replace_cid = 0;
     State state = State::PendingNew;
     bool accepted = false;           // the broker acknowledged (or filled) the order
     int qty = 0;    // total order quantity (changes on replace)
@@ -107,7 +140,9 @@ namespace frame::som
     Ok,        // applied
     Unknown,   // no order has this id: log; a fill on it needs attention
     Duplicate, // add() with an oid already tracked
-    Late,      // the order is already done; event ignored
+    Late,      // the order is already done, or the report carries an id that
+               // is no longer current (one the order was replaced away from,
+               // an earlier cancel's or replace's); event ignored
     Busy,      // a cancel or replace is already in flight
     Invalid,   // event does not fit the order (overfill, bad quantity, a
                // reject on an accepted order); see each call for its effect
@@ -117,7 +152,9 @@ namespace frame::som
   struct Result
   {
     Outcome outcome = Outcome::Unknown;
-    Entry *entry = nullptr; // set unless Unknown
+    // The order the event is about. Null only when the outcome is Unknown,
+    // or when add() returns Invalid (it creates no entry for an invalid order).
+    Entry *entry = nullptr;
     int fill_qty = 0;       // on_fill: quantity of this fill
     bool done = false;      // the event finished the order
   };
@@ -143,10 +180,13 @@ namespace frame::som
 
     // The broker API refused a request synchronously (a busy connection,
     // FIX session down). A refused new order is rejected; a refused cancel or
-    // replace leaves the order as it was.
+    // replace leaves the order as it was, or finishes it as Filled if it was
+    // filled to its size meanwhile.
     Result send_failed(ClientId cid);
 
     // --- reports we receive (cid: any id the order has used) --------------
+    // Cancel and replace reports count only on the order's current id or the
+    // id of the request in flight; on any other id they are Late.
     Result on_accepted(ClientId cid, uint64_t exch_oid = 0);
     Result on_fill(ClientId cid, int qty);
     Result on_canceled(ClientId cid);        // ours or unsolicited
@@ -168,6 +208,7 @@ namespace frame::som
   private:
     Entry *lookup(ClientId cid);
     Result finish(Entry &e, State s);
+    Result abandon_request(Entry &e);
 
     ClientIdGen gen_;
     std::unordered_map<int, Entry> by_oid_;      // node-based: Entry* stays valid
