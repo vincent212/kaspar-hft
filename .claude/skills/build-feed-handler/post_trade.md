@@ -6,13 +6,16 @@ processing (STP) to clearing and the back office. Most venues deliver it as a FI
 session in which the client requests trade capture reports and the venue sends one
 `TradeCaptureReport` (35=AE) per trade, amendment or cancellation. Some venues use
 drop copy instead (`ExecutionReport`, 35=8, copies of the order session's fills);
-the same structure applies.
+the same structure applies, with the differences in *Drop copies of execution
+reports* below.
 
 Templates:
 
 | Source | What it shows |
 |---|---|
 | `ttom/` (`TTFixClient`, `TTFIXOM`) | a QuickFIX application wrapped in a Kaspar actor: initiator started in `Start`, session callbacks on QuickFIX's thread, results sent as actor messages |
+| `global_connectivity/non_certified/post_trade/common/` | the normalized `post_trade::msg::TradeCapture` and `TradeLedger` (idempotent application of reports) |
+| `global_connectivity/non_certified/market_data/lmax/` (`FixInitiator`, `RedactLog`) | a QuickFIX initiator with a log and a store that redact the password, TLS or plain TCP |
 | m2 `postrade/` (private repository) | trade-capture clients for three venues: `DlrwebSTPClient` and `FenicsSTPClient` (FIX 4.4), `ICAPSTPClient` (FIX 5.0 SP2 over FIXT 1.1); `STPHandler` owns the initiator; `stppubdc2/m2_stp_pub.py` publishes the captured trades |
 
 ## Inputs
@@ -23,6 +26,14 @@ Templates:
    fields. If the venue supplies only a PDF, the agent writes the dictionary from it
    (start from QuickFIX's standard `FIX44.xml` or `FIX50SP2.xml` and add the venue's
    fields, groups and changes), and this dictionary is reviewed like a field table.
+   If the venue supplies a machine-readable specification (LMAX's `fix-spec.json`),
+   the dictionary is generated from it by a script that is committed with it.
+   A venue's own dictionary can be wrong: Coinbase's FIXT 1.1 dictionary lacks
+   `RawDataLength` (95), which its Logon's `RawData` (96) needs. Validate the
+   dictionary against the specification before using it: every message the
+   specification defines, built from its example or its field list, parses and
+   validates with it. Corrections go into a copy of the dictionary, each listed in
+   the feed description.
 3. Session parameters from the venue: host, port, TLS, SenderCompID, TargetCompID,
    username and password (and where they go: `Username`/`Password` on Logon, or
    a separate `UserRequest`), the session schedule, heartbeat interval.
@@ -74,6 +85,13 @@ feed:
 
 Configuration conventions:
 
+- QuickFIX's `FileLog` writes every message, and `FileStore` keeps the messages
+  sent, both with the Logon's `Password` (554) in clear. Use a log and a store that
+  redact it (LMAX's `RedactLog`), or a memory store and no file log.
+- QuickFIX's `SSLSocketInitiator` sends no SNI and does not check the server's host
+  name against its certificate. Where the venue needs SNI, or the check matters
+  (any connection over the internet), terminate TLS in a proxy that does both
+  (stunnel with `sni` and `checkHost`) and connect QuickFIX to it in plain TCP.
 - Credentials are not in the repository: the settings file and the credentials file
   are supplied at deployment and read by path from the actor's config.
 - Keep `FileStorePath` between runs: it holds the session sequence numbers. Deleting
@@ -92,6 +110,28 @@ symbol and Kaspar asset), side, quantity, price, yield where the instrument trad
 in yield, trade time, settlement date, account, counterparty, `PossDup` flag, and the
 raw FIX message. Consumers (position keeping, an STP publisher, a recorder) subscribe
 to it. Do not add a database dependency to the client.
+
+## Drop copies of execution reports
+
+A drop copy that sends `ExecutionReport`s (Coinbase's FIX drop copy) has no
+`TradeCaptureReportRequest` and no acknowledgement: the venue starts sending on
+logon, for the accounts the session is entitled to. Fills are the reports with
+`ExecType` F (trade); corrections and busts are `ExecType` G and H, referring to
+the fill by `ExecRefID`. `ExecID` is the stable identifier, `OrderID` and
+`ClOrdID` tie a fill to its order, and the reports for new, cancelled and
+replaced orders that the same session carries are not trades. The feed
+description lists each `ExecType` and `OrdStatus` the venue sends and what the
+handler does with it.
+
+## Quantities and prices in the normalized message
+
+`TradeCapture` keeps the price as the venue sent it (`price_mantissa`,
+`price_decimals`), but `qty` is a whole number with no scale. For a venue with
+fractional quantities (crypto, notional amounts in decimals), the handler sends
+the quantity in the instrument's unit, the same unit as its book and its order
+manager (`kaspar_mapping.md`), and section 8 of the feed description states it; a
+quantity that is not a whole number of units is logged as an error with the raw
+report, not rounded.
 
 ## Duplicates and replay
 

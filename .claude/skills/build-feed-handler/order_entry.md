@@ -70,9 +70,9 @@ Sections 1 to 3 of `feed_template.md` apply. In place of the market-data section
   numbers and their reset; heartbeats; whether orders are accepted before a
   trading-session status message; cancel-on-disconnect.
 - **Order identifiers:** what the client id must satisfy (uniqueness per day, per
-  session or forever; numeric or text; maximum length); whether cancel and replace
-  take a new client id (FIX: yes) or reuse the order's own (some SDKs); which id each
-  report carries.
+  session or forever; numeric or text; maximum length; increasing or not); whether
+  cancel and replace take a new client id (FIX: yes) or reuse the order's own (some
+  SDKs); which id each report carries.
 - **New order:** every field and value the venue accepts: side (buy, sell, sell
   short, sell short exempt), order type, price format, time in force (day, IOC,
   FOK, at the open, at the close, extended hours), route or destination, broker
@@ -88,6 +88,30 @@ Sections 1 to 3 of `feed_template.md` apply. In place of the market-data section
   avoids applying a report twice (sequence numbers, event ids, `PossDupFlag`).
 - **Risk checks:** limits enforced by the venue or broker, and those the OM or the
   SOM must enforce before sending.
+
+## Client ids the venue constrains
+
+`BrokerOrderBook` issues 63-bit numeric client ids (`ClientIdGen`: milliseconds
+since midnight and a counter), unique for the day across restarts. Where the
+venue's client id has another form, the OM allocates the venue's id for each
+`ClientId` and keeps the map both ways, so that every report finds its order:
+
+- a string id (Coinbase's `client_order_id`, a UUIDv4): a new UUID for each request
+  that takes a client id, mapped to the `ClientId` the book issued for it;
+- a narrower number that must rise through the day (OUCH's `UserRefNum`, 32 bits,
+  each one greater than every earlier one that day): a counter kept by the OM, written
+  to a file before each order is sent and read back on start, so that a restart
+  continues above the last id used that day.
+
+The map is cleared at the venue's day boundary, not on reconnect: reports for
+earlier orders arrive after a reconnect.
+
+## FIX sessions
+
+`post_trade.md` applies to an OM over FIX as to a post-trade client: validate the
+venue's dictionary against its specification, keep the Logon password out of
+QuickFIX's log and store, and put TLS that needs SNI or host-name checks in a
+proxy.
 
 ## Tests
 

@@ -85,7 +85,45 @@ StockLocate Integer 1 2 # ...
 - A layer that carries another layer's messages plus its own (GLIMPSE: the ITCH
   messages and End of Snapshot) declares `@include <ns>::<section>` for the earlier
   section and adds only its own messages; the included structs are aliased, not
-  copied, and its `decode` covers both.
+  copied, and its `decode` covers both the included messages (with those the
+  included section itself includes) and its own.
+- Sections of another table file are used with `@import <file> [<ns>::<section>
+  ...]` before the first section; the path is relative to the importing table.
+  Without section names every section of the file is imported. Imported sections
+  keep their own venue, byte order and types, are generated into the importing
+  table's header, and can be `@include`d (Cboe Europe reusing the US unit header,
+  GRP and Spin sections; GLIMPSE including ITCH from `itch.tbl`). An imported
+  layer is written without the framing of any one transport, as `@include`
+  requires: ITCH written with a section-wide `@length_prefix` cannot be included
+  by GLIMPSE, whose messages have none; write it unframed with
+  `@framed_decode mold 2 exclusive`. The Makefile rule for the importing table
+  lists the imported tables among its prerequisites.
+- Where every message starts with the same fields and the type code is one of
+  them (Aquis: type, then length, then sequence number; Currenex OUCH: sequence
+  number, timestamp, then type), declare them once at the start of the section
+  with `@header <Name>`, one row per field up to the next blank line, the type
+  code's row written `MessageType code <offset> <length>`. Each message then starts
+  with `MessageType <code> <offset> <length>` at the header's offset of the code,
+  and its own fields continue from the end of the header; offsets are the
+  specification's, counted from the first header byte. Where a header field gives
+  the message length, `@message_length <field> whole|body` in the header block
+  says so (`whole`: the whole message, header included; `body`: the bytes after
+  the header), and `decode` takes the message size from it: unknown types are
+  skipped by it and longer messages accepted. A header is not combined with a
+  `@length_prefix`.
+- One type code with two layouts:
+  - told apart by the message length (NYSE Pillar's Refresh Header, 16 bytes in a
+    symbol's first refresh packet and 8 in the later ones): write both messages
+    with the same code and `@by_length` in the second; `decode` returns the largest
+    layout that fits the length. The section needs the length from its framing
+    (`@length_prefix`, or `@message_length`); the layouts differ in size and have
+    no variable-length field.
+  - told apart by context (Cboe's Trading Status, one layout on the equities
+    feeds and another on the options feeds): one section, or one table, per
+    context; the handler calls the `decode` of the feed it reads.
+- A message may have the name of one of its fields (a field `Symbol` in a message
+  `Symbol`). The structs have no constructor, so C++ accepts a data member named
+  like its class; `tools/test_fieldgen.sh` compiles one.
 - Alignment and padding of text belong to its type. Where the specification pads
   some fields of one type differently (SoupBinTCP's session id is left padded,
   its username right padded), declare a second type name for them.
@@ -115,6 +153,11 @@ StockLocate Integer 1 2 # ...
   The m2 Dealerweb table mixes the two in its order-entry and Glimpse sections, and
   the m2 Fenics table in its order-entry section, where a session message and an
   order message share type `O`.
+- The rule applies where the protocol has two layers. Where session and order
+  messages share one header, one sequence and one type-code space (Currenex OUCH:
+  Logon, Heartbeat and the order messages are all one layer behind the same
+  header), they are one section per direction; the feed description says which
+  messages are session messages.
 
 Worked examples from public Nasdaq specifications:
 
@@ -126,7 +169,13 @@ Worked examples from public Nasdaq specifications:
 `tools/test_fieldgen.sh` generates both headers, runs `examples/*_test.cpp` against
 them (the SoupBinTCP test includes both headers, as a handler for ITCH over
 SoupBinTCP would), checks that malformed tables are rejected with the line named,
-and compiles a table with type codes that need escaping.
+and compiles and runs tables for each directive: escaped and numeric type codes,
+`@include` and `@framed_decode`, `@import` (within a venue and across venues,
+three headers in one translation unit, two versions of one section refused),
+`@header` with and without `@message_length` (the Aquis and Currenex shapes),
+`@by_length` (NYSE's two Refresh Headers), and a message named like its field. Run
+it with each compiler the handlers are built with (`CXX=g++-15
+tools/test_fieldgen.sh`).
 
 ## What the check rejects
 
@@ -142,7 +191,10 @@ and compiles a table with type codes that need escaping.
 | non-numeric offsets, lengths and sizes; missing directive arguments | extraction debris |
 | repeated message or field name; keywords and the generator's own names | copy-paste rows; names the compiler would reject |
 | a repeated section | a section continued after a page break |
-| `@include` of an unknown, later or differently coded section; a type code in both the including and the included section; offsets below `@offset_base`; `@framed_decode` on a section that already has a length prefix | a misdeclared layer |
+| `@include` of an unknown, later or differently coded section, of a section with another header or byte order; a type code in both the including and the included section; offsets below `@offset_base`; `@framed_decode` on a section that already has a length prefix | a misdeclared layer |
+| `@import` of a missing file or section, after the first section, in a cycle, or of a section the table also defines | a misdeclared import |
+| a `@header` after the first message, without a `MessageType code` row, with a code length other than `@type_code`'s, or combined with a `@length_prefix`; a `@message_length` field that is not an unsigned header field; a message whose `MessageType` row is not at the header's code; a message field that repeats a header field | a misdeclared header |
+| `@by_length` without an earlier message of that code, in a `from_` section whose framing gives no length, or for layouts of equal size or with a variable-length field | layouts that cannot be told apart |
 | undeclared type names | a type the spec uses that was not mapped to a kind |
 | section names; a venue that is not a lower-case identifier | a section that does not say its direction and venue |
 
@@ -151,11 +203,17 @@ and compiles a table with type codes that need escaping.
 One header, namespace `<venue>::<ns>::<from|to>_<venue>`. The helpers below that
 every header for a venue shares (`be`, `uint_n`, `set_str`, `get_str`, `status`) are
 defined once in namespace `<venue>`, behind an include guard, so several headers for
-one venue (ITCH and SoupBinTCP, say) can be included together.
+one venue (ITCH and SoupBinTCP, say) can be included together. Each section is
+behind a guard made of its name and a hash of its generated code: a section that
+appears in two headers (its own table's and an importing table's) is compiled once
+when both are included, and two different versions of it in one translation unit
+fail to compile.
 
 - `[[gnu::packed]]` structs named after the message, with `static constexpr char type`,
   and `static_assert`s on `sizeof` and on `offsetof` of every field, so that a
-  compiler or packing difference fails the build;
+  compiler or packing difference fails the build; in a section with a `@header`,
+  every message struct begins with the header's fields, and the header is also a
+  struct of its own (for reading the header of a message `decode` does not know);
 - big-endian integers as `be<T>` and odd-width integers as `uint_n<N, Big>`, which
   convert on read and write, so handler code never calls a byte-swap;
 - for each text field longer than one character, `set_<field>(std::string_view)`,
@@ -170,16 +228,18 @@ one venue (ITCH and SoupBinTCP, say) can be included together.
   field, for messages that have one); it converts to `true` only when `ok`. The other
   statuses tell the caller what to do: `incomplete` (the buffer ends inside the
   message: read more, decode again from the same place), `unknown` (a type the table
-  does not list) and `malformed` (a length prefix shorter than the message's fixed
-  part); for these two, `size` is the bytes to skip when the framing gives it, and 0
-  when it does not. A prefix longer than the fixed part of a fixed-size message is
-  accepted and the extra bytes skipped (newer protocol versions append fields).
+  does not list) and `malformed` (a length prefix or `@message_length` shorter than
+  the message's fixed part); for these two, `size` is the bytes to skip when the
+  framing gives it, and 0 when it does not or when the length is shorter than the
+  header. A length longer than the fixed part of a fixed-size message is accepted
+  and the extra bytes skipped (newer protocol versions append fields).
   Messages are copied out with `memcpy`;
 - for `to_` sections: `size_t encode(char *buf, size_t cap, Msg m)`, or
   `encode(char *buf, size_t cap, Msg m, std::string_view tail)` for a message with a
   variable-length field; it sets the type and the length prefix (counting the tail),
   writes the tail after the struct, and returns the bytes written, or 0 if they do
-  not fit in `cap` or the length does not fit in the prefix;
+  not fit in `cap` or the length does not fit in the prefix; in a section with a
+  `@header`, it sets the header's `@message_length` field instead of a prefix;
 - `name(const message_t &)`.
 
 Differences from the m2 generators, each a defect the m2 output has:
