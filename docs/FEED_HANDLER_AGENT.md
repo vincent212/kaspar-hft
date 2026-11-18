@@ -45,6 +45,18 @@ records it emits (`unit_test/src/test_crypto_sync.cpp`). The OB, the simulator,
 `compare_books.sh` and the `--dump` monitors provide further checks without new
 code.
 
+## Where the output lives
+
+The agent's output for a venue goes to
+`global_connectivity/non_certified/<market_data|order_entry|post_trade>/<venue>/`.
+None of it is connectivity a kaspar-hft user can rely on: it has been checked only
+offline (against the specification, public sample captures, and simulators). A
+venue moves to `global_connectivity/certified/` when it meets the criteria in
+`global_connectivity/certified/README.md` (decisions made, a full day of real data,
+recovery exercised against the venue, an unattended live session) and the owner
+signs off. Kaspar's certified connectivity remains CME (`mdp3/`, `ilink/`) and TT
+(`ttom/`).
+
 ## Inputs
 
 1. **The specification.** PDFs (often several hundred pages), and machine-readable

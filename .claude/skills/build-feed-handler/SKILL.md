@@ -34,6 +34,15 @@ Start from the nearest existing handler, never from scratch:
 
 Read `actors/cpp/CLAUDE_AGENT_GUIDE.md` before writing any actor.
 
+## Where the output goes
+
+Everything the skill produces goes under
+`global_connectivity/non_certified/<market_data|order_entry|post_trade>/<venue>/`,
+except for the NDA venues, whose work goes to the private repository. Nothing moves
+to `global_connectivity/certified/` without the owner's sign-off against the
+criteria in `global_connectivity/certified/README.md`. Every venue README states
+that the handler is not certified and what has and has not been checked.
+
 ## Workflow
 
 1. **Inventory the documents.** List every specification file with its version and
