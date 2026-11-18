@@ -124,10 +124,12 @@ dbento_pcap_parse/*/src/*.P
 dbento_pcap_parse/filter_bin/src/filter_bin
 
 # LaTeX build artifacts
-tech_reports/*.aux
-tech_reports/*.log
-tech_reports/*.out
-tech_reports/*.toc
+tech_reports/**/*.aux
+tech_reports/**/*.log
+tech_reports/**/*.out
+tech_reports/**/*.toc
+tech_reports/**/*.fls
+tech_reports/**/*.fdb_latexmk
 
 # Latency-probe run artifacts. The probe runs as a RENAMED copy of kaspr
 # (md_perf_meter) so stop_kaspr.sh's `pgrep -x kaspr` cannot kill it mid-run;

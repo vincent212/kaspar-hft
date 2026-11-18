@@ -33,7 +33,7 @@ Defaults: `csv_dir=/home/vincent/perf/mdperf`, log = newest
   kaspr/perf/kh_*.py     MDPERF_DIR=<dir> python3 kh_<x>.py [HH:MM:SS HH:MM:SS]
          |
          v
-  tech_reports/*.md      write-ups; RESULT_*.md here are the raw result records
+  tech_reports/articles/  write-ups; RESULT_*.md here are the raw result records
 ```
 
 Where the code lives:
