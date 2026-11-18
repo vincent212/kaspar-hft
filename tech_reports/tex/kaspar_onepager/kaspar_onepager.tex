@@ -120,8 +120,8 @@ twice gives identical fills. A \textbf{live crypto simulator} runs the same
 book and execution on Binance, Coinbase and Hyperliquid data, with orders and
 fills available from Python over zmq.}
 
-\tile{Concurrency}{A \textbf{C++20 actor framework} with a formal
-semantics for its synchronous \code{fast\_send}. The same code runs with actors on their own threads or
+\tile{Concurrency}{A \textbf{C++20 actor framework}, with the same model on
+the FPGA and a formal semantics for its synchronous \code{fast\_send}. The same code runs with actors on their own threads or
 grouped onto one thread, so the hot path can be spread out or kept on a single
 thread without code changes.}
 
@@ -149,9 +149,11 @@ primary/secondary failover. MDP3 and iLink 3 are \textbf{CME-certified}; order
 routing through Trading Technologies over \textbf{FIX 4.4} is
 \textbf{TT-certified}.}
 
-\tile{FPGA actors}{Actors compiled to hardware with Vitis HLS exchange the same
-messages as CPU actors across PCIe. An MDP3 handler for the AMD Alveo X3522PV
-decodes packets as the bytes arrive and meets 250~MHz on the card's device.}
+\tile{FPGA actors}{\textbf{One actor concurrency model on CPU and FPGA.} An FPGA
+actor is written in C++ like a CPU actor (state, handlers, \code{send},
+\code{reply}, groups, \code{fast\_send}) and compiled with Vitis HLS; CPU and
+FPGA actors exchange the same messages across PCIe. An MDP3 handler for the
+Alveo X3522PV decodes packets as they arrive, at 250~MHz.}
 
 \end{minipage}
 
