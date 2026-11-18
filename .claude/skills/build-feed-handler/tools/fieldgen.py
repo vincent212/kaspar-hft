@@ -18,6 +18,7 @@ import sys
 INT_LENGTHS = (1, 2, 4, 8)
 KINDS = ("uint", "int", "char", "bytes")
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+LOWER_IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
 CPP_RESERVED = set("""
 alignas alignof and and_eq asm auto bitand bitor bool break case catch char char8_t
 char16_t char32_t class compl concept const consteval constexpr constinit const_cast
@@ -29,8 +30,11 @@ static_assert static_cast struct switch template this thread_local throw true tr
 typedef typeid typename union unsigned using virtual void volatile wchar_t while xor
 xor_eq
 """.split())
-# Names the generator gives to members it adds itself.
-GENERATED = {"type"}
+# Names the generator defines in a struct, and in a venue or section namespace.
+GENERATED_MEMBERS = {"type"}
+GENERATED_NAMES = {"be", "uint_n", "set_str", "get_str", "status", "decoded", "decode",
+                   "encode", "name", "message_t"}
+PREFIX_MAX = {1: 0xFF, 2: 0xFFFF, 4: 0xFFFFFFFF}
 
 
 class TableError(Exception):
@@ -38,10 +42,12 @@ class TableError(Exception):
 
 
 class Field:
-    def __init__(self, name, type_name, kind, offset, length, desc, line):
+    def __init__(self, name, type_name, ftype, offset, length, desc, line):
         self.name = name
         self.type_name = type_name
-        self.kind = kind
+        self.kind = ftype["kind"]
+        self.align = ftype["align"]   # text: "left" (padded on the right) or "right"
+        self.pad = ftype["pad"]       # text: "space" or "nul"
         self.offset = offset
         self.length = length          # None for a trailing variable-length field
         self.desc = desc
@@ -50,7 +56,7 @@ class Field:
 
 class Message:
     def __init__(self, code, name, desc, line):
-        self.code = code
+        self.code = code              # one character, or None for a message without one
         self.name = name
         self.desc = desc
         self.line = line
@@ -74,7 +80,7 @@ class Table:
         self.venue = None
         self.endian = None
         self.pad = "space"
-        self.types = {}               # type name -> kind
+        self.types = {}               # type name -> {"kind", "align", "pad"}
         self.sections = []
 
 
@@ -98,10 +104,30 @@ def parse_prefix(args, line):
     return (n, args[1])
 
 
+def parse_type(args, line, default_pad):
+    usage = "@type <Name> uint|int|bytes, or @type <Name> char [left|right] [space|nul]"
+    if len(args) < 2 or args[1] not in KINDS:
+        err(line, usage)
+    opts = args[2:]
+    if opts and args[1] != "char":
+        err(line, usage)
+    ftype = {"kind": args[1], "align": "left", "pad": None}
+    for o in opts:
+        if o in ("left", "right"):
+            ftype["align"] = o
+        elif o in ("space", "nul"):
+            ftype["pad"] = o
+        else:
+            err(line, usage)
+    ftype["explicit_pad"] = ftype["pad"] is not None
+    return ftype
+
+
 def parse(path):
     t = Table()
     sec = None
     msg = None
+    seen_sections = {}
     for ln, raw in enumerate(open(path, encoding="utf-8"), 1):
         if raw.lstrip().startswith("#") and not raw.startswith("###"):
             continue                   # a comment line; does not end a message
@@ -114,7 +140,12 @@ def parse(path):
             if name == "end":
                 break
             if not re.match(r"^[a-z_][a-z0-9_]*::(from|to)_[a-z0-9_]+$", name):
-                err(ln, "section must be named <ns>::from_<venue> or <ns>::to_<venue>, got %r" % name)
+                err(ln, "section must be named <ns>::from_<venue> or <ns>::to_<venue> in lower "
+                    "case, got %r" % name)
+            if name in seen_sections:
+                err(ln, "section %s already declared at line %d: continue it there"
+                    % (name, seen_sections[name]))
+            seen_sections[name] = ln
             sec = Section(name, ln)
             t.sections.append(sec)
             continue
@@ -124,24 +155,23 @@ def parse(path):
         if body.startswith("@"):
             toks = body.split()
             d, args = toks[0], toks[1:]
-            if d in ("@venue", "@size") and len(args) != 1:
+            if d in ("@venue", "@size", "@endian", "@pad") and len(args) != 1:
                 err(ln, "%s takes one argument" % d)
             if d == "@venue":
-                if not IDENT.match(args[0]) or args[0] in CPP_RESERVED:
-                    err(ln, "@venue %r is not a usable namespace name" % args[0])
+                if not LOWER_IDENT.match(args[0]) or args[0] in CPP_RESERVED:
+                    err(ln, "@venue %r must be a lower-case identifier (section names use it), "
+                        "not a C++ keyword" % args[0])
                 t.venue = args[0]
             elif d == "@endian":
-                if args != ["little"] and args != ["big"]:
+                if args[0] not in ("little", "big"):
                     err(ln, "@endian little|big")
                 t.endian = args[0]
             elif d == "@pad":
-                if args not in (["space"], ["nul"]):
+                if args[0] not in ("space", "nul"):
                     err(ln, "@pad space|nul")
                 t.pad = args[0]
             elif d == "@type":
-                if len(args) != 2 or args[1] not in KINDS:
-                    err(ln, "@type <Name> uint|int|char|bytes")
-                t.types[args[0]] = args[1]
+                t.types[args[0] if args else ""] = parse_type(args, ln, t.pad)
             elif d == "@length_prefix":
                 p = parse_prefix(args, ln)
                 if msg is not None:
@@ -172,23 +202,27 @@ def parse(path):
             words = desc.split()
             if words:
                 words[0] = words[0].rstrip(":.,;")
-            if not words or not IDENT.match(words[0]):
+            if not words:
                 err(ln, "the description of MessageType must start with the message name")
             if code == "-" and length == 0:
                 if sec.direction != "to":
                     err(ln, "a message without a type code can only be sent, not decoded")
-            elif len(code) != length or length != 1:
-                err(ln, "type codes must be one character (code %r, length %d)" % (code, length))
+                code = None
+            elif len(code) != 1 or length != 1:
+                err(ln, "a type code is one character of length 1, or '- 0 0' for none "
+                    "(code %r, length %d)" % (code, length))
             if off != 0:
                 err(ln, "MessageType must be at offset 0 (offsets exclude any length prefix)")
             msg = Message(code, words[0], desc, ln)
             sec.messages.append(msg)
-            if length:
-                msg.fields.append(Field("MessageType", "char", "char", 0, 1, desc, ln))
+            if code is not None:
+                msg.fields.append(Field("MessageType", "char",
+                                        {"kind": "char", "align": "left", "pad": "space"},
+                                        0, 1, desc, ln))
             continue
         if msg is None:
             err(ln, "field before MessageType")
-        if len(toks) == 3 and toks[1] in t.types and t.types[toks[1]] == "bytes":
+        if len(toks) == 3 and toks[1] in t.types and t.types[toks[1]]["kind"] == "bytes":
             name, tname, off, length = toks[0], toks[1], num(toks[2], ln, "offset"), None
         elif len(toks) == 4:
             name, tname, off, length = (toks[0], toks[1], num(toks[2], ln, "offset"),
@@ -197,7 +231,10 @@ def parse(path):
             err(ln, "expected <Name> <Type> <Offset> <Length> # <description>")
         if tname not in t.types:
             err(ln, "type %r not declared with @type" % tname)
-        msg.fields.append(Field(name, tname, t.types[tname], off, length, desc, ln))
+        ftype = dict(t.types[tname])
+        if not ftype["explicit_pad"]:
+            ftype["pad"] = t.pad
+        msg.fields.append(Field(name, tname, ftype, off, length, desc, ln))
     if t.venue is None or t.endian is None:
         raise TableError("the table must declare @venue and @endian")
     return t
@@ -214,7 +251,10 @@ def check(t):
         codes = {}
         names = set()
         for m in sec.messages:
-            if m.code != "-" and m.code in codes:
+            if not IDENT.match(m.name) or m.name in CPP_RESERVED or m.name in GENERATED_NAMES:
+                err(m.line, "message name %r is a C++ keyword or a name the generator uses "
+                    "(%s)" % (m.name, ", ".join(sorted(GENERATED_NAMES))))
+            if m.code is not None and m.code in codes:
                 msg = ("type code %r already used at line %d: are two protocol layers in one section?"
                        % (m.code, codes[m.code]))
                 if sec.direction == "from":
@@ -227,16 +267,18 @@ def check(t):
             seen = set()
             pos = 0
             for i, f in enumerate(m.fields):
-                if not IDENT.match(f.name) or f.name in CPP_RESERVED or f.name in GENERATED:
+                if not IDENT.match(f.name) or f.name in CPP_RESERVED or f.name in GENERATED_MEMBERS:
                     err(f.line, "field name %r is not a usable C++ identifier" % f.name)
                 if f.name == "MessageLength" and prefix_of(sec, m):
                     err(f.line, "MessageLength is the name of the generated length prefix: this "
                         "message has both; drop the row or the @length_prefix")
                 if f.name == "MessageType" and f.line != m.line:
                     err(f.line, "MessageType is reserved for the type-code row")
-                if f.name in seen:
-                    err(f.line, "field %s repeated" % f.name)
+                if f.name in seen or "set_" + f.name in seen or "get_" + f.name in seen:
+                    err(f.line, "field %s repeated, or clashes with a generated accessor" % f.name)
                 seen.add(f.name)
+                if f.kind == "char" and f.length and f.length > 1:
+                    seen.update(("set_" + f.name, "get_" + f.name))
                 if f.offset != pos:
                     err(f.line, "%s at offset %d, expected %d: a field is missing, or a length is wrong"
                         % (f.name, f.offset, pos))
@@ -264,13 +306,24 @@ def size_of(m):
     return sum(f.length for f in m.fields if f.length is not None)
 
 
+def cchar(c):
+    """A C++ character literal for c."""
+    if c == "'":
+        return "'\\''"
+    if c == "\\":
+        return "'\\\\'"
+    if " " <= c <= "~":
+        return "'%s'" % c
+    return "'\\x%02x'" % ord(c)
+
+
 def ctype(t, f):
     if f.kind == "char":
         return "char"
     if f.kind == "bytes":
         return "uint8_t"
     if f.length not in INT_LENGTHS:
-        return "uint_n<%d>" % f.length
+        return "uint_n<%d, %s>" % (f.length, "true" if t.endian == "big" else "false")
     base = ("uint%d_t" if f.kind == "uint" else "int%d_t") % (8 * f.length)
     if t.endian == "big" and f.length > 1:
         return "be<%s>" % base
@@ -290,18 +343,15 @@ def length_type(t, n):
 
 
 def comment(s):
-    return s.replace("*/", "* /")
+    # A // comment ends at the line; a trailing backslash would continue it.
+    return " ".join(s.split()).rstrip("\\ ")
 
 
-def emit(t, out):
-    w = out.write
-    w("// Generated by fieldgen.py from a field table. Do not edit; edit the table.\n")
-    w("#pragma once\n\n")
-    for h in ("cstddef", "cstdint", "cstring", "optional", "ostream", "string", "string_view", "variant"):
-        w("#include <%s>\n" % h)
-    w("\nnamespace %s\n{\n\n" % t.venue)
-    if t.endian == "big":
-        w("""// A big-endian integer as it appears on the wire. Reads and writes convert.
+COMMON = """// Shared by every header generated for this venue; defined once.
+#ifndef FIELDGEN_%(guard)s_COMMON
+#define FIELDGEN_%(guard)s_COMMON
+
+// A big-endian integer as it appears on the wire. Reads and writes convert.
 template <typename T>
 struct [[gnu::packed]] be
 {
@@ -317,11 +367,9 @@ struct [[gnu::packed]] be
   be &operator=(T v) { raw = swap(v); return *this; }
 };
 
-""")
-    if any(f.kind == "uint" and f.length not in INT_LENGTHS and f.length is not None
-           for s_ in t.sections for m in s_.messages for f in m.fields):
-        w("""// An unsigned integer of N bytes (N not 1, 2, 4 or 8) as it appears on the wire.
-template <size_t N>
+// An unsigned integer of N bytes as it appears on the wire, most significant
+// byte first if Big.
+template <size_t N, bool Big>
 struct [[gnu::packed]] uint_n
 {
   uint8_t b[N];
@@ -329,97 +377,82 @@ struct [[gnu::packed]] uint_n
   {
     uint64_t v = 0;
     for (size_t i = 0; i < N; ++i)
-      v |= uint64_t(b[%s]) << (8 * i);
+      v |= uint64_t(b[Big ? N - 1 - i : i]) << (8 * i);
     return v;
   }
   uint_n &operator=(uint64_t v)
   {
     for (size_t i = 0; i < N; ++i)
-      b[%s] = uint8_t(v >> (8 * i));
+      b[Big ? N - 1 - i : i] = uint8_t(v >> (8 * i));
     return *this;
   }
 };
 
-""" % (("N - 1 - i", "N - 1 - i") if t.endian == "big" else ("i", "i")))
-    pad = "' '" if t.pad == "space" else "'\\0'"
-    w("""// Copy s into a fixed-width field, padded as the venue requires.
+// Copy s into a fixed-width text field: left-aligned (padded on the right) or
+// right-aligned (padded on the left), with the given pad character. Text
+// longer than the field is cut.
 template <size_t N>
-inline void set_str(char (&dst)[N], std::string_view s)
+inline void set_str(char (&dst)[N], std::string_view s, char pad = ' ', bool right = false)
 {
   const size_t n = s.size() < N ? s.size() : N;
-  std::memcpy(dst, s.data(), n);
-  std::memset(dst + n, %s, N - n);
+  if (right)
+  {
+    std::memset(dst, pad, N - n);
+    std::memcpy(dst + N - n, s.data(), n);
+  }
+  else
+  {
+    std::memcpy(dst, s.data(), n);
+    std::memset(dst + n, pad, N - n);
+  }
 }
 
-// A fixed-width field without its padding.
+// A fixed-width text field without the spaces and NULs that pad it, at
+// either end.
 template <size_t N>
 inline std::string_view get_str(const char (&src)[N])
 {
-  size_t n = N;
-  while (n > 0 && (src[n - 1] == ' ' || src[n - 1] == '\\0'))
-    --n;
-  return std::string_view(src, n);
+  size_t b = 0, e = N;
+  while (e > 0 && (src[e - 1] == ' ' || src[e - 1] == '\\0'))
+    --e;
+  while (b < e && (src[b] == ' ' || src[b] == '\\0'))
+    ++b;
+  return std::string_view(src + b, e - b);
 }
 
-""" % pad)
+// The result of decode(). ok: a message was decoded. incomplete: the buffer
+// ends before the message does; read more and decode again from the same
+// place. unknown: a type code the table does not list; size is the bytes to
+// skip when the framing gives it, otherwise 0 and the stream cannot be
+// followed. malformed: the length prefix is shorter than the message's fixed
+// part, or than the type code; size as for unknown.
+enum class status
+{
+  ok,
+  incomplete,
+  unknown,
+  malformed,
+};
+
+#endif // FIELDGEN_%(guard)s_COMMON
+
+"""
+
+
+def emit(t, out):
+    w = out.write
+    w("// Generated by fieldgen.py from a field table. Do not edit; edit the table.\n")
+    w("#pragma once\n\n")
+    for h in ("cstddef", "cstdint", "cstring", "ostream", "string", "string_view", "type_traits",
+              "variant"):
+        w("#include <%s>\n" % h)
+    w("\nnamespace %s\n{\n\n" % t.venue)
+    w(COMMON % {"guard": t.venue.upper()})
     for sec in t.sections:
         ns = sec.ns.split("::")
         w("namespace %s::%s\n{\n\n" % (ns[0], ns[1]))
         for m in sec.messages:
-            p = prefix_of(sec, m)
-            w("// %s\n" % comment(m.desc))
-            w("struct [[gnu::packed]] %s\n{\n" % m.name)
-            if m.code != "-":
-                w("  static constexpr char type = '%s';\n" % m.code)
-            if p:
-                w("  %s MessageLength; // %s length prefix, not in the venue's table\n"
-                  % (length_type(t, p[0]), "inclusive" if p[1] == "inclusive" else "exclusive"))
-            for f in m.fields:
-                if f.length is None:
-                    w("  // %s: variable length, follows this struct. %s\n" % (f.name, comment(f.desc)))
-                    continue
-                w("  %s // %s\n" % (member(t, f), comment(f.desc)))
-            w("};\n")
-            base = p[0] if p else 0
-            w("static_assert(sizeof(%s) == %d);\n" % (m.name, base + size_of(m)))
-            for f in m.fields:
-                if f.length is not None:
-                    w("static_assert(offsetof(%s, %s) == %d);\n" % (m.name, f.name, base + f.offset))
-            w("\n")
-            # printing
-            w("inline std::ostream &operator<<(std::ostream &o, const %s &m)\n{\n" % m.name)
-            w('  (void)m;\n  o << "%s";\n' % m.name)
-            for f in m.fields:
-                if f.length is None or f.name == "MessageType":
-                    continue
-                if f.kind == "char" and f.length > 1:
-                    w('  o << " %s=" << get_str(m.%s);\n' % (f.name, f.name))
-                elif f.kind == "bytes":
-                    w('  o << " %s=<%d bytes>";\n' % (f.name, f.length))
-                elif f.kind == "char" or f.length == 1:
-                    w('  o << " %s=" << +m.%s;\n' % (f.name, f.name) if f.kind != "char"
-                      else '  o << " %s=" << m.%s;\n' % (f.name, f.name))
-                else:
-                    cast = "uint64_t" if f.length not in INT_LENGTHS else ctype(t, f).replace("be<", "").rstrip(">")
-                    w('  o << " %s=" << %s(m.%s);\n' % (f.name, cast, f.name))
-            w("  return o;\n}\n\n")
-            if sec.direction == "to":
-                tail = m.variable_tail is not None
-                w("// Fill the type and length of m and copy it to buf%s. Returns the bytes written.\n"
-                  % (", followed by %s" % m.variable_tail.name if tail else ""))
-                w("inline size_t encode(char *buf, %s m%s)\n{\n"
-                  % (m.name, ", std::string_view %s" % m.variable_tail.name if tail else ""))
-                total = "sizeof(m) + %s.size()" % m.variable_tail.name if tail else "sizeof(m)"
-                if m.code != "-":
-                    w("  m.MessageType = %s::type;\n" % m.name)
-                if p:
-                    expr = total if p[1] == "inclusive" else "%s - sizeof(m.MessageLength)" % total
-                    w("  m.MessageLength = uint%d_t(%s);\n" % (8 * p[0], expr))
-                w("  std::memcpy(buf, &m, sizeof(m));\n")
-                if tail:
-                    w("  std::memcpy(buf + sizeof(m), %s.data(), %s.size());\n"
-                      % (m.variable_tail.name, m.variable_tail.name))
-                w("  return %s;\n}\n\n" % total)
+            emit_message(t, sec, m, w)
         names = [m.name for m in sec.messages]
         if names:
             w("using message_t = std::variant<%s>;\n\n" % ", ".join(names))
@@ -429,57 +462,133 @@ inline std::string_view get_str(const char (&src)[N])
             w("  return std::visit([](const auto &x) -> const char * {\n")
             w("    using T = std::decay_t<decltype(x)>;\n")
             for i, n in enumerate(names):
-                w("    %sif constexpr (std::is_same_v<T, %s>) return \"%s\";\n" % ("" if i == 0 else "else ", n, n))
+                w("    %sif constexpr (std::is_same_v<T, %s>) return \"%s\";\n"
+                  % ("" if i == 0 else "else ", n, n))
             w("    else return \"?\";\n  }, m);\n}\n\n")
         w("} // namespace %s::%s\n\n" % (ns[0], ns[1]))
     w("} // namespace %s\n" % t.venue)
 
 
+def emit_message(t, sec, m, w):
+    p = prefix_of(sec, m)
+    w("// %s\n" % comment(m.desc))
+    w("struct [[gnu::packed]] %s\n{\n" % m.name)
+    if m.code is not None:
+        w("  static constexpr char type = %s;\n" % cchar(m.code))
+    if p:
+        w("  %s MessageLength; // %s length prefix, not in the venue's table\n"
+          % (length_type(t, p[0]), p[1]))
+    for f in m.fields:
+        if f.length is None:
+            w("  // %s: variable length, follows this struct. %s\n" % (f.name, comment(f.desc)))
+            continue
+        w("  %s // %s\n" % (member(t, f), comment(f.desc)))
+    for f in m.fields:
+        if f.kind == "char" and f.length and f.length > 1:
+            pad = "' '" if f.pad == "space" else "'\\0'"
+            w("  void set_%s(std::string_view s) { set_str(%s, s, %s, %s); }\n"
+              % (f.name, f.name, pad, "true" if f.align == "right" else "false"))
+            w("  std::string_view get_%s() const { return get_str(%s); }\n" % (f.name, f.name))
+    w("};\n")
+    base = p[0] if p else 0
+    w("static_assert(sizeof(%s) == %d);\n" % (m.name, base + size_of(m)))
+    for f in m.fields:
+        if f.length is not None:
+            w("static_assert(offsetof(%s, %s) == %d);\n" % (m.name, f.name, base + f.offset))
+    w("\n")
+    w("inline std::ostream &operator<<(std::ostream &o, const %s &m)\n{\n" % m.name)
+    w('  (void)m;\n  o << "%s";\n' % m.name)
+    for f in m.fields:
+        if f.length is None or f.name == "MessageType":
+            continue
+        if f.kind == "char" and f.length > 1:
+            w('  o << " %s=" << get_str(m.%s);\n' % (f.name, f.name))
+        elif f.kind == "bytes":
+            w('  o << " %s=<%d bytes>";\n' % (f.name, f.length))
+        elif f.kind == "char":
+            w('  o << " %s=" << m.%s;\n' % (f.name, f.name))
+        elif f.length == 1:
+            w('  o << " %s=" << +m.%s;\n' % (f.name, f.name))
+        else:
+            cast = "uint64_t" if f.length not in INT_LENGTHS else ctype(t, f).replace("be<", "").rstrip(">")
+            w('  o << " %s=" << %s(m.%s);\n' % (f.name, cast, f.name))
+    w("  return o;\n}\n\n")
+    if sec.direction == "to":
+        emit_encode(t, m, p, w)
+
+
+def emit_encode(t, m, p, w):
+    tail = m.variable_tail
+    w("// Set the type and length of m and copy it to buf (cap bytes)%s. Returns the\n"
+      % (", followed by %s" % tail.name if tail else ""))
+    w("// bytes written, or 0 if they do not fit in cap%s.\n"
+      % (" or the length prefix" if p else ""))
+    w("inline size_t encode(char *buf, size_t cap, %s m%s)\n{\n"
+      % (m.name, ", std::string_view %s" % tail.name if tail else ""))
+    w("  const size_t total = sizeof(m)%s;\n" % (" + %s.size()" % tail.name if tail else ""))
+    w("  if (total > cap)\n    return 0;\n")
+    if m.code is not None:
+        w("  m.MessageType = %s::type;\n" % m.name)
+    if p:
+        w("  const size_t length = total%s;\n" % ("" if p[1] == "inclusive" else " - %d" % p[0]))
+        w("  if (length > %d)\n    return 0;\n" % PREFIX_MAX[p[0]])
+        w("  m.MessageLength = uint%d_t(length);\n" % (8 * p[0]))
+    w("  std::memcpy(buf, &m, sizeof(m));\n")
+    if tail:
+        w("  std::memcpy(buf + sizeof(m), %s.data(), %s.size());\n" % (tail.name, tail.name))
+    w("  return total;\n}\n\n")
+
+
 def emit_decode(t, sec, w):
     p = prefix_of(sec, sec.messages[0])
     off = p[0] if p else 0
-    w("""// One decoded message. size is the bytes it occupies in the buffer, including any
-// length prefix: the next message starts at buf + size. tail and tail_len are the
-// variable-length field that follows the struct, for messages that have one.
+    w("""// One decoded message. When st is ok, msg holds it, size is the bytes it
+// occupies including any length prefix (the next message starts at
+// buf + size), and tail and tail_len are its variable-length field, if it has
+// one. Otherwise see status.
 struct decoded
 {
+  status st;
   message_t msg;
-  size_t size;
-  const char *tail;
-  size_t tail_len;
+  size_t size = 0;
+  const char *tail = nullptr;
+  size_t tail_len = 0;
+  explicit operator bool() const { return st == status::ok; }
 };
 
-// Decode the message at buf (at its length prefix, if it has one); len is the bytes
-// available. Returns nullopt for an unknown type, a buffer shorter than the
-// message, or a length prefix shorter than the message's fixed part. A prefix
-// longer than the fixed part of a fixed-size message is accepted and the extra
-// bytes skipped (later protocol versions append fields).
-inline std::optional<decoded> decode(const char *buf, size_t len)
+// Decode the message at buf (at its length prefix, if it has one); len is the
+// bytes available. A length prefix longer than the fixed part of a
+// fixed-size message is accepted and the extra bytes skipped (later protocol
+// versions append fields).
+inline decoded decode(const char *buf, size_t len)
 {
 """)
-    w("  if (len <= %d)\n    return std::nullopt;\n" % off)
+    w("  if (len < %d)\n    return {status::incomplete, {}};\n" % (off + 1))
+    skip = "0"
     if p:
         w("  %s prefix;\n  std::memcpy(&prefix, buf, sizeof(prefix));\n" % length_type(t, p[0]))
-        total = "size_t(uint%d_t(prefix))%s" % (8 * p[0], "" if p[1] == "inclusive" else " + %d" % p[0])
-        w("  const size_t total = %s;\n" % total)
-        w("  if (total > len)\n    return std::nullopt;\n")
+        w("  const size_t total = size_t(uint%d_t(prefix))%s;\n"
+          % (8 * p[0], "" if p[1] == "inclusive" else " + %d" % p[0]))
+        w("  if (total < %d)\n    return {status::malformed, {}, total};\n" % (off + 1))
+        w("  if (total > len)\n    return {status::incomplete, {}};\n")
+        skip = "total"
     w("  switch (buf[%d])\n  {\n" % off)
     for m in sec.messages:
         tail = m.variable_tail is not None
         w("  case %s::type:\n  {\n" % m.name)
         if p:
-            w("    if (total < sizeof(%s))\n      return std::nullopt;\n" % m.name)
+            w("    if (total < sizeof(%s))\n      return {status::malformed, {}, total};\n" % m.name)
             size = "total"
         else:
-            w("    if (len < sizeof(%s))\n      return std::nullopt;\n" % m.name)
+            w("    if (len < sizeof(%s))\n      return {status::incomplete, {}};\n" % m.name)
             size = "len" if tail else "sizeof(%s)" % m.name
         w("    %s m;\n    std::memcpy(&m, buf, sizeof(m));\n" % m.name)
         if tail:
-            w("    return decoded{m, %s, buf + sizeof(m), %s - sizeof(m)};\n" % (size, size))
+            w("    return {status::ok, m, %s, buf + sizeof(m), %s - sizeof(m)};\n" % (size, size))
         else:
-            w("    return decoded{m, %s, nullptr, 0};\n" % size)
+            w("    return {status::ok, m, %s};\n" % size)
         w("  }\n")
-    w("  }\n  return std::nullopt;\n}\n\n")
+    w("  }\n  return {status::unknown, {}, %s};\n}\n\n" % skip)
 
 
 def markdown(t, out):
@@ -488,13 +597,16 @@ def markdown(t, out):
         w("### %s\n\n" % sec.ns)
         for m in sec.messages:
             p = prefix_of(sec, m)
-            w("#### %s (type `%s`, %d bytes%s)\n\n" % (
-                m.name, m.code, size_of(m),
+            w("#### %s (type %s, %d bytes%s)\n\n" % (
+                m.name, "`%s`" % m.code if m.code is not None else "none", size_of(m),
                 ", %d-byte %s length prefix" % p if p else ""))
             w("| Field | Offset | Length | Type | Meaning |\n|---|---|---|---|---|\n")
             for f in m.fields:
+                tname = f.type_name
+                if f.kind == "char" and f.length and f.length > 1 and f.align == "right":
+                    tname += " (right-aligned)"
                 w("| %s | %d | %s | %s | %s |\n" % (
-                    f.name, f.offset, "var" if f.length is None else f.length, f.type_name,
+                    f.name, f.offset, "var" if f.length is None else f.length, tname,
                     f.desc.replace("|", "\\|")))
             w("\n")
 

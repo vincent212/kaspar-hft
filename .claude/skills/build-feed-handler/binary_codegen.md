@@ -35,12 +35,14 @@ code it emits.
 ## Table format
 
 ```
-@venue nasdaq                 # C++ namespace; section names must use it
+@venue nasdaq                 # C++ namespace, lower case; section names use it
 @endian big                   # byte order of every integer in the table
-@pad space                    # padding of fixed-width strings on encode: space | nul
+@pad space                    # default padding of text fields: space | nul
 @type Integer uint            # map each type name used in the spec to a kind:
 @type Price uint              #   uint, int, char (text), bytes (opaque)
-@type Alpha char
+@type Alpha char              # text, left-aligned (padded on the right)
+@type Numeric char right      # text, right-aligned (padded on the left);
+                              #   a pad (space | nul) may follow
 
 ### itch::from_nasdaq         # <namespace>::from_<venue>[_<layer>]  (received, decoded)
 @length_prefix 2 exclusive    # every message here is preceded by a 2-byte length
@@ -59,9 +61,12 @@ StockLocate Integer 1 2 # ...
   prefix declared with `@length_prefix` is not counted in them.
 - A line starting with `#` is a comment and may appear anywhere, including inside
   a message.
-- The first row of each message is `MessageType <code> 0 1`. A message without a
-  type code (a bare request datagram) is written `MessageType - 0 0` and can only
-  appear in a `to_` section.
+- The first row of each message is `MessageType <code> 0 1`, where the code is any
+  one character. A message without a type code (a bare request datagram) is
+  written `MessageType - 0 0` and can only appear in a `to_` section.
+- Alignment and padding of text belong to its type. Where the specification pads
+  some fields of one type differently (SoupBinTCP's session id is left padded,
+  its username right padded), declare a second type name for them.
 - A section-wide `@length_prefix` must come before the section's first message. To
   frame one message only, put `@length_prefix` directly after its `MessageType` row.
   In a `from_` section every message must have the same framing, because the type
@@ -72,9 +77,14 @@ StockLocate Integer 1 2 # ...
 - Unsigned integers may be 1 to 8 bytes (ITCH timestamps are 6). Signed integers
   must be 1, 2, 4 or 8 bytes. Wider numeric fields are `bytes`.
 - Copy field names from the specification, made into identifiers; keep reserved
-  and filler fields with their offsets. `type`, C++ keywords, `MessageType` (other
-  than the type-code row) and, in a message with a length prefix, `MessageLength`
-  are refused, because the generator uses them.
+  and filler fields with their offsets. C++ keywords are refused as message and
+  field names, and so are the names the generator uses: `type`, `MessageType`
+  (other than the type-code row), `MessageLength` in a message with a length
+  prefix, `set_<field>` and `get_<field>` for a text field, and, for messages,
+  `be`, `uint_n`, `set_str`, `get_str`, `status`, `decoded`, `decode`, `encode`,
+  `name` and `message_t`.
+- A section appears once in a table; one that continues after a page break is
+  continued in place.
 - Put the specification's section number in each message's description.
 - Separate protocol layers into separate sections: the session layer (login,
   heartbeat, sequenced-data envelope) and the application messages it carries
@@ -89,10 +99,12 @@ Worked examples from public Nasdaq specifications:
 | Table | Specification | Shows |
 |---|---|---|
 | `examples/itch50.tbl` | TotalView-ITCH 5.0 (revision of April 28, 2023) | market data, 6-byte integers, a length prefix not in the spec's tables |
-| `examples/soupbintcp.tbl` | SoupBinTCP 3.0 | a session layer in both directions, variable-length payloads |
+| `examples/soupbintcp.tbl` | SoupBinTCP 3.0 | a session layer in both directions, variable-length payloads, right-aligned text |
 
 `tools/test_fieldgen.sh` generates both headers, runs `examples/*_test.cpp` against
-them, and checks that malformed tables are rejected with the line named.
+them (the SoupBinTCP test includes both headers, as a handler for ITCH over
+SoupBinTCP would), checks that malformed tables are rejected with the line named,
+and compiles a table with type codes that need escaping.
 
 ## What the check rejects
 
@@ -106,34 +118,44 @@ them, and checks that malformed tables are rejected with the line named.
 | a variable-length field that is not last | a misread table |
 | non-numeric offsets, lengths and sizes; missing directive arguments | extraction debris |
 | repeated message or field name; keywords and the generator's own names | copy-paste rows; names the compiler would reject |
+| a repeated section | a section continued after a page break |
 | undeclared type names | a type the spec uses that was not mapped to a kind |
-| section names | a section that does not say its direction and venue |
+| section names; a venue that is not a lower-case identifier | a section that does not say its direction and venue |
 
 ## What is generated
 
-One header, namespace `<venue>::<ns>::<from|to>_<venue>`:
+One header, namespace `<venue>::<ns>::<from|to>_<venue>`. The helpers below that
+every header for a venue shares (`be`, `uint_n`, `set_str`, `get_str`, `status`) are
+defined once in namespace `<venue>`, behind an include guard, so several headers for
+one venue (ITCH and SoupBinTCP, say) can be included together.
 
 - `[[gnu::packed]]` structs named after the message, with `static constexpr char type`,
   and `static_assert`s on `sizeof` and on `offsetof` of every field, so that a
   compiler or packing difference fails the build;
-- big-endian integers as `be<T>` and odd-width integers as `uint_n<N>`, which convert
-  on read and write, so handler code never calls a byte-swap;
-- `set_str` and `get_str` for fixed-width text, padding and trimming as the table
-  says;
+- big-endian integers as `be<T>` and odd-width integers as `uint_n<N, Big>`, which
+  convert on read and write, so handler code never calls a byte-swap;
+- for each text field longer than one character, `set_<field>(std::string_view)`,
+  which pads and aligns as the field's type says, and `get_<field>()`, which returns
+  it without its padding; `set_str` and `get_str` do the same for any field, with the
+  pad and alignment given;
 - `operator<<` for every message (used by `--dump` monitors and test output);
 - for `from_` sections: `using message_t = std::variant<...>` and
-  `std::optional<decoded> decode(const char *buf, size_t len)`. `decoded` holds the
-  message, `size` (the bytes it occupies, prefix included, so the next message
-  starts at `buf + size`) and `tail`/`tail_len` (the variable-length field, for
-  messages that have one). With a length prefix, decode reads it and returns
-  `nullopt` if the prefix runs past `len` or is shorter than the message's fixed
-  part; a prefix longer than the fixed part of a fixed-size message is accepted and
-  the extra bytes skipped (newer protocol versions append fields). Unknown types
-  return `nullopt`. Messages are copied out with `memcpy`;
-- for `to_` sections: `size_t encode(char *buf, Msg m)`, or
-  `encode(char *buf, Msg m, std::string_view tail)` for a message with a
+  `decoded decode(const char *buf, size_t len)`. `decoded` has a `status` and, when
+  it is `ok`, the message, `size` (the bytes it occupies, prefix included, so the
+  next message starts at `buf + size`) and `tail`/`tail_len` (the variable-length
+  field, for messages that have one); it converts to `true` only when `ok`. The other
+  statuses tell the caller what to do: `incomplete` (the buffer ends inside the
+  message: read more, decode again from the same place), `unknown` (a type the table
+  does not list) and `malformed` (a length prefix shorter than the message's fixed
+  part); for these two, `size` is the bytes to skip when the framing gives it, and 0
+  when it does not. A prefix longer than the fixed part of a fixed-size message is
+  accepted and the extra bytes skipped (newer protocol versions append fields).
+  Messages are copied out with `memcpy`;
+- for `to_` sections: `size_t encode(char *buf, size_t cap, Msg m)`, or
+  `encode(char *buf, size_t cap, Msg m, std::string_view tail)` for a message with a
   variable-length field; it sets the type and the length prefix (counting the tail),
-  writes the tail after the struct, and returns the bytes written;
+  writes the tail after the struct, and returns the bytes written, or 0 if they do
+  not fit in `cap` or the length does not fit in the prefix;
 - `name(const message_t &)`.
 
 Differences from the m2 generators, each a defect the m2 output has:
@@ -141,7 +163,8 @@ Differences from the m2 generators, each a defect the m2 output has:
 - m2 represents a variable-length trailing field as a `void *` member, which adds 8
   bytes to the struct, so its decode copies 8 bytes beyond the message. Here the
   field is not a member; the payload follows the struct in the buffer.
-- m2's decode does not check the buffer length and does not read the length prefix.
+- m2's decode does not check the buffer length, does not read the length prefix,
+  and cannot tell a partial message from an unknown one.
 - m2 hardcodes the type-code position (`buf[2]` or `buf[0]`) and the table path in
   each venue's script, and its two scripts differ in column order and type names.
 

@@ -5,7 +5,10 @@
 @endian big
 @pad space
 @type Alpha char
-@type Numeric char
+@type Alphanumeric char
+# Text the specification says is left padded with spaces (right-aligned).
+@type Session char right
+@type Numeric char right
 @type Payload bytes
 
 ### soup::from_nasdaq
@@ -16,8 +19,8 @@ Text Payload 1 # Printable text
 
 MessageType A 0 1 # LoginAccepted: login succeeded (2.2.1)
 @size 31
-Session Alpha 1 10 # Session the client is logged into, left-padded with spaces
-SequenceNumber Numeric 11 20 # Sequence number of the next sequenced message, ASCII, left-padded with spaces
+Session Session 1 10 # Session the client is logged into, left padded with spaces
+SequenceNumber Numeric 11 20 # Sequence number of the next sequenced message, ASCII, left padded with spaces
 
 MessageType J 0 1 # LoginRejected: login failed; the server then closes the socket (2.2.2)
 @size 2
@@ -37,10 +40,10 @@ MessageType Z 0 1 # EndOfSession: no more sequenced messages in this session (2.
 
 MessageType L 0 1 # LoginRequest: first packet of a connection (2.3.1)
 @size 47
-Username Alpha 1 6 # Username, right-padded with spaces
-Password Alpha 7 10 # Password, right-padded with spaces
-RequestedSession Alpha 17 10 # Session to log into; spaces for the currently active session
-RequestedSequenceNumber Numeric 27 20 # Next sequence number wanted, ASCII; 0 for the most recently generated message
+Username Alphanumeric 1 6 # Username, right-padded with spaces
+Password Alphanumeric 7 10 # Password, right-padded with spaces
+RequestedSession Session 17 10 # Session to log into; all spaces for the currently active session. Padding not stated; taken as in LoginAccepted
+RequestedSequenceNumber Numeric 27 20 # Next sequence number wanted, ASCII; 0 for the most recently generated message. Padding not stated; taken as in LoginAccepted
 
 MessageType U 0 1 # UnsequencedData: one message of the higher-level protocol (2.3.2)
 Message Payload 1 # Higher-level protocol message

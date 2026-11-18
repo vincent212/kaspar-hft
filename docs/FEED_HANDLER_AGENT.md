@@ -118,9 +118,11 @@ length, description) with directives for venue, byte order, string padding, type
 mapping and length prefixes. `tools/fieldgen.py` checks the table (contiguous
 offsets, stated message sizes, integer widths, unique type codes per decoded section,
 identifiers) and generates one C++ header: packed structs with `static_assert`s on
-every size and offset, endian-converting integer types, a `decode` that checks the
-buffer and the length prefix and returns a `std::variant`, `encode` for sent
-messages, and printing. The table is rendered as markdown for the feed description,
+every size and offset, endian-converting integer types, text accessors that pad
+and align as the table says, a `decode` that checks the buffer and the length
+prefix and returns the message as a `std::variant` with a status that separates a
+partial message from an unknown or malformed one, a bounds-checked `encode` for
+sent messages, and printing. The table is rendered as markdown for the feed description,
 so the user reviews one artefact and the code follows from it.
 
 The generator replaces the per-venue `msg_gen.py` scripts of the m2 Fenics and

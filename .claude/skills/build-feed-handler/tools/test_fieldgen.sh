@@ -10,6 +10,8 @@ trap 'rm -rf "$out"' EXIT
 for t in itch50 soupbintcp; do
   python3 "$gen" "$here/examples/$t.tbl" --check
   python3 "$gen" "$here/examples/$t.tbl" -o "$out/$t.hpp"
+done
+for t in itch50 soupbintcp; do
   ${CXX:-c++} -std=c++20 -Wall -Wextra -Werror -I"$out" "$here/examples/${t}_test.cpp" -o "$out/${t}_test"
   "$out/${t}_test"
 done
@@ -104,6 +106,72 @@ MessageType A 0 1 # M
 Tail B 1
 F I 1 4
 T
+
+reject "generator uses" <<T
+$head
+### x::from_v
+MessageType A 0 1 # decoded
+T
+reject "C++ keyword" <<T
+$head
+### x::from_v
+MessageType A 0 1 # delete
+T
+reject "already declared" <<T
+$head
+### x::from_v
+MessageType A 0 1 # M
+### x::from_v
+MessageType B 0 1 # N
+T
+reject "lower-case identifier" <<T
+@venue CME
+@endian big
+T
+reject "one character of length 1" <<T
+$head
+### x::from_v
+MessageType AB 0 2 # M
+T
+
+# Type codes that need escaping, a literal '-' code, and a description ending
+# in a backslash all compile and round-trip.
+cat > "$out/odd.tbl" <<'T'
+@venue odd
+@endian little
+@type I uint
+@type A char
+### x::from_odd
+@length_prefix 2 exclusive
+MessageType ' 0 1 # Quote
+F I 1 4 # ends in a backslash \
+G I 5 4 # next field
+
+MessageType \ 0 1 # Backslash
+
+MessageType - 0 1 # Dash
+### x::to_odd
+MessageType - 0 1 # DashOut
+F I 1 4 # x
+### end
+T
+python3 "$gen" "$out/odd.tbl" -o "$out/odd.hpp"
+cat > "$out/odd.cpp" <<'C'
+#include "odd.hpp"
+#include <cassert>
+int main()
+{
+  using namespace odd::x;
+  static_assert(from_odd::Quote::type == '\'' && from_odd::Backslash::type == '\\');
+  static_assert(sizeof(from_odd::Quote) == 2 + 9 && offsetof(from_odd::Quote, G) == 7);
+  char buf[16];
+  assert(to_odd::encode(buf, sizeof buf, to_odd::DashOut{}) == 5 && buf[0] == '-');
+  char q[] = {1, 0, '\\'};
+  assert(from_odd::decode(q, 3) && from_odd::decode(q, 3).size == 3);
+  return 0;
+}
+C
+${CXX:-c++} -std=c++20 -Wall -Wextra -Werror -I"$out" "$out/odd.cpp" -o "$out/odd" && "$out/odd"
 
 # A comment line inside a message does not end it.
 cat > "$out/ok.tbl" <<T
