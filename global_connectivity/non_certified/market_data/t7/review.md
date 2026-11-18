@@ -103,3 +103,9 @@ capture was available, so nothing here was settled with real data.
   Continuous, which the manual does not describe.
 - Börse Frankfurt has no `en::x` code: `venue` is XETRA on cash channels; OB uses `venue`
   only to label its internal order references, so the book does not change.
+
+## Decisions (owner, 2026-11-18)
+
+- 1: prints from order executions plus the Execution Summary residual (b)
+- 2: cash market orders kept out of OB, tracked in the handler (a)
+- 3: scaled simple instruments not routed until QuantityScalingFactor is understood (a)

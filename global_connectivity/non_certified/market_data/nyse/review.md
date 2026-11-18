@@ -115,3 +115,11 @@ Unavailable (31) comes on the Retransmission multicast (CCS p.25) or over TCP (I
   corrected size; 10 cancels in the startup sample, 0 in the NYSE hour, no corrections.
 - Aggressor side of prints: derived from the resting side; nothing in OB or TachBook reads
   `aggresorSide`.
+
+## Decisions (owner, 2026-11-18)
+
+- 1: status 25 while the symbol's book is crossed, 17 once it uncrosses (b)
+- 2: LastSeqNum is in the refresh; apply SymbolSeqNum > LastSymbolSeqNum (a)
+- 3: queue by SourceTime, then OrderID, ascending (a); ask NYSE what SourceTime means
+- 4: every X clears the symbol's book for NYSE, American, Texas, National; Arca decided after an overnight capture (a)
+- 5: accept both forms of each Request Server point until CERT (b)
