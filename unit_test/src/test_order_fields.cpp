@@ -252,5 +252,25 @@ TEST(OrderFields, BrokerVenueCodes)
   EXPECT_EQ(int(en::x::COINBASE), int(en::x::BINANCEF) + 1);
   EXPECT_EQ(int(en::x::HYPERLIQUID), int(en::x::BINANCEF) + 2);
   EXPECT_STREQ(en::to_string(en::x(en::x::HYPERLIQUID)), "HYPERLIQUID");
-  EXPECT_EQ(en::x_num_syms(), size_t(en::x::HYPERLIQUID) + 1);
+}
+
+// Venue codes for the exchange feeds extracted by the build-feed-handler skill,
+// appended after HYPERLIQUID in this order.
+TEST(OrderFields, ExchangeFeedVenueCodes)
+{
+  const char *names[] = {"IEX", "NASDAQ", "NASDAQBX", "NASDAQPSX", "NYSE", "NYSEARCA",
+                         "NYSEAMERICAN", "NYSETEXAS", "NYSENATIONAL", "CBOEBZX", "CBOEBYX",
+                         "CBOEEDGX", "CBOEEDGA", "CBOEBXE", "CBOECXE", "CBOEJP", "JNX",
+                         "XETRA", "EUREX", "HKEX"};
+  int code = int(en::x::HYPERLIQUID);
+  for (const char *n : names)
+  {
+    ++code;
+    EXPECT_TRUE(en::x_is_valid(n)) << n;
+    EXPECT_EQ(int(en::x_index_of(n)), code) << n;
+    EXPECT_STREQ(en::to_string(en::x(code)), n);
+  }
+  EXPECT_EQ(int(en::x::HKEX), code);
+  EXPECT_EQ(en::x_num_syms(), size_t(en::x::HKEX) + 1);
+  EXPECT_LT(int(en::x::HKEX), 128) << "venue is stored in a char in the L3 records";
 }

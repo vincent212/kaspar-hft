@@ -54,7 +54,27 @@ struct x {
         BINANCE,
         BINANCEF,
         COINBASE,
-        HYPERLIQUID
+        HYPERLIQUID,
+        IEX,
+        NASDAQ,
+        NASDAQBX,
+        NASDAQPSX,
+        NYSE,
+        NYSEARCA,
+        NYSEAMERICAN,
+        NYSETEXAS,
+        NYSENATIONAL,
+        CBOEBZX,
+        CBOEBYX,
+        CBOEEDGX,
+        CBOEEDGA,
+        CBOEBXE,
+        CBOECXE,
+        CBOEJP,
+        JNX,
+        XETRA,
+        EUREX,
+        HKEX
     };
 
     // Implicit conversion to uint for backward compatibility
@@ -66,7 +86,7 @@ struct x {
 };
 
 // Constexpr lookup tables for x
-inline constexpr std::array<const char*, 32> x_names = {{
+inline constexpr std::array<const char*, 52> x_names = {{
     "UNI",
     "CMEMD",
     "CMEILINK1",
@@ -99,9 +119,29 @@ inline constexpr std::array<const char*, 32> x_names = {{
     "BINANCEF",
     "COINBASE",
     "HYPERLIQUID",
+    "IEX",
+    "NASDAQ",
+    "NASDAQBX",
+    "NASDAQPSX",
+    "NYSE",
+    "NYSEARCA",
+    "NYSEAMERICAN",
+    "NYSETEXAS",
+    "NYSENATIONAL",
+    "CBOEBZX",
+    "CBOEBYX",
+    "CBOEEDGX",
+    "CBOEEDGA",
+    "CBOEBXE",
+    "CBOECXE",
+    "CBOEJP",
+    "JNX",
+    "XETRA",
+    "EUREX",
+    "HKEX",
 }};
 
-inline constexpr std::array<std::uint32_t, 32> x_values = {{
+inline constexpr std::array<std::uint32_t, 52> x_values = {{
     x::UNI,
     x::CMEMD,
     x::CMEILINK1,
@@ -134,11 +174,31 @@ inline constexpr std::array<std::uint32_t, 32> x_values = {{
     x::BINANCEF,
     x::COINBASE,
     x::HYPERLIQUID,
+    x::IEX,
+    x::NASDAQ,
+    x::NASDAQBX,
+    x::NASDAQPSX,
+    x::NYSE,
+    x::NYSEARCA,
+    x::NYSEAMERICAN,
+    x::NYSETEXAS,
+    x::NYSENATIONAL,
+    x::CBOEBZX,
+    x::CBOEBYX,
+    x::CBOEEDGX,
+    x::CBOEEDGA,
+    x::CBOEBXE,
+    x::CBOECXE,
+    x::CBOEJP,
+    x::JNX,
+    x::XETRA,
+    x::EUREX,
+    x::HKEX,
 }};
 
 using x_pair = std::pair<x, const char*>;
 
-inline constexpr std::array<x_pair, 32> x_name_hash = {{
+inline constexpr std::array<x_pair, 52> x_name_hash = {{
     x_pair{x::UNI, "UNI"},
     x_pair{x::CMEMD, "CMEMD"},
     x_pair{x::CMEILINK1, "CMEILINK1"},
@@ -171,12 +231,32 @@ inline constexpr std::array<x_pair, 32> x_name_hash = {{
     x_pair{x::BINANCEF, "BINANCEF"},
     x_pair{x::COINBASE, "COINBASE"},
     x_pair{x::HYPERLIQUID, "HYPERLIQUID"},
+    x_pair{x::IEX, "IEX"},
+    x_pair{x::NASDAQ, "NASDAQ"},
+    x_pair{x::NASDAQBX, "NASDAQBX"},
+    x_pair{x::NASDAQPSX, "NASDAQPSX"},
+    x_pair{x::NYSE, "NYSE"},
+    x_pair{x::NYSEARCA, "NYSEARCA"},
+    x_pair{x::NYSEAMERICAN, "NYSEAMERICAN"},
+    x_pair{x::NYSETEXAS, "NYSETEXAS"},
+    x_pair{x::NYSENATIONAL, "NYSENATIONAL"},
+    x_pair{x::CBOEBZX, "CBOEBZX"},
+    x_pair{x::CBOEBYX, "CBOEBYX"},
+    x_pair{x::CBOEEDGX, "CBOEEDGX"},
+    x_pair{x::CBOEEDGA, "CBOEEDGA"},
+    x_pair{x::CBOEBXE, "CBOEBXE"},
+    x_pair{x::CBOECXE, "CBOECXE"},
+    x_pair{x::CBOEJP, "CBOEJP"},
+    x_pair{x::JNX, "JNX"},
+    x_pair{x::XETRA, "XETRA"},
+    x_pair{x::EUREX, "EUREX"},
+    x_pair{x::HKEX, "HKEX"},
 }};
 
 // Type-safe array indexed by x
 template<typename T>
 struct x_array {
-    std::array<T, 32> data;
+    std::array<T, 52> data;
 
     // Access operators
     constexpr T& operator[](x idx) { return data[idx.value]; }
@@ -218,7 +298,7 @@ INLINE constexpr const char* to_string(x n) {
 }
 
 INLINE constexpr std::size_t x_num_syms() {
-    return 32;
+    return 52;
 }
 
 INLINE constexpr bool is_valid(x n) {
