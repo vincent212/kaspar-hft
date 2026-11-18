@@ -1,0 +1,37 @@
+# Field table: Japannext PTS MoldUDP64 Specification (All Markets), version 1.02, last
+# updated July 2, 2026 (JNX MoldUDP64 1.02). The UDP transport of ITCH (itch.tbl).
+#
+# None of these structures has a type code, so no decode() is generated: the packet
+# reader reads the header at the start of the datagram, then one Message Block after
+# another (MessageLength, then that many bytes of ITCH), Message Count times.
+@venue jnx
+@endian big
+@pad space
+# JNX MoldUDP64 1.02, 2.4: NUM is an unsigned big-endian integer; ANUM is user-defined
+# data (binary or string). The padding of the 10-byte Session is not stated.
+@type NUM uint
+@type ANUM char
+@type Data bytes
+
+### moldudp64::from_jnx
+
+MessageType - 0 0 # DownstreamPacketHeader: fixed 20-byte header at the start of every Downstream Packet (JNX MoldUDP64 1.02, 3.1, p. 5)
+@size 20
+Session ANUM 0 10 # Session the packet belongs to
+SequenceNumber NUM 10 8 # Sequence number of the first message in the packet; later messages are numbered implicitly
+MessageCount NUM 18 2 # Messages in the packet; 0 heartbeat, 0xFFFF end of session (sequence number is then the next expected)
+
+MessageType - 0 0 # MessageBlock: one message; the first starts 20 bytes into the packet, each next one right after the previous (3.2, p. 5)
+@size 2
+MessageLength NUM 0 2 # Length in bytes of Message Data (excludes this field)
+MessageData Data 2 # Application message (ITCH); may be zero length
+
+### moldudp64::to_jnx
+
+MessageType - 0 0 # RequestPacket: sent by the listener to the re-request server for missed messages; answered by a unicast Downstream Packet (4, p. 6)
+@size 20
+Session ANUM 0 10 # Session the packet belongs to
+SequenceNumber NUM 10 8 # Sequence number of the first message requested
+RequestedMessageCount NUM 18 2 # Messages requested; the reply holds only what fits in one UDP/IP packet
+
+### end

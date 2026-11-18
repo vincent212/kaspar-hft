@@ -1,0 +1,342 @@
+# Field table: NYSE Pillar Integrated Feed (NYSE, NYSE American, NYSE Arca,
+# NYSE Texas, NYSE National) with the Pillar Equities common framing,
+# control, refresh and retransmission messages.
+#
+# Documents (public):
+#   IF   Pillar Integrated Feed Client Specification, Version 2.5h, July 30, 2026
+#        https://www.nyse.com/publicdocs/nyse/data/NYSE_Pillar_Integrated_Feed_Client_Specification.pdf
+#   CCS  Pillar Equities Common Client Specification, Version 2.4r, July 21, 2026
+#        https://www.ice.com/publicdocs/nyse/data/NYSE_Pillar_Equities_Common_Client_Specification_v2.4r.pdf
+#
+# Binary fields are little-endian; fields are aligned on 1-byte boundaries,
+# with no alignment filler; ASCII strings are left aligned and NUL padded
+# (CCS p.9, section 3). Price fields are signed (CCS p.11, section 3.5;
+# history v2.4b); every other Binary field is unsigned (OrderID and TradeID
+# stated unsigned in CCS p.11, section 3.6; the rest not stated).
+#
+# Framing (CCS p.8-9, sections 2.1 and 3.1): a UDP payload is a 16-byte
+# Packet Header followed by NumberMsgs messages. Every message starts with
+# MsgSize (2 bytes, counting itself) and MsgType (2-byte integer). MsgSize is
+# the @length_prefix below, so every message offset in this table is the
+# specification's offset minus 2 and every @size is the specification's
+# "Size of the message" minus 2; each description gives the spec's size.
+# Messages may be longer than the table: the next message starts at MsgSize
+# (CCS p.9, section 3.1.1); the generated decoder skips the extra bytes.
+@venue nyse
+@endian little
+@pad nul
+@type Binary uint
+@type Price int
+@type ASCII char
+
+### pkt::from_nyse
+
+MessageType - 0 0 # PacketHeader: starts every packet on every publisher, refresh and retransmission channel, and on the Request Server TCP connection (CCS v2.4r, p.8, section 2.1.1 Packet Header Structure)
+@size 16
+PktSize Binary 0 2 # Size of the packet in bytes, including this 16-byte header; at most 1400 (p.8, section 2.1)
+DeliveryFlag Binary 2 1 # 1 heartbeat, 10 failover, 11 original, 12 sequence number reset, 13 only packet of a retransmission, 15 part of a retransmission, 17 only packet of a refresh, 18 start of refresh, 19 part of refresh, 20 end of refresh, 21 message unavailable
+NumberMsgs Binary 3 1 # Messages in this packet; 0 for a heartbeat (p.8, section 2.2)
+SeqNum Binary 4 4 # Sequence number of the first message in the packet; the others follow implicitly (p.10, section 3.3)
+SendTime Binary 8 4 # Time the packet was published, seconds since the Unix epoch, UTC
+SendTimeNS Binary 12 4 # Nanosecond offset from SendTime
+
+MessageType - 0 0 # RefreshHeaderShort: 8-byte Refresh Header (MsgType 35) that begins every refresh packet of a symbol after the first; LastSeqNum and LastSymbolSeqNum are removed. decode() of ctl::from_nyse reports it as malformed with size 8 (CCS v2.4r, p.25-26, section 7.4.1 Shortened Refresh Header)
+@size 8
+MsgSize Binary 0 2 # 8 (not stated; the spec says the header is 8 bytes)
+MsgType Binary 2 2 # 35
+CurrentRefreshPkt Binary 4 2 # The current refresh packet for this symbol
+TotalRefreshPkts Binary 6 2 # Total refresh packets for this symbol
+
+### pkt::to_nyse
+
+MessageType - 0 0 # PacketHeader: header of a request packet sent to the Request Server; DeliveryFlag 11 and "a valid sequence number" (CCS v2.4r, p.8, section 2.1.1; p.22-23, p.29, sections 6.1, 7.1, 7.2, 7.7)
+@size 16
+PktSize Binary 0 2 # Size of the packet in bytes, including this header
+DeliveryFlag Binary 2 1 # 11 for every client request
+NumberMsgs Binary 3 1 # Messages in this packet
+SeqNum Binary 4 4 # Client's request sequence number; echoed as RequestSeqNum in the Request Response (p.28, section 7.6)
+SendTime Binary 8 4 # Seconds since the Unix epoch, UTC
+SendTimeNS Binary 12 4 # Nanosecond offset from SendTime
+
+### ctl::from_nyse
+@length_prefix 2 inclusive
+@type_code uint 2
+
+MessageType 1 0 2 # SequenceNumberReset: resets the channel's message sequence number to 1, at start of day or after a failure; always alone in its packet, packet SeqNum 1, DeliveryFlag 12 (10 during failover) (CCS v2.4r, p.13, section 4.1; spec Msg Size 14)
+@size 12
+SourceTime Binary 2 4 # Spec offset 4. Seconds since the Unix epoch, UTC
+SourceTimeNS Binary 6 4 # Spec offset 8. Nanosecond offset from SourceTime
+ProductID Binary 10 1 # Spec offset 12. Feed ID: Integrated Feed NYSE 11, American 59, National 109, Arca 157, Texas 209 (IF p.27, Appendix A)
+ChannelID Binary 11 1 # Spec offset 13. Multicast channel the packet was sent on
+
+MessageType 2 0 2 # SourceTimeReference: seconds part of SourceTime for the following messages of one matching-engine partition; sent at the start of every second of activity; may share packets with market data (CCS v2.4r, p.13, section 4.2; spec Msg Size 16)
+@size 14
+ID Binary 2 4 # Spec offset 4. Originating matching engine partition; linked to System ID in the Symbol Index Mapping message (p.10, section 3.2; p.13)
+SymbolSeqNum Binary 6 4 # Spec offset 8. Reserved; ignore the content
+SourceTime Binary 10 4 # Spec offset 12. Seconds since the Unix epoch, UTC
+
+MessageType 3 0 2 # SymbolIndexMapping: reference data for one symbol; at startup, in a refresh, or after a failover (CCS v2.4r, p.14-15, section 4.3; spec Msg Size 44)
+@size 42
+SymbolIndex Binary 2 4 # Spec offset 4. Symbol ID used by every message for this symbol
+Symbol ASCII 6 11 # Spec offset 8. NUL-terminated symbol, NYSE symbology
+Reserved Binary 17 1 # Spec offset 19. Reserved
+MarketID Binary 18 2 # Spec offset 20. 1 NYSE, 3 NYSE Arca, 9 NYSE American, 10 NYSE National, 11 NYSE Texas
+SystemID Binary 20 1 # Spec offset 22. TXN (matching engine partition) of the symbol
+ExchangeCode ASCII 21 1 # Spec offset 23. Listing market: A NYSE American, F TXSE, L LTSE, M NYSE Texas, N NYSE, P NYSE Arca, Q NASDAQ, V IEX, Z CBOE
+PriceScaleCode Binary 22 1 # Spec offset 24. Price = value / 10^PriceScaleCode; 6, 4 or 3 (p.11, section 3.5)
+SecurityType ASCII 23 1 # Spec offset 25. A ADR, C common, D debenture, E ETF, F foreign, H ADS, I units, L index linked note, M other, O ordinary, P preferred, R rights, S beneficial interest, T test, U closed end fund, W warrants
+LotSize Binary 24 2 # Spec offset 26. Round lot size in shares
+PrevClosePrice Price 26 4 # Spec offset 28. Previous day's closing price
+PrevCloseVolume Binary 30 4 # Spec offset 32. Previous day's closing volume
+PriceResolution Binary 34 1 # Spec offset 36. 0 all penny, 1 penny/nickel, 5 nickel/dime
+RoundLot ASCII 35 1 # Spec offset 37. Round lots accepted: Y or N
+MPV Binary 36 2 # Spec offset 38. Minimum price variation in 1/100 cent (1 = $0.0001)
+UnitOfTrade Binary 38 2 # Spec offset 40. 1, 10, 50 or 100 shares
+LateCloseEligible Binary 40 1 # Spec offset 42. 0 not eligible, 1 eligible (added v2.4r)
+ETHEligible Binary 41 1 # Spec offset 43. Extended trading sessions: 0 not eligible, 1 eligible (added v2.4r)
+
+MessageType 31 0 2 # MessageUnavailable: a requested retransmission range (or part) is unavailable; on the retransmission channels, DeliveryFlag 21 (CCS v2.4r, p.25, section 7.3; spec Msg Size 14)
+@size 12
+BeginSeqNum Binary 2 4 # Spec offset 4. First unavailable sequence number
+EndSeqNum Binary 6 4 # Spec offset 8. Last unavailable sequence number
+ProductID Binary 10 1 # Spec offset 12. Feed ID
+ChannelID Binary 11 1 # Spec offset 13. Channel ID
+
+MessageType 32 0 2 # SymbolClear: clear all state of the symbol; an unrequested full refresh of it follows (CCS v2.4r, p.16, section 4.4; spec Msg Size 20)
+@size 18
+SourceTime Binary 2 4 # Spec offset 4. Seconds since the Unix epoch, UTC
+SourceTimeNS Binary 6 4 # Spec offset 8. Nanosecond offset from SourceTime
+SymbolIndex Binary 10 4 # Spec offset 12. Symbol ID
+NextSourceSeqNum Binary 14 4 # Spec offset 16. "The sequence number in the next message for this symbol" (symbol or channel sequence: section 10 of feed.md)
+
+MessageType 34 0 2 # SecurityStatus: halt, resume, short sale restriction, market session and price indication changes of one symbol (CCS v2.4r, p.16-18, section 4.5; spec Msg Size 46)
+@size 44
+SourceTime Binary 2 4 # Spec offset 4. Seconds since the Unix epoch, UTC
+SourceTimeNS Binary 6 4 # Spec offset 8. Nanosecond offset from SourceTime
+SymbolIndex Binary 10 4 # Spec offset 12. Symbol ID
+SymbolSeqNum Binary 14 4 # Spec offset 16. Symbol sequence number
+SecurityStatus ASCII 18 1 # Spec offset 20. Halt 4 halt, 5 resume, 6 suspend/operational halt; SSR A activated, C continued, D deactivated; session P pre-opening, B begin accepting orders, E early, O core, L late (non-NYSE), X closed; indication I halt resume, G pre-opening
+HaltCondition ASCII 19 1 # Spec offset 21. ~ not halted, D news released, I order imbalance, P news pending, M LULD pause, X equipment changeover, A SIP outage or extraordinary activity, C regulatory, E merger effective, F ETF IIV/components n/a, N corporate action, O new security offering, V listing exchange discretionary, 6 suspend/operational halt, 1-3 MWCB level
+Reserved Binary 20 4 # Spec offset 22. Ignore the content
+Price1 Price 24 4 # Spec offset 26. SSR triggering trade price (status A, listed here) or indication low (G, I); else 0
+Price2 Price 28 4 # Spec offset 30. Indication high (G, I); else 0
+SSRTriggeringExchangeID ASCII 32 1 # Spec offset 34. Only for status A on the listing exchange; else 0x20
+SSRTriggeringVolume Binary 33 4 # Spec offset 35. Only for status A on the listing exchange; else 0
+Time Binary 37 4 # Spec offset 39. HHMMSSmmm; SSR trigger time for status A; else 0
+SSRState ASCII 41 1 # Spec offset 43. ~ no SSR, E SSR in effect
+MarketState ASCII 42 1 # Spec offset 44. P pre-opening, E early, O core, L late (non-NYSE), X closed
+SessionState ASCII 43 1 # Spec offset 45. Unused, 0x00
+
+MessageType 35 0 2 # RefreshHeader: first message of every refresh packet; this full 16-byte form is in the first packet for each symbol, later packets have the 8-byte form (pkt::from_nyse RefreshHeaderShort). Not used in Symbol Index Mapping refreshes (CCS v2.4r, p.25, section 7.4; p.21, section 5.1.8; spec Msg Size 16)
+@size 14
+CurrentRefreshPkt Binary 2 2 # Spec offset 4. The current refresh packet for this symbol
+TotalRefreshPkts Binary 4 2 # Spec offset 6. Total refresh packets for this symbol
+LastSeqNum Binary 6 4 # Spec offset 8. Last channel sequence number; the refresh is the book as of this number
+LastSymbolSeqNum Binary 10 4 # Spec offset 12. Last symbol sequence number; the refresh is the symbol state as of this number
+
+### req::from_nyse
+@length_prefix 2 inclusive
+@type_code uint 2
+
+MessageType 11 0 2 # RequestResponse: Request Server's reply over TCP to a retransmission, refresh or symbol index mapping request (CCS v2.4r, p.28, section 7.6; spec Msg Size 29)
+@size 27
+RequestSeqNum Binary 2 4 # Spec offset 4. Sequence number of the client's request
+BeginSeqNum Binary 6 4 # Spec offset 8. Retransmission: first requested; refresh and mapping requests: 0
+EndSeqNum Binary 10 4 # Spec offset 12. Retransmission: last requested; refresh and mapping requests: 0
+SourceID ASCII 14 10 # Spec offset 16. Client ID, NUL padded
+ProductID Binary 24 1 # Spec offset 26. Feed ID
+ChannelID Binary 25 1 # Spec offset 27. Channel ID
+Status ASCII 26 1 # Spec offset 28. '0' accepted, '1' invalid Source ID, '3' sequence range too large, '4' daily request limit, '5' daily refresh limit, '6' request SeqNum too old, '7' invalid channel, '8' invalid product, '9' invalid MsgType or MsgType/MsgSize mismatch
+
+### req::to_nyse
+@length_prefix 2 inclusive
+@type_code uint 2
+
+MessageType 10 0 2 # RetransmissionRequest: re-publish a range of messages on the retransmission channel; at most 1,000 messages (CCS v2.4r, p.22, section 6.1; p.20, section 5.1.3; spec Msg Size 24)
+@size 22
+BeginSeqNum Binary 2 4 # Spec offset 4. First sequence number requested
+EndSeqNum Binary 6 4 # Spec offset 8. Last sequence number requested
+SourceID ASCII 10 10 # Spec offset 12. Client ID; trailing characters NUL (p.21, section 5.1.9 item 6)
+ProductID Binary 20 1 # Spec offset 22. Feed ID (IF p.27, Appendix A)
+ChannelID Binary 21 1 # Spec offset 23. Channel on which the gap occurred
+
+MessageType 12 0 2 # HeartbeatResponse: reply to a Request Server heartbeat within 5 seconds (CCS v2.4r, p.28-29, section 7.7; p.21, section 5.1.9 item 3; spec Msg Size 14)
+@size 12
+SourceID ASCII 2 10 # Spec offset 4. Client ID; trailing characters NUL
+
+MessageType 13 0 2 # SymbolIndexMappingRequest: re-publish Symbol Index Mapping messages for one symbol or all on the refresh channel (CCS v2.4r, p.23, section 7.1; spec Msg Size 21)
+@size 19
+SymbolIndex Binary 2 4 # Spec offset 4. Symbol ID; 0 for all symbols of the channel
+SourceID ASCII 6 10 # Spec offset 8. Client ID; trailing characters NUL
+ProductID Binary 16 1 # Spec offset 18. Feed ID
+ChannelID Binary 17 1 # Spec offset 19. Channel ID
+RetransmitMethod Binary 18 1 # Spec offset 20. 0 deliver via UDP
+
+MessageType 15 0 2 # RefreshRequest: snapshot of one symbol or all symbols of a channel on the refresh channel (CCS v2.4r, p.23-24, section 7.2; spec Msg Size 20)
+@size 18
+SymbolIndex Binary 2 4 # Spec offset 4. Symbol ID; 0 for all symbols of the channel
+SourceID ASCII 6 10 # Spec offset 8. Client ID; trailing characters NUL
+ProductID Binary 16 1 # Spec offset 18. Feed ID
+ChannelID Binary 17 1 # Spec offset 19. Channel ID
+
+### xdp::from_nyse
+@length_prefix 2 inclusive
+@type_code uint 2
+
+MessageType 100 0 2 # AddOrder: a new visible order added to the book; may be sent again with the same OrderID when a routed order returns unexecuted (IF v2.5h, p.9, section 2; spec Msg Size 39)
+@size 37
+SourceTimeNS Binary 2 4 # Spec offset 4. Nanoseconds within the second of the last Source Time Reference
+SymbolIndex Binary 6 4 # Spec offset 8. Symbol ID
+SymbolSeqNum Binary 10 4 # Spec offset 12. Symbol sequence number
+OrderID Binary 14 8 # Spec offset 16. Order ID, unique, current day only
+Price Price 22 4 # Spec offset 24. Order price; scale by PriceScaleCode
+Volume Binary 26 4 # Spec offset 28. Order quantity in shares
+Side ASCII 30 1 # Spec offset 32. B buy, S sell
+FirmID ASCII 31 5 # Spec offset 33. Firm ID; "blank-filled" when not attributed
+Reserved1 Binary 36 1 # Spec offset 38. 0
+
+MessageType 101 0 2 # ModifyOrder: new price and/or volume of an order, for a reason other than cancel/replace or execution (IF v2.5h, p.10, section 3; spec Msg Size 35)
+@size 33
+SourceTimeNS Binary 2 4 # Spec offset 4. Nanoseconds within the reference second
+SymbolIndex Binary 6 4 # Spec offset 8. Symbol ID
+SymbolSeqNum Binary 10 4 # Spec offset 12. Symbol sequence number
+OrderID Binary 14 8 # Spec offset 16. Order modified
+Price Price 22 4 # Spec offset 24. New price
+Volume Binary 26 4 # Spec offset 28. New quantity in shares
+PositionChange Binary 30 1 # Spec offset 32. "Currently defaulted to 0"; '0' kept, '1' lost position; position kept if the price is unchanged, lost if it changed
+Side ASCII 31 1 # Spec offset 33. B buy, S sell (was Reserved 1 before v2.5)
+Reserved2 Binary 32 1 # Spec offset 34. 0
+
+MessageType 102 0 2 # DeleteOrder: order removed for any reason other than full execution or replace (IF v2.5h, p.11, section 4; spec Msg Size 25)
+@size 23
+SourceTimeNS Binary 2 4 # Spec offset 4. Nanoseconds within the reference second
+SymbolIndex Binary 6 4 # Spec offset 8. Symbol ID
+SymbolSeqNum Binary 10 4 # Spec offset 12. Symbol sequence number
+OrderID Binary 14 8 # Spec offset 16. Order deleted
+Reserved1 Binary 22 1 # Spec offset 24. 0
+
+MessageType 103 0 2 # OrderExecution: a displayed order executed, partly or fully; the order leaves the book when Volume equals its remaining shares (IF v2.5h, p.12-13, section 5; spec Msg Size 42)
+@size 40
+SourceTimeNS Binary 2 4 # Spec offset 4. Nanoseconds within the reference second
+SymbolIndex Binary 6 4 # Spec offset 8. Symbol ID
+SymbolSeqNum Binary 10 4 # Spec offset 12. Symbol sequence number
+OrderID Binary 14 8 # Spec offset 16. Order executed
+TradeID Binary 22 4 # Spec offset 24. Execution ID, referenced by Trade Cancel
+Price Price 26 4 # Spec offset 28. Execution price; may differ from the order's price
+Volume Binary 30 4 # Spec offset 32. Executed shares
+PrintableFlag Binary 34 1 # Spec offset 36. 0 not printed to the SIP, 1 printed; 0 for auction executions
+Reserved1 Binary 35 1 # Spec offset 37. 0
+TradeCond1 ASCII 36 1 # Spec offset 38. @ regular sale, C cash (Texas only)
+TradeCond2 ASCII 37 1 # Spec offset 39. space n/a, F ISO, O opening, 5 reopening, 6 closing (Arca, American, NYSE), 7 QCT (Texas)
+TradeCond3 ASCII 38 1 # Spec offset 40. space n/a, T extended hours, U extended hours sold (out of sequence), Z sold
+TradeCond4 ASCII 39 1 # Spec offset 41. space n/a, I odd lot, V contingent (Texas)
+
+MessageType 104 0 2 # ReplaceOrder: cancel/replace; the order is removed and a new order with a new OrderID, same symbol, side and attribution is added (IF v2.5h, p.14, section 6; spec Msg Size 42)
+@size 40
+SourceTimeNS Binary 2 4 # Spec offset 4. Nanoseconds within the reference second
+SymbolIndex Binary 6 4 # Spec offset 8. Symbol ID
+SymbolSeqNum Binary 10 4 # Spec offset 12. Symbol sequence number
+OrderID Binary 14 8 # Spec offset 16. Order replaced
+NewOrderID Binary 22 8 # Spec offset 24. Order ID of the replacement
+Price Price 30 4 # Spec offset 32. New price
+Volume Binary 34 4 # Spec offset 36. New quantity in shares
+Side ASCII 38 1 # Spec offset 40. B buy, S sell (was Reserved 1 before v2.5)
+Reserved2 Binary 39 1 # Spec offset 41. 0
+
+MessageType 105 0 2 # Imbalance: auction imbalance, at most once a second during auctions, only when a value changed; also in refreshes. Fields marked No for a market carry defaults there (IF v2.5h, p.15-18, section 7; spec Msg Size 73)
+@size 71
+SourceTime Binary 2 4 # Spec offset 4. Seconds since the Unix epoch, UTC
+SourceTimeNS Binary 6 4 # Spec offset 8. Nanosecond offset from SourceTime
+SymbolIndex Binary 10 4 # Spec offset 12. Symbol ID
+SymbolSeqNum Binary 14 4 # Spec offset 16. Symbol sequence number
+ReferencePrice Price 18 4 # Spec offset 20. Price at which imbalances are calculated
+PairedQty Binary 22 4 # Spec offset 24. Shares paired at the reference price
+TotalImbalanceQty Binary 26 4 # Spec offset 28. Total imbalance at the reference price
+MarketImbalanceQty Binary 30 4 # Spec offset 32. Market order imbalance; not NYSE
+AuctionTime Binary 34 2 # Spec offset 36. Projected auction time, hhmm
+AuctionType ASCII 36 1 # Spec offset 38. O early opening (not NYSE), M core opening, H reopening, C closing, P extreme closing imbalance (NYSE), R significant closing imbalance (NYSE)
+ImbalanceSide ASCII 37 1 # Spec offset 39. B buy, S sell, space none
+ContinuousBookClearingPrice Price 38 4 # Spec offset 40. Price nearest the reference price with zero imbalance
+AuctionInterestClearingPrice Price 42 4 # Spec offset 44. Price at which auction-only interest would trade
+SSRFilingPrice Price 46 4 # Spec offset 48. NYSE only: Sell Short filing price under SSR
+IndicativeMatchPrice Price 50 4 # Spec offset 52. Not NYSE: best price for maximum executable volume within the collars
+UpperCollar Price 54 4 # Spec offset 56. Not NYSE
+LowerCollar Price 58 4 # Spec offset 60. Not NYSE
+AuctionStatus Binary 62 1 # Spec offset 64. 0 will run, 1 will run (interest within collars), 2 will not run (imbalance through collars), 3 will not run, moves to the close; NYSE 0 and 3 only
+FreezeStatus Binary 63 1 # Spec offset 65. 0 no freeze, 1 imbalance freeze in effect
+NumExtensions Binary 64 1 # Spec offset 66. Times a halt period was extended; not NYSE
+UnpairedQty Binary 65 4 # Spec offset 67. NYSE only: unpaired shares at or better than the reference price
+UnpairedSide ASCII 69 1 # Spec offset 71. B, S, space; NYSE only
+Reserved ASCII 70 1 # Spec offset 72. Reserved
+
+MessageType 106 0 2 # AddOrderRefresh: one resting order of a symbol in a refresh (requested, on the refresh channel; or unrequested after Symbol Clear) (IF v2.5h, p.19, section 8; spec Msg Size 43)
+@size 41
+SourceTime Binary 2 4 # Spec offset 4. Seconds since the Unix epoch, UTC
+SourceTimeNS Binary 6 4 # Spec offset 8. Nanosecond offset from SourceTime
+SymbolIndex Binary 10 4 # Spec offset 12. Symbol ID
+SymbolSeqNum Binary 14 4 # Spec offset 16. Symbol sequence number
+OrderID Binary 18 8 # Spec offset 20. Order ID
+Price Price 26 4 # Spec offset 28. Order price
+Volume Binary 30 4 # Spec offset 32. Order quantity in shares
+Side ASCII 34 1 # Spec offset 36. B buy, S sell
+FirmID ASCII 35 5 # Spec offset 37. Firm ID, or blanks
+Reserved1 Binary 40 1 # Spec offset 42. 0
+
+MessageType 110 0 2 # NonDisplayedTrade: a match between two non-displayed orders; no book change (IF v2.5h, p.20-21, section 9; spec Msg Size 33)
+@size 31
+SourceTimeNS Binary 2 4 # Spec offset 4. Nanoseconds within the reference second
+SymbolIndex Binary 6 4 # Spec offset 8. Symbol ID
+SymbolSeqNum Binary 10 4 # Spec offset 12. Symbol sequence number
+TradeID Binary 14 4 # Spec offset 16. Trade ID, referenced by Trade Cancel
+Price Price 18 4 # Spec offset 20. Execution price
+Volume Binary 22 4 # Spec offset 24. Shares
+PrintableFlag Binary 26 1 # Spec offset 28. 0 not printed to the SIP, 1 printed
+TradeCond1 ASCII 27 1 # Spec offset 29. @ regular sale, C cash (Texas only)
+TradeCond2 ASCII 28 1 # Spec offset 30. space, F ISO, O opening, 5 reopening, 6 closing, 7 QCT (Texas)
+TradeCond3 ASCII 29 1 # Spec offset 31. space, T extended hours, U extended hours sold, Z sold
+TradeCond4 ASCII 30 1 # Spec offset 32. space, I odd lot, V contingent (Texas)
+
+MessageType 111 0 2 # CrossTrade: bulk volume of a completed crossing auction; each participating order is also reported by a non-printable Order Execution or Non-Displayed Trade (IF v2.5h, p.22, section 10; spec Msg Size 29)
+@size 27
+SourceTimeNS Binary 2 4 # Spec offset 4. Nanoseconds within the reference second
+SymbolIndex Binary 6 4 # Spec offset 8. Symbol ID
+SymbolSeqNum Binary 10 4 # Spec offset 12. Symbol sequence number
+CrossID Binary 14 4 # Spec offset 16. Cross ID, referenced by Cross Correction
+Price Price 18 4 # Spec offset 20. Auction price
+Volume Binary 22 4 # Spec offset 24. Shares executed in the auction
+CrossType ASCII 26 1 # Spec offset 28. E early opening, O opening, 5 reopening, 6 closing auction
+
+MessageType 112 0 2 # TradeCancel: an earlier Order Execution or Non-Displayed Trade is cancelled; no book change (IF v2.5h, p.23, section 11; spec Msg Size 20)
+@size 18
+SourceTimeNS Binary 2 4 # Spec offset 4. Nanoseconds within the reference second
+SymbolIndex Binary 6 4 # Spec offset 8. Symbol ID
+SymbolSeqNum Binary 10 4 # Spec offset 12. Symbol sequence number
+TradeID Binary 14 4 # Spec offset 16. TradeID of the execution cancelled
+
+MessageType 113 0 2 # CrossCorrection: corrected volume of an earlier Cross Trade (IF v2.5h, p.24, section 12; spec Msg Size 24)
+@size 22
+SourceTimeNS Binary 2 4 # Spec offset 4. Nanoseconds within the reference second
+SymbolIndex Binary 6 4 # Spec offset 8. Symbol ID
+SymbolSeqNum Binary 10 4 # Spec offset 12. Symbol sequence number
+CrossID Binary 14 4 # Spec offset 16. CrossID of the Cross Trade corrected
+Volume Binary 18 4 # Spec offset 20. Corrected volume
+
+MessageType 114 0 2 # RetailPriceImprovement: sides on which hidden RPI interest exists between the best bid and offer (IF v2.5h, p.25, section 13; spec Msg Size 17)
+@size 15
+SourceTimeNS Binary 2 4 # Spec offset 4. Nanoseconds within the reference second
+SymbolIndex Binary 6 4 # Spec offset 8. Symbol ID
+SymbolSeqNum Binary 10 4 # Spec offset 12. Symbol sequence number
+RPIIndicator ASCII 14 1 # Spec offset 16. space none, A bid, B offer, C both
+
+MessageType 223 0 2 # StockSummary: daily high, low, open, close and volume of a symbol, every 60 seconds on the separate Stock Summary channel (IF v2.5h, p.26, section 14; spec Msg Size 36)
+@size 34
+SourceTime Binary 2 4 # Spec offset 4. Seconds since the Unix epoch, UTC
+SourceTimeNS Binary 6 4 # Spec offset 8. Nanosecond offset from SourceTime
+SymbolIndex Binary 10 4 # Spec offset 12. Symbol ID
+HighPrice Price 14 4 # Spec offset 16. Exchange high price of the day
+LowPrice Price 18 4 # Spec offset 20. Exchange low price of the day
+Open Price 22 4 # Spec offset 24. Exchange opening price
+Close Price 26 4 # Spec offset 28. Exchange closing price
+TotalVolume Binary 30 4 # Spec offset 32. Exchange cumulative volume of the day
+
+### end

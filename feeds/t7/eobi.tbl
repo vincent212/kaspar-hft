@@ -1,0 +1,476 @@
+# Field table: Deutsche Boerse T7 Enhanced Order Book Interface (EOBI), Release 15.0.
+#
+# Source: "T7 Release 15.0, Enhanced Order Book Interface, Manual", Version 1,
+# build 150.522.2.ga-150005020-91, 29 July 2026 (public). Cited below as
+# (p.N, section). Cross-checked against "T7 R.15.0 EOBI XML Representation
+# Version 1" (eobi.xml, EOBILayouts.h, same build number).
+#
+# Every integer is little endian (p.36, 7.4 Table 6; p.10, 3.2).
+# PriceType: signed 8-byte integer, 8 implied decimals. QuantityType: signed
+# 8-byte integer, 4 implied decimals. UTCTimestamp: unsigned 8-byte ns since
+# the UNIX epoch, UTC (p.36, 7.4; p.26, 5). No-value sentinels (p.36, 7.4):
+# signed ints the minimum (0x80, 0x8000, 0x80000000, 0x8000000000000000),
+# unsigned ints all bits set, Fixed String 0x00 in the first byte.
+#
+# Framing (p.30, 7.1; p.40, 8.2): a UDP datagram is a Packet Header followed by
+# messages. Packet Header and every message begin with the MessageHeader:
+# BodyLen (2 bytes, the whole message, including BodyLen itself), TemplateID
+# (2 bytes), MsgSeqNum (4 bytes). BodyLen is the @length_prefix here, so every
+# offset below is the manual's Ofs minus 2 and every @size the manual's
+# message length minus 2; "ofs N" in a description is the manual's offset.
+#
+# Repeating groups (TradeReversal, MassInstrumentStateChange,
+# AddComplexInstrument, InstrumentSummary) are variable size arrays at the end
+# of the message, with a counter in the fixed part. The fixed part is modelled
+# in eobi::from_t7 with the array as a trailing variable-length field; one
+# entry of each array is the untyped struct of the same name in grp::from_t7.
+@venue t7
+@endian little
+@pad nul
+@type UInt uint
+@type SInt int
+@type Counter uint
+@type PriceType int
+@type QuantityType int
+@type UTCTimestamp uint
+@type FixedString char
+@type Pad bytes
+@type Group bytes
+
+### pkt::from_t7
+# Typed rather than untyped: the TemplateID of the Packet Header identifies
+# the interface release (13002 in R15.0; up to five values reserved, p.40,
+# 8.2), so a datagram from another release decodes as `unknown` instead of
+# being read with the wrong layout.
+@length_prefix 2 inclusive
+@type_code uint 2
+
+MessageType 13002 0 2 # PacketHeader: start of every datagram; MarketDataReport U20 (p.40-41, 8.2)
+@size 30
+MsgSeqNum UInt 2 4 # not used; always 0xFFFFFFFF (p.23, 4.16) (ofs 4)
+ApplSeqNum UInt 6 4 # packet sequence number, contiguous per channel across products (ofs 8)
+MarketSegmentID SInt 10 4 # product identifier; one product per datagram (ofs 12)
+PartitionID UInt 14 1 # grouping of T7 products; even: service A sent first, odd: B first (p.10, 3.2) (ofs 16)
+CompletionIndicator UInt 15 1 # 0 Incomplete, 1 Complete: unit of work (incremental) or product snapshot (snapshot) ends here (ofs 17)
+ApplSeqResetIndicator UInt 16 1 # 0 No Reset, 1 Reset; set in the first packets after a (re)start (ofs 18)
+DSCP UInt 17 1 # copy of DSCP from the IP header, A.5 (ofs 19)
+Pad4 Pad 18 4 # not used (ofs 20)
+TransactTime UTCTimestamp 22 8 # time the feed handler put the packet on the wire (t_9) (ofs 24)
+
+### eobi::from_t7
+@length_prefix 2 inclusive
+@type_code uint 2
+
+MessageType 13001 0 2 # Heartbeat: functional heartbeat per quiet product, incremental channel (p.42, 8.2)
+@size 14
+MsgSeqNum UInt 2 4 # not used (ofs 4)
+LastMsgSeqNumProcessed UInt 6 4 # last MsgSeqNum sent for the product; 0 before Start-Of-Day (p.32, 7.2) (ofs 8)
+Pad4 Pad 10 4 # not used (ofs 12)
+
+MessageType 13202 0 2 # ExecutionSummary: one per match event triggered by an incoming order; not sent for matches without one (p.43-45, 8.3; p.17, 4.6)
+@size 102
+MsgSeqNum UInt 2 4 # per product across all message types (ofs 4)
+SecurityID SInt 6 8 # instrument of the incoming order (ofs 8)
+RequestTime UTCTimestamp 14 8 # gateway-in time (t_3n/t_3), optional (ofs 16)
+ExecID UTCTimestamp 22 8 # matching timestamp (t_7) (ofs 24)
+LastQty QuantityType 30 8 # total executed quantity of the match event (ofs 32)
+AggressorSide UInt 38 1 # 1 buy, 2 sell; empty for Continuous Auction Issuer (ofs 40)
+Pad1 Pad 39 1 # not used (ofs 41)
+TradeCondition UInt 40 2 # 1 Implied Trade (synthetic match) (ofs 42)
+TradingHHIIndicator UInt 42 1 # HHI interval index of the match event, optional (ofs 44)
+Pad3 Pad 43 3 # not used (ofs 45)
+LastPx PriceType 46 8 # worst price of the match (ofs 48)
+TrdRegTSPrevTimePriority UTCTimestamp 54 8 # RemainingOrderDetails: previous priority timestamp of the aggressor (ofs 56)
+DisplayQty QuantityType 62 8 # RemainingOrderDetails: remaining quantity to be added, else empty (ofs 64)
+Price PriceType 70 8 # RemainingOrderDetails: limit price of the remainder; empty for a disclosed market order (ofs 72)
+RestingHiddenQty QuantityType 78 8 # executed or cancelled passive quantity not displayed; empty if TradeCondition = 1 (ofs 80)
+RestingCxlQty QuantityType 86 8 # quantity cancelled by SMP in this match event, not part of LastQty (ofs 88)
+AggressorTime UTCTimestamp 94 8 # matching-engine-in time (t_5), optional (ofs 96)
+
+MessageType 13503 0 2 # QuoteRequest: request for quote, incremental only (p.46, 8.3)
+@size 38
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+SecurityID SInt 6 8 # instrument (ofs 8)
+LastQty QuantityType 14 8 # requested quantity, optional (ofs 16)
+Side UInt 22 1 # 1 buy, 2 sell, optional (ofs 24)
+Pad7 Pad 23 7 # not used (ofs 25)
+TransactTime UTCTimestamp 30 8 # transaction time (ofs 32)
+
+MessageType 13502 0 2 # CrossRequest: cross announcement or liquidity improvement cross, incremental only (p.47-48, 8.3)
+@size 46
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+SecurityID SInt 6 8 # instrument (ofs 8)
+LastPx PriceType 14 8 # price of a Liquidity Improvement Cross, optional (ofs 16)
+LastQty QuantityType 22 8 # requested quantity, optional (ofs 24)
+Side UInt 30 1 # 1 buy, 2 sell, optional (ofs 32)
+CrossRequestType UInt 31 1 # 1 Cross Announcement, 2 Liquidity Improvement Cross (ofs 33)
+InputSource UInt 32 1 # 1 CLIP client broker, optional (ofs 34)
+Pad5 Pad 33 5 # not used (ofs 35)
+TransactTime UTCTimestamp 38 8 # transaction time (ofs 40)
+
+MessageType 13201 0 2 # TradeReport: auction, Xetra retail, manual entry, reference price and price without turnover (LastQty 0) (p.49-51, 8.3; p.21, 4.13)
+@size 54
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+SecurityID SInt 6 8 # instrument (ofs 8)
+TransactTime UTCTimestamp 14 8 # transaction time (ofs 16)
+LastQty QuantityType 22 8 # quantity; 0 for reference price and (auction) price without turnover (ofs 24)
+LastPx PriceType 30 8 # price (ofs 32)
+TrdMatchID UInt 38 4 # match step id, product-wide day-unique; not set for reference price (ofs 40)
+MatchType UInt 42 1 # 3 manual, 5 uncrossing, 7 auction, 13 LIC, 14 PWT in continuous auction (ofs 44)
+MatchSubType UInt 43 1 # 1 opening, 2 closing, 3 intraday, 4 circuit breaker, 5 IPO, 6 retail auction (ofs 45)
+AlgorithmicTradeIndicator UInt 44 1 # 1 algorithmic trade; cash markets only (ofs 46)
+Pad1 Pad 45 1 # not used (ofs 47)
+TradeCondition UInt 46 2 # 107 k, 155 BB, 156 BC, 206 DA, 596 SA, 624 TC, 743 XR (ofs 48)
+Pad6 Pad 48 6 # not used (ofs 50)
+
+MessageType 13200 0 2 # TradeReversal: full reversal of a previously reported trade by Market Supervision; NoMDEntries MDTradeEntry follow (p.52-53, 8.3; p.21, 4.12)
+@size 54
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+SecurityID SInt 6 8 # instrument (ofs 8)
+TransactTime UTCTimestamp 14 8 # time the reversal was processed (ofs 16)
+LastQty QuantityType 22 8 # quantity of the reversed trade (ofs 24)
+LastPx PriceType 30 8 # price of the reversed trade (ofs 32)
+TrdRegTSExecutionTime UTCTimestamp 38 8 # matching timestamp of the new last trade, optional (ofs 40)
+TrdMatchID UInt 46 4 # match step id of the reversed trade (ofs 48)
+TradeCondition UInt 50 2 # 155 BB, 206 DA, 624 TC, 743 XR; cash markets only (ofs 52)
+MDOriginType UInt 52 1 # 0 Book, 1 Off Book (ofs 54)
+NoMDEntries Counter 53 1 # entries in MDTradeEntryGrp, 0..18 (ofs 55)
+MDTradeEntryGrp Group 54 # NoMDEntries x grp::MDTradeEntry (24 bytes each) (ofs 56)
+
+MessageType 13203 0 2 # TESTradeReport: off-book (T7 Entry Service) trade and volume (p.54-55, 8.3; p.20, 4.11)
+@size 78
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+SecurityID SInt 6 8 # instrument (ofs 8)
+TransactTime UTCTimestamp 14 8 # transaction time (ofs 16)
+LastQty QuantityType 22 8 # quantity, optional (ofs 24)
+LastPx PriceType 30 8 # price, optional (ofs 32)
+TrdMatchID UInt 38 4 # match step id, optional (ofs 40)
+TrdType UInt 42 2 # 1 block, 2 EFP, 54 OTC, 55 EBF, 1000 vola, 1001, 1002, 1004, 1006, 1007 (ofs 44)
+TradeCondition UInt 44 2 # 107 out of sequence (basket) (ofs 46)
+MultiLegReportingType UInt 46 1 # 1 single security, 2 leg of a multi-leg security (ofs 48)
+MultiLegPriceModel UInt 47 1 # 0 standard, 1 user defined (ofs 49)
+Pad6 Pad 48 6 # not used (ofs 50)
+NonDisclosedTradeVolume QuantityType 54 8 # only while TESTradSesStatus = 5 Pre Close (ofs 56)
+TransBkdTime UTCTimestamp 62 8 # time of the original trade in an external system (ofs 64)
+NumberOfBuySides UInt 70 2 # buy sides of the TES trade (ofs 72)
+NumberOfSellSides UInt 72 2 # sell sides of the TES trade (ofs 74)
+Pad4 Pad 74 4 # not used (ofs 76)
+
+MessageType 13100 0 2 # OrderAdd: visible order or quote side added; key SecurityID+Side+TrdRegTSTimePriority (p.56-57, 8.4; p.15, 4.2)
+@size 54
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+RequestTime UTCTimestamp 6 8 # gateway-in time; not set for self-triggered transactions (ofs 8)
+SecurityID SInt 14 8 # instrument (ofs 16)
+TrdRegTSTimePriority UTCTimestamp 22 8 # OrderDetails: priority timestamp (ofs 24)
+DisplayQty QuantityType 30 8 # OrderDetails: displayed quantity (ofs 32)
+Side UInt 38 1 # OrderDetails: 1 buy, 2 sell (ofs 40)
+OrdType UInt 39 1 # OrderDetails: 1 market order; cash markets only (ofs 41)
+HHIIndicator SInt 40 1 # OrderDetails: HHI interval at the price level; -1 no update (ofs 42)
+Pad5 Pad 41 5 # OrderDetails: not used (ofs 43)
+Price PriceType 46 8 # OrderDetails: price; optional (ofs 48)
+
+MessageType 13504 0 2 # TopOfBook: BBO; derivatives post trading to end of day, cash during Trade At Close (p.58, 8.4)
+@size 62
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+TransactTime UTCTimestamp 6 8 # transaction time (ofs 8)
+SecurityID SInt 14 8 # instrument (ofs 16)
+BidPx PriceType 22 8 # bid price, optional (ofs 24)
+OfferPx PriceType 30 8 # offer price, optional (ofs 32)
+BidSize QuantityType 38 8 # bid quantity, optional (ofs 40)
+OfferSize QuantityType 46 8 # offer quantity, optional (ofs 48)
+NumberOfBuyOrders UInt 54 2 # only in Trade At Close (ofs 56)
+NumberOfSellOrders UInt 56 2 # only in Trade At Close (ofs 58)
+Pad4 Pad 58 4 # not used (ofs 60)
+
+MessageType 13101 0 2 # OrderModify: order modified with a new priority timestamp; old key in TrdRegTSPrevTimePriority (p.59-61, 8.4; p.16, 4.4)
+@size 86
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+RequestTime UTCTimestamp 6 8 # gateway-in time (ofs 8)
+TrdRegTSPrevTimePriority UTCTimestamp 14 8 # previous priority timestamp (old key) (ofs 16)
+PrevPrice PriceType 22 8 # previous price, optional (ofs 24)
+PrevDisplayQty QuantityType 30 8 # previous displayed quantity (ofs 32)
+SecurityID SInt 38 8 # instrument (ofs 40)
+TrdRegTSTimePriority UTCTimestamp 46 8 # OrderDetails: new priority timestamp (new key) (ofs 48)
+DisplayQty QuantityType 54 8 # OrderDetails: new displayed quantity (ofs 56)
+Side UInt 62 1 # OrderDetails: 1 buy, 2 sell (ofs 64)
+OrdType UInt 63 1 # OrderDetails: 1 market order; cash only (ofs 65)
+HHIIndicator SInt 64 1 # OrderDetails: HHI at the new price level; -1 no update (ofs 66)
+Pad5 Pad 65 5 # OrderDetails: not used (ofs 67)
+Price PriceType 70 8 # OrderDetails: new price, optional (ofs 72)
+PrevPriceHHIIndicator SInt 78 1 # HHI at the previous price level if it still exists (ofs 80)
+Pad7 Pad 79 7 # not used (ofs 81)
+
+MessageType 13106 0 2 # OrderModifySamePriority: order modified without loss of priority, e.g. quantity reduced (p.62-63, 8.4; p.16, 4.4)
+@size 70
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+RequestTime UTCTimestamp 6 8 # gateway-in time, optional (ofs 8)
+TransactTime UTCTimestamp 14 8 # transaction time (ofs 16)
+PrevDisplayQty QuantityType 22 8 # previous displayed quantity (ofs 24)
+SecurityID SInt 30 8 # instrument (ofs 32)
+TrdRegTSTimePriority UTCTimestamp 38 8 # OrderDetails: unchanged priority timestamp (key) (ofs 40)
+DisplayQty QuantityType 46 8 # OrderDetails: new displayed quantity (ofs 48)
+Side UInt 54 1 # OrderDetails: 1 buy, 2 sell (ofs 56)
+OrdType UInt 55 1 # OrderDetails: 1 market order; cash only (ofs 57)
+HHIIndicator SInt 56 1 # OrderDetails: HHI; -1 no update (ofs 58)
+Pad5 Pad 57 5 # OrderDetails: not used (ofs 59)
+Price PriceType 62 8 # OrderDetails: price, optional (ofs 64)
+
+MessageType 13102 0 2 # OrderDelete: order removed from the book (p.64-65, 8.4; p.16, 4.5)
+@size 62
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+RequestTime UTCTimestamp 6 8 # gateway-in time; not set for self-triggered deletes (ofs 8)
+TransactTime UTCTimestamp 14 8 # transaction time (ofs 16)
+SecurityID SInt 22 8 # instrument (ofs 24)
+TrdRegTSTimePriority UTCTimestamp 30 8 # OrderDetails: priority timestamp (key) (ofs 32)
+DisplayQty QuantityType 38 8 # OrderDetails: former displayed quantity (ofs 40)
+Side UInt 46 1 # OrderDetails: 1 buy, 2 sell (ofs 48)
+OrdType UInt 47 1 # OrderDetails: 1 market order; cash only (ofs 49)
+HHIIndicator SInt 48 1 # OrderDetails: HHI if the level still exists; -1 no update (ofs 50)
+Pad5 Pad 49 5 # OrderDetails: not used (ofs 51)
+Price PriceType 54 8 # OrderDetails: former price, optional (ofs 56)
+
+MessageType 13103 0 2 # OrderMassDelete: the instrument's order book is emptied (p.66, 8.4)
+@size 22
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+SecurityID SInt 6 8 # instrument whose book is cleared (ofs 8)
+TransactTime UTCTimestamp 14 8 # transaction time (ofs 16)
+
+MessageType 13105 0 2 # PartialOrderExecution: resting visible order partly executed; remaining = book quantity - LastQty (p.67-68, 8.4; p.16, 4.6)
+@size 54
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+Side UInt 6 1 # 1 buy, 2 sell; side of the resting order (ofs 8)
+OrdType UInt 7 1 # 1 market order; cash only (ofs 9)
+AlgorithmicTradeIndicator UInt 8 1 # 1 algorithmic; cash only (ofs 10)
+HHIIndicator SInt 9 1 # HHI; -1 no update (ofs 11)
+TrdMatchID UInt 10 4 # match step id, always set (ofs 12)
+Price PriceType 14 8 # price at which the order entered the book (key level) (ofs 16)
+TrdRegTSTimePriority UTCTimestamp 22 8 # priority timestamp (key) (ofs 24)
+SecurityID SInt 30 8 # instrument (ofs 32)
+LastQty QuantityType 38 8 # executed quantity (ofs 40)
+LastPx PriceType 46 8 # execution price; differs from Price in uncrossing (ofs 48)
+
+MessageType 13104 0 2 # FullOrderExecution: resting visible order fully executed; remove it (p.69-70, 8.4; p.16, 4.6)
+@size 54
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+Side UInt 6 1 # 1 buy, 2 sell; side of the resting order (ofs 8)
+OrdType UInt 7 1 # 1 market order; cash only (ofs 9)
+AlgorithmicTradeIndicator UInt 8 1 # 1 algorithmic; cash only (ofs 10)
+HHIIndicator SInt 9 1 # HHI if the level still exists; -1 no update (ofs 11)
+TrdMatchID UInt 10 4 # match step id, always set (ofs 12)
+Price PriceType 14 8 # price at which the order entered the book (key level) (ofs 16)
+TrdRegTSTimePriority UTCTimestamp 22 8 # priority timestamp (key) (ofs 24)
+SecurityID SInt 30 8 # instrument (ofs 32)
+LastQty QuantityType 38 8 # executed quantity (ofs 40)
+LastPx PriceType 46 8 # execution price; differs from Price in uncrossing (ofs 48)
+
+MessageType 13500 0 2 # AuctionBestBidOffer: BBO of an uncrossed book during an auction (p.71-72, 8.4; p.18, 4.8)
+@size 62
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+TransactTime UTCTimestamp 6 8 # timestamp of the book entry (ofs 8)
+SecurityID SInt 14 8 # instrument (ofs 16)
+BidPx PriceType 22 8 # bid price, optional (ofs 24)
+OfferPx PriceType 30 8 # offer price, optional (ofs 32)
+BidSize QuantityType 38 8 # cash only (ofs 40)
+OfferSize QuantityType 46 8 # cash only (ofs 48)
+PotentialSecurityTradingEvent UInt 54 1 # 0 none; cash only (ofs 56)
+BidOrdType UInt 55 1 # 1 market orders on the bid when BidPx is empty; cash only (ofs 57)
+OfferOrdType UInt 56 1 # 1 market orders on the offer when OfferPx is empty; cash only (ofs 58)
+Pad5 Pad 57 5 # not used (ofs 59)
+
+MessageType 13501 0 2 # AuctionClearingPrice: potential auction price of a crossed book (p.73-74, 8.4; p.18, 4.8)
+@size 54
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+TransactTime UTCTimestamp 6 8 # transaction time (ofs 8)
+SecurityID SInt 14 8 # instrument (ofs 16)
+LastPx PriceType 22 8 # potential auction price (ofs 24)
+LastQty QuantityType 30 8 # executable quantity; cash only (ofs 32)
+ImbalanceQty QuantityType 38 8 # surplus; cash only (ofs 40)
+SecurityTradingStatus UInt 46 1 # 7 market imbalance buy, 8 sell; cash only (ofs 48)
+PotentialSecurityTradingEvent UInt 47 1 # 0 none, 10 volatility extension; cash only (ofs 49)
+Pad6 Pad 48 6 # not used (ofs 50)
+
+MessageType 13300 0 2 # ProductStateChange: product trading state; not sent for IPS products (p.75-76, 8.5; p.19, 4.9)
+@size 22
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+TradingSessionID UInt 6 1 # 1 day, 3 morning, 5 evening, 6 after hours, 7 holiday (ofs 8)
+TradingSessionSubID UInt 7 1 # 1 pre trading, 3 continuous, 4 closing, 5 post trading, 7 quiescent, 10 out of main session (ofs 9)
+TradSesStatus UInt 8 1 # 1 halted, 2 open, 3 closed (ofs 10)
+MarketCondition UInt 9 1 # 0 normal, 1 stressed (ofs 11)
+FastMarketIndicator UInt 10 1 # 0 no, 1 yes (ofs 12)
+TESTradSesStatus UInt 11 1 # 1 halted, 2 open, 3 closed, 5 pre close (ofs 13)
+Pad2 Pad 12 2 # not used (ofs 14)
+TransactTime UTCTimestamp 14 8 # transaction time (ofs 16)
+
+MessageType 13302 0 2 # MassInstrumentStateChange: state of all instruments of one type in a product, with an exception list; NoRelatedSym SecMassStat follow (p.77-82, 8.5)
+@size 30
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+InstrumentScopeProductComplex UInt 6 1 # instrument type affected, 1..14 (ofs 8)
+SecurityMassStatus UInt 7 1 # 1 active, 2 inactive, 4 expired, 6, 7, 9 suspended, 11, 12 (ofs 9)
+SecurityMassTradingStatus UInt 8 1 # 2 halt, 200..221; list p.81 (ofs 10)
+MassMarketCondition UInt 9 1 # 0 normal, 1 stressed (ofs 11)
+FastMarketIndicator UInt 10 1 # 0 no, 1 yes (ofs 12)
+SecurityMassTradingEvent UInt 11 1 # 10, 11 volatility extension; cash only (ofs 13)
+MassSoldOutIndicator UInt 12 1 # 1 sold out; Continuous Auction Issuer only (ofs 14)
+TESSecurityMassStatus UInt 13 1 # 1 active, 2 inactive, 4 expired, 9 suspended (ofs 15)
+TransactTime UTCTimestamp 14 8 # transaction time (ofs 16)
+LastFragment UInt 22 1 # 0 N, 1 Y: exception lists of fragments up to Y are joined before applying (ofs 24)
+NoRelatedSym Counter 23 1 # entries in SecMassStatGrp, 0..24 (ofs 25)
+Pad6 Pad 24 6 # not used (ofs 26)
+SecMassStatGrp Group 30 # NoRelatedSym x grp::SecMassStat (32 bytes each) (ofs 32)
+
+MessageType 13301 0 2 # InstrumentStateChange: state of one instrument; also intraday expiry (p.83-87, 8.5)
+@size 54
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+SecurityID SInt 6 8 # instrument (ofs 8)
+SecurityStatus UInt 14 1 # 1 active, 2 inactive, 4 expired, 6, 7, 9 suspended, 11 pending deletion, 12 (ofs 16)
+SecurityTradingStatus UInt 15 1 # 2 halt, 200 closed, 201 restricted, 202 book, 203 continuous, 204..221; list p.86 (ofs 17)
+MarketCondition UInt 16 1 # 0 normal, 1 stressed (ofs 18)
+FastMarketIndicator UInt 17 1 # 0 no, 1 yes (ofs 19)
+SecurityTradingEvent UInt 18 1 # 10, 11 volatility extension; cash only (ofs 20)
+SoldOutIndicator UInt 19 1 # 1 sold out; Continuous Auction Issuer only (ofs 21)
+Pad2 Pad 20 2 # not used (ofs 22)
+HighPx PriceType 22 8 # upper boundary price; cash only (ofs 24)
+LowPx PriceType 30 8 # lower boundary price; cash only (ofs 32)
+TransactTime UTCTimestamp 38 8 # transaction time (ofs 40)
+TESSecurityStatus UInt 46 1 # 1 active, 2 inactive, 4 expired, 9 suspended (ofs 48)
+Pad7 Pad 47 7 # not used (ofs 49)
+
+MessageType 13400 0 2 # AddComplexInstrument: complex instrument created or modified; NoLegs InstrmtLeg follow (p.88-91, 8.6; p.20, 4.10)
+@size 78
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+SecurityID SInt 6 8 # complex instrument (ofs 8)
+TransactTime UTCTimestamp 14 8 # transaction time (ofs 16)
+SecurityDesc FixedString 22 40 # description (ofs 24)
+SecuritySubType SInt 62 4 # strategy type, optional (ofs 64)
+ProductComplex UInt 66 1 # 2..14, see p.89 (ofs 68)
+ImpliedMarketIndicator UInt 67 1 # 0 not implied, 3 implied in/out (ofs 69)
+QuantityScalingFactor UInt 68 2 # optional (ofs 70)
+LegRatioMultiplier UInt 70 4 # common leg multiple for volatility strategies, optional (ofs 72)
+NoLegs Counter 74 1 # entries in InstrmtLegGrp, 2..20 (ofs 76)
+Pad2 Pad 75 2 # padding (ofs 77)
+LastFragment UInt 77 1 # 0 N, 1 Y: legs of fragments up to Y are joined; N only for commodity strips (ofs 79)
+InstrmtLegGrp Group 78 # NoLegs x grp::InstrmtLeg (40 bytes each) (ofs 80)
+
+MessageType 13401 0 2 # AddFlexibleInstrument: flexible option or future created (p.92-93, 8.6)
+@size 94
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+SecurityID SInt 6 8 # instrument (ofs 8)
+TransactTime UTCTimestamp 14 8 # transaction time (ofs 16)
+SecurityDesc FixedString 22 40 # description (ofs 24)
+SecurityType UInt 62 1 # 1 option, 2 future (ofs 64)
+PutOrCall UInt 63 1 # 0 put, 1 call (ofs 65)
+ExerciseStyle UInt 64 1 # 0 European, 1 American (ofs 66)
+SettlMethod UInt 65 1 # 0 cash, 1 physical (ofs 67)
+MaturityDate UInt 66 4 # YYYYMMDD (ofs 68)
+StrikePrice PriceType 70 8 # strike, optional (ofs 72)
+OptAttribute UInt 78 4 # optional (ofs 80)
+ContractDate UInt 82 4 # YYYYMMDD (ofs 84)
+SecurityReferenceDataSupplement UInt 86 4 # YYYYMMDD, same as ContractDate (ofs 88)
+Pad4 Pad 90 4 # not used (ofs 92)
+
+MessageType 13402 0 2 # AddScaledSimpleInstrument: scaled simple instrument created; derivatives only (p.94-95, 8.6)
+@size 78
+MsgSeqNum UInt 2 4 # per product (ofs 4)
+SecurityID SInt 6 8 # instrument (ofs 8)
+TransactTime UTCTimestamp 14 8 # transaction time (ofs 16)
+SecurityDesc FixedString 22 40 # description (ofs 24)
+SecurityType UInt 62 1 # 1 option, 2 future (ofs 64)
+Pad1 Pad 63 1 # not used (ofs 65)
+QuantityScalingFactor UInt 64 2 # scaling factor (ofs 66)
+Pad4 Pad 66 4 # not used (ofs 68)
+RelatedSecurityID SInt 70 8 # RelatedInstrumentGrp: the instrument it scales (ofs 72)
+
+MessageType 13600 0 2 # ProductSummary: first message of a product's snapshot cycle; snapshot channel (p.96-97, 8.7; p.35, 7.3)
+@size 22
+MsgSeqNum UInt 2 4 # per snapshot cycle per channel, 0 for the first message (ofs 4)
+LastMsgSeqNumProcessed UInt 6 4 # last incremental MsgSeqNum of the product included in this snapshot (ofs 8)
+TradingSessionID UInt 10 1 # as ProductStateChange; not set for IPS (ofs 12)
+TradingSessionSubID UInt 11 1 # as ProductStateChange; not set for IPS (ofs 13)
+TradSesStatus UInt 12 1 # 1 halted, 2 open, 3 closed (ofs 14)
+MarketCondition UInt 13 1 # 0 normal, 1 stressed (ofs 15)
+FastMarketIndicator UInt 14 1 # 0 no, 1 yes (ofs 16)
+TESTradSesStatus UInt 15 1 # 1, 2, 3, 5 (ofs 17)
+Pad6 Pad 16 6 # not used (ofs 18)
+
+MessageType 13601 0 2 # InstrumentSummary: state and trade statistics of one instrument, before its Snapshot Orders; NoMDEntries MDInstrumentEntry follow (p.98-104, 8.7)
+@size 62
+MsgSeqNum UInt 2 4 # per snapshot cycle per channel (ofs 4)
+SecurityID SInt 6 8 # instrument of the Snapshot Orders that follow (ofs 8)
+LastUpdateTime UTCTimestamp 14 8 # last update of the book (ofs 16)
+TrdRegTSExecutionTime UTCTimestamp 22 8 # last matching timestamp, optional (ofs 24)
+TotNoOrders Counter 30 2 # Snapshot Orders that follow for this instrument (ofs 32)
+SecurityStatus UInt 32 1 # as InstrumentStateChange (ofs 34)
+SecurityTradingStatus UInt 33 1 # as InstrumentStateChange (ofs 35)
+MarketCondition UInt 34 1 # 0 normal, 1 stressed (ofs 36)
+FastMarketIndicator UInt 35 1 # 0 no, 1 yes (ofs 37)
+SecurityTradingEvent UInt 36 1 # 10, 11; cash only (ofs 38)
+SoldOutIndicator UInt 37 1 # 1 sold out (ofs 39)
+HighPx PriceType 38 8 # upper boundary price; cash only (ofs 40)
+LowPx PriceType 46 8 # lower boundary price; cash only (ofs 48)
+ProductComplex UInt 54 1 # 1 simple .. 14 (ofs 56)
+NoMDEntries Counter 55 1 # entries in MDInstrumentEntryGrp, 0..18 (ofs 57)
+TESSecurityStatus UInt 56 1 # 1, 2, 4, 9 (ofs 58)
+Pad5 Pad 57 5 # not used (ofs 59)
+MDInstrumentEntryGrp Group 62 # NoMDEntries x grp::MDInstrumentEntry (32 bytes each) (ofs 64)
+
+MessageType 13602 0 2 # SnapshotOrder: one visible order; instrument from the preceding InstrumentSummary (p.105, 8.7)
+@size 38
+MsgSeqNum UInt 2 4 # per snapshot cycle per channel (ofs 4)
+TrdRegTSTimePriority UTCTimestamp 6 8 # OrderDetails: priority timestamp (key) (ofs 8)
+DisplayQty QuantityType 14 8 # OrderDetails: displayed quantity (ofs 16)
+Side UInt 22 1 # OrderDetails: 1 buy, 2 sell (ofs 24)
+OrdType UInt 23 1 # OrderDetails: 1 market order; cash only (ofs 25)
+HHIIndicator SInt 24 1 # OrderDetails: HHI index > 0; -1 no update (ofs 26)
+Pad5 Pad 25 5 # OrderDetails: not used (ofs 27)
+Price PriceType 30 8 # OrderDetails: price, optional (ofs 32)
+
+### grp::from_t7
+# One entry of each variable size array. Offsets are from the start of the
+# entry; the manual's offsets are those of the first entry in the message.
+
+MessageType - 0 0 # MDTradeEntry: entry of TradeReversal MDTradeEntryGrp; changed statistics (p.53, 8.3)
+@size 24
+MDEntryPx PriceType 0 8 # price (ofs 56)
+MDEntrySize QuantityType 8 8 # quantity (ofs 64)
+MDEntryType UInt 16 1 # 2 trade, 4 opening, 5 closing, 7 high, 8 low (ofs 72)
+Pad7 Pad 17 7 # not used (ofs 73)
+
+MessageType - 0 0 # SecMassStat: entry of MassInstrumentStateChange SecMassStatGrp; an exception instrument (p.79-80, 8.5)
+@size 32
+SecurityID SInt 0 8 # instrument (ofs 32)
+HighPx PriceType 8 8 # as InstrumentStateChange (ofs 40)
+LowPx PriceType 16 8 # as InstrumentStateChange (ofs 48)
+SecurityStatus UInt 24 1 # as InstrumentStateChange (ofs 56)
+SecurityTradingStatus UInt 25 1 # as InstrumentStateChange (ofs 57)
+MarketCondition UInt 26 1 # 0 normal, 1 stressed (ofs 58)
+SecurityTradingEvent UInt 27 1 # 10, 11 (ofs 59)
+SoldOutIndicator UInt 28 1 # 1 sold out (ofs 60)
+TESSecurityStatus UInt 29 1 # 1, 2, 4, 9 (ofs 61)
+Pad2 Pad 30 2 # not used (ofs 62)
+
+MessageType - 0 0 # InstrmtLeg: entry of AddComplexInstrument InstrmtLegGrp (p.90-91, 8.6)
+@size 40
+LegSymbol SInt 0 4 # product of the leg (ofs 80)
+Pad4 Pad 4 4 # not used (ofs 84)
+LegSecurityID SInt 8 8 # instrument of the leg (ofs 88)
+LegPrice PriceType 16 8 # underlying leg price, optional (ofs 96)
+LegRatioQty SInt 24 4 # leg ratio (ofs 104)
+LegSecurityType UInt 28 1 # 1 multi-leg, 2 underlying leg (ofs 108)
+LegSide UInt 29 1 # 1 buy, 2 sell (ofs 109)
+RelatedPriceType UInt 30 1 # 1 basis, 2 custom underlying price (ofs 110)
+TradingStyle UInt 31 1 # 1 regular, 2 TRF TAC, 3 TRF TAM, 4 MOC (ofs 111)
+RelatedPrice PriceType 32 8 # price given by RelatedPriceType (ofs 112)
+
+MessageType - 0 0 # MDInstrumentEntry: entry of InstrumentSummary MDInstrumentEntryGrp; trade statistics (p.101-103, 8.7)
+@size 32
+MDEntryPx PriceType 0 8 # price (ofs 64)
+MDEntrySize QuantityType 8 8 # quantity (ofs 72)
+MDOriginType UInt 16 1 # 0 book, 1 off book (ofs 80)
+MDEntryType UInt 17 1 # 2 trade, 4, 5, 7, 8, 66 volume, 101 prev close, 200..205 auctions (ofs 81)
+TradeCondition UInt 18 2 # 107, 155, 624, 743 (ofs 82)
+TrdType UInt 20 2 # as TESTradeReport (ofs 84)
+MultiLegReportingType UInt 22 1 # 1, 2 (ofs 86)
+MultiLegPriceModel UInt 23 1 # 0, 1 (ofs 87)
+NonDisclosedTradeVolume QuantityType 24 8 # only during TES Pre Close (ofs 88)
+
+### end

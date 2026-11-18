@@ -1,0 +1,211 @@
+# Field table: IEX (Investors Exchange) DEEP+ over IEX-TP, and DEEP+ SNAP.
+#
+# Documents (public, https://www.iex.io/resources/trading/market-data):
+#   TP    IEX Transport Specification, Version 1.25, May 12, 2017
+#   DPLS  IEX DEEP+ Specification, Version 1.06, October 8, 2026
+#   SNAP  IEX DEEP+ SNAP Specification, Version 1.07, October 8, 2026
+#
+# Every integer is little-endian (TP p.5, Data Types; DPLS p.5; SNAP p.4).
+# Strings are ASCII, left justified, space filled on the right (DPLS p.5).
+# Price is a signed 8-byte fixed-point number with 4 implied decimals (DPLS p.5).
+# Timestamp is signed 8-byte nanoseconds since the POSIX epoch, UTC (DPLS p.5).
+#
+# Framing (TP p.5-7): a UDP payload is one IEX-TP segment: a 40-byte header,
+# then MessageCount message blocks, each a 2-byte length that excludes itself
+# followed by that many bytes of message data. The DEEP+ section below takes
+# that 2-byte length as its @length_prefix; DEEP+ offsets are 0-based from the
+# Message Type byte, as the DEEP+ tables give them.
+#
+# SNAP (TCP) tables put Message Length at offset 0 and Message Type at offset 2.
+# Here the length is the @length_prefix, so every SNAP offset below is the
+# spec's offset minus 2; each description gives the spec's offset.
+@venue iex
+@endian little
+@pad space
+@type Byte uint
+@type Short uint
+@type Integer uint
+@type Long int
+@type Price int
+@type Timestamp int
+@type String char
+# SNAP Authentication Token: typed Byte in the spec, described as a left
+# justified string space padded on the right (SNAP p.7).
+@type Token char
+@type Bytes bytes
+
+### tp::from_iex
+
+MessageType - 0 0 # SegmentHeader: IEX-TP header at the start of every outbound segment (UDP payload), multicast or gap-fill response (TP v1.25, p.5, IEX-TP Header)
+@size 40
+Version Byte 0 1 # 1, version of the transport specification
+Reserved Byte 1 1 # (Reserved)
+MessageProtocolID Short 2 2 # Higher-layer protocol; DEEP+ is 0x8005 (DPLS p.4), DEEP is 0x8004
+ChannelID Integer 4 4 # Stream of sequenced messages; same Channel ID from several sources means duplicates by sequence number (p.6)
+SessionID Integer 8 4 # Session; a message is identified by Session ID and sequence number (p.6)
+PayloadLength Short 12 2 # Bytes of payload after this header; excludes the header (p.6)
+MessageCount Short 14 2 # Message blocks in the payload; 0 for a heartbeat or gap-fill test response (p.6, p.7)
+StreamOffset Long 16 8 # Byte offset of the payload in the session's data stream (p.6)
+FirstMessageSequenceNumber Long 24 8 # Sequence number of the first message; later ones are numbered implicitly; in a heartbeat, the next sequence number (p.6, p.7)
+SendTime Timestamp 32 8 # Send time of the segment, ns since epoch UTC
+
+### tp::to_iex
+
+MessageType - 0 0 # GapFillRequestHeader: retransmission request, UDP or TCP unicast to a gap fill server; followed by RequestRangeCount range blocks (TP v1.25, p.8, Gap Fill Request Header)
+@size 16
+Version Byte 0 1 # 1
+RequestType Byte 1 1 # 1 sequenced messages, 2 bytestream; DEEP+ supports 1 only (DPLS p.7, p.10)
+MessageProtocolID Short 2 2 # 0x8005 for DEEP+
+ChannelID Integer 4 4 # Channel the request is for
+SessionID Integer 8 4 # Current session, taken from a multicast segment header (p.8)
+RequestRangeCount Integer 12 4 # Range blocks that follow; 0 for a UDP gap fill test request (p.8)
+
+MessageType - 0 0 # RequestRangeSequenced: one requested range when RequestType is 1; ranges must not overlap and must increase (TP v1.25, p.9, Request Range Block (Sequenced Messages))
+@size 16
+FirstMessageSequenceNumber Long 0 8 # First sequence number requested, inclusive
+LastMessageSequenceNumber Long 8 8 # Last sequence number requested, inclusive
+
+MessageType - 0 0 # RequestRangeBytestream: one requested range when RequestType is 2; not supported by DEEP+ (TP v1.25, p.9, Request Range Block (Bytestream))
+@size 16
+StartingStreamOffset Long 0 8 # First byte requested, inclusive
+EndingStreamOffset Long 8 8 # Last byte requested, inclusive
+
+### deepplus::from_iex
+@length_prefix 2 exclusive
+
+MessageType S 0 1 # SystemEvent: market or feed event, one per type per channel per session (DPLS v1.06, p.13, System Event Message)
+@size 10
+SystemEvent Byte 1 1 # O start of messages, S start of system hours, R start of regular market hours, M end of regular market hours, E end of system hours, C end of messages
+Timestamp Timestamp 2 8 # Time of the system event
+
+MessageType D 0 1 # SecurityDirectory: pre-market spin of all IEX-listed securities, then changes (DPLS v1.06, p.14, Security Directory Message)
+@size 31
+Flags Byte 1 1 # 0x80 test security, 0x40 when issued, 0x20 ETP (Appendix A, p.28)
+Timestamp Timestamp 2 8 # Time of the security information
+Symbol String 10 8 # Nasdaq Integrated symbology
+RoundLotSize Integer 18 4 # Shares in a round lot
+AdjustedPOCPrice Price 22 8 # Corporate-action adjusted previous official closing price
+LULDTier Byte 30 1 # 0 not applicable, 1 Tier 1 NMS stock, 2 Tier 2 NMS stock
+
+MessageType H 0 1 # TradingStatus: pre-market spin for all securities, then changes; absent from the spin means operationally halted (DPLS v1.06, p.15-16, Trading Status Message)
+@size 22
+TradingStatus Byte 1 1 # H halted across all US markets, O halt released into an order acceptance period (IEX-listed), P paused and order acceptance period (IEX-listed), T trading on IEX
+Timestamp Timestamp 2 8 # Time of the trading status
+Symbol String 10 8 # Nasdaq Integrated symbology
+Reason String 18 4 # T1 IPO1 IPOD MCB3 NA for halts; T2 IPO2 IPO3 MCB1 MCB2 for order acceptance; blank for P and T
+
+MessageType I 0 1 # RetailLiquidityIndicator: change in eligible retail liquidity interest; 0x20 for all symbols before trading (DPLS v1.06, p.17, Retail Liquidity Indicator Message)
+@size 18
+RetailLiquidityIndicator Byte 1 1 # 0x20 not applicable, A buy interest, B sell interest, C buy and sell interest
+Timestamp Timestamp 2 8 # Time of the indicator
+Symbol String 10 8 # Nasdaq Integrated symbology
+
+MessageType O 0 1 # OperationalHaltStatus: pre-market spin, then changes; absent from the spin means operationally halted (DPLS v1.06, p.18, Operational Halt Status Message)
+@size 18
+OperationalHaltStatus Byte 1 1 # O IEX operational halt, N not operationally halted
+Timestamp Timestamp 2 8 # Time of the operational halt status
+Symbol String 10 8 # Nasdaq Integrated symbology
+
+MessageType P 0 1 # ShortSalePriceTestStatus: Reg SHO Rule 201 status, pre-market spin then intraday changes (DPLS v1.06, p.19, Short Sale Price Test Status Message)
+@size 19
+ShortSalePriceTestStatus Byte 1 1 # 0 not in effect, 1 in effect
+Timestamp Timestamp 2 8 # Time of the status
+Symbol String 10 8 # Nasdaq Integrated symbology
+Detail Byte 18 1 # 0x20 no test, A activated, C continued, D deactivated, N not available (non-IEX-listed)
+
+MessageType E 0 1 # SecurityEvent: opening or closing process complete for a security (DPLS v1.06, p.20, Security Event Message)
+@size 18
+SecurityEvent Byte 1 1 # O opening process complete, C closing process complete
+Timestamp Timestamp 2 8 # Time of the security event
+Symbol String 10 8 # Nasdaq Integrated symbology
+
+MessageType a 0 1 # AddOrder: a displayed order added to the IEX book (DPLS v1.06, p.21, Add Order Message; type byte changed in v1.01)
+@size 38
+Side Byte 1 1 # 0x38 '8' buy, 0x35 '5' sell
+Timestamp Timestamp 2 8 # Time of the new order
+Symbol String 10 8 # Nasdaq Integrated symbology
+OrderID Long 18 8 # Order ID; may be reused by a later Add Order after a delete (p.23)
+Size Integer 26 4 # Quoted (displayed) size
+Price Price 30 8 # Booking price, 4 implied decimals
+
+MessageType M 0 1 # OrderModify: price, size or priority of a displayed order changed (DPLS v1.06, p.22, Order Modify Message)
+@size 38
+ModifyFlags Byte 1 1 # Bit 0: 0 reset priority, 1 maintain priority; bits 1-7 reserved
+Timestamp Timestamp 2 8 # Time of the modification
+Symbol String 10 8 # Nasdaq Integrated symbology
+OrderIDReference Long 18 8 # Order ID from the Add Order
+Size Integer 26 4 # New total quoted size
+Price Price 30 8 # Booking price, 4 implied decimals
+
+MessageType R 0 1 # OrderDelete: a displayed order removed from the IEX book (DPLS v1.06, p.23, Order Delete Message)
+@size 26
+Reserved Byte 1 1 # Reserved for future use
+Timestamp Timestamp 2 8 # Time of the deletion
+Symbol String 10 8 # Nasdaq Integrated symbology
+OrderIDReference Long 18 8 # Order ID from the Add Order
+
+MessageType L 0 1 # OrderExecuted: a displayed order executed against; removed when its quantity reaches 0, otherwise keeps time priority (DPLS v1.06, p.24, Order Executed Message)
+@size 46
+SaleConditionFlags Byte 1 1 # 0x80 ISO, 0x40 extended hours, 0x20 odd lot, 0x10 trade-through exempt, 0x08 single-price cross (Appendix A, p.28-29)
+Timestamp Timestamp 2 8 # Time of the trade
+Symbol String 10 8 # Nasdaq Integrated symbology
+OrderIDReference Long 18 8 # Order ID of the resting order executed
+Size Integer 26 4 # Trade volume
+Price Price 30 8 # Trade price; may differ from the order's displayed price (price improvement, sliding)
+TradeID Long 38 8 # IEX generated identifier
+
+MessageType T 0 1 # Trade: a non-displayed order executed against another non-displayed order; no displayed order changes (DPLS v1.06, p.25, Trade Message)
+@size 38
+SaleConditionFlags Byte 1 1 # As Order Executed (Appendix A)
+Timestamp Timestamp 2 8 # Time of the trade
+Symbol String 10 8 # Nasdaq Integrated symbology
+Size Integer 18 4 # Trade volume
+Price Price 22 8 # Trade price
+TradeID Long 30 8 # IEX generated identifier
+
+MessageType B 0 1 # TradeBreak: an execution broken on the same trading day (DPLS v1.06, p.26, Trade Break Message)
+@size 38
+SaleConditionFlags Byte 1 1 # As Order Executed (Appendix A)
+Timestamp Timestamp 2 8 # Time of the trade break
+Symbol String 10 8 # Nasdaq Integrated symbology
+Size Integer 18 4 # Trade break volume
+Price Price 22 8 # Trade break price
+TradeID Long 30 8 # Trade ID of the Order Executed or Trade message broken
+
+MessageType C 0 1 # ClearBook: the IEX book for a symbol cleared of all orders (DPLS v1.06, p.27, Clear Book Message)
+@size 18
+Reserved Byte 1 1 # Reserved for future use
+Timestamp Timestamp 2 8 # Time of the clear
+Symbol String 10 8 # Nasdaq Integrated symbology
+
+### snap::from_iex
+@length_prefix 2 exclusive
+
+MessageType e 0 1 # ErrorResponse: the SnapshotRequest was rejected (SNAP v1.07, p.8, ErrorResponse Message; spec Message Length 2)
+@size 2
+RejectReasonCode Byte 1 1 # Spec offset 3. A authentication, C wrong ChannelID, E request already active, Q quota exceeded, R no snapshot >= Minimum Sequence Number yet, S wrong SessionID, U unknown message
+
+MessageType s 0 1 # SnapshotStart: first message of a snapshot response (SNAP v1.07, p.9, SnapshotStart Message; spec Message Length 9)
+@size 9
+SnapshotLength Long 1 8 # Spec offset 3. Bytes of the whole response, this SnapshotStart, every SnapshotData and the SnapshotEnd, length prefixes included (example p.9: SnapshotStart counts 11)
+
+MessageType d 0 1 # SnapshotData: one DEEP+ message in an IEX-TP segment with Message Count 1 (SNAP v1.07, p.10, SnapshotData Message)
+IEXTPHeader Bytes 1 40 # Spec offset 3. IEX-TP segment header (tp::from_iex SegmentHeader); carries the DEEP+ sequence number and send time
+IEXTPMessageBlockLength Short 41 2 # Spec offset 43, typed Integer with length 2. IEX-TP Message Length of the block that follows
+IEXTPMessageData Bytes 43 # Spec offset 45. The block's message data; see feed.md section 10 on the extra length in the example (p.10)
+
+MessageType x 0 1 # SnapshotEnd: last message of a snapshot response (SNAP v1.07, p.11, SnapshotEnd Message; spec Message Length 9)
+@size 9
+SnapshotSequenceNumber Long 1 8 # Spec offset 3. DEEP+ sequence number at which the snapshot was created
+
+### snap::to_iex
+@length_prefix 2 exclusive
+
+MessageType r 0 1 # SnapshotRequest: authenticate and request a snapshot; the only client message (SNAP v1.07, p.7, SnapshotRequest Message; spec Message Length 57, total 59)
+@size 57
+AuthenticationToken Token 1 40 # Spec offset 3. Token from IEX Market Ops, left justified, space padded
+ChannelID Integer 41 4 # Spec offset 43. Channel 1-16, from the multicast IEX-TP header
+SessionID Integer 45 4 # Spec offset 47. Session, from the multicast IEX-TP header
+MinimumSequenceNumber Long 49 8 # Spec offset 51. Lowest snapshot sequence number usable; 0 for the latest snapshot
+
+### end

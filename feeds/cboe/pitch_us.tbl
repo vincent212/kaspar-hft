@@ -1,0 +1,315 @@
+# Field table: Cboe Titanium U.S. Equities Multicast PITCH (BZX, BYX, EDGX, EDGA),
+# with the Sequenced Unit Header, the Gap Request Proxy (GRP) and the Spin Server.
+# Source: "Cboe Titanium U.S. Equities/Options Multicast PITCH Specification",
+# version 2.41.87, November 10, 2026 (Markdown edition, abbreviated US below).
+#
+# Offsets. Every PITCH, GRP and Spin message starts with Length (1 byte, counting
+# itself) and Message Type (1 byte). The Length is declared as
+# "@length_prefix 1 inclusive" and is not a row, so every offset below is the
+# specification's offset minus 1, and every @size is the specification's "Total
+# Length" minus 1.
+#
+# Equities layouts only. Where options append fields to a message that equities
+# also use (Trade Condition on 0x23, 0x24, 0x2A, 0x2B, 0x30; Client ID and
+# Reserved on 0x2F), the equities length is tabled and decode() skips the extra
+# options bytes. Options-only messages (0xBC, 0xBD, 0x2E, 0xD2, 0xD1, 0xAD, 0xAE,
+# 0xAF, 0x9D, 0x9E) and the options layout of Trading Status (0x31) are not tabled;
+# decode() reports them as unknown with the size to skip. See feed.md section 4.
+@venue cboe
+@endian little
+@pad space
+@type Binary uint
+@type TimeOffset uint
+@type BinaryLongPrice uint
+@type BinaryShortPrice uint
+@type BinaryDate uint
+@type BitField uint
+@type Alphanumeric char
+@type Alpha char
+@type PrintableASCII char
+@type Opaque bytes
+
+### unit::from_cboe
+# Sequenced Unit Header (US, Sequenced Unit Header Message Fields, Table 1). Starts
+# every UDP payload and every block on the GRP and Spin TCP streams. HdrLength
+# counts the header and the HdrCount messages that follow.
+MessageType - 0 0 # SequencedUnitHeader: precedes HdrCount messages (US, Sequenced Unit Header Message Fields, Table 1)
+@size 8
+HdrLength Binary 0 2 # Length of the header and the HdrCount messages that follow
+HdrCount Binary 2 1 # Number of messages after this header; 0 is a heartbeat
+HdrUnit Binary 3 1 # Unit of the messages; 0 when unsequenced
+HdrSequence Binary 4 4 # Sequence of the first message; 0 when unsequenced; rolls from 4294967295 to 1
+
+### unit::to_cboe
+# The same header, sent by the client before each GRP or Spin message, with
+# HdrUnit and HdrSequence 0 (US, Gap Request Proxy Messages; Spin Messages).
+MessageType - 0 0 # SequencedUnitHeader: unsequenced header for client messages (US, Sequenced Unit Header Message Fields, Table 1)
+@size 8
+HdrLength Binary 0 2 # Length of the header and the HdrCount messages that follow
+HdrCount Binary 2 1 # Number of messages after this header
+HdrUnit Binary 3 1 # 0 (unsequenced)
+HdrSequence Binary 4 4 # 0 (unsequenced)
+
+### pitch::from_cboe
+@length_prefix 1 inclusive
+@type_code uint 1
+
+MessageType 0xB1 0 1 # TimeReference: midnight reference and trade date; BZX and EDGX equities only (US, Time Reference Message Fields, Table 1; spec 18 bytes)
+@size 17
+MidnightReference Binary 1 4 # Midnight Eastern Time, whole seconds since 1970-01-01 UTC
+Time Binary 5 4 # Whole seconds since the start of the Eastern Time calendar day (wall clock)
+TimeOffset TimeOffset 9 4 # Nanoseconds since the last unit timestamp
+TradeDate BinaryDate 13 4 # YYYYMMDD as a binary integer
+
+MessageType 0x20 0 1 # TimeMessage: new base second for the unit's time offsets (US, Time Message Fields, Table 1; spec 6 bytes, 10 on BZX and EDGX equities)
+Time Binary 1 4 # Whole seconds since the start of the Eastern Time calendar day (wall clock)
+EpochTime Opaque 5 # BZX and EDGX equities only: 4 bytes, uint32 little endian, whole seconds since 1970-01-01 UTC; absent (tail_len 0) on BYX and EDGA
+
+MessageType 0x97 0 1 # UnitClear: clear every order of the unit in the header (US, Unit Clear Message Fields, Table 1; spec 6 bytes)
+@size 5
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+
+MessageType 0x21 0 1 # AddOrderLong: a visible order added to the book (US, Add Order Message Fields, Table 1; spec 34 bytes)
+@size 33
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Day-specific order identifier
+SideIndicator Alphanumeric 13 1 # B buy, S sell
+Quantity Binary 14 4 # Shares added (may be less than entered)
+Symbol PrintableASCII 18 6 # Right padded with spaces
+Price BinaryLongPrice 24 8 # 4 implied decimals
+AddFlags BitField 32 1 # Bit 0 reserved, set to 1; bit 3 AON (options only); others reserved
+
+MessageType 0x22 0 1 # AddOrderShort: a visible order added, short form (US, Add Order Message Fields, Table 2; spec 26 bytes)
+@size 25
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Day-specific order identifier
+SideIndicator Alphanumeric 13 1 # B buy, S sell
+Quantity Binary 14 2 # Shares added (may be less than entered)
+Symbol PrintableASCII 16 6 # Right padded with spaces
+Price BinaryShortPrice 22 2 # 2 implied decimals
+AddFlags BitField 24 1 # Bit 0 reserved, set to 1; bit 3 AON (options only); others reserved
+
+MessageType 0x2F 0 1 # AddOrderExpanded: a visible order added, 8-character symbol and attribution (US, Add Order Message Fields, Table 3; spec 41 bytes equities, 50 options)
+@size 40
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Day-specific order identifier
+SideIndicator Alphanumeric 13 1 # B buy, S sell
+Quantity Binary 14 4 # Shares added (may be less than entered)
+Symbol PrintableASCII 18 8 # Right padded with spaces
+Price BinaryLongPrice 26 8 # 4 implied decimals
+AddFlags BitField 34 1 # Bit 0 reserved, set to 1; bit 3 AON (options only); others reserved
+ParticipantID Alphanumeric 35 4 # MPID, or RTAL for retail orders; spaces when not attributed
+CustomerIndicator Alphanumeric 39 1 # R retail priority (EDGX equities only); space on other equities markets
+
+MessageType 0x23 0 1 # OrderExecuted: a visible order executed at its booked price (US, Order Executed Message Fields, Table 1; spec 26 bytes equities, 27 options)
+@size 25
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Order executed
+ExecutedQuantity Binary 13 4 # Shares executed
+ExecutionId Binary 17 8 # Day-unique execution identifier, referenced by Trade Break
+
+MessageType 0x24 0 1 # OrderExecutedAtPriceSize: a visible order executed at another price, or beyond its displayed size (US, Order Executed at Price/Size, Table 1; spec 38 bytes equities, 39 options)
+@size 37
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp (typed Binary in the spec)
+OrderId Binary 5 8 # Order executed
+ExecutedQuantity Binary 13 4 # Shares executed
+RemainingQuantity Binary 17 4 # Shares left on the book; 0 removes the order
+ExecutionId Binary 21 8 # Day-unique execution identifier, referenced by Trade Break
+Price BinaryLongPrice 29 8 # Execution price, 4 implied decimals
+
+MessageType 0x25 0 1 # ReduceSizeLong: part of a visible order cancelled (US, Reduce Size Message Fields, Table 1; spec 18 bytes)
+@size 17
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Order reduced
+CanceledQuantity Binary 13 4 # Shares cancelled
+
+MessageType 0x26 0 1 # ReduceSizeShort: part of a visible order cancelled, short form (US, Reduce Size Message Fields, Table 2; spec 16 bytes)
+@size 15
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Order reduced
+CanceledQuantity Binary 13 2 # Shares cancelled
+
+MessageType 0x27 0 1 # ModifyOrderLong: new size and price of a visible order (US, Modify Order Message Fields, Table 1; spec 27 bytes)
+@size 26
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Order modified
+Quantity Binary 13 4 # Shares after this modify
+Price BinaryLongPrice 17 8 # Limit price after this modify, 4 implied decimals
+ModifyFlags BitField 25 1 # Bit 0 display (aggregated in the Cboe SIP quote); bit 1 maintain priority (0 reset, 1 maintain)
+
+MessageType 0x28 0 1 # ModifyOrderShort: new size and price of a visible order, short form (US, Modify Order Message Fields, Table 2; spec 19 bytes)
+@size 18
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Order modified
+Quantity Binary 13 2 # Shares after this modify
+Price BinaryShortPrice 15 2 # Limit price after this modify, 2 implied decimals
+ModifyFlags BitField 17 1 # Bit 0 display (aggregated in the Cboe SIP quote); bit 1 maintain priority (0 reset, 1 maintain)
+
+MessageType 0x29 0 1 # DeleteOrder: a visible order removed from the book (US, Delete Order Message Fields, Table 1; spec 14 bytes)
+@size 13
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Order removed; the same id may be added again later
+
+MessageType 0x2A 0 1 # TradeLong: execution of a non-displayed or routed order; does not change the book (US, Trade Message Fields, Table 1; spec 41 bytes equities, 42 options)
+@size 40
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Obfuscated order id by default
+SideIndicator Alphanumeric 13 1 # Always B, whatever the resting side
+Quantity Binary 14 4 # Shares executed
+Symbol PrintableASCII 18 6 # Right padded with spaces
+Price BinaryLongPrice 24 8 # Execution price, 4 implied decimals
+ExecutionId Binary 32 8 # Day-unique execution identifier, referenced by Trade Break
+
+MessageType 0x2B 0 1 # TradeShort: execution of a non-displayed or routed order, short form (US, Trade Message Fields, Table 2; spec 33 bytes equities, 34 options)
+@size 32
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Obfuscated order id by default
+SideIndicator Alphanumeric 13 1 # Always B, whatever the resting side
+Quantity Binary 14 2 # Shares executed
+Symbol PrintableASCII 16 6 # Right padded with spaces
+Price BinaryShortPrice 22 2 # Execution price, 2 implied decimals
+ExecutionId Binary 24 8 # Day-unique execution identifier, referenced by Trade Break
+
+MessageType 0x30 0 1 # TradeExpanded: execution of a non-displayed or routed order, 8-character symbol (US, Trade Message Fields, Table 3; spec 43 bytes equities, 44 options)
+@size 42
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Obfuscated order id by default
+SideIndicator Alphanumeric 13 1 # Always B, whatever the resting side
+Quantity Binary 14 4 # Shares executed
+Symbol PrintableASCII 18 8 # Right padded with spaces
+Price BinaryLongPrice 26 8 # Execution price, 4 implied decimals
+ExecutionId Binary 34 8 # Day-unique execution identifier, referenced by Trade Break
+
+MessageType 0x2C 0 1 # TradeBreak: an earlier execution broken (US, Trade Break Message Fields, Table 1; spec 14 bytes)
+@size 13
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+ExecutionId Binary 5 8 # Execution Id of an earlier Order Executed or Trade message
+
+MessageType 0x2D 0 1 # EndOfSession: the unit shuts down; no more sequenced messages (US, End of Session Message Fields, Table 1; spec 6 bytes)
+@size 5
+Timestamp Binary 1 4 # Nanoseconds since the last unit timestamp (named Timestamp in the spec)
+
+MessageType 0x31 0 1 # TradingStatusMessage: trading status of a symbol, equities layout (US, Trading Status Message Fields, Table 1; spec 18 bytes)
+@size 17
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+Symbol PrintableASCII 5 8 # Right padded with spaces
+TradingStatus Alpha 13 1 # A accepting orders for queuing, H halted, Q quote-only, S suspension, T trading; E, L, O, P effective 02/01/27
+RegSHOAction Alphanumeric 14 1 # 0 no price test, 1 Reg SHO price test in effect
+Reserved1 Alpha 15 1 # Reserved
+Reserved2 Alpha 16 1 # Reserved
+
+MessageType 0x95 0 1 # AuctionUpdate: auction price and size; BZX and BYX equities only (US, Auction Update Message Fields, Tables 1 and 2; spec 47 bytes)
+@size 46
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+StockSymbol PrintableASCII 5 8 # Right padded with spaces
+AuctionType Alphanumeric 13 1 # O opening, C closing, H halt, I IPO, M Cboe Market Close (BZX); P periodic (BYX)
+ReferencePrice Binary 14 8 # Collared auction price; spec type Binary, examples use 4 implied decimals
+BuyShares Binary 22 4 # Buy shares at the reference price; matched shares for CMC
+SellShares Binary 26 4 # Sell shares at the reference price; matched shares for CMC
+IndicativePrice Binary 30 8 # Auction and continuous books match here; 0 on BYX; spec type Binary
+AuctionOnlyPrice Binary 38 8 # Auction book alone matches here; 0 on BYX; spec type Binary
+
+MessageType 0x96 0 1 # AuctionSummary: auction result; BYX and BZX equities and options (US, Auction Summary Message Fields, Table 1; spec 27 bytes)
+@size 26
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+StockSymbol PrintableASCII 5 8 # Right padded with spaces
+AuctionType Alphanumeric 13 1 # C closing, H halt, I IPO, M Cboe Market Close, P periodic (BYX); O, G, V options
+Price BinaryLongPrice 14 8 # Auction or CMC price, 4 implied decimals
+Shares Binary 22 4 # Shares executed in the auction (Shares/Contracts in the spec)
+
+MessageType 0x98 0 1 # RetailPriceImprovementMessage: retail liquidity indicator; BYX and EDGX only (US, Retail Price Improvement Message Fields, Table 1; spec 15 bytes)
+@size 14
+TimeOffset TimeOffset 1 4 # Nanoseconds since the last unit timestamp
+Symbol PrintableASCII 5 8 # Right padded with spaces
+RetailPriceImprovement Alpha 13 1 # B buy side, S sell side, A both, N none
+
+### grp::to_cboe
+# Client to Gap Request Proxy, TCP, each message after an unsequenced unit header
+# (US, Gap Request Proxy Messages).
+@length_prefix 1 inclusive
+@type_code uint 1
+
+MessageType 0x01 0 1 # Login: first message on the connection (US, Login Message Fields, Table 1; spec 22 bytes)
+@size 21
+SessionSubId Alphanumeric 1 4 # Supplied by Cboe
+Username Alphanumeric 5 4 # Supplied by Cboe
+Filler Alphanumeric 9 2 # Spaces
+Password Alphanumeric 11 10 # Supplied by Cboe
+
+MessageType 0x03 0 1 # GapRequest: request retransmission of a sequence range (US, Gap Request Message Fields, Table 1; spec 9 bytes)
+@size 8
+Unit Binary 1 1 # Unit of the gap
+Sequence Binary 2 4 # First (lowest) sequence of the range
+Count Binary 6 2 # Number of messages; at most 100 (US, Limitations/Configurations - Production)
+
+### grp::from_cboe
+@length_prefix 1 inclusive
+@type_code uint 1
+
+MessageType 0x02 0 1 # LoginResponse: login accepted or refused (US, Login Response Message Fields, Table 1; spec 3 bytes)
+@size 2
+Status Alphanumeric 1 1 # A accepted, N not authorized, B session in use, S invalid session
+
+MessageType 0x04 0 1 # GapResponse: one per Gap Request (US, Gap Response Message Fields, Table 1; spec 10 bytes)
+@size 9
+Unit Binary 1 1 # Unit from the request
+Sequence Binary 2 4 # Sequence from the request
+Count Binary 6 2 # Count from the request
+Status Alphanumeric 8 1 # A accepted; O out of range, D daily, M minute, S second limit, C count limit, I invalid unit, U unit unavailable
+
+### spin::to_cboe
+# Client to Spin Server, TCP, each message after an unsequenced unit header
+# (US, Spin Messages).
+@length_prefix 1 inclusive
+@type_code uint 1
+
+MessageType 0x01 0 1 # Login: same layout as the GRP Login (US, Spin Messages, Login)
+@size 21
+SessionSubId Alphanumeric 1 4 # Supplied by Cboe
+Username Alphanumeric 5 4 # Supplied by Cboe
+Filler Alphanumeric 9 2 # Spaces
+Password Alphanumeric 11 10 # Supplied by Cboe
+
+MessageType 0x81 0 1 # SpinRequest: request the book up to a sequence (US, Spin Request Message Fields, Table 1; spec 6 bytes)
+@size 5
+Sequence Binary 1 4 # From one of the last ten Spin Image Available messages
+
+MessageType 0x84 0 1 # InstrumentDefinitionRequest: request a spin of Symbol Mapping messages; options use (US, Instrument Definition Request Message Fields, Table 1; spec 6 bytes)
+@size 5
+Sequence Binary 1 4 # Must be 0
+
+### spin::from_cboe
+# Spin Server to client. The spin itself (Time, Add Order, Trading Status, Auction
+# Update, Retail Price Improvement) arrives on the same stream as pitch::from_cboe
+# messages; their type codes do not overlap with these.
+@length_prefix 1 inclusive
+@type_code uint 1
+
+MessageType 0x02 0 1 # LoginResponse: same layout as the GRP Login Response (US, Spin Messages, Login Response)
+@size 2
+Status Alphanumeric 1 1 # A accepted, N not authorized, B session in use, S invalid session
+
+MessageType 0x80 0 1 # SpinImageAvailable: a spin is available through this sequence; about once a second (US, Spin Image Available Message Fields, Table 1; spec 6 bytes)
+@size 5
+Sequence Binary 1 4 # Last sequence applied to the spin image
+
+MessageType 0x82 0 1 # SpinResponse: whether the spin will be sent (US, Spin Response Message Fields, Table 1; spec 11 bytes)
+@size 10
+Sequence Binary 1 4 # Sequence from the Spin Request
+OrderCount Binary 5 4 # Number of Add Order messages in the spin
+Status Alphanumeric 9 1 # A accepted, O out of range, S spin already in progress
+
+MessageType 0x83 0 1 # SpinFinished: all messages of the spin sent (US, Spin Finished Message Fields, Table 1; spec 6 bytes)
+@size 5
+Sequence Binary 1 4 # Sequence from the Spin Request
+
+MessageType 0x85 0 1 # InstrumentDefinitionResponse: whether the instrument spin will be sent; options use (US, Instrument Definition Response Message Fields, Table 1; spec 11 bytes)
+@size 10
+Sequence Binary 1 4 # Always 0
+InstrumentCount Binary 5 4 # Number of Symbol Mapping and Complex Instrument Definition messages
+Status Alphanumeric 9 1 # A accepted, O out of range, S spin already in progress
+
+MessageType 0x86 0 1 # InstrumentDefinitionFinished: instrument spin complete; options use (US, Instrument Definition Finished Message Fields, Table 1; spec 2 bytes)
+@size 1
+
+### end
