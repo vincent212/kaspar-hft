@@ -1,0 +1,3 @@
+# asset_id,symbol,tick  (Kaspar asset id, Clear Street ticker, price increment)
+1001,AAPL,0.01
+1002,MSFT,0.01
