@@ -1,0 +1,340 @@
+# Field table: Currenex "Ouch 2.0 US Treasury Specification" (public, dated
+# 10 February 2022 on the cover, revision 1 of 21 February 2022, 36 pages,
+# https://www.currenex.com/support/documentation/ustreasury/UST%20Ouch%20Specification.pdf).
+# Logon Version 200. Not the Firm LP specification (Ouch 3.0, version 300,
+# different Instrument Info layout) and not the FX OUCH specification (Logon
+# type 'A', no Version field).
+#
+# Citations: (UST OUCH <section>, p.<page>); page numbers are the printed
+# footers, which equal the PDF page numbers.
+#
+# Framing (UST OUCH 4.1, p.6): every message is SOH (0x01), the message
+# header and body, ETX (0x03). Offsets below are the spec's: from the first
+# byte of the message header (after SOH). The header (UST OUCH 9, p.17) is
+# SequenceNumber (0, 4), Timestamp (4, 4), MessageType (8, 1); the message
+# tables start at offset 9. The header's first two fields are the struct
+# Header (section ouch::to_currenex_header, used in both directions); the
+# message sections declare @offset_base 8 so that each message struct starts
+# at its type code, which decode() needs first.
+#
+# Data types (UST OUCH 4.2, pp.6-7): Integer (4), Short (2) and Long (8) are
+# signed big-endian. Amount is a Long with 2 implied decimals (outrights:
+# notional; spreads: whole contracts). Rate is a Long with 9 implied
+# decimals. Date is a Long, milliseconds since 1970-01-01 UTC. Text (Alpha,
+# Alphanumeric) is left-justified and padded with spaces on the right.
+@venue currenex
+@endian big
+@pad space
+@type Integer int
+@type Short int
+@type Long int
+@type Amount int
+@type Rate int
+@type Date int
+@type Alpha char
+@type Alphanumeric char
+
+### ouch::to_currenex_header
+
+MessageType - 0 0 # Header: message header of every message in both directions, before MessageType (UST OUCH 9, p.17)
+SequenceNumber Integer 0 4 # Directional session-based sequence number
+Timestamp Integer 4 4 # Milliseconds past midnight GMT (UST OUCH 4.2.4, p.7)
+
+### ouch::to_currenex
+@offset_base 8
+
+MessageType a 8 1 # Logon: open a session; Version 200 (UST OUCH 10.1, p.18; 5.1, p.8)
+UserID Alpha 9 20 # User session login id
+Password Alpha 29 20 # User password
+SessionID Integer 49 4 # Unique session ID provided by Currenex; only used by Currenex in its Logon response
+Version Short 53 2 # Version of the service requested; supported: 200
+
+MessageType B 8 1 # Logout: end the session; the recipient answers with a Logout (UST OUCH 10.2, p.18; 5.2, p.8)
+UserID Alpha 9 20 # User session login id
+SessionID Integer 29 4 # Unique session ID provided by Currenex
+Reason Alpha 33 3 # Logout reason code (Appendix B, p.35)
+
+MessageType C 8 1 # Heartbeat: answer to each Currenex Heartbeat (UST OUCH 10.3, p.18; 5.3, p.8)
+SessionID Integer 9 4 # Unique session ID provided by Currenex
+
+MessageType E 8 1 # InstrumentInfoRequest: asks for the Instrument Info messages, required after Logon (UST OUCH 10.4, p.18; 6, p.12)
+SessionID Integer 9 4 # Unique session ID provided by Currenex
+
+MessageType G 8 1 # RoutingUserInfoRequest: asks for the RoutingUserInfo messages, optional (UST OUCH 10.7, p.21; 7.1, p.13)
+SessionID Integer 9 4 # Unique session ID provided by Currenex
+
+MessageType L 8 1 # NewOrder: NewOrderRequest (UST OUCH 10.9, pp.21-22)
+ClOrderID Integer 9 4 # Client assigned order id
+OrderType Alpha 13 1 # F limit, Z iceberg
+InstrumentIndex Short 14 2 # From Instrument Info; valid for the session only
+Side Alpha 16 1 # B buy, S sell
+OrderAmt Long 17 8 # Order amount, notional with 2 implied decimals
+MinAmt Long 25 8 # Minimum quantity for which the order can be executed; 0 valid
+Price Rate 33 8 # Order rate, 9 implied decimals
+ShowAmt Long 41 8 # Iceberg: displayed amount, MinAmt <= ShowAmt <= OrderAmt, 0 hidden; ignored for limit orders
+ExpireType Alpha 49 1 # G good till cancel, I immediate or cancel (partial fills permitted)
+RoutedUserKey Integer 50 4 # Routed user (OBO); 0 or -1 when not routing for another entity
+
+MessageType N 8 1 # OrderCancelRequest: CancelOrder (UST OUCH 10.11, p.23)
+NewClOrderID Integer 9 4 # Client assigned id for the cancel action
+PrevClOrderID Integer 13 4 # Client assigned id for the order to be cancelled
+InstrumentIndex Short 17 2 # From Instrument Info
+RoutedUserKey Integer 19 4 # Routed user (OBO)
+
+MessageType P 8 1 # OrderReplaceOrCancelRequest: replace; on a partially filled order the outstanding amount is cancelled instead (UST OUCH 10.13.1, p.24; 8.3, p.14)
+NewClOrderID Integer 9 4 # Client assigned id for the replace or cancel action
+OrigClOrderID Integer 13 4 # Client assigned id for the order to be replaced or cancelled
+OrderAmt Long 17 8 # New order amount; Amount and Rate are both required
+Price Rate 25 8 # New order rate, 9 implied decimals
+InstrumentIndex Short 33 2 # From Instrument Info
+RoutedUserKey Integer 35 4 # Routed user (OBO)
+
+MessageType S 8 1 # OrderReplaceEvenIfPartiallyFilled: replace the unfilled part; OrderAmt is the whole order including fills (UST OUCH 10.13.2, p.24; 8.4, p.15)
+NewClOrderID Integer 9 4 # Client assigned id for the replace action
+OrigClOrderID Integer 13 4 # Client assigned id for the order to be replaced
+OrderAmt Long 17 8 # New order amount; must exceed the amount already filled
+Price Rate 25 8 # New order rate, 9 implied decimals
+InstrumentIndex Short 33 2 # From Instrument Info
+RoutedUserKey Integer 35 4 # Routed user (OBO)
+
+MessageType 2 8 1 # ResendRequest: replay from BeginSeqNo after a reconnect; persistence only (UST OUCH 10.18, p.34; 5.5, pp.9-11)
+BeginSeqNo Integer 9 4 # Sequence number of the first message to resend
+
+### ouch::from_currenex
+@offset_base 8
+
+MessageType a 8 1 # Logon: Logon response; its header SequenceNumber is the session's current outbound number (UST OUCH 10.1, p.18; 5.5, p.9)
+UserID Alpha 9 20 # User session login id
+Password Alpha 29 20 # User password
+SessionID Integer 49 4 # Unique session ID provided by Currenex
+Version Short 53 2 # Version of the service; 200
+
+MessageType B 8 1 # Logout: end of session or logon refused (UST OUCH 10.2, p.18)
+UserID Alpha 9 20 # User session login id
+SessionID Integer 29 4 # Unique session ID provided by Currenex
+Reason Alpha 33 3 # Logout reason code A1 to A11 (Appendix B, p.35)
+
+MessageType C 8 1 # Heartbeat: sent every 3 seconds; answer each (UST OUCH 10.3, p.18; 5.3, p.8)
+SessionID Integer 9 4 # Unique session ID provided by Currenex
+
+MessageType D 8 1 # OutrightInstrumentInfo: Instrument Info for one outright instrument (UST OUCH 10.5, p.19)
+SessionID Integer 9 4 # Unique session ID provided by Currenex
+InstrumentIndex Short 13 2 # Identifier used in order messages; unique for the session only
+InstrumentType Alpha 15 1 # 1 foreign exchange, 2 cash metals, 3 treasury
+InstrumentID Alpha 16 20 # Free form instrument definition string, e.g. OTR-2YR
+SettlementDate Long 36 8 # Settlement date, ms since 1970-01-01 GMT
+SecurityID Alpha 44 9 # CUSIP
+SecurityType Alpha 53 1 # 1 TBill, 2 TNote, 3 TBond
+MaturityDate Long 54 8 # Maturity date, ms since 1970-01-01 GMT; 0 if absent
+IssueDate Long 62 8 # Issue date, ms since 1970-01-01 GMT; 0 if absent
+InstrumentState Alpha 70 10 # WI when-issued, OTR on-the-run, OLD first off-the-run, OLDn (n 1 to 60) other off-the-run
+InstrumentTenor Alpha 80 10 # Instrument tenor, e.g. 2Y
+
+MessageType e 8 1 # SpreadInstrumentInfo: Instrument Info for one spread instrument (UST OUCH 10.6, pp.20-21)
+SessionID Integer 9 4 # Unique session ID provided by Currenex
+InstrumentIndex Short 13 2 # Identifier used in order messages; unique for the session only
+InstrumentType Alpha 15 1 # 1 MLEG
+InstrumentID Alpha 16 20 # Free form instrument definition string
+InstrumentState Alpha 36 15 # Instrument state, e.g. OTR/OTR/A
+InstrumentTenor Alpha 51 10 # Instrument tenor, e.g. 2Y/3Y
+InstrumentTickSize Rate 61 8 # Tick size of the spread: WI rolls 0.125, all others 0.05
+AnchorLegInstrumentIndex Short 69 2 # Instrument index of the anchor leg
+AnchorLegInstrumentID Alpha 71 10 # Instrument definition string of the anchor leg
+AnchorLegInstrumentState Alpha 81 10 # Instrument state of the anchor leg
+AnchorLegInstrumentTenor Alpha 91 5 # Instrument tenor of the anchor leg
+AnchorLegSecurityID Alpha 96 9 # CUSIP of the anchor leg
+AnchorLegRatio Amount 105 8 # Quantity of the anchor leg per unit of the spread
+AnchorLegSide Alpha 113 1 # B buy, S sell: anchor leg side for a buy of the spread
+CalculatedLegInstrumentIndex Short 114 2 # Instrument index of the calculated leg
+CalculatedLegInstrumentID Alpha 116 10 # Instrument definition string of the calculated leg
+CalculatedLegInstrumentState Alpha 126 10 # Instrument state of the calculated leg
+CalculatedLegInstrumentTenor Alpha 136 5 # Instrument tenor of the calculated leg
+CalculatedLegSecurityID Alpha 141 9 # CUSIP of the calculated leg
+CalculatedLegRatio Amount 150 8 # Quantity of the calculated leg per unit of the spread
+CalculatedLegSide Alpha 158 1 # B buy, S sell: calculated leg side for a buy of the spread
+
+MessageType g 8 1 # RoutingUserInfo: one routed user, and one for the session's own user (UST OUCH 10.8, p.21; 7.1, p.13)
+SessionID Integer 9 4 # Unique session ID provided by Currenex
+RoutedUserId Alpha 13 20 # String that uniquely identifies a routed user
+RoutedUserKey Integer 33 4 # Number that uniquely identifies a routed user; same across sessions and services
+
+MessageType M 8 1 # NewOrderAck: accepted or rejected (UST OUCH 10.10, p.22)
+ClOrderID Integer 9 4 # Client assigned order id
+OrderID Long 13 8 # Currenex assigned order id; -1 on reject
+Status Alpha 21 1 # C confirmed, R rejected
+ErrorCode Short 22 2 # 1 to 99 on reject (Appendix A, p.35); 0 when confirmed
+RoutedUserKey Integer 24 4 # Routed user (OBO)
+
+MessageType O 8 1 # OrderCancelReject: cancel or replace refused (UST OUCH 10.12, p.23)
+NewClOrderID Integer 9 4 # Client assigned id of the refused action
+PrevClOrderID Integer 13 4 # Client assigned id for the order to be cancelled
+ErrorCode Short 17 2 # Error code (Appendix A, p.35)
+RoutedUserKey Integer 19 4 # Routed user (OBO)
+
+MessageType Q 8 1 # OrderReplaceAck: answer to a replace (UST OUCH 10.14, p.25; 8.3.1, p.14; 8.4, p.15); the spec names the first field NewClOrderD
+NewClOrderID Integer 9 4 # Client assigned id for the replace action
+PrevClOrderID Integer 13 4 # Client assigned id for the order to be replaced
+Status Alpha 17 1 # P replaced, C in process (no replace; a separate cancel or trade follows), R rejected
+ErrorCode Short 18 2 # Error code on reject (Appendix A, p.35); 0 otherwise
+RoutedUserKey Integer 20 4 # Routed user (OBO)
+
+MessageType R 8 1 # OrderCancelledOrExpired: Unsolicited Cancel; also the answer to a cancel (UST OUCH 10.15, p.25; 8.6, p.16)
+ClOrderID Integer 9 4 # Client assigned id for the order
+OrderID Long 13 8 # Currenex assigned order id
+Status Alpha 21 1 # E expired, C cancelled
+Type Short 22 2 # 0 user cancel, 1 system cancel, 2 below minimum cancel
+RoutedUserKey Integer 24 4 # Routed user (OBO)
+
+MessageType U 8 1 # PendingFill: the order matched; a trade (t or f) or a PendingFillCancel follows (UST OUCH 10.16.1, pp.25-26; 8.5, p.15)
+ClOrderID Integer 9 4 # Client assigned id for the order
+OrderID Long 13 8 # Currenex assigned order id
+TradeLinkID Integer 21 4 # Links pending fill, fill cancel and trade; unique within the order only
+FillAmt Long 25 8 # Trade amount, 2 implied decimals
+FillRate Long 33 8 # Done trade rate, 9 implied decimals (typed Long in the spec)
+AggressorFlag Alpha 41 1 # 1 client is aggressor, 2 client is not aggressor
+ExecBroker Alpha 42 4 # Execution broker's code, or NA
+RoutedUserKey Integer 46 4 # Routed user (OBO)
+
+MessageType V 8 1 # PendingFillCancel: the matched fill did not complete; the order can match again (UST OUCH 10.16.2, pp.26-27; 8.5.2, p.16)
+ClOrderID Integer 9 4 # Client assigned id for the order
+OrderID Long 13 8 # Currenex assigned order id
+TradeLinkID Integer 21 4 # Links pending fill, fill cancel and trade; unique within the order only
+FillAmt Long 25 8 # Trade amount, 2 implied decimals
+FillRate Long 33 8 # Done trade rate, 9 implied decimals (typed Long in the spec)
+AggressorFlag Alpha 41 1 # 1 client is aggressor, 2 client is not aggressor
+ExecBroker Alpha 42 4 # Execution broker's code, or NA
+RoutedUserKey Integer 46 4 # Routed user (OBO)
+
+MessageType t 8 1 # PendingFillTrade: Outright PendingFillTrade, the trade after a PendingFill (UST OUCH 10.16.3, pp.27-28)
+ClOrderID Integer 9 4 # Client assigned id for the order
+OrderID Long 13 8 # Currenex assigned order id
+TradeLinkID Integer 21 4 # Links pending fill, fill cancel and trade; unique within the order only
+InstrumentIndex Short 25 2 # From Instrument Info
+Side Alpha 27 1 # B buy, S sell
+FillAmt Long 28 8 # Trade amount, 2 implied decimals
+FillRate Rate 36 8 # Done trade rate, 9 implied decimals
+ExecBroker Alpha 44 4 # Execution broker's code, or NA
+ExecutionID Alphanumeric 48 20 # Trade ID
+ExecType Alpha 68 1 # 1 new trade
+SettleDate Long 69 8 # Settlement date, ms since 1970-01-01 GMT
+TradeDate Long 77 8 # Trade date, ms since 1970-01-01 GMT; after the roll the next business date
+TransactTime Long 85 8 # Match time, ms since 1970-01-01 GMT
+LeavesAmt Long 93 8 # Amount open for further execution; 0 if ExecType is not 1
+SecurityID Alpha 101 9 # CUSIP
+MaturityDate Long 110 8 # Maturity date; 0 if absent
+IssueDate Long 118 8 # Issue date; 0 if absent
+CouponRate Rate 126 8 # Coupon rate, 9 implied decimals; 0 if absent
+PriceType Alpha 134 1 # 1 price (percent of par), 2 discount, 3 yield
+AggressorFlag Alpha 135 1 # 1 client is aggressor, 2 client is not aggressor
+RoutedUserKey Integer 136 4 # Routed user (OBO)
+
+MessageType f 8 1 # PendingFillSpreadTrade: Spread PendingFillTrade, the trade after a PendingFill on a spread (UST OUCH 10.16.4, pp.28-30)
+ClOrderID Integer 9 4 # Client assigned id for the order
+OrderID Long 13 8 # Currenex assigned order id
+TradeLinkID Integer 21 4 # Links pending fill, fill cancel and trade; unique within the order only
+InstrumentIndex Short 25 2 # From Instrument Info
+Side Alpha 27 1 # B buy, S sell
+FillAmt Long 28 8 # Trade amount (spreads: contracts)
+FillRate Rate 36 8 # Done trade rate, 9 implied decimals
+ExecBroker Alpha 44 4 # Execution broker's code, or NA
+ExecutionID Alphanumeric 48 20 # Trade ID
+ExecType Alpha 68 1 # 1 new trade
+TradeDate Long 69 8 # Trade date, ms since 1970-01-01 GMT
+TransactTime Long 77 8 # Match time, ms since 1970-01-01 GMT
+LeavesAmt Long 85 8 # Amount open for further execution; 0 if ExecType is not 1
+PriceType Alpha 93 1 # 4 rate differential (basis points)
+AggressorFlag Alpha 94 1 # 1 client is aggressor, 2 client is not aggressor
+AnchorLegInstrumentIndex Short 95 2 # Instrument index of the anchor leg
+AnchorLegSecurityID Alpha 97 9 # CUSIP of the anchor leg trade
+AnchorLegMaturityDate Long 106 8 # Maturity date; 0 if absent
+AnchorLegIssueDate Long 114 8 # Issue date; 0 if absent
+AnchorLegCouponRate Rate 122 8 # Coupon rate; 0 if absent
+AnchorLegSide Alpha 130 1 # B buy, S sell
+AnchorLegFillRate Rate 131 8 # Done trade rate of the anchor leg
+AnchorLegFillAmt Long 139 8 # Trade amount of the anchor leg
+AnchorLegYield Rate 147 8 # Yield to maturity of the anchor leg trade
+AnchorLegPriceType Alpha 155 1 # 1 price (percent of par), 2 discount, 3 yield
+AnchorLegSettlementDate Date 156 8 # Settlement date of the anchor leg, ms since 1970-01-01 GMT
+AnchorLegExecutionID Alphanumeric 164 20 # Trade ID of the anchor leg
+CalculatedLegInstrumentIndex Short 184 2 # Instrument index of the calculated leg
+CalculatedLegSecurityID Alpha 186 9 # CUSIP of the calculated leg trade
+CalculatedLegMaturityDate Long 195 8 # Maturity date; 0 if absent
+CalculatedLegIssueDate Long 203 8 # Issue date; 0 if absent
+CalculatedLegCouponRate Rate 211 8 # Coupon rate; 0 if absent
+CalculatedLegSide Alpha 219 1 # B buy, S sell
+CalculatedLegFillRate Rate 220 8 # Done trade rate of the calculated leg
+CalculatedLegFillAmt Long 228 8 # Trade amount of the calculated leg
+CalculatedLegYield Rate 236 8 # Yield to maturity of the calculated leg trade
+CalculatedLegPriceType Alpha 244 1 # 1 price (percent of par), 2 discount, 3 yield
+CalculatedLegSettlementDate Date 245 8 # Settlement date of the calculated leg, ms since 1970-01-01 GMT
+CalculatedLegExecutionID Alphanumeric 253 20 # Trade ID of the calculated leg
+RoutedUserKey Integer 273 4 # Routed user (OBO)
+
+MessageType T 8 1 # Trade: OutrightTrade, without the pending fill workflow (UST OUCH 10.17.1, pp.31-32)
+ClOrderID Integer 9 4 # Client assigned id for the order
+OrderID Long 13 8 # Currenex assigned order id
+InstrumentIndex Short 21 2 # From Instrument Info
+Side Alpha 23 1 # B buy, S sell
+FillAmt Long 24 8 # Trade amount, 2 implied decimals
+FillRate Rate 32 8 # Done trade rate, 9 implied decimals
+ExecBroker Alpha 40 4 # Execution broker's code, or NA
+ExecutionID Alphanumeric 44 20 # Trade ID
+ExecType Alpha 64 1 # 1 new trade
+SettleDate Long 65 8 # Settlement date, ms since 1970-01-01 GMT
+TradeDate Long 73 8 # Trade date, ms since 1970-01-01 GMT; after the roll the next business date
+TransactTime Long 81 8 # Match time, ms since 1970-01-01 GMT
+LeavesAmt Long 89 8 # Amount open for further execution; 0 if ExecType is not 1
+SecurityID Alpha 97 9 # CUSIP
+MaturityDate Long 106 8 # Maturity date; 0 if absent
+IssueDate Long 114 8 # Issue date; 0 if absent
+CouponRate Rate 122 8 # Coupon rate, 9 implied decimals; 0 if absent
+PriceType Alpha 130 1 # 1 price (percent of par), 2 discount, 3 yield
+AggressorFlag Alpha 131 1 # 1 client is aggressor, 2 client is not aggressor
+RoutedUserKey Integer 132 4 # Routed user (OBO)
+
+MessageType F 8 1 # SpreadTrade: trade on a spread, without the pending fill workflow (UST OUCH 10.17.2, pp.32-34)
+ClOrderID Integer 9 4 # Client assigned id for the order
+OrderID Long 13 8 # Currenex assigned order id
+InstrumentIndex Short 21 2 # From Instrument Info
+Side Alpha 23 1 # B buy, S sell
+FillAmt Long 24 8 # Trade amount (spreads: contracts)
+FillRate Rate 32 8 # Done trade rate, 9 implied decimals
+ExecBroker Alpha 40 4 # Execution broker's code, or NA
+ExecutionID Alphanumeric 44 20 # Trade ID
+ExecType Alpha 64 1 # 1 new trade
+TradeDate Long 65 8 # Trade date, ms since 1970-01-01 GMT
+TransactTime Long 73 8 # Match time, ms since 1970-01-01 GMT
+LeavesAmt Long 81 8 # Amount open for further execution; 0 if ExecType is not 1
+PriceType Alpha 89 1 # 4 rate differential (basis points)
+AggressorFlag Alpha 90 1 # 1 client is aggressor, 2 client is not aggressor
+AnchorLegInstrumentIndex Short 91 2 # Instrument index of the anchor leg
+AnchorLegSecurityID Alpha 93 9 # CUSIP of the anchor leg trade
+AnchorLegMaturityDate Long 102 8 # Maturity date; 0 if absent
+AnchorLegIssueDate Long 110 8 # Issue date; 0 if absent
+AnchorLegCouponRate Rate 118 8 # Coupon rate; 0 if absent
+AnchorLegSide Alpha 126 1 # B buy, S sell
+AnchorLegFillRate Rate 127 8 # Done trade rate of the anchor leg
+AnchorLegFillAmt Long 135 8 # Trade amount of the anchor leg
+AnchorLegYield Rate 143 8 # Yield to maturity of the anchor leg trade
+AnchorLegPriceType Alpha 151 1 # 1 price (percent of par), 2 discount, 3 yield
+AnchorLegSettlementDate Date 152 8 # Settlement date of the anchor leg, ms since 1970-01-01 GMT
+AnchorLegExecutionID Alphanumeric 160 20 # Trade ID of the anchor leg
+CalculatedLegInstrumentIndex Short 180 2 # Instrument index of the calculated leg
+CalculatedLegSecurityID Alpha 182 9 # CUSIP of the calculated leg trade
+CalculatedLegMaturityDate Long 191 8 # Maturity date; 0 if absent
+CalculatedLegIssueDate Long 199 8 # Issue date; 0 if absent
+CalculatedLegCouponRate Rate 207 8 # Coupon rate; 0 if absent
+CalculatedLegSide Alpha 215 1 # B buy, S sell
+CalculatedLegFillRate Rate 216 8 # Done trade rate of the calculated leg
+CalculatedLegFillAmt Long 224 8 # Trade amount of the calculated leg
+CalculatedLegYield Rate 232 8 # Yield to maturity of the calculated leg trade
+CalculatedLegPriceType Alpha 240 1 # 1 price (percent of par), 2 discount, 3 yield
+CalculatedLegSettlementDate Date 241 8 # Settlement date of the calculated leg, ms since 1970-01-01 GMT
+CalculatedLegExecutionID Alphanumeric 249 20 # Trade ID of the calculated leg
+RoutedUserKey Integer 269 4 # Routed user (OBO)
+
+MessageType 4 8 1 # GapFill: sent in place of messages not resent (UST OUCH 10.19, p.34; 5.5.1, p.9)
+NewSeqNo Integer 9 4 # Sequence number of the next message to be transmitted
+ReasonCode Alpha 13 1 # 1 NOT_RESENDABLE (Logon, Logout, Heartbeat), 2 NOT_AVAILABLE
+
+### end

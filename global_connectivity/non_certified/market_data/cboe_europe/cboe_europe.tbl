@@ -1,0 +1,222 @@
+# Field table: Cboe Titanium Europe Multicast PITCH, PITCH 2.X application layer
+# (BXE and CXE books; also the messages of the DXE, TRF and SI quote feeds).
+# Source: "Cboe Titanium Europe Multicast PITCH Specification", version 6.69,
+# 06 November 2026, PDF, 97 pp. (abbreviated EU below; citations give the
+# section and the printed page, which equals the PDF page).
+#
+# Layers not in this table. The Sequenced Unit Header (EU 2.4, p.11), the Gap
+# Request Proxy messages (EU 3.1-3.4, pp.12-13) and the Spin Server messages
+# (EU 5.1-5.6, pp.36-37) have the same layouts as in the U.S. specification and
+# are generated from ../cboe/pitch_us.tbl (sections unit::, grp::, spin::). This
+# table uses the same @venue (cboe) so that both headers share one set of helper
+# definitions and can be included together. fieldgen.py's @include only reaches
+# sections earlier in the same table, so it cannot be used across the two files.
+#
+# Offsets. Every message starts with Length (1 byte, counting itself) and
+# Message Type (1 byte) (EU 2.1, p.10). The Length is "@length_prefix 1
+# inclusive" and is not a row: every offset below is the specification's offset
+# minus 1 and every @size is the specification's "Total Length" minus 1.
+#
+# Not tabled: Index Quote (0xD8) and Index Quote EDSP (0xD9) (EU 4.16, p.31),
+# on a dedicated CXE indices feed that was decommissioned from 1 October 2026
+# (EU Revision History 6.67, p.97). decode() reports them as unknown with the
+# size to skip. See feed.md section 4.
+@venue cboe
+@endian little
+@pad space
+@type Binary uint
+@type BinaryLongPrice uint
+@type BinaryShortPrice uint
+@type Alphanumeric char
+@type Alpha char
+
+### pitch::from_cboe_eu
+@length_prefix 1 inclusive
+@type_code uint 1
+
+MessageType 0x20 0 1 # TimeMessage: new base second for the unit's time offsets (EU 4.1, p.14; spec 6 bytes)
+@size 5
+Time Binary 1 4 # Whole seconds since midnight London time
+
+MessageType 0x97 0 1 # UnitClear: clear all orders of the unit in the header; sent in recovery events such as a data centre fail-over (EU 4.2, p.14; spec 6 bytes)
+@size 5
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+
+MessageType 0x40 0 1 # AddOrderLong: a visible order added; binary incompatible with U.S. 0x21 (EU 4.3.1, p.15; spec 35 bytes)
+@size 34
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Day-specific identifier assigned to this order
+SideIndicator Alphanumeric 13 1 # B buy, S sell
+Quantity Binary 14 4 # Shares added (may be less than entered)
+Symbol Alphanumeric 18 8 # Right padded with spaces
+Price BinaryLongPrice 26 8 # Limit price; 4 implied decimals on BXE/CXE, 6 on TRF (EU 2.2, p.10)
+
+MessageType 0x22 0 1 # AddOrderShort: a visible order added, short form; no Add Flags (EU 4.3.2, p.15; spec 25 bytes)
+@size 24
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Day-specific identifier assigned to this order
+SideIndicator Alphanumeric 13 1 # B buy, S sell
+Quantity Binary 14 2 # Shares added (may be less than entered)
+Symbol Alphanumeric 16 6 # Right padded with spaces
+Price BinaryShortPrice 22 2 # Limit price, 2 implied decimals
+
+MessageType 0x2F 0 1 # AddOrderExpanded: a Systematic Internaliser quote, non-executable; SI quote feed only (EU 4.3.3, p.16; spec 40 bytes)
+@size 39
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Day-specific identifier assigned to this order
+SideIndicator Alphanumeric 13 1 # B buy, S sell
+Quantity Binary 14 4 # Shares applicable to this quote
+Symbol Alphanumeric 18 8 # Right padded with spaces
+Price BinaryLongPrice 26 8 # Quote price
+AddFlags Binary 34 1 # Bit 1 SI Quote; bits 0, 2-7 reserved
+ParticipantID Alphanumeric 35 4 # Participant the quote is attributed to
+
+MessageType 0x23 0 1 # OrderExecuted: a visible order executed at its booked price (EU 4.4, p.17; spec 30 bytes)
+@size 29
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Order Id of a previously sent Add Order
+ExecutedShares Binary 13 4 # Shares executed
+ExecutionId Binary 17 8 # Day-unique execution id, referenced by Trade Break; shown as 12 base-36 characters (EU 2.5, p.11)
+ExecutionFlags Alphanumeric 25 4 # MMT levels 1, 2, 3.6, 3.9 (EU 4.4.1, p.17; values EU 4.17, pp.32-35)
+
+MessageType 0x24 0 1 # OrderExecutedAtPriceSize: a visible order executed at a price other than its booked price (EU 4.5, p.18; spec 42 bytes)
+@size 41
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Order Id of a previously sent Add Order
+ExecutedShares Binary 13 4 # Shares executed
+RemainingShares Binary 17 4 # Shares remaining after the execution; 0 removes the order
+ExecutionId Binary 21 8 # Day-unique execution id, referenced by Trade Break
+Price BinaryLongPrice 29 8 # Execution price
+ExecutionFlags Alphanumeric 37 4 # MMT levels 1, 2, 3.6, 3.9 (EU 4.5.1, p.18)
+
+MessageType 0x25 0 1 # ReduceSizeLong: a visible order partially reduced (EU 4.6.1, p.19; spec 18 bytes)
+@size 17
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Order Id of a previously sent Add Order
+CancelledShares Binary 13 4 # Shares cancelled
+
+MessageType 0x26 0 1 # ReduceSizeShort: a visible order partially reduced, short form (EU 4.6.2, p.19; spec 16 bytes)
+@size 15
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Order Id of a previously sent Add Order
+CancelledShares Binary 13 2 # Shares cancelled
+
+MessageType 0x27 0 1 # ModifyOrderLong: new size and price of a visible order; no Modify Flags (EU 4.7.1, p.20; spec 26 bytes)
+@size 25
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Order Id of the original Add Order
+Shares Binary 13 4 # Shares after this modify
+Price BinaryLongPrice 17 8 # Limit price after this modify
+
+MessageType 0x28 0 1 # ModifyOrderShort: new size and price of a visible order, short form; no Modify Flags (EU 4.7.2, p.20; spec 18 bytes)
+@size 17
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Order Id of the original Add Order
+Shares Binary 13 2 # Shares after this modify
+Price BinaryShortPrice 15 2 # Limit price after this modify, 2 implied decimals
+
+MessageType 0x29 0 1 # DeleteOrder: an open order completely cancelled (EU 4.8, p.20; spec 14 bytes)
+@size 13
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Order Id of the original Add Order
+
+MessageType 0x41 0 1 # TradeLong: execution of a hidden order or a routed execution; does not change the book; binary incompatible with U.S. 0x2A (EU 4.9.1, p.21; spec 48 bytes)
+@size 47
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Obfuscated Order Id, or the Order Id of the non-displayed order
+SideIndicator Alphanumeric 13 1 # Always B for hidden trades
+Shares Binary 14 4 # Shares executed
+Symbol Alphanumeric 18 8 # Right padded with spaces
+Price BinaryLongPrice 26 8 # Execution price
+ExecutionId Binary 34 8 # Day-unique execution id, referenced by Trade Break
+TradeFlags Alphanumeric 42 5 # MMT levels 1, 2, 3.1+3.13, 3.5+3.11+3.12, 3.9 (EU 4.9.3, p.22)
+
+MessageType 0x2B 0 1 # TradeShort: execution of a hidden order or a routed execution, short form (EU 4.9.2, p.21; spec 38 bytes)
+@size 37
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+OrderId Binary 5 8 # Obfuscated Order Id, or the Order Id of the non-displayed order
+SideIndicator Alphanumeric 13 1 # Always B for hidden trades
+Shares Binary 14 2 # Shares executed
+Symbol Alphanumeric 16 6 # Right padded with spaces
+Price BinaryShortPrice 22 2 # Execution price, 2 implied decimals
+ExecutionId Binary 24 8 # Day-unique execution id, referenced by Trade Break
+TradeFlags Alphanumeric 32 5 # MMT levels 1, 2, 3.1+3.13, 3.5+3.11+3.12, 3.9 (EU 4.9.3, p.22)
+
+MessageType 0x32 0 1 # TradeExtended: trades reported to or executed by Cboe, including negotiated trades, retail (RLP) executions and amendments; does not change the book (EU 4.9.4, p.23; spec 68 bytes)
+@size 67
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+Shares Binary 5 8 # Shares executed
+Symbol Alphanumeric 13 8 # Right padded with spaces
+Price BinaryLongPrice 21 8 # Execution price; 0 if pending (MMT level 3.8)
+TradeID Binary 29 8 # Unique for at least 7 calendar days
+TradeTimestamp Binary 37 8 # Nanoseconds since 1970-01-01 UTC
+ExecutionVenue Alphanumeric 45 4 # MIC of the execution venue (LISX, LISZ, XWAP, VWAP, SINT, XOFF, ...)
+Currency Alphanumeric 49 3 # Traded currency
+CboeTradeFlags Alphanumeric 52 1 # Timing, regulator and retail flags (EU 4.9.7, p.25)
+ExtendedTradeFlags Alphanumeric 53 14 # 14-character MMT string (EU 4.9.6, p.25; EU 4.17, pp.32-35)
+
+MessageType 0x35 0 1 # TradeUnknownSymbol: a trade reported on a symbol not known to Cboe, by ISIN; TRF only (EU 4.9.5, p.24; spec 72 bytes)
+@size 71
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+Shares Binary 5 8 # Shares traded
+Symbol Alphanumeric 13 12 # ISIN
+Price BinaryLongPrice 25 8 # Reported price (6 implied decimals on TRF); 0 if pending
+TradeID Binary 33 8 # Unique for at least 7 calendar days
+TradeTimestamp Binary 41 8 # Nanoseconds since 1970-01-01 UTC
+ExecutionVenue Alphanumeric 49 4 # MIC of the execution venue, SINT or XOFF
+Currency Alphanumeric 53 3 # Reported currency
+CboeTradeFlags Alphanumeric 56 1 # Timing, regulator and retail flags (EU 4.9.7, p.25)
+ExtendedTradeFlags Alphanumeric 57 14 # 14-character MMT string
+
+MessageType 0x2C 0 1 # TradeBreak: an earlier execution broken; no field table in EU section 4, layout from the example (EU Appendix A, p.76; Appendix B, p.81; spec 14 bytes)
+@size 13
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+ExecutionId Binary 5 8 # Execution Id of an earlier Order Executed or Trade
+
+MessageType 0x2D 0 1 # EndOfSession: the unit shuts down; heartbeats may follow (EU 4.10, p.26; spec 6 bytes)
+@size 5
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+
+MessageType 0xBC 0 1 # TransactionBegin: following messages up to Transaction End are one transaction (EU 4.11, p.26; spec 6 bytes)
+@size 5
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+
+MessageType 0xBD 0 1 # TransactionEnd: the transaction opened by Transaction Begin is complete (EU 4.12, p.26; spec 6 bytes)
+@size 5
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+
+MessageType 0x31 0 1 # TradingStatus: trading status of a symbol (EU 4.13, p.27; spec 18 bytes)
+@size 17
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+Symbol Alphanumeric 5 8 # Right padded with spaces
+Status Alpha 13 1 # T, R, C, S, N, V, I, O, E, H (reserved), M, P, U, Y (EU 4.13, p.27)
+Reserved1 Alpha 14 3 # Reserved
+
+MessageType 0x34 0 1 # Statistics: opening, closing, high, low and previous closing prices (EU 4.14, p.28; spec 24 bytes)
+@size 23
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+Symbol Alphanumeric 5 8 # Right padded with spaces
+Price BinaryLongPrice 13 8 # Price
+StatisticType Alphanumeric 21 1 # C closing, H high, L low, O opening, P previous closing
+PriceDetermination Alphanumeric 22 1 # 0 normal, 1 manual (market supervision)
+
+MessageType 0xAC 0 1 # AuctionUpdate: indicative price and size during auction call and extension phases (EU 4.15.1, p.29; spec 37 bytes)
+@size 36
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+Symbol Alphanumeric 5 8 # Right padded with spaces
+AuctionType Alphanumeric 13 1 # O opening, C closing, H halt, V volatility, P periodic, U Cboe Closing Cross
+ReferencePrice BinaryLongPrice 14 8 # Reference price used in tie-breaks
+IndicativePrice BinaryLongPrice 22 8 # Price at which the auction would match now
+IndicativeShares Binary 30 4 # Shares at the indicative price
+OutsideTolerance Alphanumeric 34 1 # O outside the Cboe EBBO collar, I inside, - not specified
+IncludesPrimary Alphanumeric 35 1 # P EBBO includes the primary market, N excludes, - not specified
+
+MessageType 0x96 0 1 # AuctionSummary: result of an auction (EU 4.15.2, p.30; spec 27 bytes)
+@size 26
+TimeOffset Binary 1 4 # Nanoseconds since the last unit timestamp
+Symbol Alphanumeric 5 8 # Right padded with spaces
+AuctionType Alphanumeric 13 1 # O opening, C closing, H halt, V volatility, P periodic, U Cboe Closing Cross
+Price BinaryLongPrice 14 8 # Auction price
+Shares Binary 22 4 # Cumulative shares executed in the auction
+
+### end
