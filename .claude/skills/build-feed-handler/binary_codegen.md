@@ -62,8 +62,11 @@ StockLocate Integer 1 2 # ...
 - A line starting with `#` is a comment and may appear anywhere, including inside
   a message.
 - The first row of each message is `MessageType <code> 0 1`, where the code is any
-  one character. A message without a type code (a bare request datagram) is
-  written `MessageType - 0 0` and can only appear in a `to_` section.
+  one character. A structure without a type code (a packet header such as
+  MoldUDP64's, or a bare request datagram) is written `MessageType - 0 0`: it gets a
+  struct (and an `encode` in a `to_` section) but is not part of `decode`, since
+  nothing identifies it; the packet reader reads it at the position the framing
+  gives.
 - Alignment and padding of text belong to its type. Where the specification pads
   some fields of one type differently (SoupBinTCP's session id is left padded,
   its username right padded), declare a second type name for them.

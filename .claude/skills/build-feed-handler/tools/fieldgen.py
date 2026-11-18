@@ -205,9 +205,7 @@ def parse(path):
             if not words:
                 err(ln, "the description of MessageType must start with the message name")
             if code == "-" and length == 0:
-                if sec.direction != "to":
-                    err(ln, "a message without a type code can only be sent, not decoded")
-                code = None
+                code = None            # a header or bare datagram: a struct, not in decode
             elif len(code) != 1 or length != 1:
                 err(ln, "a type code is one character of length 1, or '- 0 0' for none "
                     "(code %r, length %d)" % (code, length))
@@ -245,7 +243,8 @@ def check(t):
         if not re.match(r"^[a-z_0-9]+::(from|to)_%s(_[a-z0-9_]+)?$" % re.escape(t.venue), sec.ns):
             err(sec.line, "section %s is not <ns>::from_%s[_<layer>] or <ns>::to_%s[_<layer>]"
                 % (sec.ns, t.venue, t.venue))
-        if sec.direction == "from" and len({prefix_of(sec, m) for m in sec.messages}) > 1:
+        if sec.direction == "from" and len({prefix_of(sec, m) for m in sec.messages
+                                            if m.code is not None}) > 1:
             err(sec.line, "messages in %s differ in their length prefix, so a message cannot be "
                 "identified before it is decoded: put each framing in its own section" % sec.ns)
         codes = {}
@@ -453,7 +452,7 @@ def emit(t, out):
         w("namespace %s::%s\n{\n\n" % (ns[0], ns[1]))
         for m in sec.messages:
             emit_message(t, sec, m, w)
-        names = [m.name for m in sec.messages]
+        names = [m.name for m in sec.messages if m.code is not None]
         if names:
             w("using message_t = std::variant<%s>;\n\n" % ", ".join(names))
             if sec.direction == "from":
@@ -540,7 +539,8 @@ def emit_encode(t, m, p, w):
 
 
 def emit_decode(t, sec, w):
-    p = prefix_of(sec, sec.messages[0])
+    typed = [m for m in sec.messages if m.code is not None]
+    p = prefix_of(sec, typed[0])
     off = p[0] if p else 0
     w("""// One decoded message. When st is ok, msg holds it, size is the bytes it
 // occupies including any length prefix (the next message starts at
@@ -573,7 +573,7 @@ inline decoded decode(const char *buf, size_t len)
         w("  if (total > len)\n    return {status::incomplete, {}};\n")
         skip = "total"
     w("  switch (buf[%d])\n  {\n" % off)
-    for m in sec.messages:
+    for m in typed:
         tail = m.variable_tail is not None
         w("  case %s::type:\n  {\n" % m.name)
         if p:
