@@ -483,3 +483,7 @@ they reach the subscriber as Bust and Amend.
 | 12 | Trade identity: is `<match>.<reference>` unique for a day? A match is one buy and one sell order (p.5); the reference is unique per order (p.4) | yes | match number alone, which collides when both sides are on one port | Nasdaq, or a sample with both sides |
 | 13 | Requested Session and Requested Sequence Number padding (Soup p.7 does not say) | as Login Accepted: left padded with spaces | right padded | first live login |
 | 14 | Account: Source (the OUCH port's account) or Firm (the MPID)? | `account` = Source, `firm` = Firm | account = Firm | owner's decision |
+
+## Decisions (owner, 2026-11-18)
+
+All seven section-10 readings accepted as written: SoupBinTCP transport; lines accepted with or without CR/LF; a correction keeps the match and order reference with corrected shares and price; stop at End of Session; trade date from the config, else the Eastern date at login; account = Source, firm = MPID; 6-digit share cap and a single host.

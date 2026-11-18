@@ -738,3 +738,7 @@ mirrored hosts number messages identically. Not probed: no venue access
 | Symbol | The Kaspar asset name, at most 8 characters, sent as is. How Nasdaq writes share classes (`BRK.B`) in OUCH is not in the spec. | A per-asset OUCH symbol in the instrument definition. | Owner |
 | Other sessions on the same account | Not supported: their UserRefNums after this OM's login are not known to it, and Nasdaq ignores a lower one (OUCH 1.2). | UserRefIdx (tag 28) per session. | Owner |
 | Port rate limits | Not stated; `max_orders_per_sec` is local and must be set from the port's configuration. | none | Nasdaq |
+
+## Decisions (owner, 2026-11-18)
+
+All nine section-10 readings accepted as written: Account Query alone gives the next UserRefNum after a restart; US Eastern timestamps; unsigned 64-bit price; market orders allowed at any time; cross orders as Day with cross type O/C, extended hours as GTX, FOK refused; locate_id carries the locate broker code; first login asks for sequence 0; partial cancels by Nasdaq reported when the order ends; cancel-on-disconnect, rate limits, mirrored hosts and share-class symbology to be obtained from Nasdaq with a port.
