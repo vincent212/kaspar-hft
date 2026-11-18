@@ -176,6 +176,8 @@ Core trading actors: order book, SOM, BFA, timer, console.
 | File | Description |
 |------|-------------|
 | `act/SOM.hpp` | SOM actor — matches orders against OB in sim mode, routes to iLink in live mode |
+| `BrokerOrderBook.hpp` | Orders a broker order manager has in flight: day-unique client ids, every id an order used mapped to its SOM oid, the order state machine, unexpected reports returned as outcomes |
+| `TimedRunner.hpp` | Runs callbacks at given times on one worker thread; plays the broker's thread in simulated brokers |
 | `msg/Order.hpp` | New order message |
 | `msg/Cancel.hpp` | Cancel order message |
 | `msg/Fill.hpp` | Fill notification |
@@ -237,6 +239,7 @@ Core trading actors: order book, SOM, BFA, timer, console.
 |------|-------------|
 | `OB.cpp` | Order book implementation — price level management, matching |
 | `SOM.cpp` | SOM implementation — order matching, fill generation, position tracking |
+| `BrokerOrderBook.cpp` | BrokerOrderBook implementation |
 | `BFA_if.cpp` | BFA factory function |
 | `OB_if.cpp` | OB factory function |
 | `SOM_if.cpp` | SOM factory function |
