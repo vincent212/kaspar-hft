@@ -112,3 +112,12 @@ session qualifier (ITCH p.8); ITCH does not say in which states the book can be 
 - RPII still sent: it produces no record and decodes either way.
 - Broken Trade (known deviation): the book is unchanged (ITCH p.18); only volume is
   overstated by the broken size. No B in the Sample.
+
+## Decisions (owner, 2026-11-18)
+
+- 1: N is not in the snapshot; apply live messages from N; one numbering for both transports; boundary check logged (a)
+- 2: queue in spin order until a live spin is compared with a rebuilt book (a)
+- 3: Order Replace is delete + add at the back of the level (a); test on a sample day
+- 4: print every E, C-Y, P and Q, none for C-N, after checking Q against C-N shares on the sample (a)
+- 5: aggressor opposite to the resting order's side; P and Q get 0 (a)
+- 6: T -> 17 from System Event S to E, 21 before S, 4 after E (a)
