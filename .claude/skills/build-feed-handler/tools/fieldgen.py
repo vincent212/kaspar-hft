@@ -18,12 +18,19 @@ import sys
 INT_LENGTHS = (1, 2, 4, 8)
 KINDS = ("uint", "int", "char", "bytes")
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-CPP_RESERVED = {
-    "class", "delete", "default", "new", "operator", "private", "public", "register",
-    "struct", "switch", "template", "this", "union", "volatile", "namespace", "int",
-    "char", "long", "short", "signed", "unsigned", "float", "double", "auto", "case",
-    "const", "do", "else", "enum", "for", "goto", "if", "return", "static", "while",
-}
+CPP_RESERVED = set("""
+alignas alignof and and_eq asm auto bitand bitor bool break case catch char char8_t
+char16_t char32_t class compl concept const consteval constexpr constinit const_cast
+continue co_await co_return co_yield decltype default delete do double dynamic_cast
+else enum explicit export extern false float for friend goto if inline int long
+mutable namespace new noexcept not not_eq nullptr operator or or_eq private protected
+public register reinterpret_cast requires return short signed sizeof static
+static_assert static_cast struct switch template this thread_local throw true try
+typedef typeid typename union unsigned using virtual void volatile wchar_t while xor
+xor_eq
+""".split())
+# Names the generator gives to members it adds itself.
+GENERATED = {"type"}
 
 
 class TableError(Exception):
@@ -75,10 +82,17 @@ def err(line, msg):
     raise TableError("line %d: %s" % (line, msg))
 
 
+def num(s, line, what):
+    try:
+        return int(s)
+    except ValueError:
+        err(line, "%s %r is not a number" % (what, s))
+
+
 def parse_prefix(args, line):
     if len(args) != 2 or args[1] not in ("inclusive", "exclusive"):
         err(line, "@length_prefix takes <bytes> inclusive|exclusive")
-    n = int(args[0])
+    n = num(args[0], line, "prefix length")
     if n not in (1, 2, 4):
         err(line, "length prefix must be 1, 2 or 4 bytes")
     return (n, args[1])
@@ -89,6 +103,8 @@ def parse(path):
     sec = None
     msg = None
     for ln, raw in enumerate(open(path, encoding="utf-8"), 1):
+        if raw.lstrip().startswith("#") and not raw.startswith("###"):
+            continue                   # a comment line; does not end a message
         body, _, desc = raw.partition("#") if not raw.startswith("###") else (raw, "", "")
         body = body.strip()
         desc = desc.strip()
@@ -108,7 +124,11 @@ def parse(path):
         if body.startswith("@"):
             toks = body.split()
             d, args = toks[0], toks[1:]
+            if d in ("@venue", "@size") and len(args) != 1:
+                err(ln, "%s takes one argument" % d)
             if d == "@venue":
+                if not IDENT.match(args[0]) or args[0] in CPP_RESERVED:
+                    err(ln, "@venue %r is not a usable namespace name" % args[0])
                 t.venue = args[0]
             elif d == "@endian":
                 if args != ["little"] and args != ["big"]:
@@ -127,13 +147,16 @@ def parse(path):
                 if msg is not None:
                     msg.prefix = p
                 elif sec is not None:
+                    if sec.messages:
+                        err(ln, "a section-wide @length_prefix must come before the section's first "
+                            "message; for one message, put it right after its MessageType row")
                     sec.prefix = p
                 else:
                     err(ln, "@length_prefix outside a section")
             elif d == "@size":
                 if msg is None:
                     err(ln, "@size outside a message")
-                msg.size = int(args[0])
+                msg.size = num(args[0], ln, "@size")
             else:
                 err(ln, "unknown directive %s" % d)
             continue
@@ -143,7 +166,7 @@ def parse(path):
         if toks[0] == "MessageType":
             if len(toks) != 4:
                 err(ln, "MessageType <code> <offset> <length> # <MessageName> ...")
-            code, off, length = toks[1], int(toks[2]), int(toks[3])
+            code, off, length = toks[1], num(toks[2], ln, "offset"), num(toks[3], ln, "length")
             if msg is not None:
                 err(ln, "MessageType inside a message: separate messages with a blank line")
             words = desc.split()
@@ -166,9 +189,10 @@ def parse(path):
         if msg is None:
             err(ln, "field before MessageType")
         if len(toks) == 3 and toks[1] in t.types and t.types[toks[1]] == "bytes":
-            name, tname, off, length = toks[0], toks[1], int(toks[2]), None
+            name, tname, off, length = toks[0], toks[1], num(toks[2], ln, "offset"), None
         elif len(toks) == 4:
-            name, tname, off, length = toks[0], toks[1], int(toks[2]), int(toks[3])
+            name, tname, off, length = (toks[0], toks[1], num(toks[2], ln, "offset"),
+                                        num(toks[3], ln, "length"))
         else:
             err(ln, "expected <Name> <Type> <Offset> <Length> # <description>")
         if tname not in t.types:
@@ -184,6 +208,9 @@ def check(t):
         if not re.match(r"^[a-z_0-9]+::(from|to)_%s(_[a-z0-9_]+)?$" % re.escape(t.venue), sec.ns):
             err(sec.line, "section %s is not <ns>::from_%s[_<layer>] or <ns>::to_%s[_<layer>]"
                 % (sec.ns, t.venue, t.venue))
+        if sec.direction == "from" and len({prefix_of(sec, m) for m in sec.messages}) > 1:
+            err(sec.line, "messages in %s differ in their length prefix, so a message cannot be "
+                "identified before it is decoded: put each framing in its own section" % sec.ns)
         codes = {}
         names = set()
         for m in sec.messages:
@@ -200,8 +227,13 @@ def check(t):
             seen = set()
             pos = 0
             for i, f in enumerate(m.fields):
-                if not IDENT.match(f.name) or f.name in CPP_RESERVED:
+                if not IDENT.match(f.name) or f.name in CPP_RESERVED or f.name in GENERATED:
                     err(f.line, "field name %r is not a usable C++ identifier" % f.name)
+                if f.name == "MessageLength" and prefix_of(sec, m):
+                    err(f.line, "MessageLength is the name of the generated length prefix: this "
+                        "message has both; drop the row or the @length_prefix")
+                if f.name == "MessageType" and f.line != m.line:
+                    err(f.line, "MessageType is reserved for the type-code row")
                 if f.name in seen:
                     err(f.line, "field %s repeated" % f.name)
                 seen.add(f.name)
@@ -372,42 +404,27 @@ inline std::string_view get_str(const char (&src)[N])
                     w('  o << " %s=" << %s(m.%s);\n' % (f.name, cast, f.name))
             w("  return o;\n}\n\n")
             if sec.direction == "to":
-                w("// Fill the type and length of m and copy it to buf. Returns the bytes written.\n")
-                w("inline size_t encode(char *buf, %s m)\n{\n" % m.name)
+                tail = m.variable_tail is not None
+                w("// Fill the type and length of m and copy it to buf%s. Returns the bytes written.\n"
+                  % (", followed by %s" % m.variable_tail.name if tail else ""))
+                w("inline size_t encode(char *buf, %s m%s)\n{\n"
+                  % (m.name, ", std::string_view %s" % m.variable_tail.name if tail else ""))
+                total = "sizeof(m) + %s.size()" % m.variable_tail.name if tail else "sizeof(m)"
                 if m.code != "-":
                     w("  m.MessageType = %s::type;\n" % m.name)
                 if p:
-                    expr = "sizeof(m)" if p[1] == "inclusive" else "sizeof(m) - sizeof(m.MessageLength)"
+                    expr = total if p[1] == "inclusive" else "%s - sizeof(m.MessageLength)" % total
                     w("  m.MessageLength = uint%d_t(%s);\n" % (8 * p[0], expr))
-                w("  std::memcpy(buf, &m, sizeof(m));\n  return sizeof(m);\n}\n\n")
+                w("  std::memcpy(buf, &m, sizeof(m));\n")
+                if tail:
+                    w("  std::memcpy(buf + sizeof(m), %s.data(), %s.size());\n"
+                      % (m.variable_tail.name, m.variable_tail.name))
+                w("  return %s;\n}\n\n" % total)
         names = [m.name for m in sec.messages]
         if names:
             w("using message_t = std::variant<%s>;\n\n" % ", ".join(names))
-            prefixes = {prefix_of(sec, m) for m in sec.messages}
             if sec.direction == "from":
-                w("// Decode one message. buf points at the message (at its length prefix, if it\n")
-                w("// has one); len is the bytes available. Unknown types and short buffers\n")
-                w("// return nullopt. Bytes beyond the struct (newer versions) are ignored.\n")
-                w("inline std::optional<message_t> decode(const char *buf, size_t len)\n{\n")
-                if len(prefixes) == 1:
-                    p = prefixes.pop()
-                    off = p[0] if p else 0
-                    w("  if (len <= %d)\n    return std::nullopt;\n" % off)
-                    w("  switch (buf[%d])\n  {\n" % off)
-                    for m in sec.messages:
-                        w("  case %s::type:\n" % m.name)
-                        w("    if (len < sizeof(%s))\n      return std::nullopt;\n" % m.name)
-                        w("    { %s m; std::memcpy(&m, buf, sizeof(m)); return m; }\n" % m.name)
-                    w("  }\n  return std::nullopt;\n}\n\n")
-                else:
-                    w("  // Messages in this section differ in their length prefix: try each layout.\n")
-                    for m in sec.messages:
-                        p = prefix_of(sec, m)
-                        off = p[0] if p else 0
-                        w("  if (len > %d && buf[%d] == %s::type && len >= sizeof(%s))\n"
-                          % (off, off, m.name, m.name))
-                        w("  { %s m; std::memcpy(&m, buf, sizeof(m)); return m; }\n" % m.name)
-                    w("  return std::nullopt;\n}\n\n")
+                emit_decode(t, sec, w)
             w("inline const char *name(const message_t &m)\n{\n")
             w("  return std::visit([](const auto &x) -> const char * {\n")
             w("    using T = std::decay_t<decltype(x)>;\n")
@@ -418,13 +435,60 @@ inline std::string_view get_str(const char (&src)[N])
     w("} // namespace %s\n" % t.venue)
 
 
+def emit_decode(t, sec, w):
+    p = prefix_of(sec, sec.messages[0])
+    off = p[0] if p else 0
+    w("""// One decoded message. size is the bytes it occupies in the buffer, including any
+// length prefix: the next message starts at buf + size. tail and tail_len are the
+// variable-length field that follows the struct, for messages that have one.
+struct decoded
+{
+  message_t msg;
+  size_t size;
+  const char *tail;
+  size_t tail_len;
+};
+
+// Decode the message at buf (at its length prefix, if it has one); len is the bytes
+// available. Returns nullopt for an unknown type, a buffer shorter than the
+// message, or a length prefix shorter than the message's fixed part. A prefix
+// longer than the fixed part of a fixed-size message is accepted and the extra
+// bytes skipped (later protocol versions append fields).
+inline std::optional<decoded> decode(const char *buf, size_t len)
+{
+""")
+    w("  if (len <= %d)\n    return std::nullopt;\n" % off)
+    if p:
+        w("  %s prefix;\n  std::memcpy(&prefix, buf, sizeof(prefix));\n" % length_type(t, p[0]))
+        total = "size_t(uint%d_t(prefix))%s" % (8 * p[0], "" if p[1] == "inclusive" else " + %d" % p[0])
+        w("  const size_t total = %s;\n" % total)
+        w("  if (total > len)\n    return std::nullopt;\n")
+    w("  switch (buf[%d])\n  {\n" % off)
+    for m in sec.messages:
+        tail = m.variable_tail is not None
+        w("  case %s::type:\n  {\n" % m.name)
+        if p:
+            w("    if (total < sizeof(%s))\n      return std::nullopt;\n" % m.name)
+            size = "total"
+        else:
+            w("    if (len < sizeof(%s))\n      return std::nullopt;\n" % m.name)
+            size = "len" if tail else "sizeof(%s)" % m.name
+        w("    %s m;\n    std::memcpy(&m, buf, sizeof(m));\n" % m.name)
+        if tail:
+            w("    return decoded{m, %s, buf + sizeof(m), %s - sizeof(m)};\n" % (size, size))
+        else:
+            w("    return decoded{m, %s, nullptr, 0};\n" % size)
+        w("  }\n")
+    w("  }\n  return std::nullopt;\n}\n\n")
+
+
 def markdown(t, out):
     w = out.write
     for sec in t.sections:
-        w("## %s\n\n" % sec.ns)
+        w("### %s\n\n" % sec.ns)
         for m in sec.messages:
             p = prefix_of(sec, m)
-            w("### %s (type `%s`, %d bytes%s)\n\n" % (
+            w("#### %s (type `%s`, %d bytes%s)\n\n" % (
                 m.name, m.code, size_of(m),
                 ", %d-byte %s length prefix" % p if p else ""))
             w("| Field | Offset | Length | Type | Meaning |\n|---|---|---|---|---|\n")

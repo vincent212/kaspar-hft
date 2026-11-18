@@ -18,8 +18,9 @@ problems in kaspar-hft or m2 handlers.
 - Examples in the specification that contradict its tables: report both.
 - Two protocol layers in one table: session messages (login, heartbeat, the
   sequenced-data envelope) and the application messages they carry reuse type codes.
-  **(seen: a venue's logout request and order entry both use type `O`)** Put each
-  layer in its own section.
+  **(seen: a venue's logout request and order entry both use type `O`)** The layers
+  may also be framed differently (session packets with a length prefix, application
+  messages without). **(seen)** Put each layer in its own section.
 - Message names that repeat with different type codes (two variants of an add-order
   message). **(seen)** Give each a distinct name from the specification's wording.
 - A variable-length field at the end of a message (a block of nested messages): it

@@ -1,0 +1,54 @@
+# Field table: SoupBinTCP 3.0 (Nasdaq, public specification), the TCP session layer
+# that carries OUCH and Glimpse. Every packet is preceded by a 2-byte big-endian
+# length that counts the packet type and payload but not itself.
+@venue nasdaq
+@endian big
+@pad space
+@type Alpha char
+@type Numeric char
+@type Payload bytes
+
+### soup::from_nasdaq
+@length_prefix 2 exclusive
+
+MessageType + 0 1 # Debug: free-form text (SoupBinTCP 3.0, 2.1)
+Text Payload 1 # Printable text
+
+MessageType A 0 1 # LoginAccepted: login succeeded (2.2.1)
+@size 31
+Session Alpha 1 10 # Session the client is logged into, left-padded with spaces
+SequenceNumber Numeric 11 20 # Sequence number of the next sequenced message, ASCII, left-padded with spaces
+
+MessageType J 0 1 # LoginRejected: login failed; the server then closes the socket (2.2.2)
+@size 2
+RejectReasonCode Alpha 1 1 # A not authorized, S session not available
+
+MessageType S 0 1 # SequencedData: one message of the higher-level protocol (2.2.3)
+Message Payload 1 # Higher-level protocol message
+
+MessageType H 0 1 # ServerHeartbeat: sent after one second without other packets (2.2.4)
+@size 1
+
+MessageType Z 0 1 # EndOfSession: no more sequenced messages in this session (2.2.5)
+@size 1
+
+### soup::to_nasdaq
+@length_prefix 2 exclusive
+
+MessageType L 0 1 # LoginRequest: first packet of a connection (2.3.1)
+@size 47
+Username Alpha 1 6 # Username, right-padded with spaces
+Password Alpha 7 10 # Password, right-padded with spaces
+RequestedSession Alpha 17 10 # Session to log into; spaces for the currently active session
+RequestedSequenceNumber Numeric 27 20 # Next sequence number wanted, ASCII; 0 for the most recently generated message
+
+MessageType U 0 1 # UnsequencedData: one message of the higher-level protocol (2.3.2)
+Message Payload 1 # Higher-level protocol message
+
+MessageType R 0 1 # ClientHeartbeat: sent after one second without other packets (2.3.3)
+@size 1
+
+MessageType O 0 1 # LogoutRequest: ends the session (2.3.4)
+@size 1
+
+### end

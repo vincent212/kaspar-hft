@@ -86,8 +86,9 @@ and the later steps can be generated from it.
    throttles.
 3. **Framing.** Packet and message headers; length fields (and whether they include
    themselves); endianness; alignment; batching of messages in a packet.
-4. **Message catalogue.** One table per message, in the form already used by the m2
-   field tables: field, offset, length, type, meaning. Offsets are stated as 0-based.
+4. **Message catalogue.** One table per message: field, offset, length, type,
+   meaning, with 0-based offsets. For a fixed-offset protocol, generated from the
+   field table with `fieldgen.py --markdown`.
 5. **Sequencing and recovery.** Sequence-number scope (per channel, per instrument,
    per session); gap detection; the recovery mechanism (snapshot channel, request
    and retransmission, Glimpse-style snapshot, REST snapshot); the rule that aligns
@@ -100,9 +101,11 @@ and the later steps can be generated from it.
    produces.
 8. **Instruments.** Where instrument definitions come from; symbology; tick size,
    price and quantity scaling per instrument.
-9. **Ambiguities.** Every point where the specification is unclear or contradicts
-   itself, with the agent's reading and its alternatives. Each must be resolved by
-   the user or by sample data.
+9. **Pitfalls.** One line per item of the checklist: how it applies to this venue,
+   or why it does not.
+10. **Ambiguities.** Every point where the specification is unclear or contradicts
+    itself, with the agent's reading and its alternatives. Each must be resolved by
+    the user or by sample data.
 
 ## Decoders for fixed-offset binary protocols
 
@@ -113,17 +116,20 @@ length, description) with directives for venue, byte order, string padding, type
 mapping and length prefixes. `tools/fieldgen.py` checks the table (contiguous
 offsets, stated message sizes, integer widths, unique type codes per decoded section,
 identifiers) and generates one C++ header: packed structs with `static_assert`s on
-every size and offset, endian-converting integer types, `decode` into a
-`std::variant` with length checks, `encode` for sent messages, and printing. The
-table is rendered as markdown for the feed description, so the user reviews one
-artefact and the code follows from it.
+every size and offset, endian-converting integer types, a `decode` that checks the
+buffer and the length prefix and returns a `std::variant`, `encode` for sent
+messages, and printing. The table is rendered as markdown for the feed description,
+so the user reviews one artefact and the code follows from it.
 
 The generator replaces the per-venue `msg_gen.py` scripts of the m2 Fenics and
 Dealerweb handlers. Converted to the new format, the two m2 tables generate headers
 whose struct sizes and field offsets match the m2 headers in all 650 checks, apart
 from one message where the m2 header holds a variable-length payload as a pointer
-member. The check also found two errors in the m2 tables that the m2 scripts accept:
-a type code used by two layers in one section, and an undeclared type name.
+member. The checks found three problems in the m2 tables that the m2 scripts accept:
+session-layer and application-layer messages mixed in one section (in Fenics order
+entry two of them share a type code; in Dealerweb order entry and Glimpse they are
+framed differently), and an undeclared type name. The format is shown on two public
+Nasdaq specifications, TotalView-ITCH 5.0 and SoupBinTCP 3.0.
 Details are in `.claude/skills/build-feed-handler/binary_codegen.md`.
 
 ## Post-trade handlers
@@ -194,13 +200,15 @@ answer key.
 
 ```
 .claude/skills/build-feed-handler/
-  SKILL.md            the workflow, its stopping point and the rules
-  pitfalls.md         the checklist
-  feed_template.md    the feed description, with its fixed sections
-  binary_codegen.md   field tables and the generator, for fixed-offset protocols
-  post_trade.md       trade-capture and drop-copy handlers over FIX
-  tools/fieldgen.py   field-table checker and C++ generator
-  examples/itch50.tbl a field table for part of Nasdaq TotalView-ITCH 5.0
+  SKILL.md                 the workflow, its stopping point and the rules
+  pitfalls.md              the checklist
+  feed_template.md         the feed description, with its fixed sections
+  binary_codegen.md        field tables and the generator, for fixed-offset protocols
+  post_trade.md            trade-capture and drop-copy handlers over FIX
+  tools/fieldgen.py        field-table checker and C++ generator
+  tools/test_fieldgen.sh   generator tests: the examples, and tables it must reject
+  examples/itch50.tbl      part of Nasdaq TotalView-ITCH 5.0, with itch50_test.cpp
+  examples/soupbintcp.tbl  Nasdaq SoupBinTCP 3.0, with soupbintcp_test.cpp
 ```
 
 The skill runs in Claude Code in the user's checkout. It uses subagents for
