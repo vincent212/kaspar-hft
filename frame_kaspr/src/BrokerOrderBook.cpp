@@ -197,7 +197,13 @@ namespace frame::som
     if (e->state == State::Canceled)
       return {Outcome::Ok, e, qty, false};
     if (e->state == State::PendingReplace && e->cum >= e->qty)
-      return {Outcome::Ok, e, qty, false}; // beyond the old size: the replace decides
+    {
+      // Filled to or beyond the old size: what remains depends on the
+      // replace, so leaves is what is left under the new size until it is
+      // confirmed or rejected.
+      e->leaves = e->pending_qty - e->cum;
+      return {Outcome::Ok, e, qty, false};
+    }
     e->leaves = e->qty - e->cum;
     if (e->leaves == 0)
     {

@@ -321,6 +321,7 @@ TEST_F(BrokerOrderBookTest, FillAboveOldSizeDuringReplaceUp)
   EXPECT_EQ(f.outcome, Outcome::Ok);
   EXPECT_FALSE(f.done);
   EXPECT_EQ(f.entry->cum, 140);
+  EXPECT_EQ(f.entry->leaves, 60);
   auto ok = book.on_replaced(ncid);
   EXPECT_EQ(ok.outcome, Outcome::Ok);
   EXPECT_EQ(ok.entry->leaves, 60);
