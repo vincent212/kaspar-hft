@@ -73,6 +73,19 @@ StockLocate Integer 1 2 # ...
   decimal or `0x` hexadecimal (`MessageType 100 0 2`). The integer has the table's
   byte order. Where the message size precedes the type and counts itself, as in
   these feeds, it is an `@length_prefix ... inclusive`.
+- Where the specification counts a length field in its offsets (SoupBinTCP's own
+  tables, IEX's SNAP), copy its offsets as they are and declare
+  `@offset_base <first offset>` at the start of the section, rather than shifting
+  every offset by hand.
+- One message layer often arrives under two framings: ITCH inside MoldUDP64 blocks
+  (each message after a 2-byte length) and inside SoupBinTCP packets (no length).
+  Write the layer once, without a length prefix, and add
+  `@framed_decode <name> <bytes> inclusive|exclusive`; the generator then emits
+  `decode_<name>()` for the framed form besides `decode()`.
+- A layer that carries another layer's messages plus its own (GLIMPSE: the ITCH
+  messages and End of Snapshot) declares `@include <ns>::<section>` for the earlier
+  section and adds only its own messages; the included structs are aliased, not
+  copied, and its `decode` covers both.
 - Alignment and padding of text belong to its type. Where the specification pads
   some fields of one type differently (SoupBinTCP's session id is left padded,
   its username right padded), declare a second type name for them.
@@ -129,6 +142,7 @@ and compiles a table with type codes that need escaping.
 | non-numeric offsets, lengths and sizes; missing directive arguments | extraction debris |
 | repeated message or field name; keywords and the generator's own names | copy-paste rows; names the compiler would reject |
 | a repeated section | a section continued after a page break |
+| `@include` of an unknown, later or differently coded section; a type code in both the including and the included section; offsets below `@offset_base`; `@framed_decode` on a section that already has a length prefix | a misdeclared layer |
 | undeclared type names | a type the spec uses that was not mapped to a kind |
 | section names; a venue that is not a lower-case identifier | a section that does not say its direction and venue |
 

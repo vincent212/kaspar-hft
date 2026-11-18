@@ -55,7 +55,8 @@ class Field:
 
 
 class Message:
-    def __init__(self, code, name, desc, line):
+    def __init__(self, code, name, desc, line, sec=None):
+        self.sec = sec                # the section that defines it
         self.code = code              # one character, or None for a message without one
         self.name = name
         self.desc = desc
@@ -73,6 +74,10 @@ class Section:
         self.direction = "from" if "::from_" in ns else "to"
         self.prefix = None
         self.code_bytes = 0           # 0: one-character codes; 1, 2, 4: unsigned integer codes
+        self.offset_base = 0          # offsets in the table start at this number
+        self.framed = []              # extra decoders: (name, (bytes, inclusive|exclusive), line)
+        self.includes = []            # (section name, line) whose messages this one also decodes
+        self.included = []            # resolved: messages of included sections
         self.messages = []
 
 
@@ -193,6 +198,22 @@ def parse(path):
                     sec.code_bytes = int(args[1])
                 else:
                     err(ln, "@type_code char, or @type_code uint 1|2|4")
+            elif d == "@offset_base":
+                if sec is None or sec.messages:
+                    err(ln, "@offset_base goes at the start of a section, before its first message")
+                if len(args) != 1:
+                    err(ln, "@offset_base takes one number")
+                sec.offset_base = num(args[0], ln, "@offset_base")
+            elif d == "@framed_decode":
+                if sec is None or sec.direction != "from":
+                    err(ln, "@framed_decode belongs in a from_ section")
+                if len(args) != 3 or not IDENT.match(args[0]):
+                    err(ln, "@framed_decode <name> <bytes> inclusive|exclusive")
+                sec.framed.append((args[0], parse_prefix(args[1:], ln), ln))
+            elif d == "@include":
+                if sec is None or len(args) != 1:
+                    err(ln, "@include <ns>::<section> inside a section")
+                sec.includes.append((args[0], ln))
             elif d == "@size":
                 if msg is None:
                     err(ln, "@size outside a message")
@@ -228,9 +249,11 @@ def parse(path):
             elif len(code) != 1 or length != 1:
                 err(ln, "a type code is one character of length 1, '- 0 0' for none, or a "
                     "number in a section with @type_code uint (code %r, length %d)" % (code, length))
-            if off != 0:
-                err(ln, "MessageType must be at offset 0 (offsets exclude any length prefix)")
-            msg = Message(code, words[0], desc, ln)
+            if off != sec.offset_base:
+                err(ln, "MessageType must be at offset %d (the section's first offset; offsets "
+                    "exclude any length prefix unless @offset_base says otherwise)" % sec.offset_base)
+            off -= sec.offset_base
+            msg = Message(code, words[0], desc, ln, sec)
             sec.messages.append(msg)
             if code is not None and sec.code_bytes:
                 msg.fields.append(Field("MessageType", "code", {"kind": "uint", "align": "left",
@@ -252,6 +275,9 @@ def parse(path):
             err(ln, "expected <Name> <Type> <Offset> <Length> # <description>")
         if tname not in t.types:
             err(ln, "type %r not declared with @type" % tname)
+        if off < sec.offset_base:
+            err(ln, "offset %d is below the section's @offset_base %d" % (off, sec.offset_base))
+        off -= sec.offset_base
         ftype = dict(t.types[tname])
         if not ftype["explicit_pad"]:
             ftype["pad"] = t.pad
@@ -261,17 +287,45 @@ def parse(path):
     return t
 
 
+def typed_messages(sec):
+    """Messages decoded or encoded in sec: those it includes, then its own."""
+    return sec.included + [m for m in sec.messages if m.code is not None]
+
+
+def resolve_includes(t):
+    by_ns = {}
+    for sec in t.sections:
+        for name, ln in sec.includes:
+            src = by_ns.get(name)
+            if src is None:
+                err(ln, "@include %s: no earlier section of that name" % name)
+            if src.direction != sec.direction:
+                err(ln, "@include %s: it is a %s_ section, this is a %s_ section"
+                    % (name, src.direction, sec.direction))
+            if src.code_bytes != sec.code_bytes:
+                err(ln, "@include %s: its type codes differ in form from this section's" % name)
+            sec.included += [m for m in src.messages if m.code is not None]
+        by_ns[sec.ns] = sec
+
+
 def check(t):
+    resolve_includes(t)
     for sec in t.sections:
         if not re.match(r"^[a-z_0-9]+::(from|to)_%s(_[a-z0-9_]+)?$" % re.escape(t.venue), sec.ns):
             err(sec.line, "section %s is not <ns>::from_%s[_<layer>] or <ns>::to_%s[_<layer>]"
                 % (sec.ns, t.venue, t.venue))
-        if sec.direction == "from" and len({prefix_of(sec, m) for m in sec.messages
-                                            if m.code is not None}) > 1:
+        if sec.direction == "from" and len({prefix_of(m.sec, m) for m in typed_messages(sec)}) > 1:
             err(sec.line, "messages in %s differ in their length prefix, so a message cannot be "
                 "identified before it is decoded: put each framing in its own section" % sec.ns)
+        if sec.framed and any(prefix_of(m.sec, m) for m in typed_messages(sec)):
+            err(sec.framed[0][2], "@framed_decode adds a length prefix to a section that has one")
         codes = {}
         names = set()
+        for m in sec.included:
+            if m.code in codes:
+                err(sec.line, "%s includes type code %r twice" % (sec.ns, m.code))
+            codes[m.code] = m.line
+            names.add(m.name)
         for m in sec.messages:
             if not IDENT.match(m.name) or m.name in CPP_RESERVED or m.name in GENERATED_NAMES:
                 err(m.line, "message name %r is a C++ keyword or a name the generator uses "
@@ -303,7 +357,7 @@ def check(t):
                     seen.update(("set_" + f.name, "get_" + f.name))
                 if f.offset != pos:
                     err(f.line, "%s at offset %d, expected %d: a field is missing, or a length is wrong"
-                        % (f.name, f.offset, pos))
+                        % (f.name, f.offset + sec.offset_base, pos + sec.offset_base))
                 if f.length is None:
                     if i != len(m.fields) - 1:
                         err(f.line, "a variable-length field must be last")
@@ -473,9 +527,15 @@ def emit(t, out):
     for sec in t.sections:
         ns = sec.ns.split("::")
         w("namespace %s::%s\n{\n\n" % (ns[0], ns[1]))
+        for m in sec.included:
+            sns = m.sec.ns.split("::")
+            w("using %s = ::%s::%s::%s::%s; // from %s\n" % (m.name, t.venue, sns[0], sns[1], m.name,
+                                                         m.sec.ns))
+        if sec.included:
+            w("\n")
         for m in sec.messages:
             emit_message(t, sec, m, w)
-        names = [m.name for m in sec.messages if m.code is not None]
+        names = [m.name for m in typed_messages(sec)]
         if names:
             w("using message_t = std::variant<%s>;\n\n" % ", ".join(names))
             if sec.direction == "from":
@@ -564,8 +624,8 @@ def emit_encode(t, m, p, w):
 
 
 def emit_decode(t, sec, w):
-    typed = [m for m in sec.messages if m.code is not None]
-    p = prefix_of(sec, typed[0])
+    typed = typed_messages(sec)
+    p = prefix_of(typed[0].sec, typed[0])
     off = p[0] if p else 0
     w("""// One decoded message. When st is ok, msg holds it, size is the bytes it
 // occupies including any length prefix (the next message starts at
@@ -620,12 +680,32 @@ inline decoded decode(const char *buf, size_t len)
             w("    return {status::ok, m, %s};\n" % size)
         w("  }\n")
     w("  }\n  return {status::unknown, {}, %s};\n}\n\n" % skip)
+    for name, (n, kind), _ in sec.framed:
+        w("// Decode a message carried with a %d-byte %s length prefix in front (as when\n"
+          % (n, kind))
+        w("// this layer is framed by %s). size includes the prefix.\n" % name)
+        w("inline decoded decode_%s(const char *buf, size_t len)\n{\n" % name)
+        w("  if (len < %d)\n    return {status::incomplete, {}};\n" % n)
+        w("  %s prefix;\n  std::memcpy(&prefix, buf, sizeof(prefix));\n" % length_type(t, n))
+        w("  const size_t total = size_t(uint%d_t(prefix))%s;\n"
+          % (8 * n, "" if kind == "inclusive" else " + %d" % n))
+        w("  if (total < %d)\n    return {status::malformed, {}, total};\n" % (n + cb))
+        w("  if (total > len)\n    return {status::incomplete, {}};\n")
+        w("  decoded d = decode(buf + %d, total - %d);\n" % (n, n))
+        w("  if (d.st == status::incomplete)\n    return {status::malformed, {}, total};"
+          " // shorter than its message\n")
+        w("  d.size = total;\n  return d;\n}\n\n")
 
 
 def markdown(t, out):
     w = out.write
     for sec in t.sections:
         w("### %s\n\n" % sec.ns)
+        if sec.includes:
+            w("Also decodes the messages of %s.\n\n" % ", ".join("`%s`" % n for n, _ in sec.includes))
+        if sec.framed:
+            w("Also decoded with a length prefix in front: %s.\n\n" % ", ".join(
+                "`decode_%s` (%d-byte, %s)" % (n, p[0], p[1]) for n, p, _ in sec.framed))
         for m in sec.messages:
             p = prefix_of(sec, m)
             w("#### %s (type %s, %d bytes%s)\n\n" % (
@@ -638,7 +718,7 @@ def markdown(t, out):
                 if f.kind == "char" and f.length and f.length > 1 and f.align == "right":
                     tname += " (right-aligned)"
                 w("| %s | %d | %s | %s | %s |\n" % (
-                    f.name, f.offset, "var" if f.length is None else f.length, tname,
+                    f.name, f.offset + sec.offset_base, "var" if f.length is None else f.length, tname,
                     f.desc.replace("|", "\\|")))
             w("\n")
 

@@ -232,6 +232,84 @@ int main()
 C
 ${CXX:-c++} -std=c++20 -Wall -Wextra -Werror -I"$out" "$out/num.cpp" -o "$out/num" && "$out/num"
 
+reject "no earlier section" <<T
+$head
+### x::from_v
+@include y::from_v
+MessageType A 0 1 # M
+T
+reject "below the section's @offset_base" <<T
+$head
+### x::from_v
+@offset_base 2
+MessageType A 2 1 # M
+F I 1 4 # f
+T
+reject "already used" <<T
+$head
+### x::from_v
+MessageType A 0 1 # M
+### y::from_v
+@include x::from_v
+MessageType A 0 1 # N
+T
+
+# One message layer under two framings, and a snapshot layer that reuses it:
+# ITCH without a length (as in SoupBinTCP), decoded also with MoldUDP64's 2-byte
+# length; GLIMPSE = the ITCH messages plus End of Snapshot. The SoupBinTCP-style
+# section copies the spec's offsets, which count the 2-byte length field.
+cat > "$out/layers.tbl" <<'T'
+@venue lay
+@endian big
+@type I uint
+@type A char
+### itch::from_lay
+@framed_decode mold 2 exclusive
+MessageType A 0 1 # AddOrder
+Ref I 1 4 # r
+
+MessageType D 0 1 # DeleteOrder
+Ref I 1 4 # r
+### glimpse::from_lay
+@include itch::from_lay
+MessageType G 0 1 # EndOfSnapshot
+Seq A 1 20 # s
+### soup::from_lay
+@length_prefix 2 exclusive
+@offset_base 2
+MessageType S 2 1 # SequencedData
+Payload B 3 # p
+### end
+T
+sed -i.bak 's/^@type A char$/@type A char\
+@type B bytes/' "$out/layers.tbl"
+python3 "$gen" "$out/layers.tbl" -o "$out/layers.hpp"
+cat > "$out/layers.cpp" <<'C'
+#include "layers.hpp"
+#include <cassert>
+int main()
+{
+  using namespace lay;
+  unsigned char raw[] = {'A', 0, 0, 0, 7};
+  auto a = itch::from_lay::decode((const char *)raw, sizeof raw);
+  assert(a && a.size == 5 && std::get<itch::from_lay::AddOrder>(a.msg).Ref == 7u);
+  unsigned char framed[] = {0, 5, 'D', 0, 0, 0, 9, 0, 9, '?', 0, 0, 0, 0, 0, 0, 0, 0};
+  auto d = itch::from_lay::decode_mold((const char *)framed, sizeof framed);
+  assert(d && d.size == 7 && std::get<itch::from_lay::DeleteOrder>(d.msg).Ref == 9u);
+  auto u = itch::from_lay::decode_mold((const char *)framed + 7, sizeof framed - 7);
+  assert(u.st == status::unknown && u.size == 11);
+  unsigned char shortp[] = {0, 3, 'A', 0, 0};
+  assert(itch::from_lay::decode_mold((const char *)shortp, sizeof shortp).st == status::malformed);
+  auto g = glimpse::from_lay::decode((const char *)raw, sizeof raw);
+  assert(g && std::holds_alternative<itch::from_lay::AddOrder>(g.msg));
+  static_assert(std::is_same_v<glimpse::from_lay::AddOrder, itch::from_lay::AddOrder>);
+  static_assert(offsetof(soup::from_lay::SequencedData, MessageType) == 2);
+  return 0;
+}
+C
+${CXX:-c++} -std=c++20 -Wall -Wextra -Werror -I"$out" "$out/layers.cpp" -o "$out/layers" && "$out/layers"
+python3 "$gen" "$out/layers.tbl" --markdown | grep -q "Also decodes the messages of"
+
 # A comment line inside a message does not end it.
 cat > "$out/ok.tbl" <<T
 $head
