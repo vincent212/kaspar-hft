@@ -150,6 +150,20 @@ reset. The m2 clients write reports to MySQL; the Kaspar handler emits an actor
 message and has no database dependency. Details are in
 `.claude/skills/build-feed-handler/post_trade.md`.
 
+## Mapping to Kaspar records
+
+Handlers adapt to Kaspar, not the reverse: OB, TachBook and the L3 record format
+are not changed for a venue. A priority reset that OB would not infer is sent as a
+delete and an add of the same order; a trade's price travels in the print record
+(`l3_mbp_trd_t`) beside the order-level execution; a per-instrument clear is a
+channel-reset record sent to that instrument's book only; venue identifiers of any
+width map to Kaspar asset ids in the instrument loader; fractional quantities are
+scaled to whole units; `endOfEvent` follows the venue's transaction markers, or
+every record where there are none. What the records cannot express (NYSE keeping
+priority on a size increase) is recorded as a known deviation. The rules are in
+`.claude/skills/build-feed-handler/kaspar_mapping.md`; each venue needs only an
+`en::x` code appended to `exch_code.enum`.
+
 ## Order managers
 
 An order manager is a session (QuickFIX application, vendor SDK, or a TCP session
@@ -225,6 +239,7 @@ answer key.
   pitfalls.md              the checklist
   feed_template.md         the feed description, with its fixed sections
   binary_codegen.md        field tables and the generator, for fixed-offset protocols
+  kaspar_mapping.md        how venue semantics map onto Kaspar's L3 records
   order_entry.md           order managers for brokers and exchanges
   post_trade.md            trade-capture and drop-copy handlers over FIX
   tools/fieldgen.py        field-table checker and C++ generator

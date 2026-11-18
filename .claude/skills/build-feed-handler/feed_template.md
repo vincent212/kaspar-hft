@@ -37,6 +37,10 @@ Post-trade: report types, lifecycle, identifiers, replay.
 
 ## 7. Mapping to Kaspar
 
+By the rules in `kaspar_mapping.md`. State the priority translation, where trade
+prints come from, how order and instrument identifiers are made unique, the
+quantity unit, how `endOfEvent` is set, and the trading-status mapping.
+
 | Venue message | Kaspar record or message | Notes |
 |---|---|---|
 

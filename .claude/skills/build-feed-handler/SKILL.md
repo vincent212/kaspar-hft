@@ -8,7 +8,8 @@ description: Build a kaspar-hft market-data, order-entry or post-trade handler f
 Read `docs/FEED_HANDLER_AGENT.md` first. The output is always a set of Kaspar
 actors with a fixed contract:
 
-- **Market data:** normalized `bfile::l3_t` records (MBO new/change/delete, trades,
+- **Market data:** normalized `bfile::l3_t` records, mapped as `kaspar_mapping.md`
+  says (OB and the record format are not changed for a venue), (MBO new/change/delete, trades,
   end of packet, gap, channel reset) sent to OB as `frame::mda::msg::Data`.
   Price-level feeds go through `sim::Mbp2Mbo` (with `sim::LevelWindow` when the
   venue sends more levels than are kept, or whole books).
@@ -54,7 +55,9 @@ Read `actors/cpp/CLAUDE_AGENT_GUIDE.md` before writing any actor.
    (`binary_codegen.md`); FIX through the venue's QuickFIX dictionary
    (`post_trade.md`). Write a decoder by hand only for JSON and other self-describing
    encodings. Never edit generated code; fix its source and regenerate.
-6. **Write the actors** from the template: feed actor, sync/recovery, instrument
+6. **Write the actors** from the template, translating venue semantics into Kaspar
+   records by the rules in `kaspar_mapping.md` (priority resets, trade prints,
+   clears, identifiers, quantity units, event boundaries, trading status): feed actor, sync/recovery, instrument
    loader, configuration, Makefile entries.
 7. **Test:** unit tests from the specification's examples and from sample messages;
    replay with invariants; gap, duplicate and reset injection; comparison with a
