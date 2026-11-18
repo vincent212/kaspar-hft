@@ -70,6 +70,18 @@ TEST(ClientIdGen, RestartDoesNotReuseIds)
 }
 
 // The largest id of the day still fits a positive int64 (decimal ClOrdID).
+// Generators made back to back in one process never share a millisecond.
+TEST(ClientIdGen, FromClockNeverRepeatsInOneProcess)
+{
+  std::set<ClientId> ids;
+  for (int i = 0; i < 1000; ++i)
+  {
+    auto g = ClientIdGen::from_clock();
+    ids.insert(g.next());
+  }
+  EXPECT_EQ(ids.size(), 1000u);
+}
+
 TEST(ClientIdGen, FitsInSignedInt64)
 {
   ClientIdGen g(ClientIdGen::MS_PER_DAY - 1);
@@ -126,6 +138,19 @@ TEST_F(BrokerOrderBookTest, DuplicateAndInvalidAdd)
   place(4);
   EXPECT_EQ(book.add(order(4), nullptr).outcome, Outcome::Duplicate);
   EXPECT_EQ(book.add(order(5, 0), nullptr).outcome, Outcome::Invalid);
+}
+
+// Quantities are whole units: fractional and out-of-range sizes are refused.
+TEST_F(BrokerOrderBookTest, NonIntegerSizeIsInvalid)
+{
+  Order o = order(6);
+  o.sz = 0.5;
+  EXPECT_EQ(book.add(o, nullptr).outcome, Outcome::Invalid);
+  o.sz = 10.7;
+  EXPECT_EQ(book.add(o, nullptr).outcome, Outcome::Invalid);
+  o.sz = 3e9;
+  EXPECT_EQ(book.add(o, nullptr).outcome, Outcome::Invalid);
+  EXPECT_EQ(book.size(), 0u);
 }
 
 // ---- cancels ---------------------------------------------------------------
@@ -283,6 +308,118 @@ TEST_F(BrokerOrderBookTest, ReplaceBelowFilledIsInvalid)
   EXPECT_EQ(book.request_replace(23, 5, 15000).outcome, Outcome::Ok);
 }
 
+// The venue may fill against the new, larger size before the replace is
+// confirmed.
+TEST_F(BrokerOrderBookTest, FillAboveOldSizeDuringReplaceUp)
+{
+  auto cid = place(24, 100);
+  book.on_accepted(cid);
+  book.on_fill(cid, 90);
+  auto r = book.request_replace(24, 200, 15000);
+  auto ncid = r.entry->pending_cid;
+  auto f = book.on_fill(ncid, 50);
+  EXPECT_EQ(f.outcome, Outcome::Ok);
+  EXPECT_FALSE(f.done);
+  EXPECT_EQ(f.entry->cum, 140);
+  auto ok = book.on_replaced(ncid);
+  EXPECT_EQ(ok.outcome, Outcome::Ok);
+  EXPECT_EQ(ok.entry->leaves, 60);
+  EXPECT_EQ(book.on_fill(ncid, 61).outcome, Outcome::Invalid);
+}
+
+// Filled up to the old size while a replace up is in flight, then the replace
+// is rejected: the order is done at its old size.
+TEST_F(BrokerOrderBookTest, ReplaceUpRejectedAfterOldSizeFilled)
+{
+  auto cid = place(25, 10);
+  book.on_accepted(cid);
+  auto r = book.request_replace(25, 20, 15000);
+  EXPECT_FALSE(book.on_fill(cid, 10).done);
+  auto rr = book.on_replace_rejected(r.entry->pending_cid);
+  EXPECT_TRUE(rr.done);
+  EXPECT_EQ(rr.entry->state, State::Filled);
+}
+
+// Filled beyond the new size while a replace down is in flight: the order is
+// done, and the replace confirmation reports the overfill as Invalid.
+TEST_F(BrokerOrderBookTest, ReplaceDownBelowFillsInFlightIsInvalid)
+{
+  auto cid = place(26, 10);
+  book.on_accepted(cid);
+  auto r = book.request_replace(26, 6, 15000);
+  auto ncid = r.entry->pending_cid;
+  book.on_fill(cid, 8);
+  auto ok = book.on_replaced(ncid);
+  EXPECT_EQ(ok.outcome, Outcome::Invalid);
+  EXPECT_TRUE(ok.done);
+  EXPECT_EQ(ok.entry->state, State::Filled);
+  EXPECT_EQ(ok.entry->leaves, 0);
+}
+
+// ---- requests sent before the ack -----------------------------------------
+
+// A cancel sent before the ack, then the new order is rejected: the order is
+// finished as Rejected, not left live.
+TEST_F(BrokerOrderBookTest, RejectAfterCancelSentBeforeAck)
+{
+  auto cid = place(27);
+  book.request_cancel(27);
+  auto r = book.on_rejected(cid);
+  EXPECT_EQ(r.outcome, Outcome::Ok);
+  EXPECT_TRUE(r.done);
+  EXPECT_EQ(r.entry->state, State::Rejected);
+  EXPECT_EQ(r.entry->pending_cid, 0u);
+  EXPECT_EQ(book.live(), 0u);
+}
+
+TEST_F(BrokerOrderBookTest, RejectAfterReplaceSentBeforeAck)
+{
+  auto cid = place(28);
+  book.request_replace(28, 12, 15100);
+  auto r = book.on_rejected(cid);
+  EXPECT_TRUE(r.done);
+  EXPECT_EQ(r.entry->state, State::Rejected);
+}
+
+// A cancel or replace rejected before the ack leaves the order unacknowledged:
+// it can still be accepted or rejected.
+TEST_F(BrokerOrderBookTest, CancelOrReplaceRejectedBeforeAckStaysPendingNew)
+{
+  auto cid = place(29);
+  auto c = book.request_cancel(29);
+  EXPECT_EQ(book.on_cancel_rejected(c.entry->pending_cid).entry->state, State::PendingNew);
+  auto r = book.request_replace(29, 12, 15100);
+  EXPECT_EQ(book.on_replace_rejected(r.entry->pending_cid).entry->state, State::PendingNew);
+  EXPECT_EQ(book.on_rejected(cid).entry->state, State::Rejected);
+}
+
+// A reject on an order that was accepted is not a new-order reject.
+TEST_F(BrokerOrderBookTest, RejectOnAcceptedOrderIsInvalid)
+{
+  auto cid = place(31);
+  book.on_accepted(cid);
+  book.request_cancel(31);
+  auto r = book.on_rejected(cid);
+  EXPECT_EQ(r.outcome, Outcome::Invalid);
+  EXPECT_EQ(r.entry->state, State::PendingCancel);
+}
+
+// An earlier cancel's reject, resent or late, does not clear the cancel in
+// flight.
+TEST_F(BrokerOrderBookTest, StaleCancelRejectIsLate)
+{
+  auto cid = place(32);
+  book.on_accepted(cid);
+  auto c1 = book.request_cancel(32).entry->pending_cid;
+  book.on_cancel_rejected(c1);
+  auto c2 = book.request_cancel(32).entry->pending_cid;
+  auto stale = book.on_cancel_rejected(c1);
+  EXPECT_EQ(stale.outcome, Outcome::Late);
+  EXPECT_EQ(stale.entry->state, State::PendingCancel);
+  EXPECT_EQ(stale.entry->pending_cid, c2);
+  EXPECT_EQ(book.request_cancel(32).outcome, Outcome::Busy);
+}
+
 // ---- unknown and invalid input never aborts -------------------------------
 
 // Reports for ids we never issued: a restart with working orders, or an order
@@ -316,6 +453,18 @@ TEST_F(BrokerOrderBookTest, SendFailedNewOrderIsRejected)
   auto r = book.send_failed(cid);
   EXPECT_TRUE(r.done);
   EXPECT_EQ(r.entry->state, State::Rejected);
+}
+
+// Accepted without an exchange id (it is optional) and with no fills: a failed
+// cancel send still restores Working.
+TEST_F(BrokerOrderBookTest, SendFailedCancelWithoutExchangeIdRestoresWorking)
+{
+  auto cid = place(42);
+  book.on_accepted(cid);
+  auto c = book.request_cancel(42);
+  auto r = book.send_failed(c.entry->pending_cid);
+  EXPECT_EQ(r.entry->state, State::Working);
+  EXPECT_EQ(book.on_rejected(cid).outcome, Outcome::Invalid);
 }
 
 TEST_F(BrokerOrderBookTest, SendFailedCancelRestoresOrder)

@@ -48,7 +48,8 @@ SRC = test_cache_array.cpp \
       test_fast_send.cpp \
       test_order_fields.cpp \
       test_manager_unmanage.cpp \
-      test_broker_order_book.cpp
+      test_broker_order_book.cpp \
+      test_timed_runner.cpp
 
 APPNAM = run_tests
 

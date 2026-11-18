@@ -42,9 +42,12 @@ namespace frame::som
   using ClientId = uint64_t;
 
   // Client ids unique for a trading day: (milliseconds since midnight at
-  // process start) << 36 | counter. A restart starts from a later
-  // millisecond, so it never reuses an id; 2^36 orders per process run. The
-  // result fits in 63 bits, so it is also a valid positive decimal ClOrdID.
+  // creation) << 36 | counter; 2^36 orders per generator. A restart starts
+  // from a later millisecond, so it never reuses an id, and from_clock()
+  // never gives two generators in one process the same millisecond. Two
+  // processes sharing one broker session must not start in the same
+  // millisecond. The result fits in 63 bits, so it is also a valid positive
+  // decimal ClOrdID.
   class ClientIdGen
   {
   public:
@@ -54,7 +57,8 @@ namespace frame::som
     explicit ClientIdGen(uint64_t ms_since_midnight)
         : base_((ms_since_midnight % MS_PER_DAY) << COUNTER_BITS) {}
 
-    // Milliseconds since midnight UTC, now.
+    // Milliseconds since midnight UTC, now; later than any earlier
+    // from_clock() in this process.
     static ClientIdGen from_clock();
 
     ClientId next() { return base_ | (++n_ & ((1ULL << COUNTER_BITS) - 1)); }
@@ -89,6 +93,7 @@ namespace frame::som
     ClientId cid = 0;                // id the order is live under at the broker
     ClientId pending_cid = 0;        // id of the cancel or replace in flight, 0 = none
     State state = State::PendingNew;
+    bool accepted = false;           // the broker acknowledged (or filled) the order
     int qty = 0;    // total order quantity (changes on replace)
     int cum = 0;    // filled so far
     int leaves = 0; // qty - cum while live, 0 once done
@@ -104,7 +109,8 @@ namespace frame::som
     Duplicate, // add() with an oid already tracked
     Late,      // the order is already done; event ignored
     Busy,      // a cancel or replace is already in flight
-    Invalid,   // event does not fit the order (overfill, bad quantity)
+    Invalid,   // event does not fit the order (overfill, bad quantity, a
+               // reject on an accepted order); see each call for its effect
   };
   const char *to_string(Outcome o);
 
@@ -122,7 +128,9 @@ namespace frame::som
     explicit BrokerOrderBook(ClientIdGen gen) : gen_(gen) {}
 
     // --- requests we send -------------------------------------------------
-    // New order: assigns the order's client id (entry->cid).
+    // New order: assigns the order's client id (entry->cid). Quantities are
+    // whole units (shares, contracts, lots): a size that is not a positive
+    // integer is Invalid; a venue with fractional sizes scales them first.
     Result add(const frame::som::msg::Order &o, actors::Actor *sender);
 
     // Cancel: assigns entry->pending_cid (FIX needs a new ClOrdID for the

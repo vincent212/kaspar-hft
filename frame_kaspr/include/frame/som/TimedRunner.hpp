@@ -13,9 +13,11 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <queue>
+#include <stop_token>
 #include <thread>
 #include <vector>
 
@@ -29,7 +31,12 @@ namespace frame::som
     TimedRunner() : worker_([this](std::stop_token st) { run(st); }) {}
     ~TimedRunner()
     {
-      worker_.request_stop();
+      {
+        // Under the lock, so the worker cannot be between testing the stop
+        // flag and blocking when the notify arrives.
+        std::lock_guard<std::mutex> l(mu_);
+        worker_.request_stop();
+      }
       cv_.notify_all();
     }
 

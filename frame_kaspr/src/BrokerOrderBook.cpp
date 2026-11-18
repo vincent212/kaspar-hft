@@ -7,15 +7,26 @@
 
 #include "frame/som/BrokerOrderBook.hpp"
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <climits>
+#include <cmath>
 
 namespace frame::som
 {
   ClientIdGen ClientIdGen::from_clock()
   {
     using namespace std::chrono;
-    auto ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-    return ClientIdGen(uint64_t(ms) % MS_PER_DAY);
+    // Two generators made in the same millisecond would issue the same ids:
+    // each call takes a millisecond later than the previous one.
+    static std::atomic<uint64_t> last{0};
+    uint64_t ms = uint64_t(duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
+    uint64_t prev = last.load();
+    while (!last.compare_exchange_weak(prev, ms > prev ? ms : prev + 1))
+      ;
+    ms = ms > prev ? ms : prev + 1;
+    return ClientIdGen(ms % MS_PER_DAY);
   }
 
   const char *to_string(State s)
@@ -56,6 +67,20 @@ namespace frame::som
     return e == by_oid_.end() ? nullptr : &e->second;
   }
 
+  // The state an order returns to when its cancel or replace fails.
+  static State resting(const Entry &e)
+  {
+    return e.accepted ? State::Working : State::PendingNew;
+  }
+
+  // A cancel or replace report is about the request in flight if it carries
+  // the request's id, or the order's own id (APIs that cancel by it). Any
+  // other id is an earlier request's.
+  static bool current_request(const Entry &e, ClientId cid)
+  {
+    return cid == e.pending_cid || cid == e.cid;
+  }
+
   Result BrokerOrderBook::finish(Entry &e, State s)
   {
     e.state = s;
@@ -69,7 +94,7 @@ namespace frame::som
     auto it = by_oid_.find(o.oid);
     if (it != by_oid_.end())
       return {Outcome::Duplicate, &it->second};
-    if (o.sz <= 0)
+    if (!(o.sz > 0) || o.sz > INT_MAX || std::floor(o.sz) != o.sz)
       return {Outcome::Invalid, nullptr};
     Entry &e = by_oid_[o.oid];
     e.oid = o.oid;
@@ -129,7 +154,7 @@ namespace frame::som
     if (cid == e->pending_cid)
     {
       e->pending_cid = 0;
-      e->state = e->exch_oid || e->cum ? State::Working : State::PendingNew;
+      e->state = resting(*e);
       return {Outcome::Ok, e};
     }
     return {Outcome::Late, e};
@@ -144,6 +169,7 @@ namespace frame::som
       return {Outcome::Late, e};
     if (exch_oid)
       e->exch_oid = exch_oid;
+    e->accepted = true;
     if (e->state == State::PendingNew)
       e->state = State::Working;
     return {Outcome::Ok, e};
@@ -159,14 +185,19 @@ namespace frame::som
     if (qty <= 0)
       return {Outcome::Invalid, e, qty};
     // A fill that races a cancel ack can arrive after Canceled; it still
-    // happened, so it counts, but it cannot exceed what was ordered.
-    if (e->cum + qty > e->qty)
+    // happened, so it counts, but it cannot exceed what was ordered. While a
+    // replace is in flight the venue may fill against either quantity.
+    int limit = e->state == State::PendingReplace ? std::max(e->qty, e->pending_qty) : e->qty;
+    if (e->cum + qty > limit)
       return {Outcome::Invalid, e, qty};
     e->cum += qty;
+    e->accepted = true;
     if (e->state == State::PendingNew)
       e->state = State::Working;
     if (e->state == State::Canceled)
       return {Outcome::Ok, e, qty, false};
+    if (e->state == State::PendingReplace && e->cum >= e->qty)
+      return {Outcome::Ok, e, qty, false}; // beyond the old size: the replace decides
     e->leaves = e->qty - e->cum;
     if (e->leaves == 0)
     {
@@ -194,8 +225,10 @@ namespace frame::som
       return {Outcome::Unknown, nullptr};
     if (e->state != State::PendingCancel)
       return {is_done(e->state) ? Outcome::Late : Outcome::Invalid, e};
+    if (!current_request(*e, cid))
+      return {Outcome::Late, e}; // an earlier cancel's reject
     e->pending_cid = 0;
-    e->state = State::Working;
+    e->state = resting(*e);
     return {Outcome::Ok, e};
   }
 
@@ -213,10 +246,19 @@ namespace frame::som
     e->pending_cid = 0;
     e->qty = e->pending_qty;
     e->px = e->pending_px;
+    e->accepted = true;
     e->leaves = e->qty - e->cum;
     e->state = State::Working;
-    if (e->leaves <= 0)
+    if (e->leaves == 0)
       return finish(*e, State::Filled);
+    if (e->leaves < 0)
+    {
+      // Filled beyond the new size while the replace was in flight. The order
+      // is done; Invalid tells the order manager to report the overfill.
+      auto r = finish(*e, State::Filled);
+      r.outcome = Outcome::Invalid;
+      return r;
+    }
     return {Outcome::Ok, e};
   }
 
@@ -227,8 +269,13 @@ namespace frame::som
       return {Outcome::Unknown, nullptr};
     if (e->state != State::PendingReplace)
       return {is_done(e->state) ? Outcome::Late : Outcome::Invalid, e};
+    if (!current_request(*e, cid))
+      return {Outcome::Late, e}; // an earlier replace's reject
     e->pending_cid = 0;
-    e->state = State::Working;
+    e->state = resting(*e);
+    if (e->cum >= e->qty)
+      return finish(*e, State::Filled); // filled up to the old size meanwhile
+    e->leaves = e->qty - e->cum;
     return {Outcome::Ok, e};
   }
 
@@ -239,8 +286,11 @@ namespace frame::som
       return {Outcome::Unknown, nullptr};
     if (is_done(e->state))
       return {Outcome::Late, e};
-    if (e->state != State::PendingNew)
-      return {Outcome::Invalid, e}; // a reject for a live order is a cancel/replace reject
+    // A new order can be rejected until it is accepted, also after a cancel
+    // or replace was sent for it. A reject on an accepted order, or on a
+    // cancel's or replace's id, is a cancel/replace reject.
+    if (e->accepted || cid != e->cid)
+      return {Outcome::Invalid, e};
     return finish(*e, State::Rejected);
   }
 
