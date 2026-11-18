@@ -64,3 +64,7 @@ different units can overwrite each other in OB.
 | Reg SHO Action, Auction Update, Retail Price Improvement not sent | None changes the book or the prints |
 | Spin Request cross-reference error | Documentation only; the rules are under Spin Servers |
 | Instrument Definition Response counts an undefined message | Options only; the handler does not use the instrument spin |
+
+## Decisions (owner, 2026-11-18)
+
+- 1: orderID = venue Order Id, one handler per exchange, after checking the sample for ids live in two units; if any, handler-assigned ids (a)
