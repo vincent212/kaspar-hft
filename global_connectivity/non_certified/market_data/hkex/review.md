@@ -113,3 +113,12 @@ three sections below. No sample capture has been checked: HKEX publishes none.
   behaviour; the other codes are logged.
 - Quantities above 2^31 − 1 in `lastQty` and `sz`: logged and capped; not expected for
   board-lot orders.
+
+## Decisions (owner, 2026-11-18)
+
+- 1: buy a full-day OMD-C SF capture, including 09:00-09:30 and 16:00-16:10 (a)
+- 2: match on-book Trades to size reductions at their price in the same packet (a)
+- 3: keep the book during auctions, non-matching status, auction trades as prints, market orders kept out of OB (a)
+- 4: Sequence Reset clears that channel only (a)
+- 5: Sequence Reset is outside the sequence; next expected = 1 (a)
+- 6: fill the hole from the RTS within its limits, otherwise wait (a)

@@ -4,8 +4,8 @@ A handler expresses every venue's semantics in the existing L3 records
 (`chutil/include/bfile/r_l3.hpp`). OB, TachBook and the record format are not
 changed for a venue; where a venue does something the records cannot say, the
 handler translates it as below, and section 7 of the feed description states the
-translation. Anything that still cannot be expressed is recorded in section 10 as
-a known deviation.
+translation. Anything that still cannot be expressed is recorded under *Known
+deviations* in section 10 of the feed description.
 
 ## Records a handler sends
 
@@ -76,10 +76,12 @@ the order's place; a larger size or a new price sends it to the back of the queu
 
 ## Trading status
 
-OB treats `tradingStatus` 17 as the only state in which the book can be crossed
-without an error (CME's ReadyToTrade). The handler maps each venue state to the
-CME `SecurityTradingStatus` value with the same meaning (17 trading, 2 halted,
-21 pre-open, 4 closed, 18 not available), and section 7 lists the mapping.
+OB treats `tradingStatus` 17 (CME's ReadyToTrade) as the only matching state, and
+checks for a crossed book only while matching: in state 17 a crossed book is an
+error; in every other state (pre-open, halt, auction) the book may cross. The
+handler maps each venue state to the CME `SecurityTradingStatus` value with the
+same meaning (17 trading, 2 halted, 21 pre-open, 4 closed, 18 not available), and
+section 7 lists the mapping.
 
 ## Venue codes
 

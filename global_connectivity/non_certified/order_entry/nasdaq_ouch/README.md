@@ -30,8 +30,9 @@ Public, from nasdaqtrader.com; not in the repository.
 | `include/nasdaq_ouch/OuchSession.hpp` | Session interface: logon, enter, cancel, account query, logout; events back |
 | `include/nasdaq_ouch/SoupSession.hpp`, `src/SoupSession.cpp` | The real session: SoupBinTCP over TCP with Boost.Asio |
 | `include/nasdaq_ouch/SimOuch.hpp`, `src/SimOuch.cpp` | In-process simulated OUCH port on a `TimedRunner`: accepts, rejects configured symbols, fills after a delay in one or more executions, cancels, answers Account Query, replays on login |
-| `include/nasdaq_ouch/act/OuchOM.hpp`, `src/OuchOM.cpp` | The actor, its config and the factories `create_OuchOM` |
-| `include/nasdaq_ouch/OuchCodec.hpp`, `src/OuchCodec.cpp` | Optional Appendage (TagValue) building and lookup, reason texts, Eastern midnight |
+| `include/nasdaq_ouch/act/OuchOM.hpp`, `src/OuchOM.cpp` | The actor and its config |
+| `include/nasdaq_ouch/if/OuchOM.hpp` | The factories `create_OuchOM`; `nullptr` on a bad configuration |
+| `include/nasdaq_ouch/OuchCodec.hpp`, `src/OuchCodec.cpp` | Optional Appendage (TagValue) building and lookup, reason texts, Eastern midnight (from `post_trade/common`'s `EasternTime`, shared with the DROP client) |
 | `include/nasdaq_ouch/msg/OuchReport.hpp` | The message from the session thread to the actor |
 | `src/OuchConfig.cpp`, `config/ouch_example.ini` | Config file reading and checks; example config |
 | `tests/` | gtest: codec, actor against `FakeOuch`, actor against `SimOuch`, `SoupSession` against a loopback server |
@@ -40,10 +41,18 @@ Public, from nasdaqtrader.com; not in the repository.
 The OUCH and SoupBinTCP headers are generated into `build/include` from
 `ouch50.tbl` and `global_connectivity/non_certified/market_data/nasdaq/soupbintcp.tbl`; they are not committed.
 
+## Known duplication
+
+`SoupSession` here (Boost.Asio) and
+`post_trade/nasdaq/include/nasdaq_post_trade/SoupSession.hpp` (one thread,
+`poll`-based) are two SoupBinTCP 3.00 client implementations. A shared
+SoupBinTCP session, used by both, is planned; until then a SoupBinTCP fix
+must be applied to both.
+
 ## Use
 
 ```cpp
-#include "nasdaq_ouch/act/OuchOM.hpp"
+#include "nasdaq_ouch/if/OuchOM.hpp"
 
 // nullptr, with the reason on stderr, if the file is missing or bad.
 actors::Actor *om = create_OuchOM("/etc/kaspar/ouch.ini", som);
@@ -70,13 +79,15 @@ make syntax GXX=g++-15                  # g++ -fsyntax-only on every source
 make check                              # fieldgen --check on ouch50.tbl
 ```
 
-80 tests: encode of the 8 requests and decode of the 17 reports against the
+84 tests: encode of the 8 requests and decode of the 17 reports against the
 specification's offsets; the actor against the fake (logon and
-registration, order fields per type, side and time in force, local refusals
-and limits, ack, partial and full fills, rejects, cancel round trip, cancel
-reject, cancel pending, unsolicited and partial cancels, fill before ack,
-fill racing a cancel, fill after the cancel ack, busts, busy connection,
-reconnect with a missed fill delivered once, replay and duplicate match
-numbers, orders while disconnected, end of session, unknown reports, id
-uniqueness across a restart, shutdown with reports in flight); the actor
-against the simulator; the SoupBinTCP session against a loopback server.
+registration, config checks, order fields per type, side and time in force,
+local refusals and limits, ack, partial and full fills, rejects, cancel
+round trip, cancel reject, cancel pending, unsolicited and partial cancels,
+fills after a partial cancel, fill before ack, fill racing a cancel, fill
+after the cancel ack, busts, busy connection, reconnect with a missed fill
+delivered once, a cancel in flight when the link drops, replay and
+duplicate match numbers, orders while disconnected, end of session and its
+purge of done orders, unknown reports, id uniqueness across a restart,
+shutdown with reports in flight); the actor against the simulator; the
+SoupBinTCP session against a loopback server.

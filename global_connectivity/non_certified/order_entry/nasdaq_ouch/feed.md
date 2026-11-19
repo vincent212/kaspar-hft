@@ -81,7 +81,9 @@ symbols, and the certification process. They come from Nasdaq with the port.
   appendage "are both optional and will be absent unless this message results
   from the incoming message specifying non zero userRefIdx" (OUCH 3.4 p.14,
   3.5 p.14, 3.7 p.16, 3.8 p.16, 3.9 p.17, 3.10 p.17, 3.11 p.17, 3.12 p.18,
-  3.17 p.20). In the table both are one trailing field, `AppendageWithLength`.
+  3.17 p.20). In the table both are one trailing field, `AppendageWithLength`,
+  on every message from Nasdaq, so a report of another type (A, U, E, R, X, G,
+  K) that arrives without them decodes too, with an empty tail.
   On X, M and Q to Nasdaq they "are optional" (OUCH 2.3 p.7, 2.4 p.8, 2.8
   p.10); OuchOM always sends Appendage Length 0.
 - **Batching**: none at the OUCH layer; several SoupBinTCP packets can arrive in
@@ -219,8 +221,7 @@ Offsets are 0-based from the type byte.
 | CrossType | 46 | 1 | Alpha | As entered |
 | OrderState | 47 | 1 | Alpha | L live, D dead (accepted and automatically canceled; nothing further follows) |
 | ClOrdID | 48 | 14 | Alpha | Customer order identifier |
-| AppendageLength | 62 | 2 | Integer | Length of the Optional Appendage that follows |
-| OptionalAppendage | 64 | var | TagValue | TagValue elements (Appendix A) |
+| AppendageWithLength | 62 | var | TagValue | Appendage Length (62, 2) and Optional Appendage (64); TagValue elements (Appendix A) |
 
 #### OrderReplaced (type `U`, 68 bytes)
 
@@ -242,8 +243,7 @@ Offsets are 0-based from the type byte.
 | CrossType | 50 | 1 | Alpha | As entered |
 | OrderState | 51 | 1 | Alpha | L live, D dead |
 | ClOrdID | 52 | 14 | Alpha | Customer order identifier for the replacement |
-| AppendageLength | 66 | 2 | Numeric | Length of the Optional Appendage that follows |
-| OptionalAppendage | 68 | var | Options | TagValue elements (Appendix A) |
+| AppendageWithLength | 66 | var | TagValue | Appendage Length (66, 2) and Optional Appendage (68); TagValue elements (Appendix A) |
 
 #### OrderCanceled (type `C`, 18 bytes)
 
@@ -282,8 +282,7 @@ Offsets are 0-based from the type byte.
 | Price | 17 | 8 | Price | Execution price |
 | LiquidityFlag | 25 | 1 | Alpha | Appendix D (the text says Appendix E) |
 | MatchNumber | 26 | 8 | Numeric | Trade id; shared by the buy and the sell execution |
-| AppendageLength | 34 | 2 | Numeric | Length of the Optional Appendage that follows |
-| OptionalAppendage | 36 | var | TagValue | UserRefIdx |
+| AppendageWithLength | 34 | var | TagValue | Appendage Length (34, 2) and Optional Appendage (36); UserRefIdx |
 
 #### BrokenTrade (type `B`, 36 bytes)
 
@@ -357,8 +356,7 @@ Offsets are 0-based from the type byte.
 | Timestamp | 1 | 8 | Timestamp | Nanoseconds since midnight |
 | UserRefNum | 9 | 4 | UserRefNum | UserRefNum of the order |
 | Reason | 13 | 1 | Alpha | R refresh of display (reserves), P update of displayed price |
-| AppendageLength | 14 | 2 | Numeric | Length of the Optional Appendage that follows |
-| OptionalAppendage | 16 | var | Options | Display Quantity, Display Price, SecondaryOrdRefNum, UserRefIdx |
+| AppendageWithLength | 14 | var | TagValue | Appendage Length (14, 2) and Optional Appendage (16); Display Quantity, Display Price, SecondaryOrdRefNum, UserRefIdx |
 
 #### MassCancelResponse (type `X`, 27 bytes)
 
@@ -369,8 +367,7 @@ Offsets are 0-based from the type byte.
 | UserRefNum | 9 | 4 | UserRefNum | UserRefNum of the request |
 | Firm | 13 | 4 | Alpha | Firm identifier |
 | Symbol | 17 | 8 | Alpha | Spaces if not specified |
-| AppendageLength | 25 | 2 | Integer | 0 if no appendage follows |
-| OptionalAppendage | 27 | var | TagValue | Side, Group ID, UserRefIdx |
+| AppendageWithLength | 25 | var | TagValue | Appendage Length (25, 2) and Optional Appendage (27); Side, Group ID, UserRefIdx |
 
 #### DisableOrderEntryResponse (type `G`, 19 bytes)
 
@@ -380,8 +377,7 @@ Offsets are 0-based from the type byte.
 | Timestamp | 1 | 8 | Timestamp | Nanoseconds since midnight |
 | UserRefNum | 9 | 4 | UserRefNum | UserRefNum of the request |
 | Firm | 13 | 4 | Alpha | Firm identifier |
-| AppendageLength | 17 | 2 | Integer | Length of the Optional Appendage that follows |
-| OptionalAppendage | 19 | var | TagValue | UserRefIdx |
+| AppendageWithLength | 17 | var | TagValue | Appendage Length (17, 2) and Optional Appendage (19); UserRefIdx |
 
 #### EnableOrderEntryResponse (type `K`, 19 bytes)
 
@@ -391,8 +387,7 @@ Offsets are 0-based from the type byte.
 | Timestamp | 1 | 8 | Timestamp | Nanoseconds since midnight |
 | UserRefNum | 9 | 4 | UserRefNum | UserRefNum of the request |
 | Firm | 13 | 4 | Alpha | Firm identifier |
-| AppendageLength | 17 | 2 | Integer | Length of the Optional Appendage that follows |
-| OptionalAppendage | 19 | var | TagValue | UserRefIdx |
+| AppendageWithLength | 17 | var | TagValue | Appendage Length (17, 2) and Optional Appendage (19); UserRefIdx |
 
 #### AccountQueryResponse (type `Q`, 13 bytes)
 
@@ -734,7 +729,7 @@ mirrored hosts number messages identically. Not probed: no venue access
 | Cancel-on-disconnect | Not in OUCH 5.0. Orders may stay live while OuchOM is down; their reports arrive in the replay. | Port configured to cancel on disconnect: the cancels arrive in the replay as `C`. | Port configuration with Nasdaq |
 | Appendix references in the message tables | The appendix titles: options A, cancel reasons B, reject reasons C, liquidity flags D. The tables say B, C, D and E (e.g. pp.5, 14, 16). | none | Spec error |
 | Order Restated's table title "Best Bid OR Ask Update Message" (pp.18-19) | Type `R`, Order Restated, per section 3.13's heading and the type row. | none | Spec error |
-| Appendage Length on A, U, E, R, X, G, K (not marked optional) | Always present. If one arrives two bytes short, OuchOM reads the length as 0 rather than drop the report (test `ReportWithoutAppendageLengthIsStillApplied`). | Treat it as malformed. | Nasdaq test environment |
+| Appendage Length on A, U, E, R, X, G, K (not marked optional) | Always present. The table takes it with the appendage as one trailing field, so a report that arrives without it still decodes (test `ReportWithoutAppendageLengthIsStillApplied`). | Treat it as malformed. | Nasdaq test environment |
 | Symbol | The Kaspar asset name, at most 8 characters, sent as is. How Nasdaq writes share classes (`BRK.B`) in OUCH is not in the spec. | A per-asset OUCH symbol in the instrument definition. | Owner |
 | Other sessions on the same account | Not supported: their UserRefNums after this OM's login are not known to it, and Nasdaq ignores a lower one (OUCH 1.2). | UserRefIdx (tag 28) per session. | Owner |
 | Port rate limits | Not stated; `max_orders_per_sec` is local and must be set from the port's configuration. | none | Nasdaq |

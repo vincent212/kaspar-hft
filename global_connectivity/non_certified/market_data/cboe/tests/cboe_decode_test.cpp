@@ -6,26 +6,14 @@
 //   python3 fieldgen.py global_connectivity/non_certified/market_data/cboe/pitch_us.tbl -o $OUT/pitch_us.hpp
 //   c++ -std=c++20 -Wall -Wextra -Werror -I$OUT cboe_decode_test.cpp
 #include "pitch_us.hpp"
-#include <cassert>
+#include "../../test_support.hpp"
 #include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
 
-using bytes = std::vector<unsigned char>;
+using namespace test_support;
 namespace pitch = cboe::pitch::from_cboe;
-
-static int checks = 0;
-#define CHECK(c)                                                                                   \
-  do                                                                                               \
-  {                                                                                                \
-    ++checks;                                                                                      \
-    if (!(c))                                                                                      \
-    {                                                                                              \
-      std::cerr << __FILE__ << ":" << __LINE__ << ": CHECK failed: " #c "\n";                      \
-      std::abort();                                                                                \
-    }                                                                                              \
-  } while (0)
 
 static bytes cat(std::initializer_list<bytes> parts)
 {
@@ -53,11 +41,7 @@ static std::string base36(uint64_t v, size_t width = 0)
 template <typename M>
 static M one(const bytes &b, size_t expect_size)
 {
-  auto d = pitch::decode(reinterpret_cast<const char *>(b.data()), b.size());
-  CHECK(d);
-  CHECK(d.size == expect_size);
-  CHECK(std::holds_alternative<M>(d.msg));
-  return std::get<M>(d.msg);
+  return decode_as<M>(pitch::decode, cp(b), b.size(), expect_size);
 }
 
 // Fields shared by the order examples.
@@ -85,7 +69,7 @@ static void sequenced_unit_with_two_messages()
 
   // Walk the HdrCount messages by size; the implied sequence of each is
   // HdrSequence + index.
-  const char *p = reinterpret_cast<const char *>(pkt.data()) + sizeof h;
+  const char *p = cp(pkt) + sizeof h;
   size_t left = h.HdrLength - sizeof h;
   std::vector<std::string> names;
   for (unsigned i = 0; i < h.HdrCount; ++i)
@@ -122,12 +106,12 @@ static void time_messages()
 
   // US, Time Message Example: 6 bytes (BYX, EDGA).
   bytes t6 = {0x06, 0x20, 0x98, 0x85, 0x00, 0x00};
-  auto d6 = pitch::decode(reinterpret_cast<const char *>(t6.data()), t6.size());
+  auto d6 = pitch::decode(cp(t6), t6.size());
   CHECK(d6 && d6.size == 6 && d6.tail_len == 0 && std::get<pitch::TimeMessage>(d6.msg).Time == 34200u);
 
   // US, Time Message Example (BZX/EDGX): 10 bytes, Epoch Time in the tail.
   bytes t10 = {0x0A, 0x20, 0x98, 0x85, 0x00, 0x00, 0x68, 0x11, 0x35, 0x60};
-  auto d10 = pitch::decode(reinterpret_cast<const char *>(t10.data()), t10.size());
+  auto d10 = pitch::decode(cp(t10), t10.size());
   CHECK(d10 && d10.size == 10 && d10.tail_len == 4);
   uint32_t epoch;
   std::memcpy(&epoch, d10.tail, 4);
@@ -254,7 +238,7 @@ static void unknown_and_partial()
 {
   // Transaction Begin (options only, not tabled): unknown, skipped by its length.
   bytes tb = cat({{0x06, 0xBC}, TO_447000});
-  auto u = pitch::decode(reinterpret_cast<const char *>(tb.data()), tb.size());
+  auto u = pitch::decode(cp(tb), tb.size());
   CHECK(u.st == cboe::status::unknown && u.size == 6);
   // Trading Status in its options layout has the same code and length as the
   // equities one: it decodes, with the options fields in the wrong places.
@@ -262,11 +246,11 @@ static void unknown_and_partial()
   // Descriptions), so the handler must know which it reads.
   // A length shorter than the fixed part is malformed and gives the size to skip.
   bytes shortdel = cat({{0x0D, 0x29}, TO_447000, ORDER_ID});
-  auto m = pitch::decode(reinterpret_cast<const char *>(shortdel.data()), shortdel.size());
+  auto m = pitch::decode(cp(shortdel), shortdel.size());
   CHECK(m.st == cboe::status::malformed && m.size == 13);
   // A buffer that ends inside a message is incomplete.
   bytes del = cat({{0x0E, 0x29}, TO_447000, ORDER_ID});
-  CHECK(pitch::decode(reinterpret_cast<const char *>(del.data()), 10).st == cboe::status::incomplete);
+  CHECK(pitch::decode(cp(del), 10).st == cboe::status::incomplete);
 }
 
 static void gap_request_proxy()
@@ -301,10 +285,10 @@ static void gap_request_proxy()
 
   // US, Login Response and Gap Response Message Examples.
   const bytes lr = {0x03, 0x02, 0x41};
-  auto d = from::decode(reinterpret_cast<const char *>(lr.data()), lr.size());
+  auto d = from::decode(cp(lr), lr.size());
   CHECK(d && d.size == 3 && std::get<from::LoginResponse>(d.msg).Status == 'A');
   const bytes gr = {0x0A, 0x04, 0x01, 0x3B, 0x10, 0x00, 0x00, 0x32, 0x00, 0x41};
-  auto e = from::decode(reinterpret_cast<const char *>(gr.data()), gr.size());
+  auto e = from::decode(cp(gr), gr.size());
   CHECK(e && e.size == 10);
   const auto &r = std::get<from::GapResponse>(e.msg);
   CHECK(r.Unit == 1 && r.Sequence == 4155u && r.Count == 50 && r.Status == 'A');
@@ -343,7 +327,7 @@ static void spin_server()
 
   // Read the stream as a client would: header, then HdrCount messages, each
   // tried against the spin layer and then the PITCH layer.
-  const char *p = reinterpret_cast<const char *>(stream.data());
+  const char *p = cp(stream);
   const char *end = p + stream.size();
   std::vector<std::string> seen;
   uint32_t order_count = 0, add_count = 0;

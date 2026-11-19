@@ -10,6 +10,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include "post_trade/EasternTime.hpp"
+
 namespace nasdaq_post_trade
 {
   namespace
@@ -32,40 +34,6 @@ namespace nasdaq_post_trade
 
     // Byte offsets of the commas: every Sep<offset> member of Line.
     constexpr size_t COMMAS[] = {9, 11, 18, 34, 45, 47, 54, 63, 75, 80, 93, 106, 108, 110, 112, 124};
-
-    // days since 1970-01-01 of a civil date (H. Hinnant's algorithm)
-    int64_t days_from_civil(int64_t y, unsigned m, unsigned d)
-    {
-      y -= m <= 2;
-      const int64_t era = (y >= 0 ? y : y - 399) / 400;
-      const unsigned yoe = unsigned(y - era * 400);
-      const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-      const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-      return era * 146097 + int64_t(doe) - 719468;
-    }
-
-    void civil_from_days(int64_t z, int64_t &y, unsigned &m, unsigned &d)
-    {
-      z += 719468;
-      const int64_t era = (z >= 0 ? z : z - 146096) / 146097;
-      const unsigned doe = unsigned(z - era * 146097);
-      const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-      y = int64_t(yoe) + era * 400;
-      const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-      const unsigned mp = (5 * doy + 2) / 153;
-      d = doy - (153 * mp + 2) / 5 + 1;
-      m = mp < 10 ? mp + 3 : mp - 9;
-      y += m <= 2;
-    }
-
-    // day of month of the n-th Sunday (n >= 1) of a month
-    unsigned nth_sunday(int64_t y, unsigned m, unsigned n)
-    {
-      const int64_t first = days_from_civil(y, m, 1);
-      const unsigned wd = unsigned((first % 7 + 7 + 4) % 7); // 1970-01-01 was a Thursday (4)
-      const unsigned first_sunday = 1 + (7 - wd) % 7;
-      return first_sunday + 7 * (n - 1);
-    }
   }
 
   bool parse_uint(std::string_view s, uint64_t &v)
@@ -255,19 +223,5 @@ namespace nasdaq_post_trade
     return t;
   }
 
-  uint32_t eastern_date(int64_t utc_seconds)
-  {
-    const int64_t days = (utc_seconds >= 0 ? utc_seconds : utc_seconds - 86399) / 86400;
-    int64_t y;
-    unsigned m, d;
-    civil_from_days(days, y, m, d);
-    // DST from 02:00 EST on the second Sunday of March (07:00 UTC) to 02:00
-    // EDT on the first Sunday of November (06:00 UTC).
-    const int64_t start = days_from_civil(y, 3, nth_sunday(y, 3, 2)) * 86400 + 7 * 3600;
-    const int64_t end = days_from_civil(y, 11, nth_sunday(y, 11, 1)) * 86400 + 6 * 3600;
-    const int64_t offset = (utc_seconds >= start && utc_seconds < end) ? -4 * 3600 : -5 * 3600;
-    const int64_t local = utc_seconds + offset;
-    civil_from_days((local >= 0 ? local : local - 86399) / 86400, y, m, d);
-    return uint32_t(y * 10000 + m * 100 + d);
-  }
+  uint32_t eastern_date(int64_t utc_seconds) { return post_trade::eastern_time::date(utc_seconds); }
 }
