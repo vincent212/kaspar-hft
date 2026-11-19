@@ -1,4 +1,4 @@
-# global_connectivity: venue handlers in development
+# global_connectivity: other venues, in development
 
 **Nothing in this directory is working connectivity.** None of it has connected to
 a venue, run in production, run in a development environment on a venue's live
@@ -12,7 +12,7 @@ design in `docs/FEED_HANDLER_AGENT.md`) from each venue's public specification.
 
 | Directory | Status |
 |---|---|
-| [`non_certified/`](non_certified/) | Everything today. Specifications read and checked, decoders generated, handlers in progress. Not for use against a venue. |
+| [`non_certified/`](non_certified/) | Everything today: market-data specifications for seven venues extracted and checked, decoders generated and tested. Not for use against a venue. |
 | [`certified/`](certified/) | Empty. A venue moves here only when it meets the criteria in [`certified/README.md`](certified/README.md). |
 
 Each venue directory states, in its own README, exactly what has been done and

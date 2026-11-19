@@ -9,6 +9,8 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <climits>
 #include <set>
 
 #include "frame/som/BrokerOrderBook.hpp"
@@ -31,7 +33,7 @@ namespace
   class BrokerOrderBookTest : public ::testing::Test
   {
   protected:
-    BrokerOrderBook book{ClientIdGen(34'200'000)}; // 09:30:00.000
+    BrokerOrderBook book{ClientIdGen(34'200'000)}; // 2026-01-01 09:30:00.000 UTC
     ClientId place(int oid, int sz = 10)
     {
       auto r = book.add(order(oid, sz), nullptr);
@@ -84,8 +86,56 @@ TEST(ClientIdGen, FromClockNeverRepeatsInOneProcess)
 
 TEST(ClientIdGen, FitsInSignedInt64)
 {
-  ClientIdGen g(ClientIdGen::MS_PER_DAY - 1);
-  EXPECT_LT(g.next(), uint64_t(INT64_MAX));
+  ClientIdGen g((1ULL << ClientIdGen::MS_BITS) - 1); // the last slot (late 2060)
+  for (int i = 0; i < 10; ++i)
+    EXPECT_LT(g.next(), uint64_t(INT64_MAX));
+  EXPECT_LT(ClientIdGen::from_clock().next(), uint64_t(INT64_MAX));
+}
+
+// A restart that crosses 00:00 UTC (a trading day that spans it) still issues
+// larger ids than the run before it.
+TEST(ClientIdGen, RestartAcrossUtcMidnightIssuesLargerIds)
+{
+  const uint64_t midnight = 100 * ClientIdGen::MS_PER_DAY;
+  ClientIdGen before(midnight - 1), after(midnight + 1);
+  ClientId max_before = 0;
+  for (int i = 0; i < 1000; ++i)
+    max_before = std::max(max_before, before.next());
+  for (int i = 0; i < 1000; ++i)
+    EXPECT_GT(after.next(), max_before);
+}
+
+// from_clock() never hands out a slot later than the wall clock, however
+// many generators are made at once, so a process started later starts above
+// every id of this one.
+TEST(ClientIdGen, FromClockNeverAheadOfWallClock)
+{
+  using namespace std::chrono;
+  for (int i = 0; i < 50; ++i)
+  {
+    auto id = ClientIdGen::from_clock().next();
+    uint64_t now = uint64_t(duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()) -
+                   ClientIdGen::EPOCH_UNIX_MS;
+    EXPECT_LE(id >> ClientIdGen::COUNTER_BITS, now);
+  }
+}
+
+// A generator that uses up its counter moves to a later slot: ids stay unique
+// and increasing.
+TEST(ClientIdGen, CounterExhaustionKeepsIdsIncreasing)
+{
+  for (auto g : {ClientIdGen(5000), ClientIdGen::from_clock()})
+  {
+    ClientId prev = 0;
+    bool increasing = true;
+    for (uint64_t i = 0; i < ClientIdGen::COUNTER_MAX + 10; ++i)
+    {
+      auto id = g.next();
+      increasing = increasing && id > prev;
+      prev = id;
+    }
+    EXPECT_TRUE(increasing);
+  }
 }
 
 // ---- lifecycle --------------------------------------------------------------
@@ -246,6 +296,73 @@ TEST_F(BrokerOrderBookTest, FillAfterCancelAckStillCounts)
   EXPECT_EQ(f.entry->state, State::Canceled);
 }
 
+// A late Canceled on the id the order was replaced away from is not about the
+// live order: it does not finish it.
+TEST_F(BrokerOrderBookTest, CancelOnReplacedAwayIdIsLate)
+{
+  auto cid = place(18);
+  book.on_accepted(cid);
+  auto ncid = book.request_replace(18, 12, 15100).entry->pending_cid;
+  book.on_replaced(ncid);
+  auto r = book.on_canceled(cid);
+  EXPECT_EQ(r.outcome, Outcome::Late);
+  EXPECT_FALSE(r.done);
+  EXPECT_EQ(r.entry->state, State::Working);
+  EXPECT_EQ(book.live(), 1u);
+  // an unsolicited cancel on the current id still finishes it
+  EXPECT_TRUE(book.on_canceled(ncid).done);
+}
+
+// The cancel finished the order during a replace up: a fill after it may go
+// up to the replace size, not just the old one.
+TEST_F(BrokerOrderBookTest, FillAfterCancelDuringReplaceUpUsesReplaceSize)
+{
+  auto cid = place(19, 10);
+  book.on_accepted(cid);
+  auto ncid = book.request_replace(19, 20, 15000).entry->pending_cid;
+  EXPECT_FALSE(book.on_fill(cid, 10).done);
+  EXPECT_TRUE(book.on_canceled(cid).done);
+  auto f = book.on_fill(ncid, 5);
+  EXPECT_EQ(f.outcome, Outcome::Ok);
+  EXPECT_EQ(f.entry->cum, 15);
+  EXPECT_EQ(f.entry->state, State::Canceled);
+  EXPECT_EQ(book.on_fill(ncid, 6).outcome, Outcome::Invalid); // beyond 20
+}
+
+// ---- restatement ---------------------------------------------------------------
+
+// The venue cut the order's size (self-trade prevention): the rest of the new
+// size is all the order can still fill, and a fill of it finishes the order.
+TEST_F(BrokerOrderBookTest, RestatementCutsTheQuantity)
+{
+  auto cid = place(26, 10);
+  book.on_accepted(cid);
+  book.on_fill(cid, 3);
+  auto r = book.on_restated(cid, 7);
+  EXPECT_EQ(r.outcome, Outcome::Ok);
+  EXPECT_FALSE(r.done);
+  EXPECT_EQ(r.entry->qty, 7);
+  EXPECT_EQ(r.entry->leaves, 4);
+  EXPECT_EQ(r.entry->state, State::Working);
+  auto f = book.on_fill(cid, 4);
+  EXPECT_TRUE(f.done);
+  EXPECT_EQ(f.entry->state, State::Filled);
+  // restated to what is already filled: done
+  auto cid2 = place(27, 10);
+  book.on_fill(cid2, 5);
+  auto d = book.on_restated(cid2, 5);
+  EXPECT_TRUE(d.done);
+  EXPECT_EQ(d.entry->state, State::Filled);
+  EXPECT_EQ(book.on_restated(cid2, 5).outcome, Outcome::Late);
+  // below what is filled, or nothing: invalid; unknown id
+  auto cid3 = place(28, 10);
+  book.on_fill(cid3, 5);
+  EXPECT_EQ(book.on_restated(cid3, 4).outcome, Outcome::Invalid);
+  EXPECT_EQ(book.on_restated(cid3, 0).outcome, Outcome::Invalid);
+  EXPECT_EQ(book.on_restated(cid3, 10).entry->leaves, 5);
+  EXPECT_EQ(book.on_restated(999, 1).outcome, Outcome::Unknown);
+}
+
 // ---- cancel/replace -----------------------------------------------------------
 
 TEST_F(BrokerOrderBookTest, ReplaceMovesToNewIdAndKeepsOldOne)
@@ -357,6 +474,73 @@ TEST_F(BrokerOrderBookTest, ReplaceDownBelowFillsInFlightIsInvalid)
   EXPECT_EQ(ok.entry->leaves, 0);
 }
 
+// Replace down, and the venue fills the old size before the replace: the order
+// is done as Filled, leaves never goes negative, and a later confirmation of
+// the smaller size is reported Invalid (once).
+TEST_F(BrokerOrderBookTest, ReplaceDownFilledAtOldSizeFinishes)
+{
+  auto cid = place(60, 10);
+  book.on_accepted(cid);
+  auto ncid = book.request_replace(60, 6, 15000).entry->pending_cid;
+  auto f = book.on_fill(cid, 10);
+  EXPECT_EQ(f.outcome, Outcome::Ok);
+  EXPECT_TRUE(f.done);
+  EXPECT_EQ(f.fill_qty, 10);
+  EXPECT_EQ(f.entry->state, State::Filled);
+  EXPECT_EQ(f.entry->leaves, 0);
+  EXPECT_EQ(book.live(), 0u);
+  auto ok = book.on_replaced(ncid);
+  EXPECT_EQ(ok.outcome, Outcome::Invalid);
+  EXPECT_FALSE(ok.done);
+  EXPECT_EQ(ok.entry->leaves, 0);
+  EXPECT_EQ(book.on_replaced(ncid).outcome, Outcome::Late);
+  EXPECT_EQ(book.on_replace_rejected(ncid).outcome, Outcome::Late);
+}
+
+// A replace to the same size (a price change) and the old size fills: done.
+TEST_F(BrokerOrderBookTest, ReplaceSameSizeFilledFinishes)
+{
+  auto cid = place(61, 10);
+  book.on_accepted(cid);
+  auto ncid = book.request_replace(61, 10, 15100).entry->pending_cid;
+  EXPECT_TRUE(book.on_fill(cid, 10).done);
+  EXPECT_EQ(book.on_replaced(ncid).outcome, Outcome::Late);
+}
+
+// A duplicate 'replaced' on an earlier id does not confirm the replace now in
+// flight.
+TEST_F(BrokerOrderBookTest, StaleReplacedIsLate)
+{
+  auto c0 = place(62, 10);
+  book.on_accepted(c0);
+  auto r1 = book.request_replace(62, 12, 15100).entry->pending_cid;
+  book.on_replaced(r1);
+  auto r2 = book.request_replace(62, 14, 15200).entry->pending_cid;
+  auto stale = book.on_replaced(c0);
+  EXPECT_EQ(stale.outcome, Outcome::Late);
+  EXPECT_EQ(stale.entry->state, State::PendingReplace);
+  EXPECT_EQ(stale.entry->cid, r1);
+  EXPECT_EQ(stale.entry->pending_cid, r2);
+  EXPECT_EQ(stale.entry->qty, 12);
+  EXPECT_EQ(book.on_replaced(r2).entry->qty, 14);
+}
+
+// A duplicate cancel or replace reject after the order is back to Working is
+// Late, not Invalid.
+TEST_F(BrokerOrderBookTest, DuplicateRejectAfterWorkingIsLate)
+{
+  auto cid = place(63);
+  book.on_accepted(cid);
+  auto c = book.request_cancel(63).entry->pending_cid;
+  book.on_cancel_rejected(c);
+  EXPECT_EQ(book.on_cancel_rejected(c).outcome, Outcome::Late);
+  auto r = book.request_replace(63, 12, 15100).entry->pending_cid;
+  book.on_replace_rejected(r);
+  auto dup = book.on_replace_rejected(r);
+  EXPECT_EQ(dup.outcome, Outcome::Late);
+  EXPECT_EQ(dup.entry->state, State::Working);
+}
+
 // ---- requests sent before the ack -----------------------------------------
 
 // A cancel sent before the ack, then the new order is rejected: the order is
@@ -446,6 +630,22 @@ TEST_F(BrokerOrderBookTest, OverfillIsInvalid)
   EXPECT_EQ(book.find_oid(30)->cum, 0);
 }
 
+// A fill so large that cum + qty would overflow int is Invalid, not wrapped.
+TEST_F(BrokerOrderBookTest, HugeFillDoesNotOverflow)
+{
+  auto cid = place(33, 10);
+  book.on_accepted(cid);
+  book.on_fill(cid, 5);
+  EXPECT_EQ(book.on_fill(cid, INT_MAX).outcome, Outcome::Invalid);
+  EXPECT_EQ(book.find_oid(33)->cum, 5);
+}
+
+// add() creates no entry for an invalid order: entry is null.
+TEST_F(BrokerOrderBookTest, InvalidAddHasNoEntry)
+{
+  EXPECT_EQ(book.add(order(34, 0), nullptr).entry, nullptr);
+}
+
 // ---- synchronous send failures ------------------------------------------------
 
 TEST_F(BrokerOrderBookTest, SendFailedNewOrderIsRejected)
@@ -477,6 +677,21 @@ TEST_F(BrokerOrderBookTest, SendFailedCancelRestoresOrder)
   EXPECT_EQ(r.outcome, Outcome::Ok);
   EXPECT_EQ(r.entry->state, State::Working);
   EXPECT_EQ(r.entry->pending_cid, 0u);
+}
+
+// A replace up whose send fails after the old size has filled: the order is
+// done, as on a replace reject.
+TEST_F(BrokerOrderBookTest, SendFailedReplaceAfterOldSizeFilledFinishes)
+{
+  auto cid = place(43, 10);
+  book.on_accepted(cid);
+  auto r = book.request_replace(43, 20, 15000).entry->pending_cid;
+  book.on_fill(cid, 10);
+  auto f = book.send_failed(r);
+  EXPECT_EQ(f.outcome, Outcome::Ok);
+  EXPECT_TRUE(f.done);
+  EXPECT_EQ(f.entry->state, State::Filled);
+  EXPECT_EQ(f.entry->leaves, 0);
 }
 
 // ---- housekeeping -------------------------------------------------------------

@@ -12,21 +12,51 @@
 #include <chrono>
 #include <climits>
 #include <cmath>
+#include <thread>
 
 namespace frame::som
 {
-  ClientIdGen ClientIdGen::from_clock()
+  // Milliseconds since EPOCH_UNIX_MS on the wall clock (0 before it).
+  static uint64_t wall_ms()
   {
     using namespace std::chrono;
-    // Two generators made in the same millisecond would issue the same ids:
-    // each call takes a millisecond later than the previous one.
+    auto unix_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    return unix_ms > int64_t(ClientIdGen::EPOCH_UNIX_MS) ? uint64_t(unix_ms) - ClientIdGen::EPOCH_UNIX_MS : 0;
+  }
+
+  // The next slot no from_clock() generator in this process has had, at
+  // least at_least, and never later than the wall clock: if it is still in
+  // the future, wait for it. A later process therefore starts above it.
+  uint64_t ClientIdGen::claim_slot(uint64_t at_least)
+  {
     static std::atomic<uint64_t> last{0};
-    uint64_t ms = uint64_t(duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
     uint64_t prev = last.load();
-    while (!last.compare_exchange_weak(prev, ms > prev ? ms : prev + 1))
-      ;
-    ms = ms > prev ? ms : prev + 1;
-    return ClientIdGen(ms % MS_PER_DAY);
+    for (;;)
+    {
+      uint64_t now = wall_ms();
+      uint64_t slot = std::max({now, prev + 1, at_least});
+      if (slot > now)
+      {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+        prev = last.load();
+        continue;
+      }
+      if (last.compare_exchange_weak(prev, slot))
+        return slot;
+    }
+  }
+
+  ClientIdGen ClientIdGen::from_clock()
+  {
+    ClientIdGen g(claim_slot(0));
+    g.from_clock_ = true;
+    return g;
+  }
+
+  void ClientIdGen::next_slot()
+  {
+    ms_ = from_clock_ ? claim_slot(ms_ + 1) : ((ms_ + 1) & ((1ULL << MS_BITS) - 1));
+    n_ = 0;
   }
 
   const char *to_string(State s)
@@ -83,10 +113,26 @@ namespace frame::som
 
   Result BrokerOrderBook::finish(Entry &e, State s)
   {
+    // A replace still in flight: its confirmation, or fills up to its size,
+    // may still arrive.
+    e.done_replace_cid = e.state == State::PendingReplace ? e.pending_cid : 0;
     e.state = s;
     e.leaves = 0;
     e.pending_cid = 0;
     return {Outcome::Ok, &e, 0, true};
+  }
+
+  // The cancel or replace in flight is over without taking effect (rejected,
+  // or refused by the API): the order goes back to how it was, or is done if
+  // it was filled to its size meanwhile.
+  Result BrokerOrderBook::abandon_request(Entry &e)
+  {
+    e.pending_cid = 0;
+    e.state = resting(e);
+    if (e.cum >= e.qty)
+      return finish(e, State::Filled);
+    e.leaves = e.qty - e.cum;
+    return {Outcome::Ok, &e};
   }
 
   Result BrokerOrderBook::add(const frame::som::msg::Order &o, actors::Actor *sender)
@@ -151,12 +197,8 @@ namespace frame::som
       return {Outcome::Unknown, nullptr};
     if (cid == e->cid && e->state == State::PendingNew)
       return finish(*e, State::Rejected);
-    if (cid == e->pending_cid)
-    {
-      e->pending_cid = 0;
-      e->state = resting(*e);
-      return {Outcome::Ok, e};
-    }
+    if (!is_done(e->state) && cid == e->pending_cid)
+      return abandon_request(*e);
     return {Outcome::Late, e};
   }
 
@@ -186,9 +228,11 @@ namespace frame::som
       return {Outcome::Invalid, e, qty};
     // A fill that races a cancel ack can arrive after Canceled; it still
     // happened, so it counts, but it cannot exceed what was ordered. While a
-    // replace is in flight the venue may fill against either quantity.
-    int limit = e->state == State::PendingReplace ? std::max(e->qty, e->pending_qty) : e->qty;
-    if (e->cum + qty > limit)
+    // replace is in flight the venue may fill against either quantity, also
+    // when a cancel finished the order before the replace was answered.
+    bool replace_open = e->state == State::PendingReplace || e->done_replace_cid;
+    int limit = replace_open ? std::max(e->qty, e->pending_qty) : e->qty;
+    if (qty > limit - e->cum) // not e->cum + qty: that can overflow
       return {Outcome::Invalid, e, qty};
     e->cum += qty;
     e->accepted = true;
@@ -196,13 +240,23 @@ namespace frame::som
       e->state = State::Working;
     if (e->state == State::Canceled)
       return {Outcome::Ok, e, qty, false};
-    if (e->state == State::PendingReplace && e->cum >= e->qty)
+    if (e->state == State::PendingReplace && e->cum >= e->qty && e->pending_qty > e->cum)
     {
-      // Filled to or beyond the old size: what remains depends on the
-      // replace, so leaves is what is left under the new size until it is
-      // confirmed or rejected.
+      // Filled to the old size during a replace up: what remains depends on
+      // the replace, so leaves is what is left under the new size until it
+      // is confirmed or rejected.
       e->leaves = e->pending_qty - e->cum;
       return {Outcome::Ok, e, qty, false};
+    }
+    if (e->state == State::PendingReplace && e->cum >= e->qty)
+    {
+      // Filled to the old size, and the replace target is no larger than
+      // that: the venue filled the order before the replace, so it is done
+      // whatever the replace answer is. A later confirmation of a size below
+      // what was filled is reported Invalid by on_replaced.
+      auto r = finish(*e, State::Filled);
+      r.fill_qty = qty;
+      return r;
     }
     e->leaves = e->qty - e->cum;
     if (e->leaves == 0)
@@ -221,6 +275,11 @@ namespace frame::som
       return {Outcome::Unknown, nullptr};
     if (is_done(e->state))
       return {Outcome::Late, e};
+    // An unsolicited cancel comes on the order's current id, our cancel's ack
+    // on the cancel's id. Any other id is one the order was replaced away
+    // from, or an earlier cancel's: a late report, not about the live order.
+    if (cid != e->cid && cid != e->pending_cid)
+      return {Outcome::Late, e};
     return finish(*e, State::Canceled);
   }
 
@@ -229,13 +288,11 @@ namespace frame::som
     Entry *e = lookup(cid);
     if (!e)
       return {Outcome::Unknown, nullptr};
+    if (is_done(e->state) || !current_request(*e, cid))
+      return {Outcome::Late, e}; // done, or an earlier request's reject
     if (e->state != State::PendingCancel)
-      return {is_done(e->state) ? Outcome::Late : Outcome::Invalid, e};
-    if (!current_request(*e, cid))
-      return {Outcome::Late, e}; // an earlier cancel's reject
-    e->pending_cid = 0;
-    e->state = resting(*e);
-    return {Outcome::Ok, e};
+      return {Outcome::Invalid, e};
+    return abandon_request(*e);
   }
 
   Result BrokerOrderBook::on_replaced(ClientId cid)
@@ -244,7 +301,19 @@ namespace frame::som
     if (!e)
       return {Outcome::Unknown, nullptr};
     if (is_done(e->state))
+    {
+      // Finished at the old size while this replace was in flight; the venue
+      // now confirms a size below what was filled.
+      if (e->state == State::Filled && e->done_replace_cid &&
+          (cid == e->done_replace_cid || cid == e->cid) && e->pending_qty < e->cum)
+      {
+        e->done_replace_cid = 0; // reported once; a duplicate is Late
+        return {Outcome::Invalid, e};
+      }
       return {Outcome::Late, e};
+    }
+    if (!current_request(*e, cid))
+      return {Outcome::Late, e}; // an earlier id: a duplicate or late report
     if (e->state != State::PendingReplace)
       return {Outcome::Invalid, e};
     // Fills that arrived while the replace was in flight are already in cum.
@@ -273,14 +342,28 @@ namespace frame::som
     Entry *e = lookup(cid);
     if (!e)
       return {Outcome::Unknown, nullptr};
+    if (is_done(e->state) || !current_request(*e, cid))
+      return {Outcome::Late, e}; // done, or an earlier request's reject
     if (e->state != State::PendingReplace)
-      return {is_done(e->state) ? Outcome::Late : Outcome::Invalid, e};
-    if (!current_request(*e, cid))
-      return {Outcome::Late, e}; // an earlier replace's reject
-    e->pending_cid = 0;
-    e->state = resting(*e);
+      return {Outcome::Invalid, e};
+    return abandon_request(*e);
+  }
+
+  Result BrokerOrderBook::on_restated(ClientId cid, int new_qty)
+  {
+    Entry *e = lookup(cid);
+    if (!e)
+      return {Outcome::Unknown, nullptr};
+    if (is_done(e->state))
+      return {Outcome::Late, e};
+    if (new_qty <= 0 || new_qty < e->cum)
+      return {Outcome::Invalid, e};
+    e->qty = new_qty;
+    e->accepted = true;
+    if (e->state == State::PendingNew)
+      e->state = State::Working;
     if (e->cum >= e->qty)
-      return finish(*e, State::Filled); // filled up to the old size meanwhile
+      return finish(*e, State::Filled);
     e->leaves = e->qty - e->cum;
     return {Outcome::Ok, e};
   }

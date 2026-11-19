@@ -380,7 +380,7 @@ TEST(NasdaqDropFactory, GoodConfig)
   const std::string path = d.write(
       "drop.info",
       "nasdaq_drop\n{\n host drop.example\n port 9000\n credentials cred.info\n"
-      " replay_from_start false\n trade_date 20261118\n assets { INTC 101 MSFT 102 }\n}\n");
+      " replay_from_start false\n trade_date 20261118\n assets { INTC 101 MSFT 102 BRK.B 103 }\n}\n");
 
   std::string err;
   boost::property_tree::ptree pt;
@@ -394,6 +394,7 @@ TEST(NasdaqDropFactory, GoodConfig)
   EXPECT_EQ(c->login.next_seq, 0u);
   EXPECT_EQ(c->trade_date, 20261118u);
   EXPECT_EQ(c->assets.at("MSFT"), 102);
+  EXPECT_EQ(c->assets.at("BRK.B"), 103) << "a symbol with a dot is a key, not a ptree path";
   EXPECT_FALSE(c->sim);
 
   // Built, not started: no connection is attempted before Start.
