@@ -1,0 +1,58 @@
+# Field table: a subset of Nasdaq TotalView-ITCH 5.0 (public specification,
+# "Nasdaq TotalView-ITCH 5.0", revision of April 28, 2023). Offsets are 0-based within
+# the message. The layer is written without a length: in MoldUDP64 packets each
+# message is preceded by a 2-byte big-endian length that excludes itself
+# (decode_mold); in SoupBinTCP it is the payload of a SequencedData packet (decode).
+@venue nasdaq
+@endian big
+@pad space
+@type Integer uint
+@type Price uint
+@type Alpha char
+
+### itch::from_nasdaq
+@framed_decode mold 2 exclusive
+
+MessageType S 0 1 # SystemEvent: start and end of the system and market hours (ITCH 5.0, 1.1)
+@size 12
+StockLocate Integer 1 2 # Always 0
+TrackingNumber Integer 3 2 # Nasdaq internal tracking number
+Timestamp Integer 5 6 # Nanoseconds since midnight
+EventCode Alpha 11 1 # O start of messages, S start of system hours, Q start of market hours, M end of market hours, E end of system hours, C end of messages
+
+MessageType A 0 1 # AddOrder: a new order without MPID attribution (ITCH 5.0, 1.3.1)
+@size 36
+StockLocate Integer 1 2 # Locate code identifying the security
+TrackingNumber Integer 3 2 # Nasdaq internal tracking number
+Timestamp Integer 5 6 # Nanoseconds since midnight
+OrderReferenceNumber Integer 11 8 # Unique for the day
+BuySellIndicator Alpha 19 1 # B buy, S sell
+Shares Integer 20 4 # Displayed quantity
+Stock Alpha 24 8 # Symbol, right-padded with spaces
+Price Price 32 4 # Price(4): 4 implied decimal places
+
+MessageType E 0 1 # OrderExecuted: part or all of a resting order executed (ITCH 5.0, 1.4.1)
+@size 31
+StockLocate Integer 1 2 # Locate code identifying the security
+TrackingNumber Integer 3 2 # Nasdaq internal tracking number
+Timestamp Integer 5 6 # Nanoseconds since midnight
+OrderReferenceNumber Integer 11 8 # The order executed
+ExecutedShares Integer 19 4 # Shares executed
+MatchNumber Integer 23 8 # Unique for the day
+
+MessageType X 0 1 # OrderCancel: part of a resting order cancelled (ITCH 5.0, 1.4.3)
+@size 23
+StockLocate Integer 1 2 # Locate code identifying the security
+TrackingNumber Integer 3 2 # Nasdaq internal tracking number
+Timestamp Integer 5 6 # Nanoseconds since midnight
+OrderReferenceNumber Integer 11 8 # The order reduced
+CancelledShares Integer 19 4 # Shares removed
+
+MessageType D 0 1 # OrderDelete: a resting order removed (ITCH 5.0, 1.4.4)
+@size 19
+StockLocate Integer 1 2 # Locate code identifying the security
+TrackingNumber Integer 3 2 # Nasdaq internal tracking number
+Timestamp Integer 5 6 # Nanoseconds since midnight
+OrderReferenceNumber Integer 11 8 # The order deleted
+
+### end
