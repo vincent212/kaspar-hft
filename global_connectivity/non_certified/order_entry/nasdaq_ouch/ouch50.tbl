@@ -14,11 +14,13 @@
 #
 # Optional Appendage: a sequence of TagValue elements (Length 1, OptionTag 1,
 # OptionValue variable; OUCH 5.0 1.2, p.4; options in Appendix A, pp.21-23).
-# It is kept as an opaque trailing field. On the outbound messages whose
-# section says "Appendage Length and Optional Appendage fields are both
-# optional and will be absent unless ... non zero userRefIdx" (C, D, B, J, P,
-# I, T, M, Q), both fields are one trailing field, AppendageWithLength, which
-# is empty when they are absent and otherwise starts with the 2-byte length.
+# It is kept as an opaque trailing field. On every message from Nasdaq,
+# Appendage Length and the Optional Appendage are one trailing field,
+# AppendageWithLength, which starts with the 2-byte length when present and
+# is empty when absent: the spec marks both absent on C, D, B, J, P, I, T, M,
+# Q unless the request named a non-zero UserRefIdx, and a report of another
+# type that arrives without them still decodes. On the requests, Appendage
+# Length is a field of its own, set by the encoder from the tail.
 @venue nasdaq
 @endian big
 @pad space
@@ -118,8 +120,7 @@ InterMarketSweepEligibility Alpha 45 1 # Y eligible, N not eligible
 CrossType Alpha 46 1 # As entered
 OrderState Alpha 47 1 # L live, D dead (accepted and automatically canceled; nothing further follows)
 ClOrdID Alpha 48 14 # Customer order identifier
-AppendageLength Integer 62 2 # Length of the Optional Appendage that follows
-OptionalAppendage TagValue 64 # TagValue elements (Appendix A)
+AppendageWithLength TagValue 62 # Appendage Length (62, 2) and Optional Appendage (64); TagValue elements (Appendix A)
 
 MessageType U 0 1 # OrderReplaced: the Replace Order was accepted (OUCH 5.0 3.3, pp.12-14)
 Timestamp Timestamp 1 8 # Nanoseconds since midnight
@@ -137,8 +138,7 @@ InterMarketSweepEligibility Alpha 49 1 # Y eligible, N not eligible
 CrossType Alpha 50 1 # As entered
 OrderState Alpha 51 1 # L live, D dead
 ClOrdID Alpha 52 14 # Customer order identifier for the replacement
-AppendageLength Numeric 66 2 # Length of the Optional Appendage that follows
-OptionalAppendage Options 68 # TagValue elements (Appendix A)
+AppendageWithLength TagValue 66 # Appendage Length (66, 2) and Optional Appendage (68); TagValue elements (Appendix A)
 
 MessageType C 0 1 # OrderCanceled: an order was reduced or canceled (OUCH 5.0 3.4, p.14)
 Timestamp Timestamp 1 8 # Nanoseconds since midnight
@@ -165,8 +165,7 @@ Quantity Numeric 13 4 # Shares executed by this message; incremental
 Price Price 17 8 # Execution price
 LiquidityFlag Alpha 25 1 # Appendix D (the text says Appendix E)
 MatchNumber Numeric 26 8 # Trade id; shared by the buy and the sell execution
-AppendageLength Numeric 34 2 # Length of the Optional Appendage that follows
-OptionalAppendage TagValue 36 # UserRefIdx
+AppendageWithLength TagValue 34 # Appendage Length (34, 2) and Optional Appendage (36); UserRefIdx
 
 MessageType B 0 1 # BrokenTrade: an execution was broken (OUCH 5.0 3.7, p.16)
 Timestamp Timestamp 1 8 # Nanoseconds since midnight
@@ -212,30 +211,26 @@ MessageType R 0 1 # OrderRestated: the system modified the order (OUCH 5.0 3.13,
 Timestamp Timestamp 1 8 # Nanoseconds since midnight
 UserRefNum UserRefNum 9 4 # UserRefNum of the order
 Reason Alpha 13 1 # R refresh of display (reserves), P update of displayed price
-AppendageLength Numeric 14 2 # Length of the Optional Appendage that follows
-OptionalAppendage Options 16 # Display Quantity, Display Price, SecondaryOrdRefNum, UserRefIdx
+AppendageWithLength TagValue 14 # Appendage Length (14, 2) and Optional Appendage (16); Display Quantity, Display Price, SecondaryOrdRefNum, UserRefIdx
 
 MessageType X 0 1 # MassCancelResponse: a Mass Cancel Request was received (OUCH 5.0 3.14, p.19)
 Timestamp Timestamp 1 8 # Nanoseconds since midnight
 UserRefNum UserRefNum 9 4 # UserRefNum of the request
 Firm Alpha 13 4 # Firm identifier
 Symbol Alpha 17 8 # Spaces if not specified
-AppendageLength Integer 25 2 # 0 if no appendage follows
-OptionalAppendage TagValue 27 # Side, Group ID, UserRefIdx
+AppendageWithLength TagValue 25 # Appendage Length (25, 2) and Optional Appendage (27); Side, Group ID, UserRefIdx
 
 MessageType G 0 1 # DisableOrderEntryResponse: a Disable Order Entry Request was received (OUCH 5.0 3.15, pp.19-20)
 Timestamp Timestamp 1 8 # Nanoseconds since midnight
 UserRefNum UserRefNum 9 4 # UserRefNum of the request
 Firm Alpha 13 4 # Firm identifier
-AppendageLength Integer 17 2 # Length of the Optional Appendage that follows
-OptionalAppendage TagValue 19 # UserRefIdx
+AppendageWithLength TagValue 17 # Appendage Length (17, 2) and Optional Appendage (19); UserRefIdx
 
 MessageType K 0 1 # EnableOrderEntryResponse: an Enable Order Entry Request was received (OUCH 5.0 3.16, p.20)
 Timestamp Timestamp 1 8 # Nanoseconds since midnight
 UserRefNum UserRefNum 9 4 # UserRefNum of the request
 Firm Alpha 13 4 # Firm identifier
-AppendageLength Integer 17 2 # Length of the Optional Appendage that follows
-OptionalAppendage TagValue 19 # UserRefIdx
+AppendageWithLength TagValue 17 # Appendage Length (17, 2) and Optional Appendage (19); UserRefIdx
 
 MessageType Q 0 1 # AccountQueryResponse: the next available UserRefNum (OUCH 5.0 3.17, p.20)
 Timestamp Timestamp 1 8 # Nanoseconds since midnight

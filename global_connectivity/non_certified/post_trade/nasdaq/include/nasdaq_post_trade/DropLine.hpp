@@ -93,7 +93,7 @@ namespace nasdaq_post_trade
   std::optional<post_trade::msg::TradeCapture>
   to_trade_capture(const DropReport &r, std::string_view raw, const MapContext &c);
 
-  // The Eastern Time calendar date (YYYYMMDD) of a UTC time, using the US
-  // daylight-saving rules in force since 2007.
+  // The Eastern Time calendar date (YYYYMMDD) of a UTC time
+  // (post_trade::eastern_time::date).
   uint32_t eastern_date(int64_t utc_seconds);
 }

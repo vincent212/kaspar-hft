@@ -25,7 +25,7 @@
 #include "TestUtil.hpp"
 #include "nasdaq_ouch/OuchCodec.hpp"
 #include "nasdaq_ouch/SoupSession.hpp"
-#include "nasdaq_ouch/act/OuchOM.hpp"
+#include "nasdaq_ouch/if/OuchOM.hpp"
 
 namespace asio = boost::asio;
 using asio::ip::tcp;
