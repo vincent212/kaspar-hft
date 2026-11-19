@@ -404,6 +404,9 @@ namespace clearstreet::om
     if (session_->send_new(q) != CallStatus::Success)
     {
       book_.send_failed(e.cid);
+      som_id_.erase(e.oid);
+      book_oid_.erase(e.oid);
+      venue_state_.erase(e.oid);
       return reject(m->sender, m->oid, som::Reject::DISCONNECTED, "Clear Street session not logged on");
     }
     ++c_.sent_new;
@@ -577,6 +580,13 @@ namespace clearstreet::om
     double px = r.last_px;
     if (std::fabs(r.last_qty - add) > 1e-6 || r.last_px <= 0)
       px = r.avg_px > 0 ? (r.avg_px * r.cum - v.notional) / add : r.last_px;
+    if (px <= 0)
+    {
+      ++c_.invalid;
+      log_err("fill of %lld shares on oid=%d carries no price (LastPx %g, AvgPx %g) -- check the position", shares,
+              som_id(e.oid), r.last_px, r.avg_px);
+      return;
+    }
     if (!e.accepted)
     {
       if (book_.on_accepted(e.cid, xordid(r.order_id)).outcome == Outcome::Ok)
@@ -621,8 +631,12 @@ namespace clearstreet::om
       e.order.stop_px = nw.stop_px; // current terms, restated on the next replace
       e.order.px = nw.px;
     }
-    else if (nw.sender)
-      nw.sender->send(new som::Reject(uint(nw.oid), som::Reject::UNKNOWN), this);
+    else
+    {
+      book_oid_.erase(nw.oid);
+      if (nw.sender)
+        nw.sender->send(new som::Reject(uint(nw.oid), som::Reject::UNKNOWN), this);
+    }
   }
 
   void ClearStreetOM::canceled(Entry &e, ClientId cid, const ExecReport &r, const char *why) noexcept

@@ -197,7 +197,7 @@ void Handler::drain()
   if (expected_ > requested_to_)
   {
     // The requested range is in; what is missing now is a later gap.
-    if (cfg_.use_replay && next - 1 - expected_ < cfg_.max_replay)
+    if (cfg_.use_replay && request_ && next - 1 - expected_ < cfg_.max_replay)
     {
       requested_to_ = next - 1;
       ++stats_.replay_requests;
