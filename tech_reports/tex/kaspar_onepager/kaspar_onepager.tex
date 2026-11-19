@@ -10,7 +10,7 @@
 \usepackage[default,semibold]{sourcesanspro}
 \usepackage[varqu,varl,scaled=0.94]{inconsolata}
 \usepackage{microtype}
-\usepackage[a4paper,top=14mm,bottom=13mm,left=17mm,right=17mm]{geometry}
+\usepackage[a4paper,top=11mm,bottom=10mm,left=17mm,right=17mm]{geometry}
 \usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage{titlesec}
@@ -30,16 +30,16 @@
 \definecolor{band}{HTML}{EEF1F5}
 
 \color{ink}
-\renewcommand{\arraystretch}{1.12}
+\renewcommand{\arraystretch}{1.05}
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{3.2pt}
+\setlength{\parskip}{2.8pt}
 \setlength{\columnsep}{8mm}
 
 % Section headings: small, letterspaced, with a rule under them.
 \titleformat{\section}
   {\normalfont\sffamily\bfseries\footnotesize\color{ink}}
   {}{0pt}{\MakeUppercase}[{\vspace{2pt}\color{rulec}\titlerule[1pt]}]
-\titlespacing*{\section}{0pt}{11pt}{5pt}
+\titlespacing*{\section}{0pt}{8pt}{4pt}
 
 \pagestyle{fancy}
 \fancyhf{}
@@ -66,14 +66,14 @@
 % Masthead
 % ===============================================================
 {\color{accent}\sffamily\bfseries\scriptsize
- LOW-LATENCY TRADING SYSTEM \quad\textperiodcentered\quad C++20 \quad\textperiodcentered\quad FPGA \quad\textperiodcentered\quad MIT}
+ LOW-LATENCY TRADING SYSTEM \quad\textperiodcentered\quad C++20 \quad\textperiodcentered\quad FPGA \quad\textperiodcentered\quad ANY VENUE \quad\textperiodcentered\quad MIT}
 
 \vspace{2pt}
 {\sffamily\bfseries\fontsize{40}{40}\selectfont Kaspar-HFT}\\[2pt]
 {\color{ink2}\sffamily\bfseries\fontsize{19}{19}\selectfont Open Source}
 
 \vspace{4pt}
-{\color{ink2}\sffamily\large A venue-independent trading system and order book simulator.}
+{\color{ink2}\sffamily\large A trading system and order book simulator for any venue.}
 
 \vspace{7pt}
 {\color{ink}\hrule height 1.6pt}
@@ -86,7 +86,7 @@
 {\color{ink3}\sffamily\bfseries\scriptsize ORDER ENTRY} &
 {\color{ink3}\sffamily\bfseries\scriptsize BOOK} &
 {\color{ink3}\sffamily\bfseries\scriptsize HARDWARE} \\[-4pt]
-\sffamily\bfseries\small CME, TT, crypto &
+\sffamily\bfseries\small CME, TT, crypto, any &
 \sffamily\bfseries\small MDP3; WebSocket &
 \sffamily\bfseries\small iLink 3; TT FIX 4.4 &
 \sffamily\bfseries\small MBP \& MBO L3 &
@@ -125,12 +125,15 @@ the FPGA and a formal semantics for its synchronous \code{fast\_send}. The same 
 grouped onto one thread, so the hot path can be spread out or kept on a single
 thread without code changes.}
 
-\tile{Strategy authoring in C++ or Rust}{C++ in-process actors for the lowest
-latency, or Rust through an in-process FFI. Either way the strategy runs
-in the same process as the book.}
-
 \tile{Execution}{\textbf{Shadow-POV}, a passive/aggressive percentage-of-volume algorithm
 that places orders by following other participants' orders in the market.}
+
+\tile{Any venue, generated from its spec}{A \textbf{Claude Code skill} turns a venue's
+public specification into its market-data handler, order manager and post-trade
+client, as Kaspar actors, tested against the spec's examples, sample data, live
+books and fault injection. \textbf{19 venues built} across US, European and Asian
+equities, FX, US Treasuries and crypto; any venue that publishes its protocol is
+a build away.}
 
 \end{minipage}\hfill%
 \begin{minipage}[t]{0.485\textwidth}
@@ -154,6 +157,10 @@ actor is written in C++ like a CPU actor (state, handlers, \code{send},
 \code{reply}, groups, \code{fast\_send}) and compiled with Vitis HLS; CPU and
 FPGA actors exchange the same messages across PCIe. An MDP3 handler for the
 Alveo X3522PV decodes packets as they arrive, at 250~MHz.}
+
+\tile{Strategy authoring in C++ or Rust}{C++ in-process actors for the lowest
+latency, or Rust through an in-process FFI. Either way the strategy runs
+in the same process as the book.}
 
 \end{minipage}
 
@@ -197,7 +204,7 @@ per-sample median is below the clock resolution.}
 \noindent\textbf{arXiv:2609.21173} Adapting the actor model of concurrency for high-frequency trading.\\
 \textbf{arXiv:2609.18019} Model-free passive execution via order-level shadowing.\\
 \textbf{arXiv:2609.32848} Packets, transactions and queues: a measurement study of CME market data.\\
-Adapting the actor model of concurrency to hybrid CPU/FPGA architectures; Extending the actor model with synchronous delivery.}
+Drafts: actor model on hybrid CPU/FPGA architectures; actor model with synchronous delivery. \textbf{Substack:} agent-generated gateways to any venue.}
 
 
 % ===============================================================
