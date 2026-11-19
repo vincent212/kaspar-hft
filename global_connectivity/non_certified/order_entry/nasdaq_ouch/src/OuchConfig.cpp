@@ -12,7 +12,7 @@
 #include <boost/property_tree/ini_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
-#include "nasdaq_ouch/act/OuchOM.hpp"
+#include "nasdaq_ouch/if/OuchOM.hpp"
 
 namespace nasdaq::ouch
 {
@@ -97,6 +97,16 @@ namespace nasdaq::ouch
       return err = "intermarket_sweep must be Y or N", false;
     if (reconnect_ms <= 0)
       return err = "reconnect_ms must be positive", false;
+    if (session.heartbeat_ms <= 0)
+      return err = "heartbeat_ms must be positive", false;
+    if (session.receive_timeout_ms <= 0)
+      return err = "receive_timeout_ms must be positive", false;
+    if (session.receive_timeout_ms <= session.heartbeat_ms)
+      return err = "receive_timeout_ms must be longer than heartbeat_ms", false;
+    if (session.connect_timeout_ms <= 0)
+      return err = "connect_timeout_ms must be positive", false;
+    if (session.max_queued_bytes == 0)
+      return err = "max_queued_bytes must be positive", false;
     if (max_order_qty < 0 || max_order_notional < 0 || max_orders_per_sec < 0)
       return err = "limits must not be negative", false;
     return true;

@@ -36,7 +36,7 @@ Headers are generated, not committed. From the repository root:
 
 ```bash
 G=.claude/skills/build-feed-handler/tools/fieldgen.py
-OUT=build/cboe              # any directory outside the source tree
+OUT=build/cboe              # git-ignored (build/ in .gitignore); any scratch directory works
 mkdir -p $OUT
 python3 $G global_connectivity/non_certified/market_data/cboe/pitch_us.tbl --check
 python3 $G global_connectivity/non_certified/market_data/cboe/pitch_us.tbl -o $OUT/pitch_us.hpp
