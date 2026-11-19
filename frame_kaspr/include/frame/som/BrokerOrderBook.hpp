@@ -194,6 +194,11 @@ namespace frame::som
     Result on_replaced(ClientId cid);
     Result on_replace_rejected(ClientId cid);
     Result on_rejected(ClientId cid); // new order rejected
+    // The venue changed the order's total quantity without a request of ours
+    // (a restatement: self-trade prevention, a partial decline). The order is
+    // done, Filled, once cum reaches the new quantity, so a fill of the rest
+    // finishes it. A new quantity below what is already filled is Invalid.
+    Result on_restated(ClientId cid, int new_qty);
 
     // --- lookups ----------------------------------------------------------
     const Entry *find_oid(int oid) const;

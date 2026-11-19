@@ -275,3 +275,30 @@ TEST(OrderFields, ExchangeFeedVenueCodes)
   }
   EXPECT_EQ(int(en::x::HKEX), code);
 }
+
+// Crypto exchange venue codes, appended after HKEX: spot and derivatives
+// separately where the exchange runs both.
+TEST(OrderFields, CryptoVenueCodes)
+{
+  const char *names[] = {"BYBIT", "BYBITF", "OKX", "OKXF", "KRAKEN", "KRAKENF", "DERIBIT"};
+  int code = int(en::x::HKEX);
+  for (const char *n : names)
+  {
+    ++code;
+    auto parsed = en::x_try_parse(n);
+    ASSERT_TRUE(parsed.has_value()) << n;
+    EXPECT_EQ(int(*parsed), code) << n;
+  }
+  EXPECT_EQ(int(en::x::DERIBIT), code);
+}
+
+// Coinbase Exchange (the institutional exchange API) is a separate venue from
+// Coinbase Advanced Trade (COINBASE): appended after DERIBIT.
+TEST(OrderFields, CoinbaseExchangeVenueCode)
+{
+  auto parsed = en::x_try_parse("COINBASEX");
+  ASSERT_TRUE(parsed.has_value());
+  EXPECT_EQ(int(en::x::COINBASEX), int(en::x::DERIBIT) + 1);
+  EXPECT_STREQ(en::to_string(en::x(en::x::COINBASEX)), "COINBASEX");
+  EXPECT_NE(int(en::x::COINBASEX), int(en::x::COINBASE));
+}
