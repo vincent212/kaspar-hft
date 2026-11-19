@@ -19,6 +19,7 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <exception>
 #include <map>
 #include <mutex>
 #include <thread>
@@ -93,6 +94,7 @@ namespace deribit::oe
       enum Kind { BY_LABEL, TRADES, STATE } kind;
       std::string order_id;
       json order;   // TRADES after BY_LABEL: the state to emit after the trades
+      std::string label;   // BY_LABEL: the label asked for
     };
 
     CallStatus enqueue(std::string text)
@@ -208,12 +210,18 @@ namespace deribit::oe
           was_busy = busy_;
           busy_ = false;
         }
+        // Every queued request and recovery is attempted, even after one
+        // fails; the first failure ends the session once the batch is done,
+        // so that nothing behind a bad send is silently lost.
+        std::exception_ptr first;
         for (const auto &t : out)
-          ws.send(t);
+          attempt(first, [&] { ws.send(t); });
         if (was_busy)
           ev_.available();
         for (const auto &r : rec)
-          start_recovery(ws, r);
+          attempt(first, [&] { start_recovery(ws, r); });
+        if (first)
+          std::rethrow_exception(first);
         const auto now = std::chrono::steady_clock::now();
         if (now >= reauth_at_)
         {
@@ -286,12 +294,26 @@ namespace deribit::oe
       on_step(ws, st, j);
     }
 
+    template <class F>
+    static void attempt(std::exception_ptr &first, F f)
+    {
+      try
+      {
+        f();
+      }
+      catch (...)
+      {
+        if (!first)
+          first = std::current_exception();
+      }
+    }
+
     void start_recovery(RpcWs &ws, const Recovery &r)
     {
       if (r.order_id.empty())
       {
         const int64_t id = next_internal_++;
-        steps_[id] = {Step::BY_LABEL, "", json()};
+        steps_[id] = {Step::BY_LABEL, "", json(), r.label};
         ws.send(request(id, "private/get_order_state_by_label", {{"currency", r.currency}, {"label", r.label}}).dump());
         return;
       }
@@ -301,23 +323,38 @@ namespace deribit::oe
     void trades_of(RpcWs &ws, const std::string &order_id, json order)
     {
       const int64_t id = next_internal_++;
-      steps_[id] = {Step::TRADES, order_id, std::move(order)};
+      steps_[id] = {Step::TRADES, order_id, std::move(order), ""};
       ws.send(request(id, "private/get_user_trades_by_order", {{"order_id", order_id}}).dump());
     }
 
     void on_step(RpcWs &ws, Step &st, const json &j)
     {
       if (j.contains("error"))
-        return;   // the order is unknown to Deribit (never reached it); the OM keeps waiting
+      {
+        // By label: Deribit has no such order, the request never reached
+        // it. By order_id: the id came from Deribit, so a failure here is a
+        // transient one; the next login recovers again.
+        if (st.kind == Step::BY_LABEL)
+          ev_.order_unknown(st.label);
+        return;
+      }
       const json &res = j["result"];
       switch (st.kind)
       {
       case Step::BY_LABEL:
+      {
+        bool any = false;
         if (res.is_array())
           for (const auto &o : res)
             if (!o.value("order_id", "").empty())
+            {
+              any = true;
               trades_of(ws, o["order_id"].get<std::string>(), o);
+            }
+        if (!any)
+          ev_.order_unknown(st.label);
         return;
+      }
       case Step::TRADES:
         if (res.is_array())
           for (const auto &t : res)
@@ -327,7 +364,7 @@ namespace deribit::oe
         else
         {
           const int64_t id = next_internal_++;
-          steps_[id] = {Step::STATE, st.order_id, json()};
+          steps_[id] = {Step::STATE, st.order_id, json(), ""};
           ws.send(request(id, "private/get_order_state", {{"order_id", st.order_id}}).dump());
         }
         return;

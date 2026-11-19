@@ -28,6 +28,8 @@
 //              duplicate and skipped; u > previous + 1 is a gap: a GAP record,
 //              then a new snapshot; u == 1 is Bybit's reset (restart, delist,
 //              auction start or end, tick or lot change): a new snapshot.
+//            While buffering, a delta with the last buffered u again is the
+//            same delta delivered twice: skipped, not a break.
 //   DEPTH  topic orderbook.{N}.{symbol} (N = 1, 50, 200, 1000) and the public
 //          archive (orderbook.200): a snapshot message, then deltas whose u
 //          is the previous u + 1. Any snapshot message replaces the book. A

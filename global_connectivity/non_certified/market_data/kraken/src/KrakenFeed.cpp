@@ -48,6 +48,14 @@ namespace kraken
         sync_(cfg.symbol, size_t(cfg.depth), &mbp2mbo_, size_t(cfg.window))
   {
     snprintf(name, sizeof(name), "KrakenFeed_%s", cfg_.symbol.c_str());
+    // A synchronised book invalidated (checksum mismatch, unreadable frame,
+    // lost connection): OB's book is stale until the next snapshot.
+    sync_.on_gap([this] {
+      bfile::l3_gap_v2_t g{};
+      g.typ = en::l3::GAP_V2;
+      g.venue = cfg_.chunks.venue;
+      emit(g);
+    });
     if (!cfg_.record.empty())
     {
       recorder_ = std::make_unique<FrameRecorder>(cfg_.record);

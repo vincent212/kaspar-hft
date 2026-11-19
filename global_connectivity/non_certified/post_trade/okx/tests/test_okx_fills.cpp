@@ -18,7 +18,7 @@
 #include "actors/act/Manager.hpp"
 #include "frame/ref/RefData.hpp"
 #include "okx_pt/SimFills.hpp"
-#include "okx_pt/act/OkxFillsClient.hpp"
+#include "okx_pt/if/OkxFillsClient.hpp"
 
 using namespace okx::pt;
 using json = nlohmann::json;
@@ -284,6 +284,16 @@ TEST(OkxFillsMapping, ParseDecimal)
   EXPECT_FALSE(parse_decimal("1e5", m, d));
   EXPECT_FALSE(parse_decimal("", m, d));
   EXPECT_FALSE(parse_decimal("1.2.3", m, d));
+  // post_trade/Decimal.hpp, shared by the four venues: the length limit is
+  // int64_t, not 18 digits.
+  ASSERT_TRUE(parse_decimal("1234567890123456789", m, d)); // 19 digits
+  EXPECT_EQ(m, 1234567890123456789LL);
+  EXPECT_EQ(d, 0);
+  ASSERT_TRUE(parse_decimal("9223372036854775807", m, d));
+  EXPECT_EQ(m, INT64_MAX);
+  EXPECT_FALSE(parse_decimal("9223372036854775808", m, d));
+  EXPECT_FALSE(parse_decimal("12345678901234567890", m, d));
+  EXPECT_FALSE(parse_decimal("-", m, d));
 }
 
 // ---- client ------------------------------------------------------------------------------------

@@ -20,10 +20,10 @@
 #include <set>
 #include <thread>
 
+#include "crypto_common/PollingWs.hpp"
 #include "kraken_md/KrakenJson.hpp"
 #include "kraken_oe/KrakenAuth.hpp"
 #include "kraken_oe/KrakenSpotCodec.hpp"
-#include "kraken_oe/WsConn.hpp"
 #include "kraken_pt/KrakenFills.hpp"
 
 namespace kraken::pt
@@ -301,8 +301,8 @@ namespace kraken::pt
           {
             return ev_.login_failed(e.what());
           }
-          oe::WsConn ws;
-          ws.connect(c_.ep.ws_host, "/v2");
+          crypto_common::PollingWs ws(c_.ep.ws_host, "443", "/v2");
+          ws.connect();
           ws.send(oe::spot::subscribe_executions(token, false, true));
           uint64_t last_seq = 0;
           auto last_rx = std::chrono::steady_clock::now();

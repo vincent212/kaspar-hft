@@ -164,6 +164,31 @@ namespace kraken::oe
         return CallStatus::Success;
       }
 
+      // The logon snapshot already reported every order the venue has; one
+      // it has not is unknown.
+      CallStatus recover(const std::string &, const std::string &cl_ord_id) override
+      {
+        std::lock_guard<std::mutex> l(v_->mu);
+        if (!logged_ || v_->live != &ev_)
+          return CallStatus::Disconnected;
+        for (auto &[id, o] : v_->orders)
+          if (o.o.cl_ord_id == cl_ord_id)
+            return CallStatus::Success;
+        auto v = v_;
+        auto no = no_;
+        v_->runner.now([v, no, cl_ord_id] {
+          std::lock_guard<std::mutex> l(v->mu);
+          if (!v->live || v->live_no != no)
+            return;
+          Report r;
+          r.kind = Report::Unknown;
+          r.cl_ord_id = cl_ord_id;
+          r.reason = "not at the venue";
+          v->live->report(r);
+        });
+        return CallStatus::Success;
+      }
+
       void logout() override
       {
         std::lock_guard<std::mutex> l(v_->mu);

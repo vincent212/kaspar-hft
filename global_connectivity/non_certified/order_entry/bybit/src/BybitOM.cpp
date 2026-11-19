@@ -9,20 +9,17 @@
 
 #include <algorithm>
 #include <cmath>
-#include <condition_variable>
 #include <cstdio>
 #include <ctime>
 #include <iostream>
-#include <mutex>
 
 #include <nlohmann/json.hpp>
 
 #include "bybit_oe/BybitPrivate.hpp"
+#include "bybit_oe/if/BybitOM.hpp"
 #include "frame/som/msg/Ack.hpp"
 #include "frame/som/msg/CancAck.hpp"
-#include "frame/som/msg/CancReject.hpp"
 #include "frame/som/msg/Fill.hpp"
-#include "frame/som/msg/Reject.hpp"
 #include "frame/som/msg/SetExchManager.hpp"
 #include "logger/act/Logger.hpp"
 
@@ -185,7 +182,8 @@ BybitOM::BybitOM(BybitOMConfig cfg, actors::Actor *som, SessionFactory factory, 
 
 BybitOM::~BybitOM()
 {
-  reconnect_timer_ = {};
+  stopping_ = true;
+  reconnect_.cancel();
   drop_session();
 }
 
@@ -221,22 +219,25 @@ void BybitOM::drop_session() noexcept
 {
   ready_ = false;
   busy_ = false;
-  session_.reset();
+  session_.reset(); // joins the session's threads: no events after this
   events_.reset();
+  // Requests in flight on the dropped connection get no answer: a cancel is
+  // refused now, a new order's outcome comes from the query after the next
+  // login (on_logged_in).
+  std::vector<ClientId> cids;
+  for (const auto &[cid, link] : link_of_cid_)
+    cids.push_back(cid);
+  auto unconfirmed = oe_common::abandon_in_flight(book_, cids, this);
+  if (!unconfirmed.empty())
+    log_wrn("%zu new orders in flight at Bybit: outcome known after the next login", unconfirmed.size());
 }
 
 void BybitOM::schedule_reconnect() noexcept
 {
   if (stopping_)
     return;
-  auto expected = session_no_;
-  auto ms = cfg_.reconnect_ms;
-  reconnect_timer_ = std::jthread([this, expected, ms](std::stop_token st) {
-    std::mutex m;
-    std::condition_variable_any cv;
-    std::unique_lock<std::mutex> l(m);
-    if (!cv.wait_for(l, st, std::chrono::milliseconds(ms), [] { return false; }) && !st.stop_requested())
-      send(new BybitReport(BybitReport::RECONNECT, expected), nullptr);
+  reconnect_.arm(cfg_.reconnect_ms, [this, expected = session_no_] {
+    send(new BybitReport(BybitReport::RECONNECT, expected), nullptr);
   });
 }
 
@@ -255,7 +256,7 @@ void BybitOM::start_handler(const actors::msg::Start *) noexcept
 void BybitOM::shutdown_handler(const actors::msg::Shutdown *) noexcept
 {
   stopping_ = true;
-  reconnect_timer_ = {};
+  reconnect_.cancel();
   if (session_)
     session_->logout();
   drop_session();
@@ -264,37 +265,6 @@ void BybitOM::shutdown_handler(const actors::msg::Shutdown *) noexcept
 }
 
 // ---- requests from the SOM ------------------------------------------------------------------
-
-void BybitOM::reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
-{
-  log_err("rejecting order oid=%d: %s", oid, why);
-  if (to)
-    to->send(new som::Reject(uint(oid), reason), this);
-}
-
-void BybitOM::cancel_reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
-{
-  log_err("rejecting cancel of oid=%d: %s", oid, why);
-  if (to)
-    to->send(new som::CancReject(uint(oid), reason), this);
-}
-
-bool BybitOM::take_token() noexcept
-{
-  if (cfg_.max_orders_per_sec <= 0)
-    return true;
-  auto now = std::chrono::steady_clock::now();
-  double rate = cfg_.max_orders_per_sec;
-  if (refilled_ == std::chrono::steady_clock::time_point{})
-    tokens_ = rate;
-  else
-    tokens_ = std::min(rate, tokens_ + rate * std::chrono::duration<double>(now - refilled_).count());
-  refilled_ = now;
-  if (tokens_ < 1)
-    return false;
-  tokens_ -= 1;
-  return true;
-}
 
 void BybitOM::order_handler(const som::Order *m) noexcept
 {
@@ -355,7 +325,7 @@ void BybitOM::order_handler(const som::Order *m) noexcept
   if (ins.category == "spot" && m->ord_type == OT::MARKET && m->side == en::bs::BUY)
     return reject(m->sender, m->oid, som::Reject::UNKNOWN,
                   "spot market buys are sized in quote currency by default; not supported");
-  if (!take_token())
+  if (!tokens_.take(cfg_.max_orders_per_sec))
     return reject(m->sender, m->oid, som::Reject::THROTTLE, "over max_orders_per_sec");
 
   auto r = book_.add(*m, m->sender);
@@ -410,11 +380,7 @@ void BybitOM::cancel_handler(const som::Cancel *m) noexcept
     log_inf("cancel of oid=%d ignored: a cancel is already pending", oid);
     return;
   case Outcome::Late:
-    return cancel_reject(m->sender, oid,
-                         r.entry->state == frame::som::State::Filled ? som::CancReject::FILLEDALREADY
-                         : r.entry->state == frame::som::State::Canceled ? som::CancReject::CANCELLEDALREADY
-                                                                         : som::CancReject::REJECTEDPREVIOUSLY,
-                         "order already done");
+    return cancel_reject(m->sender, oid, oe_common::late_cancel_reason(r.entry->state), "order already done");
   default:
     return cancel_reject(m->sender, oid, som::CancReject::NOTFOUND, "no such order");
   }
@@ -497,9 +463,18 @@ void BybitOM::on_logged_in() noexcept
     auto e = book_.find_cid(v.cid);
     if (!e || frame::som::is_done(e->state))
       continue;
-    session_->query_order(v.category, link);
-    session_->query_executions(v.category, link);
+    query(v);
   }
+}
+
+// The executions come last: their answer decides a PendingNew order's fate
+// (on_response), after any order or execution the queries returned.
+void BybitOM::query(Venue &v) noexcept
+{
+  if (!session_)
+    return;
+  session_->query_order(v.category, v.link);
+  session_->query_executions(v.category, v.link);
 }
 
 void BybitOM::ensure_ack(Venue &v) noexcept
@@ -673,10 +648,19 @@ void BybitOM::on_execution(const std::string &json) noexcept
 void BybitOM::on_response(const BybitReport &r) noexcept
 {
   auto v = venue_of(r.link);
-  if (r.ret_code == 0 || !v)
+  if (!v)
   {
     if (r.ret_code != 0)
       log_err("Bybit answer %d (%s) for unknown %s", r.ret_code, r.text, r.link);
+    return;
+  }
+  if (r.ret_code == 0)
+  {
+    // The order and its executions were fetched (after a login, or after a
+    // create without an answer). Neither came for an order still PendingNew:
+    // Bybit never had the create.
+    if (r.request == RequestKind::QueryExecutions && oe_common::reject_unknown(book_, v->cid, this))
+      log_rej("Bybit does not know %s: the create never arrived", r.link);
     return;
   }
   if (r.request == RequestKind::Place)
@@ -685,8 +669,7 @@ void BybitOM::on_response(const BybitReport &r) noexcept
     {
       // No answer: the order may or may not exist. Ask, never resend.
       log_err("no answer to the create of %s (%s): querying", r.link, r.text);
-      if (session_)
-        session_->query_order(v->category, r.link);
+      query(*v);
       return;
     }
     if (r.ret_code == 10006)

@@ -9,12 +9,18 @@
 // and REST GET /api/v5/trade/fills. NEVER RUN against OKX by its author: no
 // demo keys were available (README.md). Demo requests carry
 // x-simulated-trading: 1 or are not sent (oe::require_demo_header).
+//
+// Two threads: the WebSocket thread reads and answers OKX's keep-alive (OKX
+// closes a connection with nothing for 30 s); a reconciliation pass, up to a
+// thousand HTTPS requests, runs on the REST thread
+// (crypto_common::RestWorker) so the socket never waits on it.
 
 #include <atomic>
 #include <chrono>
 #include <mutex>
 #include <thread>
 
+#include "crypto_common/RestWorker.hpp"
 #include "okx_md/OkxWs.hpp"
 #include "okx_oe/OkxAuth.hpp"
 #include "okx_pt/OkxFills.hpp"
@@ -39,6 +45,7 @@ namespace okx::pt
     ~FillsWsSession() override
     {
       stop_ = true;
+      rest_.stop();
       if (thread_.joinable())
         thread_.join();
     }
@@ -47,8 +54,7 @@ namespace okx::pt
     {
       if (!ready_)
         return CallStatus::Disconnected;
-      pass_begin_ = begin_ms;
-      pass_ = true;
+      rest_.post([this, begin_ms] { fetch(begin_ms); });
       return CallStatus::Success;
     }
     void logout() override { stop_ = true; }
@@ -88,14 +94,13 @@ namespace okx::pt
         ws.send(json{{"op", "subscribe"}, {"args", json::array({arg})}}.dump());
         if (!await(ws, "subscribe"))
           return;
+        rest_.start();
         ready_ = true;
         ev_.logged_in();
         auto last_rx = std::chrono::steady_clock::now();
         bool pinged = false;
         while (!stop_)
         {
-          if (pass_.exchange(false))
-            fetch(pass_begin_);
           auto f = ws.read_for(std::chrono::milliseconds(100));
           const auto now = std::chrono::steady_clock::now();
           if (!f)
@@ -155,7 +160,7 @@ namespace okx::pt
 
     // GET /api/v5/trade/fills from begin_ms, newest first, 100 per page,
     // older pages by `after` = the last billId. 60 requests per 2 s allowed;
-    // one page per 100 ms here.
+    // one page per 100 ms here. REST thread.
     void fetch(uint64_t begin_ms)
     {
       size_t rows = 0;
@@ -193,8 +198,8 @@ namespace okx::pt
     FillsConfig cfg_;
     FillsEvents &ev_;
     auth::Keys keys_;
-    std::atomic<bool> stop_{false}, ready_{false}, pass_{false};
-    std::atomic<uint64_t> pass_begin_{0};
+    std::atomic<bool> stop_{false}, ready_{false};
+    crypto_common::RestWorker rest_;
     std::thread thread_;
   };
 

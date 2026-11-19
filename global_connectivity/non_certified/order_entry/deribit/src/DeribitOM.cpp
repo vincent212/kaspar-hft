@@ -9,20 +9,17 @@
 
 #include <algorithm>
 #include <cmath>
-#include <condition_variable>
 #include <iostream>
-#include <mutex>
 
 #include "frame/ref/RefData.hpp"
 #include "frame/som/msg/Ack.hpp"
 #include "frame/som/msg/CancAck.hpp"
-#include "frame/som/msg/CancReject.hpp"
 #include "frame/som/msg/Fill.hpp"
-#include "frame/som/msg/Reject.hpp"
 #include "frame/som/msg/SetExchManager.hpp"
 #include "logger/act/Logger.hpp"
 
 #include "deribit_oe/SimDeribit.hpp"
+#include "deribit_oe/if/DeribitOM.hpp"
 
 namespace deribit::oe
 {
@@ -57,6 +54,7 @@ namespace deribit::oe
     void rpc_result(const json &r) override { post(DeribitReport::RPC_RESULT, {}, r); }
     void order_update(const json &o) override { post(DeribitReport::ORDER_UPDATE, {}, o); }
     void trade(const json &t) override { post(DeribitReport::TRADE, {}, t); }
+    void order_unknown(const std::string &label) override { post(DeribitReport::ORDER_UNKNOWN, label); }
 
   private:
     void post(DeribitReport::Kind k, std::string text = {}, json body = {})
@@ -110,17 +108,6 @@ namespace deribit::oe
       }
     }
 
-    int cancel_reject_reason(State s)
-    {
-      switch (s)
-      {
-      case State::Filled: return som::CancReject::FILLEDALREADY;
-      case State::Canceled: return som::CancReject::CANCELLEDALREADY;
-      case State::Rejected: return som::CancReject::REJECTEDPREVIOUSLY;
-      default: return som::CancReject::NOTFOUND;
-      }
-    }
-
     uint64_t ms_to_ns(const json &j, const char *k)
     {
       const double ms = num(j, k);
@@ -151,7 +138,7 @@ namespace deribit::oe
   DeribitOM::~DeribitOM()
   {
     stopping_ = true;
-    reconnect_timer_ = {};
+    reconnect_.cancel();
     drop_session();
   }
 
@@ -190,32 +177,23 @@ namespace deribit::oe
     busy_ = false;
     session_.reset();   // joins the session's thread: no events after this
     events_.reset();
-    // Requests in flight on the dropped connection get no answer: a new
-    // order's outcome comes from recover(), a cancel is refused now.
-    for (auto it = pending_.begin(); it != pending_.end();)
-    {
-      if (it->second.kind == Pending::CANCEL)
-      {
-        auto res = book_.on_cancel_rejected(it->second.cid);
-        if (res.outcome == Outcome::Ok && res.entry->sender)
-          res.entry->sender->send(new som::CancReject(uint(res.entry->oid), som::CancReject::DISCONNECTED), this);
-      }
-      it = pending_.erase(it);
-    }
+    // Requests in flight on the dropped connection get no answer: a cancel is
+    // refused now, a new order's outcome comes from recover_live().
+    std::vector<ClientId> cids;
+    for (const auto &[cid, v] : by_cid_)
+      cids.push_back(cid);
+    auto unconfirmed = oe_common::abandon_in_flight(book_, cids, this);
+    if (!unconfirmed.empty())
+      log_wrn("%zu new orders in flight at Deribit: outcome known after recovery", unconfirmed.size());
+    pending_.clear();
   }
 
   void DeribitOM::schedule_reconnect() noexcept
   {
     if (stopping_ || login_refused_)
       return;
-    auto expected = session_no_;
-    auto ms = cfg_.reconnect_ms;
-    reconnect_timer_ = std::jthread([this, expected, ms](std::stop_token st) {
-      std::mutex m;
-      std::condition_variable_any cv;
-      std::unique_lock<std::mutex> l(m);
-      if (!cv.wait_for(l, st, std::chrono::milliseconds(ms), [] { return false; }) && !st.stop_requested())
-        send(new DeribitReport(DeribitReport::RECONNECT, expected), nullptr);
+    reconnect_.arm(cfg_.reconnect_ms, [this, expected = session_no_] {
+      send(new DeribitReport(DeribitReport::RECONNECT, expected), nullptr);
     });
   }
 
@@ -239,7 +217,7 @@ namespace deribit::oe
   void DeribitOM::shutdown_handler(const actors::msg::Shutdown *) noexcept
   {
     stopping_ = true;
-    reconnect_timer_ = {};
+    reconnect_.cancel();
     if (session_)
       session_->logout();
     drop_session();
@@ -248,37 +226,6 @@ namespace deribit::oe
   }
 
   // ---- requests from the SOM ---------------------------------------------------------------------
-
-  void DeribitOM::reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
-  {
-    log_err("rejecting order oid=%d: %s", oid, why);
-    if (to)
-      to->send(new som::Reject(uint(oid), reason), this);
-  }
-
-  void DeribitOM::cancel_reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
-  {
-    log_err("rejecting cancel of oid=%d: %s", oid, why);
-    if (to)
-      to->send(new som::CancReject(uint(oid), reason), this);
-  }
-
-  bool DeribitOM::take_token() noexcept
-  {
-    if (cfg_.max_orders_per_sec <= 0)
-      return true;
-    auto now = std::chrono::steady_clock::now();
-    const double rate = cfg_.max_orders_per_sec;
-    if (refilled_ == std::chrono::steady_clock::time_point{})
-      tokens_ = rate;
-    else
-      tokens_ = std::min(rate, tokens_ + rate * std::chrono::duration<double>(now - refilled_).count());
-    refilled_ = now;
-    if (tokens_ < 1)
-      return false;
-    tokens_ -= 1;
-    return true;
-  }
 
   void DeribitOM::order_handler(const som::Order *m) noexcept
   {
@@ -327,7 +274,7 @@ namespace deribit::oe
     const double notional = ins->inverse ? amount : amount * m->px * ins->tick_d();
     if (cfg_.max_order_notional > 0 && notional > cfg_.max_order_notional)
       return reject(m->sender, m->oid, som::Reject::OVERLIMIT, "over the order notional limit");
-    if (!take_token())
+    if (!tokens_.take(cfg_.max_orders_per_sec))
       return reject(m->sender, m->oid, som::Reject::THROTTLE, "over max_orders_per_sec");
 
     auto r = book_.add(*m, m->sender);
@@ -386,7 +333,7 @@ namespace deribit::oe
       log_inf("cancel of oid=%d ignored: a cancel is already pending", oid);
       return;
     case Outcome::Late:
-      return cancel_reject(m->sender, oid, cancel_reject_reason(r.entry->state), "order already done");
+      return cancel_reject(m->sender, oid, oe_common::late_cancel_reason(r.entry->state), "order already done");
     default:
       return cancel_reject(m->sender, oid, som::CancReject::NOTFOUND, "no such order");
     }
@@ -475,6 +422,12 @@ namespace deribit::oe
     case DeribitReport::RPC_RESULT: on_rpc_result(m->body); return;
     case DeribitReport::ORDER_UPDATE: on_order(m->body); return;
     case DeribitReport::TRADE: on_trade(m->body); return;
+    case DeribitReport::ORDER_UNKNOWN:
+      if (all_digits(m->text) && oe_common::reject_unknown(book_, std::stoull(m->text), this))
+        log_rej("Deribit does not know label=%s: the order never reached it", m->text);
+      else
+        log_inf("Deribit does not know label=%s: nothing to do", m->text);
+      return;
     default: return;
     }
   }

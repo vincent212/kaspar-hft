@@ -35,7 +35,10 @@
 // Reconnect: the orders channel pushes nothing on subscribe, so after every
 // login the OM asks the session to recover() each order still live in the
 // book (REST fills and order state); fills already applied are recognised by
-// tradeId.
+// tradeId. A lost connection refuses every cancel in flight (CancReject
+// DISCONNECTED; the order stays working). A new order whose request was in
+// flight stays PendingNew until that recovery: one OKX does not know never
+// reached it and is rejected (Reject DISCONNECTED).
 //
 // Refused locally with a Reject: market, stop and stop-limit orders;
 // time in force other than DAY, GTC (both sent as limit, or post_only when
@@ -43,11 +46,9 @@
 // broker algorithms; replace; sizes that are not whole units; anything over
 // the configured limits.
 
-#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -58,6 +59,7 @@
 #include "frame/som/msg/Cancel.hpp"
 #include "frame/som/msg/Order.hpp"
 
+#include "oe_common/OmSupport.hpp"
 #include "okx_oe/OkxConfig.hpp"
 #include "okx_oe/OkxSession.hpp"
 #include "okx_oe/msg/OkxReport.hpp"
@@ -109,9 +111,14 @@ namespace okx::oe
     void connect() noexcept;
     void drop_session() noexcept;
     void schedule_reconnect() noexcept;
-    bool take_token() noexcept;
-    void reject(actors::Actor *to, int oid, int reason, const char *why) noexcept;
-    void cancel_reject(actors::Actor *to, int oid, int reason, const char *why) noexcept;
+    void reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
+    {
+      oe_common::reject(this, to, oid, reason, why);
+    }
+    void cancel_reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
+    {
+      oe_common::cancel_reject(this, to, oid, reason, why);
+    }
 
     OkxOMConfig cfg_;
     actors::Actor *som_;
@@ -130,15 +137,7 @@ namespace okx::oe
     bool stopping_ = false;
     bool login_refused_ = false;
 
-    double tokens_ = 0;
-    std::chrono::steady_clock::time_point refilled_{};
-    std::jthread reconnect_timer_;
+    oe_common::TokenBucket tokens_;
+    oe_common::ReconnectTimer reconnect_;
   };
 }
-
-// The real session, or SimOkx when cfg.sim. nullptr (reason on stderr) for a
-// bad config or a refused environment, so OKX stays unrouted instead of
-// stopping kaspar. Instruments are resolved to Kaspar assets by name.
-actors::Actor *create_OkxOM(okx::oe::OkxOMConfig cfg, actors::Actor *som,
-                            okx::oe::SessionFactory factory = nullptr);
-actors::Actor *create_OkxOM(const std::string &config_path, actors::Actor *som);

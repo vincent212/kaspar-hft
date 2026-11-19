@@ -50,6 +50,11 @@ namespace okx::md
    *
    * Only the best `window_depth` levels per side reach Mbp2Mbo (LevelWindow).
    *
+   * Whenever a synchronised book is invalidated (a sequence gap, a checksum
+   * mismatch, reset() after a lost connection) on_gap is called once: the
+   * owner sends l3_gap_v2_t to the OB, whose book is stale until the next
+   * snapshot reaches it as recovery records.
+   *
    * Trades and the book are ordered by seqId: a trade whose seqId is above
    * the last book seqId applied is not yet in the book (its chunks leave the
    * front of the queue, and the next update brings the level to its size);
@@ -90,8 +95,12 @@ namespace okx::md
 
     Status on_message(const nlohmann::json &msg);
 
-    // A new connection or subscription: wait for a snapshot.
+    // A new connection or subscription: wait for a snapshot (on_gap if the
+    // book was synced).
     void reset();
+
+    // Called once each time a synchronised book is invalidated.
+    void on_gap(std::function<void()> f) { on_gap_ = std::move(f); }
 
     bool synced() const { return synced_; }
     int64_t seq_id() const { return seq_; }
@@ -123,7 +132,9 @@ namespace okx::md
     uint64_t last_book_tx_ = 0;
     int64_t last_trade_id_ = -1;
     Stats st_;
+    std::function<void()> on_gap_;
 
+    void invalidate();
     Status on_books(const nlohmann::json &d, bool snapshot);
     void on_trade(const nlohmann::json &d);
     void set(bool bid, const nlohmann::json &lvl);

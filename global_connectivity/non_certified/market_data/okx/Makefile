@@ -28,7 +28,7 @@ SIM = $(KSPRPROJ)/sim
 B   = $(HERE)/build
 
 FLAGS = $(STANDARD) -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Wno-reorder \
-        -I$(HERE)/include -I$(SIM)/include -I$(KSPRPROJ)/unit_test/include $(INCL) \
+        -I$(HERE)/include -I$(HERE)/../crypto_common/include -I$(SIM)/include -I$(KSPRPROJ)/unit_test/include $(INCL) \
         -I$(OPENSSL_PATH)/include -I$(GTEST_PATH)/include
 # libframe is compiled here from this tree's frame_kaspr sources: OB checks
 # en::is_valid(venue) against the enum it was compiled with, and a libframe

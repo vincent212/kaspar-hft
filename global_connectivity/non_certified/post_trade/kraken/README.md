@@ -6,7 +6,8 @@ below with its numbers.
 
 ## What it is
 
-`KrakenFillsClient` (`include/kraken_pt/act/KrakenFillsClient.hpp`) reads the
+`KrakenFillsClient` (`include/kraken_pt/act/KrakenFillsClient.hpp`; factory in
+`include/kraken_pt/if/KrakenFillsClient.hpp`) reads the
 account's fills, applies each to `post_trade::TradeLedger` (`../common`), and sends
 one `post_trade::msg::TradeCapture` per new fill to its subscriber. A stream and a
 REST reconciliation feed the same ledger, so a fill the stream missed is recovered

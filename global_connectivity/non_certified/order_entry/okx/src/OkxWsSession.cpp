@@ -9,18 +9,24 @@
 // for recovery and Cancel All After. NEVER RUN against OKX by its author: no
 // demo keys were available (README.md, "Testing ladder").
 //
-// One thread owns the WebSocket: it logs in, subscribes to `orders`, then
-// alternates between writing queued requests and reading for up to 50 ms.
-// Requests from the actor thread only go into the queue. Keep-alive: the
+// Two threads. The WebSocket thread logs in, subscribes to `orders`, then
+// alternates between writing queued requests and reading for up to 50 ms;
+// requests from the actor thread only go into the queue. Keep-alive: the
 // text "ping" after 20 s without a frame; no answer within 20 s is a lost
-// connection.
+// connection. OKX closes a connection that has had nothing for 30 s, so the
+// WebSocket thread never blocks on HTTPS: recovery (two REST requests per
+// order, more with paging) and the Cancel All After refresh run on the REST
+// thread (crypto_common::RestWorker). A REST failure there ends the session
+// (disconnected), and the next login recovers again.
 
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <exception>
 #include <mutex>
 #include <thread>
 
+#include "crypto_common/RestWorker.hpp"
 #include "okx_md/OkxWs.hpp"
 #include "okx_oe/OkxAuth.hpp"
 #include "okx_oe/OkxConfig.hpp"
@@ -50,6 +56,7 @@ namespace okx::oe
     ~OkxWsSession() override
     {
       stop_ = true;
+      rest_.stop();
       if (thread_.joinable())
         thread_.join();
     }
@@ -70,8 +77,7 @@ namespace okx::oe
     {
       if (!ready_)
         return CallStatus::Disconnected;
-      std::lock_guard<std::mutex> l(mu_);
-      recover_.push_back({inst_id, ord_id, cl});
+      rest_.post([this, r = Recovery{inst_id, ord_id, cl}] { recover_one(r); });
       return CallStatus::Success;
     }
 
@@ -102,7 +108,7 @@ namespace okx::oe
     }
 
     // A signed REST request; demo requests carry x-simulated-trading: 1 or
-    // are not sent.
+    // are not sent. REST thread.
     HttpResult rest(const std::string &method, const std::string &path, const std::string &body = {})
     {
       Headers h = cfg_.ep.headers();
@@ -115,6 +121,14 @@ namespace okx::oe
       h["OK-ACCESS-TIMESTAMP"] = ts;
       h["OK-ACCESS-PASSPHRASE"] = keys_.passphrase;
       return https_request(cfg_.ep.rest_host, method, path, body, h);
+    }
+
+    // REST thread: a failure ends the session from the WebSocket thread.
+    void rest_failed(const std::string &why)
+    {
+      std::lock_guard<std::mutex> l(mu_);
+      if (rest_error_.empty())
+        rest_error_ = why;
     }
 
     void run()
@@ -137,6 +151,7 @@ namespace okx::oe
         ws.send(json{{"op", "subscribe"}, {"args", json::array({{{"channel", "orders"}, {"instType", "ANY"}}})}}.dump());
         if (!await_event(ws, "subscribe"))
           return;
+        rest_.start();
         ready_ = true;
         ev_.logged_in();
         loop(ws);
@@ -173,6 +188,28 @@ namespace okx::oe
       return false;
     }
 
+    // Every queued request is attempted, even after one fails: the first
+    // failure is rethrown once the batch is done, so that a request behind a
+    // bad one is not silently lost.
+    void send_all(WsClient &ws, const std::deque<std::string> &out)
+    {
+      std::exception_ptr first;
+      for (const auto &t : out)
+      {
+        try
+        {
+          ws.send(t);
+        }
+        catch (...)
+        {
+          if (!first)
+            first = std::current_exception();
+        }
+      }
+      if (first)
+        std::rethrow_exception(first);
+    }
+
     void loop(WsClient &ws)
     {
       auto last_rx = std::chrono::steady_clock::now();
@@ -181,29 +218,25 @@ namespace okx::oe
       while (!stop_)
       {
         std::deque<std::string> out;
-        std::deque<Recovery> rec;
         bool was_busy = false;
+        std::string rest_error;
         {
           std::lock_guard<std::mutex> l(mu_);
           out.swap(out_);
-          rec.swap(recover_);
           was_busy = busy_;
           busy_ = false;
+          rest_error = rest_error_;
         }
-        for (const auto &t : out)
-          ws.send(t);
+        if (!rest_error.empty())
+          throw std::runtime_error(rest_error);
+        send_all(ws, out);
         if (was_busy)
           ev_.available();
-        for (const auto &r : rec)
-          recover_one(r);
         if (cfg_.cancel_all_after_s > 0 && std::chrono::steady_clock::now() >= next_caa)
         {
           // Dead man's switch: OKX cancels everything if this is not
           // refreshed within cancel_all_after_s (docs-v5, Cancel All After).
-          auto r = rest("POST", "/api/v5/trade/cancel-all-after",
-                        json{{"timeOut", std::to_string(cfg_.cancel_all_after_s)}}.dump());
-          if (r.status != 200)
-            ev_.disconnected("cancel-all-after refused: HTTP " + std::to_string(r.status));
+          rest_.post([this] { refresh_cancel_all_after(); });
           next_caa = std::chrono::steady_clock::now() + std::chrono::seconds(cfg_.cancel_all_after_s / 3);
         }
 
@@ -247,49 +280,85 @@ namespace okx::oe
           ev_.order_update(d);
     }
 
+    // REST thread.
+    void refresh_cancel_all_after()
+    {
+      try
+      {
+        auto r = rest("POST", "/api/v5/trade/cancel-all-after",
+                      json{{"timeOut", std::to_string(cfg_.cancel_all_after_s)}}.dump());
+        if (r.status != 200)
+          rest_failed("cancel-all-after refused: HTTP " + std::to_string(r.status));
+      }
+      catch (const std::exception &e)
+      {
+        rest_failed(std::string("cancel-all-after: ") + e.what());
+      }
+    }
+
+    // REST thread.
     void recover_one(const Recovery &r)
     {
-      std::string ord = r.ord_id;
-      json state;
+      try
       {
-        const std::string q = "/api/v5/trade/order?instId=" + r.inst_id +
-                              (ord.empty() ? "&clOrdId=" + r.cl : "&ordId=" + ord);
-        auto res = rest("GET", q);
-        auto j = json::parse(res.body);
-        if (j.value("code", "") != "0" || j["data"].empty())
-          return; // unknown at OKX (never reached it); the OM keeps waiting
-        state = j["data"][0];
-        ord = state.value("ordId", ord);
-      }
-      std::string after;
-      for (int page = 0; page < 20; ++page)
-      {
-        std::string q = "/api/v5/trade/fills?instId=" + r.inst_id + "&ordId=" + ord + "&limit=100";
-        if (!after.empty())
-          q += "&after=" + after;
-        auto j = json::parse(rest("GET", q).body);
-        if (j.value("code", "") != "0")
-          break;
-        const auto &d = j["data"];
-        for (const auto &f : d)
+        std::string ord = r.ord_id;
+        json state;
         {
-          json u = {{"instId", f.value("instId", "")}, {"ordId", f.value("ordId", "")},
-                    {"clOrdId", f.value("clOrdId", r.cl)}, {"tradeId", f.value("tradeId", "")},
-                    {"fillSz", f.value("fillSz", "0")},   {"fillPx", f.value("fillPx", "0")},
-                    {"fillTime", f.value("fillTime", "")}, {"execType", f.value("execType", "")},
-                    {"state", ""},                         {"source", "rest"}};
-          ev_.order_update(u);
-          after = f.value("billId", "");
+          const std::string q = "/api/v5/trade/order?instId=" + r.inst_id +
+                                (ord.empty() ? "&clOrdId=" + r.cl : "&ordId=" + ord);
+          auto res = rest("GET", q);
+          if (res.status != 200)
+            throw std::runtime_error("trade/order: HTTP " + std::to_string(res.status));
+          auto j = json::parse(res.body);
+          if (j.value("code", "") == "51603" || (j.value("code", "") == "0" && j["data"].empty()))
+          {
+            // 51603 "Order does not exist": the request never reached OKX.
+            ev_.order_unknown(r.cl);
+            return;
+          }
+          if (j.value("code", "") != "0")
+            throw std::runtime_error("trade/order: code " + j.value("code", "") + " " + j.value("msg", ""));
+          state = j["data"][0];
+          ord = state.value("ordId", ord);
         }
-        if (d.size() < 100)
-          break;
+        std::string after;
+        for (int page = 0; page < 20; ++page)
+        {
+          std::string q = "/api/v5/trade/fills?instId=" + r.inst_id + "&ordId=" + ord + "&limit=100";
+          if (!after.empty())
+            q += "&after=" + after;
+          auto res = rest("GET", q);
+          if (res.status != 200)
+            throw std::runtime_error("trade/fills: HTTP " + std::to_string(res.status));
+          auto j = json::parse(res.body);
+          if (j.value("code", "") != "0")
+            throw std::runtime_error("trade/fills: code " + j.value("code", "") + " " + j.value("msg", ""));
+          const auto &d = j["data"];
+          for (const auto &f : d)
+          {
+            json u = {{"instId", f.value("instId", "")}, {"ordId", f.value("ordId", "")},
+                      {"clOrdId", f.value("clOrdId", r.cl)}, {"tradeId", f.value("tradeId", "")},
+                      {"fillSz", f.value("fillSz", "0")},   {"fillPx", f.value("fillPx", "0")},
+                      {"fillTime", f.value("fillTime", "")}, {"execType", f.value("execType", "")},
+                      {"state", ""},                         {"source", "rest"}};
+            ev_.order_update(u);
+            after = f.value("billId", "");
+          }
+          if (d.size() < 100)
+            break;
+        }
+        // The state last, with its own last-fill fields cleared: the fills
+        // above already carry them.
+        state["fillSz"] = "0";
+        state["tradeId"] = "";
+        state["source"] = "rest";
+        ev_.order_update(state);
       }
-      // The state last, with its own last-fill fields cleared: the fills
-      // above already carry them.
-      state["fillSz"] = "0";
-      state["tradeId"] = "";
-      state["source"] = "rest";
-      ev_.order_update(state);
+      catch (const std::exception &e)
+      {
+        // The order's state is still unknown: reconnect and recover again.
+        rest_failed("recovery of clOrdId=" + r.cl + ": " + e.what());
+      }
     }
 
     OkxOMConfig cfg_;
@@ -297,9 +366,10 @@ namespace okx::oe
     auth::Keys keys_;
     std::mutex mu_;
     std::deque<std::string> out_;
-    std::deque<Recovery> recover_;
+    std::string rest_error_; // under mu_
     std::atomic<bool> stop_{false}, ready_{false};
     bool busy_ = false; // under mu_
+    crypto_common::RestWorker rest_;
     std::thread thread_;
   };
 

@@ -7,6 +7,8 @@
 
 #include "kraken_pt/act/KrakenFillsClient.hpp"
 
+#include "kraken_pt/if/KrakenFillsClient.hpp"
+
 #include <chrono>
 #include <condition_variable>
 #include <cstring>

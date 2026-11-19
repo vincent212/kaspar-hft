@@ -174,6 +174,22 @@ TEST(BybitSyncFull, BufferRestartsOnABreakAndDropsSeqRegressions)
   EXPECT_DOUBLE_EQ(qty(r.s.bids(), 1000), 3);
 }
 
+TEST(BybitSyncFull, RedeliveredDeltaWhileBufferingIsNotABreak)
+{
+  Rig r(BybitSync::Mode::FULL, "BTCUSDT", 0.1, 0.001, 0.001);
+  r.s.on_message(full_delta(10, 1000, {{"100.0", "1"}}, {}));
+  r.s.on_message(full_delta(11, 1001, {{"100.0", "2"}}, {}));
+  r.s.on_message(full_delta(11, 1001, {{"100.0", "2"}}, {})); // delivered twice
+  r.s.on_message(full_delta(12, 1002, {{"100.0", "3"}}, {}));
+  EXPECT_EQ(r.s.stats().duplicates, 1u);
+  EXPECT_TRUE(r.s.buffering());
+  // The buffer still starts at 10: a snapshot at 9 aligns and 10..12 apply.
+  EXPECT_EQ(r.s.on_snapshot(rest(9, 999, {{"99.0", "1"}}, {})), BybitSync::SnapResult::Applied);
+  EXPECT_EQ(r.s.last_u(), 12);
+  EXPECT_DOUBLE_EQ(qty(r.s.bids(), 1000), 3);
+  EXPECT_EQ(r.s.stats().deltas, 3u);
+}
+
 TEST(BybitSyncFull, GapSendsGapRecordAndWaitsForASnapshot)
 {
   Rig r(BybitSync::Mode::FULL, "BTCUSDT", 0.1, 0.001, 0.001);

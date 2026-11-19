@@ -16,7 +16,7 @@
 
 #include "TestUtil.hpp"
 #include "bybit_oe/SimBybit.hpp"
-#include "bybit_oe/act/BybitOM.hpp"
+#include "bybit_oe/if/BybitOM.hpp"
 
 namespace som = frame::som::msg;
 using namespace bybit::oe;

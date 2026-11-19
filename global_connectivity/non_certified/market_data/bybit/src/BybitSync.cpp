@@ -152,6 +152,11 @@ void BybitSync::on_book(const nlohmann::json &msg)
       ++stats_.seq_back;
       return;
     }
+    if (u == lu)
+    {
+      ++stats_.duplicates; // the last delta delivered again: not a break
+      return;
+    }
     if (u != lu + 1)
       buffer_.clear(); // a break in u: restart buffering from here
   }

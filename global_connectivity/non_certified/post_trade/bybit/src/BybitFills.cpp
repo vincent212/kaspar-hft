@@ -36,30 +36,6 @@ en::x venue_of(const std::string &c)
   return en::x{};
 }
 
-bool parse_decimal(const std::string &s, int64_t &m, int &d)
-{
-  m = 0;
-  d = 0;
-  bool dot = false, digit = false;
-  for (char ch : s)
-  {
-    if (ch == '.' && !dot)
-    {
-      dot = true;
-      continue;
-    }
-    if (!std::isdigit(static_cast<unsigned char>(ch)))
-      return false;
-    if (m > (INT64_MAX - 9) / 10)
-      return false;
-    m = m * 10 + (ch - '0');
-    digit = true;
-    if (dot)
-      ++d;
-  }
-  return digit;
-}
-
 const char *to_string(Parse p)
 {
   switch (p)
@@ -129,9 +105,9 @@ Parse to_capture(const nlohmann::json &e, const std::string &category_in, const 
   int64_t pm = 0, qm = 0, tm = 0;
   int pd = 0, qd = 0, td = 0;
   if (!parse_decimal(s(e, "execPrice"), pm, pd) || !parse_decimal(s(e, "execQty"), qm, qd) ||
-      !parse_decimal(tms, tm, td) || td != 0)
+      !parse_decimal(tms, tm, td) || td != 0 || pm < 0 || qm < 0 || tm < 0)
   {
-    why = "execPrice, execQty or execTime not a decimal";
+    why = "execPrice, execQty or execTime not a non-negative decimal";
     return Parse::Malformed;
   }
   const double q = double(qm) * std::pow(10.0, -qd);

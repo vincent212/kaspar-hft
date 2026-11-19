@@ -37,6 +37,7 @@ namespace kraken::oe::spot
   {
     std::vector<Report> reports;
     std::optional<uint64_t> sequence;   // executions `sequence`
+    bool snapshot = false;              // an executions snapshot (open orders, last trades)
     bool subscribed_executions = false; // the executions subscribe succeeded
     std::string subscribe_error;        // a subscribe that failed: its error
   };

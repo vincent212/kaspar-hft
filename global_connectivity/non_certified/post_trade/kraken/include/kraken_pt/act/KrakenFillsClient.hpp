@@ -117,6 +117,3 @@ namespace kraken::pt
     std::jthread reconnect_timer_, reconcile_timer_;
   };
 }
-
-actors::Actor *create_KrakenFillsClient(kraken::pt::FillsConfig cfg, actors::Actor *subscriber,
-                                        kraken::pt::FillsSessionFactory factory);

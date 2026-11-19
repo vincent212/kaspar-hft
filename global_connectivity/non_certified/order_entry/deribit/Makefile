@@ -29,7 +29,8 @@ COMMON = $(abspath $(HERE)/../../post_trade/common)
 B   = $(HERE)/build
 
 FLAGS = $(STANDARD) -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Wno-reorder \
-        -I$(HERE)/include -I$(HERE)/tests -I$(KSPRPROJ)/sim/include $(INCL) \
+        -I$(HERE)/include -I$(HERE)/tests -I$(HERE)/../common/include -I$(KSPRPROJ)/global_connectivity/non_certified/market_data/crypto_common/include \
+        -I$(KSPRPROJ)/sim/include $(INCL) \
         -I$(OPENSSL_PATH)/include -I$(GTEST_PATH)/include
 TOOLFLAGS = -I$(PT)/include -I$(COMMON)/include
 
@@ -42,7 +43,7 @@ LIBS  = $(FRAME_LIB) -L$(KSPRLIB) -lframe -llogger -lmq0 -lchutil $(ACTORS_LIB) 
         -L$(OPENSSL_PATH)/lib -lssl -lcrypto -L$(ZMQ_PATH)/lib -lzmq -L$(ZLIB_PATH)/lib -lz -lpthread
 GTEST = -L$(GTEST_PATH)/lib -lgtest -lgtest_main
 
-SRC   = src/Signing.cpp src/RpcWs.cpp src/DeribitConfig.cpp src/DeribitOM.cpp src/DeribitWsSession.cpp \
+SRC   = src/Signing.cpp src/DeribitConfig.cpp src/DeribitOM.cpp src/DeribitWsSession.cpp \
         src/SimDeribit.cpp
 TESTS = tests/test_deribit_signing_config.cpp tests/test_deribit_om.cpp tests/test_sim_deribit.cpp
 OBJ   = $(patsubst %.cpp,$(B)/obj/%.o,$(SRC))

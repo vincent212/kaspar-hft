@@ -41,6 +41,14 @@ OkxFeed::OkxFeed(const Config &cfg, actors::Actor *ob)
       sync_(cfg.inst_id, mbp2mbo_, cfg.window_depth)
 {
   snprintf(name, sizeof(name), "OkxFeed_%s", cfg_.inst_id.c_str());
+  // A synchronised book invalidated (sequence gap, checksum mismatch, lost
+  // connection): OB's book is stale until the next snapshot.
+  sync_.on_gap([this] {
+    bfile::l3_gap_v2_t g{};
+    g.typ = en::l3::GAP_V2;
+    g.venue = cfg_.chunks.venue;
+    emit(g);
+  });
   if (!cfg_.record_path.empty())
     rec_ = std::make_unique<std::ofstream>(cfg_.record_path, std::ios::app);
   MESSAGE_HANDLER(actors::msg::Start, start_handler);

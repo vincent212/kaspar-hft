@@ -25,7 +25,8 @@ SRC = src/BybitOM.cpp src/BybitConfig.cpp src/RestWsSession.cpp src/SimBybit.cpp
 TESTS = tests/test_bybit_auth.cpp tests/test_bybit_om.cpp tests/test_sim_bybit.cpp
 
 FLAGS = $(STANDARD) -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations \
-        -Wno-reorder -Wno-sign-compare -Iinclude -Itests -I$(KSPRPROJ)/sim/include $(INCL) \
+        -Wno-reorder -Wno-sign-compare -Iinclude -Itests -I../common/include -I../../market_data/bybit/include \
+        -I../../market_data/crypto_common/include -I$(KSPRPROJ)/sim/include $(INCL) \
         -I$(GTEST_PATH)/include -I$(OPENSSL_PATH)/include
 
 # libframe compiled from this checkout (see market_data/bybit/Makefile: a

@@ -25,8 +25,17 @@ namespace kraken
 
   void KrakenBookSync::reset()
   {
-    synced_ = false;
+    invalidate();
     last_trade_id_ = 0;
+  }
+
+  void KrakenBookSync::invalidate()
+  {
+    if (!synced_)
+      return;
+    synced_ = false;
+    if (on_gap_)
+      on_gap_();
   }
 
   uint32_t KrakenBookSync::checksum(const Side &bids, const Side &asks)
@@ -148,7 +157,7 @@ namespace kraken
       return Result::Ok;
     }
     ++st_.checksum_bad;
-    synced_ = false;
+    invalidate();
     return Result::ChecksumMismatch;
   }
 
@@ -233,7 +242,7 @@ namespace kraken
     {
       ++st_.errors;
       std::cerr << "KrakenBookSync: " << e.what() << std::endl;
-      synced_ = false;
+      invalidate();
       return Result::Error;
     }
   }

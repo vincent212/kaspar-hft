@@ -36,6 +36,7 @@
 
 #include "enum/exch_code.hpp"
 #include "post_trade/msg/TradeCapture.hpp"
+#include "post_trade/Decimal.hpp"
 
 namespace bybit_pt
 {
@@ -58,8 +59,7 @@ namespace bybit_pt
 
   en::x venue_of(const std::string &category); // spot BYBIT, linear BYBITF, else invalid
 
-  // "95900.10" -> 9590010, 2. false unless a plain non-negative decimal.
-  bool parse_decimal(const std::string &s, int64_t &mantissa, int &decimals);
+  using post_trade::parse_decimal; // post_trade/Decimal.hpp
 
   enum class Parse
   {

@@ -58,9 +58,18 @@ OkxSync::OkxSync(std::string inst_id, sim::Mbp2Mbo &out, size_t window_depth)
 
 void OkxSync::reset()
 {
-  synced_ = false;
+  invalidate();
   seq_ = -1;
   last_trade_id_ = -1;
+}
+
+void OkxSync::invalidate()
+{
+  if (!synced_)
+    return;
+  synced_ = false;
+  if (on_gap_)
+    on_gap_();
 }
 
 std::string OkxSync::checksum_string(size_t levels) const
@@ -156,7 +165,7 @@ OkxSync::Status OkxSync::on_books(const nlohmann::json &d, bool snapshot)
       ++st_.gaps;
       std::cerr << "OkxSync " << inst_ << ": prevSeqId " << prev << " after seqId " << seq_
                 << "; resubscribing" << std::endl;
-      synced_ = false;
+      invalidate();
       return Status::Gap;
     }
   }
@@ -185,7 +194,7 @@ OkxSync::Status OkxSync::on_books(const nlohmann::json &d, bool snapshot)
       ++st_.gaps;
       std::cerr << "OkxSync " << inst_ << ": checksum " << cs << ", computed " << mine << " at seqId "
                 << seq << "; resubscribing" << std::endl;
-      synced_ = false;
+      invalidate();
       return Status::Gap;
     }
   }

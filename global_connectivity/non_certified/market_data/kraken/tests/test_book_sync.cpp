@@ -78,6 +78,30 @@ TEST(KrakenBookSync, ChecksumMismatchIsReported)
   EXPECT_EQ(s.stats().checksum_bad, 1u);
 }
 
+TEST(KrakenBookSync, InvalidationCallsOnGapOnce)
+{
+  KrakenBookSync s("BTC/USD", 10);
+  int gaps = 0;
+  s.on_gap([&] { ++gaps; });
+  s.reset(); // never synced: nothing to invalidate
+  EXPECT_EQ(gaps, 0);
+  EXPECT_EQ(s.on_message(msg(kDocSnapshot)), R::Ok);
+  EXPECT_EQ(gaps, 0);
+  std::string bad = kDocSnapshot;
+  bad.replace(bad.find("3310070434"), 10, "3310070435");
+  EXPECT_EQ(s.on_message(msg(bad)), R::ChecksumMismatch); // the book goes stale: one GAP
+  EXPECT_EQ(gaps, 1);
+  s.reset(); // already invalid: no second GAP
+  EXPECT_EQ(gaps, 1);
+  EXPECT_EQ(s.on_message(msg(kDocSnapshot)), R::Ok);
+  s.reset(); // a lost connection with a good book: GAP
+  EXPECT_EQ(gaps, 2);
+  EXPECT_EQ(s.on_message(msg(kDocSnapshot)), R::Ok);
+  EXPECT_EQ(s.on_message(msg(R"({"channel":"book","type":"update","data":[{"symbol":"BTC/USD","bids":[{"price":"x","qty":"1"}]}]})")),
+            R::Error); // unreadable frame: GAP
+  EXPECT_EQ(gaps, 3);
+}
+
 TEST(KrakenBookSync, UpdatesApplyInOrderAndZeroRemoves)
 {
   KrakenBookSync s("BTC/USD", 10);

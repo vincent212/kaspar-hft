@@ -6,7 +6,11 @@ its numbers.
 
 ## What it is
 
-`KrakenOM` (`include/kraken_oe/act/KrakenOM.hpp`) registers with the SOM for
+`KrakenOM` (`include/kraken_oe/act/KrakenOM.hpp`; factories in
+`include/kraken_oe/if/KrakenOM.hpp`; the reconnect timer, order-rate token
+bucket, local rejects and the lost-connection rule are
+`../common/include/oe_common/OmSupport.hpp`, shared with Bybit, OKX and Deribit)
+registers with the SOM for
 `en::x::KRAKEN` (spot) or `en::x::KRAKENF` (futures), turns `Order` and `Cancel`
 into the venue's requests, and the venue's reports into `Ack`, `Fill`, `Reject`,
 `CancAck` and `CancReject`, with state in `frame::som::BrokerOrderBook`. The venue

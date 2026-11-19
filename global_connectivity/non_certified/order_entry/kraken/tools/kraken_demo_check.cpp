@@ -40,7 +40,7 @@
 #include "kraken_md/KrakenJson.hpp"
 #include "kraken_oe/KrakenAuth.hpp"
 #include "kraken_oe/KrakenSessions.hpp"
-#include "kraken_pt/act/KrakenFillsClient.hpp"
+#include "kraken_pt/if/KrakenFillsClient.hpp"
 
 #include "TestUtil.hpp"
 

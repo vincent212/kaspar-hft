@@ -38,6 +38,7 @@
 #include "kraken_oe/KrakenConfig.hpp"
 #include "kraken_oe/KrakenSessions.hpp"
 #include "post_trade/msg/TradeCapture.hpp"
+#include "post_trade/Decimal.hpp"
 
 namespace kraken::pt
 {
@@ -83,8 +84,7 @@ namespace kraken::pt
   bool to_trade_capture(const nlohmann::json &f, const std::string &key, Source src, const FillsConfig &cfg,
                         post_trade::msg::TradeCapture &out, std::string &err);
 
-  // "63123.45" -> (6312345, 2); false if not a plain decimal.
-  bool parse_decimal(const std::string &s, int64_t &mantissa, int &decimals);
+  using post_trade::parse_decimal; // post_trade/Decimal.hpp
 
   struct FillsEvents
   {

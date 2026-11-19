@@ -56,6 +56,11 @@ namespace kraken::oe::test
       std::lock_guard<std::mutex> l(mu_);
       return cancels_;
     }
+    std::vector<Cancel> recoveries() // order_id, cl_ord_id of each recover()
+    {
+      std::lock_guard<std::mutex> l(mu_);
+      return recoveries_;
+    }
     int logouts()
     {
       std::lock_guard<std::mutex> l(mu_);
@@ -106,6 +111,12 @@ namespace kraken::oe::test
           f_.cancels_.push_back({order_id, cl_ord_id});
         return f_.next_status;
       }
+      CallStatus recover(const std::string &order_id, const std::string &cl_ord_id) override
+      {
+        std::lock_guard<std::mutex> l(f_.mu_);
+        f_.recoveries_.push_back({order_id, cl_ord_id});
+        return CallStatus::Success;
+      }
       void logout() override
       {
         std::lock_guard<std::mutex> l(f_.mu_);
@@ -121,6 +132,6 @@ namespace kraken::oe::test
     SessionEvents *ev_ = nullptr;
     int sessions_ = 0, logouts_ = 0;
     std::vector<NewOrder> orders_;
-    std::vector<Cancel> cancels_;
+    std::vector<Cancel> cancels_, recoveries_;
   };
 }

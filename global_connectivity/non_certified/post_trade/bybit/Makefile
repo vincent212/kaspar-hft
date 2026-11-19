@@ -28,7 +28,8 @@ SRC = src/BybitFills.cpp src/BybitFillsClient.cpp src/RestWsFillSource.cpp src/S
 TESTS = tests/test_bybit_fills.cpp tests/test_bybit_fills_client.cpp
 
 FLAGS = $(STANDARD) -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations \
-        -Wno-reorder -Wno-sign-compare -Iinclude -Itests -I$(COMMON)/include -I$(OE)/include \
+        -Wno-reorder -Wno-sign-compare -Iinclude -Itests -I$(COMMON)/include -I$(OE)/include -I$(OE)/../common/include \
+        -I../../market_data/bybit/include -I../../market_data/crypto_common/include \
         -I$(KSPRPROJ)/sim/include $(INCL) -I$(GTEST_PATH)/include -I$(OPENSSL_PATH)/include
 
 LIBS = -L$(KSPRLIB) -llogger -lmq0 -lchutil $(ACTORS_LIB) \

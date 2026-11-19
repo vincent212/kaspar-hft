@@ -35,6 +35,7 @@
 #include "enum/e_names.hpp"
 #include "okx_oe/OkxConfig.hpp"
 #include "post_trade/msg/TradeCapture.hpp"
+#include "post_trade/Decimal.hpp"
 
 namespace okx::pt
 {
@@ -69,8 +70,7 @@ namespace okx::pt
   bool to_trade_capture(const nlohmann::json &f, const FillsConfig &cfg, bool from_rest,
                         post_trade::msg::TradeCapture &out, std::string &err);
 
-  // "63123.45" -> (6312345, 2); false if not a plain decimal.
-  bool parse_decimal(const std::string &s, int64_t &mantissa, int &decimals);
+  using post_trade::parse_decimal; // post_trade/Decimal.hpp
 
   enum class CallStatus
   {

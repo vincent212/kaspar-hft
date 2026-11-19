@@ -8,6 +8,7 @@
  */
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -38,6 +39,11 @@ namespace kraken
    * There is no sequence number on `book`. The checksum is the only integrity
    * check: a mismatch returns ChecksumMismatch and the caller resubscribes
    * (the feed reconnects), which brings a new snapshot.
+   *
+   * Whenever a synchronised book is invalidated (a checksum mismatch, an
+   * unreadable frame, reset() after a lost connection) on_gap is called once:
+   * the owner sends l3_gap_v2_t to the OB, whose book is stale until the next
+   * snapshot reaches it as recovery records.
    *
    * out may be null: the sync then only maintains and checks its own book.
    */
@@ -75,8 +81,11 @@ namespace kraken
 
     Result on_message(const nlohmann::json &msg);
 
-    // A new connection: wait for a snapshot.
+    // A new connection: wait for a snapshot (on_gap if the book was synced).
     void reset();
+
+    // Called once each time a synchronised book is invalidated.
+    void on_gap(std::function<void()> f) { on_gap_ = std::move(f); }
 
     bool synced() const { return synced_; }
     const Stats &stats() const { return st_; }
@@ -103,7 +112,9 @@ namespace kraken
     uint64_t last_book_tx_ = 0;
     uint64_t last_trade_id_ = 0;
     Stats st_;
+    std::function<void()> on_gap_;
 
+    void invalidate();
     Result on_book(const nlohmann::json &d, bool snapshot);
     void on_trade(const nlohmann::json &t);
     void set_level(bool bid, const nlohmann::json &e);

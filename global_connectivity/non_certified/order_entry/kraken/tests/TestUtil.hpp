@@ -25,7 +25,7 @@
 #include "frame/som/msg/CancReject.hpp"
 #include "frame/som/msg/Fill.hpp"
 #include "frame/som/msg/Reject.hpp"
-#include "kraken_oe/act/KrakenOM.hpp"
+#include "kraken_oe/if/KrakenOM.hpp"
 
 namespace kraken::oe::test
 {

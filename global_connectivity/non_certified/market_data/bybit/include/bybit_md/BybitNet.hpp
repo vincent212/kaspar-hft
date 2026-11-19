@@ -15,12 +15,16 @@
 #include <chrono>
 #include <cstdint>
 #include <fstream>
+#include <functional>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
+#include <boost/asio/steady_timer.hpp>
 #include <nlohmann/json.hpp>
 
+#include "crypto_common/PollingWs.hpp"
 #include "sim/WsNet.hpp"
 
 namespace bybit::bnet
@@ -34,30 +38,59 @@ namespace bybit::bnet
   };
 
   // GET https://host/target. Throws unless HTTP 200.
-  inline std::string https_get(const std::string &host, const std::string &target,
-                               std::chrono::seconds timeout = std::chrono::seconds(10))
+  inline std::string https_get(const std::string &host, const std::string &target)
   {
-    net::io_context io;
-    auto tls = make_tls();
-    beast::ssl_stream<beast::tcp_stream> s(io, tls);
-    tls_connect(io, s, host, "443");
-    http::request<http::string_body> req{http::verb::get, target, 11};
-    req.set(http::field::host, host);
-    req.set(http::field::user_agent, "kaspar-hft");
-    beast::get_lowest_layer(s).expires_after(timeout);
-    await(io, [&](auto h) { http::async_write(s, req, std::move(h)); });
-    beast::flat_buffer buf;
-    http::response_parser<http::string_body> parser;
-    parser.body_limit(64 * 1024 * 1024);
-    beast::get_lowest_layer(s).expires_after(timeout);
-    await(io, [&](auto h) { http::async_read(s, buf, parser, std::move(h)); });
-    auto res = parser.release();
-    if (res.result() != http::status::ok)
-      throw std::runtime_error("GET " + host + target + ": HTTP " + std::to_string(res.result_int()) +
-                               " " + res.body().substr(0, 200));
+    auto r = crypto_common::https_request(host, "GET", target);
+    if (r.status != 200)
+      throw std::runtime_error("GET " + host + target + ": HTTP " + std::to_string(r.status) + " " +
+                               r.body.substr(0, 200));
+    return std::move(r.body);
+  }
+
+  // One frame from ws. A silent connection is closed by Bybit (10 minutes on
+  // the private stream, sooner on a public one with no subscription), so
+  // {"op":"ping"} is written from a timer while the read waits, every
+  // `every` after last_ping, not only between frames.
+  inline std::string read_with_ping(net::io_context &io, WsStream &ws, beast::flat_buffer &buf,
+                                    std::chrono::steady_clock::time_point &last_ping,
+                                    std::chrono::steady_clock::duration every)
+  {
+    static const std::string kPing = R"({"op":"ping"})";
+    buf.clear();
     beast::error_code ec;
-    s.shutdown(ec);
-    return std::move(res.body());
+    bool done = false, timer_pending = false, writing = false;
+    net::steady_timer timer(io);
+    std::function<void()> arm = [&] {
+      timer.expires_at(last_ping + every);
+      timer_pending = true;
+      timer.async_wait([&](beast::error_code e) {
+        timer_pending = false;
+        if (e || done)
+          return;
+        if (!writing)
+        {
+          writing = true;
+          last_ping = std::chrono::steady_clock::now();
+          ws.text(true);
+          ws.async_write(net::buffer(kPing), [&](beast::error_code, size_t) { writing = false; });
+        }
+        arm();
+      });
+    };
+    ws.async_read(buf, [&](beast::error_code e, size_t) {
+      ec = e;
+      done = true;
+    });
+    arm();
+    io.restart();
+    while (!done && io.run_one())
+      ;
+    timer.cancel();
+    while ((timer_pending || writing) && io.run_one())
+      ;
+    if (ec)
+      throw beast::system_error(ec);
+    return beast::buffers_to_string(buf.data());
   }
 
   // GET /v5/market/full_orderbook. Returns the whole response body; the book
@@ -112,17 +145,9 @@ namespace bybit::bnet
       last_ping_ = std::chrono::steady_clock::now();
     }
 
-    // The next frame. Sends the application ping when it is due.
-    std::string read()
-    {
-      auto now = std::chrono::steady_clock::now();
-      if (now - last_ping_ >= kPingEvery)
-      {
-        ws_write(io_, ws_, R"({"op":"ping"})");
-        last_ping_ = now;
-      }
-      return ws_read(io_, ws_, buf_);
-    }
+    // The next frame. The application ping goes out every kPingEvery while
+    // the read waits, so a quiet topic does not let the connection lapse.
+    std::string read() { return read_with_ping(io_, ws_, buf_, last_ping_, kPingEvery); }
 
     void close()
     {

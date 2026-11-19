@@ -10,12 +10,12 @@ description is `feed.md`.
 
 | File | Contents |
 |---|---|
-| `include/deribit_oe/act/DeribitOM.hpp`, `src/DeribitOM.cpp` | the actor: SOM `Order`/`Cancel` to `private/buy`, `private/sell`, `private/cancel`, `private/cancel_by_label`; responses and `user.orders`/`user.trades` to Ack, Fill, Reject, CancAck, CancReject on `frame::som::BrokerOrderBook` |
+| `include/deribit_oe/act/DeribitOM.hpp`, `src/DeribitOM.cpp` | the actor (factories in `include/deribit_oe/if/DeribitOM.hpp`; the reconnect timer, order-rate token bucket, local rejects and the lost-connection rule are `../common/include/oe_common/OmSupport.hpp`, shared with Bybit, OKX and Kraken): SOM `Order`/`Cancel` to `private/buy`, `private/sell`, `private/cancel`, `private/cancel_by_label`; responses and `user.orders`/`user.trades` to Ack, Fill, Reject, CancAck, CancReject on `frame::som::BrokerOrderBook` |
 | `include/deribit_oe/DeribitSession.hpp` | the session interface the OM, the simulator and the fake implement |
 | `src/DeribitWsSession.cpp` | the real session: auth, subscriptions, heartbeat, cancel on disconnect, recovery calls |
-| `include/deribit_oe/Signing.hpp`, `src/Signing.cpp` | `client_signature` and `deri-hmac-sha256` (HMAC-SHA256) |
+| `include/deribit_oe/Signing.hpp`, `src/Signing.cpp` | `client_signature` and `deri-hmac-sha256` (HMAC-SHA256 from `market_data/crypto_common/include/crypto_common/Hmac.hpp`, shared with Bybit) |
 | `include/deribit_oe/DeribitConfig.hpp`, `src/DeribitConfig.cpp` | configuration, the environment guard, the key file |
-| `include/deribit_oe/RpcWs.hpp`, `src/RpcWs.cpp` | WebSocket client and HTTPS request (Boost.Beast, on `sim/WsNet.hpp`) |
+| `include/deribit_oe/RpcWs.hpp` | WebSocket client and HTTPS request: `crypto_common::PollingWs` and `https_request` (`market_data/crypto_common`, shared with OKX and Kraken) with Deribit's defaults |
 | `include/deribit_oe/SimDeribit.hpp`, `src/SimDeribit.cpp` | in-process venue for `sim = true` runs |
 | `tests/FakeDeribit.hpp`, `tests/test_*.cpp` | the fake venue and 48 tests |
 | `tools/deribit_testnet_check.cpp` | testing ladder step 3 (not run) |

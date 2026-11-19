@@ -9,7 +9,7 @@ documentation's examples, a test double and an in-process simulator.
 | File | What it does |
 |---|---|
 | `feed.md` | Fills sources, identifiers, mapping to `post_trade::msg::TradeCapture` |
-| `include/okx_pt/act/OkxFillsClient.hpp`, `src/OkxFillsClient.cpp` | The actor: fills from the private `orders` channel (or `fills`, VIP4+) and from REST reconciliation into `post_trade::TradeLedger`; one TradeCapture to the subscriber per fill the ledger had not seen |
+| `include/okx_pt/act/OkxFillsClient.hpp`, `src/OkxFillsClient.cpp` | The actor (factory in `include/okx_pt/if/OkxFillsClient.hpp`): fills from the private `orders` channel (or `fills`, VIP4+) and from REST reconciliation into `post_trade::TradeLedger`; one TradeCapture to the subscriber per fill the ledger had not seen |
 | `include/okx_pt/OkxFills.hpp`, `src/OkxFills.cpp` | Configuration, the session interface, and the mapping of one OKX fill to TradeCapture |
 | `src/OkxFillsWsSession.cpp` | The real session: login, subscription, REST `GET /api/v5/trade/fills` paging |
 | `include/okx_pt/SimFills.hpp`, `src/SimFills.cpp` | In-process OKX for `sim = true`: periodic fills, optionally dropping some from the WebSocket so only reconciliation reports them |

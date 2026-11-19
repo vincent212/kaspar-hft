@@ -12,7 +12,7 @@ test-environment keys were supplied. `feed.md` describes the feed.
 | File | Contents |
 |---|---|
 | `include/deribit_pt/DeribitFills.hpp`, `src/DeribitFills.cpp` | configuration, Deribit trade to TradeCapture, session interface |
-| `include/deribit_pt/act/DeribitFillsClient.hpp`, `src/DeribitFillsClient.cpp` | the actor, the ledger, reconciliation counts |
+| `include/deribit_pt/act/DeribitFillsClient.hpp`, `src/DeribitFillsClient.cpp` | the actor, the ledger, reconciliation counts (factory in `include/deribit_pt/if/DeribitFillsClient.hpp`) |
 | `src/DeribitFillsWsSession.cpp` | the real session (WebSocket and signed REST) |
 | `include/deribit_pt/SimFills.hpp`, `src/SimFills.cpp` | simulator: periodic trades, some withheld from the WebSocket |
 | `tests/test_deribit_fills.cpp` | 13 tests |

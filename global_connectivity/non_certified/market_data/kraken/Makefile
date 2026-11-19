@@ -30,14 +30,18 @@ SRC = src/KrakenJson.cpp src/KrakenBookSync.cpp src/KrakenL3Sync.cpp src/KrakenF
 SIMSRC = $(SIM)/Mbp2Mbo.cpp $(SIM)/LevelWindow.cpp
 TESTS = tests/test_kraken_json.cpp tests/test_book_sync.cpp tests/test_l3_sync.cpp tests/test_book_ob.cpp
 
-# KRAKEN_OB_VENUE: the en::x code on the records the OB checks send. Kaspar
-# libraries built before KRAKEN was added to exch_code.enum reject it; build
-# against those with OB_VENUE=COINBASE.
+# KRAKEN_OB_VENUE: the en::x code on the records the OB checks send.
 OB_VENUE ?= KRAKEN
+# libframe is compiled here from this checkout's frame_kaspr sources (as the
+# other crypto feeds do): an installed libframe built before KRAKEN was added
+# to exch_code.enum rejects the code.
+FRAME_SRC = RefData.cpp Timer.cpp OB.cpp point.cpp SOM.cpp SOM_if.cpp Cons_if.cpp BFA_if.cpp \
+            BinRecorder_if.cpp OB_if.cpp Timer_if.cpp QLen_if.cpp LatencyProbe_if.cpp BrokerOrderBook.cpp
+FRAME_LIB = build/kl/libframe_local.a
 FLAGS = -DKRAKEN_OB_VENUE=$(OB_VENUE) $(STANDARD) -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Wno-reorder \
-        -Iinclude -I$(KSPRPROJ)/sim/include -I$(KSPRPROJ)/unit_test/include -I$(OPENSSL_PATH)/include \
+        -Iinclude -I$(KSPRPROJ)/global_connectivity/non_certified/market_data/crypto_common/include -I$(KSPRPROJ)/sim/include -I$(KSPRPROJ)/unit_test/include -I$(OPENSSL_PATH)/include \
         $(INCL) -I$(GTEST_PATH)/include
-LIBS = -L$(KSPRLIB) -lframe -llogger -lmq0 -lchutil $(ACTORS_LIB) \
+LIBS = $(FRAME_LIB) -L$(KSPRLIB) -lframe -llogger -lmq0 -lchutil $(ACTORS_LIB) \
        -L$(BOOST_PATH)/lib -lboost_thread -lboost_filesystem -L$(ZMQ_PATH)/lib -lzmq \
        -L$(OPENSSL_PATH)/lib -lssl -lcrypto -L$(ZLIB_PATH)/lib -lz -lpthread
 GTEST = -L$(GTEST_PATH)/lib -lgtest -lgtest_main
@@ -57,14 +61,20 @@ build/obj/sim/%.o: $(SIM)/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(FLAGS) -c $< -o $@
 
-build/run_kraken_md_tests: $(OBJ) $(TOBJ)
-	$(CXX) $^ -o $@ $(LIBS) $(GTEST)
+build/kl/obj/%.o: $(KSPRPROJ)/frame_kaspr/src/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CFLAGS) $(DEFINES_COMMON) -I$(KSPRPROJ)/frame_kaspr/include -O2 -g -w -c $< -o $@
+$(FRAME_LIB): $(patsubst %.cpp,build/kl/obj/%.o,$(FRAME_SRC))
+	ar rcs $@ $^
 
-build/kraken_verify: build/obj/tools/kraken_verify.o $(OBJ)
-	$(CXX) $^ -o $@ $(LIBS)
+build/run_kraken_md_tests: $(OBJ) $(TOBJ) $(FRAME_LIB)
+	$(CXX) $(filter %.o,$^) -o $@ $(LIBS) $(GTEST)
 
-build/kraken_feed: build/obj/tools/kraken_feed.o $(OBJ)
-	$(CXX) $^ -o $@ $(LIBS)
+build/kraken_verify: build/obj/tools/kraken_verify.o $(OBJ) $(FRAME_LIB)
+	$(CXX) $(filter %.o,$^) -o $@ $(LIBS)
+
+build/kraken_feed: build/obj/tools/kraken_feed.o $(OBJ) $(FRAME_LIB)
+	$(CXX) $(filter %.o,$^) -o $@ $(LIBS)
 
 test: build/run_kraken_md_tests
 	cd tests && KSPRPROJ=$(KSPRPROJ) ../build/run_kraken_md_tests

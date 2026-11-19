@@ -25,9 +25,11 @@
 
 #include <nlohmann/json.hpp>
 
+#include "crypto_common/Hmac.hpp"
+
 namespace deribit::oe
 {
-  std::string hmac_sha256_hex(std::string_view key, std::string_view msg);
+  using crypto_common::hmac_sha256_hex;
 
   std::string ws_signature(std::string_view secret, uint64_t ts_ms, std::string_view nonce,
                            std::string_view data);

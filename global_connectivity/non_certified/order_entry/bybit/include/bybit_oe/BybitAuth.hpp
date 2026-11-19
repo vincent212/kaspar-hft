@@ -31,8 +31,8 @@
 #include <string>
 
 #include <nlohmann/json.hpp>
-#include <openssl/evp.h>
-#include <openssl/hmac.h>
+
+#include "crypto_common/Hmac.hpp"
 
 namespace bybit::auth
 {
@@ -43,21 +43,7 @@ namespace bybit::auth
     bool empty() const { return api_key.empty() || api_secret.empty(); }
   };
 
-  inline std::string hmac_sha256_hex(const std::string &key, const std::string &msg)
-  {
-    unsigned char out[EVP_MAX_MD_SIZE];
-    unsigned int len = 0;
-    HMAC(EVP_sha256(), key.data(), int(key.size()), reinterpret_cast<const unsigned char *>(msg.data()),
-         msg.size(), out, &len);
-    static const char *hex = "0123456789abcdef";
-    std::string s(len * 2, '0');
-    for (unsigned i = 0; i < len; ++i)
-    {
-      s[2 * i] = hex[out[i] >> 4];
-      s[2 * i + 1] = hex[out[i] & 15];
-    }
-    return s;
-  }
+  using crypto_common::hmac_sha256_hex;
 
   // The string Bybit signs for a REST request (payload: query string or body).
   inline std::string rest_prehash(uint64_t ts_ms, const std::string &api_key, int recv_window_ms,

@@ -7,15 +7,17 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-// One HTTPS request over Boost.Beast, on sim/WsNet.hpp's TLS plumbing (peer
-// and host name verified, 10 s deadline). Used by the verify tool for public
-// REST snapshots and by the order-entry and post-trade REST clients.
+// One HTTPS request (peer and host name verified, 10 s deadline):
+// crypto_common::https_request (market_data/crypto_common, shared with OKX,
+// Deribit and Bybit) with headers as a list of pairs, the way Kraken's
+// signers build them. Used by the verify tool for public REST snapshots and
+// by the order-entry and post-trade REST clients.
 
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "sim/WsNet.hpp"
+#include "crypto_common/PollingWs.hpp"
 
 namespace kraken
 {
@@ -29,30 +31,10 @@ namespace kraken
                                      const std::vector<std::pair<std::string, std::string>> &headers = {},
                                      const std::string &body = {})
   {
-    using namespace sim::wsnet;
-    net::io_context io;
-    auto tls = make_tls();
-    beast::ssl_stream<beast::tcp_stream> s(io, tls);
-    tls_connect(io, s, host, "443");
-    http::request<http::string_body> req{http::string_to_verb(method), target, 11};
-    req.set(http::field::host, host);
-    req.set(http::field::user_agent, "kaspar-hft");
+    crypto_common::Headers h;
     for (const auto &[k, v] : headers)
-      req.set(k, v);
-    if (!body.empty() || method == "POST")
-    {
-      req.body() = body;
-      req.prepare_payload();
-    }
-    beast::get_lowest_layer(s).expires_after(kRestTimeout);
-    await(io, [&](auto h) { http::async_write(s, req, std::move(h)); });
-    beast::flat_buffer buf;
-    http::response_parser<http::string_body> parser;
-    parser.body_limit(64 * 1024 * 1024);
-    await(io, [&](auto h) { http::async_read(s, buf, parser, std::move(h)); });
-    auto res = parser.release();
-    beast::error_code ec;
-    s.shutdown(ec); // a missing TLS close_notify is not an error
-    return {int(res.result_int()), std::move(res.body())};
+      h[k] = v;
+    auto r = crypto_common::https_request(host, method, target, body, h);
+    return {r.status, std::move(r.body)};
   }
 }

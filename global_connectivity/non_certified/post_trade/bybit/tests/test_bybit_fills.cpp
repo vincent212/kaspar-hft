@@ -167,6 +167,42 @@ TEST(BybitFills, Decimal)
   EXPECT_FALSE(parse_decimal("1e5", m, d));
 }
 
+// post_trade/Decimal.hpp, shared by the four venues: the edge cases the
+// venues' own copies disagreed on.
+TEST(BybitFills, DecimalEdgeCases)
+{
+  int64_t m;
+  int d;
+  ASSERT_TRUE(parse_decimal("-1.5", m, d)); // a signed value (a funding fee)
+  EXPECT_EQ(m, -15);
+  EXPECT_EQ(d, 1);
+  ASSERT_TRUE(parse_decimal("-0", m, d));
+  EXPECT_EQ(m, 0);
+  EXPECT_FALSE(parse_decimal("-", m, d));
+  EXPECT_FALSE(parse_decimal("--1", m, d));
+  EXPECT_FALSE(parse_decimal("1-", m, d));
+  ASSERT_TRUE(parse_decimal(".5", m, d));
+  EXPECT_EQ(m, 5);
+  EXPECT_EQ(d, 1);
+  ASSERT_TRUE(parse_decimal("5.", m, d));
+  EXPECT_EQ(m, 5);
+  EXPECT_EQ(d, 0);
+  EXPECT_FALSE(parse_decimal(".", m, d));
+  EXPECT_FALSE(parse_decimal(" 1", m, d));
+  // More than 18 digits is fine as long as the mantissa fits an int64_t.
+  ASSERT_TRUE(parse_decimal("1234567890123456789", m, d)); // 19 digits
+  EXPECT_EQ(m, 1234567890123456789LL);
+  ASSERT_TRUE(parse_decimal("9223372036854775807", m, d)); // INT64_MAX
+  EXPECT_EQ(m, INT64_MAX);
+  ASSERT_TRUE(parse_decimal("0.000000000009223372036854775807", m, d));
+  EXPECT_EQ(m, INT64_MAX);
+  EXPECT_EQ(d, 30);
+  EXPECT_FALSE(parse_decimal("9223372036854775808", m, d));  // INT64_MAX + 1
+  EXPECT_FALSE(parse_decimal("-9223372036854775808", m, d)); // the same bound for a negative
+  EXPECT_FALSE(parse_decimal("12345678901234567890", m, d)); // 20 digits
+  EXPECT_FALSE(parse_decimal("99999999999999999999.5", m, d));
+}
+
 // The stream copy and the REST copy of one execution are one trade.
 TEST(BybitFills, StreamAndRestCopiesAreOneTradeInTheLedger)
 {

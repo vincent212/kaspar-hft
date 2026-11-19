@@ -49,7 +49,7 @@
 
 #include "actors/act/Manager.hpp"
 #include "bybit_oe/BybitPrivate.hpp"
-#include "bybit_oe/act/BybitOM.hpp"
+#include "bybit_oe/if/BybitOM.hpp"
 #include "frame/som/msg/Cancel.hpp"
 #include "frame/som/msg/Order.hpp"
 #include "TestUtil.hpp"

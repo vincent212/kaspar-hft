@@ -21,7 +21,7 @@
 
 #include "FakeBybit.hpp"
 #include "TestUtil.hpp"
-#include "bybit_oe/act/BybitOM.hpp"
+#include "bybit_oe/if/BybitOM.hpp"
 
 namespace som = frame::som::msg;
 using Order = som::Order;
@@ -555,6 +555,62 @@ TEST_F(BybitOMTest, ReconnectReconcilesAndDeliversAMissedFillOnce)
   ASSERT_TRUE(wait_until([&] { return bybit.sessions == 3 && om->ready(); }));
   settle();
   EXPECT_EQ(bybit.calls(RequestKind::QueryOrder).size(), 1u);
+}
+
+TEST_F(BybitOMTest, CancelInFlightWhenTheConnectionDropsIsRefused)
+{
+  auto c = cfg();
+  c.reconnect_ms = 100000;
+  start(true, c);
+  auto link = place(order(1));
+  bybit.order(order_update(link, "New"));
+  ASSERT_NE(somr.wait_for<som::Ack>(), nullptr);
+  cancel(1);
+  ASSERT_TRUE(wait_until([&] { return bybit.calls(RequestKind::Cancel).size() == 1; }));
+  bybit.disconnect();
+  auto cr = somr.wait_for<som::CancReject>();
+  ASSERT_NE(cr, nullptr);
+  EXPECT_EQ(cr->id, 1u);
+  EXPECT_EQ(cr->reason, som::CancReject::DISCONNECTED);
+  EXPECT_EQ(state(1), State::Working);
+}
+
+TEST_F(BybitOMTest, CreateInFlightAtTheDropIsRejectedWhenBybitDoesNotKnowIt)
+{
+  start();
+  auto lost = place(order(1)); // no answer, no stream update
+  auto kept = place(order(2));
+  bybit.disconnect();
+  ASSERT_TRUE(wait_until([&] { return bybit.sessions == 2 && om->ready(); }));
+  ASSERT_TRUE(wait_until([&] { return bybit.calls(RequestKind::QueryExecutions).size() == 2; }));
+  // Order 2 did reach Bybit: the realtime query returns it.
+  bybit.order(order_update(kept, "New"));
+  bybit.response(RequestKind::QueryOrder, kept, 0, "OK");
+  bybit.response(RequestKind::QueryExecutions, kept, 0, "OK");
+  // Order 1: neither the order nor an execution.
+  bybit.response(RequestKind::QueryOrder, lost, 0, "OK");
+  bybit.response(RequestKind::QueryExecutions, lost, 0, "OK");
+  auto rej = somr.wait_for<som::Reject>();
+  ASSERT_NE(rej, nullptr);
+  EXPECT_EQ(rej->id, 1u);
+  EXPECT_EQ(rej->reason, som::Reject::DISCONNECTED);
+  EXPECT_EQ(state(1), State::Rejected);
+  EXPECT_EQ(state(2), State::Working);
+  EXPECT_EQ(somr.all<som::Reject>().size(), 1u);
+}
+
+TEST_F(BybitOMTest, NoAnswerToACreateAndNothingFoundIsAReject)
+{
+  start();
+  auto link = place(order(1));
+  bybit.response(RequestKind::Place, link, -1, "transport: timeout");
+  ASSERT_TRUE(wait_until([&] { return bybit.calls(RequestKind::QueryExecutions).size() == 1; }));
+  bybit.response(RequestKind::QueryOrder, link, 0, "OK");
+  bybit.response(RequestKind::QueryExecutions, link, 0, "OK");
+  auto rej = somr.wait_for<som::Reject>();
+  ASSERT_NE(rej, nullptr);
+  EXPECT_EQ(rej->reason, som::Reject::DISCONNECTED);
+  EXPECT_EQ(state(1), State::Rejected);
 }
 
 TEST_F(BybitOMTest, ReportsForOrdersPlacedOutsideTheOMAreIgnored)

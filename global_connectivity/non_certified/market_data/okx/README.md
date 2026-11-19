@@ -11,7 +11,7 @@ else has been checked.
 | `feed.md` | Feed description: transport, messages, sequencing, semantics, mapping to Kaspar, pitfalls, ambiguities |
 | `review.md` | Decisions for the owner |
 | `include/okx_md/OkxSync.hpp`, `src/OkxSync.cpp` | One instrument's `books` (400 levels) and `trades` into `sim::LevelWindow` and `sim::Mbp2Mbo`; `seqId`/`prevSeqId` gap rule; checksum field check; no network |
-| `include/okx_md/OkxWs.hpp`, `src/OkxWs.cpp` | TLS WebSocket client with OKX's text ping/pong keep-alive, and one-shot HTTPS; shared with order entry and post-trade |
+| `include/okx_md/OkxWs.hpp`, `src/OkxWs.cpp` | OKX's text ping/pong keep-alive over `crypto_common::PollingWs`, and `crypto_common::https_request` (`../crypto_common`, shared with Deribit, Kraken and Bybit); used by order entry and post-trade |
 | `include/okx_md/act/OkxFeed.hpp`, `src/OkxFeed.cpp` | The feed actor: connection, subscription, reconnect on a gap or error, records to OB (or a monitor print with no OB), optional raw-frame recording |
 | `tools/okx_record.cpp` | Raw-frame recorder: WebSocket frames as received, with REST snapshots every 10 s interleaved |
 | `tools/okx_verify.cpp` | Live or replayed verification (below) |

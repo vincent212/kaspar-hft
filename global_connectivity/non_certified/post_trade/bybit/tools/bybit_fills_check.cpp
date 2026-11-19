@@ -34,7 +34,7 @@
 
 #include "actors/act/Manager.hpp"
 #include "bybit_oe/BybitPrivate.hpp"
-#include "bybit_post_trade/act/BybitFillsClient.hpp"
+#include "bybit_post_trade/if/BybitFillsClient.hpp"
 
 using namespace bybit_pt;
 using post_trade::msg::TradeCapture;

@@ -116,6 +116,3 @@ namespace deribit::pt
     std::jthread reconnect_timer_, reconcile_timer_;
   };
 }
-
-actors::Actor *create_DeribitFillsClient(deribit::pt::FillsConfig cfg, actors::Actor *subscriber,
-                                         deribit::pt::FillsSessionFactory factory = nullptr);

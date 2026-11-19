@@ -49,8 +49,8 @@
 #include "TestUtil.hpp"
 #include "deribit_oe/RpcWs.hpp"
 #include "deribit_oe/Signing.hpp"
-#include "deribit_oe/act/DeribitOM.hpp"
-#include "deribit_pt/act/DeribitFillsClient.hpp"
+#include "deribit_oe/if/DeribitOM.hpp"
+#include "deribit_pt/if/DeribitFillsClient.hpp"
 
 using namespace deribit;
 using json = nlohmann::json;

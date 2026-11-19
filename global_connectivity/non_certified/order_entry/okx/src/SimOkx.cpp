@@ -172,7 +172,10 @@ namespace okx::oe
     at(0, [this, cl] {
       auto it = orders_.find(cl);
       if (it == orders_.end())
+      {
+        ev_.order_unknown(cl);
         return;
+      }
       for (const auto &f : it->second.fills)
         ev_.order_update(f);
       ev_.order_update(update(it->second));

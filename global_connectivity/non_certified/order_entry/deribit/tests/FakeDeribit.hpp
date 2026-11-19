@@ -258,7 +258,10 @@ namespace deribit::oe::test
         s_.recoveries_.push_back(order_id.empty() ? "label:" + label : order_id);
         auto it = s_.orders_.find(label);
         if (it == s_.orders_.end() || it->second.order_id.empty())
-          return CallStatus::Success;   // never reached Deribit
+        {
+          s_.ev_->order_unknown(label);   // never reached Deribit
+          return CallStatus::Success;
+        }
         for (const auto &t : it->second.trades)
           s_.ev_->trade(t);
         s_.ev_->order_update(s_.order(label));

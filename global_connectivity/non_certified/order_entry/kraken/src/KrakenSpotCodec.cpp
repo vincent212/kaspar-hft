@@ -164,6 +164,7 @@ namespace kraken::oe::spot
     if (auto s = msg.find("sequence"); s != msg.end() && s->is_number())
       out.sequence = s->get<uint64_t>();
     const bool snapshot = msg.value("type", std::string()) == "snapshot";
+    out.snapshot = snapshot;
     if (auto d = msg.find("data"); d != msg.end() && d->is_array())
       for (const auto &e : *d)
         out.reports.push_back(execution(e, snapshot));

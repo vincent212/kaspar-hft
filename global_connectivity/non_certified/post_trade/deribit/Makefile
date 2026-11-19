@@ -28,7 +28,8 @@ COMMON = $(abspath $(HERE)/../common)
 B      = $(HERE)/build
 
 FLAGS = $(STANDARD) -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Wno-reorder \
-        -I$(HERE)/include -I$(COMMON)/include -I$(OE)/include -I$(KSPRPROJ)/sim/include $(INCL) \
+        -I$(HERE)/include -I$(COMMON)/include -I$(OE)/include -I$(OE)/../common/include -I$(KSPRPROJ)/global_connectivity/non_certified/market_data/crypto_common/include \
+        -I$(KSPRPROJ)/sim/include $(INCL) \
         -I$(OPENSSL_PATH)/include -I$(GTEST_PATH)/include -DDERIBIT_OE_CONFIG=\"$(OE)/config/deribit_test_example.ini\"
 
 FRAME_SRCS = RefData.cpp Timer.cpp OB.cpp point.cpp SOM.cpp SOM_if.cpp Cons_if.cpp BFA_if.cpp \
@@ -42,7 +43,7 @@ GTEST = -L$(GTEST_PATH)/lib -lgtest -lgtest_main
 
 SRC   = src/DeribitFills.cpp src/DeribitFillsClient.cpp src/DeribitFillsWsSession.cpp src/SimFills.cpp
 TESTS = tests/test_deribit_fills.cpp
-EXT   = $(B)/obj/ext/RpcWs.o $(B)/obj/ext/Signing.o $(B)/obj/ext/DeribitConfig.o $(B)/obj/ext/TradeLedger.o
+EXT   = $(B)/obj/ext/Signing.o $(B)/obj/ext/DeribitConfig.o $(B)/obj/ext/TradeLedger.o
 OBJ   = $(patsubst %.cpp,$(B)/obj/%.o,$(SRC)) $(EXT)
 HDRS  = $(wildcard $(HERE)/include/deribit_pt/*.hpp $(HERE)/include/deribit_pt/*/*.hpp)
 

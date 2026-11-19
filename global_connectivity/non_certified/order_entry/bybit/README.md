@@ -67,7 +67,9 @@ Without the key file the tools print what is missing and exit 2; nothing is sent
 | `include/bybit_oe/BybitAuth.hpp` | HMAC-SHA256 signing (REST, WebSocket auth), key file |
 | `include/bybit_oe/BybitPrivate.hpp` | Signed `RestClient`, `PrivateWs` (auth, subscribe, ping while waiting), host guard; shared with `post_trade/bybit` |
 | `include/bybit_oe/BybitSession.hpp`, `src/RestWsSession.cpp` | Session interface and the real session (stream thread, REST thread) |
-| `include/bybit_oe/act/BybitOM.hpp`, `src/BybitOM.cpp`, `src/BybitConfig.cpp` | The actor, config, factories `create_BybitOM` |
+| `include/bybit_oe/act/BybitOM.hpp`, `src/BybitOM.cpp`, `src/BybitConfig.cpp` | The actor and its config |
+| `include/bybit_oe/if/BybitOM.hpp` | The factories `create_BybitOM` |
+| `../common/include/oe_common/OmSupport.hpp` | Shared by the four crypto order managers: reconnect timer, order-rate token bucket, local rejects, what a lost connection does to the book |
 | `include/bybit_oe/SimBybit.hpp`, `src/SimBybit.cpp` | In-process venue for `sim = true` |
 | `include/bybit_oe/msg/BybitReport.hpp` | Session thread to actor message |
 | `config/bybit_om_example.ini` | Example config (testnet hosts) |
@@ -77,7 +79,7 @@ Without the key file the tools print what is missing and exit 2; nothing is sent
 ## Use
 
 ```cpp
-#include "bybit_oe/act/BybitOM.hpp"
+#include "bybit_oe/if/BybitOM.hpp"
 // nullptr, with the reason on stderr, for a bad config or a production host
 // with testnet = true.
 actors::Actor *om = create_BybitOM("/etc/kaspar/bybit_om.ini", som, en::x::BYBITF);

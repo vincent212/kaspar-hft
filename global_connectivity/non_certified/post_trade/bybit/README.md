@@ -64,7 +64,8 @@ Without the key file it says what is missing and exits 2; nothing is sent.
 | `include/bybit_post_trade/BybitFills.hpp`, `src/BybitFills.cpp` | Execution JSON to `TradeCapture` (no network) |
 | `include/bybit_post_trade/FillSource.hpp`, `src/RestWsFillSource.cpp` | Source interface; the real source (private stream and REST pages) |
 | `include/bybit_post_trade/SimFillSource.hpp`, `src/SimFillSource.cpp` | Simulator for `sim = true` |
-| `include/bybit_post_trade/act/BybitFillsClient.hpp`, `src/BybitFillsClient.cpp` | The actor, config, factories `create_BybitFillsClient` |
+| `include/bybit_post_trade/act/BybitFillsClient.hpp`, `src/BybitFillsClient.cpp` | The actor and its config |
+| `include/bybit_post_trade/if/BybitFillsClient.hpp` | The factories `create_BybitFillsClient` |
 | `include/bybit_post_trade/msg/FillEvent.hpp` | Source thread to actor message |
 | `config/bybit_fills_example.ini` | Example config |
 | `tests/` | gtest: mapping from the documentation examples, the actor against `FakeFills` and the simulator |

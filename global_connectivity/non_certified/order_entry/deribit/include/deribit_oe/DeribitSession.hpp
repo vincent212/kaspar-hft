@@ -21,7 +21,9 @@
 //              state (private/get_order_state), or, with no order_id yet,
 //              private/get_order_state_by_label first; delivered as trade and
 //              order_update events, trades first. Used after a reconnect,
-//              because the user channels resend nothing on subscribe.
+//              because the user channels resend nothing on subscribe. An
+//              order Deribit does not know under its label (the request
+//              never reached it) is reported with order_unknown.
 //
 // Implementations: DeribitWsSession (the real one), SimDeribit (an
 // in-process venue for --sim runs) and FakeDeribit (tests).
@@ -65,6 +67,8 @@ namespace deribit::oe
     virtual void rpc_result(const nlohmann::json &r) = 0;
     virtual void order_update(const nlohmann::json &order) = 0;
     virtual void trade(const nlohmann::json &trade) = 0;
+    // recover() found no order with this label at Deribit.
+    virtual void order_unknown(const std::string &label) = 0;
   };
 
   class DeribitSession

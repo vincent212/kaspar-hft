@@ -15,7 +15,7 @@
 
 #include "TestUtil.hpp"
 #include "okx_oe/SimOkx.hpp"
-#include "okx_oe/act/OkxOM.hpp"
+#include "okx_oe/if/OkxOM.hpp"
 
 namespace som = frame::som::msg;
 using namespace okx::oe;

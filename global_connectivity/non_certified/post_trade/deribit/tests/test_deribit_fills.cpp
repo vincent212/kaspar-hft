@@ -18,7 +18,7 @@
 #include "actors/act/Manager.hpp"
 #include "frame/ref/RefData.hpp"
 #include "deribit_pt/SimFills.hpp"
-#include "deribit_pt/act/DeribitFillsClient.hpp"
+#include "deribit_pt/if/DeribitFillsClient.hpp"
 
 using namespace deribit::pt;
 using json = nlohmann::json;

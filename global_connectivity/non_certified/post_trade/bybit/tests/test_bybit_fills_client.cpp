@@ -20,7 +20,7 @@
 
 #include "actors/act/Manager.hpp"
 #include "bybit_post_trade/SimFillSource.hpp"
-#include "bybit_post_trade/act/BybitFillsClient.hpp"
+#include "bybit_post_trade/if/BybitFillsClient.hpp"
 #include "FakeFillSource.hpp"
 
 using namespace bybit_pt;

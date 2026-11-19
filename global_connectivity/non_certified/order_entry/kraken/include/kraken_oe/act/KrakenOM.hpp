@@ -30,7 +30,11 @@
 //
 // Fills are counted once per exec_id. A reconnect resubscribes with the last
 // trades in the snapshot, so a fill missed while disconnected arrives then,
-// and one already applied is skipped.
+// and one already applied is skipped. A lost connection refuses every cancel
+// in flight (CancReject DISCONNECTED; the order stays working). A new order
+// whose request was in flight stays PendingNew; after the next logon the OM
+// asks the session to recover() each live order, and one the venue does not
+// know never reached it and is rejected (Reject DISCONNECTED).
 //
 // Refused locally, with a Reject: stop orders, DAY unless day_as_gtc, at the
 // open/close, extended hours, short-sale marks, broker algorithms, routes
@@ -40,12 +44,10 @@
 // Threads: the session is created, used and destroyed on this actor's thread;
 // its own thread only send()s KrakenEvent messages here.
 
-#include <chrono>
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -60,6 +62,7 @@
 
 #include "kraken_oe/KrakenSession.hpp"
 #include "kraken_oe/msg/KrakenEvent.hpp"
+#include "oe_common/OmSupport.hpp"
 
 namespace kraken::oe
 {
@@ -125,12 +128,18 @@ namespace kraken::oe
     void on_report(const Report &r) noexcept;
     Venue *resolve(const Report &r) noexcept;
     void apply(Venue &v, const Report &r) noexcept;
+    void recover_live() noexcept;
     void connect() noexcept;
     void drop_session() noexcept;
     void schedule_reconnect() noexcept;
-    bool take_token() noexcept;
-    void reject(actors::Actor *to, int oid, int reason, const char *why) noexcept;
-    void cancel_reject(actors::Actor *to, int oid, int reason, const char *why) noexcept;
+    void reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
+    {
+      oe_common::reject(this, to, oid, reason, why);
+    }
+    void cancel_reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
+    {
+      oe_common::cancel_reject(this, to, oid, reason, why);
+    }
 
     KrakenOMConfig cfg_;
     actors::Actor *som_;
@@ -150,13 +159,7 @@ namespace kraken::oe
     bool stopping_ = false;
     bool login_failed_ = false;
 
-    double tokens_ = 0;
-    std::chrono::steady_clock::time_point refilled_{};
-    std::jthread reconnect_timer_;
+    oe_common::TokenBucket tokens_;
+    oe_common::ReconnectTimer reconnect_;
   };
 }
-
-// nullptr (reason on stderr) for a bad config or no factory, so Kraken stays
-// unrouted instead of stopping kaspar.
-actors::Actor *create_KrakenOM(const kraken::oe::KrakenOMConfig &cfg, actors::Actor *som,
-                               kraken::oe::SessionFactory factory, en::x venue = en::x::KRAKEN);

@@ -47,7 +47,12 @@
 // fetches, for each order still live in its book, the order
 // (/v5/order/realtime) and its executions (/v5/execution/list); executions
 // are applied once by execId, so a fill missed while disconnected arrives
-// exactly once.
+// exactly once. A lost connection refuses every cancel in flight (CancReject
+// DISCONNECTED; the order stays working). A new order whose create was in
+// flight stays PendingNew until that fetch: if neither the order nor an
+// execution of it comes back, the create never reached Bybit and the order
+// is rejected (Reject DISCONNECTED). The same fetch, and the same rule, follow
+// a create whose REST answer was lost.
 //
 // Refused locally, with a Reject: STOP and STOP_LIMIT, AT_OPEN, AT_CLOSE,
 // EXTENDED_DAY, short-sale flags, broker algorithms other than "POSTONLY",
@@ -58,12 +63,10 @@
 // Threads: the session is created, used and destroyed on this actor's thread;
 // the session's threads only send BybitReports here.
 
-#include <chrono>
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -78,6 +81,7 @@
 #include "bybit_oe/BybitSession.hpp"
 #include "bybit_oe/SimBybit.hpp"
 #include "bybit_oe/msg/BybitReport.hpp"
+#include "oe_common/OmSupport.hpp"
 
 namespace bybit::oe
 {
@@ -162,9 +166,15 @@ namespace bybit::oe
     void connect() noexcept;
     void drop_session() noexcept;
     void schedule_reconnect() noexcept;
-    bool take_token() noexcept;
-    void reject(actors::Actor *to, int oid, int reason, const char *why) noexcept;
-    void cancel_reject(actors::Actor *to, int oid, int reason, const char *why) noexcept;
+    void query(Venue &v) noexcept; // the order and its executions, over REST
+    void reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
+    {
+      oe_common::reject(this, to, oid, reason, why);
+    }
+    void cancel_reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
+    {
+      oe_common::cancel_reject(this, to, oid, reason, why);
+    }
     Venue *venue_of(const std::string &link) noexcept;
 
     BybitOMConfig cfg_;
@@ -184,14 +194,7 @@ namespace bybit::oe
     bool busy_ = false;
     bool stopping_ = false;
 
-    double tokens_ = 0;
-    std::chrono::steady_clock::time_point refilled_{};
-    std::jthread reconnect_timer_;
+    oe_common::TokenBucket tokens_;
+    oe_common::ReconnectTimer reconnect_;
   };
 }
-
-// The real session, or SimBybit when cfg.sim. nullptr (reason on stderr) for
-// a bad config, including a production host with testnet = true.
-actors::Actor *create_BybitOM(const bybit::oe::BybitOMConfig &cfg, actors::Actor *som, en::x venue,
-                              bybit::oe::SessionFactory factory = nullptr);
-actors::Actor *create_BybitOM(const std::string &config_path, actors::Actor *som, en::x venue);

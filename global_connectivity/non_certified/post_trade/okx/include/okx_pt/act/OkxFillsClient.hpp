@@ -118,6 +118,3 @@ namespace okx::pt
     std::jthread reconnect_timer_, reconcile_timer_;
   };
 }
-
-actors::Actor *create_OkxFillsClient(okx::pt::FillsConfig cfg, actors::Actor *subscriber,
-                                     okx::pt::FillsSessionFactory factory = nullptr);

@@ -252,8 +252,11 @@ namespace okx::oe::test
           return CallStatus::Disconnected;
         s_.recoveries_.push_back(cl);
         auto it = s_.orders_.find(cl);
-        if (it == s_.orders_.end())
+        if (it == s_.orders_.end() || it->second.ord_id.empty())
+        {
+          s_.ev_->order_unknown(cl); // never reached OKX
           return CallStatus::Success;
+        }
         for (const auto &f : it->second.fills)
         {
           json r = f;

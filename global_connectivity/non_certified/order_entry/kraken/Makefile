@@ -36,7 +36,8 @@ SIM = $(KSPRPROJ)/sim
 B   = $(HERE)/build
 
 FLAGS = $(STANDARD) -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Wno-reorder \
-        -I$(HERE)/include -I$(HERE)/tests -I$(MD)/include -I$(SIM)/include $(INCL) \
+        -I$(HERE)/include -I$(HERE)/tests -I$(HERE)/../common/include -I$(MD)/include -I$(MD)/../crypto_common/include \
+        -I$(SIM)/include $(INCL) \
         -I$(OPENSSL_PATH)/include -I$(GTEST_PATH)/include
 
 FRAME_SRCS = RefData.cpp Timer.cpp OB.cpp point.cpp SOM.cpp SOM_if.cpp Cons_if.cpp BFA_if.cpp \

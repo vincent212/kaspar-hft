@@ -57,44 +57,6 @@ namespace kraken::pt
     }
   }
 
-  bool parse_decimal(const std::string &s, int64_t &mantissa, int &decimals)
-  {
-    if (s.empty())
-      return false;
-    size_t i = 0;
-    bool neg = false;
-    if (s[0] == '-')
-    {
-      neg = true;
-      i = 1;
-    }
-    int64_t m = 0;
-    int d = 0;
-    bool dot = false, digit = false;
-    for (; i < s.size(); ++i)
-    {
-      const char c = s[i];
-      if (c == '.' && !dot)
-      {
-        dot = true;
-        continue;
-      }
-      if (c < '0' || c > '9')
-        return false;
-      if (m > (INT64_MAX - 9) / 10)
-        return false;
-      m = m * 10 + (c - '0');
-      digit = true;
-      if (dot)
-        ++d;
-    }
-    if (!digit)
-      return false;
-    mantissa = neg ? -m : m;
-    decimals = d;
-    return true;
-  }
-
   bool FillsConfig::valid(std::string &err) const
   {
     if (!sim && !ep.check(err))

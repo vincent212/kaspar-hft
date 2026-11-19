@@ -15,7 +15,7 @@
 
 #include "TestUtil.hpp"
 #include "deribit_oe/SimDeribit.hpp"
-#include "deribit_oe/act/DeribitOM.hpp"
+#include "deribit_oe/if/DeribitOM.hpp"
 
 namespace som = frame::som::msg;
 using namespace deribit::oe;

@@ -31,6 +31,7 @@ namespace deribit::oe::msg
       RPC_RESULT,
       ORDER_UPDATE,
       TRADE,
+      ORDER_UNKNOWN,    // recover(): Deribit has no order with this label (text)
       RECONNECT,        // DeribitOM's own reconnect timer
       DROP_CONNECTION,  // drop the session and reconnect (the testnet check's reconnect step)
     };

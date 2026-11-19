@@ -65,9 +65,9 @@
 #include "okx_md/OkxWs.hpp"
 #include "okx_oe/OkxAuth.hpp"
 #include "okx_oe/OkxConfig.hpp"
-#include "okx_oe/act/OkxOM.hpp"
+#include "okx_oe/if/OkxOM.hpp"
 #include "okx_pt/OkxFills.hpp"
-#include "okx_pt/act/OkxFillsClient.hpp"
+#include "okx_pt/if/OkxFillsClient.hpp"
 #include "post_trade/msg/TradeCapture.hpp"
 
 namespace som = frame::som::msg;

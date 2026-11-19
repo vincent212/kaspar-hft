@@ -11,29 +11,10 @@
 #include <cctype>
 #include <random>
 
-#include <openssl/evp.h>
-#include <openssl/hmac.h>
 #include <openssl/rand.h>
 
 namespace deribit::oe
 {
-  std::string hmac_sha256_hex(std::string_view key, std::string_view msg)
-  {
-    unsigned char md[EVP_MAX_MD_SIZE];
-    unsigned int len = 0;
-    HMAC(EVP_sha256(), key.data(), int(key.size()), reinterpret_cast<const unsigned char *>(msg.data()),
-         msg.size(), md, &len);
-    static const char *hex = "0123456789abcdef";
-    std::string out;
-    out.reserve(len * 2);
-    for (unsigned int i = 0; i < len; ++i)
-    {
-      out.push_back(hex[md[i] >> 4]);
-      out.push_back(hex[md[i] & 15]);
-    }
-    return out;
-  }
-
   std::string ws_signature(std::string_view secret, uint64_t ts_ms, std::string_view nonce,
                            std::string_view data)
   {

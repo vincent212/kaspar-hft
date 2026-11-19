@@ -184,7 +184,10 @@ namespace deribit::oe
       else
         o = by_label(label);
       if (!o)
+      {
+        ev_.order_unknown(label);
         return;
+      }
       for (const auto &t : o->trades)
         ev_.trade(t);
       ev_.order_update(o->o);

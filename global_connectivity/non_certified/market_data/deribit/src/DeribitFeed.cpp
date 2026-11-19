@@ -64,6 +64,14 @@ DeribitFeed::DeribitFeed(const Config &cfg, actors::Actor *ob)
     c.venue = cfg_.chunks.venue;
     emit(c);
   });
+  // A synchronised book invalidated (change_id gap, lost connection): OB's
+  // book is stale until the next snapshot.
+  sync_.on_gap([this] {
+    bfile::l3_gap_v2_t g{};
+    g.typ = en::l3::GAP_V2;
+    g.venue = cfg_.chunks.venue;
+    emit(g);
+  });
   MESSAGE_HANDLER(actors::msg::Start, start_handler);
   MESSAGE_HANDLER(actors::msg::Continue, continue_handler);
 }

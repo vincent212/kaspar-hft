@@ -99,6 +99,24 @@ TEST(DeribitBookSync, BrokenChangeIdChainIsAGap)
   EXPECT_EQ(s.stats().snapshots, 2u);
 }
 
+TEST(DeribitBookSync, InvalidationCallsOnGapOnce)
+{
+  DeribitBookSync s("BTC-PERPETUAL", 0.01, nullptr, 50);
+  int gaps = 0;
+  s.on_gap([&] { ++gaps; });
+  s.reset(); // never synced: nothing to invalidate
+  EXPECT_EQ(gaps, 0);
+  s.on_message(doc_snapshot());
+  EXPECT_EQ(gaps, 0);
+  EXPECT_FALSE(s.on_message(change(297219, 297220, json::array(), json::array())));
+  EXPECT_EQ(gaps, 1); // a broken chain: the book goes stale
+  s.reset();          // already invalid: no second GAP
+  EXPECT_EQ(gaps, 1);
+  s.on_message(doc_snapshot());
+  s.reset(); // a lost connection with a good book
+  EXPECT_EQ(gaps, 2);
+}
+
 TEST(DeribitBookSync, InconsistentActionsAreCounted)
 {
   DeribitBookSync s("BTC-PERPETUAL", 0.01, nullptr, 50);

@@ -10,7 +10,10 @@
 // OKX V5 transport: a WebSocket client that keeps the connection alive the way
 // OKX asks, and a one-shot HTTPS request for REST. Shared by the market-data
 // feed, the recorder and verify tools, the order manager and the post-trade
-// client. Built on sim/WsNet.hpp (Boost.Beast over OpenSSL).
+// client. The socket and the HTTPS request are crypto_common's PollingWs and
+// https_request (market_data/crypto_common, shared with Deribit, Kraken and
+// Bybit); this header adds OKX's text ping and keeps Beast out of its
+// includers.
 //
 // OKX closes a WebSocket connection that has had no data pushed for 30 s. The
 // client is to send the text "ping" when it has received nothing for N < 30 s
@@ -20,14 +23,17 @@
 
 #include <chrono>
 #include <cstdint>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 
+#include "crypto_common/PollingWs.hpp"
+
 namespace okx
 {
-  using Headers = std::map<std::string, std::string>;
+  using crypto_common::Headers;
+  using crypto_common::HttpResult;
+  using crypto_common::https_request;
 
   class WsClient
   {
@@ -62,19 +68,6 @@ namespace okx
     std::chrono::seconds ping_after_;
     uint64_t pings_ = 0;
   };
-
-  struct HttpResult
-  {
-    int status = 0;
-    std::string body;
-  };
-
-  // One HTTPS request on a fresh connection. method "GET" or "POST"; target
-  // includes the query string. Throws on a network failure, not on an HTTP
-  // error status.
-  HttpResult https_request(const std::string &host, const std::string &method,
-                           const std::string &target, const std::string &body = {},
-                           const Headers &headers = {});
 
   // Nanoseconds since the epoch, system clock.
   uint64_t now_ns();

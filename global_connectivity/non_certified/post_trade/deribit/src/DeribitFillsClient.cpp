@@ -7,6 +7,8 @@
 
 #include "deribit_pt/act/DeribitFillsClient.hpp"
 
+#include "deribit_pt/if/DeribitFillsClient.hpp"
+
 #include <condition_variable>
 #include <iostream>
 #include <mutex>

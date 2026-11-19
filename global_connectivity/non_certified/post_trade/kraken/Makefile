@@ -33,7 +33,8 @@ COMMON = $(abspath $(HERE)/../common)
 B      = $(HERE)/build
 
 FLAGS = $(STANDARD) -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Wno-reorder \
-        -I$(HERE)/include -I$(COMMON)/include -I$(OE)/include -I$(MD)/include -I$(KSPRPROJ)/sim/include $(INCL) \
+        -I$(HERE)/include -I$(COMMON)/include -I$(OE)/include -I$(OE)/../common/include -I$(MD)/include \
+        -I$(MD)/../crypto_common/include -I$(KSPRPROJ)/sim/include $(INCL) \
         -I$(OPENSSL_PATH)/include -I$(GTEST_PATH)/include
 
 FRAME_SRCS = RefData.cpp Timer.cpp OB.cpp point.cpp SOM.cpp SOM_if.cpp Cons_if.cpp BFA_if.cpp \

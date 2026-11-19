@@ -10,8 +10,8 @@ documentation, a test double and an in-process simulator.
 | File | What it does |
 |---|---|
 | `feed.md` | Order-entry description: transport, signing, identifiers, order mapping, reports, throttles, reconnect, instruments |
-| `include/okx_oe/act/OkxOM.hpp`, `src/OkxOM.cpp` | The order manager: registers with the SOM for `en::x::OKX` and `OKXF`, turns `Order`/`Cancel` into WS `order`/`cancel-order`, and OKX's results and `orders` pushes into `Ack`, `Fill`, `Reject`, `CancAck`, `CancReject`; state in `frame::som::BrokerOrderBook` |
-| `include/okx_oe/OkxSession.hpp`, `src/OkxWsSession.cpp` | The session interface and the real session: private WebSocket, login, `orders` subscription, REST recovery after a reconnect, optional Cancel All After |
+| `include/okx_oe/act/OkxOM.hpp`, `src/OkxOM.cpp` | The order manager (factories in `include/okx_oe/if/OkxOM.hpp`; the reconnect timer, order-rate token bucket, local rejects and the lost-connection rule are `../common/include/oe_common/OmSupport.hpp`, shared with Bybit, Kraken and Deribit): registers with the SOM for `en::x::OKX` and `OKXF`, turns `Order`/`Cancel` into WS `order`/`cancel-order`, and OKX's results and `orders` pushes into `Ack`, `Fill`, `Reject`, `CancAck`, `CancReject`; state in `frame::som::BrokerOrderBook` |
+| `include/okx_oe/OkxSession.hpp`, `src/OkxWsSession.cpp` | The session interface and the real session: private WebSocket, login, `orders` subscription; REST recovery after a reconnect and the Cancel All After refresh run on a second thread (`crypto_common/RestWorker.hpp`) so the socket keeps reading and answering OKX's 30 s keep-alive |
 | `include/okx_oe/OkxAuth.hpp`, `src/OkxAuth.cpp` | HMAC-SHA256 signing (REST and WebSocket login) and the key file |
 | `include/okx_oe/OkxConfig.hpp`, `src/OkxConfig.cpp` | Configuration and the environment guard |
 | `include/okx_oe/SimOkx.hpp`, `src/SimOkx.cpp` | In-process OKX for `sim = true` runs |

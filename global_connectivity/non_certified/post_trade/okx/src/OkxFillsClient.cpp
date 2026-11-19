@@ -7,6 +7,8 @@
 
 #include "okx_pt/act/OkxFillsClient.hpp"
 
+#include "okx_pt/if/OkxFillsClient.hpp"
+
 #include <condition_variable>
 #include <iostream>
 #include <mutex>

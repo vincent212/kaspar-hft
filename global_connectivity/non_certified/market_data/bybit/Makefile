@@ -30,7 +30,7 @@ SIMSRC = $(SIM)/Mbp2Mbo.cpp $(SIM)/LevelWindow.cpp
 TESTS = tests/test_bybit_sync.cpp tests/test_bybit_chain_ob.cpp tests/test_bybit_feed.cpp
 
 FLAGS = $(STANDARD) -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations \
-        -Wno-reorder -Wno-sign-compare -Iinclude -Itools -I$(KSPRPROJ)/sim/include \
+        -Wno-reorder -Wno-sign-compare -Iinclude -Itools -I$(KSPRPROJ)/global_connectivity/non_certified/market_data/crypto_common/include -I$(KSPRPROJ)/sim/include \
         -I$(KSPRPROJ)/unit_test/include $(INCL) -I$(GTEST_PATH)/include -I$(OPENSSL_PATH)/include
 # libframe is compiled here from this checkout's frame_kaspr sources: a
 # libframe built before the BYBIT and BYBITF venue codes existed rejects them

@@ -11,6 +11,8 @@
 
 #include <gtest/gtest.h>
 
+#include <set>
+
 #include "actors/act/Manager.hpp"
 #include "frame/som/msg/Cancel.hpp"
 #include "frame/som/msg/Order.hpp"
@@ -523,6 +525,55 @@ TEST_F(KrakenOMTest, OrderWhileDisconnectedIsRejected)
   auto r = refused(order(1));
   ASSERT_NE(r, nullptr);
   EXPECT_EQ(r->reason, som::Reject::DISCONNECTED);
+}
+
+TEST_F(KrakenOMTest, CancelInFlightWhenTheConnectionDropsIsRefused)
+{
+  auto c = om_config();
+  c.reconnect_ms = 100000;
+  start(true, c);
+  working(1, "O1");
+  cancel(1);
+  kr.drop();
+  auto cr = somr.wait_for<som::CancReject>();
+  ASSERT_NE(cr, nullptr);
+  EXPECT_EQ(cr->id, 1u);
+  EXPECT_EQ(cr->reason, som::CancReject::DISCONNECTED);
+  EXPECT_EQ(om->book().find_oid(1)->state, frame::som::State::Working);
+}
+
+TEST_F(KrakenOMTest, OrderInFlightAtTheDropIsRejectedWhenKrakenDoesNotKnowIt)
+{
+  start();
+  auto lost = place(order(1)); // no report ever comes for it
+  auto kept = working(2, "O2");
+  kr.drop();
+  ASSERT_TRUE(wait_until([&] { return kr.sessions() == 2 && om->ready(); }));
+  // After the logon the OM asks the session about each live order.
+  ASSERT_TRUE(wait_until([&] { return kr.recoveries().size() == 2; }));
+  auto rec = kr.recoveries();
+  std::set<std::string> asked{rec[0].cl_ord_id, rec[1].cl_ord_id};
+  EXPECT_EQ(asked, (std::set<std::string>{lost.cl_ord_id, kept}));
+  // The venue knows order 2 (its snapshot) and has nothing under order 1's id.
+  Report open = rep(Report::Accepted, kept, "O2");
+  open.snapshot = true;
+  kr.report(open);
+  Report unknown = rep(Report::Unknown, lost.cl_ord_id);
+  unknown.reason = "test";
+  kr.report(unknown);
+  auto rej = somr.wait_for<som::Reject>();
+  ASSERT_NE(rej, nullptr);
+  EXPECT_EQ(rej->id, 1u);
+  EXPECT_EQ(rej->reason, som::Reject::DISCONNECTED);
+  settle();
+  EXPECT_EQ(om->book().find_oid(1)->state, frame::som::State::Rejected);
+  EXPECT_EQ(om->book().find_oid(2)->state, frame::som::State::Working);
+  EXPECT_EQ(somr.all<som::Reject>().size(), 1u);
+  // An Unknown for a working order changes nothing.
+  kr.report(rep(Report::Unknown, kept));
+  settle();
+  EXPECT_EQ(om->book().find_oid(2)->state, frame::som::State::Working);
+  EXPECT_EQ(somr.all<som::Reject>().size(), 1u);
 }
 
 TEST_F(KrakenOMTest, UnknownReportsAreIgnored)

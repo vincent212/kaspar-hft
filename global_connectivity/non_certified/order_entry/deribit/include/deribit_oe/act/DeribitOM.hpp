@@ -39,18 +39,20 @@
 //
 // Reconnect: the user channels resend nothing, so after every login the OM
 // asks the session to recover() each order still live in the book; fills
-// already applied are recognised by trade_id.
+// already applied are recognised by trade_id. A lost connection refuses
+// every cancel in flight (CancReject DISCONNECTED; the order stays working).
+// A new order whose request was in flight stays PendingNew until that
+// recovery: one Deribit does not know never reached it and is rejected
+// (Reject DISCONNECTED).
 //
 // Refused locally with a Reject: market, stop and stop-limit orders; time in
 // force other than DAY (good_til_day), GTC, IOC, FOK; short-sale marking;
 // routes other than DERIBIT; broker algorithms; replace; sizes that are not
 // whole units; anything over the configured limits.
 
-#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -64,6 +66,7 @@
 #include "deribit_oe/DeribitConfig.hpp"
 #include "deribit_oe/DeribitSession.hpp"
 #include "deribit_oe/msg/DeribitReport.hpp"
+#include "oe_common/OmSupport.hpp"
 
 namespace deribit::oe
 {
@@ -123,9 +126,14 @@ namespace deribit::oe
     void connect() noexcept;
     void drop_session() noexcept;
     void schedule_reconnect() noexcept;
-    bool take_token() noexcept;
-    void reject(actors::Actor *to, int oid, int reason, const char *why) noexcept;
-    void cancel_reject(actors::Actor *to, int oid, int reason, const char *why) noexcept;
+    void reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
+    {
+      oe_common::reject(this, to, oid, reason, why);
+    }
+    void cancel_reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
+    {
+      oe_common::cancel_reject(this, to, oid, reason, why);
+    }
 
     DeribitOMConfig cfg_;
     actors::Actor *som_;
@@ -145,16 +153,7 @@ namespace deribit::oe
     bool stopping_ = false;
     bool login_refused_ = false;
 
-    double tokens_ = 0;
-    std::chrono::steady_clock::time_point refilled_{};
-    std::jthread reconnect_timer_;
+    oe_common::TokenBucket tokens_;
+    oe_common::ReconnectTimer reconnect_;
   };
 }
-
-// The real session, or SimDeribit when cfg.sim. nullptr (reason on stderr)
-// for a bad config or a refused environment, so DERIBIT stays unrouted
-// instead of stopping kaspar. Instruments are resolved to Kaspar assets by
-// name.
-actors::Actor *create_DeribitOM(deribit::oe::DeribitOMConfig cfg, actors::Actor *som,
-                                deribit::oe::SessionFactory factory = nullptr);
-actors::Actor *create_DeribitOM(const std::string &config_path, actors::Actor *som);

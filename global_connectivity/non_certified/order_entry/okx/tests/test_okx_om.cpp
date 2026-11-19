@@ -17,7 +17,7 @@
 
 #include "FakeOkx.hpp"
 #include "TestUtil.hpp"
-#include "okx_oe/act/OkxOM.hpp"
+#include "okx_oe/if/OkxOM.hpp"
 
 namespace som = frame::som::msg;
 using Order = som::Order;
@@ -548,6 +548,45 @@ TEST_F(OkxOMTest, OrdersAndCancelsWhileDisconnectedAreRefused)
   ASSERT_NE(cr, nullptr);
   EXPECT_EQ(cr->reason, som::CancReject::DISCONNECTED);
   EXPECT_EQ(om->book().find_oid(110)->state, State::Working);
+}
+
+TEST_F(OkxOMTest, CancelInFlightWhenTheConnectionDropsIsRefused)
+{
+  auto c = demo_config();
+  c.reconnect_ms = 100000;
+  start(true, c);
+  auto r = place(order(112));
+  okx.accept(r, "690000000000000112");
+  ASSERT_NE(somr.wait_for<som::Ack>(), nullptr);
+  cancel(112);
+  okx.fail_connection();
+  auto cr = somr.wait_for<som::CancReject>();
+  ASSERT_NE(cr, nullptr);
+  EXPECT_EQ(cr->id, 112u);
+  EXPECT_EQ(cr->reason, som::CancReject::DISCONNECTED);
+  EXPECT_EQ(om->book().find_oid(112)->state, State::Working);
+}
+
+TEST_F(OkxOMTest, OrderInFlightAtTheDropIsRejectedWhenOkxDoesNotKnowIt)
+{
+  start();
+  auto lost = place(order(113)); // its op result never comes
+  auto kept = place(order(114));
+  okx.accept(kept, "690000000000000114");
+  ASSERT_NE(somr.wait_for<som::Ack>(), nullptr);
+  okx.fail_connection();
+  ASSERT_TRUE(wait_until([&] { return om->ready() && okx.sessions() == 2; }));
+  // Recovery: OKX has no order with the lost one's clOrdId.
+  auto rej = somr.wait_for<som::Reject>();
+  ASSERT_NE(rej, nullptr);
+  EXPECT_EQ(rej->id, 113u);
+  EXPECT_EQ(rej->reason, som::Reject::DISCONNECTED);
+  settle();
+  EXPECT_EQ(okx.recoveries().size(), 2u);
+  EXPECT_EQ(om->book().find_oid(113)->state, State::Rejected);
+  EXPECT_EQ(om->book().find_oid(114)->state, State::Working);
+  EXPECT_EQ(somr.all<som::Reject>().size(), 1u);
+  (void)lost;
 }
 
 TEST_F(OkxOMTest, OrdersOutsideTheOmAreLoggedAndIgnored)

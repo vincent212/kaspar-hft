@@ -30,7 +30,8 @@ namespace okx::oe::msg
       AVAILABLE,
       OP_RESULT,
       ORDER_UPDATE,
-      RECONNECT, // OkxOM's own reconnect timer
+      ORDER_UNKNOWN, // recover(): OKX has no order with this clOrdId (text)
+      RECONNECT,     // OkxOM's own reconnect timer
     };
 
     Kind kind;

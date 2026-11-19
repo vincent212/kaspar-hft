@@ -18,7 +18,7 @@
 
 #include "FakeDeribit.hpp"
 #include "TestUtil.hpp"
-#include "deribit_oe/act/DeribitOM.hpp"
+#include "deribit_oe/if/DeribitOM.hpp"
 
 namespace som = frame::som::msg;
 using Order = som::Order;
@@ -592,6 +592,27 @@ TEST_F(DeribitOMTest, CancelInFlightWhenTheConnectionDropsIsRefused)
   ASSERT_NE(cr, nullptr);
   EXPECT_EQ(cr->reason, som::CancReject::DISCONNECTED);
   EXPECT_EQ(om->book().find_oid(102)->state, State::Working);
+}
+
+TEST_F(DeribitOMTest, OrderInFlightAtTheDropIsRejectedWhenDeribitDoesNotKnowIt)
+{
+  start();
+  auto lost = place(order(103));   // the buy result never comes, Deribit never had it
+  auto kept = place(order(104));
+  dbt.accept(kept, "BTC-104");
+  ASSERT_NE(somr.wait_for<som::Ack>(), nullptr);
+  dbt.fail_connection();
+  ASSERT_TRUE(wait_until([&] { return om->ready() && dbt.sessions() == 2; }));
+  auto rej = somr.wait_for<som::Reject>();
+  ASSERT_NE(rej, nullptr);
+  EXPECT_EQ(rej->id, 103u);
+  EXPECT_EQ(rej->reason, som::Reject::DISCONNECTED);
+  settle();
+  EXPECT_EQ(dbt.recoveries().size(), 2u);
+  EXPECT_EQ(om->book().find_oid(103)->state, State::Rejected);
+  EXPECT_EQ(om->book().find_oid(104)->state, State::Working);
+  EXPECT_EQ(somr.all<som::Reject>().size(), 1u);
+  (void)lost;
 }
 
 TEST_F(DeribitOMTest, OrdersAndCancelsWhileDisconnectedAreRefused)

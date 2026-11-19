@@ -226,6 +226,28 @@ TEST(OkxBooks, GapStopsTheBookUntilANewSnapshot)
   EXPECT_EQ(r.count_mbo(0, false), r.count_mbo(0, true)); // every add is a recovery add
 }
 
+TEST(OkxBooks, InvalidationCallsOnGapOnce)
+{
+  Rig r;
+  int gaps = 0;
+  r.s.on_gap([&] { ++gaps; });
+  r.s.reset(); // never synced: nothing to invalidate
+  EXPECT_EQ(gaps, 0);
+  r.s.on_message(json::parse(kDocSnapshot));
+  EXPECT_EQ(gaps, 0);
+  EXPECT_EQ(r.s.on_message(update(123455, 123457, json::array(), json::array())), OkxSync::Status::Gap);
+  EXPECT_EQ(gaps, 1); // a sequence gap: the book goes stale
+  r.s.reset();        // already invalid: no second GAP
+  EXPECT_EQ(gaps, 1);
+  r.s.on_message(json::parse(kDocSnapshot));
+  EXPECT_EQ(r.s.on_message(update(123456, 123457, json::array({{"8476.97", "1", "0", "1"}}), json::array(), 1)),
+            OkxSync::Status::Gap); // checksum mismatch
+  EXPECT_EQ(gaps, 2);
+  r.s.on_message(json::parse(kDocSnapshot));
+  r.s.reset(); // a lost connection with a good book
+  EXPECT_EQ(gaps, 3);
+}
+
 TEST(OkxBooks, OtherInstrumentsChannelsAndEventsAreIgnored)
 {
   Rig r;

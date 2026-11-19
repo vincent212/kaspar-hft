@@ -16,7 +16,9 @@
 //   recover() REST: the fills of one order (GET /api/v5/trade/fills?ordId=)
 //             and its state (GET /api/v5/trade/order), delivered as
 //             order_update events, fills first; used after a reconnect,
-//             because the orders channel pushes nothing on subscribe
+//             because the orders channel pushes nothing on subscribe. An
+//             order OKX does not know (the request never reached it) is
+//             reported with order_unknown.
 //
 // Three implementations:
 //   OkxWsSession  the real one (OkxWsSession.cpp)
@@ -61,6 +63,8 @@ namespace okx::oe
     virtual void op_result(const nlohmann::json &r) = 0;
     // One orders-channel element, or a recovered fill or state.
     virtual void order_update(const nlohmann::json &d) = 0;
+    // recover() found no order with this clOrdId at OKX.
+    virtual void order_unknown(const std::string &cl_ord_id) = 0;
   };
 
   class OkxSession

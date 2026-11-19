@@ -71,6 +71,7 @@ namespace kraken::oe
       Filled,         // the order is fully filled (status only; the Trades carry the quantities)
       CancelRejected, // a cancel was refused; the order may still be live
       Restated,       // the venue changed the order (amend, restatement); logged
+      Unknown,        // recover(): the venue has no such order; the request never reached it
       Other,          // anything else, logged
     };
     Kind kind = Other;
@@ -108,6 +109,11 @@ namespace kraken::oe
     // Cancel one order by the venue's id, or by the client id when the venue
     // id is not known yet.
     virtual CallStatus cancel_order(const std::string &order_id, const std::string &cl_ord_id) = 0;
+    // After a (re)connect, for each order the OM still has live: make sure
+    // the venue's state of it will be reported. An order the venue does not
+    // know (its request never reached it) is reported Unknown; one it knows
+    // comes back as the usual reports (the snapshot's, or polled).
+    virtual CallStatus recover(const std::string &order_id, const std::string &cl_ord_id) = 0;
     virtual void logout() = 0;
   };
 

@@ -22,6 +22,7 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <exception>
 #include <map>
 #include <mutex>
 #include <set>
@@ -120,6 +121,20 @@ namespace kraken::oe
         return enqueue(std::move(r));
       }
 
+      // Tracked from now: orders/status by cliOrdId (or orderId) reports its
+      // state at the next poll, and one absent for kAbsentPolls polls with
+      // no venue id is Unknown (never reached Kraken).
+      CallStatus recover(const std::string &order_id, const std::string &cl_ord_id) override
+      {
+        if (!ready_)
+          return CallStatus::Disconnected;
+        std::lock_guard<std::mutex> l(t_->mu);
+        auto &tr = t_->orders[cl_ord_id];
+        if (tr.order_id.empty())
+          tr.order_id = order_id;
+        return CallStatus::Success;
+      }
+
       void logout() override { stop_ = true; }
 
     private:
@@ -206,8 +221,24 @@ namespace kraken::oe
             was_busy = busy_;
             busy_ = false;
           }
+          // Every queued request is attempted, even after one fails (each is
+          // its own HTTPS request); the first failure ends the session once
+          // the batch is done, so that nothing behind a bad one is lost.
+          std::exception_ptr first;
           for (const auto &r : q)
-            r.cancel ? do_cancel(r) : do_send(r);
+          {
+            try
+            {
+              r.cancel ? do_cancel(r) : do_send(r);
+            }
+            catch (...)
+            {
+              if (!first)
+                first = std::current_exception();
+            }
+          }
+          if (first)
+            std::rethrow_exception(first);
           if (was_busy)
             ev_.available();
           const auto now = std::chrono::steady_clock::now();
@@ -352,7 +383,9 @@ namespace kraken::oe
             Report e;
             e.cl_ord_id = it->first;
             e.order_id = it->second.order_id;
-            e.kind = it->second.order_id.empty() ? Report::Rejected : Report::Canceled;
+            // No venue id: Kraken never answered the sendorder, and has no
+            // order under the client id either.
+            e.kind = it->second.order_id.empty() ? Report::Unknown : Report::Canceled;
             e.reason = "absent from orders/status for " + std::to_string(kAbsentPolls) + " polls";
             out.push_back(e);
             it = t_->orders.erase(it);

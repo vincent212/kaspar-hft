@@ -113,9 +113,3 @@ namespace bybit_pt
     std::jthread reconnect_timer_, ticker_;
   };
 }
-
-// nullptr (reason on stderr) for a bad config, including a production host
-// with testnet = true.
-actors::Actor *create_BybitFillsClient(const bybit_pt::ClientConfig &cfg, actors::Actor *subscriber,
-                                       bybit_pt::SourceFactory factory = nullptr);
-actors::Actor *create_BybitFillsClient(const std::string &config_path, actors::Actor *subscriber);

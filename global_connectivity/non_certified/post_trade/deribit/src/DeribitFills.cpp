@@ -29,42 +29,6 @@ namespace deribit::pt
     }
   }
 
-  bool parse_decimal(const std::string &s, int64_t &mantissa, int &decimals)
-  {
-    if (s.empty())
-      return false;
-    size_t i = 0;
-    bool neg = false;
-    if (s[0] == '-')
-    {
-      neg = true;
-      i = 1;
-    }
-    int64_t m = 0;
-    int d = -1, digits = 0;
-    for (; i < s.size(); ++i)
-    {
-      const char c = s[i];
-      if (c == '.')
-      {
-        if (d >= 0)
-          return false;
-        d = 0;
-        continue;
-      }
-      if (c < '0' || c > '9' || ++digits > 18)
-        return false;
-      m = m * 10 + (c - '0');
-      if (d >= 0)
-        ++d;
-    }
-    if (digits == 0)
-      return false;
-    mantissa = neg ? -m : m;
-    decimals = d < 0 ? 0 : d;
-    return true;
-  }
-
   bool to_trade_capture(const json &t, const FillsConfig &cfg, bool from_rest, post_trade::msg::TradeCapture &out,
                         std::string &err)
   {

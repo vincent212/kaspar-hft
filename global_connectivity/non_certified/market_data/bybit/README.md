@@ -87,7 +87,7 @@ through BybitSync (DEPTH mode) -> Mbp2Mbo -> OB, OB checked every 1000 book even
 | `review.md` | Decisions for the owner |
 | `include/bybit_md/BybitSync.hpp`, `src/BybitSync.cpp` | The sync class (no network) |
 | `include/bybit_md/act/BybitFeed.hpp`, `src/BybitFeed.cpp` | The actor |
-| `include/bybit_md/BybitNet.hpp` | WebSocket, REST GET, raw-frame recorder |
+| `include/bybit_md/BybitNet.hpp` | WebSocket (the application ping goes out from a timer while a read waits, `read_with_ping`, shared with `order_entry/bybit`'s private stream), REST GET over `crypto_common::https_request` (`../crypto_common`), raw-frame recorder |
 | `tools/bybit_record.cpp` | Records raw frames and REST books |
 | `tools/bybit_verify.cpp` | Live check (ladder step 2) |
 | `tools/bybit_replay.cpp` | Archive replay |

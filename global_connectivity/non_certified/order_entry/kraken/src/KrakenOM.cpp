@@ -9,20 +9,17 @@
 
 #include <algorithm>
 #include <cmath>
-#include <condition_variable>
 #include <cstring>
 #include <iostream>
-#include <mutex>
 
 #include "frame/ref/Price.hpp"
 #include "frame/ref/RefData.hpp"
 #include "frame/som/msg/Ack.hpp"
 #include "frame/som/msg/CancAck.hpp"
-#include "frame/som/msg/CancReject.hpp"
 #include "frame/som/msg/Fill.hpp"
-#include "frame/som/msg/Reject.hpp"
 #include "frame/som/msg/SetExchManager.hpp"
 #include "kraken_md/KrakenJson.hpp"
+#include "kraken_oe/if/KrakenOM.hpp"
 #include "logger/act/Logger.hpp"
 
 namespace kraken::oe
@@ -164,17 +161,6 @@ namespace kraken::oe
       return som::Reject::UNKNOWN;
     }
 
-    int cancel_reject_reason(State s)
-    {
-      switch (s)
-      {
-      case State::Filled: return som::CancReject::FILLEDALREADY;
-      case State::Canceled: return som::CancReject::CANCELLEDALREADY;
-      case State::Rejected: return som::CancReject::REJECTEDPREVIOUSLY;
-      default: return som::CancReject::NOTFOUND;
-      }
-    }
-
     uint64_t epoch_ns_now()
     {
       using namespace std::chrono;
@@ -198,7 +184,7 @@ namespace kraken::oe
   KrakenOM::~KrakenOM()
   {
     stopping_ = true;
-    reconnect_timer_ = {};
+    reconnect_.cancel();
     drop_session();
   }
 
@@ -241,20 +227,22 @@ namespace kraken::oe
     busy_ = false;
     session_.reset(); // joins the session's thread: no events after this
     events_.reset();
+    // Requests in flight on the dropped connection get no answer: a cancel is
+    // refused now, a new order's outcome comes from recover_live().
+    std::vector<ClientId> cids;
+    for (const auto &[cl, v] : by_clid_)
+      cids.push_back(v.cid);
+    auto unconfirmed = oe_common::abandon_in_flight(book_, cids, this);
+    if (!unconfirmed.empty())
+      log_wrn("%zu new orders in flight at Kraken: outcome known after recovery", unconfirmed.size());
   }
 
   void KrakenOM::schedule_reconnect() noexcept
   {
     if (stopping_ || login_failed_)
       return;
-    auto expected = session_no_;
-    auto ms = cfg_.reconnect_ms;
-    reconnect_timer_ = std::jthread([this, expected, ms](std::stop_token st) {
-      std::mutex m;
-      std::condition_variable_any cv;
-      std::unique_lock<std::mutex> l(m);
-      if (!cv.wait_for(l, st, std::chrono::milliseconds(ms), [] { return false; }) && !st.stop_requested())
-        send(new KrakenEvent(KrakenEvent::RECONNECT, expected), nullptr);
+    reconnect_.arm(cfg_.reconnect_ms, [this, expected = session_no_] {
+      send(new KrakenEvent(KrakenEvent::RECONNECT, expected), nullptr);
     });
   }
 
@@ -273,7 +261,7 @@ namespace kraken::oe
   void KrakenOM::shutdown_handler(const actors::msg::Shutdown *) noexcept
   {
     stopping_ = true;
-    reconnect_timer_ = {};
+    reconnect_.cancel();
     if (session_ && ready_)
       session_->logout();
     drop_session();
@@ -282,37 +270,6 @@ namespace kraken::oe
   }
 
   // ---- requests from the SOM -----------------------------------------------------------------
-
-  void KrakenOM::reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
-  {
-    log_err("rejecting order oid=%d: %s", oid, why);
-    if (to)
-      to->send(new som::Reject(uint(oid), reason), this);
-  }
-
-  void KrakenOM::cancel_reject(actors::Actor *to, int oid, int reason, const char *why) noexcept
-  {
-    log_err("rejecting cancel of oid=%d: %s", oid, why);
-    if (to)
-      to->send(new som::CancReject(uint(oid), reason), this);
-  }
-
-  bool KrakenOM::take_token() noexcept
-  {
-    if (cfg_.max_orders_per_sec <= 0)
-      return true;
-    auto now = std::chrono::steady_clock::now();
-    double rate = cfg_.max_orders_per_sec;
-    if (refilled_ == std::chrono::steady_clock::time_point{})
-      tokens_ = rate;
-    else
-      tokens_ = std::min(rate, tokens_ + rate * std::chrono::duration<double>(now - refilled_).count());
-    refilled_ = now;
-    if (tokens_ < 1)
-      return false;
-    tokens_ -= 1;
-    return true;
-  }
 
   void KrakenOM::order_handler(const som::Order *m) noexcept
   {
@@ -365,7 +322,7 @@ namespace kraken::oe
       if (px * m->sz * cfg_.qty_unit > cfg_.max_order_notional)
         return reject(m->sender, m->oid, som::Reject::OVERLIMIT, "over the order notional limit");
     }
-    if (!take_token())
+    if (!tokens_.take(cfg_.max_orders_per_sec))
       return reject(m->sender, m->oid, som::Reject::THROTTLE, "over max_orders_per_sec");
 
     auto r = book_.add(*m, m->sender);
@@ -419,7 +376,7 @@ namespace kraken::oe
       log_inf("cancel of oid=%d ignored: a cancel is already pending", oid);
       return;
     case Outcome::Late:
-      return cancel_reject(m->sender, oid, cancel_reject_reason(r.entry->state), "order already done");
+      return cancel_reject(m->sender, oid, oe_common::late_cancel_reason(r.entry->state), "order already done");
     default: return cancel_reject(m->sender, oid, som::CancReject::NOTFOUND, "no such order");
     }
     auto &e = *r.entry;
@@ -456,6 +413,7 @@ namespace kraken::oe
     case KrakenEvent::LOGGED_IN:
       ready_ = true;
       log_omg("Kraken session %lu logged on (%zu orders live)", session_no_, book_.live());
+      recover_live();
       return;
     case KrakenEvent::LOGIN_FAILED:
       log_err("Kraken logon failed: %s. Kraken is unrouted until restart.", m->text);
@@ -484,6 +442,20 @@ namespace kraken::oe
       return;
     case KrakenEvent::REPORT: on_report(m->report); return;
     default: return;
+    }
+  }
+
+  // Orders the book still has live may have ended while the connection was
+  // down, and one whose request was in flight may never have arrived.
+  void KrakenOM::recover_live() noexcept
+  {
+    for (auto &[cl, v] : by_clid_)
+    {
+      auto e = book_.find_cid(v.cid);
+      if (!e || frame::som::is_done(e->state))
+        continue;
+      if (session_->recover(v.order_id, cl) != CallStatus::Success)
+        log_err("Kraken recovery of %s not sent", cl);
     }
   }
 
@@ -633,6 +605,12 @@ namespace kraken::oe
     }
     case Report::Restated:
       log_wrn("Kraken changed %s outside the OM (%s %s)", v.cl_ord_id, r.status, r.reason);
+      return;
+    case Report::Unknown:
+      if (oe_common::reject_unknown(book_, v.cid, this))
+        log_rej("Kraken does not know %s: the order never reached it (%s)", v.cl_ord_id, r.reason);
+      else
+        log_inf("Kraken does not know %s (%s): nothing to do", v.cl_ord_id, r.reason);
       return;
     case Report::Other: return;
     }

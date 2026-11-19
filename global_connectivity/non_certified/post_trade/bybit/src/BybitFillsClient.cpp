@@ -7,6 +7,8 @@
 
 #include "bybit_post_trade/act/BybitFillsClient.hpp"
 
+#include "bybit_post_trade/if/BybitFillsClient.hpp"
+
 #include <chrono>
 #include <condition_variable>
 #include <iostream>

@@ -19,7 +19,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <functional>
 #include <cstdint>
 #include <set>
 #include <stdexcept>
@@ -28,9 +27,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "bybit_md/BybitNet.hpp"
 #include "bybit_oe/BybitAuth.hpp"
-#include <boost/asio/steady_timer.hpp>
-
 #include "sim/WsNet.hpp"
 
 namespace bybit::priv
@@ -68,51 +66,7 @@ namespace bybit::priv
     bool ok() const { return http == 200 && ret_code == 0; }
   };
 
-  // One frame from ws. The private stream can be silent for hours, and Bybit
-  // cuts a connection with no application ping for 10 minutes
-  // (v5/ws/connect), so {"op":"ping"} is written from a timer while the read
-  // waits, every `every` after last_ping, not only between frames.
-  inline std::string read_with_ping(net::io_context &io, WsStream &ws, beast::flat_buffer &buf,
-                                    std::chrono::steady_clock::time_point &last_ping,
-                                    std::chrono::steady_clock::duration every)
-  {
-    static const std::string kPing = R"({"op":"ping"})";
-    buf.clear();
-    beast::error_code ec;
-    bool done = false, timer_pending = false, writing = false;
-    net::steady_timer timer(io);
-    std::function<void()> arm = [&] {
-      timer.expires_at(last_ping + every);
-      timer_pending = true;
-      timer.async_wait([&](beast::error_code e) {
-        timer_pending = false;
-        if (e || done)
-          return;
-        if (!writing)
-        {
-          writing = true;
-          last_ping = std::chrono::steady_clock::now();
-          ws.text(true);
-          ws.async_write(net::buffer(kPing), [&](beast::error_code, size_t) { writing = false; });
-        }
-        arm();
-      });
-    };
-    ws.async_read(buf, [&](beast::error_code e, size_t) {
-      ec = e;
-      done = true;
-    });
-    arm();
-    io.restart();
-    while (!done && io.run_one())
-      ;
-    timer.cancel();
-    while ((timer_pending || writing) && io.run_one())
-      ;
-    if (ec)
-      throw beast::system_error(ec);
-    return beast::buffers_to_string(buf.data());
-  }
+  using bnet::read_with_ping;
 
   class RestClient
   {

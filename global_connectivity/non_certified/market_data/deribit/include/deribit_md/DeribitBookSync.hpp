@@ -25,9 +25,12 @@
 //
 // The chain is per subscription. A prev_change_id that does not match is a
 // gap: on_message returns false and the caller resubscribes, which brings a
-// new full snapshot. The class keeps the venue's full book itself (for the
-// checks and the REST comparison); LevelWindow passes only the best `depth`
-// levels to Mbp2Mbo.
+// new full snapshot. Whenever a synchronised book is invalidated (that gap,
+// or reset() after a lost connection) on_gap is called once: the owner sends
+// l3_gap_v2_t to the OB, whose book is stale until the next snapshot reaches
+// it. The class keeps the venue's full book itself (for the checks and the
+// REST comparison); LevelWindow passes only the best `depth` levels to
+// Mbp2Mbo.
 //
 // Quantities: for perpetuals and futures `amount` is USD; Mbp2Mbo divides it
 // into chunks of Config::chunk USD.
@@ -62,11 +65,15 @@ namespace deribit
     // two (seen in a recording of two subscriptions; feed.md 10).
     void on_resync(std::function<void(uint64_t tx_ns)> f) { on_resync_ = std::move(f); }
 
+    // Called once each time a synchronised book is invalidated.
+    void on_gap(std::function<void()> f) { on_gap_ = std::move(f); }
+
     // One WebSocket message (any: responses and other channels are ignored).
     // false: a change_id gap; resubscribe.
     bool on_message(const nlohmann::json &msg);
 
-    // A new subscription: wait for its snapshot.
+    // A new subscription: wait for its snapshot (on_gap if the book was
+    // synced).
     void reset();
 
     // The venue's book, price in ticks -> amount.
@@ -133,7 +140,9 @@ namespace deribit
     size_t hist_levels_ = 0, hist_keep_ = 0;
     std::deque<Top> hist_;
     std::function<void(uint64_t)> on_resync_;
+    std::function<void()> on_gap_;
 
+    void invalidate();
     void on_book(const nlohmann::json &data);
     void on_trades(const nlohmann::json &data);
     void apply_side(bool bid, const nlohmann::json &levels, bool snapshot);

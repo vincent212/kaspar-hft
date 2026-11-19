@@ -42,9 +42,18 @@ int64_t DeribitBookSync::ticks(double px) const
 
 void DeribitBookSync::reset()
 {
-  synced_ = false;
+  invalidate();
   last_change_id_ = -1;
   hist_.clear();
+}
+
+void DeribitBookSync::invalidate()
+{
+  if (!synced_)
+    return;
+  synced_ = false;
+  if (on_gap_)
+    on_gap_();
 }
 
 bool DeribitBookSync::on_message(const nlohmann::json &msg)

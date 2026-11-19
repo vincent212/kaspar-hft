@@ -18,21 +18,26 @@
 //   4. executions `sequence` checked for gaps; a gap ends the session, and the
 //      next one starts with a fresh snapshot
 //   5. optional cancel_all_orders_after, renewed every timeout/3
+//   6. recover(cl_ord_id): once the executions snapshot has been read, a
+//      client id that neither it nor any later report named is Unknown
+//      (the add_order never reached Kraken)
 //
 // One thread owns the WebSocket; the actor thread only queues requests.
 
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <exception>
 #include <map>
 #include <mutex>
+#include <set>
 #include <thread>
 
+#include "crypto_common/PollingWs.hpp"
 #include "kraken_md/KrakenJson.hpp"
 #include "kraken_oe/KrakenAuth.hpp"
 #include "kraken_oe/KrakenSessions.hpp"
 #include "kraken_oe/KrakenSpotCodec.hpp"
-#include "kraken_oe/WsConn.hpp"
 
 namespace kraken::oe
 {
@@ -75,6 +80,15 @@ namespace kraken::oe
         const uint64_t id = ++req_;
         req_cl_[id] = cl_ord_id;
         return enqueue_locked(spot::cancel_order(order_id, cl_ord_id, token_, id));
+      }
+
+      CallStatus recover(const std::string &, const std::string &cl_ord_id) override
+      {
+        if (!ready_)
+          return CallStatus::Disconnected;
+        std::lock_guard<std::mutex> l(mu_);
+        recover_.push_back(cl_ord_id);
+        return CallStatus::Success;
       }
 
       void logout() override { stop_ = true; }
@@ -131,8 +145,8 @@ namespace kraken::oe
         {
           if (!get_token(err))
             return ev_.login_failed(err);
-          WsConn ws;
-          ws.connect(s_.ep.ws_host, "/v2");
+          crypto_common::PollingWs ws(s_.ep.ws_host, "443", "/v2");
+          ws.connect();
           std::string tok;
           {
             std::lock_guard<std::mutex> l(mu_);
@@ -147,6 +161,9 @@ namespace kraken::oe
           auto last_rx = std::chrono::steady_clock::now();
           auto next_dms = last_rx;
           bool pinged = false;
+          bool snapshot_done = false;
+          std::set<std::string> seen; // client ids any report of this session named
+          std::deque<std::string> recover;
           while (!stop_)
           {
             std::deque<std::string> out;
@@ -156,11 +173,42 @@ namespace kraken::oe
               out.swap(out_);
               was_busy = busy_;
               busy_ = false;
+              for (auto &c : recover_)
+                recover.push_back(std::move(c));
+              recover_.clear();
             }
+            // Every queued request is attempted, even after one fails; the
+            // first failure ends the session once the batch is done.
+            std::exception_ptr first;
             for (const auto &t : out)
-              ws.send(t);
+            {
+              try
+              {
+                ws.send(t);
+              }
+              catch (...)
+              {
+                if (!first)
+                  first = std::current_exception();
+              }
+            }
+            if (first)
+              std::rethrow_exception(first);
             if (was_busy)
               ev_.available();
+            if (snapshot_done)
+              while (!recover.empty())
+              {
+                const std::string cl = std::move(recover.front());
+                recover.pop_front();
+                if (seen.count(cl))
+                  continue;
+                Report r;
+                r.kind = Report::Unknown;
+                r.cl_ord_id = cl;
+                r.reason = "not in the executions snapshot";
+                ev_.report(r);
+              }
             const auto now = std::chrono::steady_clock::now();
             if (ready_ && s_.cancel_after_s > 0 && now >= next_dms)
             {
@@ -199,8 +247,14 @@ namespace kraken::oe
               }
               last_seq_ = *p.sequence;
             }
+            if (p.snapshot)
+              snapshot_done = true;
             for (const auto &r : p.reports)
+            {
+              if (!r.cl_ord_id.empty())
+                seen.insert(r.cl_ord_id);
               ev_.report(r);
+            }
           }
           ready_ = false;
           ws.close();
@@ -220,6 +274,7 @@ namespace kraken::oe
       std::mutex mu_;
       std::string token_;                      // under mu_
       std::deque<std::string> out_;            // under mu_
+      std::deque<std::string> recover_;        // under mu_: client ids to recover
       std::map<uint64_t, std::string> req_cl_; // under mu_
       uint64_t req_ = 0;                       // under mu_
       bool busy_ = false;                      // under mu_
