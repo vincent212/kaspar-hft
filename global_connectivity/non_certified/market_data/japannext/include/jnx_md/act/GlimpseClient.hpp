@@ -10,9 +10,12 @@
 // own thread (a blocking TCP session). Logs in with a blank Requested Session
 // (GLIMPSE requires it) and sequence 0, forwards every byte read to the feed
 // as GlimpseData, sends a Client Heartbeat after a second without sending
-// (SoupBinTCP 4.3), and logs out after End of Snapshot (GLIMPSE 5.8). A refused
-// login, a closed socket or 15 s of silence is reported as GlimpseFailed.
-// Not run against the venue.
+// (SoupBinTCP 4.3), and logs out after End of Snapshot (GLIMPSE 5.8). A
+// transport failure (no connection, a closed socket, 15 s of silence) is
+// reported as GlimpseFailed. A Login Rejected or an End of Session before End
+// of Snapshot ends the session quietly: the feed sees those packets in the
+// bytes it decodes and counts the failure there, once. Not run against the
+// venue.
 
 #include <cstdint>
 #include <string>

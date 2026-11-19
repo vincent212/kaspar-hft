@@ -23,6 +23,25 @@ namespace jnx_md::act
   namespace Soup = jnx::soup;
   namespace G = jnx::glimpse::from_jnx;
 
+  namespace
+  {
+    // A peer that closed must not kill the process on the next send.
+#ifdef MSG_NOSIGNAL
+    constexpr int kSendFlags = MSG_NOSIGNAL;
+#else
+    constexpr int kSendFlags = 0;
+#endif
+    void no_sigpipe(int fd)
+    {
+#ifdef SO_NOSIGPIPE
+      const int one = 1;
+      ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
+#else
+      (void)fd;
+#endif
+    }
+  }
+
   GlimpseClient::GlimpseClient(const GlimpseConfig &cfg, actors::Actor *feed)
       : cfg_(cfg), name_(cfg.name + "Glimpse"), feed_(feed)
   {
@@ -45,6 +64,7 @@ namespace jnx_md::act
     const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0)
       return "socket failed";
+    no_sigpipe(fd);
     struct Closer
     {
       int fd;
@@ -60,7 +80,7 @@ namespace jnx_md::act
       return "connect to " + cfg_.host + " failed";
 
     auto put = [&](const char *b, size_t n) {
-      return n && ::send(fd, b, n, 0) == ssize_t(n);
+      return n && ::send(fd, b, n, kSendFlags) == ssize_t(n);
     };
     char out[64];
     {
@@ -87,8 +107,11 @@ namespace jnx_md::act
           return "GLIMPSE closed the connection before End of Snapshot";
         last_read = now;
         feed_->send(new msg::GlimpseData(std::string(in, size_t(n))), this);
-        // Follow the framing only to see End of Snapshot, Login Rejected and
-        // End of Session; the feed decodes the messages.
+        // Follow the framing only to know when the session is over: End of
+        // Snapshot, Login Rejected or End of Session. The feed decodes the
+        // same bytes, and it is the feed that treats a Login Rejected or an
+        // End of Session before End of Snapshot as the failure (once: the
+        // client does not report it as well).
         buf.append(in, size_t(n));
         size_t off = 0;
         for (;;)
@@ -97,10 +120,9 @@ namespace jnx_md::act
           if (d.st == jnx::status::incomplete || d.size == 0)
             break;
           off += d.size;
-          if (std::holds_alternative<Soup::from_jnx::LoginRejectedPacket>(d.msg))
-            return "GLIMPSE login rejected";
-          if (std::holds_alternative<Soup::from_jnx::EndOfSessionPacket>(d.msg))
-            return "GLIMPSE ended the session before End of Snapshot";
+          if (std::holds_alternative<Soup::from_jnx::LoginRejectedPacket>(d.msg) ||
+              std::holds_alternative<Soup::from_jnx::EndOfSessionPacket>(d.msg))
+            return {};
           if (std::holds_alternative<Soup::from_jnx::SequencedDataPacket>(d.msg) && d.tail_len &&
               d.tail[0] == G::EndOfSnapshotMessage::type)
           {

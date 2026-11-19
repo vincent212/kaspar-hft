@@ -72,7 +72,7 @@ Makefile header for the library paths. Generated headers go to `build/gen`.
 | `include/nasdaq_md/NasdaqFeed.hpp` | sequencer + dispatcher + GLIMPSE, transport-independent |
 | `include/nasdaq_md/Instruments.hpp`, `src/Instruments.cpp` | locate -> symbol -> Kaspar asset (`ref::RefData::add_future_asset`), tick |
 | `include/nasdaq_md/OwnBook.hpp` | the handler's order book |
-| `include/nasdaq_md/Transport.hpp`, `src/Transport.cpp` | sample-file reader, MoldUDP64 packetizer, pcap reader/writer, UDP re-request client, GLIMPSE TCP client |
+| `include/nasdaq_md/Transport.hpp`, `src/Transport.cpp` | sample-file reader, MoldUDP64 packetizer, pcap reader (on `../pcap_file.hpp`, the parser the handlers under `market_data/` share) and writer, UDP re-request client, GLIMPSE TCP client |
 | `include/nasdaq_md/act/NasdaqMD.hpp`, `src/NasdaqMD.cpp` | the actor; `config_from_ini` |
 | `include/nasdaq_md/if/NasdaqMD.hpp`, `src/Factory.cpp` | `create_NasdaqMD`, `create_NasdaqMD_reader` (mcast_recv `SocketReader<uint64_t,10>`) |
 | `config/nasdaq_md.ini` | example section |
@@ -105,6 +105,16 @@ the NASDAQ `en::x` codes existed rejects them (`data_pay_load::is_valid`).
   GLIMPSE spin (`snapshot_on_late_join`), as for a late join.
 - **Gaps.** GAP record when a hole is detected; re-request (up to `max_tries`); then
   GLIMPSE; without GLIMPSE the hole is skipped and counted as lost.
+- **A spin that fails** (the session ends before End of Snapshot, a rejected login, no
+  connection) is given up: the feed goes on live from the first packet it held, the
+  stretch before it counted as lost, and the actor asks for another spin after
+  `glimpse_retry_ms`, doubling on each failure up to `glimpse_retry_max_ms`. Each spin
+  is tagged with the MoldUDP64 session it was started for; a session change cancels
+  the spin in flight and whatever it still delivers is dropped.
+- **Buffer bound.** While a hole is open or a spin runs, at most `max_buffered` packets
+  are held; beyond that the oldest are dropped and counted as lost, and the spin's N
+  re-requests the stretch between it and the first packet still held (a hole larger
+  than `max_hole` goes to another spin).
 
 ### What was checked (2026-11-18)
 
@@ -113,9 +123,11 @@ bytes after decompression: 84,571,531 messages, 03:01:32 to 09:35:39 ET, includi
 the opening cross. Packets are synthetic (8 messages per MoldUDP64 packet unless
 stated); the sample has no MoldUDP64 framing.
 
-- **Unit tests** (`make test`): 48 tests, all pass (dispatcher per message type,
+- **Unit tests** (`make test`): 59 tests, all pass (dispatcher per message type,
   status table, sequencer, re-request over UDP to a fake server on 127.0.0.1, pcap
-  path, GLIMPSE alignment, the actor, config), plus the decode test.
+  path, GLIMPSE alignment, a failed and a cancelled spin, the GLIMPSE TCP client
+  against a fake server on 127.0.0.1, the actor and its retry backoff, config), plus
+  the decode test.
 - **Whole stream, handler's own book** (`--own-only`, all 12,809 securities):
   every E, C, X, D and U refers to a known order (0 unknown); no execution larger
   than the order; timestamps never decrease; no sequence gaps. 3 own-book checks

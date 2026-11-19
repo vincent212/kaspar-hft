@@ -36,6 +36,7 @@ public:
   {
     namespace soup = nasdaq::soup::from_nasdaq;
     buf_.append(p, n);
+    const uint64_t gen = gen_;   // a callback may reset() the stream: then stop
     size_t pos = 0;
     for (;;)
     {
@@ -83,9 +84,19 @@ public:
             }
           },
           d.msg);
+      if (gen != gen_)
+        return;
       pos += d.size;
     }
     buf_.erase(0, pos);
+  }
+
+  // Forgets what is buffered and whatever follows in the current feed(): the
+  // next bytes start a new stream.
+  void reset()
+  {
+    buf_.clear();
+    ++gen_;
   }
 
   uint64_t packets() const { return packets_; }
@@ -94,7 +105,7 @@ public:
 private:
   Events ev_;
   std::string buf_;
-  uint64_t packets_ = 0, errors_ = 0;
+  uint64_t packets_ = 0, errors_ = 0, gen_ = 0;
 };
 
 // The Login Request a GLIMPSE client sends: GLIMPSE requires sequence 1

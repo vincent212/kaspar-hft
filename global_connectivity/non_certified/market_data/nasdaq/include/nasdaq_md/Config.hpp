@@ -30,6 +30,9 @@ struct FeedConfig
   // GLIMPSE
   std::string glimpse_host, glimpse_user, glimpse_password;
   uint16_t glimpse_port = 0;
+  // After a failed spin the next is tried after glimpse_retry_ms, doubling on
+  // each failure up to glimpse_retry_max_ms; a spin that completes resets it.
+  uint64_t glimpse_retry_ms = 1000, glimpse_retry_max_ms = 30000;
   bool fast_send = true;                // fast_send to the books (handler_if's UseFastSend)
 };
 

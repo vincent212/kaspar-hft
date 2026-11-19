@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <cstring>
 #include <ctime>
+#include <stdexcept>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
@@ -11,6 +12,25 @@
 
 namespace nasdaq_md
 {
+namespace
+{
+// A peer that closed must not kill the process on the next send.
+#ifdef MSG_NOSIGNAL
+constexpr int kSendFlags = MSG_NOSIGNAL;
+#else
+constexpr int kSendFlags = 0;
+#endif
+void no_sigpipe(int fd)
+{
+#ifdef SO_NOSIGPIPE
+  const int one = 1;
+  setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+#else
+  (void)fd;
+#endif
+}
+} // namespace
+
 // ---- SampleReader -----------------------------------------------------------
 bool SampleReader::next(const char *&p, size_t &len)
 {
@@ -89,88 +109,28 @@ std::string MoldPacketizer::header_only(const std::string &session, uint64_t seq
 }
 
 // ---- pcap -------------------------------------------------------------------
-namespace
-{
-uint32_t sw32(uint32_t v, bool s) { return s ? __builtin_bswap32(v) : v; }
-} // namespace
-
 PcapReader::PcapReader(const std::string &path)
 {
-  f_ = fopen(path.c_str(), "rb");
-  if (!f_)
-    return;
-  uint32_t gh[6];
-  if (fread(gh, 4, 6, f_) != 6)
+  try
   {
-    fclose(f_);
-    f_ = nullptr;
-    return;
+    pcap_ = std::make_unique<market_data::Pcap>(path);
+    udp_ = pcap_->udp();
   }
-  switch (gh[0])
+  catch (const std::runtime_error &)
   {
-  case 0xa1b2c3d4: break;
-  case 0xd4c3b2a1: swap_ = true; break;
-  case 0xa1b23c4d: nsec_ = true; break;
-  case 0x4d3cb2a1: swap_ = nsec_ = true; break;
-  default:
-    fclose(f_);
-    f_ = nullptr;
-    return;
+    pcap_.reset();
   }
-  linktype_ = sw32(gh[5], swap_);
-}
-
-PcapReader::~PcapReader()
-{
-  if (f_)
-    fclose(f_);
 }
 
 bool PcapReader::next(std::string &payload, uint16_t &dst_port, uint64_t &ts_ns)
 {
-  std::vector<uint8_t> rec;
-  for (;;)
-  {
-    uint32_t rh[4];
-    if (!f_ || fread(rh, 4, 4, f_) != 4)
-      return false;
-    const uint32_t incl = sw32(rh[2], swap_);
-    rec.resize(incl);
-    if (fread(rec.data(), 1, incl, f_) != incl)
-      return false;
-    ts_ns = uint64_t(sw32(rh[0], swap_)) * 1000000000ull +
-            uint64_t(sw32(rh[1], swap_)) * (nsec_ ? 1 : 1000);
-    size_t off = 0;
-    if (linktype_ == 1)   // Ethernet, optional 802.1Q tags
-    {
-      if (incl < 14)
-        continue;
-      uint16_t et = uint16_t((rec[12] << 8) | rec[13]);
-      off = 14;
-      while (et == 0x8100 && incl >= off + 4)
-      {
-        et = uint16_t((rec[off + 2] << 8) | rec[off + 3]);
-        off += 4;
-      }
-      if (et != 0x0800)
-        continue;
-    }
-    else if (linktype_ != 101 && linktype_ != 228)   // raw IPv4
-      continue;
-    if (incl < off + 20 || (rec[off] >> 4) != 4 || rec[off + 9] != 17)
-      continue;
-    const size_t ihl = size_t(rec[off] & 15) * 4;
-    off += ihl;
-    if (incl < off + 8)
-      continue;
-    dst_port = uint16_t((rec[off + 2] << 8) | rec[off + 3]);
-    const size_t ulen = size_t((rec[off + 4] << 8) | rec[off + 5]);
-    off += 8;
-    if (ulen < 8 || off + ulen - 8 > incl)
-      continue;
-    payload.assign(reinterpret_cast<const char *>(rec.data() + off), ulen - 8);
-    return true;
-  }
+  if (!pcap_ || pos_ >= udp_.size())
+    return false;
+  const auto &p = udp_[pos_++];
+  payload.assign(p.payload.data(), p.payload.size());
+  dst_port = p.dport;
+  ts_ns = p.ts_ns;
+  return true;
 }
 
 PcapWriter::PcapWriter(const std::string &path)
@@ -285,12 +245,14 @@ bool GlimpseClient::run(const std::function<void(const char *, size_t)> &on_byte
   if (getaddrinfo(host_.c_str(), std::to_string(port_).c_str(), &hints, &res) != 0 || !res)
     return false;
   fd_ = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd_ >= 0)
+    no_sigpipe(fd_);
   const bool connected = fd_ >= 0 && connect(fd_, res->ai_addr, res->ai_addrlen) == 0;
   freeaddrinfo(res);
   if (!connected)
     return false;
   const std::string login = glimpse_login(user_, pass_);
-  if (::send(fd_, login.data(), login.size(), 0) != ssize_t(login.size()))
+  if (::send(fd_, login.data(), login.size(), kSendFlags) != ssize_t(login.size()))
     return false;
 
   bool done = false, failed = false;
@@ -299,7 +261,12 @@ bool GlimpseClient::run(const std::function<void(const char *, size_t)> &on_byte
         if (n && p[0] == 'G')
           done = true;   // End of Snapshot
       },
-      {}, [&](char) { failed = true; }, [&]() { done = true; }});
+      {}, [&](char) { failed = true; },
+      [&]() {
+        // End of Session before End of Snapshot: the spin is incomplete.
+        if (!done)
+          failed = true;
+      }});
   const time_t start = time(nullptr);
   time_t last_hb = start;
   char b[65536];
@@ -310,7 +277,7 @@ bool GlimpseClient::run(const std::function<void(const char *, size_t)> &on_byte
     if (time(nullptr) - last_hb >= 1)
     {
       const char hb[3] = {0, 1, 'R'};   // Client Heartbeat (Soup 2.3.3)
-      (void)::send(fd_, hb, 3, 0);
+      (void)::send(fd_, hb, 3, kSendFlags);
       last_hb = time(nullptr);
     }
     pollfd pfd{fd_, POLLIN, 0};
@@ -323,7 +290,7 @@ bool GlimpseClient::run(const std::function<void(const char *, size_t)> &on_byte
     on_bytes(b, size_t(n));
   }
   const char logout[3] = {0, 1, 'O'};   // Logout Request (Soup 2.3.4)
-  (void)::send(fd_, logout, 3, 0);
+  (void)::send(fd_, logout, 3, kSendFlags);
   close(fd_);
   fd_ = -1;
   return done && !failed;

@@ -11,7 +11,10 @@
 // already been applied, which is the A/B arbitration. Retransmission replies
 // arrive on the re-request socket, read by a thread of this actor and posted
 // back as ProcessQ. A GLIMPSE spin is read by a second thread and posted as
-// GlimpseBytes. A 10 ms timer drives re-request retries.
+// GlimpseBytes, tagged with the MoldUDP64 session it was started for; a spin
+// that fails is tried again after a backoff (glimpse_retry_ms, doubling to
+// glimpse_retry_max_ms). A 10 ms timer drives re-request retries and the
+// GLIMPSE retry.
 //
 // Books: a vector indexed by Kaspar asset id, as handler_if's
 // mbo_order_books; OBs for Nasdaq assets must be built with a ring ladder
@@ -38,8 +41,9 @@ namespace msg
 {
 struct GlimpseBytes : public actors::MessageT<GlimpseBytes>
 {
+  std::string session;   // the MoldUDP64 session the spin was started for
   std::string bytes;
-  bool failed = false;   // the session ended without End of Snapshot
+  bool failed = false;   // the session ended without End of Snapshot, or never opened
 };
 } // namespace msg
 
@@ -55,6 +59,12 @@ public:
   const char *get_name() const override { return name_; }
   NasdaqFeed &feed() { return *feed_; }
   Instruments &instruments() { return ins_; }
+  // The GLIMPSE retry: when the next spin is due (0: none pending) and the
+  // wait the next failure would schedule.
+  uint64_t glimpse_retry_at() const { return glimpse_retry_at_; }
+  uint64_t glimpse_backoff_ns() const { return glimpse_backoff_ns_; }
+  // Due retries and re-request timeouts, at now_ns (the timer calls this).
+  void on_timer(uint64_t now_ns);
 
 private:
   char name_[64];
@@ -67,6 +77,7 @@ private:
   std::unique_ptr<GlimpseClient> glimpse_;
   std::thread req_thread_, glimpse_thread_;
   std::atomic<bool> running_{false};
+  uint64_t glimpse_retry_at_ = 0, glimpse_backoff_ns_ = 0;
 
   void start_handler(const actors::msg::Start *) noexcept;
   void shutdown_handler(const actors::msg::Shutdown *) noexcept;
@@ -80,7 +91,9 @@ private:
   // Requester
   void request(const std::string &session, uint64_t seq, uint16_t count) override;
   // SnapshotSource
-  bool start() override;
+  bool start(const std::string &session) override;
+  void cancel() override;
+  void schedule_glimpse_retry(uint64_t now_ns);
 };
 } // namespace act
 } // namespace nasdaq_md

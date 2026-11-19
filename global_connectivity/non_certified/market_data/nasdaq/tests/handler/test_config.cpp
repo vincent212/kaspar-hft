@@ -21,7 +21,10 @@ TEST(Config, TheExampleIniParses)
   EXPECT_EQ(c.symbols, (std::set<std::string>{"AAPL", "MSFT"}));
   EXPECT_EQ(c.sequencer.retry_ns, 50000000u);
   EXPECT_TRUE(c.sequencer.snapshot_on_late_join);
+  EXPECT_EQ(c.sequencer.max_buffered, 100000u);
   EXPECT_TRUE(c.glimpse_host.empty());
+  EXPECT_EQ(c.glimpse_retry_ms, 1000u);
+  EXPECT_EQ(c.glimpse_retry_max_ms, 30000u);
 }
 
 TEST(Config, BadMarketAndDateAreRefused)

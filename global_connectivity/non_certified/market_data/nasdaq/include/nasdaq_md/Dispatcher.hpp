@@ -154,6 +154,8 @@ public:
     for (auto loc : ins_.routed())
       send(ins_.asset(loc), c);
     book_.clear();
+    for (auto loc : touched_)
+      touched_flag_[loc] = 0;   // the flags follow the list: a stale flag blocks touch()
     touched_.clear();
     ins_.clear_status();
     for (auto loc : ins_.routed())
@@ -671,8 +673,15 @@ private:
         uint64_t tx = 0;
         if (routed)
         {
+          // The delete ends the event when no add will follow it: a new price
+          // of 0 or off the asset's tick, or a new reference already on the
+          // book (add_order sends nothing in those cases).
+          const uint32_t npx = uint32_t(m.Price);
+          const bool add_follows =
+              npx != 0 && npx % ins_.at(before.locate).tick == 0 && !book_.find(nref);
           tx = stamp(ts, false);
-          send(ins_.asset(before.locate), mbo(2, before.locate, oref, before, tx, false, false));
+          send(ins_.asset(before.locate),
+               mbo(2, before.locate, oref, before, tx, !add_follows, false));
           touch(before.locate);
         }
         add_order(before.locate, nref, before.side, uint32_t(m.Shares), uint32_t(m.Price), ts, false,

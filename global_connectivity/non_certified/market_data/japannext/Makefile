@@ -29,17 +29,18 @@ JNX_DATA ?=
 GEN = build/include/jnx_md/gen
 HEADERS = $(GEN)/itch.hpp $(GEN)/moldudp64.hpp $(GEN)/glimpse.hpp
 
-LIBSRC = src/Instruments.cpp src/Dispatcher.cpp src/Handler.cpp src/Pcap.cpp src/Writer.cpp \
+LIBSRC = src/Instruments.cpp src/Dispatcher.cpp src/Handler.cpp src/Writer.cpp \
          src/JnxFeed.cpp src/GlimpseClient.cpp src/JnxFactory.cpp
 TESTS = tests/test_dispatcher.cpp tests/test_handler.cpp tests/test_glimpse.cpp \
-        tests/test_ob.cpp
+        tests/test_glimpse_client.cpp tests/test_ob.cpp
 TOOLS = tools/jnx_replay.cpp tools/BookCheck.cpp
 
 # DEFINES_OPT as the kaspar libraries are built, so that the OB and OrderQ
 # headers compile here as they did there.
 FLAGS = $(STANDARD) -O2 -g $(DEFINES_COMMON) $(DEFINES_OPT) -Wall -Wextra -Wno-unused-parameter \
         -Wno-deprecated-declarations -Wno-reorder -Wno-sign-compare \
-        -Iinclude -Ibuild/include -Itools $(INCL) -I$(GTEST_PATH)/include
+        -Iinclude -Ibuild/include -Itools -I.. $(INCL) -I$(KSPRPROJ)/unit_test/include \
+        -I$(GTEST_PATH)/include
 LIBS = -L$(KSPRLIB) -lframe -lmcast_recv -llogger -lmq0 -lchutil $(ACTORS_LIB) \
        -L$(BOOST_PATH)/lib -lboost_thread -lboost_filesystem -L$(ZMQ_PATH)/lib -lzmq \
        -L$(ZLIB_PATH)/lib -lz -lpthread
@@ -54,7 +55,7 @@ KASPAR_OBJ = $(patsubst %.cpp,build/obj/kaspar/%.o,$(KASPAR_SRC))
 
 LIBOBJ = $(patsubst %.cpp,build/obj/%.o,$(LIBSRC))
 TESTOBJ = $(patsubst %.cpp,build/obj/%.o,$(TESTS)) build/obj/tools/BookCheck.o
-DEPS = $(HEADERS) $(wildcard include/jnx_md/*.hpp include/jnx_md/*/*.hpp tools/*.hpp)
+DEPS = $(HEADERS) $(wildcard include/jnx_md/*.hpp include/jnx_md/*/*.hpp tools/*.hpp) ../pcap_file.hpp
 
 .PHONY: all headers check test replay clean
 all: build/libjnx_md.a build/run_jnx_tests build/jnx_replay build/jnx_decode_test

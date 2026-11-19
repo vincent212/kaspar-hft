@@ -1,3 +1,4 @@
+#pragma once
 /*
  * Copyright (c) 2026 Vincent Mayeski / M2 Tech (16425640 Canada Inc.).
  * Contact: mayeski@gmail.com | https://www.linkedin.com/in/vmayeski/
@@ -5,32 +6,71 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-#include "jnx_md/Pcap.hpp"
+// The pcap reader shared by the market-data handlers under market_data/<venue>/
+// (replay tools and tests): classic pcap (microsecond or nanosecond), Ethernet
+// or Linux cooked capture, VLAN tags, IPv4, UDP datagrams and one direction of
+// a TCP connection reassembled by sequence number. Reads the whole file.
+//
+// Header-only; each handler includes it as "pcap_file.hpp" with market_data/
+// on its include path. mcast_recv's PCAPReader actor (libpcap, a live-feed
+// stand-in that posts ProcessQ messages) is a separate reader for kaspr.
 
-#include <algorithm>
+#include <cstdint>
 #include <fstream>
 #include <iterator>
 #include <map>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
 
-namespace jnx_md
+namespace market_data
 {
-  namespace
+  struct PcapPacket
   {
-    uint16_t be16(const uint8_t *p) { return uint16_t(p[0] << 8 | p[1]); }
-    uint32_t be32(const uint8_t *p)
+    uint64_t ts_ns = 0;          // capture time, UTC epoch ns
+    uint8_t proto = 0;           // 17 UDP, 6 TCP
+    uint32_t src = 0, dst = 0;   // IPv4, host order
+    uint16_t sport = 0, dport = 0;
+    uint32_t tcp_seq = 0;
+    uint8_t tcp_flags = 0;
+    std::string_view payload;    // points into the file's buffer
+  };
+
+  class Pcap
+  {
+  public:
+    // Reads the whole file; throws std::runtime_error when it is not a pcap.
+    explicit Pcap(const std::string &path);
+    const std::vector<PcapPacket> &packets() const { return pkts_; }
+    // UDP datagrams, in capture order; port 0 = any destination port.
+    std::vector<PcapPacket> udp(uint16_t dport = 0) const;
+    // The bytes one side of a TCP connection sent, in sequence order, without
+    // retransmitted bytes: the side whose source port is sport.
+    std::string tcp_stream(uint16_t sport) const;
+
+  private:
+    std::string data_;
+    std::vector<PcapPacket> pkts_;
+  };
+
+  namespace pcap_detail
+  {
+    inline uint16_t be16(const uint8_t *p) { return uint16_t(p[0] << 8 | p[1]); }
+    inline uint32_t be32(const uint8_t *p)
     {
       return uint32_t(p[0]) << 24 | uint32_t(p[1]) << 16 | uint32_t(p[2]) << 8 | p[3];
     }
-    uint32_t rd32(const uint8_t *p, bool swap)
+    inline uint32_t rd32(const uint8_t *p, bool swap)
     {
       uint32_t v = uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
       return swap ? __builtin_bswap32(v) : v;
     }
   }
 
-  Pcap::Pcap(const std::string &path)
+  inline Pcap::Pcap(const std::string &path)
   {
+    using namespace pcap_detail;
     std::ifstream f(path, std::ios::binary);
     if (!f)
       throw std::runtime_error("cannot open " + path);
@@ -113,7 +153,7 @@ namespace jnx_md
     }
   }
 
-  std::vector<PcapPacket> Pcap::udp(uint16_t dport) const
+  inline std::vector<PcapPacket> Pcap::udp(uint16_t dport) const
   {
     std::vector<PcapPacket> out;
     for (const auto &p : pkts_)
@@ -122,7 +162,7 @@ namespace jnx_md
     return out;
   }
 
-  std::string Pcap::tcp_stream(uint16_t sport) const
+  inline std::string Pcap::tcp_stream(uint16_t sport) const
   {
     // Sequence numbers relative to the first segment seen (SYN or data).
     std::map<uint32_t, std::string_view> segs;

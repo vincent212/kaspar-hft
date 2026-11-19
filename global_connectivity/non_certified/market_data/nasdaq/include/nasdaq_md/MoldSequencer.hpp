@@ -15,9 +15,16 @@
 // A hole that re-requests do not fill within max_tries, a hole larger than
 // max_hole, or more than max_buffered packets held, asks the owner for a
 // GLIMPSE snapshot (need_snapshot); without one, the hole is skipped and
-// counted as lost. While a snapshot is pending every packet is buffered;
-// resume_from(N) then applies from N (decision 1) and re-requests anything
-// between N and the first buffered packet ("snapshot too old", section 5).
+// counted as lost. While a snapshot is pending every packet is buffered, up to
+// max_buffered: beyond that the oldest held packet is dropped and counted as
+// lost, so the wait is bounded; resume_from(N) then applies from N (decision 1)
+// and re-requests anything between N and the first buffered packet ("snapshot
+// too old", section 5), which is how a stream that outran the buffer is
+// resynchronised (a hole too large goes to another snapshot). A snapshot that
+// fails (abandon_snapshot) is treated as none: the hole is skipped and the
+// stream goes on live from the first held packet; the owner asks again later.
+// Each held packet keeps its own receive time, which its records carry when
+// it is applied.
 //
 // A packet of another session is a new session: a channel reset (the owner's
 // on_session), and the sequence starts again at that packet's number (review.md,
@@ -67,6 +74,8 @@ public:
     uint64_t gaps = 0, requests = 0, requested_messages = 0;
     uint64_t lost_messages = 0, snapshots = 0, snapshot_discarded = 0, sessions = 0;
     uint64_t applied_messages = 0, buffered_peak = 0;
+    uint64_t held_dropped = 0;    // packets dropped from a full buffer while awaiting a snapshot
+    uint64_t snapshots_abandoned = 0;
   };
 
   MoldSequencer(Owner &o, const Config &c) : own_(o), cfg_(c) {}
@@ -127,7 +136,8 @@ public:
       high_ = seq + count;
     if (snapshot_)
     {
-      hold(seq, p, len);
+      hold(seq, p, len, recv_ns);
+      bound_held();
       return;
     }
     if (seq + count <= next_)
@@ -138,12 +148,12 @@ public:
     }
     if (seq > next_)
     {
-      hold(seq, p, len);
+      hold(seq, p, len, recv_ns);
       open_hole(now_ns);
       return;
     }
     apply(p, len, recv_ns);
-    drain(recv_ns, now_ns);
+    drain(now_ns);
   }
 
   // Call periodically (e.g. every 10 ms).
@@ -170,7 +180,7 @@ public:
     {
       auto it = buf_.begin();
       Hdr h;
-      std::memcpy(&h, it->second.data(), sizeof h);
+      std::memcpy(&h, it->second.pkt.data(), sizeof h);
       const uint64_t end = uint64_t(h.SequenceNumber) + uint16_t(h.MessageCount);
       if (end > n)
         break;
@@ -178,7 +188,7 @@ public:
       buf_.erase(it);
     }
     in_hole_ = false;
-    drain(0, now_ns);
+    drain(now_ns);
   }
 
   // Buffer everything until resume_from (a snapshot requested by the owner).
@@ -188,7 +198,25 @@ public:
     in_hole_ = false;
     ++st_.snapshots;
   }
+  // The snapshot was not started after all (nothing held yet).
   void cancel_snapshot() { snapshot_ = false; }
+  // The snapshot failed: go on without it. Whatever is missing up to the
+  // first held packet is lost; the held packets are applied, and any hole
+  // after them is re-requested as usual.
+  void abandon_snapshot(uint64_t now_ns)
+  {
+    if (!snapshot_)
+      return;
+    snapshot_ = false;
+    in_hole_ = false;
+    ++st_.snapshots_abandoned;
+    if (!buf_.empty() && buf_.begin()->first > next_)
+    {
+      st_.lost_messages += buf_.begin()->first - next_;
+      next_ = buf_.begin()->first;
+    }
+    drain(now_ns);
+  }
 
   uint64_t next_expected() const { return next_; }
   bool in_hole() const { return in_hole_; }
@@ -202,20 +230,43 @@ private:
   Owner &own_;
   Config cfg_;
   Stats st_;
+  struct Held
+  {
+    std::string pkt;
+    uint64_t recv_ns = 0;
+  };
   std::string session_;
   uint64_t next_ = 0, high_ = 0;
-  std::map<uint64_t, std::string> buf_;   // by first sequence number
+  std::map<uint64_t, Held> buf_;   // by first sequence number
   bool in_hole_ = false, snapshot_ = false;
   uint64_t last_req_ns_ = 0;
   int tries_ = 0;
 
-  void hold(uint64_t seq, const char *p, size_t len)
+  void hold(uint64_t seq, const char *p, size_t len, uint64_t recv_ns)
   {
     auto it = buf_.find(seq);
-    if (it == buf_.end() || it->second.size() < len)
-      buf_[seq].assign(p, len);
+    if (it == buf_.end() || it->second.pkt.size() < len)
+    {
+      Held &h = buf_[seq];
+      h.pkt.assign(p, len);
+      h.recv_ns = recv_ns;
+    }
     if (buf_.size() > st_.buffered_peak)
       st_.buffered_peak = buf_.size();
+  }
+
+  // While a snapshot is awaited the buffer is bounded: the oldest held packets
+  // go first (the snapshot will cover them, or they are re-requested).
+  void bound_held()
+  {
+    while (buf_.size() > cfg_.max_buffered)
+    {
+      Hdr h;
+      std::memcpy(&h, buf_.begin()->second.pkt.data(), sizeof h);
+      st_.lost_messages += uint16_t(h.MessageCount);
+      ++st_.held_dropped;
+      buf_.erase(buf_.begin());
+    }
   }
 
   // The first sequence number not held: next_ unless a hole is open.
@@ -275,7 +326,7 @@ private:
     st_.lost_messages += to - next_;
     next_ = to;
     in_hole_ = false;
-    drain(0, now_ns);
+    drain(now_ns);
   }
 
   void apply(const char *p, size_t len, uint64_t recv_ns)
@@ -321,23 +372,25 @@ private:
       own_.on_packet_end();
   }
 
-  void drain(uint64_t recv_ns, uint64_t now_ns)
+  // Applies the held packets that are now in sequence, each with the receive
+  // time it arrived with.
+  void drain(uint64_t now_ns)
   {
     while (!buf_.empty())
     {
       auto it = buf_.begin();
       if (it->first > next_)
         break;
-      const std::string pkt = std::move(it->second);
+      const Held held = std::move(it->second);
       buf_.erase(it);
       Hdr h;
-      std::memcpy(&h, pkt.data(), sizeof h);
+      std::memcpy(&h, held.pkt.data(), sizeof h);
       if (uint64_t(h.SequenceNumber) + uint16_t(h.MessageCount) <= next_)
       {
         ++st_.dup_packets;
         continue;
       }
-      apply(pkt.data(), pkt.size(), recv_ns);
+      apply(held.pkt.data(), held.pkt.size(), held.recv_ns);
     }
     if (buf_.empty() && high_ <= next_)
       in_hole_ = false;

@@ -14,12 +14,17 @@ namespace
 struct Rec : MoldSequencer::Owner
 {
   std::vector<uint64_t> seqs;
+  std::vector<uint64_t> recv;   // recv_ns of each packet applied
   std::vector<std::pair<uint64_t, uint64_t>> gaps;
   std::vector<std::tuple<std::string, uint64_t, uint16_t>> reqs;
   int sessions = 0, packets = 0;
   bool snapshot_ok = false;
   int snapshot_calls = 0;
-  void on_packet_begin(uint64_t, uint64_t) override { ++packets; }
+  void on_packet_begin(uint64_t, uint64_t r) override
+  {
+    ++packets;
+    recv.push_back(r);
+  }
   void on_message(const char *, size_t, uint64_t s) override { seqs.push_back(s); }
   void on_packet_end() override {}
   void on_gap(uint64_t a, uint64_t b) override { gaps.emplace_back(a, b); }
@@ -62,7 +67,10 @@ struct SeqTest : ::testing::Test
     cfg.max_request = 4;
     s = std::make_unique<MoldSequencer>(own, cfg);
   }
-  void in(const std::string &p) { s->on_packet(p.data(), p.size(), 0, now += 10); }
+  void in(const std::string &p, uint64_t recv_ns = 0)
+  {
+    s->on_packet(p.data(), p.size(), recv_ns, now += 10);
+  }
 };
 
 TEST_F(SeqTest, InOrderPacketsAreAppliedAndNumbered)
@@ -196,6 +204,62 @@ TEST_F(SeqTest, TooManyHeldPacketsGiveUp)
     in(pkt(q, 1));
   EXPECT_GE(own.snapshot_calls, 1);
   EXPECT_GT(s->stats().lost_messages, 0u);
+}
+
+// A held packet is applied with the receive time it arrived with, not the
+// time of the packet that closed the hole.
+TEST_F(SeqTest, HeldPacketsKeepTheirReceiveTime)
+{
+  in(pkt(1, 2), 100);
+  in(pkt(6, 2), 600);   // held
+  in(pkt(8, 1), 800);   // held
+  in(pkt(3, 3), 300);   // closes the hole: 6-7 and 8 drain after it
+  EXPECT_EQ(own.seqs, range(1, 8));
+  EXPECT_EQ(own.recv, (std::vector<uint64_t>{100, 300, 600, 800}));
+}
+
+// While a snapshot is awaited, no more than max_buffered packets are held:
+// the oldest go, counted as lost, and the snapshot's N then re-requests the
+// stretch between N and the first packet still held.
+TEST_F(SeqTest, TheBufferIsBoundedWhileASnapshotIsAwaited)
+{
+  cfg.max_buffered = 3;
+  s = std::make_unique<MoldSequencer>(own, cfg);
+  own.snapshot_ok = true;
+  s->begin_snapshot();
+  for (uint64_t q = 10; q < 16; ++q)
+    in(pkt(q, 1));
+  EXPECT_EQ(s->buffered(), 3u);
+  EXPECT_EQ(s->stats().held_dropped, 3u);
+  EXPECT_EQ(s->stats().lost_messages, 3u);
+  EXPECT_TRUE(s->awaiting_snapshot());
+  s->resume_from(10, now);   // the snapshot covers up to 9; 10-12 were dropped
+  ASSERT_EQ(own.reqs.size(), 1u);
+  EXPECT_EQ(own.reqs[0], std::make_tuple(std::string("SESSION001"), uint64_t(10), uint16_t(3)));
+  in(pkt(10, 3));
+  EXPECT_EQ(own.seqs, range(10, 15));
+  EXPECT_FALSE(s->in_hole());
+}
+
+// A snapshot that fails is abandoned: the stream goes on from the first held
+// packet, the hole before it lost.
+TEST_F(SeqTest, AnAbandonedSnapshotGoesOnFromTheFirstHeldPacket)
+{
+  own.snapshot_ok = true;
+  in(pkt(1, 1));
+  in(pkt(5, 2));
+  for (int i = 0; i < 5; ++i)
+    s->on_timer(now += 200);
+  ASSERT_TRUE(s->awaiting_snapshot());
+  in(pkt(7, 2));
+  s->abandon_snapshot(now);
+  EXPECT_FALSE(s->awaiting_snapshot());
+  EXPECT_FALSE(s->in_hole());
+  EXPECT_EQ(own.seqs, (std::vector<uint64_t>{1, 5, 6, 7, 8}));
+  EXPECT_EQ(s->stats().lost_messages, 3u);
+  EXPECT_EQ(s->stats().snapshots_abandoned, 1u);
+  in(pkt(9, 1));
+  EXPECT_EQ(s->next_expected(), 10u);
 }
 
 TEST_F(SeqTest, ShortPacketsAreMalformed)

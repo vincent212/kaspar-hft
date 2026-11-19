@@ -28,6 +28,12 @@
 //  - End of Snapshot gives the next sequence number: buffered messages below it
 //    are dropped, the rest applied (GLIMPSE 5.8); a hole left between it and
 //    the buffer is re-requested, or another snapshot taken;
+//  - a GLIMPSE session that fails (Login Rejected, End of Session before End
+//    of Snapshot, or a transport failure the client reports) is asked for
+//    again after glimpse_retry_ns, doubling on each failure up to
+//    glimpse_retry_max_ns; a snapshot that completes resets the wait. A
+//    failure reported while a retry is already pending counts but schedules
+//    nothing more, so one failed session gives one retry;
 //  - a new session (a new trading day), or End of Session, resets the channel.
 //
 // Single-threaded: the owner calls every method from one thread.
@@ -70,6 +76,8 @@ namespace jnx_md
       Join join = Join::Snapshot;
       uint64_t rerequest_timeout_ns = 2000000000ull;   // then a snapshot
       uint32_t rerequest_max = 0xFFFE;                 // messages per request
+      uint64_t glimpse_retry_ns = 1000000000ull;       // after a failed GLIMPSE session
+      uint64_t glimpse_retry_max_ns = 30000000000ull;  // the wait doubles up to this
     };
 
     struct Hooks
@@ -89,7 +97,8 @@ namespace jnx_md
     void on_packet(const char *data, size_t len, uint64_t recv_ns);
     // Bytes from the GLIMPSE server (SoupBinTCP), in order, in any chunks.
     void on_glimpse_bytes(const char *data, size_t len);
-    // The GLIMPSE connection closed or failed before End of Snapshot.
+    // The GLIMPSE connection closed or failed before End of Snapshot: another
+    // is asked for from tick(), after the backoff.
     void glimpse_failed(const char *why);
     // Timeouts; call now and then with the current time.
     void tick(uint64_t now_ns);
@@ -105,6 +114,8 @@ namespace jnx_md
 
     Mode mode() const { return mode_; }
     uint64_t next_seq() const { return next_; }
+    // When the next GLIMPSE session will be asked for (0: none pending).
+    uint64_t glimpse_retry_at() const { return retry_at_; }
     const std::string &session() const { return session_; }
     size_t buffered() const { return buffer_.size(); }
     const Stats &stats() const { return st_; }
@@ -135,6 +146,7 @@ namespace jnx_md
 
     std::string soup_;                    // GLIMPSE bytes not yet decoded
     bool preloading_ = false;
+    uint64_t retry_at_ = 0, backoff_ns_ = 0;   // the GLIMPSE retry pending, and the next wait
 
     void join(uint64_t seq);
     void new_session(const std::string &s, uint64_t seq);

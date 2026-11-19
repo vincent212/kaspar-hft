@@ -34,7 +34,7 @@ TESTS = $(wildcard tests/handler/*.cpp)
 
 OPT ?= -O2
 FLAGS = $(STANDARD) $(OPT) $(DEFINES_OPT) -g -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations \
-        -Wno-reorder -Iinclude -I$(GEN) -Itests/handler $(INCL) -I$(KSPRPROJ)/unit_test/include \
+        -Wno-reorder -Iinclude -I$(GEN) -I.. -Itests/handler $(INCL) -I$(KSPRPROJ)/unit_test/include \
         -I$(GTEST_PATH)/include
 KLIBS = -L$(KSPRLIB) -lframe -llogger -lmq0 -lmcast_recv -lchutil $(ACTORS_LIB) \
         -L$(BOOST_PATH)/lib -lboost_thread -lboost_filesystem -L$(ZMQ_PATH)/lib -lzmq \
@@ -63,7 +63,7 @@ $(GEN)/%.hpp: %.tbl $(FIELDGEN)
 	$(PYTHON) $(FIELDGEN) $< --check
 	$(PYTHON) $(FIELDGEN) $< -o $@
 
-build/obj/%.o: %.cpp $(HEADERS) $(wildcard include/nasdaq_md/*.hpp include/nasdaq_md/*/*.hpp tests/handler/*.hpp)
+build/obj/%.o: %.cpp $(HEADERS) $(wildcard include/nasdaq_md/*.hpp include/nasdaq_md/*/*.hpp tests/handler/*.hpp) ../pcap_file.hpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(FLAGS) -c $< -o $@
 

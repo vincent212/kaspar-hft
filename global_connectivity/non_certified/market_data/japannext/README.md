@@ -39,10 +39,17 @@ Sample captures at the same address: `Japannext_PTS_ITCH_Equities_v1.7.UDP.pcap`
 | `include/jnx_md/act/JnxFeed.hpp`, `src/JnxFeed.cpp` | The actor: datagrams from `mcast_recv`'s `SocketReader<uint64_t, 10>` in, `frame::mda::msg::Data` to each instrument's book and to the recorder out; re-request socket |
 | `include/jnx_md/act/GlimpseClient.hpp`, `src/GlimpseClient.cpp` | The GLIMPSE SoupBinTCP session, on its own thread |
 | `include/jnx_md/if/JnxFeed.hpp`, `src/JnxFactory.cpp` | Factories and ini settings (`config/jnx_example.ini`) |
-| `include/jnx_md/Pcap.hpp`, `src/Pcap.cpp` | pcap reader: UDP datagrams, one side of a TCP stream |
+| `include/jnx_md/Pcap.hpp` | pcap reader: UDP datagrams, one side of a TCP stream (`../pcap_file.hpp`, the parser the handlers under `market_data/` share) |
 | `include/jnx_md/Writer.hpp`, `src/Writer.cpp` | MoldUDP64 packets, and a GLIMPSE snapshot written from a handler's state (tests and replay) |
 | `tools/jnx_replay.cpp`, `tools/BookCheck.*` | Replay into real OBs with invariant checks and injected faults |
 | `tests/` | `jnx_decode_test.cpp` (the decoders alone) and the Google Test suite |
+
+A GLIMPSE session that fails (Login Rejected, End of Session before End of Snapshot,
+or a transport failure the client reports) is asked for again after `glimpse_retry_s`,
+doubling on each failure up to `glimpse_retry_max_s`; a snapshot that completes
+starts the wait over. The Handler detects a rejected login or an early End of Session
+in the bytes it decodes; the client reports only transport failures, so one failed
+session gives one retry.
 
 ## Build and test
 
@@ -88,7 +95,7 @@ On the public samples (ITCH UDP capture 2023-10-19, 224,754 packets, sequence
 | Forced reset | reset mid-stream, recovered by snapshot at 135,106: book equal, OB 0 differences |
 | Late join | started 40% into the capture, joined by snapshot at 101,730: book equal, OB 0 differences |
 | End of Session | injected after the capture: every handler book and every OB empty |
-| Unit tests | 34 (32 without the sample data): each message type against its records, sequencing, recovery, OB levels, the actor's routing |
+| Unit tests | 38 (36 without the sample data): each message type against its records, sequencing, recovery and its retry backoff, OB levels, the actor's routing, the GLIMPSE client against a fake server on 127.0.0.1 |
 
 Not checked: anything live (no connection to Japannext, so the multicast
 receiver, the re-request socket and the GLIMPSE client have only been compiled);

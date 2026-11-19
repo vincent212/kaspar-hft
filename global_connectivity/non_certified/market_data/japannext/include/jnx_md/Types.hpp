@@ -40,6 +40,7 @@ namespace jnx_md
     uint64_t short_packets = 0, dup_packets = 0, messages = 0, old_messages = 0;
     uint64_t gaps = 0, gap_messages = 0, rerequests = 0, escalations = 0;
     uint64_t snapshots_started = 0, snapshots_done = 0, snapshot_messages = 0;
+    uint64_t glimpse_failures = 0, glimpse_retries = 0, glimpse_bytes_ignored = 0;
     uint64_t buffered_packets = 0, session_changes = 0, resets = 0;
     uint64_t packets_ignored_after_eos = 0;
     // decoding

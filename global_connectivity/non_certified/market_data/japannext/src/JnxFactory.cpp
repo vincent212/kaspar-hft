@@ -36,6 +36,8 @@ namespace jnx_md
     else
       throw std::runtime_error("jnx: join must be snapshot, one or first");
     h.rerequest_timeout_ns = uint64_t(s.get<double>("rerequest_timeout_s", 2.0) * 1e9);
+    h.glimpse_retry_ns = uint64_t(s.get<double>("glimpse_retry_s", 1.0) * 1e9);
+    h.glimpse_retry_max_ns = uint64_t(s.get<double>("glimpse_retry_max_s", 30.0) * 1e9);
     h.instruments.secid_base = s.get<int32_t>("secid_base", 81000000 + int32_t(stream) * 100000);
     h.instruments.name_prefix = s.get<std::string>("asset_prefix", "JNX:");
     c.rerequest_host = s.get<std::string>("rerequest_host", "");

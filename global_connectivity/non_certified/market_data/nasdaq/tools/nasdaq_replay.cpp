@@ -529,7 +529,7 @@ int main(int argc, char **argv)
         replies.push_back(MoldPacketizer::header_only(s, seq, n) + body);
       ++served;
     }
-    bool start() override
+    bool start(const std::string &) override
     {
       spin_wanted = true;
       ++spins;

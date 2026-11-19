@@ -195,6 +195,54 @@ TEST_F(DispatcherTest, ReplaceIsDeleteThenAddAtTheBack)
   EXPECT_EQ(n(), 1u);
 }
 
+// Replace to a price the asset's tick cannot hold, or to price 0: the new
+// order is not sent, so the delete is the whole event.
+TEST_F(DispatcherTest, ReplaceToAnUnsendablePriceEndsTheEventOnTheDelete)
+{
+  feed(Add(L, 42, 'S', 300, 1234500, 1000));
+  sink.clear();
+  feed(Replace(L, 42, 43, 200, 1234550, 2000));   // $123.4550 on a penny tick
+  ASSERT_EQ(n(), 1u);
+  const auto &del = rec<bfile::l3_mbo_v2_t>(0);
+  EXPECT_EQ(del.orderUpdateAction, 2);
+  EXPECT_EQ(del.orderID, 42u);
+  EXPECT_TRUE(del.endOfEvent);
+  EXPECT_EQ(d.stats().off_tick, 1u);
+  // 43 is on the book, unsent; a replace back onto the tick sends an add only
+  sink.clear();
+  feed(Replace(L, 43, 44, 200, 1234500, 2001));
+  ASSERT_EQ(n(), 1u);
+  EXPECT_EQ(rec<bfile::l3_mbo_v2_t>(0).orderUpdateAction, 0);
+  EXPECT_TRUE(rec<bfile::l3_mbo_v2_t>(0).endOfEvent);
+  sink.clear();
+  feed(Replace(L, 44, 45, 200, 0, 2002));
+  ASSERT_EQ(n(), 1u);
+  EXPECT_EQ(rec<bfile::l3_mbo_v2_t>(0).orderUpdateAction, 2);
+  EXPECT_TRUE(rec<bfile::l3_mbo_v2_t>(0).endOfEvent);
+  EXPECT_EQ(d.stats().price_zero, 1u);
+}
+
+// A reset in the middle of a packet forgets which books the packet touched;
+// the end-of-burst flags must follow, or those books never get another EOB.
+TEST_F(DispatcherTest, ResetClearsTheEndOfBurstFlags)
+{
+  auto eobs = [&] {
+    size_t k = 0;
+    for (auto &[a, r] : sink.book)
+      k += std::holds_alternative<bfile::l3_eob_t>(r);
+    return k;
+  };
+  d.begin_packet(1, 0);
+  feed(Add(L, 1, 'B', 100, 1234500, 1000));
+  d.reset(false);      // the reset's own status resend touches L again
+  d.end_packet();
+  EXPECT_EQ(eobs(), 1u);
+  d.begin_packet(2, 0);
+  feed(Add(L, 2, 'B', 100, 1234500, 1001));
+  d.end_packet();
+  EXPECT_EQ(eobs(), 2u);
+}
+
 TEST_F(DispatcherTest, NonCrossTradeIsAPrintOnly)
 {
   feed(TradeP(L, 75, 1234700, 2000));

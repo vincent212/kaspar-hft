@@ -344,23 +344,58 @@ TEST(Handler, NewSessionResets)
   EXPECT_TRUE(ref.h.dispatcher().orders().empty());
 }
 
-TEST(Handler, GlimpseFailureAsksAgain)
+// A failed GLIMPSE session is asked for again after glimpse_retry_ns, the wait
+// doubling on each failure up to glimpse_retry_max_ns; a snapshot that
+// completes starts the backoff over. A failure reported twice (the packet in
+// the bytes, then the client's report) gives one retry.
+TEST(Handler, GlimpseFailureIsRetriedWithABackoff)
 {
   RecSink sink;
   int snapshots = 0;
   Handler::Hooks hooks;
   hooks.request_snapshot = [&] { ++snapshots; };
-  Handler h(config(false, 0, Handler::Join::Snapshot), sink, hooks);
+  auto c = config(false, 0, Handler::Join::Snapshot);
+  c.glimpse_retry_ns = 1000;
+  c.glimpse_retry_max_ns = 2500;
+  Handler h(c, sink, hooks);
   auto p = session_packets();
   h.on_packet(p[2].data(), p[2].size(), kMidnight);
   EXPECT_EQ(snapshots, 1);
   const std::string rej = soup_packet('J', "A");
   h.on_glimpse_bytes(rej.data(), rej.size());
+  h.glimpse_failed("GLIMPSE closed the connection");   // the client's report of the same
+  EXPECT_EQ(snapshots, 1);
+  EXPECT_EQ(h.stats().glimpse_failures, 2u);
+  EXPECT_EQ(h.glimpse_retry_at(), kMidnight + 1000);
+  h.tick(kMidnight + 999);
+  EXPECT_EQ(snapshots, 1);
+  h.tick(kMidnight + 1000);
   EXPECT_EQ(snapshots, 2);
+  EXPECT_EQ(h.stats().glimpse_retries, 1u);
+  EXPECT_EQ(h.glimpse_retry_at(), 0u);
+  // bytes of the failed session, arriving late, are ignored
   const std::string z = soup_packet('Z', "");
+  h.on_glimpse_bytes(z.data(), z.size());   // the second session fails too
+  EXPECT_EQ(h.glimpse_retry_at(), kMidnight + 1000 + 2000);
   h.on_glimpse_bytes(z.data(), z.size());
+  EXPECT_EQ(h.stats().glimpse_bytes_ignored, 1u);
+  h.tick(kMidnight + 3000);
   EXPECT_EQ(snapshots, 3);
+  h.on_glimpse_bytes(z.data(), z.size());
+  EXPECT_EQ(h.glimpse_retry_at(), kMidnight + 3000 + 2500);   // capped
+  h.tick(kMidnight + 5500);
+  EXPECT_EQ(snapshots, 4);
   EXPECT_EQ(h.mode(), Handler::Mode::Snapshot);
+  // a snapshot completes: the next failure waits glimpse_retry_ns again
+  Reference at(3);
+  const std::string snap = glimpse_snapshot(at.h, first_seq(p[3]));
+  h.on_glimpse_bytes(snap.data(), snap.size());
+  EXPECT_EQ(h.mode(), Handler::Mode::Live);
+  h.on_packet(p[3].data(), p[3].size(), kMidnight + 6000);
+  h.force_recovery("test");
+  EXPECT_EQ(snapshots, 5);
+  h.on_glimpse_bytes(rej.data(), rej.size());
+  EXPECT_EQ(h.glimpse_retry_at(), kMidnight + 6000 + 1000);
 }
 
 // The stream's own number, not the packet count, is the sequence: a packet

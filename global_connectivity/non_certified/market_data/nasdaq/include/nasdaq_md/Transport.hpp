@@ -5,7 +5,8 @@
 //                   2-byte big-endian length, no MoldUDP64 (feed.md section 3).
 //   MoldPacketizer  wraps such messages into MoldUDP64 packets (N per packet),
 //                   the stand-in for the multicast stream in replay and tests.
-//   PcapReader      UDP payloads of a classic pcap file (Ethernet or raw IPv4).
+//   PcapReader      UDP payloads of a classic pcap file, through the parser the
+//                   handlers under market_data/ share (../pcap_file.hpp).
 //   PcapWriter      writes MoldUDP64 packets as a pcap, for the pcap path's test.
 //   UdpRequester    MoldUDP64 Request Packets by UDP unicast; replies are read
 //                   from the same socket (Mold p.5).
@@ -16,10 +17,12 @@
 // (create_SocketReader_64_10), which the actor wires to itself.
 #include "moldudp64.hpp"
 #include "nasdaq_md/NasdaqFeed.hpp"
+#include "pcap_file.hpp"
 
 #include <cstdint>
 #include <cstdio>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -77,15 +80,14 @@ class PcapReader
 {
 public:
   explicit PcapReader(const std::string &path);
-  ~PcapReader();
-  bool ok() const { return f_ != nullptr; }
+  bool ok() const { return pcap_ != nullptr; }
   // The next UDP payload; dst_port in host order; ts in epoch ns.
   bool next(std::string &payload, uint16_t &dst_port, uint64_t &ts_ns);
 
 private:
-  FILE *f_ = nullptr;
-  bool swap_ = false, nsec_ = false;
-  uint32_t linktype_ = 1;
+  std::unique_ptr<market_data::Pcap> pcap_;
+  std::vector<market_data::PcapPacket> udp_;
+  size_t pos_ = 0;
 };
 
 class PcapWriter

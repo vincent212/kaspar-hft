@@ -331,11 +331,16 @@ TEST(Feed, PcapReplayGivesTheSameBook)
 struct SpinOnRequest : SnapshotSource
 {
   bool asked = false;
-  bool start() override
+  int starts = 0, cancels = 0;
+  std::string session;   // of the last spin started
+  bool start(const std::string &s) override
   {
     asked = true;
+    ++starts;
+    session = s;
     return true;
   }
+  void cancel() override { ++cancels; }
 };
 
 // Decision 1: the spin holds 1..N-1 and End of Snapshot says N; live from N.
@@ -398,6 +403,201 @@ TEST(Glimpse, RecoveryAlignsWithTheLiveStream)
   }
   EXPECT_EQ(chr, 3u);   // one per routed book
   EXPECT_EQ(rec, at_n.d.book().size());
+}
+
+// A spin that fails (the session ends before End of Snapshot) is given up:
+// the feed goes on live from the first packet it held, the stretch before it
+// lost, and a second spin later rebuilds the books. Bytes of another
+// session's spin are dropped.
+TEST(Glimpse, AFailedSpinIsGivenUpAndASecondSpinRecovers)
+{
+  auto msgs = day(800);
+  Reference full(msgs);
+  auto pk = packets(msgs, 4);
+  Instruments ins{test_registrar()};
+  RecSink sink;
+  MoldSequencer::Config sc;
+  sc.retry_ns = 1;
+  sc.max_tries = 2;
+  SpinOnRequest snap;
+  NoReq noreq;
+  NasdaqFeed feed(test_config(), sc, ins, sink, &noreq, &snap);
+  uint64_t now = 0;
+  size_t i = 0;
+  for (; i < 40; ++i)
+    feed.on_packet(pk[i].data(), pk[i].size(), 0, ++now);
+  for (i = 45; i < 50; ++i)   // packets 40-44 lost
+  {
+    feed.on_packet(pk[i].data(), pk[i].size(), 0, ++now);
+    feed.on_timer(now += 10);
+  }
+  ASSERT_TRUE(feed.spinning());
+  EXPECT_EQ(snap.session, "SESSION001");
+  feed.on_glimpse_bytes("xx", 2, "SESSION000");   // not this spin's
+  EXPECT_EQ(feed.spin_bytes_dropped(), 1u);
+  feed.on_glimpse_failed("SESSION000");            // nor is this failure
+  EXPECT_TRUE(feed.spinning());
+  feed.on_glimpse_failed("SESSION001");
+  EXPECT_FALSE(feed.spinning());
+  EXPECT_FALSE(feed.sequencer().awaiting_snapshot());
+  EXPECT_EQ(feed.spins_failed(), 1u);
+  EXPECT_EQ(feed.sequencer().stats().lost_messages, 20u);   // packets 40-44
+  EXPECT_EQ(feed.sequencer().next_expected(), 50u * 4 + 1); // 45-49 were applied
+  for (; i < 70; ++i)   // live, on a book missing the lost messages
+    feed.on_packet(pk[i].data(), pk[i].size(), 0, ++now);
+  EXPECT_EQ(feed.sequencer().buffered(), 0u);
+  // the retry
+  ASSERT_TRUE(feed.recover());
+  EXPECT_EQ(snap.starts, 2);
+  const uint64_t n = 80 * 4 + 1;
+  Reference at_n(msgs, n - 1);
+  for (; i < 80; ++i)
+    feed.on_packet(pk[i].data(), pk[i].size(), 0, ++now);
+  SpinWriter w;
+  w.login_accepted("GLIMPSE001");
+  w.spin(at_n.d.book(), at_n.ins, n, 1500, 'Q');
+  feed.on_glimpse_bytes(w.bytes().data(), w.bytes().size(), "SESSION001");
+  EXPECT_FALSE(feed.spinning());
+  EXPECT_EQ(feed.spins_done(), 1u);
+  for (; i < pk.size(); ++i)
+    feed.on_packet(pk[i].data(), pk[i].size(), 0, ++now);
+  expect_same_book(feed.dispatcher().book(), full.d.book());
+  EXPECT_EQ(feed.dispatcher().stats().recoveries, 2u);
+  EXPECT_EQ(feed.dispatcher().stats().boundary_suspect, 0u);
+}
+
+// A new MoldUDP64 session while a spin is in flight: the spin is the old
+// session's, so it is cancelled and what it still delivers is dropped; the
+// new session, joined late, gets a spin of its own.
+TEST(Glimpse, ASessionChangeCancelsTheSpinInFlight)
+{
+  auto msgs = day(200);
+  Instruments ins{test_registrar()};
+  RecSink sink;
+  MoldSequencer::Config sc;
+  sc.snapshot_on_late_join = true;
+  SpinOnRequest snap;
+  NasdaqFeed feed(test_config(), sc, ins, sink, nullptr, &snap);
+  auto pk = packets(msgs, 4);
+  uint64_t now = 0;
+  for (size_t i = 0; i < 10; ++i)
+    feed.on_packet(pk[i].data(), pk[i].size(), 0, ++now);
+  ASSERT_TRUE(feed.recover());
+  EXPECT_EQ(snap.session, "SESSION001");
+  auto pk2 = packets(msgs, 4, "SESSION002");
+  feed.on_packet(pk2[0].data(), pk2[0].size(), 0, ++now);   // seq 1: no late join
+  EXPECT_EQ(snap.cancels, 1);
+  EXPECT_EQ(feed.spins_cancelled(), 1u);
+  EXPECT_FALSE(feed.spinning());
+  EXPECT_FALSE(feed.sequencer().awaiting_snapshot());
+  EXPECT_EQ(feed.sequencer().stats().sessions, 1u);
+  // the old spin's bytes, arriving late, change nothing
+  SpinWriter w;
+  w.login_accepted("GLIMPSE001");
+  w.spin(feed.dispatcher().book(), ins, 5, 1500, 'Q');
+  feed.on_glimpse_bytes(w.bytes().data(), w.bytes().size(), "SESSION001");
+  EXPECT_EQ(feed.spins_done(), 0u);
+  EXPECT_GT(feed.spin_bytes_dropped(), 0u);
+  EXPECT_EQ(feed.sequencer().next_expected(), 5u);
+  // a third session joined late while the second's spin... none runs: a spin
+  // for the third is started and tagged with it
+  auto pk3 = packets(msgs, 4, "SESSION003");
+  feed.on_packet(pk3[10].data(), pk3[10].size(), 0, ++now);
+  EXPECT_TRUE(feed.spinning());
+  EXPECT_EQ(snap.session, "SESSION003");
+  EXPECT_EQ(feed.spin_session(), "SESSION003");
+  EXPECT_EQ(snap.starts, 2);
+}
+
+// ---- the GLIMPSE TCP client against a fake server on the loopback ------------
+// Accepts one connection, reads the Login Request, sends `reply`, closes.
+class FakeGlimpseServer
+{
+public:
+  explicit FakeGlimpseServer(std::string reply) : reply_(std::move(reply))
+  {
+    fd_ = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in a{};
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    bind(fd_, reinterpret_cast<sockaddr *>(&a), sizeof a);
+    socklen_t n = sizeof a;
+    getsockname(fd_, reinterpret_cast<sockaddr *>(&a), &n);
+    port_ = ntohs(a.sin_port);
+    listen(fd_, 1);
+    th_ = std::thread([this] {
+      const int c = accept(fd_, nullptr, nullptr);
+      if (c < 0)
+        return;
+      char b[256];
+      size_t got = 0;
+      while (got < 49)   // the Login Request
+      {
+        const ssize_t r = recv(c, b, sizeof b, 0);
+        if (r <= 0)
+          break;
+        got += size_t(r);
+      }
+      login_seen_ = got >= 49;
+      (void)::send(c, reply_.data(), reply_.size(), 0);
+      close(c);
+    });
+  }
+  ~FakeGlimpseServer()
+  {
+    th_.join();
+    close(fd_);
+  }
+  uint16_t port() const { return port_; }
+  bool login_seen() const { return login_seen_; }
+
+private:
+  std::string reply_;
+  int fd_;
+  uint16_t port_;
+  std::thread th_;
+  std::atomic<bool> login_seen_{false};
+};
+
+std::string end_of_snapshot_packet(uint64_t n)
+{
+  SpinWriter w;
+  Msg g;
+  g.c('G').s(std::to_string(n), 20);
+  w.put(*reinterpret_cast<const nasdaq::glimpse::from_nasdaq::EndOfSnapshot *>(g.b.data()));
+  return w.bytes();
+}
+
+TEST(Glimpse, TheClientFailsWhenTheSessionEndsBeforeEndOfSnapshot)
+{
+  const std::string eos(std::string("\0\1Z", 3));
+  SpinWriter w;
+  w.login_accepted("GLIMPSE001");
+  FakeGlimpseServer server(w.bytes() + eos);
+  GlimpseClient c("127.0.0.1", server.port(), "user", "pw");
+  std::string got;
+  EXPECT_FALSE(c.run([&](const char *p, size_t n) { got.append(p, n); }, 5));
+  EXPECT_TRUE(server.login_seen());
+  EXPECT_EQ(got.size(), w.bytes().size() + 3);
+}
+
+TEST(Glimpse, TheClientSucceedsOnEndOfSnapshotThenEndOfSession)
+{
+  const std::string eos(std::string("\0\1Z", 3));
+  SpinWriter w;
+  w.login_accepted("GLIMPSE001");
+  FakeGlimpseServer server(w.bytes() + end_of_snapshot_packet(7) + eos);
+  GlimpseClient c("127.0.0.1", server.port(), "user", "pw");
+  std::string got;
+  EXPECT_TRUE(c.run([&](const char *p, size_t n) { got.append(p, n); }, 5));
+  EXPECT_GE(got.size(), w.bytes().size() + 24);
+}
+
+TEST(Glimpse, TheClientFailsOnALoginRejected)
+{
+  FakeGlimpseServer server(std::string("\0\2JA", 4));
+  GlimpseClient c("127.0.0.1", server.port(), "user", "pw");
+  EXPECT_FALSE(c.run([](const char *, size_t) {}, 5));
 }
 
 // The other reading of decision 1 (N already in the snapshot) is visible at N.
@@ -606,6 +806,82 @@ TEST_F(OBTest, TheActorSendsDataMessagesToTheInstrumentsBook)
     eop += std::holds_alternative<bfile::l3_eop_t>(rec.get_message<frame::mda::msg::Data>(i)->l3);
   EXPECT_EQ(eop, 1u);
   EXPECT_EQ(rec.message_count(), mbo + sst + eop);
+  book.clear();
+  rec.clear();
+}
+
+// A failed spin schedules another after glimpse_retry_ms, doubling on each
+// failure up to glimpse_retry_max_ms; a spin that completes resets the wait.
+// Reports of a spin for another session are ignored.
+TEST_F(OBTest, AFailedSpinIsRetriedWithABackoff)
+{
+  // a port nobody listens on: a bound, then closed, loopback socket's
+  const int probe = socket(AF_INET, SOCK_STREAM, 0);
+  sockaddr_in a{};
+  a.sin_family = AF_INET;
+  a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  bind(probe, reinterpret_cast<sockaddr *>(&a), sizeof a);
+  socklen_t alen = sizeof a;
+  getsockname(probe, reinterpret_cast<sockaddr *>(&a), &alen);
+  close(probe);
+
+  nasdaq_md::FeedConfig cfg;
+  cfg.dispatch = test_config();
+  cfg.symbols = {"ACTX"};
+  cfg.asset_prefix = "NQRETRY.";
+  cfg.fast_send = false;
+  cfg.glimpse_host = "127.0.0.1";
+  cfg.glimpse_port = ntohs(a.sin_port);
+  cfg.glimpse_retry_ms = 10;
+  cfg.glimpse_retry_max_ms = 25;
+  unit_test::MockActor book("book"), rec("binrec");
+  std::vector<actors::Actor *> books(100000, &book);
+  std::unique_ptr<nasdaq_md::act::NasdaqMD> md(create_NasdaqMD(cfg, books, &rec));
+  EXPECT_EQ(md->glimpse_backoff_ns(), 10'000'000u);
+  EXPECT_EQ(md->glimpse_retry_at(), 0u);
+  ASSERT_TRUE(md->feed().recover());   // the client thread fails to connect
+  ASSERT_TRUE(md->feed().spinning());
+  const std::string session = md->feed().spin_session();
+
+  nasdaq_md::msg::GlimpseBytes stale;
+  stale.session = "OTHERSESSN";
+  stale.failed = true;
+  unit_test::TestHelper::invoke_handler(md.get(), &stale, nullptr);
+  EXPECT_TRUE(md->feed().spinning());
+  EXPECT_EQ(md->glimpse_retry_at(), 0u);
+
+  const uint64_t t0 = 1'000'000'000'000ull;
+  nasdaq_md::msg::GlimpseBytes failed;
+  failed.session = session;
+  failed.failed = true;
+  unit_test::TestHelper::invoke_handler(md.get(), &failed, nullptr);
+  EXPECT_FALSE(md->feed().spinning());
+  EXPECT_EQ(md->feed().spins_failed(), 1u);
+  EXPECT_GT(md->glimpse_retry_at(), 0u);
+  EXPECT_EQ(md->glimpse_backoff_ns(), 20'000'000u);
+  // not before it is due
+  md->on_timer(t0);
+  const uint64_t due = md->glimpse_retry_at();
+  EXPECT_FALSE(md->feed().spinning());
+  md->on_timer(due);
+  EXPECT_EQ(md->glimpse_retry_at(), 0u);
+  EXPECT_TRUE(md->feed().spinning());
+  // the second failure: 20 ms, then capped at 25
+  unit_test::TestHelper::invoke_handler(md.get(), &failed, nullptr);
+  EXPECT_EQ(md->glimpse_backoff_ns(), 25'000'000u);
+  md->on_timer(md->glimpse_retry_at());
+  unit_test::TestHelper::invoke_handler(md.get(), &failed, nullptr);
+  EXPECT_EQ(md->glimpse_backoff_ns(), 25'000'000u);
+  md->on_timer(md->glimpse_retry_at());
+  ASSERT_TRUE(md->feed().spinning());
+  // a spin that completes (End of Snapshot) resets the wait
+  nasdaq_md::msg::GlimpseBytes done;
+  done.session = session;
+  done.bytes = end_of_snapshot_packet(1);
+  unit_test::TestHelper::invoke_handler(md.get(), &done, nullptr);
+  EXPECT_FALSE(md->feed().spinning());
+  EXPECT_EQ(md->feed().spins_done(), 1u);
+  EXPECT_EQ(md->glimpse_backoff_ns(), 10'000'000u);
   book.clear();
   rec.clear();
 }

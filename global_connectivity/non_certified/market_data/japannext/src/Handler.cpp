@@ -64,6 +64,7 @@ namespace jnx_md
       disp_.reset();
       buffer_.clear();
       mode_ = Mode::Ended;
+      retry_at_ = 0;
       return;
     }
 
@@ -240,6 +241,13 @@ namespace jnx_md
     now_ns_ = std::max(now_ns_, now_ns);
     if (mode_ == Mode::Buffering && now_ns_ > gap_since_ns_ + cfg_.rerequest_timeout_ns)
       escalate("re-request timed out");
+    if (mode_ == Mode::Snapshot && retry_at_ && now_ns_ >= retry_at_)
+    {
+      retry_at_ = 0;
+      ++st_.glimpse_retries;
+      std::cerr << "jnx: GLIMPSE asked again" << std::endl;
+      start_snapshot();
+    }
   }
 
   void Handler::escalate(const char *why)
@@ -263,6 +271,7 @@ namespace jnx_md
   {
     ++st_.snapshots_started;
     mode_ = Mode::Snapshot;
+    retry_at_ = 0;
     disp_.reset();
     disp_.begin_snapshot();
     soup_.clear();
@@ -273,6 +282,8 @@ namespace jnx_md
   void Handler::end_snapshot(uint64_t seq)
   {
     ++st_.snapshots_done;
+    retry_at_ = 0;
+    backoff_ns_ = 0;   // the next failure starts the backoff over
     disp_.end_snapshot();
     // GLIMPSE 5.8: process the real-time feed from this number.
     next_ = seq;
@@ -288,12 +299,25 @@ namespace jnx_md
   {
     if (mode_ != Mode::Snapshot)
       return;
-    std::cerr << "jnx: GLIMPSE failed (" << why << "); asking again" << std::endl;
-    start_snapshot();
+    ++st_.glimpse_failures;
+    soup_.clear();
+    if (retry_at_)
+      return;   // the same session's failure, seen again: one retry is pending
+    if (!backoff_ns_)
+      backoff_ns_ = cfg_.glimpse_retry_ns;
+    retry_at_ = std::max<uint64_t>(now_ns_ + backoff_ns_, 1);
+    std::cerr << "jnx: GLIMPSE failed (" << why << "); asking again in "
+              << backoff_ns_ / 1000000 << " ms" << std::endl;
+    backoff_ns_ = std::min(backoff_ns_ * 2, std::max(cfg_.glimpse_retry_max_ns, cfg_.glimpse_retry_ns));
   }
 
   void Handler::on_glimpse_bytes(const char *data, size_t len)
   {
+    if (retry_at_ && !preloading_)
+    {
+      ++st_.glimpse_bytes_ignored;   // from the session that failed
+      return;
+    }
     soup_.append(data, len);
     size_t off = 0;
     while (off < soup_.size())
@@ -314,9 +338,15 @@ namespace jnx_md
       if (std::holds_alternative<Soup::SequencedDataPacket>(d.msg))
         glimpse_message(d.tail, d.tail_len);
       else if (std::holds_alternative<Soup::LoginRejectedPacket>(d.msg))
-        glimpse_failed("login rejected");
+      {
+        glimpse_failed("login rejected");   // the session is over; the client stays quiet
+        return;
+      }
       else if (std::holds_alternative<Soup::EndOfSessionPacket>(d.msg))
+      {
         glimpse_failed("end of session before End of Snapshot");
+        return;
+      }
       if (mode_ != Mode::Snapshot && !preloading_)
       {
         soup_.clear();   // End of Snapshot: the rest is not ours

@@ -5,6 +5,7 @@
 #include "frame/mda/msg/Data.hpp"
 #include "logger/act/Logger.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <stdexcept>
 
@@ -55,9 +56,12 @@ FeedConfig config_from_ini(const boost::property_tree::ptree &s)
   c.glimpse_port = s.get<uint16_t>("glimpse_port", 0);
   c.glimpse_user = s.get<std::string>("glimpse_user", "");
   c.glimpse_password = s.get<std::string>("glimpse_password", "");
+  c.glimpse_retry_ms = s.get<uint64_t>("glimpse_retry_ms", 1000);
+  c.glimpse_retry_max_ms = s.get<uint64_t>("glimpse_retry_max_ms", 30000);
   c.sequencer.retry_ns = s.get<uint64_t>("rerequest_retry_ms", 50) * 1000000ull;
   c.sequencer.max_tries = s.get<int>("rerequest_max_tries", 5);
   c.sequencer.max_hole = s.get<uint64_t>("max_hole", 100000);
+  c.sequencer.max_buffered = s.get<size_t>("max_buffered", 100000);
   c.sequencer.snapshot_on_late_join = s.get<bool>("snapshot_on_late_join", true);
   c.fast_send = s.get<bool>("fast_send", true);
   return c;
@@ -72,6 +76,7 @@ NasdaqMD::NasdaqMD(const FeedConfig &cfg, std::vector<actors::Actor *> books,
                              cfg.asset_prefix, cfg.sec_id_base))
 {
   snprintf(name_, sizeof name_, "NasdaqMD_%s", cfg_.name.c_str());
+  glimpse_backoff_ns_ = cfg_.glimpse_retry_ms * 1000000ull;
   Dispatcher::Config dc = cfg_.dispatch;
   dc.log = [this](const std::string &s) { log_wrn("%s: %s", name_, s.c_str()); };
   if (!cfg_.rerequest_host.empty())
@@ -136,17 +141,42 @@ void NasdaqMD::packet_handler(const mcast_recv::msg::ProcessQ<uint64_t> *m) noex
 
 void NasdaqMD::glimpse_handler(const msg::GlimpseBytes *m) noexcept
 {
+  if (!feed_->spinning() || m->session != feed_->spin_session())
+    return;   // a spin no longer waited for (another session, or given up)
   if (m->failed)
   {
-    log_err("%s: GLIMPSE session failed", name_);
+    log_err("%s: GLIMPSE session %s failed; going on without it", name_, m->session.c_str());
+    feed_->on_glimpse_failed(m->session);
+    schedule_glimpse_retry(chutil::Time::epoch());
     return;
   }
-  feed_->on_glimpse_bytes(m->bytes.data(), m->bytes.size());
+  feed_->on_glimpse_bytes(m->bytes.data(), m->bytes.size(), m->session);
+  if (!feed_->spinning())
+    glimpse_backoff_ns_ = cfg_.glimpse_retry_ms * 1000000ull;   // the spin completed
+}
+
+void NasdaqMD::schedule_glimpse_retry(uint64_t now_ns)
+{
+  glimpse_retry_at_ = now_ns + glimpse_backoff_ns_;
+  log_wrn("%s: GLIMPSE spin again in %llu ms", name_,
+          (unsigned long long)(glimpse_backoff_ns_ / 1000000ull));
+  glimpse_backoff_ns_ = std::min(glimpse_backoff_ns_ * 2, cfg_.glimpse_retry_max_ms * 1000000ull);
+}
+
+void NasdaqMD::on_timer(uint64_t now_ns)
+{
+  feed_->on_timer(now_ns);
+  if (glimpse_retry_at_ && now_ns >= glimpse_retry_at_)
+  {
+    glimpse_retry_at_ = 0;
+    if (!feed_->recover())
+      schedule_glimpse_retry(now_ns);
+  }
 }
 
 void NasdaqMD::timeout_handler(const actors::msg::Timeout *) noexcept
 {
-  feed_->on_timer(chutil::Time::epoch());
+  on_timer(chutil::Time::epoch());
   if (running_)
     actors::act::Timer::wake_up_in(this, 0, 10);
 }
@@ -185,27 +215,38 @@ void NasdaqMD::request(const std::string &session, uint64_t seq, uint16_t count)
   req_->request(session, seq, count);
 }
 
-bool NasdaqMD::start()
+bool NasdaqMD::start(const std::string &session)
 {
-  if (glimpse_thread_.joinable())
-    glimpse_thread_.join();
+  cancel();   // a spin still running is not the one wanted
   glimpse_ = std::make_unique<GlimpseClient>(cfg_.glimpse_host, cfg_.glimpse_port,
                                              cfg_.glimpse_user, cfg_.glimpse_password);
-  log_wrn("%s: GLIMPSE spin from %s:%u", name_, cfg_.glimpse_host.c_str(), cfg_.glimpse_port);
-  glimpse_thread_ = std::thread([this] {
-    const bool ok = glimpse_->run([this](const char *p, size_t n) {
+  log_wrn("%s: GLIMPSE spin from %s:%u for session %s", name_, cfg_.glimpse_host.c_str(),
+          cfg_.glimpse_port, session.c_str());
+  GlimpseClient *client = glimpse_.get();
+  glimpse_thread_ = std::thread([this, client, session] {
+    const bool ok = client->run([this, &session](const char *p, size_t n) {
       auto *m = new msg::GlimpseBytes();
+      m->session = session;
       m->bytes.assign(p, n);
       send(m, this);
     });
     if (!ok)
     {
       auto *m = new msg::GlimpseBytes();
+      m->session = session;
       m->failed = true;
       send(m, this);
     }
   });
   return true;
+}
+
+void NasdaqMD::cancel()
+{
+  if (glimpse_)
+    glimpse_->stop();
+  if (glimpse_thread_.joinable())
+    glimpse_thread_.join();
 }
 } // namespace act
 } // namespace nasdaq_md
