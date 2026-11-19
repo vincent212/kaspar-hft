@@ -1,7 +1,8 @@
 # Field table: a subset of Nasdaq TotalView-ITCH 5.0 (public specification,
 # "Nasdaq TotalView-ITCH 5.0", revision of April 28, 2023). Offsets are 0-based within
-# the message. Messages arrive in MoldUDP64 packets, each preceded by a 2-byte
-# big-endian length that excludes itself.
+# the message. The layer is written without a length: in MoldUDP64 packets each
+# message is preceded by a 2-byte big-endian length that excludes itself
+# (decode_mold); in SoupBinTCP it is the payload of a SequencedData packet (decode).
 @venue nasdaq
 @endian big
 @pad space
@@ -10,7 +11,7 @@
 @type Alpha char
 
 ### itch::from_nasdaq
-@length_prefix 2 exclusive
+@framed_decode mold 2 exclusive
 
 MessageType S 0 1 # SystemEvent: start and end of the system and market hours (ITCH 5.0, 1.1)
 @size 12

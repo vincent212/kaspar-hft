@@ -45,9 +45,9 @@ code it emits.
                               #   a pad (space | nul) may follow
 
 ### itch::from_nasdaq         # <namespace>::from_<venue>[_<layer>]  (received, decoded)
-@length_prefix 2 exclusive    # every message here is preceded by a 2-byte length
-                              #   that is not in the spec's tables; exclusive =
-                              #   the length does not count itself
+@framed_decode mold 2 exclusive  # also decode_mold(): each message after a 2-byte
+                              #   length (MoldUDP64) that is not in the spec's
+                              #   tables; exclusive = the length does not count itself
 MessageType A 0 1 # AddOrder: description; the first word names the message
 @size 36                      # the total the spec states; checked
 StockLocate Integer 1 2 # ...
@@ -59,8 +59,9 @@ StockLocate Integer 1 2 # ...
 - Columns: `Name Type Offset Length # description`. Offsets are 0-based and
   relative to the start of the message as the specification tables it; a length
   prefix declared with `@length_prefix` is not counted in them.
-- A line starting with `#` is a comment and may appear anywhere, including inside
-  a message.
+- `###`, a space and a section name (indented or not) starts a section. Any other
+  line starting with `#` (a `#####` banner, a `####` heading) is a comment and may
+  appear anywhere, including inside a message.
 - The first row of each message is `MessageType <code> 0 1`, where the code is any
   one character. A structure without a type code (a packet header such as
   MoldUDP64's, or a bare request datagram) is written `MessageType - 0 0`: it gets a
@@ -85,8 +86,8 @@ StockLocate Integer 1 2 # ...
 - A layer that carries another layer's messages plus its own (GLIMPSE: the ITCH
   messages and End of Snapshot) declares `@include <ns>::<section>` for the earlier
   section and adds only its own messages; the included structs are aliased, not
-  copied, and its `decode` covers both the included messages (with those the
-  included section itself includes) and its own.
+  copied, and its `decode` covers both. Includes are transitive: a section that
+  includes one which includes a third decodes the third's messages too.
 - Sections of another table file are used with `@import <file> [<ns>::<section>
   ...]` before the first section; the path is relative to the importing table.
   Without section names every section of the file is imported. Imported sections
@@ -140,9 +141,11 @@ StockLocate Integer 1 2 # ...
   and filler fields with their offsets. C++ keywords are refused as message and
   field names, and so are the names the generator uses: `type`, `MessageType`
   (other than the type-code row), `MessageLength` in a message with a length
-  prefix, `set_<field>` and `get_<field>` for a text field, and, for messages,
-  `be`, `uint_n`, `set_str`, `get_str`, `status`, `decoded`, `decode`, `encode`,
-  `name` and `message_t`.
+  prefix, `set_<field>` and `get_<field>` for a text field, `be`, `uint_n`,
+  `set_str`, `get_str` and the `<cstdint>` type names (as a field or as an accessor
+  a text field generates), and, for messages, `be`, `uint_n`, `set_str`, `get_str`,
+  `status`, `decoded`, `decode`, `encode`, `name` and `message_t`. A message needs
+  at least one fixed-length field.
 - A section appears once in a table; one that continues after a page break is
   continued in place.
 - Put the specification's section number in each message's description.
@@ -163,7 +166,7 @@ Worked examples from public Nasdaq specifications:
 
 | Table | Specification | Shows |
 |---|---|---|
-| `examples/itch50.tbl` | TotalView-ITCH 5.0 (revision of April 28, 2023) | market data, 6-byte integers, a length prefix not in the spec's tables |
+| `examples/itch50.tbl` | TotalView-ITCH 5.0 (revision of April 28, 2023) | market data, 6-byte integers, one layer decoded bare (SoupBinTCP) and with MoldUDP64's 2-byte length (`@framed_decode`) |
 | `examples/soupbintcp.tbl` | SoupBinTCP 3.0 | a session layer in both directions, variable-length payloads, right-aligned text |
 
 `tools/test_fieldgen.sh` generates both headers, runs `examples/*_test.cpp` against
@@ -189,7 +192,7 @@ tools/test_fieldgen.sh`).
 | messages framed differently in one `from_` section; a section-wide `@length_prefix` after the first message | two layers mixed in one section; a prefix meant for one message |
 | a variable-length field that is not last | a misread table |
 | non-numeric offsets, lengths and sizes; missing directive arguments | extraction debris |
-| repeated message or field name; keywords and the generator's own names | copy-paste rows; names the compiler would reject |
+| repeated message or field name; a field or accessor that clashes with another or hides a generated helper; a repeated `@framed_decode` name; a message with no fixed-length field | copy-paste rows; names the compiler would reject |
 | a repeated section | a section continued after a page break |
 | `@include` of an unknown, later or differently coded section, of a section with another header or byte order; a type code in both the including and the included section; offsets below `@offset_base`; `@framed_decode` on a section that already has a length prefix | a misdeclared layer |
 | `@import` of a missing file or section, after the first section, in a cycle, or of a section the table also defines | a misdeclared import |
@@ -230,9 +233,11 @@ fail to compile.
   message: read more, decode again from the same place), `unknown` (a type the table
   does not list) and `malformed` (a length prefix or `@message_length` shorter than
   the message's fixed part); for these two, `size` is the bytes to skip when the
-  framing gives it, and 0 when it does not or when the length is shorter than the
-  header. A length longer than the fixed part of a fixed-size message is accepted
-  and the extra bytes skipped (newer protocol versions append fields).
+  framing gives it, and 0 when it does not, when the length is shorter than the
+  header, or when an inclusive prefix is smaller than its own width: size 0 means
+  the stream cannot be followed. A length longer than the fixed part of a
+  fixed-size message is accepted and the extra bytes skipped (newer protocol
+  versions append fields).
   Messages are copied out with `memcpy`;
 - for `to_` sections: `size_t encode(char *buf, size_t cap, Msg m)`, or
   `encode(char *buf, size_t cap, Msg m, std::string_view tail)` for a message with a

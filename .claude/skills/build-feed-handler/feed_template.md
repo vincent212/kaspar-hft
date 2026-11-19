@@ -58,6 +58,13 @@ One line per item of `pitfalls.md`: how it applies, or why it does not.
 | Question | Reading taken | Alternatives | Resolved by |
 |---|---|---|---|
 
+### Known deviations
+
+Venue behaviour the Kaspar records cannot express (`kaspar_mapping.md`).
+
+| Behaviour | Why it cannot be expressed | Effect | Frequency, if measured |
+|---|---|---|---|
+
 ## 11. Facts the specification does not give
 
 What the handler or its configuration needs that is not in the documents. Each

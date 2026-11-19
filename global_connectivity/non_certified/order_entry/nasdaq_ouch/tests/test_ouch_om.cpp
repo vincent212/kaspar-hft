@@ -23,7 +23,7 @@
 
 #include "FakeOuch.hpp"
 #include "TestUtil.hpp"
-#include "nasdaq_ouch/act/OuchOM.hpp"
+#include "nasdaq_ouch/if/OuchOM.hpp"
 
 namespace som = frame::som::msg;
 using Order = som::Order;
@@ -149,6 +149,34 @@ TEST_F(OuchOMTest, BadConfigGivesNullNotCrash)
   auto ok = create_OuchOM(cfg(), &somr, nasdaq.factory());
   EXPECT_NE(ok, nullptr);
   delete ok;
+}
+
+// The session's timings and queue limit are checked like the rest of the
+// config: all positive, and the receive timeout longer than the heartbeat.
+TEST_F(OuchOMTest, SessionTimingsAreChecked)
+{
+  std::string err;
+  auto c = cfg();
+  EXPECT_TRUE(c.valid(err)) << err;
+  c.session.heartbeat_ms = 0;
+  EXPECT_FALSE(c.valid(err));
+  c = cfg();
+  c.session.receive_timeout_ms = c.session.heartbeat_ms; // not longer than the heartbeat
+  EXPECT_FALSE(c.valid(err));
+  c = cfg();
+  c.session.receive_timeout_ms = -1;
+  EXPECT_FALSE(c.valid(err));
+  c = cfg();
+  c.session.connect_timeout_ms = 0;
+  EXPECT_FALSE(c.valid(err));
+  c = cfg();
+  c.session.max_queued_bytes = 0;
+  EXPECT_FALSE(c.valid(err));
+  EXPECT_EQ(create_OuchOM(c, &somr, nasdaq.factory()), nullptr);
+  c = cfg();
+  c.session.heartbeat_ms = 500;
+  c.session.receive_timeout_ms = 501;
+  EXPECT_TRUE(c.valid(err)) << err;
 }
 
 TEST_F(OuchOMTest, ConfigFileWithCredentialsFileIsRead)
@@ -561,6 +589,31 @@ TEST_F(OuchOMTest, PartialReductionByNasdaqThenFillEndsWithCancAck)
   EXPECT_EQ(e->state, State::Canceled);
 }
 
+// After Nasdaq takes shares off an order, a Fill's still_to_be_filled is
+// what Nasdaq still has open, not the book's leaves (which never heard of
+// the reduction).
+TEST_F(OuchOMTest, FillAfterNasdaqReductionReportsWhatIsStillOpen)
+{
+  start();
+  auto urn = place(order(77, 100));
+  nasdaq.accept(urn);
+  nasdaq.cancel(urn, 30, 'U'); // 70 open
+  settle();
+  EXPECT_TRUE(somr.all<som::CancAck>().empty());
+  nasdaq.fill(urn, 20, PX_41_25, 4201);
+  auto f1 = somr.wait_for<som::Fill>(0);
+  ASSERT_NE(f1, nullptr);
+  EXPECT_DOUBLE_EQ(f1->sz, 20);
+  EXPECT_DOUBLE_EQ(f1->still_to_be_filled, 50);
+  nasdaq.fill(urn, 50, PX_41_25, 4202);
+  auto f2 = somr.wait_for<som::Fill>(1);
+  ASSERT_NE(f2, nullptr);
+  EXPECT_DOUBLE_EQ(f2->still_to_be_filled, 0);
+  ASSERT_NE(somr.wait_for<som::CancAck>(), nullptr);
+  EXPECT_EQ(somr.replies(), (std::vector<std::string>{"Ack", "Fill", "Fill", "CancAck"}));
+  EXPECT_EQ(om->book().find_oid(77)->cum, 70);
+}
+
 // An IOC that partly fills: Executed, then Canceled for the rest (reason I).
 TEST_F(OuchOMTest, IocPartialFillThenCancel)
 {
@@ -782,6 +835,35 @@ TEST_F(OuchOMTest, OrdersAndCancelsWhileDisconnectedAreRefused)
   EXPECT_EQ(nasdaq.entered().size(), 1u);
 }
 
+// A cancel in flight when the link drops is never answered: the order goes
+// back to Working with CancReject(DISCONNECTED), and once reconnected the
+// cancel can be sent again instead of being ignored as already pending.
+TEST_F(OuchOMTest, CancelInFlightWhenTheLinkDropsIsRejectedAndCanBeRetried)
+{
+  start();
+  auto urn = place(order(107));
+  nasdaq.accept(urn);
+  ASSERT_NE(somr.wait_for<som::Ack>(), nullptr);
+  cancel(107);
+  ASSERT_TRUE(wait_until([&] { return nasdaq.cancels().size() == 1; }));
+  EXPECT_EQ(om->book().find_oid(107)->state, State::PendingCancel);
+  nasdaq.fail_connection();
+  auto cr = somr.wait_for<som::CancReject>();
+  ASSERT_NE(cr, nullptr);
+  EXPECT_EQ(cr->id, 107u);
+  EXPECT_EQ(cr->reason, som::CancReject::DISCONNECTED);
+  EXPECT_EQ(om->book().find_oid(107)->state, State::Working);
+
+  ASSERT_TRUE(wait_until([&] { return om->ready() && om->sessions_created() == 2; }));
+  cancel(107);
+  ASSERT_TRUE(wait_until([&] { return nasdaq.cancels().size() == 2; })) << "second cancel not sent";
+  EXPECT_EQ(uint32_t(nasdaq.cancels().back().UserRefNum), urn);
+  nasdaq.cancel(urn, 100, 'U');
+  ASSERT_NE(somr.wait_for<som::CancAck>(), nullptr);
+  EXPECT_EQ(somr.all<som::CancReject>().size(), 1u);
+  EXPECT_EQ(om->book().find_oid(107)->state, State::Canceled);
+}
+
 // End of Session: the day is over; no reconnect.
 TEST_F(OuchOMTest, EndOfSessionStopsReconnecting)
 {
@@ -793,6 +875,36 @@ TEST_F(OuchOMTest, EndOfSessionStopsReconnecting)
   auto rej = refused(order(106));
   ASSERT_NE(rej, nullptr);
   EXPECT_EQ(rej->reason, som::Reject::DISCONNECTED);
+}
+
+// End of Session also forgets the done orders, in the book and in the
+// UserRefNum maps; live ones are kept.
+TEST_F(OuchOMTest, EndOfSessionPurgesDoneOrders)
+{
+  start();
+  auto u1 = place(order(140, 10));
+  nasdaq.accept(u1);
+  nasdaq.fill(u1, 10, PX_41_25, 9001); // filled
+  ASSERT_NE(somr.wait_for<som::Fill>(), nullptr);
+  auto u2 = place(order(141));
+  nasdaq.accept(u2); // working
+  ASSERT_NE(somr.wait_for<som::Ack>(1), nullptr);
+  auto u3 = place(order(142));
+  nasdaq.reject(u3, 0x0F); // rejected
+  ASSERT_NE(somr.wait_for<som::Reject>(), nullptr);
+  EXPECT_EQ(om->book().size(), 3u);
+  EXPECT_EQ(om->venue_orders(), 3u);
+
+  nasdaq.end_of_session();
+  ASSERT_TRUE(wait_until([&] { return om->book().size() == 1; }));
+  EXPECT_EQ(om->venue_orders(), 1u);
+  EXPECT_EQ(om->book().find_oid(140), nullptr);
+  EXPECT_EQ(om->book().find_oid(142), nullptr);
+  EXPECT_EQ(om->user_ref_num(140), 0u);
+  EXPECT_EQ(om->user_ref_num(142), 0u);
+  ASSERT_NE(om->book().find_oid(141), nullptr);
+  EXPECT_EQ(om->book().find_oid(141)->state, State::Working);
+  EXPECT_EQ(om->user_ref_num(141), u2);
 }
 
 // ---- robustness ----------------------------------------------------------------------------
@@ -821,7 +933,10 @@ TEST_F(OuchOMTest, UnknownReportsAreLoggedAndIgnored)
 }
 
 // An Executed without its Appendage Length (which OUCH 5.0 does not mark
-// optional there) is still applied; one cut short anywhere else is not.
+// optional there) is still applied, since the table takes the length and the
+// appendage as the message's tail; one with the length, one with an
+// appendage, and one cut short inside a fixed field are applied, applied,
+// and not decoded.
 TEST_F(OuchOMTest, ReportWithoutAppendageLengthIsStillApplied)
 {
   start();
@@ -829,17 +944,27 @@ TEST_F(OuchOMTest, ReportWithoutAppendageLengthIsStillApplied)
   nasdaq.accept(urn);
   from::OrderExecuted e{};
   e.UserRefNum = urn;
-  e.Quantity = 100;
+  e.Quantity = 40;
   e.Price = PX_41_25;
   e.MatchNumber = 7101;
   auto b = to_bytes(e);
-  nasdaq.raw(b.substr(0, 34)); // Appendage Length missing
-  auto f = somr.wait_for<som::Fill>();
+  ASSERT_EQ(b.size(), 34u); // the fake sends no Appendage Length
+  nasdaq.raw(b);
+  auto f = somr.wait_for<som::Fill>(0);
   ASSERT_NE(f, nullptr);
-  EXPECT_DOUBLE_EQ(f->sz, 100);
+  EXPECT_DOUBLE_EQ(f->sz, 40);
+  e.Quantity = 30;
+  e.MatchNumber = 7102;
+  nasdaq.raw(to_bytes(e) + std::string("\0\0", 2)); // Appendage Length 0, as Nasdaq sends it
+  ASSERT_NE(somr.wait_for<som::Fill>(1), nullptr);
+  e.MatchNumber = 7103;
+  nasdaq.raw(to_bytes(e, std::string("\x02\x1c\x07", 3))); // with a UserRefIdx option
+  ASSERT_NE(somr.wait_for<som::Fill>(2), nullptr);
   nasdaq.raw(b.substr(0, 30)); // truncated inside Match Number: not decoded
   settle();
-  EXPECT_EQ(somr.all<som::Fill>().size(), 1u);
+  EXPECT_EQ(somr.all<som::Fill>().size(), 3u);
+  EXPECT_EQ(om->book().find_oid(111)->cum, 100);
+  EXPECT_EQ(om->next_sequence(), nasdaq.last_sequence() + 1);
 }
 
 // UserRefNums are strictly increasing, and a restarted OM starts after the

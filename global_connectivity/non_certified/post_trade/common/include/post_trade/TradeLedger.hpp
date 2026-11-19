@@ -94,6 +94,8 @@ namespace post_trade
       bool live = false;
     };
 
+    // true when the venue orders r against what s holds (both have a report_seq)
+    bool ordered(const msg::TradeCapture &r, const State &s) const;
     // true when r (seq, arrival) is newer than what s holds
     bool newer(const msg::TradeCapture &r, const State &s) const;
 

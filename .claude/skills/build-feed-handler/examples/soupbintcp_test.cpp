@@ -31,10 +31,13 @@ int main()
   assert(d && std::holds_alternative<soup::from_nasdaq::SequencedData>(d.msg));
   assert(d.size == 10 && std::string_view(d.tail, d.tail_len) == "OUCHMSG");
 
-  // An ITCH message carried in it decodes with the ITCH header.
-  unsigned char itch[] = {0, 12, 'S', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'Q'};
-  auto e = itch::from_nasdaq::decode((const char *)itch, sizeof itch);
-  assert(e && std::get<itch::from_nasdaq::SystemEvent>(e.msg).EventCode == 'Q');
+  // The ITCH message a SequencedData packet carries (no length of its own)
+  // decodes from the payload with the ITCH header.
+  unsigned char pkt[] = {0, 13, 'S', 'S', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'Q'};
+  auto p = soup::from_nasdaq::decode((const char *)pkt, sizeof pkt);
+  assert(p && p.size == sizeof pkt && p.tail_len == 12);
+  auto e = itch::from_nasdaq::decode(p.tail, p.tail_len);
+  assert(e && e.size == 12 && std::get<itch::from_nasdaq::SystemEvent>(e.msg).EventCode == 'Q');
 
   // Two packets back to back: size steps from one to the next.
   char two[64] = {0, 1, 'H', 0, 2, 'J', 'A'};

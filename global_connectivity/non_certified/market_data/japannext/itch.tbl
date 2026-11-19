@@ -18,6 +18,9 @@
 @type Alpha char
 
 ### itch::from_jnx
+# Inside a MoldUDP64 Message Block each message follows a 2-byte Message Length that
+# excludes itself (JNX MoldUDP64 1.02, 3.2): decode_mold() reads one block.
+@framed_decode mold 2 exclusive
 
 MessageType T 0 1 # TimestampSecondsMessage: seconds part of the timestamp, sent for every second in which another message is sent (JNX ITCH 2.02, 4.1, p. 3-4)
 @size 5

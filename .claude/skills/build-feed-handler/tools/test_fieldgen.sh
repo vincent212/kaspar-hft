@@ -171,7 +171,8 @@ int main()
   return 0;
 }
 C
-${CXX:-c++} -std=c++20 -Wall -Wextra -Werror -I"$out" "$out/odd.cpp" -o "$out/odd" && "$out/odd"
+${CXX:-c++} -std=c++20 -Wall -Wextra -Werror -I"$out" "$out/odd.cpp" -o "$out/odd"
+"$out/odd"
 
 reject "is not a number" <<T
 $head
@@ -227,10 +228,18 @@ int main()
   assert(d && d.size == 8 && std::get<OrderAdd>(d.msg).Id == 5u);
   auto e = decode((const char *)a + 8, 8);
   assert(e && std::get<OrderDelete>(e.msg).Id == 6u);
+  // An inclusive prefix smaller than itself gives nothing to skip by: size 0.
+  unsigned char z[] = {0, 0, 0x33, 0x2c}, one[] = {0, 1, 0x33, 0x2c};
+  auto mz = decode((const char *)z, sizeof z), mo = decode((const char *)one, sizeof one);
+  assert(mz.st == numv::status::malformed && mz.size == 0 && mo.st == numv::status::malformed && mo.size == 0);
+  // One not smaller than itself but shorter than the type code is skipped by.
+  unsigned char two[] = {0, 2, 0x33, 0x2c};
+  assert(decode((const char *)two, sizeof two).size == 2);
   return 0;
 }
 C
-${CXX:-c++} -std=c++20 -Wall -Wextra -Werror -I"$out" "$out/num.cpp" -o "$out/num" && "$out/num"
+${CXX:-c++} -std=c++20 -Wall -Wextra -Werror -I"$out" "$out/num.cpp" -o "$out/num"
+"$out/num"
 
 reject "no earlier section" <<T
 $head
@@ -265,6 +274,7 @@ cat > "$out/layers.tbl" <<'T'
 @type A char
 ### itch::from_lay
 @framed_decode mold 2 exclusive
+@framed_decode incl 2 inclusive
 MessageType A 0 1 # AddOrder
 Ref I 1 4 # r
 
@@ -300,6 +310,11 @@ int main()
   assert(u.st == status::unknown && u.size == 11);
   unsigned char shortp[] = {0, 3, 'A', 0, 0};
   assert(itch::from_lay::decode_mold((const char *)shortp, sizeof shortp).st == status::malformed);
+  unsigned char incl[] = {0, 7, 'D', 0, 0, 0, 9}, incl1[] = {0, 1, 'D', 0, 0, 0, 9};
+  auto di = itch::from_lay::decode_incl((const char *)incl, sizeof incl);
+  assert(di && di.size == 7 && std::get<itch::from_lay::DeleteOrder>(di.msg).Ref == 9u);
+  auto mi = itch::from_lay::decode_incl((const char *)incl1, sizeof incl1);
+  assert(mi.st == status::malformed && mi.size == 0);
   auto g = glimpse::from_lay::decode((const char *)raw, sizeof raw);
   assert(g && std::holds_alternative<itch::from_lay::AddOrder>(g.msg));
   static_assert(std::is_same_v<glimpse::from_lay::AddOrder, itch::from_lay::AddOrder>);
@@ -307,7 +322,8 @@ int main()
   return 0;
 }
 C
-${CXX:-c++} -std=c++20 -Wall -Wextra -Werror -I"$out" "$out/layers.cpp" -o "$out/layers" && "$out/layers"
+${CXX:-c++} -std=c++20 -Wall -Wextra -Werror -I"$out" "$out/layers.cpp" -o "$out/layers"
+"$out/layers"
 python3 "$gen" "$out/layers.tbl" --markdown | grep -q "Also decodes the messages of"
 
 # A comment line inside a message does not end it.
@@ -781,4 +797,137 @@ MessageType A 0 1 # N
 @by_length
 Tail B 1
 T
+# @include is transitive: c includes b, which includes a; c decodes a's messages.
+cat > "$out/inc.tbl" <<'T'
+@venue inc
+@endian big
+@type I uint
+@type A char
+### a::from_inc
+MessageType A 0 1 # FromA
+Ref I 1 4 # r
+### b::from_inc
+@include a::from_inc
+MessageType B 0 1 # FromB
+Ref I 1 4 # r
+### c::from_inc
+@include b::from_inc
+MessageType C 0 1 # FromC
+Ref I 1 4 # r
+### d::from_inc
+@include a::from_inc
+@include b::from_inc
+MessageType D 0 1 # FromD
+Ref I 1 4 # r
+### end
+T
+python3 "$gen" "$out/inc.tbl" -o "$out/inc.hpp"
+cat > "$out/inc.cpp" <<'C'
+#include "inc.hpp"
+#include <cassert>
+int main()
+{
+  using namespace inc;
+  unsigned char ra[] = {'A', 0, 0, 0, 3}, rb[] = {'B', 0, 0, 0, 4};
+  auto x = c::from_inc::decode((const char *)ra, sizeof ra);
+  assert(x && std::get<a::from_inc::FromA>(x.msg).Ref == 3u);
+  auto y = c::from_inc::decode((const char *)rb, sizeof rb);
+  assert(y && std::get<b::from_inc::FromB>(y.msg).Ref == 4u);
+  static_assert(std::is_same_v<c::from_inc::FromA, a::from_inc::FromA>);
+  static_assert(std::variant_size_v<d::from_inc::message_t> == 3);
+  return 0;
+}
+C
+${CXX:-c++} -std=c++20 -Wall -Wextra -Werror -I"$out" "$out/inc.cpp" -o "$out/inc"
+"$out/inc"
+
+# expect_sections <n> < table: the table checks and has n sections.
+expect_sections() {
+  cat > "$out/sec.tbl"
+  msg=$(python3 "$gen" "$out/sec.tbl" --check 2>&1) || { echo "FAIL: $msg"; exit 1; }
+  case "$msg" in
+    *": $1 sections, $2 messages, OK") ;;
+    *) echo "FAIL: expected $1 sections and $2 messages, got: $msg"; exit 1 ;;
+  esac
+}
+# An indented "###" line is a section header, not a comment.
+expect_sections 2 2 <<T
+$head
+### x::from_v
+MessageType A 0 1 # M
+
+   ### y::from_v
+MessageType A 0 1 # N
+T
+# A banner, a "###" without a space and a "####" heading are comments.
+expect_sections 1 2 <<T
+$head
+### x::from_v
+##########################
+MessageType A 0 1 # M
+###y::from_v
+#### y::from_v
+
+MessageType B 0 1 # N
+T
+reject "section must be named" <<T
+$head
+  ### Messages
+T
+
+reject "has no fields" <<T
+$head
+### x::to_v
+MessageType - 0 0 # Header
+T
+reject "has no fields" <<T
+$head
+### x::to_v
+MessageType - 0 0 # Header
+Tail B 0
+T
+for f in be uint_n set_str get_str uint32_t; do
+  reject "would hide the generated helper $f" <<T
+$head
+### x::from_v
+MessageType A 0 1 # M
+$f I 1 4
+T
+done
+reject "would hide the generated helper set_str" <<T
+$head
+### x::from_v
+MessageType A 0 1 # M
+str A 1 4
+T
+reject "member set_Name repeated" <<T
+$head
+### x::from_v
+MessageType A 0 1 # M
+Name A 1 4
+set_Name I 5 4
+T
+reject "member get_Name repeated" <<T
+$head
+### x::from_v
+MessageType A 0 1 # M
+get_Name I 1 4
+Name A 5 4
+T
+reject "@framed_decode mold already declared" <<T
+$head
+### x::from_v
+@framed_decode mold 2 exclusive
+@framed_decode mold 2 inclusive
+MessageType A 0 1 # M
+T
+# A field named set_X beside a non-text field X generates no clash.
+cat > "$out/ok2.tbl" <<T
+$head
+### x::from_v
+MessageType A 0 1 # M
+Name I 1 4
+set_Name I 5 4
+T
+python3 "$gen" "$out/ok2.tbl" --check >/dev/null
 echo "rejection tests OK"

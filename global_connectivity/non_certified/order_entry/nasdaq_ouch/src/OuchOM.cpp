@@ -5,7 +5,7 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-#include "nasdaq_ouch/act/OuchOM.hpp"
+#include "nasdaq_ouch/if/OuchOM.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -57,28 +57,12 @@ namespace nasdaq::ouch
     void available() override { post(OuchReport::AVAILABLE); }
 
     // Decoding happens here, on the session's thread; nothing else does.
+    // Appendage Length and the Optional Appendage are the message's tail
+    // (AppendageWithLength in ouch50.tbl), so a report without them still
+    // decodes.
     void message(uint64_t seq, const char *data, size_t len) override
     {
       auto d = from::decode(data, len);
-      if (d.st == nasdaq::status::incomplete && len > 0 && len < 256)
-      {
-        // OUCH 5.0 marks Appendage Length optional only on some messages
-        // (C, D, B, J, P, I, T, M, Q); the table has it on the others. If
-        // one of those arrives without it, read it as length 0 rather than
-        // lose the report (an Executed, say).
-        char buf[258];
-        std::memcpy(buf, data, len);
-        buf[len] = buf[len + 1] = 0;
-        auto d2 = from::decode(buf, len + 2);
-        bool fits = d2 && d2.size == len + 2 &&
-                    std::visit([](const auto &x) { return requires { x.AppendageLength; }; }, d2.msg);
-        if (fits)
-        {
-          d = d2;
-          d.tail = nullptr;
-          d.tail_len = 0;
-        }
-      }
       auto r = make(d ? OuchReport::MESSAGE : OuchReport::UNDECODED);
       r->sequence = seq;
       if (d)
@@ -508,6 +492,7 @@ namespace nasdaq::ouch
     case OuchReport::DISCONNECTED:
       log_err("OUCH connection lost: %s; reconnecting in %d ms (%zu orders live)", m->text, cfg_.reconnect_ms,
               book_.live());
+      abandon_pending_cancels();
       drop_session();
       schedule_reconnect();
       return;
@@ -517,6 +502,7 @@ namespace nasdaq::ouch
         log_err("OUCH session ended with %zu orders live", book_.live());
       ended_ = true;
       drop_session();
+      purge_done();
       return;
     case OuchReport::BUSY:
       busy_ = true;
@@ -553,6 +539,50 @@ namespace nasdaq::ouch
   {
     auto it = by_urn_.find(urn);
     return it == by_urn_.end() ? nullptr : &it->second;
+  }
+
+  // A cancel sent on the connection that just dropped will never be
+  // answered (a reconnect replays reports, not requests): the order goes
+  // back to Working, and the SOM hears CancReject(DISCONNECTED), so a cancel
+  // it sends again is not refused as already pending.
+  void OuchOM::abandon_pending_cancels() noexcept
+  {
+    for (auto &[urn, v] : by_urn_)
+    {
+      auto e = book_.find_cid(v.cid);
+      if (!e || e->state != State::PendingCancel || !e->pending_cid)
+        continue;
+      auto res = book_.send_failed(e->pending_cid);
+      if (res.outcome != Outcome::Ok)
+        continue;
+      log_wrn("cancel of oid=%d urn=%u lost with the connection: order %s", res.entry->oid, urn,
+              to_string(res.entry->state));
+      if (!res.done)
+        cancel_reject(res.entry->sender, res.entry->oid, som::CancReject::DISCONNECTED,
+                      "OUCH connection lost with the cancel in flight");
+    }
+  }
+
+  // Done orders (filled, canceled, rejected) are forgotten at the end of the
+  // session, so the maps do not grow for the life of the process. A late
+  // report for one is then unknown.
+  void OuchOM::purge_done() noexcept
+  {
+    size_t n = 0;
+    for (auto it = by_urn_.begin(); it != by_urn_.end();)
+    {
+      auto e = book_.find_cid(it->second.cid);
+      if (e && !frame::som::is_done(e->state))
+      {
+        ++it;
+        continue;
+      }
+      urn_of_cid_.erase(it->second.cid);
+      it = by_urn_.erase(it);
+      ++n;
+    }
+    book_.purge_done();
+    log_omg("purged %zu done orders; %zu kept", n, by_urn_.size());
   }
 
   void OuchOM::on_message(const OuchReport &r) noexcept
@@ -661,12 +691,15 @@ namespace nasdaq::ouch
       const auto &e = *res.entry;
       const auto &o = e.order;
       uint64_t tim = eastern_midnight_epoch_ns(epoch_ns_now()) + uint64_t(m.Timestamp);
+      // What can still fill: the book's leaves, less what Nasdaq has taken
+      // off the order (the book is not told of a partial cancel).
+      int leaves = std::max(0, std::min(e.leaves, v->open()));
       if (e.sender)
         e.sender->send(new som::Fill(uint(e.oid), venue_, uint(o.sym),
                                      frame::ref::Price((long double)px / PRICE_SCALE, uint(o.sym)), o.side, qty,
-                                     e.leaves, o.owner, tim),
+                                     leaves, o.owner, tim),
                        this);
-      log_fil("fill oid=%d urn=%u %d @ %lu leaves %d match %lu", e.oid, urn, qty, (unsigned long)px, e.leaves,
+      log_fil("fill oid=%d urn=%u %d @ %lu leaves %d match %lu", e.oid, urn, qty, (unsigned long)px, leaves,
               (unsigned long)match);
     }
     else
