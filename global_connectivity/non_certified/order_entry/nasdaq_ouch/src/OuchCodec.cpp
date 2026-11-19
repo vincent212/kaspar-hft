@@ -7,6 +7,8 @@
 
 #include "nasdaq_ouch/OuchCodec.hpp"
 
+#include "post_trade/EasternTime.hpp"
+
 namespace nasdaq::ouch
 {
   const char *reject_reason_text(uint16_t code)
@@ -96,65 +98,9 @@ namespace nasdaq::ouch
     return "unknown cancel reason";
   }
 
-  namespace
-  {
-    constexpr int64_t NS_PER_HOUR = 3'600'000'000'000LL;
-    constexpr int64_t NS_PER_DAY = 24 * NS_PER_HOUR;
-
-    // Days since 1970-01-01 of a proleptic Gregorian date (H. Hinnant).
-    int64_t days_from_civil(int64_t y, unsigned m, unsigned d)
-    {
-      y -= m <= 2;
-      const int64_t era = (y >= 0 ? y : y - 399) / 400;
-      const unsigned yoe = unsigned(y - era * 400);
-      const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-      const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-      return era * 146097 + int64_t(doe) - 719468;
-    }
-
-    int64_t year_of_days(int64_t z)
-    {
-      z += 719468;
-      const int64_t era = (z >= 0 ? z : z - 146096) / 146097;
-      const unsigned doe = unsigned(z - era * 146097);
-      const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-      const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-      const unsigned mp = (5 * doy + 2) / 153;
-      const unsigned m = mp < 10 ? mp + 3 : mp - 9;
-      return int64_t(yoe) + era * 400 + (m <= 2);
-    }
-
-    // The n-th Sunday (1-based) of month m of year y, as days since epoch.
-    int64_t nth_sunday(int64_t y, unsigned m, int n)
-    {
-      int64_t first = days_from_civil(y, m, 1);
-      int64_t wd = (first + 4) % 7; // 1970-01-01 was a Thursday; 0 = Sunday
-      if (wd < 0)
-        wd += 7;
-      return first + (7 - wd) % 7 + 7 * (n - 1);
-    }
-
-    // Daylight time from the second Sunday of March, 2:00 EST (7:00 UTC), to
-    // the first Sunday of November, 2:00 EDT (6:00 UTC).
-    bool eastern_dst(int64_t utc_ns)
-    {
-      int64_t y = year_of_days((utc_ns - 5 * NS_PER_HOUR) / NS_PER_DAY);
-      int64_t start = nth_sunday(y, 3, 2) * NS_PER_DAY + 7 * NS_PER_HOUR;
-      int64_t end = nth_sunday(y, 11, 1) * NS_PER_DAY + 6 * NS_PER_HOUR;
-      return utc_ns >= start && utc_ns < end;
-    }
-  }
-
   uint64_t eastern_midnight_epoch_ns(uint64_t epoch_ns)
   {
-    int64_t t = int64_t(epoch_ns);
-    int64_t off = (eastern_dst(t) ? 4 : 5) * NS_PER_HOUR;
-    int64_t local_day = (t - off) / NS_PER_DAY;
-    // Midnight is never inside a transition (they happen at 2:00), so the
-    // offset in force at midnight is that of the UTC instant it maps to.
-    int64_t mid = local_day * NS_PER_DAY + 5 * NS_PER_HOUR;
-    if (eastern_dst(mid))
-      mid -= NS_PER_HOUR;
-    return uint64_t(mid);
+    constexpr uint64_t NS = 1'000'000'000;
+    return uint64_t(post_trade::eastern_time::midnight(int64_t(epoch_ns / NS))) * NS;
   }
 }

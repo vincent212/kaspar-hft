@@ -87,8 +87,11 @@ namespace nasdaq::ouch
   }
 
   // The bytes of an outbound message (Nasdaq's side): the struct as it is
-  // on the wire, then its trailing field. For a message with Appendage
-  // Length, the length is set from the tail.
+  // on the wire, then its Optional Appendage (tail: the TagValue elements).
+  // For a message with an Appendage Length field, the field is set from the
+  // tail; for one whose trailing field is AppendageWithLength (every report),
+  // the 2-byte length is written before the tail when there is one, and
+  // nothing when there is none.
   template <class M>
   std::string to_bytes(M m, std::string_view tail = {})
   {
@@ -96,6 +99,12 @@ namespace nasdaq::ouch
     if constexpr (requires { m.AppendageLength; })
       m.AppendageLength = uint16_t(tail.size());
     std::string s(reinterpret_cast<const char *>(&m), sizeof(m));
+    if constexpr (!requires { m.AppendageLength; })
+      if (!tail.empty())
+      {
+        s.push_back(char(tail.size() >> 8));
+        s.push_back(char(tail.size() & 0xff));
+      }
     s.append(tail);
     return s;
   }
@@ -108,6 +117,6 @@ namespace nasdaq::ouch
   // OUCH timestamps are nanoseconds since midnight (OUCH 5.0 3.1); the spec
   // does not name the time zone. Taken as US Eastern time, Nasdaq's: the
   // epoch time, in ns, of the most recent Eastern midnight at or before
-  // epoch_ns, using the US daylight-saving rule in force since 2007.
+  // epoch_ns (post_trade::eastern_time::midnight).
   uint64_t eastern_midnight_epoch_ns(uint64_t epoch_ns);
 }

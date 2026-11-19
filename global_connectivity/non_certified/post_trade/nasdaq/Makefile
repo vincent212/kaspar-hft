@@ -32,12 +32,13 @@ LIB_SRC = $(HERE)/src/DropLine.cpp \
           $(HERE)/src/SoupSession.cpp \
           $(HERE)/src/SimDropServer.cpp \
           $(HERE)/src/NasdaqDropClient.cpp \
-          $(COMMON)/src/TradeLedger.cpp
+          $(COMMON)/src/TradeLedger.cpp \
+          $(COMMON)/src/EasternTime.cpp
 TEST_SRC = $(wildcard $(HERE)/tests/*.cpp)
 
 OBJDIR = $(HERE)/obj
 OBJ = $(patsubst $(HERE)/%.cpp,$(OBJDIR)/%.o,$(filter $(HERE)/%,$(LIB_SRC) $(TEST_SRC))) \
-      $(OBJDIR)/common/TradeLedger.o
+      $(patsubst $(COMMON)/src/%.cpp,$(OBJDIR)/common/%.o,$(filter $(COMMON)/%,$(LIB_SRC)))
 APP = $(HERE)/run_nasdaq_post_trade_tests
 
 PT_CXXFLAGS = $(STANDARD) -O1 -g -W -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations \
@@ -70,7 +71,7 @@ $(OBJDIR)/%.o: $(HERE)/%.cpp $(GEN_HDR)
 	@mkdir -p $(dir $@)
 	$(CXX) $(PT_CXXFLAGS) -MMD -c $< -o $@
 
-$(OBJDIR)/common/TradeLedger.o: $(COMMON)/src/TradeLedger.cpp
+$(OBJDIR)/common/%.o: $(COMMON)/src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(PT_CXXFLAGS) -MMD -c $< -o $@
 

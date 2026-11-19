@@ -30,6 +30,15 @@ and the client checked against a real DROP port.
 | `tests/` | gtest: ledger, codecs, the actor against `FakeDropSession`, the real session against the simulator |
 | `../common/include/post_trade/msg/TradeCapture.hpp` | the normalized trade-capture message, shared by every venue |
 | `../common/include/post_trade/TradeLedger.hpp`, `../common/src/TradeLedger.cpp` | the idempotent ledger, shared by every venue |
+| `../common/include/post_trade/EasternTime.hpp`, `../common/src/EasternTime.cpp` | US Eastern date and midnight from UTC, shared with the OUCH order manager |
+
+## Known duplication
+
+`SoupSession` here (one thread, `poll`-based) and
+`order_entry/nasdaq_ouch/include/nasdaq_ouch/SoupSession.hpp` (Boost.Asio)
+are two SoupBinTCP 3.00 client implementations. A shared SoupBinTCP session,
+used by both, is planned; until then a SoupBinTCP fix must be applied to
+both.
 
 ## Build and run the tests
 

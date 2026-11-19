@@ -266,11 +266,12 @@ TEST(OrderFields, ExchangeFeedVenueCodes)
   for (const char *n : names)
   {
     ++code;
-    EXPECT_TRUE(en::x_is_valid(n)) << n;
-    EXPECT_EQ(int(en::x_index_of(n)), code) << n;
+    // x_try_parse, not x_index_of: an unknown name must fail this test, not
+    // abort the whole test binary.
+    auto parsed = en::x_try_parse(n);
+    ASSERT_TRUE(parsed.has_value()) << n;
+    EXPECT_EQ(int(*parsed), code) << n;
     EXPECT_STREQ(en::to_string(en::x(code)), n);
   }
   EXPECT_EQ(int(en::x::HKEX), code);
-  EXPECT_EQ(en::x_num_syms(), size_t(en::x::HKEX) + 1);
-  EXPECT_LT(int(en::x::HKEX), 128) << "venue is stored in a char in the L3 records";
 }

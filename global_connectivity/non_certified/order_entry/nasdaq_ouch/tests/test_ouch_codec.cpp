@@ -214,9 +214,12 @@ TEST(OuchDecode, OrderAccepted) // OUCH 5.0 3.2, pp.11-12
   EXPECT_EQ(m.Capacity, 'P');
   EXPECT_EQ(m.OrderState, 'L');
   EXPECT_EQ(m.get_ClOrdID(), "CL1");
-  EXPECT_EQ(uint16_t(m.AppendageLength), 6u);
-  EXPECT_EQ(tail, FIRM_OPT);
-  EXPECT_EQ(find_option(tail, TAG_FIRM).value_or(""), "M2TT");
+  EXPECT_EQ(sizeof(m), 62u); // Appendage Length (62) and the appendage are the tail
+  EXPECT_EQ(tail, std::string("\x00\x06", 2) + FIRM_OPT);
+  EXPECT_EQ(find_option(tail.substr(2), TAG_FIRM).value_or(""), "M2TT");
+  // Without Appendage Length (62 bytes): decoded, with an empty tail.
+  decoded_as<from::OrderAccepted>(x.b.substr(0, 62), 62, &tail);
+  EXPECT_TRUE(tail.empty());
 }
 
 TEST(OuchDecode, OrderReplaced) // OUCH 5.0 3.3, pp.12-14
@@ -338,7 +341,8 @@ TEST(OuchDecode, OrderRestated) // OUCH 5.0 3.13, pp.18-19
   std::string tail;
   auto m = decoded_as<from::OrderRestated>(x.b, 22, &tail);
   EXPECT_EQ(m.Reason, 'R');
-  EXPECT_EQ(find_option(tail, 22).value_or(""), std::string("\x00\x00\x00\x64", 4));
+  ASSERT_EQ(tail.size(), 8u); // Appendage Length (14, 2), then the option
+  EXPECT_EQ(find_option(tail.substr(2), 22).value_or(""), std::string("\x00\x00\x00\x64", 4));
 }
 
 TEST(OuchDecode, MassCancelResponse) // OUCH 5.0 3.14, p.19
@@ -371,7 +375,7 @@ TEST(OuchDecode, AccountQueryResponse) // OUCH 5.0 3.17, p.20
 TEST(OuchDecode, ShortAndUnknownMessages)
 {
   auto d = from::decode("E\0\0", 3);
-  EXPECT_EQ(d.st, nasdaq::status::incomplete); // Executed is 36 bytes before its appendage
+  EXPECT_EQ(d.st, nasdaq::status::incomplete); // Executed is 34 bytes before its Appendage Length
   d = from::decode("Y", 1);
   EXPECT_EQ(d.st, nasdaq::status::unknown);
 }
@@ -394,11 +398,16 @@ TEST(OuchCodec, ToBytesSetsTypeAndAppendageLength)
   from::OrderExecuted e{};
   e.UserRefNum = 5;
   auto b = to_bytes(e, FIRM_OPT);
-  ASSERT_EQ(b.size(), 36u + 6u);
+  ASSERT_EQ(b.size(), 34u + 2u + 6u); // Appendage Length written before the options
   EXPECT_EQ(b[0], 'E');
   EXPECT_EQ(b.substr(34, 2), std::string("\x00\x06", 2));
+  EXPECT_EQ(to_bytes(e).size(), 34u); // no options: neither the length nor the appendage
   from::Rejected r{};
   EXPECT_EQ(to_bytes(r).size(), 29u); // appendage absent
+  to::CancelOrderRequest c{};
+  auto cb = to_bytes(c, std::string("\x02\x1c\x07", 3)); // a request: the field is set
+  ASSERT_EQ(cb.size(), 11u + 3u);
+  EXPECT_EQ(cb.substr(9, 2), std::string("\x00\x03", 2));
 }
 
 TEST(OuchCodec, ReasonTexts)

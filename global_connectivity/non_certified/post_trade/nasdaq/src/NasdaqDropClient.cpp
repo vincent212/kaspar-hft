@@ -206,6 +206,28 @@ namespace nasdaq_post_trade
 {
   namespace
   {
+    // text, the value of key, as a number in [lo, hi].
+    template <class T>
+    bool parse_num(const std::string &key, const std::string &text, T &v, T lo, T hi,
+                   std::string *err)
+    {
+      try
+      {
+        size_t used = 0;
+        long long x = std::stoll(text, &used);
+        if (used != text.size() || x < (long long)lo || x > (long long)hi)
+          throw std::out_of_range(key);
+        v = T(x);
+        return true;
+      }
+      catch (...)
+      {
+        *err = key + ": '" + text + "' is not a number in [" + std::to_string(lo) + ", " +
+               std::to_string(hi) + "]";
+        return false;
+      }
+    }
+
     template <class T>
     bool get_num(const boost::property_tree::ptree &p, const char *key, T &v, T lo, T hi,
                  std::string *err)
@@ -213,21 +235,7 @@ namespace nasdaq_post_trade
       auto o = p.get_optional<std::string>(key);
       if (!o)
         return true; // keep the default
-      try
-      {
-        size_t used = 0;
-        long long x = std::stoll(*o, &used);
-        if (used != o->size() || x < (long long)lo || x > (long long)hi)
-          throw std::out_of_range(key);
-        v = T(x);
-        return true;
-      }
-      catch (...)
-      {
-        *err = std::string(key) + ": '" + *o + "' is not a number in [" + std::to_string(lo) +
-               ", " + std::to_string(hi) + "]";
-        return false;
-      }
+      return parse_num(key, *o, v, lo, hi, err);
     }
 
     bool valid_date(uint32_t d)
@@ -287,8 +295,10 @@ namespace nasdaq_post_trade
     if (auto a = p.get_child_optional("assets"))
       for (const auto &[sym, v] : *a)
       {
+        // The node's own value, not a lookup by path: a symbol with a dot
+        // (BRK.B) is one key, not a path.
         int id = -1;
-        if (!get_num(*a, sym.c_str(), id, 0, 1'000'000'000, &why))
+        if (!parse_num("assets." + sym, v.get_value<std::string>(), id, 0, 1'000'000'000, &why))
           return std::nullopt;
         c.assets[sym] = id;
       }

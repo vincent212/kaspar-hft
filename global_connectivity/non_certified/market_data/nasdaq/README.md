@@ -47,7 +47,7 @@ Headers are generated, not committed. From the repository root:
 
 ```bash
 G=.claude/skills/build-feed-handler/tools/fieldgen.py
-OUT=build/nasdaq            # any directory outside the source tree
+OUT=build/nasdaq            # git-ignored (build/ in .gitignore); any scratch directory works
 mkdir -p $OUT
 for t in itch50 moldudp64 soupbintcp glimpse50; do
   python3 $G global_connectivity/non_certified/market_data/nasdaq/$t.tbl --check
