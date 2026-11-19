@@ -70,6 +70,10 @@ namespace coinbase_exchange
   // not be readable by group or others.
   bool load_credentials(const std::string &path, Credentials &out, std::string &err);
   std::string default_key_path();
+  // "~" or "~/..." with $HOME in place of the "~" (unchanged if HOME is not
+  // set, or the path does not start that way): the configuration files'
+  // paths.
+  std::string expand_home(const std::string &path);
 
   // Hosts of one environment (docs: exchange/introduction/sandbox,
   // exchange/websocket-feed/overview, exchange/fix-api/connectivity).

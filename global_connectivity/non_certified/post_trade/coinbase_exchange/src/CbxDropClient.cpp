@@ -110,24 +110,18 @@ bool DropConfig::from_file(const std::string &path, DropConfig &out, std::string
       err = "session.environment must be sandbox or production";
       return false;
     }
-    auto expand = [](std::string p) {
-      if (!p.empty() && p[0] == '~')
-        if (const char *h = std::getenv("HOME"))
-          p = std::string(h) + p.substr(1);
-      return p;
-    };
     auto &s = out.session;
     s.environment = *env;
     s.drop_copy = true;
     s.cancel_on_disconnect = 0;
     s.host = pt.get<std::string>("session.host", "");
     s.port = pt.get<int>("session.port", 0);
-    s.key_file = expand(pt.get<std::string>("session.key_file", default_key_path()));
+    s.key_file = expand_home(pt.get<std::string>("session.key_file", default_key_path()));
     s.heartbeat_s = pt.get<int>("session.heartbeat_s", 30);
-    s.store_dir = expand(pt.get<std::string>("session.store_dir", ""));
-    s.ca_file = expand(pt.get<std::string>("session.ca_file", ""));
-    s.transport_dict = expand(pt.get<std::string>("session.transport_dict", ""));
-    s.app_dict = expand(pt.get<std::string>("session.app_dict", ""));
+    s.store_dir = expand_home(pt.get<std::string>("session.store_dir", ""));
+    s.ca_file = expand_home(pt.get<std::string>("session.ca_file", ""));
+    s.transport_dict = expand_home(pt.get<std::string>("session.transport_dict", ""));
+    s.app_dict = expand_home(pt.get<std::string>("session.app_dict", ""));
     out.reconnect_ms = pt.get<int>("session.reconnect_ms", 5000);
     std::stringstream list(pt.get<std::string>("products.list", ""));
     std::string prod;

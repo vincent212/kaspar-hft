@@ -121,6 +121,14 @@ std::string default_key_path()
   return std::string(home ? home : ".") + "/.kaspar/keys/coinbase_exchange_sandbox.json";
 }
 
+std::string expand_home(const std::string &path)
+{
+  if (path.empty() || path[0] != '~' || (path.size() > 1 && path[1] != '/'))
+    return path;
+  const char *home = std::getenv("HOME");
+  return home ? std::string(home) + path.substr(1) : path;
+}
+
 bool load_credentials(const std::string &path, Credentials &out, std::string &err)
 {
   struct stat st{};

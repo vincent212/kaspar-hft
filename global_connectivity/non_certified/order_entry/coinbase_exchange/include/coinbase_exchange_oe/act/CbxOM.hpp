@@ -26,7 +26,10 @@
 //
 // Units: SOM prices are ticks of the product's quote_increment (as OB's);
 // SOM sizes are whole units of the product's `qty_unit` (default its
-// base_increment). OrderQty and Price are written as exact decimals.
+// base_increment). OrderQty and Price are written as exact decimals. A fill
+// is reported to the SOM in whole units; base increments below one unit are
+// carried per order to the next fill, so the units reported never exceed
+// what the venue filled and catch up as soon as a unit is complete.
 //
 // Duplicates: a fill is applied once per ExecID, and a Trade report whose
 // CumQty is not above what the order has already filled is a replay. After a
@@ -34,6 +37,15 @@
 // the status report (150=I) settles orders that ended while disconnected
 // (CancAck, or a Fill for quantity filled but never reported, priced from
 // AvgPx and logged as an error to check).
+//
+// Logon: if the session does not report logged_on within `logon_timeout_ms`
+// of connect (a TCP or TLS failure, which QuickFIX reports to nobody), it is
+// dropped and a new one made after `reconnect_ms`.
+//
+// Finished orders and their ids are forgotten at each logon (nothing is in
+// flight then: orders are refused while disconnected, and Coinbase resends
+// nothing after a logon with 141=Y) and at 00:00 UTC; a late report for a
+// forgotten order is logged as unknown.
 //
 // Refused locally, with a Reject: DAY when day_tif = reject (Coinbase has no
 // DAY; the default sends GTC), AT_OPEN, AT_CLOSE, EXTENDED_DAY, plain STOP,
@@ -100,6 +112,7 @@ namespace coinbase_exchange::oe
     double max_order_notional = 0;    // quote currency
     int max_orders_per_sec = 50;      // new orders; Coinbase allows 100 requests/s
     int reconnect_ms = 2000;
+    int logon_timeout_ms = 15000;     // no Logon answer within this: drop the session, reconnect
 
     bool sim = false;
     SimCbx::Config sim_config;
@@ -126,6 +139,7 @@ namespace coinbase_exchange::oe
     std::string clordid(int oid) const;
     uint64_t fills_applied() const { return fills_; }
     uint64_t duplicates_skipped() const { return dups_; }
+    uint64_t purges() const { return purges_; }
 
   private:
     class Events;
@@ -136,8 +150,8 @@ namespace coinbase_exchange::oe
       std::string symbol;
       const OEProduct *prod = nullptr;
       bool acked = false;
-      int64_t venue_cum = 0;  // SOM units, from CumQty
-      long double notional = 0; // sum of fill qty * price (quote currency), for AvgPx checks
+      int64_t remainder = 0;  // base increments filled but below one SOM unit, carried to the next fill
+      std::unordered_set<std::string> exec_ids; // ExecIDs applied to this order
     };
 
     void start_handler(const actors::msg::Start *) noexcept;
@@ -155,14 +169,25 @@ namespace coinbase_exchange::oe
     void ack_once(frame::som::ClientId cid) noexcept;
     void canceled(frame::som::ClientId cid, const char *why) noexcept;
     void request_status() noexcept;
+    void purge_done() noexcept;
 
     frame::som::ClientId cid_of(const std::string &uuid) const;
     std::string new_uuid(frame::som::ClientId cid);
     VenueOrder *venue_of(frame::som::ClientId cid);
+    // base increments the order has filled as the OM counts them: the units
+    // reported plus the remainder below a unit
+    int64_t applied_base(const VenueOrder &v, const frame::som::Entry &e) const;
+    // `base` more increments filled: the whole units of it (with the
+    // remainder carried), the rest kept in v.remainder
+    int64_t take_units(VenueOrder &v, int64_t base) const;
 
     void connect() noexcept;
     void drop_session() noexcept;
     void schedule_reconnect() noexcept;
+    void schedule_purge() noexcept;
+    // `t` sends a CbxReport of kind `k` for the current session after `ms`
+    // (unless stopped first)
+    void arm(std::jthread &t, int ms, msg::CbxReport::Kind k) noexcept;
     bool take_token() noexcept;
     void reject(actors::Actor *to, int oid, int reason, const char *why) noexcept;
     void cancel_reject(actors::Actor *to, int oid, int reason, const char *why) noexcept;
@@ -176,7 +201,6 @@ namespace coinbase_exchange::oe
     std::unordered_map<frame::som::ClientId, std::string> uuid_of_cid_;
     std::unordered_map<std::string, frame::som::ClientId> cid_of_uuid_;
     std::unordered_map<int, VenueOrder> vorders_; // by SOM oid
-    std::unordered_set<std::string> exec_ids_;  // ExecIDs applied
 
     std::unique_ptr<Events> events_;
     std::unique_ptr<CbxSession> session_;
@@ -186,11 +210,11 @@ namespace coinbase_exchange::oe
     bool busy_ = false;
     bool stopping_ = false;
     bool rejected_ = false; // logon rejected: no retry
-    uint64_t fills_ = 0, dups_ = 0;
+    uint64_t fills_ = 0, dups_ = 0, purges_ = 0;
 
     double tokens_ = 0;
     std::chrono::steady_clock::time_point refilled_{};
-    std::jthread reconnect_timer_;
+    std::jthread reconnect_timer_, logon_timer_, purge_timer_;
   };
 }
 

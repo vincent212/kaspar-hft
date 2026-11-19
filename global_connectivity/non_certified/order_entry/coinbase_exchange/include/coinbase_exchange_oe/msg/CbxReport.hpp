@@ -28,8 +28,10 @@ namespace coinbase_exchange::oe::msg
       DISCONNECTED,
       BUSY,
       AVAILABLE,
-      MESSAGE,   // an application message, in fix
-      RECONNECT, // from the actor's own reconnect timer
+      MESSAGE,       // an application message, in fix
+      RECONNECT,     // from the actor's own reconnect timer
+      LOGON_TIMEOUT, // from the actor's own timer: no logged_on since connect
+      PURGE,         // from the actor's own timer: forget finished orders
     };
 
     Kind kind;

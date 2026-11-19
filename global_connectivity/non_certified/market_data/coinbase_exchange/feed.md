@@ -241,9 +241,12 @@ BTC-USD and ETH-USD `quote_increment` "0.01", `base_increment` "0.00000001").
   or a match larger than the order) sends `l3_gap_v2_t` to OB, buffers the
   stream, and fetches a snapshot; the snapshot goes to OB as `l3_chr_v2_t`
   followed by recovery adds. There is no retransmission service.
-- **Heartbeat**: a heartbeat whose `sequence` is above the last applied while
-  nothing is held is counted (`hb_ahead`), not acted on: whether a heartbeat
-  can overtake messages on the same connection is not documented.
+- **Heartbeat**: a heartbeat whose `sequence` is above the last applied is
+  counted (`hb_ahead`): the message after the last applied is missing. If the
+  stream has not advanced 3 s after the first such heartbeat
+  (`heartbeat_gap_ns`), that is a gap and the book is rebuilt; whether a
+  heartbeat can overtake messages on the same connection is not documented,
+  so a heartbeat alone never triggers a resync.
 - **Resets**: none documented. A new connection is a new stream: the book is
   rebuilt from a snapshot.
 
@@ -432,7 +435,7 @@ snapshot's order is taken as queue priority.
 |---|---|---|---|
 | Is the REST level-3 list at one price in queue priority? | Yes; recovery adds go to OB in that order | Arbitrary order | Measured: at most 10 violations in 1,151,103 level comparisons (section 9), each explainable by a size-up modify. Not documented. |
 | Does a same-size, same-price `modify_order` lose priority? | It changes nothing and is not sent | Coinbase may requeue it | Open: needs the authenticated `full` channel |
-| May a heartbeat overtake messages on the same connection? | Not assumed: counted only | Treat `heartbeat.sequence > last` as a gap | Open |
+| May a heartbeat overtake messages on the same connection? | Not assumed: counted, and a gap only if the stream stays behind it for 3 s | Treat `heartbeat.sequence > last` as a gap at once | Open |
 | Does `done` follow a `match` that filled the maker? | Yes (CH: "done ... for all orders for which there was a received message"); the delete is sent on the match and the `done` ignored | Wait for `done` to delete | Documentation; checked live only on the public `matches` data (orders the matches filled were never in the next snapshot: 0 of 7,754 on BTC-USD and 0 of 959 on ETH-USD, both runs) |
 | Polling the REST level-3 book "can cause your access to be limited" (BOOK). How often is too often? | Snapshots only to (re)synchronise, with backoff; the public check fetched one per product per 60 s | Every 10 s, as crypto.md asks for the comparison | **Owner decision**: the level-3 comparison interval (section "Checked" of README.md used 60 s) |
 | `displayQty` unit: OB refuses 10,000,000 units or more, so a unit fine enough for small orders (1e-8) cannot hold large ones | 1e-5 BTC, 1e-4 ETH; ceil; saturate above the cap | Other units per product | **Owner decision** (config/products.ini) |

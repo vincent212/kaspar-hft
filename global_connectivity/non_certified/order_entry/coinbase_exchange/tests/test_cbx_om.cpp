@@ -197,6 +197,25 @@ TEST_F(CbxOMTest, OrderBeforeLogonIsRejected)
   EXPECT_TRUE(cb.sent("D").empty());
 }
 
+// The connection never comes up (TCP or TLS): QuickFIX tells nobody, so the
+// OM gives up on the session after logon_timeout_ms and makes a new one.
+TEST_F(CbxOMTest, NoLogonAnswerMakesANewSession)
+{
+  cb.auto_logon = false;
+  auto c = cfg();
+  c.logon_timeout_ms = 50;
+  start(false, c);
+  ASSERT_TRUE(wait_until([&] { return cb.sessions().size() == 1; }));
+  ASSERT_TRUE(wait_until([&] { return cb.sessions().size() == 2; })) << "dropped after the logon timeout";
+  EXPECT_FALSE(om->ready());
+  cb.auto_logon = true;
+  ASSERT_TRUE(wait_until([&] { return om->ready(); })) << "a later session logs on";
+  EXPECT_GE(cb.sessions().size(), 3u);
+  auto n = cb.sessions().size();
+  settle();
+  EXPECT_EQ(cb.sessions().size(), n) << "logged on: the timeout does not fire";
+}
+
 TEST_F(CbxOMTest, LogonRejectedStaysDown)
 {
   cb.reject_logon = true;
@@ -524,7 +543,7 @@ TEST_F(CbxOMTest, FillAfterTheCancelAckStillCounts)
   EXPECT_EQ(f->sz, 10);
 }
 
-TEST_F(CbxOMTest, RestatementIsNotAFill)
+TEST_F(CbxOMTest, RestatementCutsTheQuantityAndIsNotAFill)
 {
   start();
   auto d = place(order(1));
@@ -532,23 +551,75 @@ TEST_F(CbxOMTest, RestatementIsNotAFill)
   auto r = er(d, 'D', '0', "0", "0.0010");
   r.set(ExecRestatementReason, "5");
   cb.deliver(r);
-  settle();
+  ASSERT_TRUE(wait_until([&] { return om->book().find_oid(1)->qty == 10; })) << "25 units cut to 10";
+  EXPECT_EQ(om->book().find_oid(1)->leaves, 10);
+  EXPECT_EQ(om->book().find_oid(1)->state, State::Working);
   EXPECT_TRUE(somr.all<som::Fill>().empty());
   EXPECT_TRUE(somr.all<som::CancAck>().empty()) << "0.0010 is still working";
-  auto r2 = er(d, 'D', '0', "0", "0");
+  // a fill of the restated quantity finishes the order
+  cb.deliver(trade(d, "0.0010", "64000.00", "0.0010", "0"));
+  auto f = somr.wait_for<som::Fill>();
+  ASSERT_NE(f, nullptr);
+  EXPECT_EQ(f->sz, 10);
+  EXPECT_EQ(f->still_to_be_filled, 0);
+  EXPECT_EQ(om->book().find_oid(1)->state, State::Filled);
+  // restated to nothing: the order is gone
+  auto d2 = place(order(2));
+  ack(d2);
+  auto r2 = er(d2, 'D', '0', "0", "0");
   r2.set(ExecRestatementReason, "5");
   cb.deliver(r2);
-  ASSERT_NE(somr.wait_for<som::CancAck>(), nullptr) << "restated to nothing: the order is gone";
+  ASSERT_NE(somr.wait_for<som::CancAck>(), nullptr);
+  EXPECT_EQ(somr.all<som::CancAck>()[0]->id, 2u);
 }
 
-TEST_F(CbxOMTest, FillInUnitsTheProductCannotHoldIsNotGuessed)
+// The venue says the order is done (OrdStatus 2) on a fill short of the OM's
+// quantity (a restatement the OM never saw): the fill finishes the order.
+TEST_F(CbxOMTest, TradeWithOrdStatusFilledFinishesTheOrder)
 {
   start();
   auto d = place(order(1));
   ack(d);
-  cb.deliver(trade(d, "0.00000001", "64000.00", "0.00000001", "0.00249999"));
+  cb.deliver(trade(d, "0.0010", "64000.00", "0.0010", "0")); // OrdStatus 2 at 10 of 25 units
+  auto f = somr.wait_for<som::Fill>();
+  ASSERT_NE(f, nullptr);
+  EXPECT_EQ(f->sz, 10);
+  EXPECT_EQ(f->still_to_be_filled, 0);
+  EXPECT_EQ(om->book().find_oid(1)->state, State::Filled);
+  EXPECT_EQ(om->book().find_oid(1)->qty, 10);
+  cancel(1);
+  auto cr = somr.wait_for<som::CancReject>();
+  ASSERT_NE(cr, nullptr);
+  EXPECT_EQ(cr->reason, som::CancReject::FILLEDALREADY);
+}
+
+// Fills come in base increments; the SOM gets whole units. What is below a
+// unit is carried to the next fill of the same order, never rounded.
+TEST_F(CbxOMTest, FillsBelowAUnitAreCarriedToTheNextFill)
+{
+  start();
+  auto d = place(order(1));
+  ack(d);
+  cb.deliver(trade(d, "0.00005", "64000.00", "0.00005", "0.00245")); // half a unit
   settle();
-  EXPECT_TRUE(somr.all<som::Fill>().empty()) << "1e-8 is not a whole number of 0.0001 units: logged, not rounded";
+  EXPECT_TRUE(somr.all<som::Fill>().empty()) << "below one unit of 0.0001: carried";
+  cb.deliver(trade(d, "0.00005", "64000.00", "0.0001", "0.0024")); // the other half
+  auto f = somr.wait_for<som::Fill>();
+  ASSERT_NE(f, nullptr);
+  EXPECT_EQ(f->sz, 1);
+  EXPECT_EQ(f->still_to_be_filled, 24);
+  cb.deliver(trade(d, "0.00015", "64000.00", "0.00025", "0.00225")); // 1.5 units: 1 now, 0.5 carried
+  f = somr.wait_for<som::Fill>(1);
+  ASSERT_NE(f, nullptr);
+  EXPECT_EQ(f->sz, 1);
+  cb.deliver(trade(d, "0.00005", "64000.00", "0.0003", "0.0022"));
+  f = somr.wait_for<som::Fill>(2);
+  ASSERT_NE(f, nullptr);
+  EXPECT_EQ(f->sz, 1);
+  settle();
+  EXPECT_EQ(somr.all<som::Fill>().size(), 3u) << "0.0003 filled: 3 units, as the venue has it";
+  EXPECT_EQ(om->book().find_oid(1)->cum, 3);
+  EXPECT_EQ(om->duplicates_skipped(), 0u) << "CumQty in increments: none of these was a replay";
 }
 
 // ---- busy, reconnect, replay ---------------------------------------------------------------
@@ -634,6 +705,57 @@ TEST_F(CbxOMTest, OrderUnknownToTheVenueAfterReconnectIsRejected)
   r.set(OrdStatus, '8').set(ExecType, 'I').set(Symbol, "BTC-USD").set(OrdRejReason, "5");
   cb.deliver(r);
   ASSERT_NE(somr.wait_for<som::Reject>(), nullptr);
+}
+
+TEST_F(CbxOMTest, OrderRejectedInTheStatusAnswerIsAReject)
+{
+  start();
+  auto d = place(order(1)); // never acknowledged
+  cb.disconnect();
+  ASSERT_TRUE(wait_until([&] { return cb.sent("H").size() == 1; }));
+  FixMsg r("8");
+  r.set(ClOrdID, d.get(ClOrdID)).set(OrderID, ORDER_ID).set(ExecID, "x");
+  r.set(OrdStatus, '8').set(ExecType, 'I').set(Symbol, "BTC-USD").set(OrdRejReason, "1").set(Text, "Unknown Symbol");
+  cb.deliver(r);
+  auto j = somr.wait_for<som::Reject>();
+  ASSERT_NE(j, nullptr);
+  EXPECT_EQ(j->id, 1u);
+  EXPECT_EQ(j->reason, som::Reject::EXCHLIMIT);
+  EXPECT_EQ(om->book().find_oid(1)->state, State::Rejected);
+}
+
+// Finished orders are forgotten at the next logon, with their ids and
+// ExecIDs; live ones are kept and asked about.
+TEST_F(CbxOMTest, LogonForgetsFinishedOrders)
+{
+  start();
+  auto d1 = place(order(1));
+  ack(d1);
+  cb.deliver(trade(d1, "0.0025", "64000.00", "0.0025", "0"));
+  ASSERT_NE(somr.wait_for<som::Fill>(), nullptr);
+  auto d2 = place(order(2));
+  ack(d2);
+  auto d3 = place(order(3));
+  auto j = er(d3, '8', '8');
+  j.set(OrdRejReason, "1");
+  cb.deliver(j);
+  ASSERT_NE(somr.wait_for<som::Reject>(), nullptr);
+  EXPECT_EQ(om->book().size(), 3u);
+  cb.disconnect();
+  ASSERT_TRUE(wait_until([&] { return cb.sessions().size() == 2 && om->ready(); }));
+  ASSERT_TRUE(wait_until([&] { return cb.sent("H").size() == 1; }));
+  EXPECT_EQ(cb.sent("H")[0].get(ClOrdID), d2.get(ClOrdID)) << "only the live order is asked about";
+  EXPECT_EQ(om->book().size(), 1u);
+  EXPECT_EQ(om->book().find_oid(1), nullptr);
+  EXPECT_EQ(om->book().find_oid(3), nullptr);
+  EXPECT_NE(om->book().find_oid(2), nullptr);
+  EXPECT_TRUE(om->clordid(1).empty());
+  EXPECT_EQ(om->clordid(2), d2.get(ClOrdID));
+  EXPECT_GE(om->purges(), 2u) << "at each logon";
+  // a late report for the forgotten order is unknown: nothing reaches the SOM
+  cb.deliver(trade(d1, "0.0001", "64000.00", "0.0026", "0"));
+  settle();
+  EXPECT_EQ(somr.all<som::Fill>().size(), 1u);
 }
 
 TEST_F(CbxOMTest, OrdersAndCancelsWhileDisconnectedAreRefused)
@@ -749,6 +871,17 @@ TEST(CbxGuard, SandboxNeverReachesProduction)
   EXPECT_FALSE(host_allowed(Environment::Production, "fix-ord.sandbox.exchange.coinbase.com", nullptr, err));
   EXPECT_EQ(endpoints(Environment::Sandbox).fix_ord_host, "fix-ord.sandbox.exchange.coinbase.com");
   EXPECT_EQ(endpoints(Environment::Sandbox).fix_dc_port, 6122);
+}
+
+TEST(CbxGuard, ExpandHome)
+{
+  const char *h = std::getenv("HOME");
+  ASSERT_NE(h, nullptr);
+  EXPECT_EQ(expand_home("~"), std::string(h));
+  EXPECT_EQ(expand_home("~/.kaspar/keys/x.json"), std::string(h) + "/.kaspar/keys/x.json");
+  EXPECT_EQ(expand_home("/var/tmp/x"), "/var/tmp/x");
+  EXPECT_EQ(expand_home("~other/x"), "~other/x") << "another user's home is not guessed";
+  EXPECT_EQ(expand_home(""), "");
 }
 
 TEST(CbxGuard, CredentialsFile)

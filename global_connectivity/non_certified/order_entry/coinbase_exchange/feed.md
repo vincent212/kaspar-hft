@@ -124,12 +124,12 @@ and the local limits. Not used: `CashOrderQty` (152), TPSL (40=O),
 | Venue report | Book call | SOM message |
 |---|---|---|
 | 35=8, 150=0 New | `on_accepted(cid, order_id64(37))` | `Ack` (once) |
-| 35=8, 150=F Trade | `on_fill(cid, LastQty in units)`, after `on_accepted` | `Ack` first if none was sent, then `Fill` (`pxi` = LastPx in ticks, `still_to_be_filled` = leaves) |
+| 35=8, 150=F Trade | `on_fill(cid, whole units of LastQty plus the order's carried remainder)`, after `on_accepted`; `on_restated` first when OrdStatus is 2 short of the OM's quantity | `Ack` first if none was sent, then `Fill` (`pxi` = LastPx in ticks, `still_to_be_filled` = leaves) |
 | 35=8, 150=4 Canceled | `on_canceled` | `CancAck` (requested or unsolicited) |
 | 35=8, 150=C Expired (IOC, FOK, GTD) | `on_canceled` | `CancAck` |
 | 35=8, 150=8 Rejected | `on_rejected` | `Reject` (`EXCHLIMIT`) |
-| 35=8, 150=D Restated (STP partial decline, 378=5) | none while LeavesQty > 0; `on_canceled` at LeavesQty 0 | `CancAck` at 0; never a `Fill` |
-| 35=8, 150=I Order status | settles the order (section 8) | `Ack`, a missing `Fill`, `CancAck` or `Reject` |
+| 35=8, 150=D Restated (STP partial decline, 378=5) | `on_restated(cid, CumQty + LeavesQty in units)` while a whole unit is left; `on_canceled` below one | none, or `CancAck`; never a `Fill`. A fill of the restated rest finishes the order |
+| 35=8, 150=I Order status | settles the order (section 8) | `Ack`, a missing `Fill`, `CancAck` or `Reject` (OrdStatus 8 with any OrdRejReason, on an order not yet accepted) |
 | 35=8, 150=5 Replaced | none (the OM never replaces) | logged as an error |
 | 35=9 OrderCancelReject | `on_cancel_rejected` | `CancReject` (`FROMEXCHANGE`) |
 | 35=j BusinessMessageReject, 372=D | `on_rejected` (379 = ClOrdID) | `Reject` |
@@ -142,9 +142,11 @@ ID of the (new) order"). The OM maps any id an order used.
 
 Fill before ack, fill racing a cancel and fill after the cancel ack are counted
 once each (BrokerOrderBook); a Trade report whose `CumQty` (14) is not above
-what the order has filled is a replay, skipped. A fill whose `LastQty` is not a
-whole number of `qty_unit` is logged as an error, never rounded (with the
-default `qty_unit` = `base_increment` this cannot happen).
+what the order has filled (in base increments) is a replay, skipped. A fill is
+reported in whole units of `qty_unit`; base increments below one unit are
+carried per order and reported with the next fill that completes a unit, so
+the OM's position never exceeds the venue's and catches up by the next fill
+(with the default `qty_unit` = `base_increment` nothing is carried).
 
 ## 8. Throttles, reconnect, risk
 
@@ -154,13 +156,18 @@ default `qty_unit` = `base_increment` this cannot happen).
   cancels are never throttled. Coinbase documents no "busy" answer; the session
   interface's busy/available is kept for parity with the other OMs.
 - **Reconnect**: after a disconnect the OM makes a new session after
-  `reconnect_ms`, logs on with `141=Y` (so nothing is resent), and sends
-  OrderStatusRequest (35=H, OE5) for every live order. The answer (150=I)
+  `reconnect_ms`, logs on with `141=Y` (so nothing is resent), forgets the
+  orders that are done (and their ids), and sends
+  OrderStatusRequest (35=H, OE5) for every live order. A session that does not
+  report logged on within `logon_timeout_ms` (a TCP or TLS connection that never
+  came up, which QuickFIX reports to nobody) is dropped the same way; inside
+  one session QuickFIX retries the connection every `reconnect_s`. The answer (150=I)
   gives `OrdStatus` and `CumQty`: a cancel while away becomes `CancAck`;
   quantity filled while away and never reported becomes one `Fill` priced so the
   order's average is `AvgPx`, logged as an error for a person to check; an order
   Coinbase does not know (`OrdStatus` 8, `OrdRejReason` 5) that was never
-  acknowledged becomes `Reject`. Reports resent later are skipped by ExecID and
+  acknowledged becomes `Reject`, as does one Coinbase reports rejected with any
+  other `OrdRejReason`. Reports resent later are skipped by ExecID and
   CumQty. CL (2025-OCT-1): ERs for orders of earlier sessions are delivered to
   the current session.
 - **Cancel on disconnect**: 8013=Y by default (OE5); "orders that were sent ...

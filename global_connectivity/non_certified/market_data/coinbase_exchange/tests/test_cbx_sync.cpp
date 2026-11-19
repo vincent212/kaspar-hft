@@ -26,6 +26,7 @@
 
 #include "Verifier.hpp"
 #include "coinbase_exchange/CoinbaseExchangeSync.hpp"
+#include "coinbase_exchange/act/CoinbaseExchangeFeed.hpp"
 #include "enum/e_names.hpp"
 
 using namespace coinbase_exchange;
@@ -194,6 +195,10 @@ TEST(CbxNum, ProductSpecDisplayRoundsUpAndSaturates)
   EXPECT_TRUE(sat);
   std::string err;
   EXPECT_FALSE(ProductSpec::make("X", 1, 0, "0.01", "0.00000001", "0.000000001", err)) << "unit finer than the increment";
+  EXPECT_FALSE(ProductSpec::make("X", 1, 0, "0.01", "0.00000002", "0.00000003", err))
+      << "unit not a multiple of base_increment";
+  EXPECT_TRUE(ProductSpec::make("X", 1, 0, "0.01", "0.00000002", "0.00000006", err)) << err;
+  EXPECT_EQ(ProductSpec::make("X", 1, 0, "0.01", "0.00000002", "0.00000006", err)->qty_unit, 6);
 }
 
 // ---- snapshot alignment (channels.md, full channel steps 1-6) --------------------------
@@ -586,6 +591,35 @@ TEST_F(CbxSyncTest, HeartbeatAheadOfTheStreamIsCounted)
   msg({{"type", "heartbeat"}, {"sequence", 89}, {"last_trade_id", 20}, {"product_id", "BTC-USD"},
        {"time", "2014-11-07T08:19:29.464459Z"}});
   EXPECT_EQ(s->stats().hb_ahead, 1u);
+  EXPECT_TRUE(all<bfile::l3_gap_v2_t>().empty());
+}
+
+// The heartbeat says the venue is past the stream: the message after the last
+// applied is missing. Still missing after heartbeat_gap_ns, it is a gap; the
+// clock restarts whenever the stream advances.
+TEST_F(CbxSyncTest, HeartbeatAheadOfTheStreamForTooLongIsAGap)
+{
+  const uint64_t sec = 1000000000ull;
+  sync_empty(89);
+  auto hb = [&](int64_t seq, uint64_t recv) {
+    msg({{"type", "heartbeat"}, {"sequence", seq}, {"last_trade_id", 20}, {"product_id", "BTC-USD"},
+         {"time", "2014-11-07T08:19:28.464459Z"}},
+        recv);
+  };
+  hb(90, 1 * sec);
+  hb(91, 2 * sec);
+  hb(92, 4 * sec); // 3 s since the first: not yet
+  EXPECT_TRUE(all<bfile::l3_gap_v2_t>().empty());
+  EXPECT_TRUE(s->synced());
+  msg(open(90, A, "sell", "200.2", "1"), 4 * sec + 1); // the stream advances: 91 is the missing one now
+  hb(93, 7 * sec);
+  EXPECT_TRUE(all<bfile::l3_gap_v2_t>().empty()) << "91 has been missing for under 3 s";
+  hb(94, 10 * sec + 1);
+  EXPECT_EQ(all<bfile::l3_gap_v2_t>().size(), 1u);
+  EXPECT_EQ(s->stats().gaps, 1u);
+  EXPECT_FALSE(s->synced());
+  EXPECT_TRUE(s->need_snapshot());
+  EXPECT_EQ(s->stats().hb_ahead, 5u);
 }
 
 TEST_F(CbxSyncTest, ActivateHasNoSequenceAndChangesNothing)
@@ -687,7 +721,90 @@ TEST_F(CbxSyncTest, PartialStreamAcceptsJumpsAndCountsUnknownMakers)
 
 } // namespace
 
+// ---- the feed's L3 handler ------------------------------------------------------------------
+
+// A level-3 book the sync did not ask for (a periodic fetch, or one in flight
+// when the sync caught up) is not applied: it would rebuild a book in sync and
+// could move its sequence backwards.
+TEST(CbxL3Handler, SnapshotNotAskedForIsIgnored)
+{
+  std::vector<bfile::l3_t> out;
+  auto h = make_l3_handler(CoinbaseExchangeSync::Config{btc()}, [&](const bfile::l3_t &r) { out.push_back(r); });
+  auto snap = [](int64_t seq) {
+    return json{{"sequence", seq}, {"time", "2026-11-18T17:00:00Z"}, {"bids", json::array()}, {"asks", json::array()}};
+  };
+  EXPECT_TRUE(h->need_snapshot());
+  h->on_rest(3, snap(100), 0, 1);
+  EXPECT_FALSE(h->need_snapshot());
+  EXPECT_NE(h->status_line().find(" seq 100 "), std::string::npos) << h->status_line();
+  const size_t n = out.size();
+  h->on_rest(3, snap(50), 0, 2);
+  EXPECT_EQ(out.size(), n) << "an older book, not asked for: nothing to OB";
+  EXPECT_NE(h->status_line().find(" seq 100 "), std::string::npos) << h->status_line();
+  h->on_frame(json{{"type", "open"}, {"time", "2026-11-18T17:00:01Z"}, {"product_id", "BTC-USD"}, {"sequence", 101},
+                   {"order_id", A}, {"price", "100.00"}, {"remaining_size", "1"}, {"side", "sell"}},
+              3);
+  EXPECT_NE(h->status_line().find(" seq 101 "), std::string::npos) << "still in sync: 101 follows 100";
+  h->on_disconnect(4);
+  EXPECT_TRUE(h->need_snapshot());
+  h->on_rest(3, snap(200), 0, 5);
+  EXPECT_FALSE(h->need_snapshot()) << "asked for: applied";
+}
+
 // ---- the step-3 checker, on a synthetic stream --------------------------------------------
+
+// The level3 channel's schema arrives once per connection; the second sync
+// needs it to read the compact arrays in the ring, also after the ring has
+// rolled past it.
+TEST(CbxL3Checker, Level3SchemaIsReplayedIntoTheSecondSync)
+{
+  auto spec = btc();
+  coinbase_exchange::verify::L3Checker c(spec, 3); // the ring holds 3 messages
+  auto snap = [](int64_t seq, std::vector<std::vector<std::string>> asks) {
+    json j{{"sequence", seq}, {"time", "2026-11-18T17:00:00Z"}, {"bids", json::array()}};
+    j["asks"] = json::array();
+    for (auto &a : asks)
+      j["asks"].push_back(a);
+    return j;
+  };
+  auto open = [](int64_t seq, const char *id, const char *sz) {
+    return json::array({"open", "BTC-USD", std::to_string(seq), id, "sell", "100.00", sz, "2026-11-18T17:00:01Z"});
+  };
+  c.on_frame(json::parse(R"({"type":"level3","schema":{
+      "open":["type","product_id","sequence","order_id","side","price","size","time"]}})"),
+             1);
+  c.on_rest(3, snap(10, {}), 0, 2);
+  ASSERT_TRUE(c.sync().synced());
+  c.on_frame(open(11, A, "1"), 3);
+  c.on_frame(open(12, B, "2"), 4);
+  c.on_frame(open(13, C, "3"), 5);
+  c.on_frame(open(14, D, "4"), 6); // the ring now holds 12, 13, 14
+  ASSERT_EQ(c.sync().orders(), 4u);
+  c.on_rest(3, snap(11, {{"100.00", "1", A}}), 0, 7);
+  EXPECT_EQ(c.totals().skipped, 0u) << "the ring's arrays were read with the schema";
+  EXPECT_EQ(c.totals().checks, 1u);
+  EXPECT_EQ(c.totals().equal, 1u);
+  // a new connection sends a new schema (here with another column order): it
+  // replaces the old one
+  c.on_disconnect(8);
+  c.on_frame(json::parse(R"({"type":"level3","schema":{
+      "open":["type","product_id","sequence","order_id","price","size","side","time"]}})"),
+             9);
+  auto open2 = [](int64_t seq, const char *id, const char *sz) {
+    return json::array({"open", "BTC-USD", std::to_string(seq), id, "100.00", sz, "sell", "2026-11-18T17:00:01Z"});
+  };
+  c.on_frame(open2(20, A, "1"), 10); // buffered until the snapshot
+  c.on_rest(3, snap(19, {}), 0, 11);
+  ASSERT_TRUE(c.sync().synced());
+  c.on_frame(open2(21, B, "1"), 12);
+  c.on_frame(open2(22, C, "1"), 13);
+  c.on_frame(open2(23, D, "1"), 14); // the ring holds 21, 22, 23
+  ASSERT_EQ(c.sync().orders(), 4u);
+  c.on_rest(3, snap(20, {{"100.00", "1", A}}), 0, 15);
+  EXPECT_EQ(c.totals().skipped, 0u);
+  EXPECT_EQ(c.totals().checks, 2u);
+  EXPECT_EQ(c.totals().equal, 2u);
+}
 
 
 TEST(CbxL3Checker, EqualBooksAtTheSameSequenceAndADifferenceIsFound)

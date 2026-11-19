@@ -18,7 +18,7 @@ description, with its sources and open questions, is `feed.md`.
 | `include/coinbase_exchange_oe/SimCbx.hpp`, `src/SimCbx.cpp` | In-process Coinbase for `--sim` |
 | `src/CbxConfig.cpp`, `config/cbx_om_example.ini` | Configuration |
 | `fix/FIXT11-prod-sand.xml`, `fix/FIX50-prod-sand.xml` | Coinbase's dictionaries, from `cb_exch_fix_dictionaries-20260612.zip` (SHA-256 of the zip 8dfda183db11f08ab89a1194245283cb50e43612ea6323d1d4bdadadc1483dee) |
-| `tests/` | `test_cbx_om.cpp` (35 actor tests and 5 unit tests), `test_sim_cbx.cpp` (3), `test_qf_session.cpp` (5, with QuickFIX), `FakeCbx.hpp`, `TestUtil.hpp` |
+| `tests/` | `test_cbx_om.cpp` (40 actor tests and 6 unit tests), `test_sim_cbx.cpp` (3), `test_qf_session.cpp` (5, with QuickFIX), `FakeCbx.hpp`, `TestUtil.hpp` |
 
 The market-data directory provides `coinbase_exchange/Rest.hpp` (signature,
 credentials, endpoints, the sandbox guard) and `Num.hpp` (decimals, UUIDs,
@@ -28,8 +28,8 @@ times).
 
 ```bash
 export KSPRPROJ=~/kaspar-hft
-make test                                   # without QuickFIX: 43 tests
-make test QUICKFIX_PATH=/path/to/quickfix   # with it: 48 tests
+make test                                   # without QuickFIX: 48 tests
+make test QUICKFIX_PATH=/path/to/quickfix   # with it: 53 tests
 ```
 
 `QUICKFIX_PATH` must hold `include/quickfix/` and `libquickfix.a` built with
@@ -42,7 +42,8 @@ QuickFIX's CMake generates it). The libraries must be built with the
 
 ## Checked (2026-11-18, macOS, clang)
 
-- 48 of 48 tests pass with QuickFIX (43 without). They cover the list in
+- 53 of 53 tests pass with QuickFIX (48 without; the QuickFIX tests were
+  last run on 2026-11-18, before the fixes of PR #215's review). They cover the list in
   `order_entry.md`: logon and registration with the SOM; a bad config gives
   `nullptr`; orders before logon or while disconnected are refused; the fields
   of every order type, side and time in force as sent; unsupported orders
@@ -50,12 +51,16 @@ QuickFIX's CMake generates it). The libraries must be built with the
   full fill; reject; business reject; cancel round trip with a new ClOrdID;
   cancel reject leaves the order working; cancel of unknown or filled orders;
   unsolicited cancel; IOC partial fill then expiry; fill before ack (one Ack,
-  before the Fill); fill racing a cancel; fill after the cancel ack; restatement
-  is not a fill; a fill not in whole units is not guessed; busy connection;
-  reconnect delivers a missed fill once (from OrderStatusRequest) and skips the
+  before the Fill); fill racing a cancel; fill after the cancel ack; a
+  restatement cuts the quantity (a fill of the rest finishes the order) and is
+  not a fill; a Trade with OrdStatus Filled short of the OM's quantity finishes
+  the order; a fill below one unit is carried to the next fill of the order,
+  never rounded; busy connection; no Logon answer drops the session and makes
+  a new one; reconnect delivers a missed fill once (from OrderStatusRequest) and skips the
   venue's resend; replayed reports (same ExecID, or a CumQty already counted)
-  applied once; status after reconnect settles a cancel and a never-arrived
-  order; unknown reports ignored; ClOrdIDs unique and not reused across a
+  applied once; status after reconnect settles a cancel, a never-arrived
+  order and a rejected one; a logon forgets finished orders and their ids;
+  unknown reports ignored; ClOrdIDs unique and not reused across a
   restart; shutdown with reports in flight.
 - The Logon signature against vectors computed with Python's `hmac`,
   `hashlib` and `base64` (the documentation gives code, no test vectors), and
@@ -73,6 +78,14 @@ QuickFIX's CMake generates it). The libraries must be built with the
   QuickFIX session refuses before connecting.
 - TLS handshake only (no FIX message) to `fix-ord.sandbox.exchange.coinbase.com:6121`:
   certificate valid, chain to Amazon Root CA 1, with and without SNI.
+
+## Known duplication
+
+- `CbxOM::Events` (the session-thread-to-mailbox bridge) and the `std::jthread`
+  timers (`CbxOM::arm`) are the same code as `OuchOM.cpp`'s in
+  `../nasdaq_ouch`; `CbxDropClient` (`../../post_trade/coinbase_exchange`)
+  has them a third time. Sharing them means a common session-events base for
+  the order managers, outside this directory.
 
 ## Not checked
 

@@ -49,7 +49,8 @@ namespace coinbase_exchange
     int64_t qty_unit = 1;         // OB display unit in 10^-size_decimals
 
     // From the strings of GET /products/<id> (quote_increment, base_increment)
-    // and the chosen display unit ("0.000001"). nullopt with err on bad input.
+    // and the chosen display unit ("0.000001"), which must be a positive
+    // multiple of base_increment. nullopt with err on bad input.
     static std::optional<ProductSpec> make(const std::string &product, int32_t sec_id, char venue,
                                            const std::string &quote_increment,
                                            const std::string &base_increment, const std::string &qty_unit,
@@ -79,7 +80,9 @@ namespace coinbase_exchange
    *             is held for up to `reorder_window` messages, since the venue
    *             says messages can arrive out of order; if the missing one does
    *             not come, it is a gap: a gap record goes to OB and the book is
-   *             rebuilt from a new snapshot (recovery records).
+   *             rebuilt from a new snapshot (recovery records). A heartbeat
+   *             whose sequence is above the last applied, with the stream not
+   *             catching up within `heartbeat_gap_ns`, is a gap too.
    *   book      only `open` puts an order on the book; `done` and `change` for
    *             an order not on the book are ignored; `match` reduces the
    *             maker's size; `received`, `activate` and `noop` change
@@ -117,6 +120,10 @@ namespace coinbase_exchange
       // public live check. Sequence jumps are not gaps and an unknown maker is
       // counted, not resynced.
       bool check_gaps = true;
+      // A heartbeat whose sequence is above the last applied says the venue
+      // sent messages this sync has not applied. If the stream has not caught
+      // up with the first such heartbeat after this long, that is a gap.
+      uint64_t heartbeat_gap_ns = 3'000'000'000;
     };
 
     using Emit = std::function<void(const bfile::l3_t &)>;
@@ -143,7 +150,6 @@ namespace coinbase_exchange
       int64_t px = 0;       // ticks: open, change (new), match
       bool has_size = false;
       int64_t size = 0;     // open remaining, change new size, match size
-      int64_t trade_id = 0;
       std::string reason;   // done: filled/canceled; change: STP/modify_order
     };
 
@@ -231,6 +237,10 @@ namespace coinbase_exchange
     bool need_snapshot_ = true;
     bool started_ = false;
     int64_t last_seq_ = -1;
+    // the first heartbeat ahead of the stream since it last advanced: when
+    // it was received, and the last applied sequence then
+    uint64_t hb_ahead_since_ = 0;
+    int64_t hb_ahead_seq_ = -1;
     std::map<int64_t, Event> pending_;   // out-of-order messages waiting for a missing one
     std::deque<Event> buffer_;           // messages while waiting for a snapshot
     nlohmann::json l3_schema_;           // the level3 channel's schema message
@@ -244,7 +254,7 @@ namespace coinbase_exchange
     void apply(const Event &ev);
     void begin(const Event &ev);
     void end_event(int64_t seq, uint64_t send_time);
-    uint64_t stamp(uint64_t tx);
+    void on_heartbeat(const nlohmann::json &m, uint64_t recv_ns);
 
     void add(const Event &ev, bool recovery, uint64_t recv_ns, uint64_t send_ns);
     void remove(Order &o, uint64_t recv_ns, uint64_t send_ns);

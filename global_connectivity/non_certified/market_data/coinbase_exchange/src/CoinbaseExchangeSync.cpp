@@ -43,9 +43,9 @@ std::optional<ProductSpec> ProductSpec::make(const std::string &product, int32_t
   p.price_increment = *inc;
   auto unit = scaled(qty_unit, p.size_decimals);
   auto base = scaled(base_increment, p.size_decimals);
-  if (!unit || *unit <= 0 || !base || *base <= 0)
+  if (!unit || *unit <= 0 || !base || *base <= 0 || *unit % *base != 0)
   {
-    err = "qty_unit must be a positive multiple of 10^-" + std::to_string(p.size_decimals);
+    err = "qty_unit must be a positive multiple of base_increment";
     return std::nullopt;
   }
   p.qty_unit = *unit;
@@ -257,8 +257,6 @@ bool CoinbaseExchangeSync::parse(const nlohmann::json &m, Event &ev)
   case Event::Match:
     ok = ok && get_px(str(m, "price")) && get_size(str(m, "size")) && get_uuid(str(m, "maker_order_id"), ev.maker) &&
          get_uuid(str(m, "taker_order_id"), ev.taker);
-    if (auto it = m.find("trade_id"); it != m.end())
-      ev.trade_id = seq_of(*it);
     break;
   case Event::Change:
     // modify_order: new_price/new_size; STP: price (null for market orders)/new_size
@@ -298,12 +296,8 @@ void CoinbaseExchangeSync::on_message(const nlohmann::json &m, uint64_t recv_ns)
     }
     if (*type == "heartbeat")
     {
-      if (str(m, "product_id") && *str(m, "product_id") == cfg_.spec.product && synced_ && cfg_.check_gaps)
-      {
-        int64_t s = m.contains("sequence") ? seq_of(m["sequence"]) : -1;
-        if (s > last_seq_ && pending_.empty())
-          ++st_.hb_ahead;
-      }
+      if (str(m, "product_id") && *str(m, "product_id") == cfg_.spec.product)
+        on_heartbeat(m, recv_ns);
       return;
     }
     if (*type == "status")
@@ -326,6 +320,31 @@ void CoinbaseExchangeSync::on_message(const nlohmann::json &m, uint64_t recv_ns)
     return;
   }
   accept(std::move(ev));
+}
+
+// A heartbeat carries the product's sequence as the venue has it. One above
+// the last applied means messages are missing here (held out of order, or
+// lost). Missing for longer than heartbeat_gap_ns, with the stream not
+// advancing past where it was when the first such heartbeat came, is a gap.
+void CoinbaseExchangeSync::on_heartbeat(const nlohmann::json &m, uint64_t recv_ns)
+{
+  if (!synced_ || !cfg_.check_gaps)
+    return;
+  int64_t s = m.contains("sequence") ? seq_of(m["sequence"]) : -1;
+  if (s <= last_seq_)
+  {
+    hb_ahead_since_ = 0;
+    return;
+  }
+  ++st_.hb_ahead;
+  if (hb_ahead_since_ == 0 || last_seq_ > hb_ahead_seq_)
+  {
+    hb_ahead_since_ = recv_ns;
+    hb_ahead_seq_ = last_seq_;
+    return;
+  }
+  if (recv_ns - hb_ahead_since_ > cfg_.heartbeat_gap_ns)
+    gap("heartbeat ahead of the stream", recv_ns);
 }
 
 void CoinbaseExchangeSync::accept(Event &&ev)
@@ -390,6 +409,7 @@ void CoinbaseExchangeSync::gap(const char *why, uint64_t now_ns)
   emit_(g);
   synced_ = false;
   need_snapshot_ = true;
+  hb_ahead_since_ = 0;
   for (auto &[s, e] : pending_)
     buffer_.push_back(std::move(e));
   pending_.clear();
@@ -408,6 +428,7 @@ void CoinbaseExchangeSync::on_disconnect(uint64_t now_ns)
   }
   synced_ = false;
   need_snapshot_ = true;
+  hb_ahead_since_ = 0;
   pending_.clear();
   buffer_.clear();
   l3_schema_ = nlohmann::json();
@@ -526,6 +547,7 @@ CoinbaseExchangeSync::SnapResult CoinbaseExchangeSync::on_snapshot(const nlohman
 
   synced_ = true;
   need_snapshot_ = false;
+  hb_ahead_since_ = 0;
   last_seq_ = S;
   for (auto &e : after)
   {
@@ -623,11 +645,6 @@ void CoinbaseExchangeSync::end_event(int64_t seq, uint64_t send_time)
   eob.typ = en::l3::EOB;
   eob.venue = cfg_.spec.venue;
   emit_(eob);
-}
-
-uint64_t CoinbaseExchangeSync::stamp(uint64_t tx)
-{
-  return std::max(tx, last_tx_ + 1);
 }
 
 uint64_t CoinbaseExchangeSync::make_oid(const Uuid &u)

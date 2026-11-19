@@ -6,10 +6,13 @@
  */
 
 // QfSession: CbxSession over QuickFIX (FIXT 1.1 / FIX 5.0 SP2) with TLS
-// (SSLSocketInitiator). One session object is one connection: QuickFIX's own
-// reconnect is pushed out of the way (ReconnectInterval one day) and the
-// owner (CbxOM, the drop-copy client) makes a new session after a disconnect,
-// as for the other order managers.
+// (SSLSocketInitiator). One session object is one connection: the owner
+// (CbxOM, the drop-copy client) makes a new session after a disconnect, as
+// for the other order managers. A connection that never comes up (TCP or TLS
+// failure) is reported to nobody by QuickFIX (onLogout fires only after a
+// Logon was sent), so ReconnectInterval is the configured reconnect_s and
+// QuickFIX keeps trying inside the session object until the owner's logon
+// timeout replaces it.
 //
 // Logon (order-entry-messages5): toAdmin signs the outgoing Logon with the
 // API secret over SendingTime, MsgType, MsgSeqNum, SenderCompID, TargetCompID
@@ -28,6 +31,7 @@
 
 #ifdef CBX_WITH_QUICKFIX
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -130,7 +134,7 @@ namespace
       d.setInt("HeartBtInt", cfg.heartbeat_s);
       d.setString("StartTime", "00:00:00");
       d.setString("EndTime", "00:00:00");
-      d.setInt("ReconnectInterval", 86400);
+      d.setInt("ReconnectInterval", std::max(1, cfg.reconnect_s));
       d.setString("ResetOnLogon", "Y");
       d.setInt("TimestampPrecision", 3);
       d.setString("UseDataDictionary", cfg.transport_dict.empty() ? "N" : "Y");

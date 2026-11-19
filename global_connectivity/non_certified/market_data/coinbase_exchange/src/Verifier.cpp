@@ -640,6 +640,11 @@ L3Checker::L3Checker(const ProductSpec &spec, size_t ring)
 void L3Checker::on_frame(const nlohmann::json &m, uint64_t recv_ns)
 {
   sync_.on_message(m, recv_ns);
+  if (m.is_object() && m.value("type", std::string()) == "level3" && m.contains("schema"))
+  {
+    l3_schema_ = m;
+    return;
+  }
   ring_.emplace_back(m, recv_ns);
   if (ring_.size() > ring_max_)
     ring_.pop_front();
@@ -649,6 +654,7 @@ void L3Checker::on_disconnect(uint64_t now_ns)
 {
   sync_.on_disconnect(now_ns);
   ring_.clear();
+  l3_schema_ = nlohmann::json();
 }
 
 void L3Checker::on_rest(int level, const nlohmann::json &body, uint64_t, uint64_t recv_ns)
@@ -676,6 +682,8 @@ void L3Checker::on_rest(int level, const nlohmann::json &body, uint64_t, uint64_
     ++t_.skipped; // the snapshot is ahead of the stream; the next one may not be
     return;
   }
+  if (!l3_schema_.is_null())
+    b.on_message(l3_schema_, recv_ns); // the compact arrays in the ring need it
   for (auto &[m, t] : ring_)
     b.on_message(m, t); // buffered until the snapshot, as live
   if (b.on_snapshot(body, recv_ns) != CoinbaseExchangeSync::SnapResult::Applied || b.last_seq() != target)

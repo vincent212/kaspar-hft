@@ -349,6 +349,25 @@ namespace frame::som
     return abandon_request(*e);
   }
 
+  Result BrokerOrderBook::on_restated(ClientId cid, int new_qty)
+  {
+    Entry *e = lookup(cid);
+    if (!e)
+      return {Outcome::Unknown, nullptr};
+    if (is_done(e->state))
+      return {Outcome::Late, e};
+    if (new_qty <= 0 || new_qty < e->cum)
+      return {Outcome::Invalid, e};
+    e->qty = new_qty;
+    e->accepted = true;
+    if (e->state == State::PendingNew)
+      e->state = State::Working;
+    if (e->cum >= e->qty)
+      return finish(*e, State::Filled);
+    e->leaves = e->qty - e->cum;
+    return {Outcome::Ok, e};
+  }
+
   Result BrokerOrderBook::on_rejected(ClientId cid)
   {
     Entry *e = lookup(cid);

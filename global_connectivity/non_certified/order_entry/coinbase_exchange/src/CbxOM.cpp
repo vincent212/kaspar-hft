@@ -158,12 +158,17 @@ namespace
     }
   }
 
+  // Next 00:00 UTC, in ns since the epoch.
+  uint64_t next_utc_midnight_ns()
+  {
+    uint64_t day = 86400ull * 1000000000ull;
+    return (epoch_ns_now() / day + 1) * day;
+  }
+
   // Next 00:00 UTC, as a FIX UTCTimestamp: the expiry of a DAY order sent as GTD.
   std::string next_utc_midnight()
   {
-    uint64_t ns = epoch_ns_now();
-    uint64_t day = 86400ull * 1000000000ull;
-    return fix_time_ms((ns / day + 1) * day);
+    return fix_time_ms(next_utc_midnight_ns());
   }
 }
 
@@ -184,6 +189,8 @@ CbxOM::~CbxOM()
 {
   stopping_ = true;
   reconnect_timer_ = {};
+  logon_timer_ = {};
+  purge_timer_ = {};
   drop_session();
 }
 
@@ -222,6 +229,18 @@ CbxOM::VenueOrder *CbxOM::venue_of(ClientId cid)
   return it == vorders_.end() ? nullptr : &it->second;
 }
 
+int64_t CbxOM::applied_base(const VenueOrder &v, const frame::som::Entry &e) const
+{
+  return int64_t(e.cum) * v.prod->qty_unit + v.remainder;
+}
+
+int64_t CbxOM::take_units(VenueOrder &v, int64_t base) const
+{
+  const int64_t total = v.remainder + base;
+  v.remainder = total % v.prod->qty_unit;
+  return total / v.prod->qty_unit;
+}
+
 void CbxOM::connect() noexcept
 {
   ++session_no_;
@@ -232,6 +251,7 @@ void CbxOM::connect() noexcept
     ++sessions_created_;
     log_omg("Coinbase Exchange FIX session %lu: logging on", session_no_);
     session_->logon();
+    arm(logon_timer_, cfg_.logon_timeout_ms, CbxReport::LOGON_TIMEOUT);
   }
   catch (const std::exception &e)
   {
@@ -249,19 +269,32 @@ void CbxOM::drop_session() noexcept
   events_.reset();
 }
 
-void CbxOM::schedule_reconnect() noexcept
+void CbxOM::arm(std::jthread &t, int ms, CbxReport::Kind k) noexcept
 {
-  if (stopping_ || rejected_)
-    return;
   auto expected = session_no_;
-  auto ms = cfg_.reconnect_ms;
-  reconnect_timer_ = std::jthread([this, expected, ms](std::stop_token st) {
+  t = std::jthread([this, expected, ms, k](std::stop_token st) {
     std::mutex m;
     std::condition_variable_any cv;
     std::unique_lock<std::mutex> l(m);
     if (!cv.wait_for(l, st, std::chrono::milliseconds(ms), [] { return false; }) && !st.stop_requested())
-      send(new CbxReport(CbxReport::RECONNECT, expected), nullptr);
+      send(new CbxReport(k, expected), nullptr);
   });
+}
+
+void CbxOM::schedule_reconnect() noexcept
+{
+  if (stopping_ || rejected_)
+    return;
+  arm(reconnect_timer_, cfg_.reconnect_ms, CbxReport::RECONNECT);
+}
+
+// Finished orders are forgotten at 00:00 UTC (and at each logon).
+void CbxOM::schedule_purge() noexcept
+{
+  if (stopping_)
+    return;
+  uint64_t now = epoch_ns_now(), at = next_utc_midnight_ns();
+  arm(purge_timer_, int(std::min<uint64_t>((at > now ? at - now : 0) / 1000000ull, 86400000ull)), CbxReport::PURGE);
 }
 
 void CbxOM::start_handler(const actors::msg::Start *) noexcept
@@ -272,6 +305,7 @@ void CbxOM::start_handler(const actors::msg::Start *) noexcept
     return;
   }
   send(new CbxReport(CbxReport::RECONNECT, session_no_), nullptr);
+  schedule_purge();
   if (som_)
     som_->send(new som::SetExchManager(venue_, this), this);
 }
@@ -280,6 +314,8 @@ void CbxOM::shutdown_handler(const actors::msg::Shutdown *) noexcept
 {
   stopping_ = true;
   reconnect_timer_ = {};
+  logon_timer_ = {};
+  purge_timer_ = {};
   if (session_ && ready_)
     session_->logout();
   drop_session();
@@ -484,6 +520,12 @@ void CbxOM::report_handler(const CbxReport *m) noexcept
       connect();
     return;
   }
+  if (m->kind == CbxReport::PURGE)
+  {
+    purge_done();
+    schedule_purge();
+    return;
+  }
   if (m->session != session_no_ || !session_)
     return; // from a session already dropped
 
@@ -491,8 +533,20 @@ void CbxOM::report_handler(const CbxReport *m) noexcept
   {
   case CbxReport::LOGGED_ON:
     ready_ = true;
+    logon_timer_.request_stop();
     log_omg("Coinbase Exchange logged on (%zu orders live)", book_.live());
+    purge_done();
     request_status();
+    return;
+  case CbxReport::LOGON_TIMEOUT:
+    if (ready_)
+      return;
+    // No Logon answer: the connection never came up (TCP or TLS), or the
+    // venue is not answering. QuickFIX reports neither.
+    log_err("Coinbase Exchange: not logged on %d ms after connecting; reconnecting in %d ms", cfg_.logon_timeout_ms,
+            cfg_.reconnect_ms);
+    drop_session();
+    schedule_reconnect();
     return;
   case CbxReport::LOGON_REJECTED:
     // bad key, signature or passphrase: retrying will not help
@@ -549,6 +603,40 @@ void CbxOM::request_status() noexcept
     if (session_->send(h) != CallStatus::Success)
       log_err("order status request for oid=%d not sent", oid);
   }
+}
+
+// Forget finished orders: their venue state, their ids and their ExecIDs,
+// and the book's entries. A report for one of them afterwards is logged as
+// unknown. Called at a quiet point only: at logon, and at 00:00 UTC.
+void CbxOM::purge_done() noexcept
+{
+  auto done = [&](const frame::som::Entry *e) { return !e || frame::som::is_done(e->state); };
+  size_t orders = 0, ids = 0;
+  for (auto it = cid_of_uuid_.begin(); it != cid_of_uuid_.end();)
+  {
+    if (!done(book_.find_cid(it->second)))
+    {
+      ++it;
+      continue;
+    }
+    uuid_of_cid_.erase(it->second);
+    it = cid_of_uuid_.erase(it);
+    ++ids;
+  }
+  for (auto it = vorders_.begin(); it != vorders_.end();)
+  {
+    if (!done(book_.find_oid(it->first)))
+    {
+      ++it;
+      continue;
+    }
+    it = vorders_.erase(it);
+    ++orders;
+  }
+  book_.purge_done();
+  ++purges_;
+  if (orders || ids)
+    log_inf("forgot %zu finished Coinbase Exchange orders (%zu ids); %zu orders kept", orders, ids, book_.size());
 }
 
 void CbxOM::ack_once(ClientId cid) noexcept
@@ -645,11 +733,21 @@ void CbxOM::on_execution_report(const FixMsg &m) noexcept
   case 'D': // Restated: partly cancelled by self-trade prevention
   {
     auto e = book_.find_cid(cid);
-    auto leaves = v && v->prod ? v->prod->units(m.get(LeavesQty, "0")) : std::nullopt;
+    auto leaves = v && v->prod ? scaled(m.get(LeavesQty, "0"), v->prod->size_decimals) : std::nullopt;
     log_wrn("Coinbase Exchange restated %s (reason %s): leaves %s", clid, m.get(ExecRestatementReason),
             m.get(LeavesQty));
-    if (e && leaves && *leaves == 0)
-      canceled(cid, "restated to nothing");
+    if (!e || !leaves)
+      return;
+    // The whole units the order can still fill: what is left at the venue
+    // plus the remainder already filled below a unit.
+    const int64_t units_left = (v->remainder + *leaves) / v->prod->qty_unit;
+    if (units_left == 0)
+      return canceled(cid, "restated to nothing");
+    auto res = book_.on_restated(cid, int(std::min<int64_t>(e->cum + units_left, 2147483647)));
+    if (res.outcome != Outcome::Ok)
+      log_err("restatement of oid=%d to %ld units: %s", e->oid, long(e->cum + units_left), to_string(res.outcome));
+    else
+      log_omg("order oid=%d restated to %d units, %d left", e->oid, res.entry->qty, res.entry->leaves);
     return;
   }
   case 'I':
@@ -669,13 +767,6 @@ void CbxOM::on_execution_report(const FixMsg &m) noexcept
 
 void CbxOM::on_trade(const FixMsg &m, ClientId cid) noexcept
 {
-  const std::string exec_id = m.get(ExecID);
-  if (!exec_id.empty() && !exec_ids_.insert(exec_id).second)
-  {
-    ++dups_;
-    log_wrn("execution %s already applied, skipped", exec_id);
-    return;
-  }
   auto v = venue_of(cid);
   auto e = book_.find_cid(cid);
   if (!v || !e || !v->prod)
@@ -683,29 +774,58 @@ void CbxOM::on_trade(const FixMsg &m, ClientId cid) noexcept
     log_err("fill on an order with no product: %s: CHECK POSITIONS", m.str());
     return;
   }
-  const auto qty = v->prod->units(m.get(LastQty));
-  const auto px = v->prod->ticks(m.get(LastPx));
-  if (!qty || !px || *qty <= 0)
+  const std::string exec_id = m.get(ExecID);
+  if (!exec_id.empty() && !v->exec_ids.insert(exec_id).second)
   {
-    log_err("fill with LastQty %s LastPx %s not in the product's units: %s: CHECK POSITIONS", m.get(LastQty),
+    ++dups_;
+    log_wrn("execution %s already applied, skipped", exec_id);
+    return;
+  }
+  const auto last = scaled(m.get(LastQty), v->prod->size_decimals);
+  const auto px = v->prod->ticks(m.get(LastPx));
+  if (!last || !px || *last <= 0)
+  {
+    log_err("fill with LastQty %s LastPx %s not in the product's increments: %s: CHECK POSITIONS", m.get(LastQty),
             m.get(LastPx), m.str());
     return;
   }
   // A replayed report: CumQty no more than what this order has filled.
-  if (auto cum = v->prod->units(m.get(CumQty)); cum && m.has(CumQty))
+  if (auto cum = scaled(m.get(CumQty), v->prod->size_decimals); cum && m.has(CumQty))
   {
-    if (*cum <= e->cum)
+    const int64_t applied = applied_base(*v, *e);
+    if (*cum <= applied)
     {
       ++dups_;
-      log_wrn("fill on oid=%d with CumQty %s already counted (cum %d), skipped", e->oid, m.get(CumQty), e->cum);
+      log_wrn("fill on oid=%d with CumQty %s already counted (cum %d units + %ld), skipped", e->oid, m.get(CumQty),
+              e->cum, long(v->remainder));
       return;
     }
-    if (*cum - *qty > e->cum)
-      log_err("fill on oid=%d: CumQty %s says %ld units were filled before this one, the OM has %d: CHECK POSITIONS",
-              e->oid, m.get(CumQty), long(*cum - *qty), e->cum);
+    if (*cum - *last > applied)
+      log_err("fill on oid=%d: CumQty %s says %s was filled before this one, the OM has %s: CHECK POSITIONS", e->oid,
+              m.get(CumQty), format_scaled(*cum - *last, v->prod->size_decimals),
+              format_scaled(applied, v->prod->size_decimals));
+  }
+  // The venue says the order is done (OrdStatus 2) but the OM's quantity is
+  // not reached (a restatement it never saw): this fill ends it.
+  const int64_t units = take_units(*v, *last);
+  if (m.get_char(OrdStatus) == '2' && !frame::som::is_done(e->state) && e->cum + units < e->qty)
+  {
+    log_wrn("order oid=%d: Coinbase Exchange reports it filled at %d units, the OM expected %d: finishing it", e->oid,
+            int(e->cum + units), e->qty);
+    if (e->cum + units > 0)
+      book_.on_restated(cid, int(e->cum + units));
+    else
+      canceled(cid, "filled below one unit");
+  }
+  if (units == 0)
+  {
+    log_inf("fill on oid=%d of %s is below one unit: carried (%s so far)", e->oid, m.get(LastQty),
+            format_scaled(v->remainder, v->prod->size_decimals));
+    return;
   }
   uint64_t tim = parse_fix_time(m.get(TransactTime));
-  send_fill(cid, int(*qty), *px, tim ? tim : epoch_ns_now(), m.get(TradeID).c_str());
+  send_fill(cid, int(std::min<int64_t>(units, 2147483647)), *px, tim ? tim : epoch_ns_now(),
+            m.get(TradeID).c_str());
 }
 
 // The answer to OrderStatusRequest after a reconnect.
@@ -716,32 +836,41 @@ void CbxOM::on_status(const FixMsg &m, ClientId cid) noexcept
   if (!e || !v || !v->prod)
     return;
   const char st = m.get_char(OrdStatus);
-  if (st == '8' && m.get(OrdRejReason) == "5")
+  if (st == '8')
   {
-    // Coinbase does not know the order: it never arrived.
+    // Rejected: OrdRejReason 5 says Coinbase does not know the order (it
+    // never arrived); any other reason, it was refused. Either way an order
+    // not yet accepted is done.
+    const std::string why = m.get(OrdRejReason);
     if (!e->accepted)
     {
       auto res = book_.on_rejected(cid);
       if (res.outcome == Outcome::Ok && res.entry->sender)
-        res.entry->sender->send(new som::Reject(uint(res.entry->oid), som::Reject::DISCONNECTED), this);
-      log_err("order oid=%d unknown to Coinbase Exchange after the reconnect: rejected", e->oid);
+        res.entry->sender->send(
+            new som::Reject(uint(res.entry->oid), why == "5" ? som::Reject::DISCONNECTED : som::Reject::EXCHLIMIT),
+            this);
+      log_err("order oid=%d %s after the reconnect (OrdRejReason %s): rejected", e->oid,
+              why == "5" ? "unknown to Coinbase Exchange" : "rejected by Coinbase Exchange", why);
     }
     else
-      log_err("order oid=%d was accepted but Coinbase Exchange does not know it now: CHECK", e->oid);
+      log_err("order oid=%d was accepted but Coinbase Exchange now reports it rejected (OrdRejReason %s): CHECK",
+              e->oid, why);
     return;
   }
   if (st == '0' || st == '1' || st == '2')
     ack_once(cid);
   // Filled while disconnected and not reported: the missing quantity, at the
   // price that makes the order's average AvgPx.
-  if (auto cum = v->prod->units(m.get(CumQty, "0")); cum && *cum > e->cum)
+  if (auto cum = scaled(m.get(CumQty, "0"), v->prod->size_decimals); cum && *cum > applied_base(*v, *e))
   {
-    int missing = int(*cum - e->cum);
+    const int64_t missing_base = *cum - applied_base(*v, *e);
+    const int64_t missing = take_units(*v, missing_base);
     auto avg = v->prod->ticks(m.get(AvgPx));
-    log_err("order oid=%d: Coinbase Exchange has %ld units filled, the OM %d: sending the missing %d at AvgPx %s: "
-            "CHECK POSITIONS",
-            e->oid, long(*cum), e->cum, missing, m.get(AvgPx));
-    send_fill(cid, missing, avg ? *avg : e->px, epoch_ns_now(), "status");
+    log_err("order oid=%d: Coinbase Exchange has %s filled, the OM %d units: sending the missing %ld units at AvgPx "
+            "%s: CHECK POSITIONS",
+            e->oid, m.get(CumQty), e->cum, long(missing), m.get(AvgPx));
+    if (missing > 0)
+      send_fill(cid, int(std::min<int64_t>(missing, 2147483647)), avg ? *avg : e->px, epoch_ns_now(), "status");
   }
   if (st == '4' || st == 'C')
     canceled(cid, "canceled while disconnected");

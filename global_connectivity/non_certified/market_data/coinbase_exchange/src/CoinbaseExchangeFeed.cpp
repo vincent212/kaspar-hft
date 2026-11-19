@@ -47,6 +47,11 @@ namespace
     {
       if (level == 3)
       {
+        // A snapshot the sync did not ask for (a periodic fetch, or one that
+        // was in flight when the sync caught up) would rebuild a book that is
+        // in sync and could move its sequence backwards.
+        if (!sync_.need_snapshot())
+          return;
         auto r = sync_.on_snapshot(body, recv_ns);
         std::cerr << "CoinbaseExchangeSync " << sync_.spec().product << ": snapshot sequence "
                   << body.value("sequence", int64_t(-1)) << ": "

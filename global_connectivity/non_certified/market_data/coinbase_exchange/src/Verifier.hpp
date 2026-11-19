@@ -90,6 +90,9 @@ namespace coinbase_exchange::verify
     CoinbaseExchangeSync sync_;
     std::deque<std::pair<nlohmann::json, uint64_t>> ring_;
     size_t ring_max_;
+    // the level3 channel's schema message of this connection: sent once, so
+    // kept outside the ring and replayed into every second sync first
+    nlohmann::json l3_schema_;
     Totals t_;
   };
 

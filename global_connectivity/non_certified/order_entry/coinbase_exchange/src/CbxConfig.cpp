@@ -17,17 +17,6 @@
 namespace coinbase_exchange::oe
 {
 
-namespace
-{
-  std::string expand(std::string p)
-  {
-    if (!p.empty() && p[0] == '~')
-      if (const char *h = std::getenv("HOME"))
-        p = std::string(h) + p.substr(1);
-    return p;
-  }
-}
-
 // config/cbx_om_example.ini documents every key.
 bool CbxOMConfig::from_file(const std::string &path, CbxOMConfig &out, std::string &err)
 {
@@ -53,14 +42,14 @@ bool CbxOMConfig::from_file(const std::string &path, CbxOMConfig &out, std::stri
     s.environment = *env;
     s.host = pt.get<std::string>("session.host", "");
     s.port = pt.get<int>("session.port", 0);
-    s.key_file = expand(pt.get<std::string>("session.key_file", default_key_path()));
+    s.key_file = expand_home(pt.get<std::string>("session.key_file", default_key_path()));
     auto cod = pt.get<std::string>("session.cancel_on_disconnect", "Y");
     s.cancel_on_disconnect = cod == "none" ? 0 : cod.empty() ? 0 : cod[0];
     s.heartbeat_s = pt.get<int>("session.heartbeat_s", 10);
-    s.store_dir = expand(pt.get<std::string>("session.store_dir", ""));
-    s.ca_file = expand(pt.get<std::string>("session.ca_file", ""));
-    s.transport_dict = expand(pt.get<std::string>("session.transport_dict", ""));
-    s.app_dict = expand(pt.get<std::string>("session.app_dict", ""));
+    s.store_dir = expand_home(pt.get<std::string>("session.store_dir", ""));
+    s.ca_file = expand_home(pt.get<std::string>("session.ca_file", ""));
+    s.transport_dict = expand_home(pt.get<std::string>("session.transport_dict", ""));
+    s.app_dict = expand_home(pt.get<std::string>("session.app_dict", ""));
     s.reconnect_s = pt.get<int>("session.reconnect_s", 5);
 
     auto day = pt.get<std::string>("orders.day_tif", "gtc");
@@ -72,6 +61,7 @@ bool CbxOMConfig::from_file(const std::string &path, CbxOMConfig &out, std::stri
     out.max_order_notional = pt.get<double>("orders.max_order_notional", 0);
     out.max_orders_per_sec = pt.get<int>("orders.max_orders_per_sec", 50);
     out.reconnect_ms = pt.get<int>("orders.reconnect_ms", 2000);
+    out.logon_timeout_ms = pt.get<int>("orders.logon_timeout_ms", 15000);
     out.sim = pt.get<bool>("orders.sim", false);
     out.sim_config.fill = pt.get<bool>("sim.fill", true);
     out.sim_config.fill_delay_ms = pt.get<int>("sim.fill_delay_ms", 50);

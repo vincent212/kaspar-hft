@@ -17,13 +17,13 @@ numbers. The feed description, with sources and open questions, is `feed.md`.
 | `include/coinbase_exchange/Num.hpp` | Exact decimals, UUIDs, ISO and FIX times |
 | `src/cbx_md.cpp`, `src/Verifier.*` | `cbx_md`: `dump` (the monitor), `live` and `replay` (the public check), `check-l3` (the exact L3 check for step 3) |
 | `config/products.ini` | Increments, display units, ids |
-| `tests/` | `test_cbx_sync.cpp` (36 tests from the documentation's examples, the sync rules and the step-3 checker), `test_cbx_ob.cpp` (3: the records in a real OB), `test_cbx_recorded.cpp` (2: recorded frames), `data/` |
+| `tests/` | `test_cbx_sync.cpp` (39 tests from the documentation's examples, the sync rules, the feed's L3 handler and the step-3 checker), `test_cbx_ob.cpp` (3: the records in a real OB), `test_cbx_recorded.cpp` (2: recorded frames), `data/` |
 
 ## Build and run
 
 ```bash
 export KSPRPROJ=~/kaspar-hft
-make test          # 41 tests
+make test          # 44 tests
 make tool          # build/cbx_md
 
 build/cbx_md dump --product BTC-USD                         # public L2 fallback, book once a second
@@ -59,15 +59,18 @@ and refuses any other host, and refuses keys whose `environment` differs.
 `level2_batch`, `matches`, `heartbeat` and `ticker` do not; the REST level-1,
 -2 and -3 books are public on both.
 
-**Step 1, unit tests**: 41 of 41 pass. They cover every message type of the
+**Step 1, unit tests**: 44 of 44 pass. They cover every message type of the
 `full` channel from the documentation's examples, the `level3` compact form
 with its schema, snapshot alignment (discard at or below S, first applied
 S+1, a snapshot too old for the buffer refetched, a snapshot newer than the
 buffer), duplicates, out-of-order delivery inside the window, a gap beyond it
 (gap record, `l3_chr_v2_t` then recovery records, buffered messages applied,
-`transactTime` strictly increasing past the recovery), disconnect, an unknown
+`transactTime` strictly increasing past the recovery), a heartbeat ahead of
+the stream for more than 3 s (a gap), a snapshot the sync did not ask for
+(ignored by the feed's handler), disconnect, an unknown
 maker and an overfill (resync), priority on change, the display-unit cap,
-trading status, the records in a real OB (levels and BBO equal to the sync's
+trading status, the step-3 checker's second sync reading the `level3`
+schema after the ring rolled past it, the records in a real OB (levels and BBO equal to the sync's
 after adds, executions, changes and a resync; a simulated order queued behind
 real orders fills only when executions reach it), and two tests from recorded
 frames (an L3 snapshot slice plus the public matches against the next
@@ -139,6 +142,12 @@ What the numbers say:
   so the C++ sync and the reconstruction agree; whether the rest is only timing cannot be shown
   with batched data. No crossed book, and no trade id missing or duplicated
   between the first and the last match.
+
+## Known duplication
+
+- `parse_iso_time` (`include/coinbase_exchange/Num.hpp`) is
+  `sim::CoinbaseSync::parse_time` (`sim/src/CoinbaseSync.cpp`) again, as an
+  inline on a `string_view`. Sharing it means moving it out of `sim/`.
 
 ## Not checked
 

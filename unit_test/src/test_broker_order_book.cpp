@@ -329,6 +329,40 @@ TEST_F(BrokerOrderBookTest, FillAfterCancelDuringReplaceUpUsesReplaceSize)
   EXPECT_EQ(book.on_fill(ncid, 6).outcome, Outcome::Invalid); // beyond 20
 }
 
+// ---- restatement ---------------------------------------------------------------
+
+// The venue cut the order's size (self-trade prevention): the rest of the new
+// size is all the order can still fill, and a fill of it finishes the order.
+TEST_F(BrokerOrderBookTest, RestatementCutsTheQuantity)
+{
+  auto cid = place(26, 10);
+  book.on_accepted(cid);
+  book.on_fill(cid, 3);
+  auto r = book.on_restated(cid, 7);
+  EXPECT_EQ(r.outcome, Outcome::Ok);
+  EXPECT_FALSE(r.done);
+  EXPECT_EQ(r.entry->qty, 7);
+  EXPECT_EQ(r.entry->leaves, 4);
+  EXPECT_EQ(r.entry->state, State::Working);
+  auto f = book.on_fill(cid, 4);
+  EXPECT_TRUE(f.done);
+  EXPECT_EQ(f.entry->state, State::Filled);
+  // restated to what is already filled: done
+  auto cid2 = place(27, 10);
+  book.on_fill(cid2, 5);
+  auto d = book.on_restated(cid2, 5);
+  EXPECT_TRUE(d.done);
+  EXPECT_EQ(d.entry->state, State::Filled);
+  EXPECT_EQ(book.on_restated(cid2, 5).outcome, Outcome::Late);
+  // below what is filled, or nothing: invalid; unknown id
+  auto cid3 = place(28, 10);
+  book.on_fill(cid3, 5);
+  EXPECT_EQ(book.on_restated(cid3, 4).outcome, Outcome::Invalid);
+  EXPECT_EQ(book.on_restated(cid3, 0).outcome, Outcome::Invalid);
+  EXPECT_EQ(book.on_restated(cid3, 10).entry->leaves, 5);
+  EXPECT_EQ(book.on_restated(999, 1).outcome, Outcome::Unknown);
+}
+
 // ---- cancel/replace -----------------------------------------------------------
 
 TEST_F(BrokerOrderBookTest, ReplaceMovesToNewIdAndKeepsOldOne)
