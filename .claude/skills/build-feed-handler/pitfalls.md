@@ -75,6 +75,12 @@ problems in kaspar-hft or m2 handlers.
 - Trading states: pre-open, auction, halt, closed; whether a crossed book is legal
   in each.
 - Book clears: on reset, on session start, on instrument deletion.
+- Timestamps: do they distinguish transactions (a clock in milliseconds or
+  microseconds, one stamp per packet), and can they go backwards? OB groups a
+  transaction by `transactTime` (`kaspar_mapping.md`).
+- Snapshot timestamps: a REST or snapshot-channel time is not comparable with the
+  live stream's, and OB drops live records not later than the last snapshot
+  record. **(seen)**
 
 ## 5. Prices, quantities and instruments
 

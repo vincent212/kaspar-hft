@@ -1,6 +1,7 @@
 # Feed description: <venue> <feed>
 
-Every entry cites its source: document, version, page, section.
+Every entry cites its source: document, version, page, section (or the citation
+scheme of `SKILL.md`, *Specification sources*, for wikis, JSON and XML).
 
 ## 1. Venue and documents
 
@@ -63,3 +64,18 @@ Venue behaviour the Kaspar records cannot express (`kaspar_mapping.md`).
 
 | Behaviour | Why it cannot be expressed | Effect | Frequency, if measured |
 |---|---|---|---|
+
+## 11. Facts the specification does not give
+
+What the handler or its configuration needs that is not in the documents. Each
+entry says where it is used and is marked *to obtain from the venue* until the
+venue or the user supplies it, with the source then.
+
+| Fact | Used for | Value | Source |
+|---|---|---|---|
+| message and connection rate limits | throttles, reconnect backoff | | to obtain from the venue |
+| tick size per instrument, where not in the instrument data | asset tick, OB ladder | | to obtain from the venue |
+| account options and permissions (order types, short sales, algorithms) | order manager, local rejects | | to obtain from the venue |
+| cancel on disconnect: on or off, per session or per account | order manager, recovery | | to obtain from the venue |
+| production, backup and mirrored hosts | configuration | | to obtain from the venue |
+| test-environment hosts, credentials and hours | live check | | to obtain from the venue |

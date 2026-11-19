@@ -16,6 +16,7 @@ checked against the venue itself, not only against a specification.
 | full snapshot on subscribe, then updates with a per-connection sequence | `sim/src/CoinbaseSync.cpp` |
 | periodic whole books, diffed | `sim/src/HyperliquidSync.cpp` |
 | price levels to synthetic orders for OB | `sim/src/Mbp2Mbo.cpp`; `sim/src/LevelWindow.cpp` when the venue sends more levels than are kept |
+| per-order (L3) books | the MBO records of `kaspar_mapping.md` directly, as below |
 | tests from recorded JSON | `unit_test/src/test_binance_sync.cpp`, `test_crypto_sync.cpp`, `test_mbp2mbo.cpp`, `test_mbp2mbo_ob.cpp` |
 | order manager | `order_entry.md`, on `frame::som::BrokerOrderBook` |
 | fills and trade capture | `post_trade.md` |
@@ -23,6 +24,22 @@ checked against the venue itself, not only against a specification.
 Keep the parsing and sequencing in a plain class (`<Venue>Sync`) with no network,
 as the templates do, so that it is tested from recorded messages; the actor only
 owns the connection.
+
+## Per-order (L3) books
+
+Some exchanges publish every order (Coinbase's `full` and `level3` channels). Such
+a feed maps to `l3_mbo_v2_t` records without `Mbp2Mbo`, and differs from exchange
+MBO feeds in three ways:
+
+- Order ids are strings (UUIDs). The sync class maps each to a 64-bit `orderID`
+  when the order is added and forgets it on its delete; a snapshot rebuilds the
+  map.
+- The snapshot is the whole book, prices far from the market included, so OB's
+  ladder must cover it: set `ladder_ticks` (a ring around the best prices; orders
+  outside it are kept and placed when they move inside) rather than a full ladder
+  of `maxpx` ticks at a fine tick.
+- Sizes are fractional: scale them by the instrument's unit (`kaspar_mapping.md`,
+  quantities).
 
 ## What to extract
 
@@ -66,6 +83,19 @@ A handler is checked in this order; each step is reported with its numbers.
    - no crossed book, sequence continuity, and the number of resyncs and why.
    Then run the full `bnsim`-style chain (sync, `Mbp2Mbo`, OB, lights, SOM) on the
    live stream and check OB's levels against the sync class's book.
+
+   The snapshot interval is the venue's REST limit where that is stricter than 10
+   seconds (a full L3 snapshot is limited to a few requests a minute on some
+   venues); the report states the interval used. REST books may be served from a
+   CDN cache: a snapshot is used only if its sequence number or timestamp is newer
+   than the previous one's.
+
+   Where the per-order channel needs a key (Coinbase `level3` and `full`) and none
+   has been supplied, check what public data allows: take a public REST snapshot,
+   apply the public trades that follow it to the book as the handler would, and
+   compare the levels the trades touched with the next public snapshot. This tests
+   trade handling and snapshot parsing, not the order stream, and the report says
+   so.
 3. **Testnet order entry and fills.** With testnet or demo keys the owner supplies:
    logon, one order of each supported type far from the market, amend, cancel, an
    order that fills against the testnet book, and a reconnect; check every SOM
@@ -82,7 +112,12 @@ A handler is checked in this order; each step is reported with its numbers.
   README says which.
 - The agent asks the owner for testnet keys; it never creates an account.
 - Code that signs requests is tested against the documentation's signature examples
-  before it sends anything.
+  before it sends anything. Where the documentation gives none, the test vectors are
+  computed independently of the handler's code (with `openssl dgst` or Python's
+  `hmac` and `hashlib`, from the documented string-to-sign), and the report says
+  the vectors are not the venue's.
+- A market-data channel that needs a key is run live only with a key the owner
+  supplied, as order entry is.
 
 ## Rules
 

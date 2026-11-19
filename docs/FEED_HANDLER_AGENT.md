@@ -59,9 +59,12 @@ signs off. Kaspar's certified connectivity remains CME (`mdp3/`, `ilink/`) and T
 
 ## Inputs
 
-1. **The specification.** PDFs (often several hundred pages), and machine-readable
-   artefacts where they exist: SBE XML templates, FIX data dictionaries (QuickFIX
-   XML), JSON or protobuf schemas.
+1. **The specification.** PDFs (often several hundred pages), wiki pages (CME's
+   Client Systems Wiki, read through the Confluence REST API and cited by page id
+   and version), Markdown documentation, and machine-readable artefacts where they
+   exist: SBE XML templates, FIX data dictionaries (QuickFIX XML), JSON
+   specifications (LMAX's `fix-spec.json`, from which the QuickFIX dictionary is
+   generated), JSON or protobuf schemas.
 2. **Sample data**, where available: packet captures, vendor data, the venue's
    sample files, or live public endpoints.
 3. **A reference**, where available: the venue's own decoder, vendor-normalized
@@ -86,7 +89,17 @@ written to the user's private repository.
 | 7. Report | the main agent | a report of the decisions taken, the tests and their results, the open questions, and a pull request |
 
 The skill stops after step 1 and does not continue until the user approves the
-feed description.
+feed description, unless the owner asks for an end-to-end build: then the agent
+builds and tests on its own readings of the ambiguities, and the review happens
+afterwards, on the feed description and a `review.md` listing every decision to
+confirm; the venue's README says so.
+
+A venue carried on a protocol Kaspar already decodes (EBS Market on CME MDP 3.0)
+gets no new decoder. The agent measures the existing handler's coverage of the
+venue: which messages the generated codecs contain, which Kaspar's decoder
+dispatches and the handler maps to records, and what the venue's semantics need
+that the handler lacks. The result is the coverage and a list of proposed changes;
+changes to certified code are the owner's decision.
 
 ## The feed description
 
@@ -120,6 +133,9 @@ and the later steps can be generated from it.
 10. **Ambiguities.** Every point where the specification is unclear or contradicts
     itself, with the agent's reading and its alternatives. Each must be resolved by
     the user or by sample data.
+11. **Facts the specification does not give.** Rate limits, tick sizes, account
+    options and permissions, cancel-on-disconnect, mirrored hosts, test-environment
+    hosts: each marked *to obtain from the venue* until supplied.
 
 ## Decoders for fixed-offset binary protocols
 
@@ -135,7 +151,14 @@ and align as the table says, a `decode` that checks the buffer and the length
 prefix and returns the message as a `std::variant` with a status that separates a
 partial message from an unknown or malformed one, a bounds-checked `encode` for
 sent messages, and printing. The table is rendered as markdown for the feed description,
-so the user reviews one artefact and the code follows from it.
+so the user reviews one artefact and the code follows from it. Directives cover these
+framings: a length prefix (inclusive or exclusive), a numeric type code
+after the length (T7, Pillar, PITCH, OMD), one layer under two framings (ITCH in
+MoldUDP64 and in SoupBinTCP), a layer that includes another (GLIMPSE and ITCH),
+sections imported from another table file (Cboe Europe reusing the US unit and
+session tables), a header that precedes every message with the type code and the
+message length inside it (Aquis, Currenex), and one type code with two layouts told
+apart by length (NYSE's Refresh Header).
 
 The generator replaces the per-venue `msg_gen.py` scripts of the m2 Fenics and
 Dealerweb handlers. Converted to the new format, the two m2 tables generate headers
@@ -170,11 +193,24 @@ delete and an add of the same order; a trade's price travels in the print record
 (`l3_mbp_trd_t`) beside the order-level execution; a per-instrument clear is a
 channel-reset record sent to that instrument's book only; venue identifiers of any
 width map to Kaspar asset ids in the instrument loader; fractional quantities are
-scaled to whole units; `endOfEvent` follows the venue's transaction markers, or
-every record where there are none. What the records cannot express (NYSE keeping
-priority on a size increase) is recorded as a known deviation. The rules are in
-`.claude/skills/build-feed-handler/kaspar_mapping.md`; each venue needs only an
-`en::x` code appended to `exch_code.enum`.
+scaled to whole units below OB's size limit; `endOfEvent` follows the venue's
+transaction markers, or every record where there are none. What the records cannot
+express (NYSE keeping priority on a size increase) is recorded as a known
+deviation.
+
+A handler also respects what OB checks. OB groups a transaction by its
+`transactTime` and checks for a crossed book when that time advances, so the
+records of one transaction share a stamp and successive transactions have
+increasing ones. It drops live records not later than the last snapshot record and
+snapshot records older than the last live one, so snapshot records are stamped
+just before the live records that follow them, and a resync begins with a clear.
+It applies status and clear records whatever their instrument, so they are sent
+only to the books they concern; it moves the lights on an end-of-burst record, so
+one is sent after each packet. Its price ladder is sized from the asset's maximum
+price, which must be set before the book is created. The rules, with what OB drops
+and what aborts the process, are in
+`.claude/skills/build-feed-handler/kaspar_mapping.md`. Each venue needs an `en::x`
+code appended to `exch_code.enum`, after which every library is rebuilt.
 
 ## Order managers
 
@@ -222,7 +258,10 @@ The full list is in `.claude/skills/build-feed-handler/pitfalls.md`. Its section
   Coinbase's trade snapshot); a snapshot that is the whole book rather than its top.
 - **Post-trade:** amendments and busts; duplicate reports on reconnect (`PossDupFlag`);
   replay from the start of day; acknowledgements the venue requires; FIX 4.4 against
-  FIX 5.0 SP2 with FIXT transport; custom tags in the venue's dictionary.
+  FIX 5.0 SP2 with FIXT transport; custom tags in the venue's dictionary, and
+  errors in it (a venue dictionary missing a field its own Logon needs); drop
+  copies that are execution reports rather than trade capture; passwords that
+  QuickFIX's file log and store write in clear.
 
 ## Verification
 
@@ -254,6 +293,7 @@ answer key.
   kaspar_mapping.md        how venue semantics map onto Kaspar's L3 records
   order_entry.md           order managers for brokers and exchanges
   post_trade.md            trade-capture and drop-copy handlers over FIX
+  crypto.md                crypto exchanges: JSON feeds, live checks, testnets
   tools/fieldgen.py        field-table checker and C++ generator
   tools/test_fieldgen.sh   generator tests: the examples, and tables it must reject
   examples/itch50.tbl      part of Nasdaq TotalView-ITCH 5.0, with itch50_test.cpp
