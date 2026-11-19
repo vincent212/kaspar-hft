@@ -1,0 +1,183 @@
+; EBS Market on CME Globex, MDP 3.0 UDP channels -- PROPOSAL, not used by kaspr.
+; Same format as kaspr/genconfig/mdp3_prod.info (boost property_tree INFO).
+; Generated 2026-11-18 from CME SFTP sftpng.cmegroup.com, SBEFix/Production/Configuration/<dir>/<file>:
+;   UltraNY/EBSNYConfig.xml  updated="2025/05/19-16:01:03"
+;   UltraLondon/EBSLNDConfig.xml  updated="2025/07/11-07:45:04"
+;   UltraOff/EBSOffSEFConfig.xml  updated="2025/05/19-16:02:03"
+;   UltraOn/EBSOnSEFConfig.xml  updated="2025/05/19-16:03:03"
+;
+; group_a/b  = Incremental feed A/B (connection id <chan>IA / <chan>IB, feed-type I)
+; group_ir   = Instrument Replay feed A (<chan>NA, feed-type N)
+; group_dr   = MBP Snapshot (Market Recovery) feed A (<chan>SA, feed-type S). genconfig_mdp3_3.py
+;              maps _dr only from connection ids containing "AMBO" and would leave it out.
+; dr_*       = CME disaster-recovery multicast (<dr-ip>), same ports. Not read by kaspr.
+; src_*      = CME source hosts (<host-ip>), for routing/filters. Not read by kaspr.
+; mdinterface_a/b = 0.0.0.0: the local interfaces for the EBS circuit are not known (review.md).
+
+chan518 {
+chanid 518
+name "EBS Live Ultra - G10 + Metals- Conflated 1ms"
+group_a 233.91.101.4
+port_a 14518
+group_b 233.91.101.67
+port_b 15518
+group_ir 233.91.101.6
+port_ir 14518
+group_dr 233.91.101.5
+port_dr 14518
+dr_group_a 233.91.101.11
+dr_group_b 233.91.101.75
+dr_group_ir 233.91.101.13
+dr_group_dr 233.91.101.12
+src_a "164.74.12.18 164.74.12.19"
+src_b "164.74.12.146 164.74.12.147"
+mdinterface_a 0.0.0.0
+mdinterface_b 0.0.0.0
+}
+
+chan528 {
+chanid 528
+name "EBS Ultra New York"
+group_a 233.91.101.1
+port_a 14528
+group_b 233.91.101.64
+port_b 15528
+group_ir 233.91.101.3
+port_ir 14528
+group_dr 233.91.101.2
+port_dr 14528
+dr_group_a 233.91.101.8
+dr_group_b 233.91.101.72
+dr_group_ir 233.91.101.10
+dr_group_dr 233.91.101.9
+src_a "164.74.12.18 164.74.12.19"
+src_b "164.74.12.146 164.74.12.147"
+mdinterface_a 0.0.0.0
+mdinterface_b 0.0.0.0
+}
+
+chan519 {
+chanid 519
+name "EBS Live Ultra - EM FX - Conflated 1ms"
+group_a 233.91.101.19
+port_a 14519
+group_b 233.91.101.83
+port_b 15519
+group_ir 233.91.101.21
+port_ir 14519
+group_dr 233.91.101.20
+port_dr 14519
+dr_group_a 233.91.101.27
+dr_group_b 233.91.101.91
+dr_group_ir 233.91.101.29
+dr_group_dr 233.91.101.28
+src_a "164.74.53.16 164.74.53.17"
+src_b "164.74.53.144 164.74.53.145"
+mdinterface_a 0.0.0.0
+mdinterface_b 0.0.0.0
+}
+
+chan529 {
+chanid 529
+name "EBS Ultra London"
+group_a 233.91.101.16
+port_a 14529
+group_b 233.91.101.80
+port_b 15529
+group_ir 233.91.101.18
+port_ir 14529
+group_dr 233.91.101.17
+port_dr 14529
+dr_group_a 233.91.101.24
+dr_group_b 233.91.101.88
+dr_group_ir 233.91.101.26
+dr_group_dr 233.91.101.25
+src_a "164.74.53.16 164.74.53.17"
+src_b "164.74.53.144 164.74.53.145"
+mdinterface_a 0.0.0.0
+mdinterface_b 0.0.0.0
+}
+
+chan520 {
+chanid 520
+name "Ultra OFF SEF NDF - Conflated 20ms"
+group_a 233.91.101.35
+port_a 14520
+group_b 233.91.101.99
+port_b 15520
+group_ir 233.91.101.37
+port_ir 14520
+group_dr 233.91.101.36
+port_dr 14520
+dr_group_a 233.91.101.43
+dr_group_b 233.91.101.107
+dr_group_ir 233.91.101.45
+dr_group_dr 233.91.101.44
+src_a "164.74.53.18 164.74.53.19"
+src_b "164.74.53.146 164.74.53.147"
+mdinterface_a 0.0.0.0
+mdinterface_b 0.0.0.0
+}
+
+chan530 {
+chanid 530
+name "EBS Ultra OFF SEF NDF"
+group_a 233.91.101.32
+port_a 14530
+group_b 233.91.101.96
+port_b 15530
+group_ir 233.91.101.34
+port_ir 14530
+group_dr 233.91.101.33
+port_dr 14530
+dr_group_a 233.91.101.40
+dr_group_b 233.91.101.104
+dr_group_ir 233.91.101.42
+dr_group_dr 233.91.101.41
+src_a "164.74.53.18 164.74.53.19"
+src_b "164.74.53.146 164.74.53.147"
+mdinterface_a 0.0.0.0
+mdinterface_b 0.0.0.0
+}
+
+chan521 {
+chanid 521
+name "Ultra ON SEF NDF - Conflated 20ms"
+group_a 233.91.101.51
+port_a 14521
+group_b 233.91.101.115
+port_b 15521
+group_ir 233.91.101.53
+port_ir 14521
+group_dr 233.91.101.52
+port_dr 14521
+dr_group_a 233.91.101.59
+dr_group_b 233.91.101.123
+dr_group_ir 233.91.101.61
+dr_group_dr 233.91.101.60
+src_a "164.74.53.19 164.74.53.18"
+src_b "164.74.53.147 164.74.53.146"
+mdinterface_a 0.0.0.0
+mdinterface_b 0.0.0.0
+}
+
+chan531 {
+chanid 531
+name "EBS Ultra ON SEF NDF"
+group_a 233.91.101.48
+port_a 14531
+group_b 233.91.101.112
+port_b 15531
+group_ir 233.91.101.50
+port_ir 14531
+group_dr 233.91.101.49
+port_dr 14531
+dr_group_a 233.91.101.56
+dr_group_b 233.91.101.120
+dr_group_ir 233.91.101.58
+dr_group_dr 233.91.101.57
+src_a "164.74.53.18 164.74.53.19"
+src_b "164.74.53.146 164.74.53.147"
+mdinterface_a 0.0.0.0
+mdinterface_b 0.0.0.0
+}

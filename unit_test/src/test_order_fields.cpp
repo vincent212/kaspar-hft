@@ -302,3 +302,16 @@ TEST(OrderFields, CoinbaseExchangeVenueCode)
   EXPECT_STREQ(en::to_string(en::x(en::x::COINBASEX)), "COINBASEX");
   EXPECT_NE(int(en::x::COINBASEX), int(en::x::COINBASE));
 }
+
+// Aquis Exchange: Aquis UK (operating MIC AQXE) and Aquis EU (AQEU), appended
+// after COINBASEX.
+TEST(OrderFields, AquisVenueCodes)
+{
+  EXPECT_EQ(int(en::x::AQXE), int(en::x::COINBASEX) + 1);
+  EXPECT_EQ(int(en::x::AQEU), int(en::x::COINBASEX) + 2);
+  EXPECT_STREQ(en::to_string(en::x(en::x::AQXE)), "AQXE");
+  EXPECT_STREQ(en::to_string(en::x(en::x::AQEU)), "AQEU");
+  auto aqeu = en::x_try_parse("AQEU");
+  ASSERT_TRUE(aqeu.has_value());
+  EXPECT_EQ(*aqeu, en::x(en::x::AQEU));
+}

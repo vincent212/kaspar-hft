@@ -1,0 +1,274 @@
+# Field table: Aquis Stock Exchange (AQSE) multicast market data: real-time
+# feed, snapshot feed and TCP replay service of the AQSE trading platform.
+#
+# Document (public):
+#   AQSE  Aquis Stock Exchange Multicast Market Data Technical Specification,
+#         version 1.2.3, April 2024 (1.2.3 changed branding only against 1.2.2,
+#         February 2021).
+#         https://aqx-web-prod-s3-public-read.s3.eu-west-2.amazonaws.com/Aquis_Stock_Exchange_Multicast_Market_Data_Specification_v1_2_3_2024_fc07d16378.pdf
+# Citations: AQSE p.<PDF page> (the printed page number is the PDF page
+# minus 4), section <n>.
+#
+# Same data types, packet structure and 6-byte header as the Aquis Exchange
+# feed (aquis_md.tbl): little endian, 1-byte packing, char(n) NUL padded,
+# price 5 implied decimals, timestamp ns since the Unix epoch (AQSE p.9,
+# 3.1-3.2; p.10, 3.3.1). The message set and several layouts differ (no
+# mdFlags, no pubTimestamp, no Segment MIC, quotes and trade reports), so the
+# venue has its own table and namespace.
+@venue aqse
+@endian little
+@pad nul
+@type u8 uint
+@type u16 uint
+@type u32 uint
+@type u64 uint
+@type price uint
+@type timestamp uint
+@type char char
+
+### pkt::from_aqse
+
+MessageType - 0 0 # PacketHeader: first byte of every multicast packet (AQSE p.9, 3.2)
+@size 1
+messageCount u8 0 1 # Number of messages in this packet
+
+### md::from_aqse
+@type_code uint 1
+
+MessageType 1 0 1 # Heartbeat: header only; seqNo is the next business message expected and is not consumed (AQSE p.10, 3.3.2; p.7, 2.1)
+@size 6
+length u8 1 1 # 6
+seqNo u32 2 4 # Next expected business sequence number
+
+MessageType 2 0 1 # OrderAdd: visible order quantity posted to the book; continuous trading only (AQSE p.10, 3.4.1)
+@size 33
+length u8 1 1 # 33
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+side u8 8 1 # 1 buy, 2 sell
+quantity u32 9 4 # Shares added to the book
+price price 13 8 # Price of the order
+orderRef u32 21 4 # Unique order reference number for the day
+timestamp timestamp 25 8 # Time of this market data event
+
+MessageType 3 0 1 # OrderCancel: a visible order removed from the book; continuous trading only (AQSE p.11, 3.4.2)
+@size 20
+length u8 1 1 # 20
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+orderRef u32 8 4 # Unique order reference number for the day
+timestamp timestamp 12 8 # Time of this market data event
+
+MessageType 4 0 1 # OrderModify: price and/or quantity changed; quantity down keeps priority, otherwise re-ordered; continuous trading only (AQSE p.11, 3.4.3)
+@size 32
+length u8 1 1 # 32
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+quantity u32 8 4 # Shares remaining in the book
+price price 12 8 # Price of the order
+orderRef u32 20 4 # Unique order reference number for the day
+timestamp timestamp 24 8 # Time of this market data event
+
+MessageType 20 0 1 # QuoteAddReplace: a market maker's two-sided quote for a security (AQSE p.11-12, 3.4.4)
+@size 42
+length u8 1 1 # 42
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+traderID u16 6 2 # Market maker quoting (Trader Definition)
+securityID u16 8 2 # Numeric identifier of the security
+bidQuantity u32 10 4 # Bid shares available
+bidPrice price 14 8 # Bid price
+offerQuantity u32 22 4 # Offer shares available
+offerPrice price 26 8 # Offer price
+timestamp timestamp 34 8 # Time of this market data event
+
+MessageType 21 0 1 # QuoteCancel: a quote removed (AQSE p.12, 3.4.5)
+@size 18
+length u8 1 1 # 18
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+traderID u16 6 2 # Originator of the quote
+securityID u16 8 2 # Numeric identifier of the security
+timestamp timestamp 10 8 # Time of this market data event
+
+MessageType 5 0 1 # Trade: an order traded, partly or fully; also the AoD trade (AQSE p.12, 3.4.6; p.17, 3.5.2)
+@size 41
+length u8 1 1 # 41
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+tradeType u8 8 1 # 1 visible, 2 hidden or reserve, 6 AoD, 8 Trade Capture Report (AQSE p.19, 3.6.2)
+quantity u32 9 4 # Shares traded
+price price 13 8 # Execution price
+orderRef u32 21 4 # Order reference, for tradeType 1 (visible)
+tradeRef u32 25 4 # Trade reference; not unique for the day, with timestamp it is (AQSE p.6, 2.1)
+timestamp timestamp 29 8 # Time of this market data event
+BinaryMMT u32 37 4 # MMT flags (AQSE p.17-19, 3.6.1)
+
+MessageType 25 0 1 # TradeReport: a new trade report submitted to AQSE (AQSE p.13, 3.4.7)
+@size 45
+length u8 1 1 # 45
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+tradeType u8 8 1 # See AQSE p.19, 3.6.2
+quantity u32 9 4 # Shares traded
+price price 13 8 # Execution price
+tradeRef u32 21 4 # Trade report reference number
+timestamp timestamp 25 8 # System received timestamp
+BinaryMMT u32 33 4 # MMT flags
+transactTime timestamp 37 8 # Time the transaction occurred
+
+MessageType 26 0 1 # TradeReportModify: a published trade report modified, up to five business days later; preceded by a Trade Report Cancel of the original (AQSE p.13, 3.4.8)
+@size 57
+length u8 1 1 # 57
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+tradeType u8 8 1 # See AQSE p.19, 3.6.2
+quantity u32 9 4 # Shares traded
+price price 13 8 # Execution price
+tradeRef u32 21 4 # Trade report reference number
+timestamp timestamp 25 8 # System received timestamp
+BinaryMMT u32 33 4 # MMT flags
+transactTime timestamp 37 8 # Time the transaction occurred
+origTradeRef u32 45 4 # Reference of the previous accepted trade report message
+origTimestamp timestamp 49 8 # Timestamp of the previous accepted trade report message
+
+MessageType 27 0 1 # TradeReportCancel: a published trade report cancelled, up to five business days later (AQSE p.14, 3.4.9)
+@size 65
+length u8 1 1 # 65
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+origSecurityID u16 6 2 # Security of the previous accepted trade report message
+origTradeType u8 8 1 # Trade type of the previous accepted trade report message
+origQuantity u32 9 4 # Shares of the previous accepted trade report message
+origPrice price 13 8 # Price of the previous accepted trade report message
+tradeRef u32 21 4 # Trade report reference number
+timestamp timestamp 25 8 # System received timestamp
+BinaryMMT u32 33 4 # MMT flags
+transactTime timestamp 37 8 # Time the transaction occurred
+origTradeRef u32 45 4 # Reference of the previous accepted trade report message
+origTimestamp timestamp 49 8 # Timestamp of the previous accepted trade report message
+origTransactTime timestamp 57 8 # Time the original transaction occurred
+
+MessageType 6 0 1 # TradeBust: a trade declared erroneous; order generated trades only (AQSE p.14-15, 3.4.10)
+@size 36
+length u8 1 1 # 36
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+quantity u32 8 4 # Shares of the original trade
+price price 12 8 # Execution price of the original trade
+tradeRef u32 20 4 # Trade reference of the busted trade
+timestamp timestamp 24 8 # Time of this market data event
+BinaryMMT u32 32 4 # MMT flags
+
+MessageType 22 0 1 # SecurityStatistics: opening and closing prices (AQSE p.15, 3.4.11; p.7, 2.1)
+@size 25
+length u8 1 1 # 25
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+price price 8 8 # Price
+priceType u8 16 1 # 2 opening price, 5 closing price
+timestamp timestamp 17 8 # Time of this market data event
+
+MessageType 23 0 1 # TraderDefinition: a quote originator; pre-market (AQSE p.15, 3.4.12)
+@size 24
+length u8 1 1 # 24
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+traderID u16 6 2 # Numeric identifier of the trader
+senderID char 8 16 # SenderID of the trader
+
+MessageType 7 0 1 # TickTableData: one band of a dynamic tick table, or a static tick; pre-market (AQSE p.15-16, 3.4.13)
+@size 33
+length u8 1 1 # 33
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+tickTableID u8 6 1 # Identifier of the tick table or static tick
+name char 7 10 # Short name
+threshold price 17 8 # Price from which this tick size applies
+tickSize price 25 8 # Price increment
+
+MessageType 8 0 1 # SecurityDefinition: a security on this feed; pre-market, rarely intraday (AQSE p.16, 3.4.14)
+@size 34
+length u8 1 1 # 34
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+UMTF char 8 6 # Not applicable to AQSE
+ISIN char 14 12 # ISIN
+currency char 26 3 # Trading currency
+MIC char 29 4 # MIC of the market of listing
+tickTableId u8 33 1 # The security's tick table
+
+MessageType 9 0 1 # SecurityStatus: trading status of a security or of its market changed (AQSE p.16-17, 3.4.15)
+@size 18
+length u8 1 1 # 18
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+tradingStatus u8 8 1 # 1 Active, 2 Halted, 3 Suspended
+marketFlags u8 9 1 # Bit 0 continuous trading open (AoD available), bit 3 pre phase; with bit 0: 0/1 pre-open, 1/0 open, 1/1 pre-close, 0/0 closed
+timestamp timestamp 10 8 # Time of this market data event
+
+MessageType 17 0 1 # AoDUpdate: indicative price and matched volume during an AoD; the first one starts the auction (AQSE p.17, 3.5.1)
+@size 28
+length u8 1 1 # 28
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+indicativePrice price 8 8 # Indicative auction price
+matchVol u32 16 4 # Indicative matched volume
+timestamp timestamp 20 8 # Time of this market data event
+
+### snap::from_aqse
+@type_code uint 1
+
+MessageType 10 0 1 # SnapshotStart: first message of each snapshot, every 10 s; continuous trading only (AQSE p.20, 3.7.1; p.7, 2.2)
+@size 20
+length u8 1 1 # 20
+seqNo u32 2 4 # Not described for the snapshot feed
+streamSeqNo u32 6 4 # Sequence number of the last continuous-stream message the snapshot relates to
+securityCount u16 10 2 # Securities reported in this snapshot
+timestamp timestamp 12 8 # Time of this snapshot
+
+MessageType 11 0 1 # BookStatus: status of one security and the number of its open orders (AQSE p.20, 3.7.2)
+@size 28
+length u8 1 1 # 28
+seqNo u32 2 4 # Not described for the snapshot feed
+securityID u16 6 2 # Numeric identifier of the security
+tradingStatus u8 8 1 # As Security Status (the spec says "Section 3.4.13", which is Tick Table Data)
+marketFlags u8 9 1 # As Security Status
+entries u16 10 2 # Open orders in the book; that many Book Entry messages follow
+closingBuyQty u32 12 4 # Total buy quantity during the closing market, otherwise 0
+closingSellQty u32 16 4 # Total sell quantity during the closing market, otherwise 0
+indicativePrice price 20 8 # Indicative auction price
+
+MessageType 12 0 1 # BookEntry: one open order; price-time priority for one side, then the other (AQSE p.21, 3.7.3)
+@size 25
+length u8 1 1 # 25
+seqNo u32 2 4 # Not described for the snapshot feed
+securityID u16 6 2 # Numeric identifier of the security
+Side u8 8 1 # 1 buy, 2 sell
+quantity u32 9 4 # Open shares
+Price price 13 8 # Price of the order
+orderRef u32 21 4 # Unique order reference number for the day
+
+### replay::to_aqse
+@type_code uint 1
+
+MessageType 13 0 1 # Login: first message on a replay connection (AQSE p.21, 3.8.1)
+@size 26
+length u8 1 1 # 26
+seqNo u32 2 4 # 0; ignored by AQSE (AQSE p.21, 3.8)
+username char 6 10 # As assigned by AQSE
+password char 16 10 # As assigned by AQSE
+
+MessageType 14 0 1 # ReplayRequest: request one message or a range (AQSE p.21-22, 3.8.2)
+@size 14
+length u8 1 1 # 14
+seqNo u32 2 4 # 0; ignored by AQSE
+beginSeqNo u32 6 4 # Stream seqNo of the first message requested
+endSeqNo u32 10 4 # Stream seqNo of the last message requested
+
+### replay::from_aqse
+@type_code uint 1
+@include md::from_aqse
+
+MessageType 15 0 1 # ReplayResponse: Login accepted, or a Replay Request refused (AQSE p.22, 3.8.3)
+@size 7
+length u8 1 1 # 7
+seqNo u32 2 4 # 0
+responseCode u8 6 1 # 0 Login successful, 1 bad beginSeqNo, 2 bad endSeqNo
+
+### end

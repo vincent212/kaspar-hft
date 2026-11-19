@@ -1,0 +1,250 @@
+# Field table: Aquis Exchange market data (Aquis UK, operating MIC AQXE, and
+# Aquis EU, AQEU): real-time multicast feeds (continuous, AoD, MaC), snapshot
+# feed and TCP replay service.
+#
+# Document (public):
+#   MD  Aquis Market Data Technical Specification, version 4.2, August 2026,
+#       production; effective 17 August 2026 (Member Notice 2026_0008).
+#       https://aqx-web-prod-s3-public-read.s3.eu-west-2.amazonaws.com/Production_Aquis_Market_Data_Technical_Specification_v4_2_a83557a9c6.pdf
+# Citations: MD p.<PDF page = printed page>, section <n>.
+#
+# 1-byte packing, every integer little endian (MD p.10, 3.1). char(n) is left
+# justified and padded with 0x00 (MD p.10, 3.1). price is a u64 with 5 implied
+# decimals; timestamp a u64 of nanoseconds since the Unix epoch (MD p.10, 3.1).
+#
+# Framing (MD p.10-11, 3.2 and 3.3.1): a multicast packet is a 1-byte message
+# count followed by that many messages. Every message starts with a 6-byte
+# header: msgType (u8), length (u8, the whole message including the header),
+# seqNo (u32). The type code comes first and the length second, so the length
+# is not a @length_prefix: it is written as the header field `length` of each
+# message, and the packet reader advances by it (a message longer than its
+# table row is skipped to its length). Offsets below are the specification's.
+#
+# The same header and type codes are used on the replay TCP connection, where
+# seqNo is 0 on the session messages (MD p.20, 3.8).
+@venue aquis
+@endian little
+@pad nul
+@type u8 uint
+@type u16 uint
+@type u32 uint
+@type u64 uint
+@type price uint
+@type timestamp uint
+@type char char
+
+### pkt::from_aquis
+
+MessageType - 0 0 # PacketHeader: first byte of every multicast packet (MD p.10, 3.2 Multicast Packet Structure)
+@size 1
+messageCount u8 0 1 # Number of messages in this packet
+
+### md::from_aquis
+@type_code uint 1
+
+MessageType 1 0 1 # Heartbeat: header only; seqNo is the next business message expected and is not consumed. Sent after 1 s without data during trading hours and pre and post market (MD p.11, 3.3.2; p.8, 2.1)
+@size 6
+length u8 1 1 # 6
+seqNo u32 2 4 # Next expected business sequence number
+
+MessageType 34 0 1 # MDBundleStart: start of the messages generated in one sequencer cycle (MD p.11, 3.4.1)
+@size 6
+length u8 1 1 # 6
+seqNo u32 2 4 # Sequence number of this message in the stream for the current trading day
+
+MessageType 35 0 1 # MDBundleEnd: all messages of the sequencer cycle have been published (MD p.11, 3.4.2)
+@size 6
+length u8 1 1 # 6
+seqNo u32 2 4 # Sequence number of this message in the stream for the current trading day
+
+MessageType 2 0 1 # OrderAdd: visible order quantity posted to the book (MD p.12, 3.4.3)
+@size 42
+length u8 1 1 # 42
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+side u8 8 1 # 1 buy, 2 sell
+quantity u32 9 4 # Shares added to the book
+price price 13 8 # Price of the order, 5 implied decimals
+orderRef u32 21 4 # Unique order reference number for the day
+timestamp timestamp 25 8 # Time of this market data event
+mdFlags u8 33 1 # Bit 0: 1 unrestricted liquidity available at the top of the book on the order's side (MD p.23, 3.9.2)
+pubTimestamp timestamp 34 8 # Time the market data event was published (added in 4.2)
+
+MessageType 3 0 1 # OrderCancel: a visible order removed from the book (MD p.12, 3.4.4)
+@size 29
+length u8 1 1 # 29
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+orderRef u32 8 4 # Unique order reference number for the day
+timestamp timestamp 12 8 # Time of this market data event
+mdFlags u8 20 1 # See MD p.23, 3.9.2
+pubTimestamp timestamp 21 8 # Time the market data event was published (added in 4.2)
+
+MessageType 4 0 1 # OrderModify: price and/or quantity of a visible order changed; same orderRef; quantity down keeps priority, otherwise the book is re-ordered (MD p.12-13, 3.4.5)
+@size 41
+length u8 1 1 # 41
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+quantity u32 8 4 # Shares remaining in the book (absolute)
+price price 12 8 # Price of the order, 5 implied decimals
+orderRef u32 20 4 # Unique order reference number for the day
+timestamp timestamp 24 8 # Time of this market data event
+mdFlags u8 32 1 # See MD p.23, 3.9.2
+pubTimestamp timestamp 33 8 # Time the market data event was published (added in 4.2)
+
+MessageType 5 0 1 # Trade: an order traded, partly or fully; also the AoD and MaC trade message (MD p.13-14, 3.4.6; p.18, 3.5.3, 3.6.2)
+@size 54
+length u8 1 1 # 54
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+tradeType u8 8 1 # 1 visible, 2 hidden or reserve, 3 MaC, 4 LIS Cross, 5 Benchmark Cross, 6 AoD, 12 AVM (MD p.14, 3.4.6)
+quantity u32 9 4 # Shares traded
+price price 13 8 # Execution price, 5 implied decimals
+orderRef u32 21 4 # The resting visible order for tradeType 1; 0 against hidden quantity or for a MaC trade
+tradeRef u32 25 4 # Trade reference number
+timestamp timestamp 29 8 # Time of this market data event
+MIC char 37 4 # Segment MIC (added in 4.1)
+BinaryMMT u32 41 4 # Post-trade MMT flags, bit fields in MD p.22-23, 3.9.1
+mdFlags u8 45 1 # Bit 0 refers to the passive side of the trade (MD p.23, 3.9.2)
+pubTimestamp timestamp 46 8 # Time the market data event was published (added in 4.2)
+
+MessageType 6 0 1 # TradeBust: a trade declared erroneous; also the AoD and MaC trade bust (MD p.14, 3.4.7)
+@size 44
+length u8 1 1 # 44
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+quantity u32 8 4 # Shares of the original trade
+price price 12 8 # Execution price of the original trade
+tradeRef u32 20 4 # Trade reference of the busted trade
+timestamp timestamp 24 8 # Time of this market data event
+BinaryMMT u32 32 4 # Post-trade MMT flags (MD p.22-23, 3.9.1)
+pubTimestamp timestamp 36 8 # Time the market data event was published (added in 4.2)
+
+MessageType 7 0 1 # TickTableData: one band of a dynamic tick table, or a static tick; pre-market (MD p.14-15, 3.4.8)
+@size 33
+length u8 1 1 # 33
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+tickTableID u8 6 1 # Identifier of the tick table or static tick
+name char 7 10 # Short name
+threshold price 17 8 # Price from which this tick size applies
+tickSize price 25 8 # Price increment
+
+MessageType 8 0 1 # SecurityDefinition: a security on this feed; pre-market, rarely intraday on a change or correction (MD p.15-16, 3.4.9)
+@size 75
+length u8 1 1 # 75
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+UMTF char 8 6 # Uniform MTF code
+ISIN char 14 12 # ISIN
+currency char 26 3 # Trading currency
+MIC char 29 4 # MIC of the market of listing
+tickTableId u8 33 1 # The security's tick table
+flags u16 34 2 # Bit 0 macEnabled, 1 testStock, 2 illiquid, 4 aodEnabled, 7 avxEnabled; others reserved
+exchangeSymbol char 36 20 # Exchange symbol (added in 4.0)
+lotSize u64 56 8 # Always 1,000,000,000: a lot of 1 (added in 4.0)
+lotSizeDecimal u8 64 1 # Always 9 (added in 4.0)
+timestamp timestamp 65 8 # Time of this market data event (added in 4.2)
+marketId u16 73 2 # Numerical market identifier (added in 4.2)
+
+MessageType 9 0 1 # SecurityStatus: trading status of a security or of its market changed; also the AoD and MaC security status (MD p.16-17, 3.4.10; p.18, 3.5.2, 3.6.4)
+@size 27
+length u8 1 1 # 27
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+tradingStatus u8 8 1 # 1 Active, 2 Halted, 3 Suspended, 8 AoD Start, 24 AoD Finish
+marketFlags u8 9 1 # Bit 0 continuous trading open, 1 macOpen, 2 macRun (locked down), 5 macplusOpen, 6 macplusRun; 3, 4, 7 reserved
+timestamp timestamp 10 8 # Time of this market data event
+tradingPhase u8 18 1 # 0 Closed, 1 Continuous (added in 4.0)
+pubTimestamp timestamp 19 8 # Time the market data event was published (added in 4.2)
+
+MessageType 17 0 1 # AoDUpdate: indicative price and matched volume during an AoD; 0 and 0 when the auction has uncrossed (MD p.17-18, 3.5.1)
+@size 36
+length u8 1 1 # 36
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+indicativePrice price 8 8 # Indicative auction price
+matchVol u32 16 4 # Indicative matched volume
+timestamp timestamp 20 8 # Time of this market data event
+pubTimestamp timestamp 28 8 # Time the market data event was published (added in 4.2)
+
+MessageType 16 0 1 # MaCUpdate: indicative price and buy and sell totals during the MaC; MaC feeds only (MD p.18, 3.6.1)
+@size 32
+length u8 1 1 # 32
+seqNo u32 2 4 # Sequence number in the stream for the current trading day
+securityID u16 6 2 # Numeric identifier of the security
+indicativePrice price 8 8 # Indicative auction price
+closingBuyQty u32 16 4 # Total buy quantity during the closing market, otherwise 0
+closingSellQty u32 20 4 # Total sell quantity during the closing market, otherwise 0
+timestamp timestamp 24 8 # Time of this market data event
+
+### snap::from_aquis
+@type_code uint 1
+
+MessageType 10 0 1 # SnapshotStart: first message of each snapshot publication, every 10 s (MD p.19, 3.7.1; p.8, 2.2)
+@size 20
+length u8 1 1 # 20
+seqNo u32 2 4 # Not described for the snapshot feed
+streamSeqNo u32 6 4 # Sequence number of the last continuous-stream message the snapshot relates to
+securityCount u16 10 2 # Securities reported in this snapshot
+timestamp timestamp 12 8 # Time of this snapshot
+
+MessageType 11 0 1 # BookStatus: status of one security and the number of its open orders; Book Entry messages follow (MD p.19, 3.7.2)
+@size 28
+length u8 1 1 # 28
+seqNo u32 2 4 # Not described for the snapshot feed
+securityID u16 6 2 # Numeric identifier of the security
+tradingStatus u8 8 1 # As Security Status
+marketFlags u8 9 1 # As Security Status
+entries u16 10 2 # Open orders in the book; that many Book Entry messages follow
+closingBuyQty u32 12 4 # Total buy quantity during the closing market, otherwise 0
+closingSellQty u32 16 4 # Total sell quantity during the closing market, otherwise 0
+indicativePrice price 20 8 # Indicative auction price
+
+MessageType 12 0 1 # BookEntry: one open order; price-time priority for one side, then the other (MD p.19-20, 3.7.3)
+@size 25
+length u8 1 1 # 25
+seqNo u32 2 4 # Not described for the snapshot feed
+securityID u16 6 2 # Numeric identifier of the security
+Side u8 8 1 # 1 buy, 2 sell
+quantity u32 9 4 # Open shares
+Price price 13 8 # Price of the order
+orderRef u32 21 4 # Unique order reference number for the day
+
+MessageType 18 0 1 # MaCBookEntry: during the MaC, the first 5 valid best bid and offer orders per security in chronological order; a snapshot (MD p.20, 3.7.4)
+@size 25
+length u8 1 1 # 25
+seqNo u32 2 4 # Not described
+securityID u16 6 2 # Numeric identifier of the security
+Side u8 8 1 # 1 buy, 2 sell
+Quantity u32 9 4 # Open shares
+Price price 13 8 # Price of the order
+orderRef u32 21 4 # Unique order reference number for the day
+
+### replay::to_aquis
+@type_code uint 1
+
+MessageType 13 0 1 # Login: first message on a replay connection (MD p.20-21, 3.8.1; p.9, 2.3)
+@size 26
+length u8 1 1 # 26
+seqNo u32 2 4 # 0; ignored by Aquis (MD p.20, 3.8)
+username char 6 10 # As assigned by Aquis
+password char 16 10 # As assigned by Aquis
+
+MessageType 14 0 1 # ReplayRequest: request one message or a range (MD p.21, 3.8.2)
+@size 14
+length u8 1 1 # 14
+seqNo u32 2 4 # 0; ignored by Aquis (MD p.20, 3.8)
+beginSeqNo u32 6 4 # Stream seqNo of the first message requested
+endSeqNo u32 10 4 # Stream seqNo of the last message requested
+
+### replay::from_aquis
+@type_code uint 1
+@include md::from_aquis
+
+MessageType 15 0 1 # ReplayResponse: Login accepted, or a Replay Request refused; an accepted request gets no response, only the messages (MD p.21, 3.8.3)
+@size 7
+length u8 1 1 # 7
+seqNo u32 2 4 # 0 (MD p.20, 3.8)
+responseCode u8 6 1 # 0 Login successful, 1 bad beginSeqNo, 2 bad endSeqNo
+
+### end
