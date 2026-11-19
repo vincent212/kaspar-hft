@@ -4,7 +4,7 @@
     <strong>Production Trading System and Position-Aware Order Book Simulator</strong>
   </p>
   <p align="center">
-    Venue-independent &bull; CME MDP3 and iLink 3 included &bull; TT FIX order routing &bull; Live crypto simulation (Binance, Coinbase, Hyperliquid) &bull; PCAP Replay &bull; POV Execution &bull; C++20 &bull; FPGA actors (upcoming)
+    Venue-independent &bull; CME MDP3 and iLink 3 included &bull; TT FIX order routing &bull; Live crypto simulation (Binance, Coinbase, Hyperliquid) &bull; PCAP Replay &bull; POV Execution &bull; C++20 &bull; FPGA actors (upcoming) &bull; Any venue, generated from its spec (upcoming)
   </p>
 </p>
 
@@ -23,6 +23,7 @@
 
 - **Low-latency actor framework:** No data races, no locks in your code, and almost no framework overhead.
 - **FPGA actors (upcoming):** The actor framework extended to FPGAs: actors on the card and actors on the CPU exchange the same messages. The first application, a CME MDP3 handler for the AMD Alveo X3522PV, decodes packets as they arrive and sends events to the CPU's books; it meets timing at 250 MHz on the card's FPGA, one step per clock ([mdp3_fpga/](mdp3_fpga/), the [paper draft (PDF)](tech_reports/fpga_actors.pdf), and [below](#upcoming-fpga-actors)).
+- **Any venue, generated from its spec (upcoming):** A Claude Code skill turns a venue's public specification into its market-data handler, order manager and post-trade client, as Kaspar actors, tested against the spec's own examples, public sample data, live exchange books and fault injection. 19 venues built so far across US, European and Asian equities, FX, US Treasuries and crypto. Every venue that publishes its protocol is a build away; certification follows venue by venue ([below](#upcoming-any-venue-generated-from-its-spec)).
 - **Backtest == production:** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live trading through iLink 3 or TT FIX; switching is a config change, so a backtest exercises the exact code path that will trade.
 - **Live crypto simulator:** The same book, shadow lights and simulated order manager on live Binance (spot and USD-M futures), Coinbase (spot) and Hyperliquid (perpetuals) market data, no API key needed. Price-level feeds are split into queues of synthetic orders so fills still go by queue position; orders, BBO and fills are available from Python over zmq ([sim/BINANCE.md](sim/BINANCE.md), [sim/CRYPTO.md](sim/CRYPTO.md)).
 - **Venue-independent, CME included:** Feed handler and order-entry session are pluggable. The included MDP3 market-data handler and iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
@@ -43,7 +44,7 @@ It is also a **position-aware order book simulator**: order books rebuilt from p
 
 The same strategy code, the same execution algorithm and the same book run in PCAP replay, in live paper trading, and against the live exchange; moving between them is a configuration change. A backtest exercises the code path that will trade. It is built on a custom C++ actor framework with nanosecond-scale messaging.
 
-**Why actors?** Each actor owns its private state and communicates only by messages, so no mutable state is shared between actors: no memory-level data races, no torn reads or writes, and no locks in your own code. You reason about one message at a time against consistent state. Deadlocks are still possible — a cycle of synchronous `fast_send` calls can create one — but they are much harder to make. Actor code is also unusually easy for AI coding agents to write: the model is simple, the framework's documentation is written for them, and an actor comes with a natural self-contained unit test — send a message in, assert on the reply. The usual objection to the actor model is the messaging overhead; Kaspar answers it with `fast_send`, which runs the receiver's handler inline on the caller's thread and returns the reply as a value (**about 7.5 ns of overhead over a direct call**).
+**Why actors?** Each actor owns its private state and communicates only by messages, so no mutable state is shared between actors: no memory-level data races, no torn reads or writes, and no locks in your own code. You reason about one message at a time against consistent state. The one remaining way to deadlock is a cycle of synchronous `fast_send` calls. Actor code is also unusually easy for AI coding agents to write: the model is simple, the framework's documentation is written for them, and an actor comes with a natural self-contained unit test — send a message in, assert on the reply. The usual objection to the actor model is the messaging overhead; Kaspar answers it with `fast_send`, which runs the receiver's handler inline on the caller's thread and returns the reply as a value (**about 7.5 ns of overhead over a direct call**).
 
 Named after [Kasprowy Wierch](https://en.wikipedia.org/wiki/Kasprowy_Wierch) — *"a peak of a long crest in the Western Tatras, one of Poland's main winter ski areas."*
 
@@ -58,13 +59,23 @@ Kaspar's market-data and order-entry stacks are complete session implementations
 
 The actor framework has an FPGA side, `kfpga` ([actors/fpga/](actors/fpga/)): actors written in C++ and compiled to hardware with Vitis HLS, one `hls::task` each, exchanging the same messages as the CPU actors across PCIe. The design is described in the paper draft *Adapting the Actor Model of Concurrency to Hybrid CPU/FPGA Architectures* ([tech_reports/fpga_actors.pdf](tech_reports/fpga_actors.pdf)).
 
-The first application is a CME MDP3 handler for the AMD Alveo X3522PV ([mdp3_fpga/](mdp3_fpga/)). On the card, FeedRx, Igmp, SbeDecoder, Filter and Batcher receive the UDP frames, join the multicast group, decode SBE as the bytes arrive, keep the securities the CPU asked for and pack the events into 64-byte lines; on the CPU, the FpgaFeed actor builds the books. It is built and tested in simulation against CME's codec on recorded data, and placed and routed on the card's XCUX35 at 250 MHz, using about 0.6% of the chip. The Ethernet MAC and the PCIe DMA to the host are not built yet ([mdp3_fpga/MDP3_PLAN.md](mdp3_fpga/MDP3_PLAN.md)).
+The first application is a CME MDP3 handler for the AMD Alveo X3522PV ([mdp3_fpga/](mdp3_fpga/)). On the card, FeedRx, Igmp, SbeDecoder, Filter and Batcher receive the UDP frames, join the multicast group, decode SBE as the bytes arrive, keep the securities the CPU asked for and pack the events into 64-byte lines; on the CPU, the FpgaFeed actor builds the books. It is built and tested in simulation against CME's codec on recorded data, and placed and routed on the card's XCUX35 at 250 MHz, using about 0.6% of the chip. The Ethernet MAC and the PCIe DMA to the host are next ([mdp3_fpga/MDP3_PLAN.md](mdp3_fpga/MDP3_PLAN.md)).
 
 The series on Substack:
 
 1. [From C++ Actors to FPGA Circuits](https://vincentmayeski.substack.com/p/from-c-actors-to-fpga-circuits)
 2. [CPU Actors and FPGA Actors: Talking Across PCIe](https://vincentmayeski.substack.com/p/cpu-actors-and-fpga-actors-talking)
 3. [Removing latency tails in market data handlers using FPGAs](https://vincentmayeski.substack.com/p/removing-latency-tails-in-market)
+
+## Upcoming: any venue, generated from its spec
+
+Venue connectivity is the cost that has kept trading systems tied to a handful of markets. Kaspar turns it into a procedure. The `build-feed-handler` skill takes a venue's public specification and produces the three pieces a venue needs: Claude Code writes a cited description of the feed, transcribes the message layouts into field tables that a compiler checks and turns into decoders (or uses the venue's SBE schema or FIX dictionary), builds the market-data handler, order manager and post-trade client as actors on Kaspar's framework, and tests them. Every handler targets the same order books, order router and trade ledger, so each one is verified by feeding its output into Kaspar's own book and comparing, and every gap a venue exposes becomes part of the skill for the next one.
+
+The first run covered 19 venues: Nasdaq, NYSE, Cboe U.S. and Europe, IEX, Deutsche Börse T7, HKEX, Japannext, Aquis, LMAX, EBS, Currenex, Coinbase, Bybit, OKX, Kraken, Deribit, Clear Street and Lime. Where an exchange publishes a machine-readable layout, the generated decoders match it field for field; where it publishes sample recordings, every message decodes. The market-data handlers' books agree with recorded data and with live exchange snapshots. For the three venues with an existing, tested implementation to compare against, the generated order managers covered its test scenarios. The handlers are arriving on the [`global_connectivity`](https://github.com/vincent212/kaspar-hft/tree/global_connectivity) branch through [its pull requests](https://github.com/vincent212/kaspar-hft/pulls?q=is%3Apr+base%3Aglobal_connectivity), under `global_connectivity/non_certified/`, organised by kind (market data, order entry, post-trade) and venue, each with its own README and tests; a handler moves to `certified/` after a full day of real data, recovery exercised against the venue and an unattended live session.
+
+Next: Euronext, London Stock Exchange, SIX, Nasdaq Nordic, JPX, Korea Exchange, SGX, ASX, NSE, Shanghai, Shenzhen, B3, TSX, ICE, Tradeweb, Interactive Brokers, and any other venue that publishes its protocol. Kaspar's reach is set by the venues' documentation, not by a connectivity backlog.
+
+Article: [Global connectivity for Kaspar-HFT: agent-generated gateways to any venue](https://vincentmayeski.substack.com/p/global-connectivity-for-kaspar-hft) on Substack.
 
 ## Build
 
