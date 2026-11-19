@@ -75,7 +75,7 @@ The first run covered 19 venues: US, European and Asian equities, FX, US Treasur
 
 Next: Euronext, London Stock Exchange, SIX, Nasdaq Nordic, JPX, Korea Exchange, SGX, ASX, NSE, Shanghai, Shenzhen, B3, TSX, ICE, Tradeweb, Interactive Brokers, and any other venue that publishes its protocol. Kaspar's reach is set by the venues' documentation, not by a connectivity backlog.
 
-Article: [Global connectivity for Kaspar-HFT: agent-generated gateways to any venue](https://vincentmayeski.substack.com/) on Substack.
+Article: [Global connectivity for Kaspar-HFT: agent-generated gateways to any venue](https://vincentmayeski.substack.com/p/global-connectivity-for-kaspar-hft) on Substack.
 
 ## Build
 
