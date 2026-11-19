@@ -1,0 +1,125 @@
+# Field table: Nasdaq DROP over SoupBinTCP (public specifications).
+#
+#   DROP, Version 2.20, updated October 2024 ("drop2.2.pdf", 8 pages)
+#   SoupBinTCP, Version 3.00 (revision of 02/22/2017; "soupbintcp.pdf", 9 pages)
+#
+# Two layers, in separate sections:
+#   soup::from_nasdaq, soup::to_nasdaq  the SoupBinTCP session (login, heartbeats,
+#                                       sequenced-data envelope)
+#   drop::from_nasdaq                   the DROP trade message line carried in each
+#                                       Sequenced Data packet
+#
+# SoupBinTCP's tables count the 2-byte packet length in their offsets (Packet Type
+# at offset 2), so the soup sections copy the offsets as printed and declare
+# @offset_base 2. Integers are big-endian (SoupBinTCP 1.5, p.4); every other field
+# is ASCII.
+@venue nasdaq
+@endian big
+@pad space
+@type Alpha char
+@type Alphanumeric char
+# SoupBinTCP text that the specification says is left padded with spaces.
+@type Session char right
+@type Numeric char right
+@type Payload bytes
+# DROP data types (DROP 2.20, 1.3, p.2): numeric fields right justified and space
+# filled on the left; alpha fields left justified, padded on the right with spaces;
+# prices are 6 whole places, a point and 4 decimals, the whole part padded on the
+# left with spaces (so the field as a whole is right aligned).
+@type DNumeric char right
+@type DAlpha char
+@type DAlphanum char
+@type DPrice char right
+@type DTimestamp char right
+@type DType char
+# The comma between two fields. DROP 2.20, 1.6 says each line is "fixed format,
+# comma delimited"; the commas are not rows of the table, but every gap between
+# one field's end and the next field's offset is exactly one byte.
+@type Comma char
+
+### soup::from_nasdaq
+@length_prefix 2 exclusive
+@offset_base 2
+
+MessageType + 2 1 # Debug: free-form human readable text; ignored by the client (SoupBinTCP 3.00, 2.1, p.4)
+Text Payload 3 # Free form human readable text
+
+MessageType A 2 1 # LoginAccepted: login succeeded; first non-debug packet after a valid login (SoupBinTCP 3.00, 2.2.1, p.4)
+@size 31
+Session Session 3 10 # Session ID now logged into, left padded with spaces
+SequenceNumber Numeric 13 20 # Sequence number of the next Sequenced Message to be sent, ASCII, left padded with spaces
+
+MessageType J 2 1 # LoginRejected: login failed; the server then closes the socket (SoupBinTCP 3.00, 2.2.2, p.5)
+@size 2
+RejectReasonCode Alpha 3 1 # A not authorized (username/password), S session not available
+
+MessageType S 2 1 # SequencedData: one message of the higher-level protocol; sequence number implied (SoupBinTCP 3.00, 2.2.3, p.5)
+Message Payload 3 # Defined by the higher-level protocol: one DROP trade message line
+
+MessageType H 2 1 # ServerHeartbeat: sent after more than 1 second without other data (SoupBinTCP 3.00, 2.2.4, p.6)
+@size 1
+
+MessageType Z 2 1 # EndOfSession: the current session is finished; the connection closes shortly after (SoupBinTCP 3.00, 2.2.5, p.6)
+@size 1
+
+### soup::to_nasdaq
+@length_prefix 2 exclusive
+@offset_base 2
+
+MessageType L 2 1 # LoginRequest: first packet on a new connection (SoupBinTCP 3.00, 2.3.1, p.6-7)
+@size 47
+Username Alphanumeric 3 6 # Username, case-insensitive, padded on the right with spaces
+Password Alphanumeric 9 10 # Password, case-insensitive, padded on the right with spaces
+RequestedSession Session 19 10 # Session to log into, all blanks for the currently active session. Padding of a non-blank value not stated; taken as in LoginAccepted
+RequestedSequenceNumber Numeric 29 20 # Next sequence number wanted, ASCII; 0 for the most recently generated message. Padding not stated; taken as in LoginAccepted
+
+MessageType U 2 1 # UnsequencedData: a higher-level message to the server; not used by DROP (SoupBinTCP 3.00, 2.3.2, p.7)
+Message Payload 3 # Defined by the higher-level protocol
+
+MessageType R 2 1 # ClientHeartbeat: sent after more than 1 second without other data (SoupBinTCP 3.00, 2.3.3, p.7)
+@size 1
+
+MessageType O 2 1 # LogoutRequest: the server terminates the connection (SoupBinTCP 3.00, 2.3.4, p.8)
+@size 1
+
+### drop::from_nasdaq
+
+# The message type is at offset 10, not 0, so the line has no type code for the
+# generator: it gets a struct, and the dispatcher reads Type itself.
+MessageType - 0 0 # TradeMessageLine: one DROP event, fixed format, comma delimited, CR/LF terminated (DROP 2.20, 1.6, p.2-7); the CR/LF is not part of the struct (see feed.md, ambiguities)
+@size 126
+TimeStamp DTimestamp 0 9 # Seconds past midnight Eastern Time, to the millisecond (sample 34293.1) (p.2; data type 1.3)
+Sep9 Comma 9 1 # ,
+Type DType 10 1 # A new order accepted, E executed, X canceled, B execution broken, U replaced, Y canceled (AIQ), C trade correction (p.3)
+Sep11 Comma 11 1 # ,
+Source DAlphanum 12 6 # Source of the order: account of the OUCH port, or $PHON for the phone desk (p.3)
+Sep18 Comma 18 1 # ,
+OrderToken DAlphanum 19 15 # Token given by the order entry firm, user(4)+comma(1)+token(10) (p.3)
+Sep34 Comma 34 1 # ,
+ReplacedToken DAlphanum 35 10 # Token of the replaced order; only on a replaced message (p.3)
+Sep45 Comma 45 1 # ,
+BuySell DAlpha 46 1 # B bought, S sold, T sold short, E sold short exempt (p.3)
+Sep47 Comma 47 1 # ,
+Shares DNumeric 48 6 # Accept: total shares; cancel: shares canceled; execution: shares executed; break: shares of the broken execution (p.4)
+Sep54 Comma 54 1 # ,
+Stock DAlpha 55 8 # Stock symbol (p.4)
+Sep63 Comma 63 1 # ,
+Price DPrice 64 11 # Accept: limit price; execution: execution price; cancel: limit price of the open order (p.4)
+Sep75 Comma 75 1 # ,
+Firm DAlpha 76 4 # Order entry firm (p.4)
+Sep80 Comma 80 1 # ,
+Reference DNumeric 81 12 # Order reference number assigned by Nasdaq, unique per order (p.4)
+Sep93 Comma 93 1 # ,
+MatchTIF DNumeric 94 12 # Executions and breaks: match number of the trade (one buy and one sell order); other messages: time in force (p.5)
+Sep106 Comma 106 1 # ,
+Capacity DAlpha 107 1 # A agency, P principal, R riskless (p.5)
+Sep108 Comma 108 1 # ,
+LiquidityCode DAlpha 109 1 # Executions: liquidity code (p.5-7); cancels: cancel reason (p.7)
+Sep110 Comma 110 1 # ,
+ClearingCode DAlpha 111 1 # Clearing path of the trade, Q = QSR (p.7)
+Sep112 Comma 112 1 # ,
+ReferencePrice DPrice 113 11 # Reference price of the execution, may be 0 (p.7)
+Sep124 Comma 124 1 # ,
+ReferencePriceType DAlpha 125 1 # blank not applicable, I intraday indicative value (p.7)
+
+### end

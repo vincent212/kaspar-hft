@@ -27,6 +27,7 @@ Start from the nearest existing handler, never from scratch:
 | WebSocket, REST snapshot + diff stream | `sim/src/BinanceFeed.cpp`, `BinanceSync.cpp` |
 | WebSocket, full snapshot + sequenced updates | `CoinbaseFeed.cpp`, `CoinbaseSync.cpp` |
 | WebSocket, periodic whole books | `HyperliquidFeed.cpp`, `HyperliquidSync.cpp` |
+| crypto exchange (JSON over WebSocket and REST; market data, order entry, fills, testnets) | read `crypto.md` |
 | FIX session | `ttom/` |
 | fixed-offset binary (ITCH, OUCH, Glimpse, SoupBinTCP) | a field table + `tools/fieldgen.py`: read `binary_codegen.md` |
 | post-trade: trade capture or drop copy over FIX | `ttom/` for the actor, the m2 `postrade/` clients: read `post_trade.md` |
@@ -71,7 +72,9 @@ that the handler is not certified and what has and has not been checked.
 7. **Test:** unit tests from the specification's examples and from sample messages;
    replay with invariants; gap, duplicate and reset injection; comparison with a
    reference where one exists. Build and run the full unit-test suite.
-8. **Live check** only when the user has supplied credentials and network access:
+8. **Live check.** Public market data that needs no account (crypto exchanges) is
+   checked live as `crypto.md` describes. Anything needing credentials only when
+   the user has supplied them, and for order entry only in a test environment:
    logon, subscribe, decode the first messages, run the `--dump` monitor.
 9. **Report:** decisions, tests and results, open ambiguities. Open a pull request
    on a feature branch; never commit to main.
