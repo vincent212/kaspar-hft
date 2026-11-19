@@ -291,3 +291,14 @@ TEST(OrderFields, CryptoVenueCodes)
   }
   EXPECT_EQ(int(en::x::DERIBIT), code);
 }
+
+// Coinbase Exchange (the institutional exchange API) is a separate venue from
+// Coinbase Advanced Trade (COINBASE): appended after DERIBIT.
+TEST(OrderFields, CoinbaseExchangeVenueCode)
+{
+  auto parsed = en::x_try_parse("COINBASEX");
+  ASSERT_TRUE(parsed.has_value());
+  EXPECT_EQ(int(en::x::COINBASEX), int(en::x::DERIBIT) + 1);
+  EXPECT_STREQ(en::to_string(en::x(en::x::COINBASEX)), "COINBASEX");
+  EXPECT_NE(int(en::x::COINBASEX), int(en::x::COINBASE));
+}

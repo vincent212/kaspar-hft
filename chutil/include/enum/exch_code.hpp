@@ -81,7 +81,8 @@ struct x {
         OKXF,
         KRAKEN,
         KRAKENF,
-        DERIBIT
+        DERIBIT,
+        COINBASEX
     };
 
     // Implicit conversion to uint for backward compatibility
@@ -93,7 +94,7 @@ struct x {
 };
 
 // Constexpr lookup tables for x
-inline constexpr std::array<const char*, 59> x_names = {{
+inline constexpr std::array<const char*, 60> x_names = {{
     "UNI",
     "CMEMD",
     "CMEILINK1",
@@ -153,9 +154,10 @@ inline constexpr std::array<const char*, 59> x_names = {{
     "KRAKEN",
     "KRAKENF",
     "DERIBIT",
+    "COINBASEX",
 }};
 
-inline constexpr std::array<std::uint32_t, 59> x_values = {{
+inline constexpr std::array<std::uint32_t, 60> x_values = {{
     x::UNI,
     x::CMEMD,
     x::CMEILINK1,
@@ -215,11 +217,12 @@ inline constexpr std::array<std::uint32_t, 59> x_values = {{
     x::KRAKEN,
     x::KRAKENF,
     x::DERIBIT,
+    x::COINBASEX,
 }};
 
 using x_pair = std::pair<x, const char*>;
 
-inline constexpr std::array<x_pair, 59> x_name_hash = {{
+inline constexpr std::array<x_pair, 60> x_name_hash = {{
     x_pair{x::UNI, "UNI"},
     x_pair{x::CMEMD, "CMEMD"},
     x_pair{x::CMEILINK1, "CMEILINK1"},
@@ -279,12 +282,13 @@ inline constexpr std::array<x_pair, 59> x_name_hash = {{
     x_pair{x::KRAKEN, "KRAKEN"},
     x_pair{x::KRAKENF, "KRAKENF"},
     x_pair{x::DERIBIT, "DERIBIT"},
+    x_pair{x::COINBASEX, "COINBASEX"},
 }};
 
 // Type-safe array indexed by x
 template<typename T>
 struct x_array {
-    std::array<T, 59> data;
+    std::array<T, 60> data;
 
     // Access operators
     constexpr T& operator[](x idx) { return data[idx.value]; }
@@ -326,7 +330,7 @@ INLINE constexpr const char* to_string(x n) {
 }
 
 INLINE constexpr std::size_t x_num_syms() {
-    return 59;
+    return 60;
 }
 
 INLINE constexpr bool is_valid(x n) {

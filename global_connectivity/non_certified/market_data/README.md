@@ -29,4 +29,10 @@ c++ -std=c++20 -Wall -Wextra -Werror -I$out $v/tests/*.cpp -o $out/t && $out/t
 ```
 
 Handlers, when written, follow `.claude/skills/build-feed-handler/kaspar_mapping.md`.
+
+`pcap_file.hpp` is the pcap parser the handlers' replay tools and tests share
+(classic pcap, Ethernet or cooked capture, UDP datagrams, one side of a TCP stream);
+`test_support.hpp` the decode tests' helpers. Known duplication: `mcast_recv`'s
+`PCAPReader` actor (`mcast_recv/include/mcast_recv/act/PCAPReader.hpp`) also reads
+pcaps, through libpcap, as a live-feed stand-in for `kaspr`; it is not shared here.
 Section 10 of each `feed.md` lists the questions the specification leaves open.
