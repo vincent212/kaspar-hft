@@ -10,10 +10,17 @@
 // TimedRunner: runs callbacks at given times on one worker thread. Used by
 // simulated brokers to play the broker's own thread: acks now, fills
 // later, in time order.
+//
+// A callback that throws is logged to stderr and the runner carries on with
+// the next one. A callback must not destroy its own runner (the destructor
+// joins the worker, which cannot join itself): doing so aborts with a message.
 
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <exception>
 #include <functional>
 #include <mutex>
 #include <queue>
@@ -31,6 +38,12 @@ namespace frame::som
     TimedRunner() : worker_([this](std::stop_token st) { run(st); }) {}
     ~TimedRunner()
     {
+      if (std::this_thread::get_id() == worker_.get_id())
+      {
+        std::fputs("TimedRunner: destroyed from one of its own callbacks; "
+                   "a callback must not destroy its runner\n", stderr);
+        std::abort();
+      }
       {
         // Under the lock, so the worker cannot be between testing the stop
         // flag and blocking when the notify arrives.
@@ -78,7 +91,18 @@ namespace frame::som
         auto f = std::move(const_cast<Item &>(q_.top()).f);
         q_.pop();
         l.unlock();
-        f();
+        try
+        {
+          f();
+        }
+        catch (const std::exception &ex)
+        {
+          std::fprintf(stderr, "TimedRunner: callback threw: %s\n", ex.what());
+        }
+        catch (...)
+        {
+          std::fputs("TimedRunner: callback threw a non-std exception\n", stderr);
+        }
         l.lock();
       }
     }

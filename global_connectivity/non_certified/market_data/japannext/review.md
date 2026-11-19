@@ -58,3 +58,11 @@ Built from section 10 of `feed.md`. Every section-10 item appears once below.
 - **Night-session timestamps after midnight (count past 86,400 or wrap):** the handler adds 86,400 s when the seconds go backward within a session, so both readings give the same `transactTime`.
 - **Tick at a band boundary (3,000.0 in table 37):** boundary prices are multiples of both ticks; only next-tick arithmetic exactly at the boundary depends on it, and the book does not.
 - **Expired orders at session end (`D` sent or not):** after `M` the books are in status 4, so OB does not match against leftovers, and End of Session clears every book.
+
+## Decisions (owner, 2026-11-18)
+
+- 1: assume Order Numbers do not repeat on one stream; log a repeat; ask JNX (a)
+- 2: OB's rule (action 1) until JNX answers; ask JNX (a)
+- 3: build recovery now on the public documents (a)
+- 4: apply snapshot orders in arrival order (a)
+- 5: derive the market-hours phase from the clock and the Market Events Schedule (a)
