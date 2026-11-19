@@ -1,0 +1,491 @@
+# Field table: HKEX Orion Market Data Platform - Securities Market (OMD-C),
+# binary protocol. Focus: OMD Securities FullTick (SF); the SS, SP, odd lot,
+# broker queue, index and Stock Connect messages are included so that decode
+# never reports a valid OMD-C type as unknown.
+#
+# Documents (public, https://www.hkex.com.hk, OMD-C page):
+#   SPEC  OMD-C Interface Specifications, Binary Protocol, v1.47, 3 November 2026
+#   DG    OMD-C Developers Guide, v1.15, 14 July 2026 (v1.16, 21 August 2026,
+#         changes section 10.10 only)
+#
+# Every integer is little-endian (SPEC p.9, 3.1; DG p.7, 3).
+# String: ASCII, left aligned, padded with spaces unless stated (SPEC p.9).
+# Binary: UTF-16LE text, modelled as opaque bytes.
+#
+# Framing (SPEC p.10, 3.2): a UDP payload is a 16-byte packet header, then
+# MsgCount messages back to back. Every message starts with MsgSize (Uint16,
+# counts itself) and MsgType (Uint16). MsgSize is the @length_prefix (2,
+# inclusive) and MsgType the @type_code, so every offset below is the
+# specification's offset minus 2, and every @size is the specification's
+# "Total Length" minus 2 (for a message with a repeating group: its fixed part
+# minus 2).
+#
+# Names: a field name the specification repeats within one message (Filler,
+# MaturityDate) gets the specification's offset appended, e.g. Filler199 is the
+# filler at specification offset 199 (table offset 197).
+#
+# Repeating groups (Security Definition, Liquidity Provider, Aggregate Order
+# Book Update, Broker Queue, News) are a trailing variable-length field here;
+# decode returns it as tail/tail_len. The entry layouts are untyped structs in
+# omdc::from_hkex_group. The count field is not tied to the tail by the format:
+# the handler checks tail_len == count * sizeof(entry). News has three groups
+# with counts between them; its tail starts at the first group.
+@venue hkex
+@endian little
+@pad space
+@type Uint8 uint
+@type Uint16 uint
+@type Uint32 uint
+@type Uint64 uint
+@type Int16 int
+@type Int32 int
+@type Int64 int
+@type String char
+# Logon Username: "padded with binary null characters" (SPEC p.13, 3.5.1).
+@type StringNul char left nul
+@type Binary bytes
+
+### pkt::from_hkex
+
+MessageType - 0 0 # PacketHeader: common header of every multicast, refresh and retransmission packet; a heartbeat is this header alone with MsgCount 0 (SPEC v1.47 p.11, 3.3 and 3.4.1; DG v1.15 p.6, 2.1)
+@size 16
+PktSize Uint16 0 2 # Size of the packet, including this header
+MsgCount Uint8 2 1 # Messages in the packet; 0 for a heartbeat
+Filler String 3 1 # Filler
+SeqNum Uint32 4 4 # Sequence number of the first message; in a heartbeat, the sequence number of the previous message sent on the channel
+SendTime Uint64 8 8 # Nanoseconds since the Unix epoch, UTC; millisecond precision
+
+### omdc::from_hkex
+@length_prefix 2 inclusive
+@type_code uint 2
+
+# ---- Control messages (SPEC 3.4, 3.6; all products)
+
+MessageType 100 0 2 # SequenceReset: first message of the day on every channel; also sent to rectify reference data before market open; clear all cached data, next expected sequence number = NewSeqNo (SPEC v1.47 p.11-12, 3.4.2)
+@size 6
+NewSeqNo Uint32 2 4 # New sequence number; always 1
+
+MessageType 105 0 2 # DisasterRecoverySignal: site failover status, on the dedicated DR channel only (SPEC v1.47 p.12, 3.4.3)
+@size 6
+DRStatus Uint32 2 4 # 1 DR in progress (clear cached data), 2 DR completed (rebuild from refresh)
+
+MessageType 203 0 2 # RefreshComplete: end of a refresh snapshot, on refresh channels (SPEC v1.47 p.15, 3.6.1)
+@size 6
+LastSeqNum Uint32 2 4 # Real-time sequence number with which the snapshot is synchronized; 0 if nothing has been published on the real-time channel (DG p.19)
+
+# ---- Reference data (SPEC 3.7; SS, SP, SF)
+
+MessageType 10 0 2 # MarketDefinition: one per market segment at start of day (SPEC v1.47 p.15, 3.7.1)
+@size 38
+MarketCode String 2 4 # MAIN, GEM, NASD, ETS
+MarketName String 6 25 # Market segment name
+CurrencyCode String 31 3 # Base currency of the segment (ISO 4217, plus CNH)
+NumberOfSecurities Uint32 34 4 # Securities in the segment
+
+MessageType 11 0 2 # SecurityDefinition: all reference data of a security; may be resent intraday (SPEC v1.47 p.15-19, 3.7.2); total length 544 + 8 * NoUnderlyingSecurities
+@size 542
+SecurityCode Uint32 2 4 # Security code 1-99999
+MarketCode String 6 4 # MAIN, GEM, NASD, ETS
+ISINCode String 10 12 # ISIN
+InstrumentType String 22 4 # BOND, EQTY, TRST, WRNT
+ProductType Uint8 26 1 # 1 ordinary shares, 2 preference, 3 DW, 4 debt, 6 rights, 7 HDR ordinary, 8 REIT, 9 unit trust, 10 L&I product, 11 CBBC, 12 HDR preference, 13 equity warrant, 15 inline warrant, 16 equity ETF, 17 fixed income/MM ETF, 18 commodities ETF, 21 SPAC warrant, 24 SPAC shares, 99 other
+Filler29 String 27 1 # Filler
+SpreadTableCode String 28 2 # Tick table of the Second Schedule of the Rules of the Exchange: 01 Part A, 03 Part B, 04 inline warrants (Part E up to HK$1.00), 05 Part D, 06 Part E
+SecurityShortName String 30 40 # Short name
+CurrencyCode String 70 3 # Trading currency
+SecurityNameGCCS Binary 73 60 # Traditional Chinese name, UTF-16LE
+SecurityNameGB Binary 133 60 # Simplified Chinese name, UTF-16LE
+LotSize Uint32 193 4 # Board lot size
+Filler199 String 197 4 # Filler
+PreviousClosingPrice Int32 201 4 # 3 implied decimals; NAV before first listing day for ETF/L&I; may be 0
+VCMFlag String 205 1 # Y VCM applicable, N not
+ShortSellFlag String 206 1 # Y short sell allowed, N not
+CASFlag String 207 1 # Y closing auction applicable, N not
+CCASSFlag String 208 1 # Y CCASS security, N not
+DummySecurityFlag String 209 1 # Y dummy security, N normal
+Filler212 String 210 1 # Filler
+StampDutyFlag String 211 1 # Y stamp duty required, N not
+Filler214 String 212 1 # Filler
+ListingDate Uint32 213 4 # YYYYMMDD; 19000101 unknown
+DelistingDate Uint32 217 4 # YYYYMMDD; 0 none
+FreeText String 221 38 # Free text, spaces when none; may change intraday
+Filler261 String 259 62 # Filler
+POSFlag String 321 1 # Y pre-opening session applicable, N not
+POSUpperLimit Int32 322 4 # 3 implied decimals; upper limit of orders in POS order input, and of at-auction limit sell orders in POS no-cancellation and random matching; 0 not available
+POSLowerLimit Int32 326 4 # 3 implied decimals; lower limit, as above for buy orders; 0 not available
+DomainStmtSecurityCode Uint32 330 4 # Security code of the domain settlement counter; 0 if this security is it
+Filler336 String 334 37 # Filler
+EFNFlag String 371 1 # Bonds: Y EFN, N non-EFN
+AccruedInterest Uint32 372 4 # Bonds: 3 implied decimals
+CouponRate Uint32 376 4 # Bonds: 3 implied decimals
+Filler382 String 380 1 # Filler
+FaceValue Uint64 381 8 # Bonds: DecimalsInFaceValue decimals; 0 not available
+DecimalsInFaceValue Uint8 389 1 # Bonds: decimals of FaceValue
+FaceValueCurrency String 390 3 # Bonds: currency of FaceValue
+MaturityDate395 Uint32 393 4 # Bonds: maturity date YYYYMMDD (MaturityDate at specification offset 395)
+InvestorType String 397 1 # Bonds: R retail, P professional
+Filler400 String 398 44 # Filler
+ConversionRatio Uint32 442 4 # Structured products: 3 implied decimals; 0 not available
+StrikePrice1 Int32 446 4 # 3 implied decimals; the strike, or the lower strike when StrikePrice2 is not 0
+StrikePrice2 Int32 450 4 # 3 implied decimals; upper strike; 0 if one strike only
+MaturityDate456 Uint32 454 4 # Warrants and structured products: maturity date YYYYMMDD (MaturityDate at specification offset 456)
+CallPutFlag String 458 1 # DW/inline warrants: C call, P put, O other; CBBC: C bull, P bear
+Style String 459 1 # A American, E European, blank other
+Filler462 String 460 2 # Filler
+WarrantType String 462 1 # N normal, X exotic, 0 not available
+CallPrice Int32 463 4 # CBBC call price, DecimalsInCallPrice decimals; 0 not available
+DecimalsInCallPrice Uint8 467 1 # Decimals of CallPrice
+Entitlement Int32 468 4 # DecimalsInEntitlement decimals; 0 not available
+DecimalsInEntitlement Uint8 472 1 # Decimals of Entitlement
+NoWarrantsPerEntitlement Uint32 473 4 # Warrants per entitlement
+Filler479 String 477 63 # Filler
+NoUnderlyingSecurities Uint16 540 2 # 0 or 1: entries of 8 bytes that follow (UnderlyingSecurity)
+UnderlyingSecurities Binary 542 # Repeating group: NoUnderlyingSecurities x UnderlyingSecurity (8 bytes)
+
+MessageType 13 0 2 # LiquidityProvider: liquidity providers of a security, at start of day (SPEC v1.47 p.20, 3.7.3); total length 10 + 2 * NoLiquidityProviders
+@size 8
+SecurityCode Uint32 2 4 # Security code
+NoLiquidityProviders Uint16 6 2 # 1 to 50 entries of 2 bytes follow (LiquidityProviderEntry)
+LPBrokerNumbers Binary 8 # Repeating group: NoLiquidityProviders x LiquidityProviderEntry (2 bytes)
+
+MessageType 14 0 2 # CurrencyRate: HKD value of a foreign currency (SPEC v1.47 p.21, 3.7.4)
+@size 14
+CurrencyCode String 2 3 # Currency
+Filler7 String 5 1 # Filler
+CurrencyFactor Uint16 6 2 # n: CurrencyRate is the HKD value of 10^n units (examples, p.21)
+Filler10 String 8 2 # Filler
+CurrencyRate Uint32 10 4 # HKD per 10^CurrencyFactor units, 4 implied decimals
+
+# ---- Status data (SPEC 3.8; SS, SP, SF)
+
+MessageType 20 0 2 # TradingSessionStatus: session of a market segment, on its own channel, not synchronized with order data (SPEC v1.47 p.21-23, 3.8.1)
+@size 30
+MarketCode String 2 4 # MAIN, GEM, NASD, ETS
+Filler8 String 6 1 # Filler
+TradingSessionSubID Uint8 7 1 # 100 not yet open; POS: 1 order input, 101 no cancellation, 108 random matching, 2 order matching, 7 blocking; 3 continuous trading; CAS: 105 reference price fixing, 5 order input, 106 no cancellation, 107 random close, 4 order matching; 102 exchange intervention, 103 close, 104 order cancel, 0 day close
+TradingSesStatus Uint8 8 1 # 0 unknown, 10 halted, 20 pre-open, 30 open, 40 pre-close, 50 closed, 100 day closed
+TradingSesControlFlag String 9 1 # 0 automatic, 1 manual
+Filler12 String 10 4 # Filler
+StartDateTime Uint64 14 8 # ns since epoch UTC, second precision; 0 not available
+EndDateTime Uint64 22 8 # ns since epoch UTC, second precision; 0 not available
+
+MessageType 21 0 2 # SecurityStatus: at start of day for securities not available for trading, and on every change (SPEC v1.47 p.23, 3.8.2)
+@size 10
+SecurityCode Uint32 2 4 # Security code
+SuspensionIndicator Uint8 6 1 # 2 trading halt or suspend, 3 resume
+Filler String 7 3 # Filler
+
+MessageType 23 0 2 # VCMTrigger: a VCM cooling-off period starts (SPEC v1.47 p.34-35, 3.10.8; SS, SP, SF per summary table p.5)
+@size 34
+SecurityCode Uint32 2 4 # Security code
+CoolingOffStartTime Uint64 6 8 # ns since epoch UTC, second precision
+CoolingOffEndTime Uint64 14 8 # ns since epoch UTC, second precision
+VCMReferencePrice Int32 22 4 # 3 implied decimals
+VCMLowerPrice Int32 26 4 # Lower band, 3 implied decimals
+VCMUpperPrice Int32 30 4 # Upper band, 3 implied decimals
+
+# ---- Order book data (SPEC 3.9)
+
+MessageType 30 0 2 # AddOrder: SF only. New order in the board-lot book (SPEC v1.47 p.23-24, 3.9.1)
+@size 30
+SecurityCode Uint32 2 4 # Security code
+OrderId Uint64 6 8 # Unique per security within the day; not consecutive
+Price Int32 14 4 # 3 implied decimals; 0 for a market order (DG p.23)
+Quantity Uint32 18 4 # Shares
+Side Uint16 22 2 # 0 bid, 1 offer
+OrderType String 24 1 # 1 market, 2 limit
+Filler String 25 1 # Filler
+OrderBookPosition Int32 26 4 # Always 0 for securities
+
+MessageType 31 0 2 # ModifyOrder: SF only. Quantity of an order changed; quantity is the only modifiable attribute (SPEC v1.47 p.24, 3.9.2)
+@size 26
+SecurityCode Uint32 2 4 # Security code
+OrderId Uint64 6 8 # Order modified
+Quantity Uint32 14 4 # New quantity, shares
+Side Uint16 18 2 # 0 bid, 1 offer
+Filler String 20 2 # Filler
+OrderBookPosition Int32 22 4 # Always 0 for securities
+
+MessageType 32 0 2 # DeleteOrder: SF only. Order removed (SPEC v1.47 p.25, 3.9.3)
+@size 18
+SecurityCode Uint32 2 4 # Security code
+OrderId Uint64 6 8 # Order deleted
+Side Uint16 14 2 # 0 bid, 1 offer
+Filler String 16 2 # Filler
+
+MessageType 33 0 2 # AddOddLotOrder: complimentary odd lot order feed (SS, SP, SF). New order in the odd-lot book (SPEC v1.47 p.25-26, 3.9.4)
+@size 26
+SecurityCode Uint32 2 4 # Security code
+OrderId Uint64 6 8 # Unique per security within the day
+Price Int32 14 4 # 3 implied decimals
+Quantity Uint32 18 4 # Shares
+BrokerID Uint16 22 2 # Broker
+Side Uint16 24 2 # 0 bid, 1 offer
+
+MessageType 34 0 2 # DeleteOddLotOrder: complimentary odd lot order feed (SS, SP, SF). Odd-lot order removed (SPEC v1.47 p.26, 3.9.5)
+@size 18
+SecurityCode Uint32 2 4 # Security code
+OrderId Uint64 6 8 # Order deleted
+BrokerID Uint16 14 2 # Broker
+Side Uint16 16 2 # 0 bid, 1 offer
+
+MessageType 53 0 2 # AggregateOrderBookUpdate: SS and SP only. Price-level deltas, board lots, 10 tick levels (SPEC v1.47 p.26-27, 3.9.6; section 5 p.50-57); total length 12 + 24 * NoEntries
+@size 10
+SecurityCode Uint32 2 4 # Security code
+Filler String 6 3 # Filler
+NoEntries Uint8 9 1 # Entries of 24 bytes that follow (AggregateOrderBookEntry); 0 in a refresh for an emptied book (p.49)
+Entries Binary 10 # Repeating group: NoEntries x AggregateOrderBookEntry (24 bytes), applied in order
+
+MessageType 54 0 2 # BrokerQueue: SS; complimentary conflated broker queue feed for SP and SF. Top 40 broker IDs of one side (SPEC v1.47 p.27-28, 3.9.7); total length 12 + 4 * ItemCount
+@size 10
+SecurityCode Uint32 2 4 # Security code
+ItemCount Uint8 6 1 # 0 to 40 items of 4 bytes follow (BrokerQueueItem)
+Side Uint16 7 2 # 1 buy, 2 sell (not the 0/1 of order messages)
+BQMoreFlag String 9 1 # Y more brokers exist in the queue, N no more
+Items Binary 10 # Repeating group: ItemCount x BrokerQueueItem (4 bytes)
+
+MessageType 56 0 2 # OrderImbalance: imbalance at the IEP during POS and CAS (SPEC v1.47 p.28-29, 3.9.8; SS, SP, SF)
+@size 18
+SecurityCode Uint32 2 4 # Security code
+OrderImbalanceDirection String 6 1 # N buy = sell, B buy surplus, S sell surplus, space not applicable
+Filler9 String 7 1 # Filler
+OrderImbalanceQuantity Uint64 8 8 # Absolute imbalance at IEP; ignore when direction is space
+Filler18 String 16 2 # Filler
+
+# ---- Trade and price data (SPEC 3.10)
+
+MessageType 50 0 2 # Trade: SP and SF. One trade (SPEC v1.47 p.29-30, 3.10.1)
+@size 30
+SecurityCode Uint32 2 4 # Security code
+TradeID Uint32 6 4 # Per security, from 1, +1 per trade, reset daily
+Price Int32 10 4 # 3 implied decimals
+Quantity Uint32 14 4 # Shares
+TrdType Int16 18 2 # 0 automatch normal, 4 late trade (P), 22 non-direct off-exchange (M), 100 automatch internalized (Y), 101 direct off-exchange (X), 102 odd lot (D), 103 auction (U), 104 overseas
+Filler String 20 2 # Filler
+TradeTime Uint64 22 8 # ns since epoch UTC, microsecond precision
+
+MessageType 51 0 2 # TradeCancel: SP and SF. A trade cancelled (SPEC v1.47 p.30-31, 3.10.2)
+@size 10
+SecurityCode Uint32 2 4 # Security code
+TradeID Uint32 6 4 # Trade cancelled
+
+MessageType 52 0 2 # TradeTicker: SS only. Trades at one price aggregated; resent with remaining quantity on a cancel (SPEC v1.47 p.31-32, 3.10.3)
+@size 34
+SecurityCode Uint32 2 4 # Security code
+TickerID Uint32 6 4 # Per security, from 1, +1 per ticker
+Price Int32 10 4 # 3 implied decimals
+AggregateQuantity Uint64 14 8 # Shares; remaining quantity when TrdCancelFlag = Y
+TradeTime Uint64 22 8 # ns since epoch UTC, microsecond precision; not applicable when TrdCancelFlag = Y
+TrdType Int16 30 2 # As Trade, without 104; not applicable when TrdCancelFlag = Y
+TrdCancelFlag String 32 1 # Y a trade in this ticker was cancelled, N not
+Filler String 33 1 # Filler
+
+MessageType 62 0 2 # ClosingPrice: SS and SP only. Near end of day (SPEC v1.47 p.32, 3.10.4)
+@size 14
+SecurityCode Uint32 2 4 # Security code
+ClosingPrice Int32 6 4 # 3 implied decimals; 0 not available
+NumberOfTrades Uint32 10 4 # Trades in the day; not populated for SS
+
+MessageType 40 0 2 # NominalPrice: SS and SP only (SPEC v1.47 p.32-33, 3.10.5)
+@size 10
+SecurityCode Uint32 2 4 # Security code
+NominalPrice Int32 6 4 # 3 implied decimals; may be 0
+
+MessageType 41 0 2 # IndicativeEquilibriumPrice: IEP and IEV during POS and CAS (SPEC v1.47 p.33, 3.10.6; SS, SP, SF)
+@size 18
+SecurityCode Uint32 2 4 # Security code
+Price Int32 6 4 # IEP, 3 implied decimals; 0 not available
+AggregateQuantity Uint64 10 8 # IEV
+
+MessageType 43 0 2 # ReferencePrice: reference price and order-input limits in POS and CAS (SPEC v1.47 p.33-34, 3.10.7; SS, SP, SF)
+@size 18
+SecurityCode Uint32 2 4 # Security code
+ReferencePrice Int32 6 4 # 3 implied decimals; 0 not available
+LowerPrice Int32 10 4 # POS: lower limit of at-auction limit sell orders; CAS: lower band; 3 implied decimals; 0 not available
+UpperPrice Int32 14 4 # POS: upper limit of at-auction limit buy orders; CAS: upper band; 3 implied decimals; 0 not available
+
+# ---- Value added data and news (SPEC 3.11, 3.12; SS and SP only)
+
+MessageType 60 0 2 # Statistics: SS and SP only. After trades, manual, odd lot trades and cancels (SPEC v1.47 p.35-36, 3.11.1)
+@size 50
+SecurityCode Uint32 2 4 # Security code
+SharesTraded Uint64 6 8 # Shares traded
+Turnover Int64 14 8 # 3 implied decimals
+HighPrice Int32 22 4 # 3 implied decimals
+LowPrice Int32 26 4 # 3 implied decimals
+LastPrice Int32 30 4 # 3 implied decimals
+VWAP Int32 34 4 # 3 implied decimals; not populated for SS
+ShortSellSharesTraded Uint32 38 4 # Updated at most twice a day
+ShortSellTurnover Int64 42 8 # 3 implied decimals
+
+MessageType 61 0 2 # MarketTurnover: SS and SP only. Turnover per segment and currency, about every 2 s (SPEC v1.47 p.36-37, 3.11.2)
+@size 18
+MarketCode String 2 4 # MAIN, GEM, NASD, ETS
+CurrencyCode String 6 3 # Currency; blank: all currencies in HKD
+Filler String 9 1 # Filler
+Turnover Int64 10 8 # 3 implied decimals
+
+MessageType 44 0 2 # Yield: SS and SP only. Bond yield change (SPEC v1.47 p.37, 3.11.3)
+@size 10
+SecurityCode Uint32 2 4 # Security code
+Yield Int32 6 4 # 3 implied decimals; 0 not available
+
+MessageType 22 0 2 # News: SS and SP only. Possibly fragmented over consecutive messages (SPEC v1.47 p.37-38, 3.12.1); total length 356 + 4nM + 4nS + 160nP
+@size 346
+NewsType String 2 3 # EXN exchange news (ASCII), EXC Chinese exchange news (UTF-16LE)
+NewsID String 5 3 # News page number within NewsType
+Headline Binary 8 320 # ASCII or UTF-16LE per NewsType; first fragment only
+CancelFlag String 328 1 # Y cancelled, N not
+LastFragment String 329 1 # Y last fragment, N not
+Filler332 String 330 4 # Filler
+ReleaseTime Uint64 334 8 # ns since epoch UTC, second precision
+Filler344 String 342 2 # Filler
+NoMarketCodes Uint16 344 2 # 0 to 4
+Groups Binary 346 # NoMarketCodes x NewsMarketCode (4), NewsSecurityCodesHeader (4), NoSecurityCodes x NewsSecurityCode (4), NewsLinesHeader (4), NoNewsLines x NewsLineEntry (160)
+
+# ---- Index data (SPEC 3.13; OMD Index only)
+
+MessageType 70 0 2 # IndexDefinition: OMD Index only (SPEC v1.47 p.39, 3.13.1)
+@size 18
+IndexCode String 2 11 # Index code (Appendix A)
+IndexSource String 13 1 # C CSI and CES, H HSI, X HKEX
+CurrencyCode String 14 3 # Currency of index turnover; may be blank
+Filler String 17 1 # Filler
+
+MessageType 71 0 2 # IndexData: OMD Index only. Int64 fields may be null 0x8000000000000000 (SPEC v1.47 p.39-40, 3.13.2; p.9, 3.1.1)
+@size 110
+IndexCode String 2 11 # Index code
+IndexStatus String 13 1 # C closing, I indicative, O opening, P last close (prev. session), R preliminary close, S stop loss, T real-time; may be blank
+IndexTime Int64 14 8 # ns since epoch UTC, second precision
+IndexValue Int64 22 8 # 4 implied decimals
+NetChgPrevDay Int64 30 8 # 4 implied decimals
+HighValue Int64 38 8 # 4 implied decimals
+LowValue Int64 46 8 # 4 implied decimals
+EASValue Int64 54 8 # 2 implied decimals
+IndexTurnover Int64 62 8 # 4 implied decimals
+OpeningValue Int64 70 8 # 4 implied decimals
+ClosingValue Int64 78 8 # 4 implied decimals
+PreviousSesClose Int64 86 8 # 4 implied decimals
+IndexVolume Int64 94 8 # CSI and CES only
+NetChgPrevDayPct Int32 102 4 # 4 implied decimals
+Exception String 106 1 # # HSIL exceptional rule applied, space normal
+Filler String 107 3 # Filler
+
+# ---- Stock Connect data (SPEC 3.14; complimentary)
+
+MessageType 80 0 2 # StockConnectDailyQuotaBalance: complimentary. Northbound daily quota balance (SPEC v1.47 p.41, 3.14.1)
+@size 22
+StockConnectMarket String 2 2 # SH Shanghai, SZ Shenzhen
+TradingDirection String 4 2 # NB northbound
+DailyQuotaBalance Int64 6 8 # RMB; null while at or above 30% of quota; 0 used up
+DailyQuotaBalanceTime Uint64 14 8 # ns since epoch UTC, second precision
+
+MessageType 81 0 2 # StockConnectMarketTurnover: complimentary (SPEC v1.47 p.41-42, 3.14.2)
+@size 30
+StockConnectMarket String 2 2 # SH, SZ
+TradingDirection String 4 2 # NB northbound, SB southbound
+BuyTurnover Int64 6 8 # Southbound HKD, rounded down; null for northbound
+SellTurnover Int64 14 8 # Southbound HKD, rounded down; null for northbound
+BuySellTurnover Int64 22 8 # Buy+SellTurnover: RMB northbound, HKD southbound
+
+### omdc::from_hkex_group
+# Entries of the repeating groups above, untyped, no length prefix. Offsets are
+# from the start of the entry.
+
+MessageType - 0 0 # UnderlyingSecurity: entry of SecurityDefinition (SPEC v1.47 p.19, spec offset 544 + 8i)
+@size 8
+UnderlyingSecurityCode Uint32 0 4 # Security code of the underlying
+Filler String 4 4 # Filler
+
+MessageType - 0 0 # LiquidityProviderEntry: entry of LiquidityProvider (SPEC v1.47 p.20, spec offset 10 + 2i)
+@size 2
+LPBrokerNumber Uint16 0 2 # Broker number of the liquidity provider
+
+MessageType - 0 0 # AggregateOrderBookEntry: entry of AggregateOrderBookUpdate (SPEC v1.47 p.27, spec offset 12 + 24i)
+@size 24
+AggregateQuantity Uint64 0 8 # Shares at the level
+Price Int32 8 4 # 3 implied decimals
+NumberOfOrders Uint32 12 4 # Orders at the level
+Side Uint16 16 2 # 0 bid, 1 offer
+PriceLevel Uint8 18 1 # Price level, 1 = best; levels below a new or deleted entry shift implicitly
+UpdateAction Uint8 19 1 # 0 new, 1 change, 2 delete, 74 orderbook clear (both sides)
+Filler String 20 4 # Filler
+
+MessageType - 0 0 # BrokerQueueItem: entry of BrokerQueue (SPEC v1.47 p.28, spec offset 12 + 4i)
+@size 4
+Item Uint16 0 2 # Broker number (Type B), or spreads from the best price (Type S; 0 = no brokers at the level of the previous S)
+Type String 2 1 # B broker number, S number of spreads
+Filler String 3 1 # Filler
+
+MessageType - 0 0 # NewsMarketCode: entry of News (SPEC v1.47 p.38, spec offset 348 + 4i)
+@size 4
+MarketCode String 0 4 # MAIN, GEM, NASD, ETS
+
+MessageType - 0 0 # NewsSecurityCodesHeader: News, after the market codes (SPEC v1.47 p.38, spec offset 348 + 4nM)
+@size 4
+Filler String 0 2 # Filler
+NoSecurityCodes Uint16 2 2 # 0 to 200
+
+MessageType - 0 0 # NewsSecurityCode: entry of News (SPEC v1.47 p.38, spec offset 352 + 4nM + 4i)
+@size 4
+SecurityCode Uint32 0 4 # Security code
+
+MessageType - 0 0 # NewsLinesHeader: News, after the security codes (SPEC v1.47 p.38, spec offset 352 + 4nM + 4nS)
+@size 4
+Filler String 0 2 # Filler
+NoNewsLines Uint16 2 2 # At most 10 per news page
+
+MessageType - 0 0 # NewsLineEntry: entry of News (SPEC v1.47 p.38, spec offset 356 + 4nM + 4nS + 160i)
+@size 160
+NewsLine Binary 0 160 # ASCII (EXN) or UTF-16LE (EXC)
+
+### rts::from_hkex
+# Retransmission server (TCP) session messages, each in a packet with the
+# common header; SeqNum and SendTime of that header are not relevant (SPEC
+# p.12-13, 3.5). Retransmitted data messages follow in ordinary packets and
+# decode with omdc::from_hkex. A packet with MsgCount 0 is a heartbeat, which
+# the client echoes byte for byte (SPEC p.47, 4.3).
+@length_prefix 2 inclusive
+@type_code uint 2
+
+MessageType 102 0 2 # LogonResponse: answer to Logon; the server closes the connection after a rejection (SPEC v1.47 p.13, 3.5.2; p.46, 4.3)
+@size 6
+SessionStatus Uint8 2 1 # 0 session active, 5 invalid username or IP address, 100 user already connected
+Filler String 3 3 # Filler
+
+MessageType 202 0 2 # RetransmissionResponse: accepts or rejects a request; accepted messages follow (SPEC v1.47 p.14, 3.5.4)
+@size 14
+ChannelID Uint16 2 2 # Multicast channel of the request
+RetransStatus Uint8 4 1 # 0 accepted, 1 unknown/unauthorized channel, 2 messages not available, 100 exceeds maximum range, 101 exceeds maximum requests a day (connection closed)
+Filler String 5 1 # Filler
+BeginSeqNum Uint32 6 4 # First sequence number of the range
+EndSeqNum Uint32 10 4 # Last sequence number of the range
+
+### rts::to_hkex
+# Client to retransmission server. Each message is sent after a packet header
+# with PktSize 32, MsgCount 1, SeqNum 0, SendTime 0 (SPEC p.12-13, 3.5).
+# The length prefix is declared per message, so that PacketHeader has none.
+@type_code uint 2
+
+MessageType - 0 0 # PacketHeader: header the client puts before Logon or RetransmissionRequest (SPEC v1.47 p.12-13, 3.5)
+@size 16
+PktSize Uint16 0 2 # 32: 16 header + 16 message
+MsgCount Uint8 2 1 # 1
+Filler String 3 1 # Empty
+SeqNum Uint32 4 4 # 0, not used
+SendTime Uint64 8 8 # 0, not used (DG p.13 says nanoseconds since epoch)
+
+MessageType 101 0 2 # Logon: first message on the TCP connection, within 5 s (SPEC v1.47 p.13, 3.5.1; p.48 system limits)
+@length_prefix 2 inclusive
+@size 14
+Username StringNul 2 12 # Username, padded with binary nulls
+
+MessageType 201 0 2 # RetransmissionRequest: inclusive range of one channel, at most 10,000 messages, among the last 50,000 (SPEC v1.47 p.14, 3.5.3; p.48)
+@length_prefix 2 inclusive
+@size 14
+ChannelID Uint16 2 2 # Multicast channel ID (Connectivity Guide)
+Filler String 4 2 # Filler
+BeginSeqNum Uint32 6 4 # First sequence number requested
+EndSeqNum Uint32 10 4 # Last sequence number requested, inclusive
+
+### end

@@ -1,0 +1,33 @@
+# Field table: MoldUDP64 (Nasdaq, "MoldUDP64 Protocol Specification", V 1.00,
+# last revision 8/2/24), the multicast transport of TotalView-ITCH 5.0.
+# Offsets are 0-based from the start of the UDP payload. Every number field is a
+# big-endian binary integer (spec p.2, Assumptions), including those the tables
+# mark NUM.
+#
+# A downstream packet is this 20-byte header followed by MessageCount message
+# blocks, each a 2-byte big-endian length that excludes itself followed by that
+# many bytes of message data (p.4, Message Block). The message blocks are read
+# with the ITCH decoder (itch50.tbl), whose @length_prefix is that length.
+@venue nasdaq
+@endian big
+@pad space
+@type ANUM char
+@type NUM uint
+
+### mold::from_nasdaq
+
+MessageType - 0 0 # DownstreamPacketHeader: header of every multicast or retransmitted packet (MoldUDP64 V1.00, p.3, Downstream Packet / Header)
+@size 20
+Session ANUM 0 10 # Session the packet belongs to; padding not stated
+SequenceNumber NUM 10 8 # Sequence number of the first message in the packet; later messages are numbered implicitly
+MessageCount NUM 18 2 # Message blocks in the packet; 0 heartbeat, 0xFFFF end of session (p.3, p.4)
+
+### mold::to_nasdaq
+
+MessageType - 0 0 # RequestPacket: retransmission request sent by UDP unicast to a re-request server (p.5, Request Packet)
+@size 20
+Session ANUM 0 10 # Session the request belongs to
+SequenceNumber NUM 10 8 # First requested sequence number
+RequestedMessageCount NUM 18 2 # Messages requested; the reply holds only as many as fit in one UDP packet
+
+### end

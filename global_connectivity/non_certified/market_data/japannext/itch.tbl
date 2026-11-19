@@ -1,0 +1,107 @@
+# Field table: Japannext PTS ITCH Market Data Specification (Equities), version 2.02,
+# last updated July 2, 2026 (JNX ITCH 2.02). Offsets are 0-based within the message,
+# as the specification tables them.
+#
+# No length prefix: the ITCH tables have none. ITCH is carried either in a MoldUDP64
+# Message Block, whose 2-byte length belongs to MoldUDP64 (moldudp64.tbl), or as the
+# payload of a SoupBinTCP Sequenced Data Packet (glimpse.tbl, soup::from_jnx). The
+# reader frames the message; decode() is called on its first byte.
+#
+# The specification does not state message totals. Each @size is the last row's
+# offset plus its length, from the table.
+@venue jnx
+@endian big
+@pad space
+# JNX ITCH 2.02, section 3: Integer is unsigned big-endian; Alpha is left-justified,
+# right-padded with spaces. Price and Quantity fields are typed Integer in the tables.
+@type Integer uint
+@type Alpha char
+
+### itch::from_jnx
+
+MessageType T 0 1 # TimestampSecondsMessage: seconds part of the timestamp, sent for every second in which another message is sent (JNX ITCH 2.02, 4.1, p. 3-4)
+@size 5
+TimestampSeconds Integer 1 4 # Seconds past midnight of the day the trading session started
+
+MessageType S 0 1 # SystemEventMessage: data feed, system and market events (4.2, p. 4)
+@size 10
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+Group Alpha 5 4 # Order book group: DAY J-Market daytime, NGHT J-Market nighttime, DAYX X-Market, DAYU U-Market; blank if system-wide
+SystemEvent Alpha 9 1 # O start of messages, S start of system hours, Q start of market hours, M end of market hours, E end of system hours, C end of messages (Table 1)
+
+MessageType L 0 1 # PriceTickSizeMessage: one row of a price tick size table; sent before Orderbook Directory Messages (4.3, p. 4-5)
+@size 17
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+PriceTickSizeTableId Integer 5 4 # Price tick size table identifier
+PriceTickSize Integer 9 4 # Price tick size
+PriceStart Integer 13 4 # Start of the price range for this tick size
+
+MessageType R 0 1 # OrderbookDirectoryMessage: an order book available for trading; sent at the start of each trading day (4.4, p. 5)
+@size 45
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+OrderbookId Alpha 5 4 # Securities Identification Code Committee (SICC) code
+OrderbookCode Alpha 9 12 # ISIN
+Group Alpha 21 4 # Order book group: DAY, NGHT, DAYX, DAYU
+RoundLotSize Integer 25 4 # Shares in a round lot
+PriceTickSizeTableId Integer 29 4 # Price tick size table identifier
+PriceDecimals Integer 33 4 # Decimal places in price fields; value is 1
+UpperPriceLimit Integer 37 4 # Maximum tradable price
+LowerPriceLimit Integer 41 4 # Minimum tradable price
+
+MessageType H 0 1 # TradingStateMessage: trading state of an order book; spin before start of system hours, then changes (4.5, p. 6)
+@size 14
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+OrderbookId Alpha 5 4 # SICC code
+Group Alpha 9 4 # Order book group: DAY, NGHT, DAYX, DAYU
+TradingState Alpha 13 1 # T trading, V suspended
+
+MessageType Y 0 1 # ShortSellingPriceRestrictionStateMessage: short selling price restriction state of an order book (4.6, p. 6-7)
+@size 14
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+OrderbookId Alpha 5 4 # SICC code
+Group Alpha 9 4 # Order book group: DAY, NGHT, DAYX, DAYU
+ShortSellingState Alpha 13 1 # 0 no price restriction, 1 price restriction in effect
+
+MessageType A 0 1 # OrderAddedMessage: Order Added Message - No Attributes; an order added to the displayable book, or a reference price when Order Number is 0 (4.7.1, p. 7)
+@size 30
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+OrderNumber Integer 5 8 # Order number, unique per day per order book group; 0 is a reference price message
+BuySellIndicator Alpha 13 1 # B buy, S sell; ignore if reference price message
+Quantity Integer 14 4 # Shares added to the book; ignore if reference price message
+OrderbookId Alpha 18 4 # SICC code
+Group Alpha 22 4 # Order book group: DAY, NGHT, DAYX, DAYU
+Price Integer 26 4 # Order price, 1 decimal place; reference price message: 0x7FFFFFFF means none available
+
+MessageType F 0 1 # OrderAddedWithAttributesMessage: an order with market-specific attributes added to the displayable book (4.7.2, p. 8)
+@size 35
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+OrderNumber Integer 5 8 # Order number, unique per day per order book group
+BuySellIndicator Alpha 13 1 # B buy, S sell
+Quantity Integer 14 4 # Shares added to the book
+OrderbookId Alpha 18 4 # SICC code
+Group Alpha 22 4 # Order book group: DAY, NGHT, DAYX, DAYU
+Price Integer 26 4 # Order price, 1 decimal place
+Attribution Alpha 30 4 # Reserved, always blank
+OrderType Alpha 34 1 # Q DLP order
+
+MessageType E 0 1 # OrderExecutedMessage: a resting order fully or partly executed; price is the resting order's (4.8, p. 8)
+@size 25
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+OrderNumber Integer 5 8 # Order executed
+ExecutedQuantity Integer 13 4 # Shares executed
+MatchNumber Integer 17 8 # Match number, unique per day per order book group
+
+MessageType D 0 1 # OrderDeletedMessage: an order cancelled; remove it from the book (4.9, p. 9)
+@size 13
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+OrderNumber Integer 5 8 # Order cancelled
+
+MessageType U 0 1 # OrderReplacedMessage: an order replaced by one with a new order number (4.10, p. 9)
+@size 29
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+OriginalOrderNumber Integer 5 8 # Order replaced
+NewOrderNumber Integer 13 8 # Order number of the replacement
+Quantity Integer 21 4 # New displayed quantity
+Price Integer 25 4 # New price
+
+### end

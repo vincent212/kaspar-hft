@@ -1,0 +1,143 @@
+# Field table: Japannext PTS GLIMPSE snapshot service, in two layers.
+#
+# Session layer: Japannext SoupBinTCP Specification (All Markets), version 1.01, last
+# updated January 16, 2026 (JNX SoupBinTCP 1.01). Its tables put the 2-byte Packet
+# Length at offset 0 and the Packet Type at offset 2. Here the length is the
+# @length_prefix (it excludes itself: "number of bytes after this field until next
+# packet") and every offset is the table's offset minus 2. The same layer carries ITCH
+# over TCP (itch.tbl).
+#
+# Application layer: GLIMPSE Market Data Specification (Equities), version 2.01, last
+# updated January 16, 2026 (JNX GLIMPSE 2.01): the payload of each Sequenced Data
+# Packet, without a length prefix. The specification does not state message totals;
+# each @size is the last row's offset plus its length.
+@venue jnx
+@endian big
+@pad space
+@type Integer uint
+@type Alpha char
+@type Alphanumeric char
+# JNX SoupBinTCP 1.01 5.2.1 and 5.3.1: Session, Requested Session and the Numeric
+# sequence numbers are left-padded with spaces (right-aligned).
+@type Session char right
+@type Numeric char right
+@type Payload bytes
+
+### soup::from_jnx
+@length_prefix 2 exclusive
+
+MessageType + 0 1 # DebugPacket: human-readable text; either side may send it at any time (JNX SoupBinTCP 1.01, 5.1, p. 5)
+Text Payload 1 # Human-readable text
+
+MessageType A 0 1 # LoginAcceptedPacket: login succeeded; first non-debug packet after it (5.2.1, p. 5)
+@size 31
+Session Session 1 10 # Session ID of the current session, left-padded with spaces
+SequenceNumber Numeric 11 20 # Sequence number (ASCII) of the next Sequenced Message, left-padded with spaces
+
+MessageType J 0 1 # LoginRejectedPacket: login failed; the server then closes the socket (5.2.2, p. 5-6)
+@size 2
+RejectReasonCode Alpha 1 1 # A not authorized (username, password, or username and port do not match), S session not available (Table 1)
+
+MessageType S 0 1 # SequencedDataPacket: one sequenced message of the higher-level protocol (5.2.3, p. 6)
+Message Payload 1 # GLIMPSE or ITCH message
+
+MessageType H 0 1 # ServerHeartbeatPacket: sent after more than 1 second without other data (5.2.4, p. 6)
+@size 1
+
+MessageType Z 0 1 # EndOfSessionPacket: no more messages; the connection is then closed (5.2.5, p. 6)
+@size 1
+
+### soup::to_jnx
+@length_prefix 2 exclusive
+
+MessageType + 0 1 # DebugPacket: human-readable text (5.1, p. 5)
+Text Payload 1 # Human-readable text
+
+MessageType L 0 1 # LoginRequestPacket: first packet after connecting; the server may drop the connection after about 30 seconds without it (5.3.1, p. 7)
+@size 47
+Username Alphanumeric 1 6 # Case-sensitive, right-padded with spaces
+Password Alphanumeric 7 10 # Case-sensitive, right-padded with spaces
+RequestedSession Session 17 10 # Session to log in to, blank for the current one, left-padded with spaces; GLIMPSE requires it blank (JNX GLIMPSE 2.01, 4)
+RequestedSequenceNumber Numeric 27 20 # Sequence number (ASCII) of the next message wanted, 0 for the most recent, left-padded with spaces
+
+MessageType U 0 1 # UnsequencedDataPacket: one client message of the higher-level protocol (5.3.2, p. 7)
+Message Payload 1 # Higher-level protocol message
+
+MessageType R 0 1 # ClientHeartbeatPacket: sent after more than 1 second without other data (5.3.3, p. 7)
+@size 1
+
+MessageType O 0 1 # LogoutRequestPacket: the server then closes the connection (5.3.4, p. 8)
+@size 1
+
+### glimpse::from_jnx
+
+MessageType T 0 1 # TimestampSecondsMessage: seconds part of the timestamp (JNX GLIMPSE 2.01, 5.1, p. 4)
+@size 5
+TimestampSeconds Integer 1 4 # Seconds past midnight of the day the trading session started
+
+MessageType S 0 1 # SystemEventMessage: only the Start of Messages and End of Messages events that occurred before the snapshot (5.2, p. 4)
+@size 10
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+Group Alpha 5 4 # Order book group: DAY, NGHT, DAYX, DAYU; blank if system-wide
+SystemEvent Alpha 9 1 # O start of messages, C end of messages (Table 1)
+
+MessageType L 0 1 # PriceTickSizeMessage: one row of a price tick size table; sent before Orderbook Directory Messages (5.3, p. 5)
+@size 17
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+PriceTickSizeTableId Integer 5 4 # Price tick size table identifier
+PriceTickSize Integer 9 4 # Price tick size
+PriceStart Integer 13 4 # Start of the price range for this tick size
+
+MessageType R 0 1 # OrderbookDirectoryMessage: an order book available for trading (5.4, p. 5)
+@size 45
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+OrderbookId Alpha 5 4 # SICC code
+OrderbookCode Alpha 9 12 # ISIN
+Group Alpha 21 4 # Order book group: DAY, NGHT, DAYX, DAYU
+RoundLotSize Integer 25 4 # Shares in a round lot
+PriceTickSizeTableId Integer 29 4 # Price tick size table identifier
+PriceDecimals Integer 33 4 # Decimal places in price fields; value is 1
+UpperPriceLimit Integer 37 4 # Maximum tradable price
+LowerPriceLimit Integer 41 4 # Minimum tradable price
+
+MessageType H 0 1 # TradingStateMessage: sent for every order book eligible for trading at the snapshot; a book without one is suspended (5.5, p. 6)
+@size 14
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+OrderbookId Alpha 5 4 # SICC code
+Group Alpha 9 4 # Order book group: DAY, NGHT, DAYX, DAYU
+TradingState Alpha 13 1 # T trading, V suspended
+
+MessageType Y 0 1 # ShortSellingPriceRestrictionStateMessage: sent for every order book with a restriction in effect at the snapshot (5.6, p. 6)
+@size 14
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+OrderbookId Alpha 5 4 # SICC code
+Group Alpha 9 4 # Order book group: DAY, NGHT, DAYX, DAYU
+ShortSellingState Alpha 13 1 # 0 no price restriction, 1 price restriction in effect
+
+MessageType A 0 1 # OrderAddedMessage: Order Added Message - No Attributes; an order present in the displayable book, or a reference price when Order Number is 0 (5.7.1, p. 7)
+@size 30
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+OrderNumber Integer 5 8 # Order number, unique per day per order book group; 0 is a reference price message
+BuySellIndicator Alpha 13 1 # B buy, S sell; ignore if reference price message
+Quantity Integer 14 4 # Shares; ignore if reference price message
+OrderbookId Alpha 18 4 # SICC code
+Group Alpha 22 4 # Order book group: DAY, NGHT, DAYX, DAYU
+Price Integer 26 4 # Order price, 1 decimal place; reference price message: 0x7FFFFFFF means none available
+
+MessageType F 0 1 # OrderAddedWithAttributesMessage: an order with market-specific attributes present in the displayable book (5.7.2, p. 8)
+@size 35
+TimestampNanoseconds Integer 1 4 # Nanoseconds since the last Timestamp - Seconds Message
+OrderNumber Integer 5 8 # Order number, unique per day per order book group
+BuySellIndicator Alpha 13 1 # B buy, S sell
+Quantity Integer 14 4 # Shares
+OrderbookId Alpha 18 4 # SICC code
+Group Alpha 22 4 # Order book group: DAY, NGHT, DAYX, DAYU
+Price Integer 26 4 # Order price, 1 decimal place
+Attribution Alpha 30 4 # Reserved, always blank
+OrderType Alpha 34 1 # Q DLP order
+
+MessageType G 0 1 # EndOfSnapshotMessage: last message of the snapshot; the ITCH sequence number to resume the real-time feed from (5.8, p. 8)
+@size 9
+SequenceNumber Integer 1 8 # ITCH market data feed sequence number
+
+### end
