@@ -4,7 +4,7 @@
     <strong>Production Trading System and Position-Aware Order Book Simulator</strong>
   </p>
   <p align="center">
-    Venue-independent &bull; CME MDP3 and iLink 3 included &bull; TT FIX order routing &bull; Live crypto simulation (Binance, Coinbase, Hyperliquid) &bull; PCAP Replay &bull; POV Execution &bull; C++20 &bull; FPGA actors (upcoming)
+    Venue-independent &bull; CME MDP3 and iLink 3 included &bull; TT FIX order routing &bull; Live crypto simulation (Binance, Coinbase, Hyperliquid) &bull; PCAP Replay &bull; POV Execution &bull; C++20 &bull; FPGA actors (upcoming) &bull; Agent-generated venue connectivity (upcoming)
   </p>
 </p>
 
@@ -23,6 +23,7 @@
 
 - **Low-latency actor framework:** No data races, no locks in your code, and almost no framework overhead.
 - **FPGA actors (upcoming):** The actor framework extended to FPGAs: actors on the card and actors on the CPU exchange the same messages. The first application, a CME MDP3 handler for the AMD Alveo X3522PV, decodes packets as they arrive and sends events to the CPU's books; it meets timing at 250 MHz on the card's FPGA, one step per clock ([mdp3_fpga/](mdp3_fpga/), the [paper draft (PDF)](tech_reports/fpga_actors.pdf), and [below](#upcoming-fpga-actors)).
+- **Agent-generated venue connectivity (upcoming):** A Claude Code skill that reads a venue's public specification and generates the market-data handler, order manager and post-trade client as Kaspar actors, then tests them against the spec's examples, public sample data, live crypto books and fault injection. Run on 19 venues so far: Nasdaq, NYSE, Cboe U.S. and Europe, IEX, Deutsche Börse T7, HKEX, Japannext, Aquis, LMAX, EBS, Currenex, Coinbase, Bybit, OKX, Kraken, Deribit, Clear Street and Lime. Decoders match the exchanges' own answer keys; order books agree with recorded data and live snapshots. Not yet certified on any venue (branch [`global_connectivity`](https://github.com/vincent212/kaspar-hft/tree/global_connectivity), and [below](#upcoming-agent-generated-venue-connectivity)).
 - **Backtest == production:** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live trading through iLink 3 or TT FIX; switching is a config change, so a backtest exercises the exact code path that will trade.
 - **Live crypto simulator:** The same book, shadow lights and simulated order manager on live Binance (spot and USD-M futures), Coinbase (spot) and Hyperliquid (perpetuals) market data, no API key needed. Price-level feeds are split into queues of synthetic orders so fills still go by queue position; orders, BBO and fills are available from Python over zmq ([sim/BINANCE.md](sim/BINANCE.md), [sim/CRYPTO.md](sim/CRYPTO.md)).
 - **Venue-independent, CME included:** Feed handler and order-entry session are pluggable. The included MDP3 market-data handler and iLink 3 order-entry session have passed CME autocertification and implement the full session lifecycle.
@@ -65,6 +66,14 @@ The series on Substack:
 1. [From C++ Actors to FPGA Circuits](https://vincentmayeski.substack.com/p/from-c-actors-to-fpga-circuits)
 2. [CPU Actors and FPGA Actors: Talking Across PCIe](https://vincentmayeski.substack.com/p/cpu-actors-and-fpga-actors-talking)
 3. [Removing latency tails in market data handlers using FPGAs](https://vincentmayeski.substack.com/p/removing-latency-tails-in-market)
+
+## Upcoming: agent-generated venue connectivity
+
+Connecting Kaspar to a new venue has meant writing its feed handler, order manager and post-trade client by hand. The `build-feed-handler` skill makes that a procedure: pointed at a venue's public specification, Claude Code writes a cited description of the feed, transcribes binary message layouts into field tables that a compiler checks and turns into decoders (or uses the venue's SBE schema or FIX dictionary), builds the handlers as actors on Kaspar's framework, and tests them. Because every handler targets the same order books, order router and trade ledger, each one is checked by feeding its output into Kaspar's own book and comparing.
+
+Across 19 venues the generated decoders matched the exchanges' answer keys field for field, the market-data handlers' books agreed with recorded data and with live exchange snapshots, and the order managers covered the test scenarios of existing, tested implementations. The handlers live on the [`global_connectivity`](https://github.com/vincent212/kaspar-hft/tree/global_connectivity) branch under `global_connectivity/non_certified/`, one directory per venue with its own README and tests. None is certified on a venue yet; each moves to `certified/` after a full day of real data, recovery exercised against the venue and an unattended live session.
+
+Article: [Global connectivity for Kaspar-HFT: agent-generated gateways to any venue](https://vincentmayeski.substack.com/) on Substack.
 
 ## Build
 
