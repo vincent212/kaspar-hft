@@ -32,6 +32,10 @@ xor_eq
 """.split())
 # Names the generator defines in a struct, and in a venue or section namespace.
 GENERATED_MEMBERS = {"type"}
+# Names a struct's generated code refers to unqualified; a member of the same name
+# would hide them.
+SHADOWED_HELPERS = {"be", "uint_n", "set_str", "get_str", "size_t", "int8_t", "int16_t",
+                    "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t"}
 GENERATED_NAMES = {"be", "uint_n", "set_str", "get_str", "status", "decoded", "decode",
                    "encode", "name", "message_t"}
 PREFIX_MAX = {1: 0xFF, 2: 0xFFFF, 4: 0xFFFFFFFF}
@@ -135,13 +139,16 @@ def parse(path):
     msg = None
     seen_sections = {}
     for ln, raw in enumerate(open(path, encoding="utf-8"), 1):
-        if raw.lstrip().startswith("#") and not raw.startswith("###"):
+        # "### <name>" (indented or not) is a section header; any other line
+        # starting with "#" (a "#####" banner, "###name") is a comment.
+        header = re.match(r"^\s*###[ \t]+(\S+)", raw)
+        if raw.lstrip().startswith("#") and not header:
             continue                   # a comment line; does not end a message
-        body, _, desc = raw.partition("#") if not raw.startswith("###") else (raw, "", "")
+        body, _, desc = raw.partition("#")
         body = body.strip()
         desc = desc.strip()
-        if raw.startswith("###"):
-            name = raw[3:].strip().split()[0] if raw[3:].strip() else ""
+        if header:
+            name = header.group(1)
             msg = None
             if name == "end":
                 break
@@ -304,7 +311,8 @@ def resolve_includes(t):
                     % (name, src.direction, sec.direction))
             if src.code_bytes != sec.code_bytes:
                 err(ln, "@include %s: its type codes differ in form from this section's" % name)
-            sec.included += [m for m in src.messages if m.code is not None]
+            # Transitive: what src includes, then src's own messages; once each.
+            sec.included += [m for m in typed_messages(src) if m not in sec.included]
         by_ns[sec.ns] = sec
 
 
@@ -319,6 +327,11 @@ def check(t):
                 "identified before it is decoded: put each framing in its own section" % sec.ns)
         if sec.framed and any(prefix_of(m.sec, m) for m in typed_messages(sec)):
             err(sec.framed[0][2], "@framed_decode adds a length prefix to a section that has one")
+        framed = {}
+        for name, _, ln in sec.framed:
+            if name in framed:
+                err(ln, "@framed_decode %s already declared at line %d" % (name, framed[name]))
+            framed[name] = ln
         codes = {}
         names = set()
         for m in sec.included:
@@ -340,7 +353,22 @@ def check(t):
             if m.name in names:
                 err(m.line, "message name %s repeated in %s" % (m.name, sec.ns))
             names.add(m.name)
-            seen = set()
+            if not any(f.length for f in m.fields):
+                err(m.line, "%s has no fields: a struct needs at least one fixed-length field"
+                    % m.name)
+            members = {}               # member name -> line: fields and generated accessors
+            for f in m.fields:
+                own = [f.name]
+                if f.kind == "char" and f.length and f.length > 1:
+                    own += ["set_" + f.name, "get_" + f.name]
+                for n in own:
+                    if n in SHADOWED_HELPERS:
+                        err(f.line, "field %s: member %s would hide the generated helper %s"
+                            % (f.name, n, n))
+                    if n in members:
+                        err(f.line, "field %s: member %s repeated, or clashes with a generated "
+                            "accessor (line %d)" % (f.name, n, members[n]))
+                    members[n] = f.line
             pos = 0
             for i, f in enumerate(m.fields):
                 if not IDENT.match(f.name) or f.name in CPP_RESERVED or f.name in GENERATED_MEMBERS:
@@ -350,11 +378,6 @@ def check(t):
                         "message has both; drop the row or the @length_prefix")
                 if f.name == "MessageType" and f.line != m.line:
                     err(f.line, "MessageType is reserved for the type-code row")
-                if f.name in seen or "set_" + f.name in seen or "get_" + f.name in seen:
-                    err(f.line, "field %s repeated, or clashes with a generated accessor" % f.name)
-                seen.add(f.name)
-                if f.kind == "char" and f.length and f.length > 1:
-                    seen.update(("set_" + f.name, "get_" + f.name))
                 if f.offset != pos:
                     err(f.line, "%s at offset %d, expected %d: a field is missing, or a length is wrong"
                         % (f.name, f.offset + sec.offset_base, pos + sec.offset_base))
@@ -501,7 +524,8 @@ inline std::string_view get_str(const char (&src)[N])
 // place. unknown: a type code the table does not list; size is the bytes to
 // skip when the framing gives it, otherwise 0 and the stream cannot be
 // followed. malformed: the length prefix is shorter than the message's fixed
-// part, or than the type code; size as for unknown.
+// part, or than the type code; size as for unknown, and 0 when an inclusive
+// prefix is smaller than its own width (the stream cannot be followed).
 enum class status
 {
   ok,
@@ -655,6 +679,9 @@ inline decoded decode(const char *buf, size_t len)
         w("  %s prefix;\n  std::memcpy(&prefix, buf, sizeof(prefix));\n" % length_type(t, p[0]))
         w("  const size_t total = size_t(uint%d_t(prefix))%s;\n"
           % (8 * p[0], "" if p[1] == "inclusive" else " + %d" % p[0]))
+        if p[1] == "inclusive":
+            w("  if (total < %d) // does not cover itself: nothing to skip by\n"
+              "    return {status::malformed, {}};\n" % p[0])
         w("  if (total < %d)\n    return {status::malformed, {}, total};\n" % (off + cb))
         w("  if (total > len)\n    return {status::incomplete, {}};\n")
         skip = "total"
@@ -689,6 +716,9 @@ inline decoded decode(const char *buf, size_t len)
         w("  %s prefix;\n  std::memcpy(&prefix, buf, sizeof(prefix));\n" % length_type(t, n))
         w("  const size_t total = size_t(uint%d_t(prefix))%s;\n"
           % (8 * n, "" if kind == "inclusive" else " + %d" % n))
+        if kind == "inclusive":
+            w("  if (total < %d) // does not cover itself: nothing to skip by\n"
+              "    return {status::malformed, {}};\n" % n)
         w("  if (total < %d)\n    return {status::malformed, {}, total};\n" % (n + cb))
         w("  if (total > len)\n    return {status::incomplete, {}};\n")
         w("  decoded d = decode(buf + %d, total - %d);\n" % (n, n))

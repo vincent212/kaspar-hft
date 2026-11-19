@@ -103,6 +103,7 @@ namespace nasdaq::ouch
 
     // Read-only views for tests and the console.
     const frame::som::BrokerOrderBook &book() const { return book_; }
+    size_t venue_orders() const { return by_urn_.size(); } // orders with a UserRefNum
     bool ready() const { return ready_; }
     bool busy() const { return busy_; }
     uint64_t next_sequence() const { return next_seq_; }
@@ -141,6 +142,10 @@ namespace nasdaq::ouch
     void on_rejected(const from_nasdaq::Rejected &m) noexcept;
     void on_cancel_reject(const from_nasdaq::CancelReject &m) noexcept;
     void venue_done(Venue &v, const char *why) noexcept;
+    // The link is gone: every cancel in flight is over without an answer.
+    void abandon_pending_cancels() noexcept;
+    // Forget finished orders, in the book and in the UserRefNum maps.
+    void purge_done() noexcept;
 
     Venue *venue_order(uint32_t urn) noexcept;
     void connect() noexcept;
@@ -179,12 +184,4 @@ namespace nasdaq::ouch
   };
 }
 
-// The real SoupBinTCP session, or SimOuch when cfg.sim. nullptr (reason on
-// stderr) for a bad config, so Nasdaq stays unrouted instead of stopping
-// kaspar.
-actors::Actor *create_OuchOM(const nasdaq::ouch::OuchOMConfig &cfg, actors::Actor *som,
-                             nasdaq::ouch::SessionFactory factory = nullptr,
-                             en::x venue = en::x::NASDAQ);
-
-// Reads the config file first; nullptr if it cannot be read or is bad.
-actors::Actor *create_OuchOM(const std::string &config_path, actors::Actor *som);
+// The factories, create_OuchOM, are declared in nasdaq_ouch/if/OuchOM.hpp.

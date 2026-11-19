@@ -110,3 +110,12 @@ not say whether the book can be crossed in any state.
   on the ordering rule.
 - Odd-lot orders and tick sizes: orders are passed as sent; ticks come from the
   instrument source.
+
+## Decisions (owner, 2026-11-18)
+
+- 1: ask IEX Market Ops for a DEEP+ and SNAP capture, else record one live (a)
+- 2: support data from October 2024 on only (a)
+- 3: N is in the snapshot; apply buffered messages > N, with a boundary check logged (a)
+- 4: queue by Add Order Timestamp ascending, ties by message order (a)
+- 5: aggressor opposite to the resting order's side; 0 for crosses (a)
+- 6: O and P -> 21, before S -> 21, after E -> 4 (a)

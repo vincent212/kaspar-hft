@@ -12,6 +12,8 @@
 #include <atomic>
 #include <chrono>
 #include <mutex>
+#include <stdexcept>
+#include <thread>
 #include <vector>
 
 #include "frame/som/TimedRunner.hpp"
@@ -72,4 +74,34 @@ TEST(TimedRunner, DestroyWithPendingCallbackDoesNotWait)
   }
   EXPECT_LT(std::chrono::steady_clock::now() - start, 1s);
   EXPECT_FALSE(ran);
+}
+
+// A callback that throws is logged, and the runner goes on to the next one.
+TEST(TimedRunner, ThrowingCallbackIsLoggedAndRunnerContinues)
+{
+  std::atomic<bool> ran{false};
+  testing::internal::CaptureStderr();
+  {
+    TimedRunner r;
+    r.now([] { throw std::runtime_error("boom"); });
+    r.now([] { throw 42; });
+    r.now([&] { ran = true; });
+    EXPECT_TRUE(wait_until([&] { return ran.load(); }));
+  }
+  auto err = testing::internal::GetCapturedStderr();
+  EXPECT_NE(err.find("callback threw: boom"), std::string::npos) << err;
+  EXPECT_NE(err.find("non-std exception"), std::string::npos) << err;
+}
+
+// A callback that destroys its own runner aborts with a clear message.
+TEST(TimedRunnerDeathTest, DestroyFromOwnCallbackAborts)
+{
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_DEATH(
+      {
+        auto *r = new TimedRunner;
+        r->now([r] { delete r; });
+        std::this_thread::sleep_for(2s);
+      },
+      "must not destroy its runner");
 }

@@ -24,9 +24,14 @@ namespace post_trade
     return "?";
   }
 
+  bool TradeLedger::ordered(const msg::TradeCapture &r, const State &s) const
+  {
+    return r.report_seq != 0 && s.seq != 0;
+  }
+
   bool TradeLedger::newer(const msg::TradeCapture &r, const State &s) const
   {
-    if (r.report_seq != 0 && s.seq != 0)
+    if (ordered(r, s))
       return r.report_seq > s.seq;
     return true; // no venue order: the later arrival wins
   }
@@ -57,8 +62,11 @@ namespace post_trade
         res.what = Applied::Added;
         res.out = r;
       }
-      else if (!it->second.live || !newer(r, it->second))
-        res.what = Applied::Stale; // removed, or an amendment of it came first
+      else if (!it->second.live || !newer(r, it->second) ||
+               (!ordered(r, it->second) && it->second.trade.event == Event::Amend))
+        // Removed, or an amendment of it came first: with no venue order, a
+        // New of a trade an amendment stands for is its late New.
+        res.what = Applied::Stale;
       else
         return res; // Invalid: a second New for a live trade; report_id not recorded
       break;

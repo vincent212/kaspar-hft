@@ -18,7 +18,7 @@
 
 #include "TestUtil.hpp"
 #include "nasdaq_ouch/SimOuch.hpp"
-#include "nasdaq_ouch/act/OuchOM.hpp"
+#include "nasdaq_ouch/if/OuchOM.hpp"
 
 namespace som = frame::som::msg;
 using Order = som::Order;

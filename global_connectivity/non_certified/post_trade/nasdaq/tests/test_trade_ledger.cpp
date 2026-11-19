@@ -239,6 +239,33 @@ TEST(TradeLedger, WithoutVenueSequenceArrivalOrderWins)
   EXPECT_EQ(l.find("T1")->qty, 80);
 }
 
+// With no venue order, the New of a trade that an amendment created is its
+// late New: Stale, and its report_id is recorded, so a resend is a Duplicate.
+TEST(TradeLedger, WithoutVenueSequenceNewAfterItsAmendIsStale)
+{
+  TradeLedger l;
+  auto a = report("T1", 0, Event::Amend, 80, 1000100);
+  a.report_id = "a";
+  auto n = report("T1", 0, Event::New, 100, 1000000);
+  n.report_id = "b";
+  EXPECT_EQ(l.apply(a).what, Applied::Added);
+  auto r = l.apply(n);
+  EXPECT_EQ(r.what, Applied::Stale);
+  EXPECT_FALSE(r.emit());
+  ASSERT_NE(l.find("T1"), nullptr);
+  EXPECT_EQ(l.find("T1")->qty, 80);
+  EXPECT_EQ(l.reports(), 2u);
+  EXPECT_EQ(l.apply(n).what, Applied::Duplicate);
+  // A second New for a trade whose last report was a New is still Invalid.
+  auto n2 = report("T1", 0, Event::New, 999);
+  n2.report_id = "c";
+  TradeLedger m;
+  auto n1 = report("T1", 0, Event::New, 100);
+  n1.report_id = "d";
+  m.apply(n1);
+  EXPECT_EQ(m.apply(n2).what, Applied::Invalid);
+}
+
 TEST(TradeLedger, ClearStartsANewDay)
 {
   TradeLedger l;

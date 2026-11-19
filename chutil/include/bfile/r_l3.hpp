@@ -16,6 +16,9 @@
 #include "enum/e_names.hpp"
 #include "chutil/Time.hpp"
 
+// Every L3 record stores its venue in a char: venue codes must stay below 128.
+static_assert(en::x_num_syms() <= 128, "en::x has outgrown the char venue field of the L3 records");
+
 
 namespace bfile
 {
