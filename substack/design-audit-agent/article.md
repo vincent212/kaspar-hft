@@ -14,7 +14,7 @@ Whether a deployed system satisfies the principles is therefore established by m
 
 The design flow of the measurement study comprises ten steps. Expressed as criteria that a running system either satisfies or does not, they reduce to the eight of Figure 1. The first seven follow from the measurement study. The eighth is taken from the documentation of the latency probe, which specifies the conditions under which a latency figure obtained from the probe is valid.
 
-![Figure 1](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/design-audit-agent/rules.png)
+![Figure 1](https://raw.githubusercontent.com/vincent212/kaspar-hft/f4af1d65bebec7f5f52adead7c2aa8062ddaa86f/substack/design-audit-agent/rules.png)
 *Figure 1. The eight criteria the agent applies. For each: the quantity measured, its source in Kaspar-HFT, and the condition under which the agent reports a violation.*
 
 Three of the criteria require elaboration.
@@ -29,7 +29,7 @@ Criterion 8 concerns the validity of the measurement itself. Percentiles are com
 
 For the running system the agent uses the latency probe present in Kaspar-HFT and is limited to the quantities the probe records; per-stage timing, described in Section 4, requires an instrumented replay build. Figure 2 shows the market-data path and the three timestamps taken on it.
 
-![Figure 2](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/design-audit-agent/probe_points.png)
+![Figure 2](https://raw.githubusercontent.com/vincent212/kaspar-hft/f4af1d65bebec7f5f52adead7c2aa8062ddaa86f/substack/design-audit-agent/probe_points.png)
 *Figure 2. The market-data path of Kaspar-HFT and the probe's three timestamps. The socket reader timestamps each packet when the read call returns; the order book timestamps each update at publication; the probe, a subscriber to the book, timestamps each update on entry to its handler. Red boundaries are asynchronous mailboxes; black boundaries are synchronous calls on the same thread. The probe also records the depth of the first mailbox at the moment each packet is enqueued.*
 
 A run produces two records. The per-packet record contains the read timestamp, the sequence number and the span, which is the number of messages in the packet. The per-message record contains the publication timestamp, the first leg, the mailbox depth at enqueue, and the index of the message within its packet. The quantities required by the criteria are derived from these. The gaps between consecutive read timestamps give the publisher period. The first leg as a function of span gives the service time as a function of packet length: an intercept for a one-message packet and a slope per additional message, which is the per-message cost required by criterion 4. The first leg as a function of index within the packet gives the same slope by a second method. The first leg as a function of mailbox depth gives the queueing component of the leg.
@@ -40,7 +40,7 @@ The probe's documentation specifies its limits, and the agent is subject to the 
 
 The agent makes every measurement the criteria require. Figure 3 lists them with the method for each. The methods for the publisher period, the hop cost and the service floor are those of the measurement study; the per-stage timing is proposed.
 
-![Figure 3](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/design-audit-agent/measurements.png)
+![Figure 3](https://raw.githubusercontent.com/vincent212/kaspar-hft/f4af1d65bebec7f5f52adead7c2aa8062ddaa86f/substack/design-audit-agent/measurements.png)
 *Figure 3. The measurements the agent makes, the method and data source for each, and the criteria that use each one.*
 
 **Publisher period.** From the per-packet record, the agent forms the distribution of gaps between consecutive read timestamps within each 30-minute window and takes its first percentile. The result is reported as the median over windows with its range. The agent also computes the first-percentile gap within each quintile of packet rate; on NQ the measurement study found it constant at 7.43 to 7.53 μs while the rate varied by a factor of four, and the agent reports whether the same holds on the feed under test. The mean gap is reported separately and is not used in any criterion.
@@ -63,7 +63,7 @@ The agent makes every measurement the criteria require. Figure 3 lists them with
 
 ## 5. Procedure
 
-![Figure 4](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/design-audit-agent/agent_loop.png)
+![Figure 4](https://raw.githubusercontent.com/vincent212/kaspar-hft/f4af1d65bebec7f5f52adead7c2aa8062ddaa86f/substack/design-audit-agent/agent_loop.png)
 *Figure 4. The agent's procedure. Steps 1 to 5 evaluate the system as deployed. Steps 6 and 7 are the measure-and-flip procedure of the measurement study, executed one change at a time. The report records both.*
 
 **Inventory.** The agent reads the source and the configuration and records the pipeline in the terms the criteria use: the actors on the market-data path in order; at each boundary, whether the sender uses synchronous or asynchronous delivery; which actors share a thread through membership of a group; the mailbox type of each actor, which is relevant to criterion 7; which threads are pinned; and which stages carry state between packets, which determines under criterion 6 whether a stage above the period is partitioned or pooled. In Kaspar-HFT the delivery mode is selected at the sender's call site and the receiving handler is independent of it, so the inventory is a complete description of the topology, and every item in it is a deployment parameter.
@@ -74,14 +74,14 @@ The agent makes every measurement the criteria require. Figure 3 lists them with
 
 **Comparison and verdict.** The upper-quantile service time of each stage against the publisher period, which is criterion 2 and the threshold of Figure 5. Each existing partition against criterion 3: whether its removal would increase the largest stage. The delivery mode of each boundary against the prediction of criterion 5: asynchronous where the hop reduces the largest stage, synchronous elsewhere. The ordering of stage sizes against criterion 6. Any spinning mailbox or pinned thread against criterion 7: whether a measurement supports it. The run itself against criterion 8.
 
-![Figure 5](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/design-audit-agent/threshold.png)
+![Figure 5](https://raw.githubusercontent.com/vincent212/kaspar-hft/f4af1d65bebec7f5f52adead7c2aa8062ddaa86f/substack/design-audit-agent/threshold.png)
 *Figure 5. The threshold against which each stage is compared, from the measurement study. Left: the single-thread 99th percentile minus the service time, by service time. Below the publisher period (dotted line) the excess is zero; above it, the excess exceeds the cost of one hop (dashed line) between 8 and 9 μs. Right: the share of windows with a non-zero excess, and the share in which two stages outperform one. A stage whose 99th-percentile service time lies below the dotted line is not partitioned.*
 
 **Single change and re-measurement.** Where a criterion is violated, or where the prediction indicates that a different setting would reduce latency, the agent makes one change: it switches one boundary between synchronous and asynchronous delivery, moves one actor into or out of a group, or replaces one mailbox type. It then repeats the probe run on the same tape, or on a live window matched by time of day, and compares the median and 99th percentile with the baseline under the operator's specified weighting of the two. A change that improves the pair is retained; any other change is reverted. The procedure terminates when no single change improves the pair, which is the termination condition of the measurement study's procedure. One change is made between successive measurements, because the joint effect of two boundaries is not additive.
 
 **Report.** Figure 6 shows the form. For each criterion: the quantity measured, the threshold applied, the verdict, and, where a change was made, the change and its measured effect. A separate section lists findings outside the scope of the deployment parameters.
 
-![Figure 6](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/design-audit-agent/report.png)
+![Figure 6](https://raw.githubusercontent.com/vincent212/kaspar-hft/f4af1d65bebec7f5f52adead7c2aa8062ddaa86f/substack/design-audit-agent/report.png)
 *Figure 6. An illustrative report for the single-threaded NQ book handler. The end-to-end line is a published measurement; all other values are examples. The flip results are those predicted by the design rule for a chain below the publisher period: each additional hop increases latency without reducing queueing, each is reverted, and the procedure terminates at the single-threaded configuration. The final section lists the finding that lies outside the deployment parameters.*
 
 ## 6. Scope of the agent's changes
