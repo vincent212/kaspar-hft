@@ -1,20 +1,20 @@
-# A Conformance Agent for HFT Systems
+# An Agent That Audits an HFT System Against Its Design Principles
 
-*An AI agent that measures a running Kaspar-HFT system against the design principles of the CME measurement study, reports which rules it follows and which it violates, and changes the deployment dials until the measurements say no further change helps.*
+*An AI agent that measures a running Kaspar-HFT system against the four design principles of the CME measurement study, reports which it follows and which it violates, and turns the deployment dials until the measurements say no further change helps.*
 
 Vincent Mayeski, M2 Tech, Montreal
 
-## 1. Why conformance has to be measured
+## 1. Why following the principles has to be measured
 
 The [previous article](https://rawcdn.githack.com/vincent212/kaspar-hft/2db763f8d9dff708a0e9215ea194acb141e8d87e/substack/hft-design-principles/index.html) derived four design principles for market-data receivers from over a year of CME packet data, and a design flow that applies them. The principles are stated in terms of measured quantities: the publisher period of the feed, the per-packet service time of each stage under load, the cost of a thread hop, the number of messages a packet carries. None of these is a property of the source code. The same actor code, compiled once, follows the rules on one feed and violates them on another, or follows them at one message count per packet and violates them at a higher one.
 
-Whether a deployed system conforms is therefore not a question a code review can answer. It is a measurement on the assembled system, running against the feed it will trade on, repeated after each change. That is work with a fixed procedure, fixed instruments and a fixed set of rules to compare against, and the procedure is long enough that it is skipped in practice. It is the kind of work a coding agent does well, provided the instruments exist and the rules are written down. In Kaspar-HFT both conditions hold. This article describes the agent: what it observes, which rules it checks, what it is allowed to change, and what it reports. As with the [venue generator](https://vincentmayeski.substack.com/p/global-connectivity-for-kaspar-hft), the agent is a skill for Claude Code, stored in the repository and run inside a copy of it. The measurement tooling it uses is in the repository today; the skill that drives it is the design presented here.
+Whether a deployed system follows the principles is therefore not a question a code review can answer. It is a measurement on the assembled system, running against the feed it will trade on, repeated after each change. That is work with a fixed procedure, fixed instruments and a fixed set of rules to compare against, and the procedure is long enough that it is skipped in practice. It is the kind of work a coding agent does well, provided the instruments exist and the rules are written down. In Kaspar-HFT both conditions hold. This article describes the audit agent: what it observes, which rules it checks, what it is allowed to change, and what it reports. As with the [venue generator](https://vincentmayeski.substack.com/p/global-connectivity-for-kaspar-hft), the agent is a skill for Claude Code, stored in the repository and run inside a copy of it. The measurement tooling it uses is in the repository today; the skill that drives it is the design presented here.
 
 ## 2. The rules, stated as checks
 
 The design flow of the measurement study is ten numbered steps. Written as checks that a running system either passes or fails, they reduce to the eight rules of Figure 1. The first seven are the paper's. The eighth comes from the probe's own documentation, which records the ways a latency number can be quoted wrongly, and treats each as a violation in its own right.
 
-![Figure 1](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/conformance-agent/rules.png)
+![Figure 1](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/design-audit-agent/rules.png)
 *Figure 1. The eight rules the agent checks. For each: the quantity it measures, where in Kaspar-HFT the measurement comes from, and the condition under which it reports a violation.*
 
 Three of the rules deserve comment, because they are the ones a human auditor gets wrong.
@@ -29,7 +29,7 @@ Rule 8 is the one the agent enforces on itself. Percentiles come from the per-me
 
 The agent does not instrument the system itself. It uses the latency probe that Kaspar-HFT already carries, and it is bound by what that probe measures. Figure 2 shows the market-data path and the three timestamps on it.
 
-![Figure 2](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/conformance-agent/probe_points.png)
+![Figure 2](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/design-audit-agent/probe_points.png)
 *Figure 2. The market-data path of Kaspar-HFT with the probe's three timestamps. The socket reader stamps a packet when the read returns; the order book stamps each update when it publishes; the probe, a subscriber to the book, stamps on entry. Red boundaries are asynchronous mailboxes; black ones are synchronous calls on the same thread. The probe also records the depth of the first mailbox at the moment each packet was enqueued.*
 
 Two records come out of a run. Per packet, the read timestamp, the sequence number and the span, which is the number of messages the packet carries. Per message, the publish timestamp, the first leg, the mailbox depth at enqueue, and the message's index within its packet. From these the agent computes everything the rules need. The gaps between consecutive read timestamps give the publisher period. The first leg against span gives the service time as a function of packet length: a floor for a one-message packet and a slope per additional message, which is the cost per message that rule 4 asks for. The first leg against index within the packet gives the same slope from the other side, as a ladder. The mailbox depth against the first leg says how much of the leg was queueing.
@@ -38,7 +38,7 @@ The probe's documentation is explicit about what it cannot do, and the agent car
 
 ## 4. The agent's procedure
 
-![Figure 3](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/conformance-agent/agent_loop.png)
+![Figure 3](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/design-audit-agent/agent_loop.png)
 *Figure 3. The agent's loop. Steps 1 to 5 audit the system as deployed. Steps 6 and 7 are the paper's measure-and-flip procedure, run by the agent one change at a time. The report records both.*
 
 **Inventory.** The agent reads the source and the configuration and writes down the pipeline as the rules see it: the actors on the market-data path in order; at each boundary between them, whether the sender uses the synchronous call or the asynchronous send; which actors share a thread by being placed in a group; which mailbox kind each actor uses, since the spinning kinds bear on rule 7; which threads are pinned; and which stages carry state from one packet to the next, which decides under rule 6 whether a stage above the period is cut or pooled. In Kaspar-HFT the send mode is a one-line choice at the sender's call site, and the receiving handler cannot tell which was used, so this inventory is a complete description of the topology and every item in it is a dial.
@@ -49,14 +49,14 @@ The probe's documentation is explicit about what it cannot do, and the agent car
 
 **Compare and give a verdict.** Each stage's upper-quantile service against the period, which is rule 2 and the threshold of Figure 4. Each existing cut against rule 3: does removing it raise the largest stage? Each boundary's send mode against the prior of rule 5: asynchronous where the hop lowers the largest stage, synchronous everywhere else. The order of stage sizes against rule 6. Any spinning mailbox or pinned thread against rule 7: is there a measurement behind it? The run itself against rule 8.
 
-![Figure 4](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/conformance-agent/threshold.png)
+![Figure 4](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/design-audit-agent/threshold.png)
 *Figure 4. The threshold the agent compares each stage with, from the measurement study. Left: the single-thread p99 minus the service time, by service time; below the publisher period (dotted) there is no tail, and above it the tail passes the cost of one hop (dashed) between 8 and 9 μs. Right: the share of windows with any tail, and the share in which two stages beat one. A stage whose p99 service lands left of the dotted line is not split.*
 
 **One change, then re-measure.** Where a rule is violated, or where the prior says a different setting would do better, the agent makes one change: it flips one boundary between synchronous and asynchronous, moves one actor into or out of a group, or swaps one mailbox kind. It then runs the probe again on the same tape, or on a live window matched for time of day, and compares the median and p99 with the baseline under the operator's stated trade-off between the two. An improvement is kept; anything else is reverted. The agent repeats this until no single change improves the pair, which is the stopping condition of the paper's procedure. It never makes two changes between measurements, because the joint effect of two boundaries is not the sum of their separate effects.
 
 **Report.** Figure 5 shows the form. For each rule: what was measured, the threshold it was compared with, the verdict, and, where a change was made, the change and its measured effect. A separate section lists the findings the agent cannot act on, because they are not dials.
 
-![Figure 5](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/conformance-agent/report.png)
+![Figure 5](https://raw.githubusercontent.com/vincent212/kaspar-hft/substack-hft-design-principles/substack/design-audit-agent/report.png)
 *Figure 5. An illustrative report for the one-thread NQ book handler. Only the end-to-end line is a published measurement; every other number is an example value, and the flip results are what the design rule predicts for a chain already below the period: each flip adds a hop and removes nothing, so each is reverted and the agent converges on the single thread. The finding at the bottom is the one the dials cannot fix.*
 
 ## 5. What the agent changes, and what it only reports
@@ -83,6 +83,6 @@ The probe measures from the socket read, so the agent cannot see the NIC, the ke
 
 ## 8. Conclusion
 
-The design principles of the measurement study are rules about measured quantities, and a system either meets them on its feed or does not. Checking that is a procedure: inventory the topology, run the probe correctly, measure the period and the service times, compare, change one dial, re-measure, repeat until nothing improves, and write down what was found. Kaspar-HFT supplies the instruments and makes every topology decision a dial that can be turned without touching the code. The conformance agent runs the procedure, reports which rules the system follows and which it violates, converges the dials by measurement, and names the findings that need an engineer rather than a dial.
+The design principles of the measurement study are rules about measured quantities, and a system either meets them on its feed or does not. Checking that is a procedure: inventory the topology, run the probe correctly, measure the period and the service times, compare, change one dial, re-measure, repeat until nothing improves, and write down what was found. Kaspar-HFT supplies the instruments and makes every topology decision a dial that can be turned without touching the code. The audit agent runs the procedure, reports which rules the system follows and which it violates, converges the dials by measurement, and names the findings that need an engineer rather than a dial.
 
 Kaspar-HFT is open source: https://github.com/vincent212/kaspar-hft. The measurement tooling is under `kaspr/perf`; the design principles are in [arXiv:2609.32848](https://arxiv.org/abs/2609.32848).
