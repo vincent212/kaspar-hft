@@ -14,8 +14,7 @@
   <a href="https://arxiv.org/abs/2609.21173">Actor Framework for HFT&nbsp;paper&nbsp;(arXiv)</a> &bull;
   <a href="https://arxiv.org/abs/2609.18019">Shadow-POV&nbsp;paper&nbsp;(arXiv)</a> &bull;
   <a href="https://doi.org/10.5281/zenodo.24573048">FPGA&nbsp;actors&nbsp;paper&nbsp;(Zenodo)</a> &bull;
-  <a href="https://doi.org/10.5281/zenodo.24572807">fast_send&nbsp;semantics&nbsp;paper&nbsp;(Zenodo)</a> &bull;
-  <a href="tech_reports/kaspar_onepager.pdf">one-pager</a>
+  <a href="https://doi.org/10.5281/zenodo.24572807">fast_send&nbsp;semantics&nbsp;paper&nbsp;(Zenodo)</a>
 </p>
 
 **Kaspar-hft** takes a strategy through three stages on one code path: simulation from packet captures, paper trading on live market data, and live execution. It is a production trading system *and* a queue-position-accurate order-book simulator, built on a C++20 actor framework. It is not tied to one market: the feed handler and the order-entry session are pluggable, and it ships with CME's MDP3 market data and iLink 3 order entry pre-built and CME-certified, plus order routing through Trading Technologies (TT) over FIX 4.4, TT-certified. Equities or other venues need their own handlers for those two pieces; the book, simulator, actor framework and strategy code are the same.
@@ -23,7 +22,7 @@
 ## Kaspar-hft highlights
 
 - **Low-latency actor framework:** No data races, no locks in your code, and almost no framework overhead.
-- **FPGA actors (upcoming):** The actor framework extended to FPGAs: actors on the card and actors on the CPU exchange the same messages. The first application, a CME MDP3 handler for the AMD Alveo X3522PV, decodes packets as they arrive and sends events to the CPU's books; it meets timing at 250 MHz on the card's FPGA, one step per clock ([mdp3_fpga/](mdp3_fpga/), the [paper](https://doi.org/10.5281/zenodo.24573048) ([PDF](tech_reports/fpga_actors.pdf)), and [below](#upcoming-fpga-actors)).
+- **FPGA actors (upcoming):** The actor framework extended to FPGAs: actors on the card and actors on the CPU exchange the same messages. The first application, a CME MDP3 handler for the AMD Alveo X3522PV, decodes packets as they arrive and sends events to the CPU's books; it meets timing at 250 MHz on the card's FPGA, one step per clock ([mdp3_fpga/](mdp3_fpga/), the [paper](https://doi.org/10.5281/zenodo.24573048), and [below](#upcoming-fpga-actors)).
 - **Any venue, generated from its spec (upcoming):** A Claude Code skill turns a venue's public specification into its market-data handler, order manager and post-trade client, as Kaspar actors, tested against the spec's own examples, public sample data, live exchange books and fault injection. 19 venues built so far across US, European and Asian equities, FX, US Treasuries and crypto. Every venue that publishes its protocol is a build away; certification follows venue by venue ([below](#upcoming-any-venue-generated-from-its-spec)).
 - **Backtest == production:** The same strategy, execution algorithm, and order book run in PCAP replay, paper trading, and live trading through iLink 3 or TT FIX; switching is a config change, so a backtest exercises the exact code path that will trade.
 - **Live crypto simulator:** The same book, shadow lights and simulated order manager on live Binance (spot and USD-M futures), Coinbase (spot) and Hyperliquid (perpetuals) market data, no API key needed. Price-level feeds are split into queues of synthetic orders so fills still go by queue position; orders, BBO and fills are available from Python over zmq ([sim/BINANCE.md](sim/BINANCE.md), [sim/CRYPTO.md](sim/CRYPTO.md)).
@@ -32,7 +31,7 @@
 - **Shadow execution algorithm:** A model-free percentage-of-volume execution algorithm, passive and aggressive, measured on a year of ES data.
 - **Strategy authoring in C++ or Rust:** Write strategies as in-process actors in C++ (lowest latency), or in Rust via the in-process C++/Rust FFI interop.
 - **Two papers to dive deeper, more in the works:** The C++ actor framework design [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) and execution algorithm results [arXiv:2609.18019](https://arxiv.org/abs/2609.18019).
-- **Formal semantics for fast_send:** `fast_send` added to the actor model as a second primitive, with an operational semantics and proofs of what it keeps (isolation, determinism relative to replies) and what it costs (liveness holds unless actors wait on each other in a circle) — [paper](https://doi.org/10.5281/zenodo.24572807) ([PDF](tech_reports/extended_actor_model/extended_actor_model.pdf)).
+- **Formal semantics for fast_send:** `fast_send` added to the actor model as a second primitive, with an operational semantics and proofs of what it keeps (isolation, determinism relative to replies) and what it costs (liveness holds unless actors wait on each other in a circle) — [paper](https://doi.org/10.5281/zenodo.24572807).
 - **Async and sync (`fast_send`) delivery are interchangeable:** A handler is the same code either way, so the mapping of actors to threads can be decided at deployment and tuned for tail latency ([arXiv:2609.32848](https://arxiv.org/abs/2609.32848)).
 
 ---
@@ -58,7 +57,7 @@ Kaspar's market-data and order-entry stacks are complete session implementations
 
 ## Upcoming: FPGA actors
 
-The actor framework has an FPGA side, `kfpga` ([actors/fpga/](actors/fpga/)): actors written in C++ and compiled to hardware with Vitis HLS, one `hls::task` each, exchanging the same messages as the CPU actors across PCIe. The design is described in the paper *Adapting the Actor Model of Concurrency to Hybrid CPU/FPGA Architectures* ([doi:10.5281/zenodo.24573048](https://doi.org/10.5281/zenodo.24573048), [PDF](tech_reports/fpga_actors.pdf)).
+The actor framework has an FPGA side, `kfpga` ([actors/fpga/](actors/fpga/)): actors written in C++ and compiled to hardware with Vitis HLS, one `hls::task` each, exchanging the same messages as the CPU actors across PCIe. The design is described in the paper *Adapting the Actor Model of Concurrency to Hybrid CPU/FPGA Architectures* ([doi:10.5281/zenodo.24573048](https://doi.org/10.5281/zenodo.24573048)).
 
 The first application is a CME MDP3 handler for the AMD Alveo X3522PV ([mdp3_fpga/](mdp3_fpga/)). On the card, FeedRx, Igmp, SbeDecoder, Filter and Batcher receive the UDP frames, join the multicast group, decode SBE as the bytes arrive, keep the securities the CPU asked for and pack the events into 64-byte lines; on the CPU, the FpgaFeed actor builds the books. It is built and tested in simulation against CME's codec on recorded data, and placed and routed on the card's XCUX35 at 250 MHz, using about 0.6% of the chip. The Ethernet MAC and the PCIe DMA to the host are next ([mdp3_fpga/MDP3_PLAN.md](mdp3_fpga/MDP3_PLAN.md)).
 
@@ -298,10 +297,10 @@ kaspr {
 | [mdp3_fpga/DESIGN.md](mdp3_fpga/DESIGN.md) | The MDP3 handler on the card: actors, message and event formats, synthesis results |
 | [mdp3_fpga/MDP3_PLAN.md](mdp3_fpga/MDP3_PLAN.md) | Plan and status of the MDP3 handler on the card, and what is still to build |
 | [docs/ILINK_FPGA_PLAN.md](docs/ILINK_FPGA_PLAN.md) | Plan: iLink 3 order entry on the card |
-| [tech_reports/fast_send.pdf](tech_reports/fast_send.pdf) &middot; [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) | Technical report: `fast_send` synchronous message delivery |
-| [tech_reports/shadow_pov.pdf](tech_reports/shadow_pov.pdf) &middot; [arXiv:2609.18019](https://arxiv.org/abs/2609.18019) | Technical report: Shadow-POV passive execution |
-| [tech_reports/fpga_actors.pdf](tech_reports/fpga_actors.pdf) &middot; [doi:10.5281/zenodo.24573048](https://doi.org/10.5281/zenodo.24573048) | Paper: adapting the actor model to hybrid CPU/FPGA architectures |
-| [tech_reports/extended_actor_model/extended_actor_model.pdf](tech_reports/extended_actor_model/extended_actor_model.pdf) &middot; [doi:10.5281/zenodo.24572807](https://doi.org/10.5281/zenodo.24572807) | Paper: `fast_send` formal semantics, from CPU threads to FPGA pipelines |
+| [arXiv:2609.21173](https://arxiv.org/abs/2609.21173) | Technical report: `fast_send` synchronous message delivery |
+| [arXiv:2609.18019](https://arxiv.org/abs/2609.18019) | Technical report: Shadow-POV passive execution |
+| [doi:10.5281/zenodo.24573048](https://doi.org/10.5281/zenodo.24573048) | Paper: adapting the actor model to hybrid CPU/FPGA architectures |
+| [doi:10.5281/zenodo.24572807](https://doi.org/10.5281/zenodo.24572807) | Paper: `fast_send` formal semantics, from CPU threads to FPGA pipelines |
 
 ## Performance Characteristics
 
